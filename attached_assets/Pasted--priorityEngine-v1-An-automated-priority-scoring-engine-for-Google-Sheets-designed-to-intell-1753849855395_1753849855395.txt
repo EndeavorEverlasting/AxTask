@@ -1,0 +1,71 @@
+# 📊 priorityEngine_v1
+
+An automated priority scoring engine for Google Sheets, designed to intelligently classify and assign task priority based on the content of your entries.
+
+---
+
+## 🚀 Overview
+
+This script automatically estimates the **Priority** of each task based on the **Activity** and **Notes** fields in your task tracker.
+
+It activates when:
+- A user edits Column **D (Activity)** or **E (Notes)** on the `Daily Planner` sheet.
+- The row is not a header (row > 1).
+- Manual recalculation is triggered from the custom menu.
+
+---
+
+## 🧠 Priority Logic Breakdown
+
+| Signal | Behavior | Weight |
+|--------|----------|--------|
+| **Keyword Classification** | Detects important terms like “submit,” “confirm,” “install” | +1 to +4 |
+| **Tag Detection** | Recognizes `@urgent`, `#blocker`, `@followup` | +2 to +5 |
+| **Time Sensitivity** | Scores higher for phrases like “tomorrow,” “asap” | +3 |
+| **Date Pattern Detection** | Recognizes due dates (e.g., 07/30/2025) | +2 |
+| **Problem Indicators** | Flags words like “error,” “broken,” “won’t” | +3 |
+| **Repetition Check** | Reduces score for repeated tasks (Jaccard similarity) | −1 |
+
+---
+
+## 🎯 Priority Scale
+
+| Score | Assigned Priority |
+|-------|-------------------|
+| 8+    | `Highest`         |
+| 6–7   | `High`            |
+| 4–5   | `Medium-High`     |
+| 2–3   | `Medium`          |
+| < 2   | `Low`             |
+
+---
+
+## 🛠️ Setup Instructions
+
+1. Open your Google Sheet.
+2. Navigate to **Extensions → Apps Script**.
+3. Paste in the contents of `priorityEngine_v1.gs`.
+4. Save the project.
+5. Refresh your Google Sheet to activate the custom menu.
+
+---
+
+## 📋 Menu Options (via "Task Automation")
+
+- `Recalculate All Priorities`: Recomputes the priority for every row in the sheet.
+- `Clear All Priorities`: Wipes out all entries in the Priority column (B).
+
+---
+
+## 🔍 Advanced Functionality
+
+### Repetition Detection
+- Uses **Jaccard similarity** across the last 30 tasks.
+- Flags entries as “repeats” if 3+ similar matches are found before the current row.
+
+### Logging
+- Includes internal logging via `console.log` and `console.error` for debugging.
+
+---
+
+## 🧪 Test Entries
