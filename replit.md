@@ -1,0 +1,105 @@
+# Priority Engine Task Management System
+
+## Overview
+
+This is a full-stack task management application built with a React frontend and Express backend. The system features an intelligent priority scoring engine that automatically calculates task priorities based on content analysis, similar to the Google Sheets priority engine described in the attached assets. The application provides comprehensive task management capabilities including creation, editing, filtering, analytics, and data import/export functionality.
+
+## User Preferences
+
+Preferred communication style: Simple, everyday language.
+
+## System Architecture
+
+### Frontend Architecture
+- **Framework**: React with TypeScript
+- **Styling**: Tailwind CSS with shadcn/ui component library
+- **State Management**: TanStack Query (React Query) for server state management
+- **Routing**: Wouter for client-side routing
+- **Build Tool**: Vite for development and build processes
+- **Form Handling**: React Hook Form with Zod validation
+
+### Backend Architecture
+- **Runtime**: Node.js with Express.js framework
+- **Language**: TypeScript with ES modules
+- **Database**: PostgreSQL with Drizzle ORM
+- **Database Provider**: Neon Database (serverless PostgreSQL)
+- **API Design**: RESTful API with JSON responses
+- **Session Management**: PostgreSQL-based session storage
+
+### Key Components
+
+#### Priority Engine
+- **Location**: `client/src/lib/priority-engine.ts`
+- **Purpose**: Intelligent task classification and priority scoring
+- **Features**:
+  - Keyword-based scoring system
+  - Tag detection (@urgent, #blocker, etc.)
+  - Time sensitivity analysis
+  - Date pattern recognition
+  - Problem indicator detection
+  - Repetition checking using Jaccard similarity
+  - Priority scale: Highest (8+), High (6-7), Medium-High (4-5), Medium (2-3), Low (<2)
+
+#### Database Schema
+- **Location**: `shared/schema.ts`
+- **Tables**: Single `tasks` table with comprehensive task metadata
+- **Fields**: id, date, activity, notes, urgency, impact, effort, prerequisites, priority, priorityScore, classification, status, isRepeated, timestamps
+- **Validation**: Zod schemas for insert and update operations
+
+#### UI Components
+- **Design System**: shadcn/ui components with custom styling
+- **Key Components**: TaskForm, TaskList, PriorityBadge, ClassificationBadge
+- **Layout**: Sidebar navigation with dashboard, tasks, analytics, and import/export pages
+- **Theme**: Light/dark mode support with CSS variables
+
+## Data Flow
+
+1. **Task Creation**: User submits task via TaskForm → validated with Zod → sent to backend API
+2. **Priority Calculation**: Backend calls PriorityEngine to calculate priority and classification
+3. **Database Storage**: Task stored in PostgreSQL via Drizzle ORM
+4. **Real-time Updates**: TanStack Query invalidates and refetches data
+5. **UI Updates**: Components re-render with new data
+
+## External Dependencies
+
+### Core Dependencies
+- **@neondatabase/serverless**: Serverless PostgreSQL database connection
+- **drizzle-orm**: Type-safe database ORM
+- **@tanstack/react-query**: Server state management
+- **@radix-ui/***: Headless UI components
+- **react-hook-form**: Form handling and validation
+- **zod**: Schema validation
+- **tailwindcss**: Utility-first CSS framework
+
+### Development Tools
+- **vite**: Build tool and dev server
+- **typescript**: Type checking
+- **esbuild**: Server bundling
+- **tsx**: TypeScript execution for development
+
+## Deployment Strategy
+
+### Development
+- **Frontend**: Vite dev server with HMR
+- **Backend**: tsx for TypeScript execution
+- **Database**: Neon serverless PostgreSQL
+- **Environment**: NODE_ENV=development
+
+### Production
+- **Build Process**: 
+  - Frontend: `vite build` → static files in `dist/public`
+  - Backend: `esbuild` → bundled server in `dist/index.js`
+- **Server**: Express serves both API and static files
+- **Database**: Drizzle migrations with `db:push` command
+- **Environment**: NODE_ENV=production
+
+### File Structure
+```
+├── client/          # React frontend
+├── server/          # Express backend
+├── shared/          # Shared types and schemas
+├── migrations/      # Database migrations
+└── dist/           # Built application
+```
+
+The application uses a monorepo structure with clear separation between client, server, and shared code, enabling efficient development and deployment workflows.
