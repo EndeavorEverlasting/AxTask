@@ -18,6 +18,7 @@ export default function ImportExport() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
+  const [importLogs, setImportLogs] = useState<string[]>([]);
   const [importStats, setImportStats] = useState({
     totalTasks: 0,
     processed: 0,
@@ -151,13 +152,19 @@ export default function ImportExport() {
       });
 
       // Show cost/time warning for large imports
-      if (importedTasks.length > 50) {
+      if (importedTasks.length > 20) {
         const proceed = window.confirm(
-          `Large import detected: ${importedTasks.length} tasks\n\n` +
-          `Estimated time: ${estimates.estimatedTimeSec} seconds\n` +
-          `Estimated cost: $${estimates.estimatedCost}\n\n` +
-          `This will process each task individually. Consider creating a smaller test file first.\n\n` +
-          `Do you want to proceed?`
+          `📊 IMPORT COST ANALYSIS\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `Tasks to import: ${importedTasks.length}\n` +
+          `Estimated time: ${estimates.estimatedTimeSec} seconds (${Math.ceil(estimates.estimatedTimeSec/60)} min)\n` +
+          `Estimated server cost: $${estimates.estimatedCost}\n` +
+          `Processing rate: ~${Math.round(importedTasks.length/estimates.estimatedTimeSec)} tasks/second\n\n` +
+          `💡 RECOMMENDATION:\n` +
+          `${importedTasks.length > 100 ? 
+            '⚠️  Large import - consider splitting into smaller files' : 
+            '✅ Reasonable size for single import'}\n\n` +
+          `Continue with import?`
         );
         
         if (!proceed) {
@@ -166,22 +173,37 @@ export default function ImportExport() {
         }
       }
 
-      // Import tasks one by one with progress tracking
+      // Import tasks one by one with progress tracking and logging
       let successCount = 0;
       let errorCount = 0;
 
+      // Add initial log
+      setImportLogs([`🚀 Starting import of ${importedTasks.length} tasks...`]);
+
       for (let i = 0; i < importedTasks.length; i++) {
         const task = importedTasks[i];
+        const taskNumber = i + 1;
+        
         try {
+          // Log current task being processed
+          setImportLogs(prev => [...prev, `⏳ Processing task ${taskNumber}/${importedTasks.length}: "${task.activity?.substring(0, 40) || 'Untitled'}${task.activity?.length > 40 ? '...' : ''}"`]);
+          
           await createTaskMutation.mutateAsync(task);
           successCount++;
+          
+          // Log success
+          setImportLogs(prev => [...prev, `✅ Task ${taskNumber} imported successfully`]);
         } catch (error) {
           errorCount++;
+          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+          
+          // Log failure with details
+          setImportLogs(prev => [...prev, `❌ Task ${taskNumber} failed: ${errorMsg}`]);
           console.error("Failed to import task:", task, error);
         }
 
         // Update progress
-        const processed = i + 1;
+        const processed = taskNumber;
         const progressPercent = (processed / importedTasks.length) * 100;
         setImportProgress(progressPercent);
         setImportStats(prev => ({
@@ -191,19 +213,36 @@ export default function ImportExport() {
           failed: errorCount
         }));
 
+        // Add cost/time updates every 10 tasks
+        if (taskNumber % 10 === 0) {
+          const elapsedSeconds = Math.round((Date.now() - importStats.startTime) / 1000);
+          const estimatedRemaining = Math.round((importedTasks.length - taskNumber) * (elapsedSeconds / taskNumber));
+          setImportLogs(prev => [...prev, `📊 Progress: ${Math.round(progressPercent)}% • ${elapsedSeconds}s elapsed • ~${estimatedRemaining}s remaining`]);
+        }
+
         // Add small delay to prevent overwhelming the server
         if (i < importedTasks.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 50));
         }
       }
 
+      // Final log
+      const finalElapsed = Math.round((Date.now() - importStats.startTime) / 1000);
+      setImportLogs(prev => [...prev, `🎉 Import completed! ${successCount} successful, ${errorCount} failed in ${finalElapsed}s`]);
+
       // Refresh data
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
 
+      const actualTimeSeconds = Math.round((Date.now() - importStats.startTime) / 1000);
+      const actualCost = Math.round((actualTimeSeconds / 3600) * 0.02 * 1000) / 1000;
+      
       toast({
         title: "Import completed",
-        description: `Successfully imported ${successCount} tasks. ${errorCount > 0 ? `${errorCount} tasks failed to import.` : ""}`,
+        description: `✅ ${successCount} tasks imported successfully\n` +
+                    `${errorCount > 0 ? `❌ ${errorCount} tasks failed\n` : ''}` +
+                    `⏱️ Completed in ${actualTimeSeconds}s (estimated ${importStats.estimatedTime}s)\n` +
+                    `💰 Actual cost: $${actualCost} (estimated $${importStats.estimatedCost})`,
       });
 
     } catch (error) {
@@ -213,18 +252,23 @@ export default function ImportExport() {
         variant: "destructive",
       });
     } finally {
-      setIsImporting(false);
-      setImportProgress(0);
-      setImportStats({
-        totalTasks: 0,
-        processed: 0,
-        successful: 0,
-        failed: 0,
-        estimatedTime: 0,
-        estimatedCost: 0,
-        startTime: 0,
-        elapsedTime: 0
-      });
+      // Keep logs visible for a few seconds after completion
+      setTimeout(() => {
+        setIsImporting(false);
+        setImportProgress(0);
+        setImportLogs([]);
+        setImportStats({
+          totalTasks: 0,
+          processed: 0,
+          successful: 0,
+          failed: 0,
+          estimatedTime: 0,
+          estimatedCost: 0,
+          startTime: 0,
+          elapsedTime: 0
+        });
+      }, 3000);
+      
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -369,6 +413,16 @@ export default function ImportExport() {
                 {importStats.totalTasks > 50 && (
                   <div className="text-xs text-amber-700 dark:text-amber-300">
                     💡 Tip: For faster imports, consider splitting large files into smaller chunks
+                  </div>
+                )}
+
+                {importLogs.length > 0 && (
+                  <div className="bg-gray-900 dark:bg-gray-800 rounded-md p-3 max-h-32 overflow-y-auto">
+                    <div className="text-xs font-mono text-green-400 space-y-1">
+                      {importLogs.slice(-8).map((log, index) => (
+                        <div key={index} className="whitespace-pre-wrap">{log}</div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

@@ -157,6 +157,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get task stats
+  app.get("/api/tasks/stats", async (req, res) => {
+    try {
+      const stats = await storage.getTaskStats();
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch task stats" });
+    }
+  });
+
   // Get task statistics  
   app.get("/api/tasks/stats", async (req, res) => {
     try {
