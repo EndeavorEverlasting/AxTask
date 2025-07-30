@@ -1,8 +1,9 @@
-import { type Task, type InsertTask, type UpdateTask } from "@shared/schema";
+import { tasks, type Task, type InsertTask, type UpdateTask } from "@shared/schema";
+import { db } from "./db";
+import { eq, ilike, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
-  // Task operations
   getTasks(): Promise<Task[]>;
   getTask(id: string): Promise<Task | undefined>;
   createTask(task: InsertTask): Promise<Task>;
@@ -11,8 +12,6 @@ export interface IStorage {
   getTasksByStatus(status: string): Promise<Task[]>;
   getTasksByPriority(priority: string): Promise<Task[]>;
   searchTasks(query: string): Promise<Task[]>;
-  
-  // Analytics
   getTaskStats(): Promise<{
     totalTasks: number;
     highPriorityTasks: number;
@@ -21,34 +20,23 @@ export interface IStorage {
   }>;
 }
 
-export class MemStorage implements IStorage {
-  private tasks: Map<string, Task>;
-
-  constructor() {
-    this.tasks = new Map();
-  }
-
+export class DatabaseStorage implements IStorage {
   async getTasks(): Promise<Task[]> {
-    return Array.from(this.tasks.values()).sort((a, b) => 
-      new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
-    );
+    return await db.select().from(tasks);
   }
 
   async getTask(id: string): Promise<Task | undefined> {
-    return this.tasks.get(id);
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
+    return task || undefined;
   }
 
   async createTask(insertTask: InsertTask): Promise<Task> {
     const id = randomUUID();
     const now = new Date();
-    const task: Task = {
+    
+    const taskData = {
       ...insertTask,
       id,
-      notes: insertTask.notes || null,
-      urgency: insertTask.urgency || null,
-      impact: insertTask.impact || null,
-      effort: insertTask.effort || null,
-      prerequisites: insertTask.prerequisites || null,
       priority: "Low", // Will be calculated by priority engine
       priorityScore: 0, // Will be calculated by priority engine
       classification: "General", // Will be calculated by priority engine
@@ -56,41 +44,41 @@ export class MemStorage implements IStorage {
       createdAt: now,
       updatedAt: now,
     };
-    this.tasks.set(id, task);
+
+    const [task] = await db.insert(tasks).values(taskData).returning();
     return task;
   }
 
   async updateTask(updateTask: UpdateTask): Promise<Task | undefined> {
-    const existingTask = this.tasks.get(updateTask.id);
-    if (!existingTask) return undefined;
-
-    const updatedTask: Task = {
-      ...existingTask,
-      ...updateTask,
-      updatedAt: new Date(),
-    };
-    this.tasks.set(updateTask.id, updatedTask);
-    return updatedTask;
+    const [task] = await db
+      .update(tasks)
+      .set({ ...updateTask, updatedAt: new Date() })
+      .where(eq(tasks.id, updateTask.id))
+      .returning();
+    return task || undefined;
   }
 
   async deleteTask(id: string): Promise<boolean> {
-    return this.tasks.delete(id);
+    const result = await db.delete(tasks).where(eq(tasks.id, id));
+    return result.rowCount !== undefined && result.rowCount > 0;
   }
 
   async getTasksByStatus(status: string): Promise<Task[]> {
-    return Array.from(this.tasks.values()).filter(task => task.status === status);
+    return await db.select().from(tasks).where(eq(tasks.status, status));
   }
 
   async getTasksByPriority(priority: string): Promise<Task[]> {
-    return Array.from(this.tasks.values()).filter(task => task.priority === priority);
+    return await db.select().from(tasks).where(eq(tasks.priority, priority));
   }
 
   async searchTasks(query: string): Promise<Task[]> {
-    const lowercaseQuery = query.toLowerCase();
-    return Array.from(this.tasks.values()).filter(task =>
-      task.activity.toLowerCase().includes(lowercaseQuery) ||
-      task.notes?.toLowerCase().includes(lowercaseQuery) ||
-      task.classification.toLowerCase().includes(lowercaseQuery)
+    const lowercaseQuery = `%${query.toLowerCase()}%`;
+    return await db.select().from(tasks).where(
+      or(
+        ilike(tasks.activity, lowercaseQuery),
+        ilike(tasks.notes, lowercaseQuery),
+        ilike(tasks.classification, lowercaseQuery)
+      )
     );
   }
 
@@ -100,7 +88,7 @@ export class MemStorage implements IStorage {
     completedToday: number;
     avgPriorityScore: number;
   }> {
-    const allTasks = Array.from(this.tasks.values());
+    const allTasks = await this.getTasks();
     const today = new Date().toISOString().split('T')[0];
     
     const totalTasks = allTasks.length;
@@ -119,9 +107,9 @@ export class MemStorage implements IStorage {
       totalTasks,
       highPriorityTasks,
       completedToday,
-      avgPriorityScore: Math.round(avgPriorityScore * 10) / 10,
+      avgPriorityScore,
     };
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
