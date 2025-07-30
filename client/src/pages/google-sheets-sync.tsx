@@ -18,6 +18,11 @@ import {
   type SyncStatus 
 } from "@/lib/google-sheets-sync";
 import { 
+  googleSheetsClient, 
+  googleAuthUtils, 
+  type GoogleAuthTokens 
+} from "@/lib/google-api";
+import { 
   FileSpreadsheet, 
   Download, 
   Upload, 
@@ -53,6 +58,10 @@ export default function GoogleSheetsSyncPage() {
   
   const [showInstructions, setShowInstructions] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [authTokens, setAuthTokens] = useState<GoogleAuthTokens | null>(null);
+  const [spreadsheetId, setSpreadsheetId] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [credentialsConfigured, setCredentialsConfigured] = useState(false);
 
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],

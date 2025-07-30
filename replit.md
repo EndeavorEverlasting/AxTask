@@ -4,7 +4,7 @@
 
 This is a full-stack task management application built with a React frontend and Express backend. The system features an intelligent priority scoring engine that automatically calculates task priorities based on content analysis, similar to the Google Sheets priority engine described in the attached assets. The application provides comprehensive task management capabilities including creation, editing, filtering, analytics, and data import/export functionality.
 
-**Version:** 1.0.0 (Production Ready)  
+**Version:** 1.1.0 (Google Sheets Integration)  
 **Last Updated:** July 30, 2025
 
 ## User Preferences
@@ -12,6 +12,21 @@ This is a full-stack task management application built with a React frontend and
 Preferred communication style: Simple, everyday language.
 Cost monitoring: Required for server operations, especially import processes.
 Processing time indicators: Help users decide whether to proceed with large imports or develop more compact versions.
+
+## Recent Changes (v1.1.0)
+
+### Google Sheets Integration (July 30, 2025)
+- **Real-time API Integration**: Full Google Sheets API implementation with OAuth2 authentication
+- **Comprehensive Documentation**: Added detailed setup guide (GOOGLE_SHEETS_SETUP.md) with multi-user security considerations
+- **Hybrid Sync Approach**: Maintains CSV import/export as fallback while adding real-time API sync
+- **Security-First Design**: API key protection, multi-user configurations, and credential rotation guidelines
+- **Professional Setup Guide**: Step-by-step instructions for Google Cloud Console, API enablement, and OAuth setup
+
+### Features Added
+- **API Endpoints**: Complete Google Sheets REST API with authentication, import, export, and bidirectional sync
+- **Client Library**: Type-safe Google API client with token management and error handling
+- **UI Integration**: Enhanced Google Sheets sync page with authentication flow and real-time status
+- **Documentation Suite**: Added GOOGLE_SHEETS_SETUP.md with security best practices and troubleshooting
 
 ## System Architecture
 
