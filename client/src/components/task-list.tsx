@@ -11,7 +11,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
-import { Search, Edit, Check, Trash2, RotateCcw } from "lucide-react";
+import { Search, Edit, Check, Trash2, RotateCcw, ChevronUp, ChevronDown } from "lucide-react";
+
+type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status';
+type SortDirection = 'asc' | 'desc';
 
 export function TaskList() {
   const { toast } = useToast();
@@ -19,6 +22,8 @@ export function TaskList() {
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [sortField, setSortField] = useState<SortField>('date');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -88,17 +93,51 @@ export function TaskList() {
     },
   });
 
-  const filteredTasks = tasks.filter(task => {
-    const matchesSearch = !searchQuery || 
-      task.activity.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      task.notes?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      task.classification.toLowerCase().includes(searchQuery.toLowerCase());
+  // Handle sorting
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
-    const matchesPriority = priorityFilter === "all" || task.priority === priorityFilter;
-    const matchesStatus = statusFilter === "all" || task.status === statusFilter;
+  // Sort and filter tasks
+  const filteredAndSortedTasks = tasks
+    .filter((task) => {
+      const matchesSearch = !searchQuery || 
+        task.activity.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        task.notes?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        task.classification.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesPriority = priorityFilter === "all" || task.priority === priorityFilter;
+      const matchesStatus = statusFilter === "all" || task.status === statusFilter;
+      
+      return matchesSearch && matchesPriority && matchesStatus;
+    })
+    .sort((a, b) => {
+      let aValue: any = a[sortField];
+      let bValue: any = b[sortField];
 
-    return matchesSearch && matchesPriority && matchesStatus;
-  });
+      // Handle special sorting cases
+      if (sortField === 'date') {
+        aValue = new Date(aValue).getTime();
+        bValue = new Date(bValue).getTime();
+      } else if (sortField === 'priority') {
+        // Priority order: Highest, High, Medium-High, Medium, Low
+        const priorityOrder = { 'Highest': 5, 'High': 4, 'Medium-High': 3, 'Medium': 2, 'Low': 1 };
+        aValue = priorityOrder[aValue as keyof typeof priorityOrder] || 0;
+        bValue = priorityOrder[bValue as keyof typeof priorityOrder] || 0;
+      } else if (sortField === 'priorityScore') {
+        aValue = Number(aValue) || 0;
+        bValue = Number(bValue) || 0;
+      }
+
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
 
   const getStatusBadgeColor = (status: string) => {
     switch (status) {
@@ -183,7 +222,7 @@ export function TaskList() {
         </div>
       </CardHeader>
       <CardContent>
-        {filteredTasks.length === 0 ? (
+        {filteredAndSortedTasks.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             {tasks.length === 0 ? "No tasks found. Create your first task!" : "No tasks match your filters."}
           </div>
@@ -192,17 +231,77 @@ export function TaskList() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Activity</TableHead>
-                  <TableHead>Classification</TableHead>
-                  <TableHead>Score</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('date')}
+                  >
+                    <div className="flex items-center">
+                      Date
+                      {sortField === 'date' && (
+                        sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('priority')}
+                  >
+                    <div className="flex items-center">
+                      Priority
+                      {sortField === 'priority' && (
+                        sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('activity')}
+                  >
+                    <div className="flex items-center">
+                      Activity
+                      {sortField === 'activity' && (
+                        sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('classification')}
+                  >
+                    <div className="flex items-center">
+                      Classification
+                      {sortField === 'classification' && (
+                        sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('priorityScore')}
+                  >
+                    <div className="flex items-center">
+                      Score
+                      {sortField === 'priorityScore' && (
+                        sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('status')}
+                  >
+                    <div className="flex items-center">
+                      Status
+                      {sortField === 'status' && (
+                        sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
+                      )}
+                    </div>
+                  </TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTasks.map((task) => (
+                {filteredAndSortedTasks.map((task: Task) => (
                   <TableRow key={task.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                     <TableCell className="font-mono text-sm">{task.date}</TableCell>
                     <TableCell>

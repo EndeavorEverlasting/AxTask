@@ -4,6 +4,9 @@
 
 This is a full-stack task management application built with a React frontend and Express backend. The system features an intelligent priority scoring engine that automatically calculates task priorities based on content analysis, similar to the Google Sheets priority engine described in the attached assets. The application provides comprehensive task management capabilities including creation, editing, filtering, analytics, and data import/export functionality.
 
+**Version:** 1.0.0 (Production Ready)  
+**Last Updated:** July 30, 2025
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
