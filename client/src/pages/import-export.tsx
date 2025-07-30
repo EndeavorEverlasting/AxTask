@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Task, type InsertTask } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
-import { exportTasksToCSV, parseCSVToTasks, downloadCSV } from "@/lib/csv-utils";
+import { tasksToCSV, parseTasksFromCSV, downloadCSV, parseTasksFromExcel } from "@/lib/csv-utils";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,7 @@ export default function ImportExport() {
     }
 
     try {
-      const csvContent = exportTasksToCSV(tasks);
+      const csvContent = tasksToCSV(tasks);
       const filename = `tasks-export-${new Date().toISOString().split('T')[0]}.csv`;
       downloadCSV(csvContent, filename);
       
@@ -59,10 +59,13 @@ export default function ImportExport() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.csv')) {
+    const isCSV = file.name.endsWith('.csv');
+    const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+    
+    if (!isCSV && !isExcel) {
       toast({
         title: "Invalid file type",
-        description: "Please select a CSV file.",
+        description: "Please select a CSV or Excel file.",
         variant: "destructive",
       });
       return;
@@ -71,8 +74,14 @@ export default function ImportExport() {
     setIsImporting(true);
 
     try {
-      const content = await file.text();
-      const importedTasks = parseCSVToTasks(content);
+      let importedTasks: any[] = [];
+      
+      if (isCSV) {
+        const content = await file.text();
+        importedTasks = parseTasksFromCSV(content);
+      } else if (isExcel) {
+        importedTasks = await parseTasksFromExcel(file);
+      }
 
       if (importedTasks.length === 0) {
         toast({

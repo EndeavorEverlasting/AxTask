@@ -60,7 +60,7 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTask(id: string): Promise<boolean> {
     const result = await db.delete(tasks).where(eq(tasks.id, id));
-    return result.rowCount !== undefined && result.rowCount > 0;
+    return (result.rowCount || 0) > 0;
   }
 
   async getTasksByStatus(status: string): Promise<Task[]> {
