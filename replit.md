@@ -7,6 +7,8 @@ This is a full-stack task management application built with a React frontend and
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
+Cost monitoring: Required for server operations, especially import processes.
+Processing time indicators: Help users decide whether to proceed with large imports or develop more compact versions.
 
 ## System Architecture
 

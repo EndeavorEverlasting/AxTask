@@ -69,14 +69,14 @@ export function parseTasksFromCSV(csvText: string): any[] {
       
       // Handle star ratings (☆☆☆☆☆) - convert to numbers
       const parseStarRating = (value: string): number | null => {
-        if (!value) return null;
+        if (!value || value === '☆☆☆☆☆') return null;
         const starCount = (value.match(/★/g) || []).length;
         return starCount >= 1 && starCount <= 5 ? starCount : null;
       };
       
-      task.urgency = parseStarRating(row.urgency) || parseIntegerValue(row.urgency);
-      task.impact = parseStarRating(row.impact) || parseIntegerValue(row.impact);
-      task.effort = parseStarRating(row.effort) || parseIntegerValue(row.effort);
+      task.urgency = parseStarRating(row.urgency) || parseIntegerValue(row.urgency) || 3;
+      task.impact = parseStarRating(row.impact) || parseIntegerValue(row.impact) || 3;
+      task.effort = parseStarRating(row.effort) || parseIntegerValue(row.effort) || 3;
       
       // Handle prerequisites
       task.prerequisites = row.prerequisites || row['pre-reqs'] || '';

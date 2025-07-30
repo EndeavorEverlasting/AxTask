@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Task, type InsertTask } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -8,13 +8,57 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Upload, Download, FileText, AlertCircle } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Upload, Download, FileText, AlertCircle, Clock, DollarSign } from "lucide-react";
 
 export default function ImportExport() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importStats, setImportStats] = useState({
+    totalTasks: 0,
+    processed: 0,
+    successful: 0,
+    failed: 0,
+    estimatedTime: 0,
+    estimatedCost: 0,
+    startTime: 0,
+    elapsedTime: 0
+  });
+
+  // Calculate costs and time estimates
+  const calculateImportEstimates = (taskCount: number) => {
+    // Estimates based on server processing
+    const avgProcessingTimePerTask = 150; // ms per task (database insert + priority calculation)
+    const serverCostPerHour = 0.02; // Estimated server cost per hour
+    const totalTimeMs = taskCount * avgProcessingTimePerTask;
+    const totalTimeHours = totalTimeMs / (1000 * 60 * 60);
+    
+    return {
+      estimatedTimeMs: totalTimeMs,
+      estimatedTimeSec: Math.ceil(totalTimeMs / 1000),
+      estimatedCost: Math.round(totalTimeHours * serverCostPerHour * 1000) / 1000 // Round to 3 decimal places
+    };
+  };
+
+  // Update elapsed time during import
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isImporting && importStats.startTime > 0) {
+      interval = setInterval(() => {
+        setImportStats(prev => ({
+          ...prev,
+          elapsedTime: Date.now() - prev.startTime
+        }));
+      }, 500);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isImporting, importStats.startTime]);
 
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -89,20 +133,67 @@ export default function ImportExport() {
           description: "The CSV file doesn't contain any valid task data.",
           variant: "destructive",
         });
+        setIsImporting(false);
         return;
       }
 
-      // Import tasks one by one
+      // Calculate and display cost/time estimates
+      const estimates = calculateImportEstimates(importedTasks.length);
+      setImportStats({
+        totalTasks: importedTasks.length,
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        estimatedTime: estimates.estimatedTimeSec,
+        estimatedCost: estimates.estimatedCost,
+        startTime: Date.now(),
+        elapsedTime: 0
+      });
+
+      // Show cost/time warning for large imports
+      if (importedTasks.length > 50) {
+        const proceed = window.confirm(
+          `Large import detected: ${importedTasks.length} tasks\n\n` +
+          `Estimated time: ${estimates.estimatedTimeSec} seconds\n` +
+          `Estimated cost: $${estimates.estimatedCost}\n\n` +
+          `This will process each task individually. Consider creating a smaller test file first.\n\n` +
+          `Do you want to proceed?`
+        );
+        
+        if (!proceed) {
+          setIsImporting(false);
+          return;
+        }
+      }
+
+      // Import tasks one by one with progress tracking
       let successCount = 0;
       let errorCount = 0;
 
-      for (const task of importedTasks) {
+      for (let i = 0; i < importedTasks.length; i++) {
+        const task = importedTasks[i];
         try {
           await createTaskMutation.mutateAsync(task);
           successCount++;
         } catch (error) {
           errorCount++;
           console.error("Failed to import task:", task, error);
+        }
+
+        // Update progress
+        const processed = i + 1;
+        const progressPercent = (processed / importedTasks.length) * 100;
+        setImportProgress(progressPercent);
+        setImportStats(prev => ({
+          ...prev,
+          processed,
+          successful: successCount,
+          failed: errorCount
+        }));
+
+        // Add small delay to prevent overwhelming the server
+        if (i < importedTasks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 50));
         }
       }
 
@@ -123,6 +214,17 @@ export default function ImportExport() {
       });
     } finally {
       setIsImporting(false);
+      setImportProgress(0);
+      setImportStats({
+        totalTasks: 0,
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        estimatedTime: 0,
+        estimatedCost: 0,
+        startTime: 0,
+        elapsedTime: 0
+      });
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -195,7 +297,7 @@ export default function ImportExport() {
                 id="csv-file"
                 ref={fileInputRef}
                 type="file"
-                accept=".csv"
+                accept=".csv,.xlsx,.xls"
                 onChange={handleImport}
                 disabled={isImporting}
               />
@@ -225,8 +327,50 @@ export default function ImportExport() {
             </Button>
 
             {isImporting && (
-              <div className="text-center text-sm text-gray-600 dark:text-gray-400">
-                Importing tasks... Please wait.
+              <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <AlertCircle className="mr-2 h-4 w-4 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                      Importing tasks...
+                    </span>
+                  </div>
+                  <div className="flex space-x-2">
+                    <Badge variant="outline" className="flex items-center">
+                      <Clock className="mr-1 h-3 w-3" />
+                      {Math.round(importStats.elapsedTime / 1000)}s / {importStats.estimatedTime}s
+                    </Badge>
+                    <Badge variant="outline" className="flex items-center">
+                      <DollarSign className="mr-1 h-3 w-3" />
+                      ${importStats.estimatedCost}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs text-blue-800 dark:text-blue-200">
+                    <span>{importStats.processed} / {importStats.totalTasks} tasks</span>
+                    <span>{Math.round(importProgress)}%</span>
+                  </div>
+                  <Progress value={importProgress} className="h-2" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="flex items-center">
+                    <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                    <span>Success: {importStats.successful}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
+                    <span>Failed: {importStats.failed}</span>
+                  </div>
+                </div>
+
+                {importStats.totalTasks > 50 && (
+                  <div className="text-xs text-amber-700 dark:text-amber-300">
+                    💡 Tip: For faster imports, consider splitting large files into smaller chunks
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
