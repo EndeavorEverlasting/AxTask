@@ -85,18 +85,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (validatedData.activity || validatedData.notes) {
         const allTasks = await storage.getTasks();
         const priorityResult = await PriorityEngine.calculatePriority(
-          task.activity,
-          task.notes || "",
-          task.urgency,
-          task.impact,
-          task.effort,
-          allTasks.filter(t => t.id !== task.id)
+          task!.activity,
+          task!.notes || "",
+          task!.urgency,
+          task!.impact,
+          task!.effort,
+          allTasks.filter(t => t.id !== task!.id)
         );
         
-        const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
+        const classification = PriorityEngine.classifyTask(task!.activity, task!.notes || "");
         
         task = await storage.updateTask({
-          id: task.id,
+          id: task!.id,
           priority: priorityResult.priority,
           priorityScore: Math.round(priorityResult.score * 10),
           classification,

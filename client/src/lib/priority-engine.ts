@@ -23,7 +23,7 @@ export class PriorityEngine {
       "submit": 4, "deadline": 4, "urgent": 4, "license": 4, "confirm": 3,
       "install": 3, "fix": 3, "setup": 3, "configure": 3, "coord": 3,
       "meeting": 2, "call": 2, "follow": 2, "email": 2, "share": 2,
-      "plan": 1, "research": 1, "review": 1, "update": 1
+      "plan": 1, "research": 1, "review": 1, "update": 1, "test": 3
     };
 
     Object.keys(criticalKeywords).forEach(keyword => {
@@ -141,7 +141,7 @@ export class PriorityEngine {
       "submit": 4, "deadline": 4, "urgent": 4, "license": 4, "confirm": 3,
       "install": 3, "fix": 3, "setup": 3, "configure": 3, "coord": 3,
       "meeting": 2, "call": 2, "follow": 2, "email": 2, "share": 2,
-      "plan": 1, "research": 1, "review": 1, "update": 1
+      "plan": 1, "research": 1, "review": 1, "update": 1, "test": 3
     };
 
     Object.keys(criticalKeywords).forEach(keyword => {
