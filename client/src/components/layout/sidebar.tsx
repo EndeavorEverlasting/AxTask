@@ -8,7 +8,8 @@ import {
   Settings, 
   Moon, 
   Sun,
-  CheckSquare
+  CheckSquare,
+  FileSpreadsheet
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ export function Sidebar() {
     { path: "/tasks", icon: List, label: "All Tasks" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },
+    { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
   ];
 
   const isActiveRoute = (path: string) => {
