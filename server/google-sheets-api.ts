@@ -37,6 +37,11 @@ export class GoogleSheetsAPI {
   constructor(credentials: GoogleSheetsCredentials) {
     this.apiKey = credentials.apiKey;
     
+    // Validate credentials format
+    if (!credentials.apiKey.startsWith('AIza')) {
+      throw new Error('Invalid API key format');
+    }
+    
     // Initialize OAuth2 client
     this.auth = new OAuth2Client(
       credentials.clientId,
