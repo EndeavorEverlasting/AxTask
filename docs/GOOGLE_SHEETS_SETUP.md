@@ -6,13 +6,17 @@ This guide provides step-by-step instructions for setting up Google Sheets API i
 
 ## Security Notice
 
-⚠️ **Important Security Considerations**
+⚠️ **Critical Security Requirements**
 
 - **API keys are sensitive credentials** - treat them like passwords
 - **Never share API keys** in public repositories, emails, or screenshots
 - **Use separate projects** for different environments (development/production)
 - **Rotate keys regularly** (every 90 days recommended)
 - **Limit key permissions** to only required APIs
+- **Implement rate limiting** to prevent API abuse
+- **Use HTTPS only** in production environments
+- **Monitor API usage** for unusual patterns
+- **Enable audit logging** for security compliance
 
 ## Multi-User Configuration
 
@@ -90,7 +94,12 @@ Team lead sets up shared project, distributes credentials securely:
      - Select "HTTP referrers (web sites)"
      - Add your domain(s):
        - `https://your-app-domain.com/*`
-       - `http://localhost:*` (for development)
+       - `https://*.replit.app/*` (for Replit deployment)
+       - `http://localhost:*` (for development only)
+   - **Additional Security Measures**:
+     - Set quota limits (recommended: 100 requests/minute)
+     - Enable usage monitoring and alerts
+     - Consider IP restrictions for production keys
    - Click "Save"
 
 **Your API Key**: `AIza...` (copy this for GOOGLE_SHEETS_API_KEY)
@@ -153,6 +162,12 @@ For Replit deployment:
    - Key: `GOOGLE_SHEETS_API_KEY`, Value: `AIza...`
    - Key: `GOOGLE_CLIENT_ID`, Value: `123456789-abc...`
    - Key: `GOOGLE_CLIENT_SECRET`, Value: `GOCSPX-...`
+
+**Additional Security Configuration:**
+- Rate limiting is automatically applied (100 requests/15 minutes for Sheets API)
+- Authentication endpoints are limited to 5 attempts/15 minutes
+- Security headers are enforced in production
+- All traffic uses HTTPS with HSTS headers
 
 ## Testing Your Setup
 
@@ -254,12 +269,30 @@ const response = await sheets.spreadsheets.values.batchGet({
 });
 ```
 
+## Security Monitoring & Compliance
+
+### Required Security Practices
+- **Monitor API usage**: Check Google Cloud Console regularly for unusual patterns
+- **Set up alerts**: Configure notifications for quota exceeded or suspicious activity
+- **Regular audits**: Review API key usage monthly
+- **Incident response**: Have a plan for compromised credentials
+
+### Security Compliance Checklist
+- [ ] API keys stored in Replit Secrets (not environment variables)
+- [ ] Different keys for development vs production
+- [ ] API restrictions properly configured
+- [ ] Rate limiting enabled and tested
+- [ ] HTTPS enforced in production
+- [ ] Regular security reviews scheduled
+- [ ] Backup authentication method available
+
 ## Support Resources
 
 - **Google Sheets API Documentation**: https://developers.google.com/sheets/api
 - **Google Cloud Console**: https://console.cloud.google.com
 - **OAuth 2.0 Guide**: https://developers.google.com/identity/protocols/oauth2
 - **API Quotas and Limits**: https://developers.google.com/sheets/api/limits
+- **Security Best Practices**: See `docs/SECURITY.md` for detailed security guidelines
 
 ## Contact & Support
 
