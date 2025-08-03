@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide provides step-by-step instructions for setting up Google Sheets API integration with your Priority Engine Task Management System. The setup enables real-time synchronization between your task tracker and Google Sheets.
+This guide provides step-by-step instructions for setting up Google Sheets API integration with AxTask. The setup enables real-time synchronization between your intelligent task management system and Google Sheets.
 
 ## Security Notice
 
@@ -110,7 +110,7 @@ Team lead sets up shared project, distributes credentials securely:
    - Go to "APIs & Services" → "OAuth consent screen"
    - Choose "External" (unless using Google Workspace)
    - Fill required fields:
-     - App name: "Priority Engine Task Tracker"
+     - App name: "AxTask"
      - User support email: your email
      - Developer contact: your email
    - Click "Save and Continue"
@@ -121,7 +121,7 @@ Team lead sets up shared project, distributes credentials securely:
    - Go to "APIs & Services" → "Credentials"
    - Click "+ Create Credentials" → "OAuth client ID"
    - Application type: "Web application"
-   - Name: "Priority Engine Web Client"
+   - Name: "AxTask Web Client"
    - Authorized JavaScript origins:
      - `https://your-app-domain.com`
      - `http://localhost:5000` (for development)

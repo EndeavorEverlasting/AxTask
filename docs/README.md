@@ -1,4 +1,4 @@
-# Priority Engine Task Management System
+# AxTask - Intelligent Task Management System
 
 **Version:** 1.0.0  
 **Last Updated:** July 30, 2025  
@@ -6,7 +6,7 @@
 
 ## Overview
 
-A full-stack task management application that automatically calculates task priorities using an intelligent scoring engine. Originally designed to upgrade a Google Sheets-based workflow, this system provides comprehensive task management with seamless import/export capabilities.
+AxTask is a full-stack intelligent task management application that automatically calculates task priorities using an advanced scoring engine. Originally designed to upgrade Google Sheets-based workflows, AxTask provides comprehensive task management with seamless import/export capabilities and real-time Google Sheets integration.
 
 ## Architecture
 

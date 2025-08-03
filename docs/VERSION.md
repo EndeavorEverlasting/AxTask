@@ -1,4 +1,26 @@
-# Version History
+# AxTask Version History
+
+## v1.1.0 - Google Sheets Integration & Enhanced UX (August 3, 2025)
+
+### New Features
+- **Google Sheets API Integration**: Real-time bidirectional synchronization with OAuth2 authentication
+- **Hybrid Sync Approach**: Maintains CSV import/export while adding API-powered real-time features
+- **Comprehensive Setup Documentation**: Professional GOOGLE_SHEETS_SETUP.md with step-by-step instructions
+- **Multi-User Security Guidelines**: Best practices for API key management and credential rotation
+- **Clickable Task Editing**: Click any task row in All Tasks module to open edit interface
+- **Enhanced Branding**: Updated to "AxTask" throughout application and documentation
+
+### Improvements
+- **Documentation Reorganization**: Moved all docs to /docs folder with clear structure
+- **Security-First Design**: API key protection and multi-user configuration guidance
+- **Professional Setup Guide**: Google Cloud Console configuration with troubleshooting
+- **Enhanced User Experience**: Intuitive task editing with click-to-edit functionality
+
+### Technical Additions
+- **OAuth2 Flow**: Secure token-based authentication with refresh token support
+- **Conflict Resolution**: Intelligent merge strategies for bidirectional synchronization
+- **API Client Library**: Type-safe Google API client with error handling
+- **Event Handling**: Proper click event management with stopPropagation
 
 ## v1.0.0 - Production Release (July 30, 2025)
 

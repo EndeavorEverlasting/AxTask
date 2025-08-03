@@ -302,7 +302,11 @@ export function TaskList() {
               </TableHeader>
               <TableBody>
                 {filteredAndSortedTasks.map((task: Task) => (
-                  <TableRow key={task.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                  <TableRow 
+                    key={task.id} 
+                    className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                    onClick={() => setEditingTask(task)}
+                  >
                     <TableCell className="font-mono text-sm">{task.date}</TableCell>
                     <TableCell>
                       <PriorityBadge priority={task.priority} />
@@ -326,15 +330,18 @@ export function TaskList() {
                         {formatStatus(task.status)}
                       </span>
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex space-x-2">
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => updateTaskStatusMutation.mutate({
-                            id: task.id,
-                            status: task.status === "completed" ? "pending" : "completed"
-                          })}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            updateTaskStatusMutation.mutate({
+                              id: task.id,
+                              status: task.status === "completed" ? "pending" : "completed"
+                            });
+                          }}
                           disabled={updateTaskStatusMutation.isPending}
                         >
                           <Check className="h-4 w-4" />
@@ -342,7 +349,10 @@ export function TaskList() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => deleteTaskMutation.mutate(task.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteTaskMutation.mutate(task.id);
+                          }}
                           disabled={deleteTaskMutation.isPending}
                         >
                           <Trash2 className="h-4 w-4" />

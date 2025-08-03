@@ -1,8 +1,8 @@
-# System Architecture Documentation
+# AxTask System Architecture Documentation
 
 ## Overview
 
-The Priority Engine Task Management System is built using modern web development practices with a focus on type safety, performance, and maintainability. This document provides technical details for developers maintaining and extending the system.
+AxTask is built using modern web development practices with a focus on type safety, performance, and maintainability. This document provides technical details for developers maintaining and extending the intelligent task management system.
 
 ## High-Level Architecture
 

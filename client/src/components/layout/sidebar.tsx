@@ -37,9 +37,9 @@ export function Sidebar() {
       <div className="p-6 border-b border-gray-200 dark:border-gray-700">
         <h1 className="text-xl font-bold text-primary flex items-center">
           <CheckSquare className="mr-2 h-6 w-6" />
-          Priority Engine
+          AxTask
         </h1>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Smart Task Management</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Intelligent Task Management</p>
       </div>
       
       <nav className="flex-1 p-4">
