@@ -9,8 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
+import { TaskForm } from "./task-form";
 import { Search, Edit, Check, Trash2, RotateCcw, ChevronUp, ChevronDown } from "lucide-react";
 
 type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status';
@@ -24,6 +26,7 @@ export function TaskList() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -366,6 +369,24 @@ export function TaskList() {
           </div>
         )}
       </CardContent>
+      
+      {/* Edit Task Dialog */}
+      <Dialog open={!!editingTask} onOpenChange={() => setEditingTask(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Task</DialogTitle>
+          </DialogHeader>
+          {editingTask && (
+            <TaskForm
+              task={editingTask}
+              onSuccess={() => {
+                setEditingTask(null);
+                queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
