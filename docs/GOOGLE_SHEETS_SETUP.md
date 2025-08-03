@@ -120,15 +120,38 @@ Team lead sets up shared project, distributes credentials securely:
 2. **Create OAuth Client ID**
    - Go to "APIs & Services" → "Credentials"
    - Click "+ Create Credentials" → "OAuth client ID"
-   - Application type: "Web application"
-   - Name: "AxTask Web Client"
-   - Authorized JavaScript origins:
-     - `https://your-app-domain.com`
-     - `http://localhost:5000` (for development)
-   - Authorized redirect URIs:
-     - `https://your-app-domain.com/auth/callback`
-     - `http://localhost:5000/auth/callback`
-   - Click "Create"
+   
+   **⚠️ Important Setup Notes:**
+   
+   You're in the right place—this screen is **Create OAuth client ID**.
+   The fields you're looking for (Origins + Redirect URIs) appear **after you pick "Web application."**
+
+   **Step-by-step configuration:**
+
+   1. **Application type:** choose **Web application**
+   2. **Name:** e.g., `AxTask Web Client` or `AxTask Dev (Replit)`
+   3. Two sections will appear with "**ADD URI**" buttons:
+
+      **Authorized JavaScript origins** → click **ADD URI** and enter:
+      - `https://<your-repl-subdomain>.replit.dev`
+      - *(optional local)* `http://localhost:5000` (for development)
+
+      **Authorized redirect URIs** → click **ADD URI** and enter:
+      - `https://<your-repl-subdomain>.replit.dev/auth/callback`
+      - *(optional local)* `http://localhost:5000/auth/callback` (for development)
+
+   4. Click **Create** → copy the **Client ID** and **Client Secret**
+
+   **🔍 How to Find Your Replit Subdomain:**
+   - Open your Replit workspace
+   - Click the "Run" button or open the preview
+   - Look at the URL in the preview window: `https://your-project-name--username.replit.dev`
+   - Your subdomain is: `your-project-name--username`
+   - Use this in the OAuth configuration above
+
+   **💡 Troubleshooting:**
+   - If you don't see the "ADD URI" areas after choosing **Web application**, try scrolling down - on some displays they appear below the fold
+   - Share your exact Replit preview URL for a copy-paste block filled in with your real domain
 
 3. **Copy Credentials**
    - **Client ID**: `123456789-abc...` (copy for GOOGLE_CLIENT_ID)
@@ -159,9 +182,20 @@ For Replit deployment:
 1. Go to your Repl settings
 2. Navigate to "Secrets" tab
 3. Add each environment variable:
-   - Key: `GOOGLE_SHEETS_API_KEY`, Value: `AIza...`
-   - Key: `GOOGLE_CLIENT_ID`, Value: `123456789-abc...`
-   - Key: `GOOGLE_CLIENT_SECRET`, Value: `GOCSPX-...`
+
+```
+GOOGLE_CLIENT_ID=...from console...
+GOOGLE_CLIENT_SECRET=...from console...
+GOOGLE_REDIRECT_URI=https://<your-repl-subdomain>.replit.dev/auth/callback
+GOOGLE_SCOPES=https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file
+SESSION_SECRET=...random string...
+```
+
+**Example with actual Replit domain:**
+If your preview URL is `https://axtask--johndoe.replit.dev`, then use:
+```
+GOOGLE_REDIRECT_URI=https://axtask--johndoe.replit.dev/auth/callback
+```
 
 **Additional Security Configuration:**
 - Rate limiting is automatically applied (100 requests/15 minutes for Sheets API)

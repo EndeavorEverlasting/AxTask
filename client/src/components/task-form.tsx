@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { insertTaskSchema, type InsertTask } from "@shared/schema";
+import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { PriorityEngine } from "@/lib/priority-engine";
 import { useToast } from "@/hooks/use-toast";
@@ -16,17 +16,27 @@ import { PriorityBadge } from "./priority-badge";
 import { Plus } from "lucide-react";
 
 interface TaskFormProps {
+  task?: Task;
   onSuccess?: () => void;
 }
 
-export function TaskForm({ onSuccess }: TaskFormProps) {
+export function TaskForm({ task, onSuccess }: TaskFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
 
   const form = useForm<InsertTask>({
     resolver: zodResolver(insertTaskSchema),
-    defaultValues: {
+    defaultValues: task ? {
+      date: task.date,
+      activity: task.activity,
+      notes: task.notes || "",
+      urgency: task.urgency || undefined,
+      impact: task.impact || undefined,
+      effort: task.effort || undefined,
+      prerequisites: task.prerequisites || "",
+      status: task.status,
+    } : {
       date: new Date().toISOString().split('T')[0],
       activity: "",
       notes: "",
@@ -39,18 +49,25 @@ export function TaskForm({ onSuccess }: TaskFormProps) {
   });
 
   const createTaskMutation = useMutation({
-    mutationFn: async (task: InsertTask) => {
-      const response = await apiRequest("POST", "/api/tasks", task);
-      return response.json();
+    mutationFn: async (taskData: InsertTask) => {
+      if (task) {
+        // Update existing task
+        const response = await apiRequest("PUT", `/api/tasks/${task.id}`, taskData);
+        return response.json();
+      } else {
+        // Create new task
+        const response = await apiRequest("POST", "/api/tasks", taskData);
+        return response.json();
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       toast({
-        title: "Task created",
-        description: "Your task has been added successfully.",
+        title: task ? "Task updated" : "Task created",
+        description: task ? "Your task has been updated successfully." : "Your task has been added successfully.",
       });
-      form.reset();
+      if (!task) form.reset(); // Only reset for new tasks
       onSuccess?.();
     },
     onError: (error: any) => {
@@ -277,7 +294,10 @@ export function TaskForm({ onSuccess }: TaskFormProps) {
                 </Button>
                 <Button type="submit" disabled={createTaskMutation.isPending}>
                   <Plus className="mr-2 h-4 w-4" />
-                  {createTaskMutation.isPending ? "Adding..." : "Add Task"}
+                  {createTaskMutation.isPending 
+            ? (task ? "Updating..." : "Adding...") 
+            : (task ? "Update Task" : "Add Task")
+          }
                 </Button>
               </div>
             </div>
