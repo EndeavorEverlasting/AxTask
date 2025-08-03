@@ -1,125 +1,72 @@
-# Priority Engine Task Management System
+# AxTask - Intelligent Task Management System
 
 ## Overview
 
-This is a full-stack task management application built with a React frontend and Express backend. The system features an intelligent priority scoring engine that automatically calculates task priorities based on content analysis, similar to the Google Sheets priority engine described in the attached assets. The application provides comprehensive task management capabilities including creation, editing, filtering, analytics, and data import/export functionality.
-
-**Version:** 1.1.0 (Google Sheets Integration)  
-**Last Updated:** July 30, 2025
+AxTask is a full-stack intelligent task management application built with React and Express that features an automated priority scoring engine. The system automatically calculates task priorities based on content analysis, keyword detection, and context understanding. Originally designed to upgrade Google Sheets-based workflows, AxTask provides a modern web interface with database persistence, real-time analytics, and seamless import/export capabilities.
 
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
-Cost monitoring: Required for server operations, especially import processes.
-Processing time indicators: Help users decide whether to proceed with large imports or develop more compact versions.
-
-## Recent Changes (v1.1.0)
-
-### Google Sheets Integration (July 30, 2025)
-- **Real-time API Integration**: Full Google Sheets API implementation with OAuth2 authentication
-- **Comprehensive Documentation**: Added detailed setup guide (GOOGLE_SHEETS_SETUP.md) with multi-user security considerations
-- **Hybrid Sync Approach**: Maintains CSV import/export as fallback while adding real-time API sync
-- **Security-First Design**: API key protection, multi-user configurations, and credential rotation guidelines
-- **Professional Setup Guide**: Step-by-step instructions for Google Cloud Console, API enablement, and OAuth setup
-
-### Features Added
-- **API Endpoints**: Complete Google Sheets REST API with authentication, import, export, and bidirectional sync
-- **Client Library**: Type-safe Google API client with token management and error handling
-- **UI Integration**: Enhanced Google Sheets sync page with authentication flow and real-time status
-- **Documentation Suite**: Added GOOGLE_SHEETS_SETUP.md with security best practices and troubleshooting
 
 ## System Architecture
 
 ### Frontend Architecture
-- **Framework**: React with TypeScript
-- **Styling**: Tailwind CSS with shadcn/ui component library
-- **State Management**: TanStack Query (React Query) for server state management
-- **Routing**: Wouter for client-side routing
-- **Build Tool**: Vite for development and build processes
-- **Form Handling**: React Hook Form with Zod validation
+- **Framework**: React 18 with TypeScript for type safety and modern development
+- **UI Components**: shadcn/ui component library built on Radix UI primitives with Tailwind CSS styling
+- **State Management**: TanStack Query (React Query) for server state management and caching
+- **Routing**: Wouter for lightweight client-side routing
+- **Form Handling**: React Hook Form with Zod schema validation
+- **Build System**: Vite for fast development and optimized production builds
 
 ### Backend Architecture
-- **Runtime**: Node.js with Express.js framework
-- **Language**: TypeScript with ES modules
-- **Database**: PostgreSQL with Drizzle ORM
-- **Database Provider**: Neon Database (serverless PostgreSQL)
-- **API Design**: RESTful API with JSON responses
-- **Session Management**: PostgreSQL-based session storage
+- **Runtime**: Node.js with Express.js framework using TypeScript
+- **Database**: PostgreSQL with Drizzle ORM for type-safe database operations
+- **API Design**: RESTful API with JSON responses and comprehensive CRUD operations
+- **Session Management**: PostgreSQL-backed session storage using connect-pg-simple
+- **Validation**: Zod schemas for request/response validation on both client and server
 
-### Key Components
+### Core Features
+- **Priority Engine**: Intelligent scoring algorithm that calculates task priorities based on urgency, impact, effort, keyword analysis, tag detection, and deadline proximity
+- **Import/Export System**: CSV and Excel file processing with cost estimation and progress tracking
+- **Google Sheets Integration**: Real-time API synchronization with OAuth2 authentication
+- **Analytics Dashboard**: Visual insights and task metrics with completion rates and priority distributions
+- **Mobile Responsive**: Full mobile device compatibility with responsive design patterns
 
-#### Priority Engine
-- **Location**: `client/src/lib/priority-engine.ts`
-- **Purpose**: Intelligent task classification and priority scoring
-- **Features**:
-  - Keyword-based scoring system
-  - Tag detection (@urgent, #blocker, etc.)
-  - Time sensitivity analysis
-  - Date pattern recognition
-  - Problem indicator detection
-  - Repetition checking using Jaccard similarity
-  - Priority scale: Highest (8+), High (6-7), Medium-High (4-5), Medium (2-3), Low (<2)
+### Data Architecture
+- **Database Schema**: Tasks table with comprehensive fields including priority scores, classifications, and timestamps
+- **Priority Calculation**: Server-side processing with keyword classification, tag detection, time sensitivity analysis, and duplicate checking using Jaccard similarity
+- **Cost Monitoring**: Real-time processing cost estimation and time tracking for import operations
 
-#### Database Schema
-- **Location**: `shared/schema.ts`
-- **Tables**: Single `tasks` table with comprehensive task metadata
-- **Fields**: id, date, activity, notes, urgency, impact, effort, prerequisites, priority, priorityScore, classification, status, isRepeated, timestamps
-- **Validation**: Zod schemas for insert and update operations
-
-#### UI Components
-- **Design System**: shadcn/ui components with custom styling
-- **Key Components**: TaskForm, TaskList, PriorityBadge, ClassificationBadge
-- **Layout**: Sidebar navigation with dashboard, tasks, analytics, and import/export pages
-- **Theme**: Light/dark mode support with CSS variables
-
-## Data Flow
-
-1. **Task Creation**: User submits task via TaskForm → validated with Zod → sent to backend API
-2. **Priority Calculation**: Backend calls PriorityEngine to calculate priority and classification
-3. **Database Storage**: Task stored in PostgreSQL via Drizzle ORM
-4. **Real-time Updates**: TanStack Query invalidates and refetches data
-5. **UI Updates**: Components re-render with new data
+### Authentication & Security
+- **Google OAuth2**: User authentication for Google Sheets API access
+- **Rate Limiting**: API rate limiting for Google Sheets requests and authentication attempts
+- **Input Validation**: Double validation pattern (client + server) using Zod schemas
+- **SQL Injection Prevention**: Parameterized queries through Drizzle ORM
 
 ## External Dependencies
 
-### Core Dependencies
-- **@neondatabase/serverless**: Serverless PostgreSQL database connection
-- **drizzle-orm**: Type-safe database ORM
-- **@tanstack/react-query**: Server state management
-- **@radix-ui/***: Headless UI components
-- **react-hook-form**: Form handling and validation
-- **zod**: Schema validation
-- **tailwindcss**: Utility-first CSS framework
+### Database Services
+- **Neon Database**: Serverless PostgreSQL hosting with connection pooling
+- **Drizzle ORM**: Type-safe database operations with schema management
+
+### Google Services
+- **Google Sheets API**: Real-time spreadsheet synchronization and data exchange
+- **Google OAuth2**: User authentication and authorization for API access
+- **Google Cloud Console**: API key management and project configuration
+
+### UI and Styling
+- **shadcn/ui**: Modern React component library built on Radix UI
+- **Tailwind CSS**: Utility-first CSS framework for responsive design
+- **Radix UI**: Accessible component primitives for complex UI interactions
 
 ### Development Tools
-- **vite**: Build tool and dev server
-- **typescript**: Type checking
-- **esbuild**: Server bundling
-- **tsx**: TypeScript execution for development
+- **Vite**: Fast build tool and development server
+- **esbuild**: JavaScript bundler for production builds
+- **TypeScript**: Static type checking across the entire application stack
 
-## Deployment Strategy
+### File Processing
+- **Papa Parse**: CSV parsing and generation for import/export functionality
+- **Excel processing**: Support for .xlsx file formats with automatic conversion
 
-### Development
-- **Frontend**: Vite dev server with HMR
-- **Backend**: tsx for TypeScript execution
-- **Database**: Neon serverless PostgreSQL
-- **Environment**: NODE_ENV=development
-
-### Production
-- **Build Process**: 
-  - Frontend: `vite build` → static files in `dist/public`
-  - Backend: `esbuild` → bundled server in `dist/index.js`
-- **Server**: Express serves both API and static files
-- **Database**: Drizzle migrations with `db:push` command
-- **Environment**: NODE_ENV=production
-
-### File Structure
-```
-├── client/          # React frontend
-├── server/          # Express backend
-├── shared/          # Shared types and schemas
-├── migrations/      # Database migrations
-└── dist/           # Built application
-```
-
-The application uses a monorepo structure with clear separation between client, server, and shared code, enabling efficient development and deployment workflows.
+### State Management
+- **TanStack Query**: Server state management with caching, synchronization, and background updates
