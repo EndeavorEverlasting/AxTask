@@ -11,3 +11,12 @@ dist/
 .vscode/
 *.log
 
+
+# Local/IDE/build
+.local/
+dist/
+node_modules/
+.vscode/
+*.log
+coverage/
+
