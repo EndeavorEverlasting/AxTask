@@ -1,0 +1,692 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Priority Engine - Enhanced Task Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#1976D2',
+                        secondary: '#424242',
+                        success: '#4CAF50',
+                        warning: '#FF9800',
+                        error: '#F44336',
+                        surface: '#FFFFFF',
+                        background: '#FAFAFA'
+                    },
+                    fontFamily: {
+                        'sans': ['Roboto', 'sans-serif'],
+                        'mono': ['Roboto Mono', 'monospace']
+                    }
+                }
+            },
+            darkMode: 'class'
+        };
+    </script>
+</head>
+<body class="bg-background font-sans text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+    <!-- @COMPONENT: AppContainer -->
+    <div class="min-h-screen flex">
+        <!-- @COMPONENT: Sidebar -->
+        <aside class="w-64 bg-surface dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700">
+            <div class="p-6 border-b border-gray-200 dark:border-gray-700">
+                <h1 class="text-xl font-bold text-primary flex items-center">
+                    <i class="fas fa-tasks mr-2"></i>
+                    Priority Engine
+                </h1>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Smart Task Management</p>
+            </div>
+            
+            <nav class="p-4">
+                <ul class="space-y-2">
+                    <li>
+                        <a href="#" class="flex items-center p-3 text-primary bg-blue-50 dark:bg-blue-900/30 rounded-lg font-medium" data-mock="true">
+                            <i class="fas fa-tachometer-alt mr-3"></i>
+                            Dashboard
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="flex items-center p-3 text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" data-mock="true">
+                            <i class="fas fa-plus-circle mr-3"></i>
+                            Add Task
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="flex items-center p-3 text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" data-mock="true">
+                            <i class="fas fa-list mr-3"></i>
+                            All Tasks
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="flex items-center p-3 text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" data-mock="true">
+                            <i class="fas fa-chart-bar mr-3"></i>
+                            Analytics
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="flex items-center p-3 text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" data-mock="true">
+                            <i class="fas fa-cloud-upload-alt mr-3"></i>
+                            Import/Export
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="flex items-center p-3 text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" data-mock="true">
+                            <i class="fas fa-cog mr-3"></i>
+                            Settings
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <div class="absolute bottom-4 left-4 right-4">
+                <button class="w-full flex items-center justify-center p-2 text-gray-600 dark:text-gray-400 hover:text-primary transition-colors" data-mock="true">
+                    <i class="fas fa-moon mr-2"></i>
+                    <span class="text-sm">Dark Mode</span>
+                </button>
+            </div>
+        </aside>
+        <!-- @END_COMPONENT: Sidebar -->
+
+        <!-- @COMPONENT: MainContent -->
+        <main class="flex-1 overflow-hidden">
+            <!-- @COMPONENT: Header -->
+            <header class="bg-surface dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">Task Dashboard</h2>
+                        <p class="text-gray-600 dark:text-gray-400">Manage and prioritize your tasks efficiently</p>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <button class="bg-primary text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center" data-event="click:openTaskForm" data-mock="true">
+                            <i class="fas fa-plus mr-2"></i>
+                            Add Task
+                        </button>
+                        <button class="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" data-mock="true">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                </div>
+            </header>
+            <!-- @END_COMPONENT: Header -->
+
+            <div class="p-6 overflow-y-auto h-full">
+                <!-- @COMPONENT: DashboardStats -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div class="bg-surface dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Total Tasks</p>
+                                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100" data-bind="totalTasks">47</p>
+                            </div>
+                            <div class="bg-blue-100 dark:bg-blue-900/30 p-3 rounded-lg">
+                                <i class="fas fa-tasks text-primary text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-surface dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">High Priority</p>
+                                <p class="text-3xl font-bold text-error" data-bind="highPriorityTasks">8</p>
+                            </div>
+                            <div class="bg-red-100 dark:bg-red-900/30 p-3 rounded-lg">
+                                <i class="fas fa-exclamation-triangle text-error text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-surface dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Completed Today</p>
+                                <p class="text-3xl font-bold text-success" data-bind="completedToday">12</p>
+                            </div>
+                            <div class="bg-green-100 dark:bg-green-900/30 p-3 rounded-lg">
+                                <i class="fas fa-check-circle text-success text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-surface dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Avg Priority Score</p>
+                                <p class="text-3xl font-bold text-warning" data-bind="avgPriorityScore">6.3</p>
+                            </div>
+                            <div class="bg-yellow-100 dark:bg-yellow-900/30 p-3 rounded-lg">
+                                <i class="fas fa-chart-line text-warning text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- @END_COMPONENT: DashboardStats -->
+
+                <!-- @COMPONENT: TaskForm -->
+                <div class="bg-surface dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-8">
+                    <div class="p-6 border-b border-gray-200 dark:border-gray-700">
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Quick Task Entry</h3>
+                        <p class="text-sm text-gray-600 dark:text-gray-400">Add a new task with automatic priority calculation</p>
+                    </div>
+                    
+                    <form class="p-6" data-event="submit:handleTaskSubmission">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Date</label>
+                                <input type="date" class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-gray-100" data-bind="taskDate" data-mock="true">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Classification</label>
+                                <select class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-gray-100" data-bind="taskClassification" data-mock="true">
+                                    <option value="auto">Auto-detect</option>
+                                    <option value="development">Development</option>
+                                    <option value="meeting">Meeting</option>
+                                    <option value="administrative">Administrative</option>
+                                    <option value="research">Research</option>
+                                    <option value="maintenance">Maintenance</option>
+                                </select>
+                            </div>
+
+                            <div class="lg:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Activity</label>
+                                <input type="text" placeholder="Enter task activity..." class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-gray-100" data-bind="taskActivity" data-mock="true">
+                            </div>
+
+                            <div class="lg:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Notes</label>
+                                <textarea rows="3" placeholder="Add detailed notes, tags (@urgent, #blocker), or additional context..." class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-gray-100" data-bind="taskNotes" data-mock="true"></textarea>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Urgency (1-5)</label>
+                                <select class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-gray-100" data-bind="taskUrgency" data-mock="true">
+                                    <option value="">Auto-calculate</option>
+                                    <option value="1">1 - Very Low</option>
+                                    <option value="2">2 - Low</option>
+                                    <option value="3">3 - Medium</option>
+                                    <option value="4">4 - High</option>
+                                    <option value="5">5 - Critical</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Impact (1-5)</label>
+                                <select class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-gray-100" data-bind="taskImpact" data-mock="true">
+                                    <option value="">Auto-calculate</option>
+                                    <option value="1">1 - Minimal</option>
+                                    <option value="2">2 - Minor</option>
+                                    <option value="3">3 - Moderate</option>
+                                    <option value="4">4 - Major</option>
+                                    <option value="5">5 - Critical</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Effort (1-5)</label>
+                                <select class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-gray-100" data-bind="taskEffort" data-mock="true">
+                                    <option value="">Auto-calculate</option>
+                                    <option value="1">1 - Quick (< 15 min)</option>
+                                    <option value="2">2 - Short (< 1 hour)</option>
+                                    <option value="3">3 - Medium (< 4 hours)</option>
+                                    <option value="4">4 - Long (< 1 day)</option>
+                                    <option value="5">5 - Extended (> 1 day)</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Prerequisites</label>
+                                <input type="text" placeholder="Dependencies or prerequisites..." class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-gray-100" data-bind="taskPrereq" data-mock="true">
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                            <div class="flex items-center space-x-4">
+                                <div class="text-sm text-gray-600 dark:text-gray-400">
+                                    Calculated Priority: <span class="font-semibold text-primary" data-bind="calculatedPriority">Medium-High</span>
+                                </div>
+                                <div class="text-sm text-gray-600 dark:text-gray-400">
+                                    Score: <span class="font-mono font-semibold" data-bind="calculatedScore">6.2</span>
+                                </div>
+                            </div>
+                            <div class="flex space-x-3">
+                                <button type="button" class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors" data-mock="true">
+                                    Clear
+                                </button>
+                                <button type="submit" class="bg-primary text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center" data-mock="true">
+                                    <i class="fas fa-plus mr-2"></i>
+                                    Add Task
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <!-- @END_COMPONENT: TaskForm -->
+
+                <!-- @COMPONENT: TaskList -->
+                <div class="bg-surface dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                    <div class="p-6 border-b border-gray-200 dark:border-gray-700">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Tasks</h3>
+                            <div class="flex items-center space-x-3">
+                                <div class="relative">
+                                    <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                                    <input type="text" placeholder="Search tasks..." class="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-gray-100" data-mock="true">
+                                </div>
+                                <select class="p-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-gray-100" data-mock="true">
+                                    <option>All Priorities</option>
+                                    <option>Highest</option>
+                                    <option>High</option>
+                                    <option>Medium-High</option>
+                                    <option>Medium</option>
+                                    <option>Low</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-50 dark:bg-gray-700">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Priority</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Activity</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Classification</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Score</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-surface dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                <!-- @MAP: tasks.map(task => ( -->
+                                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700" data-mock="true">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 font-mono">7/30/2025</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                                            Highest
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">Deploy new version Apps for Linda Begono</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                                            Development
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 dark:text-gray-100">8.5</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                                            In Progress
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                        <div class="flex space-x-2">
+                                            <button class="text-primary hover:text-blue-700" data-mock="true">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="text-success hover:text-green-700" data-mock="true">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <button class="text-error hover:text-red-700" data-mock="true">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+
+                                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700" data-mock="true">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 font-mono">7/30/2025</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">
+                                            High
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">Install Impact server stuff @urgent</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
+                                            Maintenance
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 dark:text-gray-100">7.2</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-300">
+                                            Pending
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                        <div class="flex space-x-2">
+                                            <button class="text-primary hover:text-blue-700" data-mock="true">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="text-success hover:text-green-700" data-mock="true">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <button class="text-error hover:text-red-700" data-mock="true">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+
+                                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700" data-mock="true">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 font-mono">7/29/2025</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                                            Medium-High
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">Confirmed with NorthPoint Staff #followup</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                                            Administrative
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 dark:text-gray-100">5.8</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                                            Completed
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                        <div class="flex space-x-2">
+                                            <button class="text-primary hover:text-blue-700" data-mock="true">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="text-success hover:text-green-700" data-mock="true">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <button class="text-error hover:text-red-700" data-mock="true">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+
+                                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700" data-mock="true">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 font-mono">7/29/2025</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                                            Medium
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">Research new framework options</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400">
+                                            Research
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 dark:text-gray-100">3.1</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-300">
+                                            Pending
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                        <div class="flex space-x-2">
+                                            <button class="text-primary hover:text-blue-700" data-mock="true">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button class="text-success hover:text-green-700" data-mock="true">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <button class="text-error hover:text-red-700" data-mock="true">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <!-- @END_MAP )) -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                        <div class="text-sm text-gray-600 dark:text-gray-400">
+                            Showing <span class="font-medium">1</span> to <span class="font-medium">4</span> of <span class="font-medium">47</span> tasks
+                        </div>
+                        <div class="flex space-x-2">
+                            <button class="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" data-mock="true">
+                                Previous
+                            </button>
+                            <button class="px-3 py-1 bg-primary text-white rounded text-sm" data-mock="true">1</button>
+                            <button class="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" data-mock="true">2</button>
+                            <button class="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" data-mock="true">3</button>
+                            <button class="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" data-mock="true">
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <!-- @END_COMPONENT: TaskList -->
+            </div>
+        </main>
+        <!-- @END_COMPONENT: MainContent -->
+    </div>
+    <!-- @END_COMPONENT: AppContainer -->
+
+    <!-- @COMPONENT: FloatingActionButton -->
+    <button class="fixed bottom-6 right-6 bg-primary text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition-all hover:scale-105 lg:hidden" data-event="click:openQuickTaskModal" data-mock="true">
+        <i class="fas fa-plus text-xl"></i>
+    </button>
+    <!-- @END_COMPONENT: FloatingActionButton -->
+
+    <!-- @COMPONENT: AdvancedSettingsModal (Hidden by default) -->
+    <div class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden" id="settingsModal" data-mock="true">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-surface dark:bg-gray-800 rounded-xl shadow-xl max-w-2xl w-full max-h-screen overflow-y-auto">
+                <div class="p-6 border-b border-gray-200 dark:border-gray-700">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Priority Engine Settings</h3>
+                    <p class="text-sm text-gray-600 dark:text-gray-400">Configure keyword weights and scoring algorithms</p>
+                </div>
+                
+                <div class="p-6 space-y-6">
+                    <div>
+                        <h4 class="text-md font-medium text-gray-900 dark:text-gray-100 mb-3">Keyword Scoring Weights</h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Critical Keywords</label>
+                                <input type="range" min="1" max="10" value="4" class="w-full" data-mock="true">
+                                <div class="text-xs text-gray-500 dark:text-gray-400">submit, deadline, urgent, license (4)</div>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Action Keywords</label>
+                                <input type="range" min="1" max="10" value="3" class="w-full" data-mock="true">
+                                <div class="text-xs text-gray-500 dark:text-gray-400">install, fix, setup, configure (3)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 class="text-md font-medium text-gray-900 dark:text-gray-100 mb-3">Tag Multipliers</h4>
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-gray-700 dark:text-gray-300">@urgent / #urgent</span>
+                                <input type="number" value="5" min="1" max="10" class="w-16 p-1 border border-gray-300 dark:border-gray-600 rounded text-sm dark:bg-gray-700" data-mock="true">
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-gray-700 dark:text-gray-300">@blocker / #blocker</span>
+                                <input type="number" value="4" min="1" max="10" class="w-16 p-1 border border-gray-300 dark:border-gray-600 rounded text-sm dark:bg-gray-700" data-mock="true">
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-gray-700 dark:text-gray-300">@followup / #followup</span>
+                                <input type="number" value="2" min="1" max="10" class="w-16 p-1 border border-gray-300 dark:border-gray-600 rounded text-sm dark:bg-gray-700" data-mock="true">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 class="text-md font-medium text-gray-900 dark:text-gray-100 mb-3">Manual Override Settings</h4>
+                        <div class="space-y-2">
+                            <label class="flex items-center">
+                                <input type="checkbox" checked class="mr-2" data-mock="true">
+                                <span class="text-sm text-gray-700 dark:text-gray-300">Use Urgency × Impact for manual scoring</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" checked class="mr-2" data-mock="true">
+                                <span class="text-sm text-gray-700 dark:text-gray-300">Apply effort penalty for high-effort tasks</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" class="mr-2" data-mock="true">
+                                <span class="text-sm text-gray-700 dark:text-gray-300">Enable deadline proximity boosting</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+                    <button class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100" data-mock="true">Cancel</button>
+                    <button class="bg-primary text-white px-6 py-2 rounded-lg hover:bg-blue-700" data-mock="true">Save Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- @END_COMPONENT: AdvancedSettingsModal -->
+
+    <script>
+        // TODO: Implement business logic, API calls, and state management
+        
+        (function() {
+            // Priority calculation engine based on your existing Google Apps Script
+            const PriorityEngine = {
+                calculatePriority(activity, notes, urgency = null, impact = null, effort = null) {
+                    const combined = (activity + " " + notes).toLowerCase();
+                    let score = 0;
+
+                    // Existing keyword scoring system from your script
+                    const criticalKeywords = {
+                        "submit": 4, "deadline": 4, "urgent": 4, "license": 4, "confirm": 3,
+                        "install": 3, "fix": 3, "setup": 3, "configure": 3, "coord": 3,
+                        "meeting": 2, "call": 2, "follow": 2, "email": 2, "share": 2,
+                        "plan": 1, "research": 1, "review": 1, "update": 1
+                    };
+
+                    // Apply keyword scoring
+                    Object.keys(criticalKeywords).forEach(keyword => {
+                        if (combined.includes(keyword)) score += criticalKeywords[keyword];
+                    });
+
+                    // Tag detection
+                    if (combined.includes("@urgent") || combined.includes("#urgent")) score += 5;
+                    if (combined.includes("@blocker") || combined.includes("#blocker")) score += 4;
+                    if (combined.includes("@followup") || combined.includes("#followup")) score += 2;
+
+                    // Time sensitivity
+                    const timeKeywords = ["today", "tomorrow", "asap", "immediately", "now"];
+                    timeKeywords.forEach(keyword => {
+                        if (combined.includes(keyword)) score += 3;
+                    });
+
+                    // Date pattern detection
+                    if (combined.match(/\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}\b/)) {
+                        score += 2;
+                    }
+
+                    // Problem indicators
+                    const problemKeywords = ["error", "issue", "problem", "broken", "failed", "won't", "can't", "doesn't"];
+                    problemKeywords.forEach(keyword => {
+                        if (combined.includes(keyword)) score += 3;
+                    });
+
+                    // Manual override with Urgency × Impact
+                    if (urgency && impact) {
+                        const manualScore = (urgency * impact) / 2;
+                        score = Math.max(score, manualScore);
+                    }
+
+                    // Effort penalty (higher effort = slight priority reduction)
+                    if (effort && effort > 3) {
+                        score = score * 0.9;
+                    }
+
+                    return {
+                        score: Math.round(score * 10) / 10,
+                        priority: this.scoreToPriority(score)
+                    };
+                },
+
+                scoreToPriority(score) {
+                    if (score >= 8) return "Highest";
+                    else if (score >= 6) return "High";
+                    else if (score >= 4) return "Medium-High";
+                    else if (score >= 2) return "Medium";
+                    return "Low";
+                },
+
+                classifyTask(activity, notes) {
+                    const combined = (activity + " " + notes).toLowerCase();
+                    
+                    if (combined.match(/\b(code|develop|deploy|build|fix|debug|test)\b/)) return "Development";
+                    if (combined.match(/\b(meeting|call|discuss|present)\b/)) return "Meeting";
+                    if (combined.match(/\b(research|investigate|explore|analyze)\b/)) return "Research";
+                    if (combined.match(/\b(install|setup|configure|maintain|update)\b/)) return "Maintenance";
+                    if (combined.match(/\b(submit|confirm|approve|sign|document)\b/)) return "Administrative";
+                    
+                    return "General";
+                }
+            };
+
+            // Real-time priority calculation demo
+            const activityInput = document.querySelector('[data-bind="taskActivity"]');
+            const notesInput = document.querySelector('[data-bind="taskNotes"]');
+            const urgencySelect = document.querySelector('[data-bind="taskUrgency"]');
+            const impactSelect = document.querySelector('[data-bind="taskImpact"]');
+            const effortSelect = document.querySelector('[data-bind="taskEffort"]');
+            const priorityDisplay = document.querySelector('[data-bind="calculatedPriority"]');
+            const scoreDisplay = document.querySelector('[data-bind="calculatedScore"]');
+
+            function updatePriority() {
+                const activity = activityInput?.value || '';
+                const notes = notesInput?.value || '';
+                const urgency = urgencySelect?.value ? parseInt(urgencySelect.value) : null;
+                const impact = impactSelect?.value ? parseInt(impactSelect.value) : null;
+                const effort = effortSelect?.value ? parseInt(effortSelect.value) : null;
+
+                if (activity || notes) {
+                    const result = PriorityEngine.calculatePriority(activity, notes, urgency, impact, effort);
+                    if (priorityDisplay) priorityDisplay.textContent = result.priority;
+                    if (scoreDisplay) scoreDisplay.textContent = result.score;
+                }
+            }
+
+            // Attach event listeners
+            [activityInput, notesInput, urgencySelect, impactSelect, effortSelect].forEach(element => {
+                if (element) {
+                    element.addEventListener('input', updatePriority);
+                    element.addEventListener('change', updatePriority);
+                }
+            });
+
+            // Dark mode toggle
+            function initDarkMode() {
+                const darkModeToggle = document.querySelector('button:has(.fa-moon)');
+                if (darkModeToggle) {
+                    darkModeToggle.addEventListener('click', () => {
+                        document.documentElement.classList.toggle('dark');
+                        localStorage.setItem('darkMode', document.documentElement.classList.contains('dark'));
+                    });
+                }
+
+                // Load saved dark mode preference
+                if (localStorage.getItem('darkMode') === 'true') {
+                    document.documentElement.classList.add('dark');
+                }
+            }
+
+            // Initialize
+            updatePriority();
+            initDarkMode();
+
+            // TODO: Implement Google Sheets integration
+            // TODO: Add task persistence and CRUD operations
+            // TODO: Implement advanced filtering and sorting
+            // TODO: Add keyboard shortcuts
+            // TODO: Implement bulk operations
+        })();
+    </script>
+</body>
+</html>
