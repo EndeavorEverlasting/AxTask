@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Sidebar } from "@/components/layout/sidebar";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
+import CalendarPage from "@/pages/calendar";
 import Analytics from "@/pages/analytics";
 import ImportExport from "@/pages/import-export";
 import GoogleSheetsSyncPage from "@/pages/google-sheets-sync";
@@ -17,6 +18,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/tasks" component={Tasks} />
+      <Route path="/calendar" component={CalendarPage} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/import-export" component={ImportExport} />
       <Route path="/google-sheets" component={GoogleSheetsSyncPage} />

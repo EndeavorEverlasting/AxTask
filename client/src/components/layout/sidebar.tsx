@@ -3,6 +3,7 @@ import {
   LayoutDashboard, 
   Plus, 
   List, 
+  Calendar,
   BarChart3, 
   Upload, 
   Settings, 
@@ -21,6 +22,7 @@ export function Sidebar() {
   const menuItems = [
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/tasks", icon: List, label: "All Tasks" },
+    { path: "/calendar", icon: Calendar, label: "Calendar" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },
     { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
