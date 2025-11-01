@@ -27,6 +27,7 @@ Preferred communication style: Simple, everyday language.
 
 ### Core Features & Design Patterns
 - **Priority Engine**: Intelligent scoring algorithm that calculates task priorities based on urgency, impact, effort, keyword analysis, tag detection, and deadline proximity
+- **Calendar Views**: Multiple time-based views (hourly, daily, weekly, monthly) for immersive task visualization and time blocking
 - **Import/Export System**: CSV and Excel file processing with cost estimation and progress tracking for large datasets
 - **Analytics Dashboard**: Visual insights and task metrics with completion rates and priority distributions
 - **Mobile Responsive**: Full mobile device compatibility with responsive design patterns
@@ -68,3 +69,46 @@ Preferred communication style: Simple, everyday language.
 - **Radix UI**: Headless UI primitives for accessible component development
 - **Lucide React**: Icon library with consistent styling
 - **date-fns**: Date manipulation and formatting utilities
+
+## Current Development Phase
+
+### Calendar View Implementation (In Progress)
+The application is being enhanced with comprehensive calendar views to provide a more immersive task management experience:
+
+**Planned Calendar Features:**
+1. **Multiple Time Scales**: 
+   - Hourly views (1-hour, 2-hour, 4-hour, 8-hour blocks)
+   - Daily view with time slot distribution
+   - Weekly view with task aggregation
+   - Monthly view with density visualization
+
+2. **Interactive Task Management**:
+   - Click tasks in calendar to view details
+   - Click empty slots to create new tasks
+   - Drag-and-drop time blocking (future)
+   - Visual priority indicators
+
+3. **Aggregate Visualization**:
+   - Task density heatmaps
+   - Priority distribution across time periods
+   - Completion status overlays
+   - Time allocation analytics
+
+4. **Immersive Interface**:
+   - Sleek, modern calendar design
+   - Smooth transitions between views
+   - Contextual task information on hover
+   - Color-coded priority and classification
+
+**Technical Implementation:**
+- Calendar components built with React and Tailwind CSS
+- Date calculations using date-fns for performance
+- Integration with existing task query system
+- Responsive design for mobile and desktop
+- Accessibility features for keyboard navigation
+
+**Integration Points:**
+- Google Calendar API support (planned)
+- Existing Google Sheets sync workflow
+- Task form enhanced with time/duration fields
+- Analytics dashboard extended with calendar insights
