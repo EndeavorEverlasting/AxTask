@@ -6,6 +6,7 @@ import { z } from "zod";
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   date: text("date").notNull(),
+  time: text("time").notNull().default("12:00"), // HH:MM format (24-hour), defaults to current time when task is created
   activity: text("activity").notNull(),
   notes: text("notes").default(""),
   urgency: integer("urgency"), // 1-5 or null for auto-calculation
@@ -31,6 +32,7 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   updatedAt: true,
 }).extend({
   date: z.string().min(1, "Date is required"),
+  time: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Time must be in HH:MM format"),
   activity: z.string().min(1, "Activity is required"),
   notes: z.string().optional(),
   urgency: z.number().min(1).max(5).optional(),

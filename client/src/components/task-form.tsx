@@ -29,6 +29,7 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
     resolver: zodResolver(insertTaskSchema),
     defaultValues: task ? {
       date: task.date,
+      time: task.time,
       activity: task.activity,
       notes: task.notes || "",
       urgency: task.urgency || undefined,
@@ -38,6 +39,7 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
       status: task.status,
     } : {
       date: new Date().toISOString().split('T')[0],
+      time: new Date().toTimeString().slice(0, 5), // HH:MM format from current time
       activity: "",
       notes: "",
       urgency: undefined,
@@ -119,7 +121,21 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
                   <FormItem>
                     <FormLabel>Date</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} />
+                      <Input type="date" {...field} data-testid="input-task-date" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="time"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Time</FormLabel>
+                    <FormControl>
+                      <Input type="time" {...field} data-testid="input-task-time" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -134,7 +150,7 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
                     <FormLabel>Status</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger data-testid="select-task-status">
                           <SelectValue placeholder="Select status" />
                         </SelectTrigger>
                       </FormControl>
