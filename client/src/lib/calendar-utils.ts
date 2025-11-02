@@ -107,8 +107,9 @@ export function getTasksInTimeBlock(
     const [hours, minutes] = task.time.split(':').map(Number);
     const taskStart = set(taskDate, { hours, minutes });
 
-    // Check if task falls within this time block
-    return isWithinInterval(taskStart, { start: block.start, end: block.end });
+    // Check if task falls within this time block (half-open interval: [start, end))
+    // This ensures tasks at exactly the hour boundary only appear in one block
+    return taskStart >= block.start && taskStart < block.end;
   });
 }
 

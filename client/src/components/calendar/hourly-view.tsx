@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { type Task } from '@shared/schema';
 import { 
   type CalendarView, 
@@ -15,7 +16,9 @@ import { PriorityBadge } from '../priority-badge';
 import { ClassificationBadge } from '../classification-badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TaskForm } from '../task-form';
-import { Clock, Edit } from 'lucide-react';
+import { apiRequest } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
+import { Clock, Edit, GripVertical } from 'lucide-react';
 
 interface HourlyViewProps {
   tasks: Task[];
@@ -26,13 +29,66 @@ interface HourlyViewProps {
 export function HourlyView({ tasks, currentDate, view }: HourlyViewProps) {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [draggedTask, setDraggedTask] = useState<Task | null>(null);
+  const [dragOverBlock, setDragOverBlock] = useState<number | null>(null);
   const timeBlocks = generateTimeBlocks(currentDate, view);
   const tasksWithTime = tasks as TaskWithTime[];
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const handleEditTask = () => {
     if (selectedTask) {
       setEditingTask(selectedTask);
       setSelectedTask(null);
+    }
+  };
+
+  const updateTaskMutation = useMutation({
+    mutationFn: async ({ taskId, newTime }: { taskId: string; newTime: string }) => {
+      const response = await apiRequest("PUT", `/api/tasks/${taskId}`, { time: newTime });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({
+        title: "Task rescheduled",
+        description: "Your task has been moved to the new time slot.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reschedule task",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDragStart = (e: React.DragEvent, task: Task) => {
+    setDraggedTask(task);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent, blockHour: number | undefined) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (blockHour !== undefined) {
+      setDragOverBlock(blockHour);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverBlock(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, blockHour: number | undefined) => {
+    e.preventDefault();
+    setDragOverBlock(null);
+    
+    if (draggedTask && blockHour !== undefined) {
+      const newTime = `${blockHour.toString().padStart(2, '0')}:00`;
+      updateTaskMutation.mutate({ taskId: draggedTask.id, newTime });
+      setDraggedTask(null);
     }
   };
 
@@ -48,7 +104,14 @@ export function HourlyView({ tasks, currentDate, view }: HourlyViewProps) {
             return (
               <div
                 key={idx}
-                className="border rounded-lg bg-white dark:bg-gray-800 hover:border-blue-400 dark:hover:border-blue-600 transition-colors"
+                onDragOver={(e) => handleDragOver(e, block.hour)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, block.hour)}
+                className={`border rounded-lg transition-all ${
+                  dragOverBlock === block.hour 
+                    ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20 shadow-lg' 
+                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400 dark:hover:border-blue-600'
+                }`}
                 data-testid={`timeblock-${block.hour}`}
               >
                 <div className="flex gap-4 p-3">
@@ -74,20 +137,30 @@ export function HourlyView({ tasks, currentDate, view }: HourlyViewProps) {
                         {displayTasks.map((task) => (
                           <div
                             key={task.id}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, task)}
+                            onDragEnd={() => setDraggedTask(null)}
                             onClick={() => setSelectedTask(task)}
-                            className={`p-3 rounded-md cursor-pointer hover:shadow-md transition-all border-l-4 ${getPriorityBorderColor(task.priority)} bg-gray-50 dark:bg-gray-750`}
+                            className={`p-3 rounded-md cursor-move hover:shadow-md transition-all border-l-4 ${getPriorityBorderColor(task.priority)} ${
+                              draggedTask?.id === task.id 
+                                ? 'opacity-50 scale-95' 
+                                : 'bg-gray-50 dark:bg-gray-750'
+                            }`}
                             data-testid={`task-${task.id}`}
                           >
                             <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">
-                                  {task.activity}
-                                </div>
-                                {task.notes && (
-                                  <div className="text-xs text-gray-600 dark:text-gray-400 truncate mt-1">
-                                    {task.notes}
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <GripVertical className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">
+                                    {task.activity}
                                   </div>
-                                )}
+                                  {task.notes && (
+                                    <div className="text-xs text-gray-600 dark:text-gray-400 truncate mt-1">
+                                      {task.notes}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
                                 <Badge 
