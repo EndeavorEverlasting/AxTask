@@ -104,6 +104,10 @@ export function getTasksInTimeBlock(
     }
 
     // Parse task time (task.time is in HH:MM format from schema)
+    if (!task.time) {
+      return false;
+    }
+
     const [hours, minutes] = task.time.split(':').map(Number);
     const taskStart = set(taskDate, { hours, minutes });
 
