@@ -45,9 +45,9 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
-      refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      refetchInterval: 30000, // Auto-refresh every 30 seconds
+      refetchOnWindowFocus: true, // Refresh when user returns to tab
+      staleTime: 10000, // Consider data fresh for 10 seconds
       retry: false,
     },
     mutations: {
