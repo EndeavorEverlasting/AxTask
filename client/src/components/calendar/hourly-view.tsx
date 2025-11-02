@@ -65,8 +65,10 @@ export function HourlyView({ tasks, currentDate, view }: HourlyViewProps) {
   });
 
   const handleDragStart = (e: React.DragEvent, task: Task) => {
+    e.stopPropagation();
     setDraggedTask(task);
     e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData('text/plain', task.id);
   };
 
   const handleDragOver = (e: React.DragEvent, blockHour: number | undefined) => {
@@ -140,7 +142,11 @@ export function HourlyView({ tasks, currentDate, view }: HourlyViewProps) {
                             draggable
                             onDragStart={(e) => handleDragStart(e, task)}
                             onDragEnd={() => setDraggedTask(null)}
-                            onClick={() => setSelectedTask(task)}
+                            onClick={(e) => {
+                              if (!draggedTask) {
+                                setSelectedTask(task);
+                              }
+                            }}
                             className={`p-3 rounded-md cursor-move hover:shadow-md transition-all border-l-4 ${getPriorityBorderColor(task.priority)} ${
                               draggedTask?.id === task.id 
                                 ? 'opacity-50 scale-95' 
