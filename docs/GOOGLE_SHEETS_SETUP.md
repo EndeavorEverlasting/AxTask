@@ -74,13 +74,17 @@ Team lead sets up shared project, distributes credentials securely:
 
 ### Step 3: Create API Key
 
+**What is an API Key?**
+An API Key is a simple encrypted string that identifies your project without requiring user authentication. It's used for accessing public data and is rate-limited per project.
+
 1. **Navigate to Credentials**
    - Go to "APIs & Services" → "Credentials"
    - Or: https://console.cloud.google.com/apis/credentials
 
 2. **Create API Key**
-   - Click "+ Create Credentials" → "API key"
-   - Copy the generated API key immediately
+   - Click "+ CREATE CREDENTIALS" at the top of the page
+   - Select "API key"
+   - Copy the generated API key immediately (starts with `AIza`)
    - Click "Close" (don't restrict yet)
 
 3. **Restrict API Key (Security)**
@@ -106,9 +110,17 @@ Team lead sets up shared project, distributes credentials securely:
 
 ### Step 4: Create OAuth 2.0 Credentials
 
-1. **Configure OAuth Consent Screen**
+**What are OAuth Credentials?**
+The Client ID and Client Secret are components of OAuth 2.0, used for authenticating your application when it needs to access private user data (like a user's Google Sheets) with their permission. This is more secure than API keys for accessing private data.
+
+**⚠️ Prerequisites:**
+Before creating OAuth credentials, you **must** configure the OAuth consent screen. This is the screen users will see when granting your application permission to access their data.
+
+1. **Configure OAuth Consent Screen** (Required First Step)
    - Go to "APIs & Services" → "OAuth consent screen"
-   - Choose "External" (unless using Google Workspace)
+   - **User Type Selection:**
+     - Choose "External" for most development purposes (allows any Google user)
+     - Choose "Internal" only if your application is exclusively for users within a Google Workspace organization you manage
    - Fill required fields:
      - App name: "AxTask"
      - User support email: your email
@@ -119,12 +131,19 @@ Team lead sets up shared project, distributes credentials securely:
 
 2. **Create OAuth Client ID**
    - Go to "APIs & Services" → "Credentials"
-   - Click "+ Create Credentials" → "OAuth client ID"
+   - Click "+ CREATE CREDENTIALS" at the top of the page
+   - Select "OAuth client ID"
    
    **⚠️ Important Setup Notes:**
    
    You're in the right place—this screen is **Create OAuth client ID**.
-   The fields you're looking for (Origins + Redirect URIs) appear **after you pick "Web application."**
+   
+   **Choosing Application Type:**
+   - **Web application**: For Replit deployment and web-based access (most common)
+   - **Desktop app**: For standalone applications
+   - **Other**: For CLI tools or testing
+   
+   For this project, choose **Web application**.
 
    **Step-by-step configuration:**
 
@@ -134,11 +153,13 @@ Team lead sets up shared project, distributes credentials securely:
 
       **Authorized JavaScript origins** → click **ADD URI** and enter:
       - `https://<your-repl-subdomain>.replit.dev`
-      - *(optional local)* `http://localhost:5000` (for development)
+      - *(optional for local development)* `http://localhost:5000`
+      
+      **Note on localhost:** For local development, `http://localhost` or `http://localhost:<port_number>` are standard. Port 5000 is used in this project.
 
       **Authorized redirect URIs** → click **ADD URI** and enter:
       - `https://<your-repl-subdomain>.replit.dev/auth/callback`
-      - *(optional local)* `http://localhost:5000/auth/callback` (for development)
+      - *(optional for local development)* `http://localhost:5000/auth/callback`
 
    4. Click **Create** → copy the **Client ID** and **Client Secret**
 
