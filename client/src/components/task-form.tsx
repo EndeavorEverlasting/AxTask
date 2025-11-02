@@ -13,7 +13,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PriorityBadge } from "./priority-badge";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface TaskFormProps {
   task?: Task;
@@ -24,6 +34,7 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const form = useForm<InsertTask>({
     resolver: zodResolver(insertTaskSchema),
@@ -81,6 +92,36 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
     },
   });
 
+  const deleteTaskMutation = useMutation({
+    mutationFn: async (taskId: string) => {
+      const response = await apiRequest("DELETE", `/api/tasks/${taskId}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      toast({
+        title: "Task deleted",
+        description: "Your task has been permanently deleted.",
+      });
+      onSuccess?.();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete task",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDelete = () => {
+    if (task) {
+      deleteTaskMutation.mutate(task.id);
+      setShowDeleteDialog(false);
+    }
+  };
+
   // Real-time priority calculation
   useEffect(() => {
     const subscription = form.watch((values) => {
@@ -103,11 +144,12 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
   };
 
   return (
-    <Card>
+    <>
+    <Card className="focus-within:ring-2 focus-within:ring-blue-500 focus-within:shadow-lg focus-within:shadow-blue-500/50 transition-all duration-300">
       <CardHeader>
-        <CardTitle>Quick Task Entry</CardTitle>
+        <CardTitle>{task ? "Edit Task" : "Quick Task Entry"}</CardTitle>
         <CardDescription>
-          Add a new task with automatic priority calculation
+          {task ? "Update task details and priority" : "Add a new task with automatic priority calculation"}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -301,14 +343,31 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
                 </div>
               </div>
               <div className="flex space-x-3">
+                {task && (
+                  <Button 
+                    type="button" 
+                    variant="destructive" 
+                    onClick={() => setShowDeleteDialog(true)}
+                    disabled={deleteTaskMutation.isPending}
+                    data-testid="button-delete-task"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {deleteTaskMutation.isPending ? "Deleting..." : "Delete"}
+                  </Button>
+                )}
                 <Button 
                   type="button" 
                   variant="outline" 
                   onClick={() => form.reset()}
+                  data-testid="button-clear-form"
                 >
                   Clear
                 </Button>
-                <Button type="submit" disabled={createTaskMutation.isPending}>
+                <Button 
+                  type="submit" 
+                  disabled={createTaskMutation.isPending}
+                  data-testid="button-submit-task"
+                >
                   <Plus className="mr-2 h-4 w-4" />
                   {createTaskMutation.isPending 
             ? (task ? "Updating..." : "Adding...") 
@@ -321,5 +380,35 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
         </Form>
       </CardContent>
     </Card>
+
+    <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Task</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete this task? This action cannot be undone.
+            {task && (
+              <div className="mt-3 p-3 bg-gray-100 dark:bg-gray-800 rounded-md">
+                <p className="font-medium text-gray-900 dark:text-gray-100">{task.activity}</p>
+                {task.notes && (
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{task.notes}</p>
+                )}
+              </div>
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+          <AlertDialogAction 
+            onClick={handleDelete}
+            className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            data-testid="button-confirm-delete"
+          >
+            Delete Task
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
