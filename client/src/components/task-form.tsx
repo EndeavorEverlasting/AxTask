@@ -168,6 +168,12 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
                 outline: 2px solid rgb(156, 163, 175);
                 box-shadow: 0 10px 15px -3px rgba(156, 163, 175, 0.3), 0 4px 6px -4px rgba(156, 163, 175, 0.3);
               }
+              .task-form-card:has(input:focus),
+              .task-form-card:has(textarea:focus),
+              .task-form-card:has(button[role="combobox"]:focus) {
+                outline: 2px solid rgb(156, 163, 175);
+                box-shadow: 0 10px 15px -3px rgba(156, 163, 175, 0.3), 0 4px 6px -4px rgba(156, 163, 175, 0.3);
+              }
             `}</style>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <FormField
