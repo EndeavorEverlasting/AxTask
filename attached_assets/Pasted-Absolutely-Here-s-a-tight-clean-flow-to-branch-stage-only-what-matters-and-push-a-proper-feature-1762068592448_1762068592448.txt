@@ -1,0 +1,132 @@
+Absolutely. Here’s a tight, clean flow to branch, stage only what matters, and push a proper feature commit.
+
+# 1) Sync your base, then branch
+
+Pick your integration branch (looks like `develop` in your screenshot). In PowerShell from the repo root:
+
+```powershell
+# choose your base + name your feature
+$BASE = "develop"            # or "main" if that’s your real base
+$SLUG = "axtask-what-you-changed"  # keep it short, kebab-case
+$BRANCH = "feat/$SLUG"
+
+git fetch --all --prune
+git switch $BASE
+git pull --ff-only origin $BASE
+git switch -c $BRANCH
+```
+
+# 2) Stage only intentional changes
+
+Use patch mode to avoid “oops, I committed junk.”
+
+```powershell
+git status
+git add -p              # interactively pick hunks
+# or: git add <files/dirs>  (be explicit, not blanket)
+git status
+git diff --staged       # final glance before commit
+```
+
+# 3) Commit with Conventional Commits
+
+Short, imperative subject; details in the body if useful.
+
+```powershell
+git commit -m "feat(axtask): <concise change summary>" `
+            -m "Why: <the reason or effect>\nNotes: <optional context>"
+```
+
+Examples:
+
+* `feat(axtask): add task card filtering and persistence`
+* `fix(axtask): resolve null id crash when loading stale tasks`
+
+# 4) Push + open PR
+
+```powershell
+git push -u origin $BRANCH
+```
+
+Then open a PR to `develop` (or use GitHub CLI: `gh pr create --base $BASE --head $BRANCH -t "feat: $SLUG" -b "Summary…"`).
+
+---
+
+## Keep the commit “clean”
+
+* **No environment noise**: make sure `.gitignore` shields temp files and machine cruft.
+
+  ```gitignore
+  # editors & OS
+  .vscode/*
+  !.vscode/extensions.json
+  !.vscode/settings.json
+  .idea/
+  Thumbs.db
+  .DS_Store
+
+  # common artifacts
+  node_modules/
+  dist/
+  build/
+  __pycache__/
+  .venv/
+  *.log
+  .env*
+  ```
+* **Line endings sanity** (Windows): drop a simple `.gitattributes` so CRLF/LF doesn’t churn diffs.
+
+  ```
+  * text=auto
+  *.sh text eol=lf
+  *.ps1 text eol=crlf
+  ```
+
+---
+
+## Replicate your local setup on other machines (minimal, portable)
+
+Commit just the **shared** VS Code bits; skip personal stuff.
+
+**.vscode/extensions.json**
+
+```json
+{
+  "recommendations": [
+    "ms-vscode.powershell",
+    "ms-python.python",
+    "esbenp.prettier-vscode"
+  ]
+}
+```
+
+**.vscode/settings.json** (safe team defaults only)
+
+```json
+{
+  "files.eol": "\n",
+  "editor.formatOnSave": true,
+  "files.exclude": {
+    "**/.venv": true,
+    "**/__pycache__": true,
+    "**/node_modules": true
+  }
+}
+```
+
+That gives teammates the same baseline without hauling in personal keybindings or secrets.
+
+---
+
+## One-liner to reuse later
+
+Paste, edit the slug, done:
+
+```powershell
+$BASE="develop"; $SLUG="axtask-what-you-changed"; $BRANCH="feat/$SLUG";
+git fetch --all --prune; git switch $BASE; git pull --ff-only origin $BASE; git switch -c $BRANCH;
+git add -p; git commit -m "feat(axtask): <summary>" -m "Why: <context>";
+git push -u origin $BRANCH
+```
+
+Ship it, then keep stacking small, surgical commits. Next step after you push: PR description with “what changed / why / how to validate.”
