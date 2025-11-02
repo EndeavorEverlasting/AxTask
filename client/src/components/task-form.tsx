@@ -36,7 +36,7 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
       impact: task.impact || undefined,
       effort: task.effort || undefined,
       prerequisites: task.prerequisites || "",
-      status: task.status,
+      status: task.status as "pending" | "in-progress" | "completed",
     } : {
       date: new Date().toISOString().split('T')[0],
       time: new Date().toTimeString().slice(0, 5), // HH:MM format from current time
@@ -46,7 +46,7 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
       impact: undefined,
       effort: undefined,
       prerequisites: "",
-      status: "pending",
+      status: "pending" as const,
     },
   });
 

@@ -8,10 +8,12 @@ import {
 } from '@/lib/calendar-utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { PriorityBadge } from '../priority-badge';
 import { ClassificationBadge } from '../classification-badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
+import { TaskForm } from '../task-form';
+import { CheckCircle2, Clock, AlertTriangle, Edit } from 'lucide-react';
 
 interface DailyViewProps {
   tasks: Task[];
@@ -20,8 +22,16 @@ interface DailyViewProps {
 
 export function DailyView({ tasks, currentDate }: DailyViewProps) {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const dayTasks = getTasksForDay(tasks, currentDate);
   const stats = getPeriodStats(dayTasks);
+
+  const handleEditTask = () => {
+    if (selectedTask) {
+      setEditingTask(selectedTask);
+      setSelectedTask(null);
+    }
+  };
 
   // Group tasks by priority
   const tasksByPriority = {
@@ -151,7 +161,18 @@ export function DailyView({ tasks, currentDate }: DailyViewProps) {
           {selectedTask && (
             <>
               <DialogHeader>
-                <DialogTitle>{selectedTask.activity}</DialogTitle>
+                <div className="flex items-center justify-between">
+                  <DialogTitle>{selectedTask.activity}</DialogTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleEditTask}
+                    data-testid="button-edit-task"
+                  >
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
+                  </Button>
+                </div>
               </DialogHeader>
               <div className="space-y-4">
                 <div>
@@ -199,6 +220,18 @@ export function DailyView({ tasks, currentDate }: DailyViewProps) {
                 </div>
               </div>
             </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Task Dialog */}
+      <Dialog open={!!editingTask} onOpenChange={() => setEditingTask(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="dialog-edit-task">
+          {editingTask && (
+            <TaskForm 
+              task={editingTask} 
+              onSuccess={() => setEditingTask(null)} 
+            />
           )}
         </DialogContent>
       </Dialog>

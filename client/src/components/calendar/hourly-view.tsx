@@ -10,10 +10,12 @@ import {
 } from '@/lib/calendar-utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { PriorityBadge } from '../priority-badge';
 import { ClassificationBadge } from '../classification-badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Clock } from 'lucide-react';
+import { TaskForm } from '../task-form';
+import { Clock, Edit } from 'lucide-react';
 
 interface HourlyViewProps {
   tasks: Task[];
@@ -23,8 +25,16 @@ interface HourlyViewProps {
 
 export function HourlyView({ tasks, currentDate, view }: HourlyViewProps) {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const timeBlocks = generateTimeBlocks(currentDate, view);
   const tasksWithTime = tasks as TaskWithTime[];
+
+  const handleEditTask = () => {
+    if (selectedTask) {
+      setEditingTask(selectedTask);
+      setSelectedTask(null);
+    }
+  };
 
   return (
     <>
@@ -111,7 +121,18 @@ export function HourlyView({ tasks, currentDate, view }: HourlyViewProps) {
           {selectedTask && (
             <>
               <DialogHeader>
-                <DialogTitle>{selectedTask.activity}</DialogTitle>
+                <div className="flex items-center justify-between">
+                  <DialogTitle>{selectedTask.activity}</DialogTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleEditTask}
+                    data-testid="button-edit-task"
+                  >
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
+                  </Button>
+                </div>
               </DialogHeader>
               <div className="space-y-4">
                 <div>
@@ -159,6 +180,18 @@ export function HourlyView({ tasks, currentDate, view }: HourlyViewProps) {
                 </div>
               </div>
             </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Task Dialog */}
+      <Dialog open={!!editingTask} onOpenChange={() => setEditingTask(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="dialog-edit-task">
+          {editingTask && (
+            <TaskForm 
+              task={editingTask} 
+              onSuccess={() => setEditingTask(null)} 
+            />
           )}
         </DialogContent>
       </Dialog>

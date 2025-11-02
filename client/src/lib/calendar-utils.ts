@@ -34,8 +34,6 @@ export interface TimeBlock {
 }
 
 export interface TaskWithTime extends Task {
-  startTime?: string; // Format: "HH:mm"
-  endTime?: string; // Format: "HH:mm"
   duration?: number; // in minutes
 }
 
@@ -105,13 +103,8 @@ export function getTasksInTimeBlock(
       return false;
     }
 
-    // If task has no time, show it in the first block of the day
-    if (!task.startTime) {
-      return block.hour === 0 || block.hour === startOfDay(targetDate).getHours();
-    }
-
-    // Parse task time
-    const [hours, minutes] = task.startTime.split(':').map(Number);
+    // Parse task time (task.time is in HH:MM format from schema)
+    const [hours, minutes] = task.time.split(':').map(Number);
     const taskStart = set(taskDate, { hours, minutes });
 
     // Check if task falls within this time block
@@ -279,12 +272,8 @@ export function calculateTaskPosition(task: TaskWithTime, block: TimeBlock): {
   top: number;
   height: number;
 } {
-  if (!task.startTime) {
-    return { top: 0, height: 100 }; // Full block height if no time
-  }
-
   const blockDurationMinutes = differenceInMinutes(block.end, block.start);
-  const taskStartMinutes = timeToMinutes(task.startTime);
+  const taskStartMinutes = timeToMinutes(task.time);
   const blockStartMinutes = block.start.getHours() * 60;
   
   const offsetMinutes = taskStartMinutes - blockStartMinutes;
