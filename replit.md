@@ -115,8 +115,14 @@ The application now features comprehensive calendar views providing an immersive
 - Date calculations using date-fns for performance and accuracy
 - TanStack Query for data fetching and cache management
 - Responsive design tested on mobile and desktop
-- Drag-and-drop using HTML5 Drag and Drop API
+- Drag-and-drop using HTML5 Drag and Drop API (hourly views only in v1.2.0)
 - Optimistic updates for smooth UX during drag operations
+
+**Drag-and-Drop Status (v1.2.0):**
+- **Implemented**: Hourly views (1h, 2h, 4h, 8h) support drag-and-drop task rescheduling
+- **Features**: GripVertical icon, visual feedback, drop zone highlighting, toast confirmation
+- **Planned for v1.3.0**: Extend drag-and-drop to daily, weekly, and monthly views
+- **Planned for v1.3.0**: Drag-to-delete feature (drag tasks to recycle bin)
 
 **Integration Points:**
 - Google Calendar API support (planned for future)
@@ -184,3 +190,29 @@ Real-world problem solved: Users spending time writing detailed notes would lose
 - Escape key closes dialogs
 - Focus indicators clearly visible at all zoom levels
 - No mouse required for any operation
+- Grey glow indicates form is active (input/textarea/select focused, pressing Enter won't submit)
+
+**Form Focus Behavior (v1.2.0):**
+- **Input fields focused**: Form glows grey (indicates typing mode, Enter key won't submit)
+- **Textarea focused**: Form glows grey (indicates typing mode, Enter key adds new line)
+- **Dropdown focused**: Form glows grey (indicates selection mode, Enter confirms selection)
+- **Submit button focused**: Form glows green (indicates Enter will add/update task)
+- **Delete button focused**: Form glows red (indicates Enter will delete task)
+- **Cancel button focused**: Form glows grey (indicates Enter will cancel/close)
+
+## Roadmap
+
+### Version 1.3.0 (Planned)
+- **Soft Delete System**: Recycle bin with 30-day retention before permanent deletion
+- **Drag-and-Drop Expansion**: Extend to daily, weekly, and monthly calendar views
+- **Drag-to-Delete**: Visual recycle bin appears during drag operations
+- **Google Authentication**: OAuth 2.0 login with multi-user support
+- **Deployment Structure**: Production environment with CI/CD pipeline
+- **See**: VERSION_1.3.0_PLAN.md for detailed implementation plan
+
+### Version 2.0 (Future)
+- **WebSocket Real-Time Sync**: Live updates across multiple users/devices
+- **Audit Log**: Track all changes to tasks with user attribution
+- **Advanced Analytics**: Custom reports and data visualizations
+- **Mobile App**: Native iOS and Android applications
+- **API Webhooks**: Integrate with external tools (Slack, Teams, etc.)
