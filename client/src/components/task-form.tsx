@@ -155,26 +155,6 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <style>{`
-              .task-form-card:has(.btn-submit:focus) {
-                outline: 2px solid rgb(34, 197, 94);
-                box-shadow: 0 10px 15px -3px rgba(34, 197, 94, 0.3), 0 4px 6px -4px rgba(34, 197, 94, 0.3);
-              }
-              .task-form-card:has(.btn-delete:focus) {
-                outline: 2px solid rgb(239, 68, 68);
-                box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3), 0 4px 6px -4px rgba(239, 68, 68, 0.3);
-              }
-              .task-form-card:has(.btn-cancel:focus) {
-                outline: 2px solid rgb(156, 163, 175);
-                box-shadow: 0 10px 15px -3px rgba(156, 163, 175, 0.3), 0 4px 6px -4px rgba(156, 163, 175, 0.3);
-              }
-              .task-form-card:has(input:focus),
-              .task-form-card:has(textarea:focus),
-              .task-form-card:has(button[role="combobox"]:focus) {
-                outline: 2px solid rgb(156, 163, 175);
-                box-shadow: 0 10px 15px -3px rgba(156, 163, 175, 0.3), 0 4px 6px -4px rgba(156, 163, 175, 0.3);
-              }
-            `}</style>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
