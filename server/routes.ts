@@ -16,6 +16,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get task stats (must come before :id route)
+  app.get("/api/tasks/stats", async (req, res) => {
+    try {
+      const stats = await storage.getTaskStats();
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch task stats" });
+    }
+  });
+
   // Get task by ID
   app.get("/api/tasks/:id", async (req, res) => {
     try {
@@ -155,16 +165,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks by priority" });
-    }
-  });
-
-  // Get task stats
-  app.get("/api/tasks/stats", async (req, res) => {
-    try {
-      const stats = await storage.getTaskStats();
-      res.json(stats);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch task stats" });
     }
   });
 

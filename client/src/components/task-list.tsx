@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
@@ -27,6 +28,7 @@ export function TaskList() {
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [deletingTask, setDeletingTask] = useState<Task | null>(null);
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -360,7 +362,7 @@ export function TaskList() {
                           size="sm"
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteTaskMutation.mutate(task.id);
+                            setDeletingTask(task);
                           }}
                           disabled={deleteTaskMutation.isPending}
                           className="btn-delete-row"
@@ -395,6 +397,51 @@ export function TaskList() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deletingTask} onOpenChange={() => setDeletingTask(null)}>
+        <AlertDialogContent className="delete-dialog-content">
+          <style>{`
+            .delete-dialog-content:has(.btn-confirm-delete:focus) {
+              outline: 2px solid rgb(239, 68, 68);
+              box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3), 0 4px 6px -4px rgba(239, 68, 68, 0.3);
+            }
+            .delete-dialog-content:has(.btn-cancel-delete:focus) {
+              outline: 2px solid rgb(156, 163, 175);
+              box-shadow: 0 10px 15px -3px rgba(156, 163, 175, 0.3), 0 4px 6px -4px rgba(156, 163, 175, 0.3);
+            }
+          `}</style>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Task</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this task? This action cannot be undone.
+              {deletingTask && (
+                <div className="mt-3 p-3 bg-gray-100 dark:bg-gray-800 rounded-md">
+                  <p className="font-medium text-gray-900 dark:text-gray-100">{deletingTask.activity}</p>
+                  {deletingTask.notes && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{deletingTask.notes}</p>
+                  )}
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="btn-cancel-delete" data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deletingTask) {
+                  deleteTaskMutation.mutate(deletingTask.id);
+                  setDeletingTask(null);
+                }
+              }}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600 btn-confirm-delete"
+              data-testid="button-confirm-delete"
+            >
+              Delete Task
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
