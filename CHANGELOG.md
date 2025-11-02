@@ -4,6 +4,17 @@
 
 ### 🎨 User Interface Improvements
 
+#### Autocomplete Functionality
+- **Activity Field Autocomplete**: Type in the activity field to see suggestions from previously entered tasks
+- **HTML5 Datalist**: Uses native browser autocomplete for fast, lightweight implementation
+- **Real-time Updates**: Autocomplete list updates automatically when new tasks are created
+- **Sorted Alphabetically**: Suggestions appear in alphabetical order for easy scanning
+
+#### Dashboard Enhancements
+- **Rounded Average Priority Score**: Displays as single decimal (e.g., "42.5") to prevent UI overflow
+- **Statistics Fix**: Dashboard now correctly displays total tasks, high priority count, and completion metrics
+- **Fix**: Resolved route ordering issue where `/api/tasks/stats` was matched as `/api/tasks/:id`
+
 #### Dynamic Focus Glow Effects
 - **Green Glow**: Task form glows green when focus is on Add Task or Update Task button
 - **Red Glow**: Form glows red when focus is on Delete button (both in form and All Tasks table)
@@ -95,6 +106,9 @@ No database migrations required for this version. All changes are frontend and c
 - Fixed JSON parse error when deleting tasks (DELETE returns 204 with no body)
 - Fixed form submission to properly close dialogs on cancel
 - Improved drag-and-drop event handling with stopPropagation
+- **Drag-and-Drop Attribute Fix**: Changed `draggable` to `draggable={true}` for explicit boolean rendering
+- **Dashboard Statistics Fix**: Corrected route ordering to prevent `/stats` being matched as task ID
+- **Test Identifiers**: Added `data-testid="draggable-task-{id}"` for better testing and debugging
 
 ### 🚀 Performance
 

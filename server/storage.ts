@@ -18,6 +18,7 @@ export interface IStorage {
     completedToday: number;
     avgPriorityScore: number;
   }>;
+  getUniqueActivities(): Promise<string[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -109,6 +110,13 @@ export class DatabaseStorage implements IStorage {
       completedToday,
       avgPriorityScore,
     };
+  }
+
+  async getUniqueActivities(): Promise<string[]> {
+    const allTasks = await this.getTasks();
+    const activitySet = new Set(allTasks.map(task => task.activity));
+    const uniqueActivities = Array.from(activitySet);
+    return uniqueActivities.sort();
   }
 }
 

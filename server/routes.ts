@@ -26,6 +26,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get unique activities for autocomplete (must come before :id route)
+  app.get("/api/tasks/autocomplete/activities", async (req, res) => {
+    try {
+      const activities = await storage.getUniqueActivities();
+      res.json(activities);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch activities" });
+    }
+  });
+
   // Get task by ID
   app.get("/api/tasks/:id", async (req, res) => {
     try {

@@ -6,7 +6,14 @@
 
 ## Overview
 
-Version 1.3.0 focuses on expanding drag-and-drop capabilities across all calendar views, implementing a soft delete system with recycle bin, and adding production deployment infrastructure with Google authentication.
+Version 1.3.0 focuses on expanding drag-and-drop capabilities across all calendar views, implementing a soft delete system with recycle bin, and adding Replit Auth for Google authentication with world-class security using Replit Secrets.
+
+## What's Already in v1.2.0
+
+✅ **Autocomplete Functionality** - Implemented using HTML5 datalist element  
+✅ **Rounded Average Priority Score** - Dashboard shows 1 decimal place  
+✅ **Delete Confirmation Dialogs** - Keyboard accessible with visual feedback  
+✅ **Drag-and-Drop in Hourly Views** - Working in 1h, 2h, 4h, 8h calendar views
 
 ## Planned Features
 
@@ -193,30 +200,49 @@ jobs:
       - Deploy to hosting platform
 ```
 
-### 5. 🔐 Google Authentication
+### 5. 🔐 Replit Auth (Google + Multi-Provider Login)
 
-#### Authentication Strategy
-**OAuth 2.0 Flow:**
-1. User clicks "Sign in with Google"
-2. Redirect to Google OAuth consent screen
-3. User authorizes application
-4. Google redirects back with authorization code
-5. Exchange code for access token
-6. Retrieve user profile (email, name, picture)
-7. Create/update user in database
-8. Create session and redirect to dashboard
+#### Why Replit Auth?
+Replit provides a comprehensive authentication blueprint that supports:
+- Google OAuth (primary method)
+- GitHub, X (Twitter), Apple login
+- Email/password authentication
+- OpenID Connect provider integration
+- Built-in session management with PostgreSQL
+- World-class security out of the box
+
+#### Authentication Implementation
+**Using Replit Auth Blueprint (`blueprint:javascript_log_in_with_replit`):**
+
+The integration includes:
+1. Complete OAuth 2.0 flow handling
+2. Session management with PostgreSQL-backed storage
+3. User profile retrieval (email, name, profile picture)
+4. Automatic token refresh
+5. Protected route middleware (`isAuthenticated`)
+6. Frontend authentication hooks (`useAuth`)
 
 #### Database Schema for Users
 ```typescript
+// From Replit Auth blueprint
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique().notNull(),
-  name: varchar("name"),
-  picture: varchar("picture"),
-  googleId: varchar("google_id").unique().notNull(),
+  email: varchar("email").unique(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  profileImageUrl: varchar("profile_image_url"),
   createdAt: timestamp("created_at").defaultNow(),
-  lastLoginAt: timestamp("last_login_at"),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Session storage (required by Replit Auth)
+export const sessions = pgTable("sessions", {
+  sid: varchar("sid").primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire").notNull(),
+}, (table) => [
+  index("IDX_session_expire").on(table.expire)
+]);
 ```
 
 #### Multi-Tenancy for Tasks
@@ -244,28 +270,80 @@ requireAuth()                  // Protect routes requiring login
 
 #### Frontend Integration
 ```typescript
-// useAuth hook
-const { user, loading, login, logout } = useAuth();
+// useAuth hook (from Replit Auth blueprint)
+import { useAuth } from "@/hooks/useAuth";
 
-// Protected routes
-<Route path="/dashboard">
-  {user ? <Dashboard /> : <Navigate to="/login" />}
-</Route>
+const { user, isLoading, isAuthenticated } = useAuth();
+
+// Protected routes in App.tsx
+<Switch>
+  {isLoading || !isAuthenticated ? (
+    <Route path="/" component={Landing} />
+  ) : (
+    <>
+      <Route path="/" component={Dashboard} />
+      <Route path="/calendar" component={Calendar} />
+      {/* ... other protected routes */}
+    </>
+  )}
+</Switch>
 
 // Login page
-<Button onClick={login}>
+<Button onClick={() => window.location.href = "/api/login"}>
   <GoogleIcon /> Sign in with Google
 </Button>
 ```
 
 #### Security Considerations
-- HTTPS required in production (TLS/SSL certificates)
-- Secure session cookies with `httpOnly`, `secure`, `sameSite` flags
-- CSRF protection using tokens
-- Rate limiting on auth endpoints (prevent brute force)
-- Input validation and sanitization
+- HTTPS enforced in production (Replit handles TLS/SSL)
+- Secure session cookies: `httpOnly`, `secure`, `sameSite` flags
+- CSRF protection built into Replit Auth
+- Rate limiting on auth endpoints
+- SESSION_SECRET managed via Replit Secrets
 
-### 6. 📊 Additional Enhancements
+### 6. 🔐 World-Class API Security with Replit Secrets
+
+#### Why Replit Secrets Outclass Environment Variables
+
+**Traditional Environment Variables:**
+- ❌ Visible to collaborators in workspace
+- ❌ Can be logged accidentally
+- ❌ No rotation mechanism
+- ❌ Exposed in version control if .env committed
+
+**Replit Secrets:**
+- ✅ **AES-256 encryption at rest**
+- ✅ **TLS encryption in transit**
+- ✅ **Not visible in workspace** (except to owners)
+- ✅ **Collaborative access control** (see names, not values)
+- ✅ **App-level and account-level secrets**
+- ✅ **Never exposed in version control**
+- ✅ **Secure UI for secret management**
+
+#### Implementation Strategy
+```typescript
+// Access secrets same as environment variables
+const googleClientId = process.env.GOOGLE_CLIENT_ID;
+const sessionSecret = process.env.SESSION_SECRET;
+
+// But stored in Replit Secrets UI (not .env files)
+```
+
+**Secrets to Store:**
+- `SESSION_SECRET` - Express session encryption key
+- `REPL_ID` - Replit Auth client ID (auto-provided)
+- `ISSUER_URL` - Replit OIDC endpoint (auto-provided)
+- `DATABASE_URL` - PostgreSQL connection string (auto-provided)
+- Any future API keys (Stripe, Twilio, etc.)
+
+#### Best Practices
+1. **Never hardcode secrets** in source code
+2. **Use Replit Secrets UI** to add/update secrets
+3. **Rotate secrets periodically** (SESSION_SECRET every 90 days)
+4. **Audit access logs** for unauthorized secret access
+5. **Separate dev/prod secrets** (different Replit projects)
+
+### 7. 📊 Additional Enhancements
 
 #### Recycle Bin Analytics
 - Chart showing deletion patterns over time
@@ -396,15 +474,35 @@ ORDER BY deleted_at DESC;
 - API endpoint reference
 - Database schema ERD with users + tasks relationship
 
+## Implementation Notes
+
+### Features Requiring Manual Implementation
+
+Some features in this plan require manual implementation or external setup:
+
+**Replit Auth Integration:**
+- Must use `use_integration` tool to add `blueprint:javascript_log_in_with_replit`
+- Requires significant code changes to add authentication layer
+- Database schema must be updated with users and sessions tables
+- All task queries must filter by `userId`
+
+**Production Deployment:**
+- Use Replit's built-in "Publish" feature (not manual deployment)
+- Replit handles HTTPS, TLS certificates, and domain management
+- No CI/CD pipeline needed for Replit deployments
+
+**Background Jobs (30-day cleanup):**
+- Consider using cron jobs or scheduled functions
+- Alternative: Cleanup on-demand when viewing recycle bin
+
 ## Timeline Estimate
 
 - **Soft Delete System**: 2-3 days
 - **Drag-and-Drop Expansion**: 3-4 days
-- **Google Authentication**: 4-5 days
-- **Deployment Infrastructure**: 2-3 days
+- **Replit Auth Integration**: 4-5 days (includes multi-user support)
 - **Testing & Documentation**: 3-4 days
 
-**Total Estimated Time**: 14-19 days
+**Total Estimated Time**: 12-17 days
 
 ## Success Metrics
 

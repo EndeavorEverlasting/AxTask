@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { PriorityEngine } from "@/lib/priority-engine";
@@ -35,6 +35,12 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
   const queryClient = useQueryClient();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  // Fetch unique activities for autocomplete
+  const { data: uniqueActivities = [] } = useQuery<string[]>({
+    queryKey: ["/api/tasks/autocomplete/activities"],
+    staleTime: 60000, // Cache for 1 minute
+  });
 
   const form = useForm<InsertTask>({
     resolver: zodResolver(insertTaskSchema),
@@ -76,6 +82,7 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/autocomplete/activities"] });
       toast({
         title: task ? "Task updated" : "Task created",
         description: task ? "Your task has been updated successfully." : "Your task has been added successfully.",
@@ -220,7 +227,18 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
                     <FormItem>
                       <FormLabel>Activity</FormLabel>
                       <FormControl>
-                        <Input placeholder="Enter task activity..." {...field} />
+                        <>
+                          <Input 
+                            placeholder="Enter task activity..." 
+                            list="activities-autocomplete"
+                            {...field} 
+                          />
+                          <datalist id="activities-autocomplete">
+                            {uniqueActivities.map((activity, idx) => (
+                              <option key={idx} value={activity} />
+                            ))}
+                          </datalist>
+                        </>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
