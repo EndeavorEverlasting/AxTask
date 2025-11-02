@@ -94,8 +94,8 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
 
   const deleteTaskMutation = useMutation({
     mutationFn: async (taskId: string) => {
-      const response = await apiRequest("DELETE", `/api/tasks/${taskId}`);
-      return response.json();
+      await apiRequest("DELETE", `/api/tasks/${taskId}`);
+      return { success: true };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
