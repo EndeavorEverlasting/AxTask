@@ -145,7 +145,7 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
 
   return (
     <>
-    <Card className="focus-within:ring-2 focus-within:ring-blue-500 focus-within:shadow-lg focus-within:shadow-blue-500/50 transition-all duration-300">
+    <Card className="task-form-card transition-all duration-300">
       <CardHeader>
         <CardTitle>{task ? "Edit Task" : "Quick Task Entry"}</CardTitle>
         <CardDescription>
@@ -155,6 +155,20 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <style>{`
+              .task-form-card:has(.btn-submit:focus) {
+                outline: 2px solid rgb(34, 197, 94);
+                box-shadow: 0 10px 15px -3px rgba(34, 197, 94, 0.3), 0 4px 6px -4px rgba(34, 197, 94, 0.3);
+              }
+              .task-form-card:has(.btn-delete:focus) {
+                outline: 2px solid rgb(239, 68, 68);
+                box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3), 0 4px 6px -4px rgba(239, 68, 68, 0.3);
+              }
+              .task-form-card:has(.btn-cancel:focus) {
+                outline: 2px solid rgb(156, 163, 175);
+                box-shadow: 0 10px 15px -3px rgba(156, 163, 175, 0.3), 0 4px 6px -4px rgba(156, 163, 175, 0.3);
+              }
+            `}</style>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
@@ -163,7 +177,12 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
                   <FormItem>
                     <FormLabel>Date</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} data-testid="input-task-date" />
+                      <Input 
+                        type="date" 
+                        {...field} 
+                        data-testid="input-task-date"
+                        autoFocus={!task}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -349,6 +368,7 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
                     variant="destructive" 
                     onClick={() => setShowDeleteDialog(true)}
                     disabled={deleteTaskMutation.isPending}
+                    className="btn-delete"
                     data-testid="button-delete-task"
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
@@ -358,14 +378,22 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
                 <Button 
                   type="button" 
                   variant="outline" 
-                  onClick={() => form.reset()}
-                  data-testid="button-clear-form"
+                  onClick={() => {
+                    if (onSuccess) {
+                      onSuccess();
+                    } else {
+                      form.reset();
+                    }
+                  }}
+                  className="btn-cancel"
+                  data-testid="button-cancel-form"
                 >
-                  Clear
+                  Cancel
                 </Button>
                 <Button 
                   type="submit" 
                   disabled={createTaskMutation.isPending}
+                  className="btn-submit"
                   data-testid="button-submit-task"
                 >
                   <Plus className="mr-2 h-4 w-4" />
@@ -382,7 +410,17 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
     </Card>
 
     <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-      <AlertDialogContent>
+      <AlertDialogContent className="delete-dialog-content">
+        <style>{`
+          .delete-dialog-content:has(.btn-confirm-delete:focus) {
+            outline: 2px solid rgb(239, 68, 68);
+            box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3), 0 4px 6px -4px rgba(239, 68, 68, 0.3);
+          }
+          .delete-dialog-content:has(.btn-cancel-delete:focus) {
+            outline: 2px solid rgb(156, 163, 175);
+            box-shadow: 0 10px 15px -3px rgba(156, 163, 175, 0.3), 0 4px 6px -4px rgba(156, 163, 175, 0.3);
+          }
+        `}</style>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete Task</AlertDialogTitle>
           <AlertDialogDescription>
@@ -398,10 +436,10 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+          <AlertDialogCancel className="btn-cancel-delete" data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
           <AlertDialogAction 
             onClick={handleDelete}
-            className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            className="bg-red-600 hover:bg-red-700 focus:ring-red-600 btn-confirm-delete"
             data-testid="button-confirm-delete"
           >
             Delete Task

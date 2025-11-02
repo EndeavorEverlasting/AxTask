@@ -304,10 +304,16 @@ export function TaskList() {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                <style>{`
+                  .task-row:has(.btn-delete-row:focus) {
+                    outline: 2px solid rgb(239, 68, 68);
+                    box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3), 0 4px 6px -4px rgba(239, 68, 68, 0.3);
+                  }
+                `}</style>
                 {filteredAndSortedTasks.map((task: Task) => (
                   <TableRow 
                     key={task.id} 
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                    className="task-row hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-all duration-300"
                     onClick={() => setEditingTask(task)}
                   >
                     <TableCell className="font-mono text-sm">{task.date}</TableCell>
@@ -357,6 +363,8 @@ export function TaskList() {
                             deleteTaskMutation.mutate(task.id);
                           }}
                           disabled={deleteTaskMutation.isPending}
+                          className="btn-delete-row"
+                          data-testid={`button-delete-${task.id}`}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

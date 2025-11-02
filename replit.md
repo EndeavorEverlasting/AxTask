@@ -124,3 +124,63 @@ The application now features comprehensive calendar views providing an immersive
 - Task form includes time picker with current time default
 - Analytics dashboard ready for calendar-based insights
 - All calendar views support click-to-edit workflow
+
+### Accessibility & UX Improvements (Version 1.2.0 - November 2025)
+
+**Dynamic Focus Glow System:**
+The application implements an innovative accessibility feature using CSS `:has()` selectors to provide visual feedback for keyboard navigation:
+
+- **Green Glow** (rgb(34, 197, 94)): Indicates Add Task or Update Task action will execute on Enter
+- **Red Glow** (rgb(239, 68, 68)): Indicates Delete Task action will execute on Enter
+- **Grey Glow** (rgb(156, 163, 175)): Indicates Cancel action will execute on Enter
+
+Technical implementation uses CSS `:has()` pseudo-class:
+```css
+.task-form-card:has(.btn-submit:focus) {
+  outline: 2px solid rgb(34, 197, 94);
+  box-shadow: 0 10px 15px -3px rgba(34, 197, 94, 0.3);
+}
+```
+
+This solves the 100% zoom accessibility problem where action buttons may be positioned outside the visible viewport. Users can:
+1. Press Tab to navigate through form fields
+2. Continue tabbing until the form glows (indicating button focus)
+3. Press Enter to execute the action without needing to see or click the button
+
+**Auto-Focus for Quick Entry:**
+- The first input field (Date) automatically receives focus when the Quick Task Entry form loads
+- Implemented using `autoFocus={!task}` prop on the date input
+- Enables immediate keyboard input without clicking
+- Matches the "Quick Task Entry" promise for rapid task creation
+
+**Improved Button Labels:**
+- Changed "Clear" to "Cancel" for clarity
+- Cancel button now closes the form instead of clearing fields
+- Delete button only appears when editing existing tasks (not for new tasks)
+- Confirmation dialogs show task details before deletion
+
+**Auto-Refresh Data Synchronization:**
+TanStack Query configuration optimized to prevent data loss:
+```typescript
+{
+  refetchInterval: 30000,          // Poll every 30 seconds
+  refetchOnWindowFocus: true,       // Refresh when tab regains focus
+  staleTime: 10000,                // Data fresh for 10 seconds
+}
+```
+
+Real-world problem solved: Users spending time writing detailed notes would lose work if another process updated the database. The 30-second polling and window-focus refresh ensure data stays synchronized, preventing conflicts and data loss.
+
+**Delete Functionality:**
+- Hard delete with confirmation dialog (permanent deletion in v1.2.0)
+- Soft delete with 30-day recycle bin system planned for v1.3.0
+- Delete buttons have red glow when focused (form and All Tasks table)
+- Confirmation dialog previews task before deletion
+- Cache invalidation ensures UI updates immediately after deletion
+
+**Keyboard Accessibility:**
+- All forms fully navigable with Tab key
+- Enter key submits forms when action buttons are focused
+- Escape key closes dialogs
+- Focus indicators clearly visible at all zoom levels
+- No mouse required for any operation
