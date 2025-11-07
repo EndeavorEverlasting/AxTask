@@ -1,12 +1,41 @@
-# AxTask Version 1.3.0 - Planned Features
 
-**Planned Release Date**: TBD  
-**Status**: Planning Phase  
+# AxTask Version 1.3.0 - "Context + Control"
+
+**Planned Release Date**: Q2 2025  
+**Status**: In Development  
 **Type**: Minor Release
 
 ## Overview
 
-Version 1.3.0 focuses on expanding drag-and-drop capabilities across all calendar views, implementing a soft delete system with recycle bin, and adding Replit Auth for Google authentication with world-class security using Replit Secrets.
+Version 1.3.0 introduces context-aware productivity with safe, reversible actions. This release combines expanded drag-and-drop capabilities, soft delete with recycle bin, authentication and multi-tenancy, location-based reminders (local-only), voice input, and unified settings/privacy controls.
+
+**Theme:** Context-aware productivity with safe, reversible actions.
+
+**Scope (Epics):**
+- Calendar DnD everywhere
+- Soft Delete & Recycle Bin
+- Auth & Multi-tenancy
+- Location Reminders (local-only)
+- Voice Input
+- Unified Settings/Privacy
+
+## Release Strategy
+
+### Phase 1 (Core - Priority)
+- Calendar DnD expansion (day/week/month views)
+- Soft Delete + Recycle Bin
+- Replit Auth integration
+- Settings page scaffold
+
+### Phase 2 (Context - Follow-up)
+- Location field + local geofence notifications with cooldown
+- Voice input for activity/notes fields
+
+### Feature Flags
+- `feature.recycleBin`
+- `feature.dragToDelete`
+- `feature.locationReminders`
+- `feature.voiceInput`
 
 ## What's Already in v1.2.0
 
@@ -15,16 +44,15 @@ Version 1.3.0 focuses on expanding drag-and-drop capabilities across all calenda
 ✅ **Delete Confirmation Dialogs** - Keyboard accessible with visual feedback  
 ✅ **Drag-and-Drop in Hourly Views** - Working in 1h, 2h, 4h, 8h calendar views
 
-## Planned Features
+## Epic 1: Calendar Drag-and-Drop Everywhere
 
-### 1. 🎯 Drag-and-Drop Expansion
-
-#### Current State (v1.2.0)
-- Drag-and-drop task rescheduling is **only available in hourly views** (1-hour, 2-hour, 4-hour, 8-hour)
+### Current State (v1.2.0)
+- Drag-and-drop task rescheduling **only available in hourly views** (1-hour, 2-hour, 4-hour, 8-hour)
 - Features GripVertical icon, visual feedback, drop zone highlighting
 - Successfully updates task time and shows toast confirmation
 
-#### Planned Enhancements
+### Planned Enhancements
+
 **Daily View Drag-and-Drop:**
 - Drag tasks between different days
 - Visual calendar grid with drop zones for each day
@@ -38,480 +66,507 @@ Version 1.3.0 focuses on expanding drag-and-drop capabilities across all calenda
 **Monthly View Drag-and-Drop:**
 - Drag tasks between days in monthly calendar
 - Visual feedback showing which day is targeted
-- Update task date when dropped on new day
+- Update task date when dropped
 
-#### Technical Implementation
+**Shared Handler (Cross-View):**
 ```typescript
-// Extend existing drag handlers to work with dates
-const handleDrop = (e: React.DragEvent, targetDate: Date) => {
-  e.preventDefault();
-  if (draggedTask) {
-    updateTaskMutation.mutate({ 
-      taskId: draggedTask.id, 
-      date: format(targetDate, 'yyyy-MM-dd')
-    });
-  }
-};
+const handleDropToDate = (taskId: string, targetDate: Date) =>
+  updateTaskMutation.mutate({ 
+    taskId, 
+    date: format(targetDate, 'yyyy-MM-dd') 
+  });
 ```
 
-### 2. 🗑️ Soft Delete & Recycle Bin System
+**Invariants:**
+- Same mutation path across all views
+- Same undo window behavior
+- Consistent visual feedback
 
-#### Database Schema Changes
+## Epic 2: Soft Delete + Recycle Bin
+
+### Database Schema
 ```sql
--- Add deletedAt column to tasks table
-ALTER TABLE tasks ADD COLUMN deleted_at TIMESTAMP NULL;
-
--- Create index for performance
-CREATE INDEX idx_tasks_deleted_at ON tasks(deleted_at);
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks(deleted_at);
 ```
 
-#### Drizzle Schema Update
-```typescript
-export const tasks = pgTable("tasks", {
-  // ... existing fields
-  deletedAt: timestamp("deleted_at"),
-});
+### API Endpoints
+```
+DELETE /api/tasks/:id              // Soft delete -> set deleted_at=now()
+POST   /api/tasks/:id/restore      // Restore -> deleted_at=NULL
+GET    /api/tasks/recycle-bin      // List deleted tasks
+DELETE /api/tasks/:id/permanent    // Hard delete (admin only)
 ```
 
-#### API Routes
-```typescript
-// Soft delete endpoint
-DELETE /api/tasks/:id
-// Sets deleted_at to current timestamp
+### UX Features
 
-// Restore endpoint (new)
-POST /api/tasks/:id/restore
-// Sets deleted_at to NULL
-
-// Recycle bin list (new)
-GET /api/tasks/recycle-bin
-// Returns tasks where deleted_at IS NOT NULL
-
-// Permanent delete (new)
-DELETE /api/tasks/:id/permanent
-// Hard delete from database
-```
-
-#### Frontend Features
 **Recycle Bin Page:**
-- New page showing all deleted tasks
-- Columns: Task, Deleted Date, Days Remaining, Actions
-- Actions: Restore, Permanent Delete
-- Auto-calculate days until permanent deletion (30 days)
+- List view showing: Task | Deleted Date | Days Remaining | Actions
+- Restore button per task
+- Permanent delete option (with additional confirmation)
+- Auto-cleanup: Tasks older than 30 days are permanently deleted
 
-**Automatic Cleanup:**
-- Background job runs daily at midnight
-- Permanently deletes tasks where `deleted_at < NOW() - INTERVAL '30 days'`
-- Logged in application logs for audit trail
+**Drag-to-Delete Target:**
+- Visual recycle bin appears during drag operations
+- Drop task on bin icon = soft delete
+- Toast notification with **Undo** button (5-second window)
 
-**User Notifications:**
-- Toast notification: "Task moved to recycle bin (30 days to restore)"
-- Warning before permanent delete: "This action cannot be undone"
+**Confirmation Dialogs:**
+- Soft delete: Simple confirmation
+- Permanent delete: Stronger warning with explicit confirmation
 
-### 3. 📱 Drag-to-Delete in Calendar Views
+### Implementation Notes
+- Default queries filter `WHERE deleted_at IS NULL`
+- Recycle bin queries use `WHERE deleted_at IS NOT NULL`
+- Nightly cleanup job removes tasks where `deleted_at < NOW() - INTERVAL '30 days'`
 
-#### Visual Design
-When user starts dragging a task:
-1. Recycle bin icon appears in bottom-right corner
-2. Icon pulses and grows when task is dragged over it
-3. Drop zone area highlighted in red
-4. On drop: Task soft-deleted with confirmation toast
+## Epic 3: Authentication & Multi-Tenancy
 
-#### Technical Implementation
+### Architecture
+
+**Replit Auth Integration:**
+- Google as primary provider
+- Optional: GitHub, email/password in future releases
+- Secure session management with HTTP-only cookies
+
+**Database Schema:**
 ```typescript
-const [showRecycleBin, setShowRecycleBin] = useState(false);
-
-const handleDragStart = (e: React.DragEvent, task: Task) => {
-  setDraggedTask(task);
-  setShowRecycleBin(true); // Show recycle bin
-};
-
-const handleDragEnd = () => {
-  setShowRecycleBin(false); // Hide recycle bin
-  setDraggedTask(null);
-};
-
-const handleDropOnRecycleBin = (e: React.DragEvent) => {
-  e.preventDefault();
-  if (draggedTask) {
-    deleteTaskMutation.mutate(draggedTask.id); // Soft delete
-    setShowRecycleBin(false);
-  }
-};
-```
-
-#### UX Details
-- Recycle bin only appears during drag operation
-- Hover effect makes it obvious where to drop
-- Confirmation toast: "Task moved to recycle bin"
-- Undo button in toast (optional): "Restore"
-
-### 4. 🚀 Deployment Structure
-
-#### Production Environment Setup
-**Database:**
-- Separate production PostgreSQL instance
-- Connection pooling configured
-- Automated backups (daily + transaction log)
-
-**Environment Variables:**
-```bash
-# Production
-NODE_ENV=production
-DATABASE_URL=postgresql://...production-db
-SESSION_SECRET=<generated-secret>
-GOOGLE_CLIENT_ID=<production-oauth-id>
-GOOGLE_CLIENT_SECRET=<production-oauth-secret>
-GOOGLE_REDIRECT_URI=https://axtask.com/auth/google/callback
-```
-
-**Build Process:**
-```bash
-# Frontend build
-npm run build
-
-# Backend build
-npm run build:server
-
-# Start production server
-npm run start:prod
-```
-
-**Hosting Options:**
-- Replit Deployments (recommended for quick setup)
-- Vercel (frontend) + Railway/Render (backend)
-- AWS/GCP/Azure for enterprise deployments
-
-#### CI/CD Pipeline
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy to Production
-on:
-  push:
-    branches: [main]
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - Checkout code
-      - Run tests
-      - Build frontend
-      - Build backend
-      - Deploy to hosting platform
-```
-
-### 5. 🔐 Replit Auth (Google + Multi-Provider Login)
-
-#### Why Replit Auth?
-Replit provides a comprehensive authentication blueprint that supports:
-- Google OAuth (primary method)
-- GitHub, X (Twitter), Apple login
-- Email/password authentication
-- OpenID Connect provider integration
-- Built-in session management with PostgreSQL
-- World-class security out of the box
-
-#### Authentication Implementation
-**Using Replit Auth Blueprint (`blueprint:javascript_log_in_with_replit`):**
-
-The integration includes:
-1. Complete OAuth 2.0 flow handling
-2. Session management with PostgreSQL-backed storage
-3. User profile retrieval (email, name, profile picture)
-4. Automatic token refresh
-5. Protected route middleware (`isAuthenticated`)
-6. Frontend authentication hooks (`useAuth`)
-
-#### Database Schema for Users
-```typescript
-// From Replit Auth blueprint
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
-  firstName: varchar("first_name"),
-  lastName: varchar("last_name"),
-  profileImageUrl: varchar("profile_image_url"),
+  id: varchar("id").primaryKey(),
+  email: varchar("email").notNull().unique(),
+  name: varchar("name"),
+  avatar: text("avatar"),
   createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Session storage (required by Replit Auth)
 export const sessions = pgTable("sessions", {
-  sid: varchar("sid").primaryKey(),
-  sess: jsonb("sess").notNull(),
-  expire: timestamp("expire").notNull(),
-}, (table) => [
-  index("IDX_session_expire").on(table.expire)
-]);
-```
-
-#### Multi-Tenancy for Tasks
-```typescript
-export const tasks = pgTable("tasks", {
-  // ... existing fields
-  userId: varchar("user_id").references(() => users.id).notNull(),
+  id: varchar("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
-// All task queries filtered by userId
-WHERE user_id = :currentUserId AND deleted_at IS NULL
+export const tasks = pgTable("tasks", {
+  // ...existing fields
+  userId: varchar("user_id").notNull(), // FK to users.id
+  deletedAt: timestamp("deleted_at"),
+  location: text("location").default(''), // See Epic 4
+});
+
+// Indexes
+createIndex("idx_tasks_user_deleted").on(tasks.userId, tasks.deletedAt);
 ```
 
-#### API Routes
+### Query Scoping
+All task queries must be scoped:
 ```typescript
-// Authentication endpoints
-GET  /auth/google              // Redirect to Google OAuth
-GET  /auth/google/callback     // OAuth callback handler
-POST /auth/logout              // Destroy session
-GET  /auth/me                  // Get current user
-
-// Middleware
-requireAuth()                  // Protect routes requiring login
+WHERE user_id = :currentUserId AND (deleted_at IS NULL OR :includeDeleted)
 ```
 
-#### Frontend Integration
+### API Endpoints
+```
+GET  /auth/google              // Initiate Google OAuth
+GET  /auth/google/callback     // OAuth callback
+POST /auth/logout              // Clear session
+GET  /auth/me                  // Current user info
+```
+
+### Security
+- HTTPS enforced
+- HTTP-only, Secure cookies
+- Rate limiting on auth routes
+- Secrets via Replit Secrets (not .env)
+
+## Epic 4: Location Intelligence (Privacy-First)
+
+### Principles
+- **Server stores ONLY human-readable `tasks.location` string**
+- **Live coordinates NEVER leave the device** (stored in IndexedDB/localStorage)
+- **Geofence checks run client-side only**
+- **Opt-in by default** - disabled until user enables
+
+### Client-Side Services
+
+**location-notifications.ts:**
 ```typescript
-// useAuth hook (from Replit Auth blueprint)
-import { useAuth } from "@/hooks/useAuth";
+// Haversine distance calculation
+const withinRadius = (
+  a: {lat: number, lon: number}, 
+  b: {lat: number, lon: number}, 
+  radiusMeters: number
+): boolean => {
+  const R = 6371000; // Earth radius in meters
+  const toRad = (deg: number) => deg * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const s = Math.sin(dLat/2)**2 + 
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * 
+    Math.sin(dLon/2)**2;
+  const distance = 2 * R * Math.asin(Math.sqrt(s));
+  return distance <= radiusMeters;
+};
 
-const { user, isLoading, isAuthenticated } = useAuth();
-
-// Protected routes in App.tsx
-<Switch>
-  {isLoading || !isAuthenticated ? (
-    <Route path="/" component={Landing} />
-  ) : (
-    <>
-      <Route path="/" component={Dashboard} />
-      <Route path="/calendar" component={Calendar} />
-      {/* ... other protected routes */}
-    </>
-  )}
-</Switch>
-
-// Login page
-<Button onClick={() => window.location.href = "/api/login"}>
-  <GoogleIcon /> Sign in with Google
-</Button>
-```
-
-#### Security Considerations
-- HTTPS enforced in production (Replit handles TLS/SSL)
-- Secure session cookies: `httpOnly`, `secure`, `sameSite` flags
-- CSRF protection built into Replit Auth
-- Rate limiting on auth endpoints
-- SESSION_SECRET managed via Replit Secrets
-
-### 6. 🔐 World-Class API Security with Replit Secrets
-
-#### Why Replit Secrets Outclass Environment Variables
-
-**Traditional Environment Variables:**
-- ❌ Visible to collaborators in workspace
-- ❌ Can be logged accidentally
-- ❌ No rotation mechanism
-- ❌ Exposed in version control if .env committed
-
-**Replit Secrets:**
-- ✅ **AES-256 encryption at rest**
-- ✅ **TLS encryption in transit**
-- ✅ **Not visible in workspace** (except to owners)
-- ✅ **Collaborative access control** (see names, not values)
-- ✅ **App-level and account-level secrets**
-- ✅ **Never exposed in version control**
-- ✅ **Secure UI for secret management**
-
-#### Implementation Strategy
-```typescript
-// Access secrets same as environment variables
-const googleClientId = process.env.GOOGLE_CLIENT_ID;
-const sessionSecret = process.env.SESSION_SECRET;
-
-// But stored in Replit Secrets UI (not .env files)
-```
-
-**Secrets to Store:**
-- `SESSION_SECRET` - Express session encryption key
-- `REPL_ID` - Replit Auth client ID (auto-provided)
-- `ISSUER_URL` - Replit OIDC endpoint (auto-provided)
-- `DATABASE_URL` - PostgreSQL connection string (auto-provided)
-- Any future API keys (Stripe, Twilio, etc.)
-
-#### Best Practices
-1. **Never hardcode secrets** in source code
-2. **Use Replit Secrets UI** to add/update secrets
-3. **Rotate secrets periodically** (SESSION_SECRET every 90 days)
-4. **Audit access logs** for unauthorized secret access
-5. **Separate dev/prod secrets** (different Replit projects)
-
-### 7. 📊 Additional Enhancements
-
-#### Recycle Bin Analytics
-- Chart showing deletion patterns over time
-- Most frequently deleted task types
-- Recovery rate statistics
-
-#### Keyboard Shortcuts
-- `Ctrl/Cmd + Z` → Undo last deletion (restore from recycle bin)
-- `Ctrl/Cmd + Shift + Delete` → Open recycle bin
-- `Delete` key on selected task → Move to recycle bin
-
-#### Export Improvements
-- Include deleted tasks in export (optional checkbox)
-- Export recycle bin separately
-- Restore tasks from imported CSV
-
-## Technical Dependencies
-
-### New Packages Required
-```json
-{
-  "dependencies": {
-    "passport": "^0.7.0",
-    "passport-google-oauth20": "^2.0.0",
-    "express-session": "^1.18.0",
-    "connect-pg-simple": "^9.0.1"
+// Geofence monitoring
+class LocationNotificationService {
+  private watchId: number | null = null;
+  private cooldowns = new Map<string, number>(); // location key -> timestamp
+  private savedPlaces: Array<{name: string, lat: number, lon: number, radius: number}> = [];
+  
+  async requestPermissions() {
+    // Request Geolocation + Notifications permissions
+  }
+  
+  startWatching() {
+    // Throttled position watching
+    // Match nearby tasks by location name
+    // Respect 30-minute cooldown per location
+  }
+  
+  checkGeofences(currentPosition: GeolocationPosition) {
+    // Match against savedPlaces
+    // Trigger OS notification for nearby tasks
+    // Update cooldown timestamps
   }
 }
 ```
 
-### Database Migrations
-- Add `deleted_at` column to tasks table
-- Create `users` table with Google OAuth fields
-- Add `user_id` foreign key to tasks table
-- Create indexes for performance
+### Features
+- **Saved Places**: User defines locations with name + coordinates + radius (stored locally)
+- **Autocomplete**: Server provides unique location strings from `tasks.location`
+- **Cooldown**: 30-minute default (configurable) to prevent notification spam
+- **Notifications**: OS-level notifications when entering geofence
 
-## Migration Path from v1.2.0 to v1.3.0
+### API Endpoints
+```
+GET /api/tasks/autocomplete/locations   // Returns unique location strings (text only)
+```
 
-### Step 1: Database Backup
+### Data Flow
+```
+User enters "Office" in location field
+  ↓
+Client suggests from autocomplete (text strings)
+  ↓
+User can optionally map "Office" to coordinates locally
+  ↓
+Server stores only "Office" in tasks.location
+  ↓
+Client monitors GPS, checks if near saved "Office" coordinates
+  ↓
+Triggers notification when within radius (if cooldown expired)
+```
+
+## Epic 5: Voice Input
+
+### Implementation
+
+**Web Speech API Integration:**
+```typescript
+const startDictation = async (
+  onText: (text: string) => void
+): Promise<{supported: boolean}> => {
+  // @ts-ignore - Web Speech API may not be in types
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  
+  if (!SpeechRecognition) {
+    return { supported: false };
+  }
+  
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'en-US';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  
+  recognition.onresult = (event: any) => {
+    const transcript = event.results[0][0].transcript;
+    onText(transcript);
+  };
+  
+  recognition.onerror = (event: any) => {
+    console.error('Speech recognition error:', event.error);
+  };
+  
+  recognition.start();
+  return { supported: true };
+};
+```
+
+### Features
+- Microphone button on **Activity** and **Notes** fields
+- Visual indicator when recording
+- Graceful fallback for unsupported browsers
+- Respects settings toggle (off by default)
+- Cancel/timeout handling
+
+### Browser Support
+- Chrome/Edge: Full support
+- Safari: Limited support
+- Firefox: No WebKit Speech API support (show fallback message)
+
+## Epic 6: Settings & Privacy
+
+### Settings Page Sections
+
+**1. Account & Authentication**
+- Sign in/out (Replit Auth)
+- Profile information
+- Connected accounts
+
+**2. Privacy & Data**
+- **Location Processing**: "Local-only, opt-in" explanation
+- Clear description of what data is stored server-side vs. client-side
+- Revoke permissions button
+- Data export option
+
+**3. Feature Toggles**
+- ☐ Enable Recycle Bin
+- ☐ Enable Drag-to-Delete
+- ☐ Enable Location Reminders (off by default)
+- ☐ Enable Voice Input (off by default)
+
+**4. Location Settings** (if enabled)
+- Manage Saved Places (name, coordinates, radius)
+- Cooldown duration (default: 30 minutes)
+- Clear all location data button
+
+**5. Notifications**
+- App notifications (toasts)
+- OS notifications (for geofence)
+- Notification sound preferences
+
+### Security Hardening
+- HTTPS enforcement
+- Secure, HTTP-only cookies
+- Rate limiting on auth routes
+- Secrets management via **Replit Secrets**:
+  - `SESSION_SECRET`
+  - `GOOGLE_CLIENT_ID`
+  - `GOOGLE_CLIENT_SECRET`
+
+## Database Migration
+
+### Single Unified Migration
+```typescript
+await db.execute(sql`
+  -- Add new columns
+  ALTER TABLE tasks
+    ADD COLUMN IF NOT EXISTS user_id VARCHAR NOT NULL DEFAULT 'system',
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL,
+    ADD COLUMN IF NOT EXISTS location TEXT DEFAULT '';
+  
+  -- Add indexes
+  CREATE INDEX IF NOT EXISTS idx_tasks_user_deleted 
+    ON tasks(user_id, deleted_at);
+  
+  CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at 
+    ON tasks(deleted_at);
+`);
+
+// Backfill user_id for existing tasks
+await db.execute(sql`
+  UPDATE tasks 
+  SET user_id = 'legacy_owner' 
+  WHERE user_id = 'system';
+`);
+```
+
+## API Surface (Complete)
+
+### Authentication
+```
+GET  /auth/google              // Initiate OAuth
+GET  /auth/google/callback     // OAuth callback
+POST /auth/logout              // Clear session
+GET  /auth/me                  // Current user
+```
+
+### Tasks (Enhanced)
+```
+GET    /api/tasks                        // List user's tasks
+POST   /api/tasks                        // Create task
+GET    /api/tasks/:id                    // Get task
+PATCH  /api/tasks/:id                    // Update (including DnD date moves)
+DELETE /api/tasks/:id                    // Soft delete
+POST   /api/tasks/:id/restore            // Restore from recycle bin
+DELETE /api/tasks/:id/permanent          // Hard delete
+GET    /api/tasks/recycle-bin            // List deleted tasks
+GET    /api/tasks/autocomplete/activities
+GET    /api/tasks/autocomplete/locations // Text strings only
+```
+
+### Feature Flags
+```
+GET /api/feature-flags         // Per-user feature flag state
+```
+
+## Deployment & CI/CD
+
+### Secrets Configuration (Replit Secrets)
 ```bash
-# Backup existing database
-pg_dump $DATABASE_URL > backup_v1.2.0.sql
+SESSION_SECRET=<random-256-bit-key>
+GOOGLE_CLIENT_ID=<oauth-client-id>
+GOOGLE_CLIENT_SECRET=<oauth-client-secret>
+DATABASE_URL=<postgres-connection-string>
 ```
 
-### Step 2: Run Migrations
-```bash
-# Apply schema changes
-npm run db:push
+### Deployment Pipeline
+1. **Build**: `npm run build`
+2. **Test**: Run unit + integration tests
+3. **Migrate**: Run database migrations
+4. **Deploy**: Replit deployment
+5. **Smoke Test**: Verify auth flow, DnD, recycle bin
 
-# Or use Drizzle migrations
-npm run db:migrate
-```
+### Rollout Strategy
+1. Deploy Phase 1 features (DnD, Recycle Bin, Auth) to all users
+2. Enable `locationReminders` and `voiceInput` for beta cohort
+3. Monitor metrics and error rates
+4. Gradual rollout to 100% based on feedback
 
-### Step 3: Data Migration
-```bash
-# Associate existing tasks with first user (temporary)
-UPDATE tasks SET user_id = (SELECT id FROM users LIMIT 1);
-```
+## QA Testing Matrix
 
-### Step 4: Deploy Application
-```bash
-# Pull latest code
-git pull origin main
+### Browser Testing
+- ✓ Chrome (full support)
+- ✓ Edge (full support)
+- ✓ Safari (limited voice support)
+- ✓ Firefox (no voice, fallback messaging)
 
-# Install dependencies
-npm install
+### Permission Scenarios
+- Grant/Deny/Revoke: Geolocation
+- Grant/Deny/Revoke: Notifications
+- Grant/Deny/Revoke: Microphone
 
-# Build and restart
-npm run build
-npm run start:prod
-```
+### Drag-and-Drop Testing
+- Hourly ↔ Day/Week/Month view transitions
+- Cross-month drops
+- Undo behavior in all views
+- Drag-to-delete target
 
-### Step 5: Verify
-- Test soft delete functionality
-- Verify recycle bin page loads
-- Test Google OAuth login flow
-- Check drag-and-drop in all calendar views
+### Soft Delete Testing
+- List deleted tasks
+- Restore functionality
+- Permanent delete
+- 30-day cleanup job
+- Undo within 5-second window
 
-## Testing Plan
+### Location Testing
+- Radius hit detection
+- Cooldown respected (no duplicate notifications)
+- No server traffic with coordinates (verify network tab)
+- Saved places CRUD operations
 
-### Unit Tests
-- Soft delete logic
-- Recycle bin filtering (30-day rule)
-- Date calculations for drag-and-drop
+### Voice Testing
+- Dictation inserts expected text
+- Cancel/timeout paths
+- Fallback message in unsupported browsers
 
-### Integration Tests
-- OAuth flow end-to-end
-- Session management
-- Multi-user task isolation
+## Metrics (Privacy-Safe Counters)
 
-### E2E Tests (Playwright)
-- Drag task to recycle bin in calendar
-- Restore task from recycle bin
-- Permanent delete after 30 days
-- Google login flow
-- Drag-and-drop in daily/weekly/monthly views
+### Usage Metrics
+- Tasks moved via DnD (count only, no content)
+- Soft deletes performed
+- Tasks restored from recycle bin
+- Permanent deletes executed
 
-## Performance Considerations
+### Feature Adoption
+- Voice input activations (boolean counter)
+- Location reminders shown (count)
+- Users with location features enabled
 
-### Query Optimization
-```sql
--- Add index for deleted tasks
-CREATE INDEX idx_tasks_deleted_at_user 
-ON tasks(user_id, deleted_at);
+### Error Rates
+- Auth failures
+- API non-200 responses
+- Speech recognition errors
 
--- Optimize recycle bin query
-SELECT * FROM tasks 
-WHERE user_id = :userId 
-  AND deleted_at IS NOT NULL 
-  AND deleted_at > NOW() - INTERVAL '30 days'
-ORDER BY deleted_at DESC;
-```
+## Acceptance Criteria
 
-### Caching Strategy
-- Cache recycle bin count in Redis
-- Invalidate on soft delete/restore
-- Reduce database load for dashboard stats
+### Must Pass to Ship 1.3.0
 
-## Documentation Updates
+**Calendar DnD:**
+- ✓ Move task in Day view → date updates
+- ✓ Move task in Week view → date updates
+- ✓ Move task in Month view → date updates
+- ✓ Undo works in all views
+- ✓ Visual feedback consistent across views
 
-### User Documentation
-- "How to recover deleted tasks" guide
-- "Using drag-and-drop across calendars" tutorial
-- "Signing in with Google" walkthrough
+**Soft Delete:**
+- ✓ Delete via button → appears in Recycle Bin
+- ✓ Drag to delete target → soft deletes
+- ✓ Restore from Recycle Bin → task reappears
+- ✓ Undo within 5 seconds works
+- ✓ 30-day cleanup executes
 
-### Developer Documentation
-- Authentication flow diagram
-- API endpoint reference
-- Database schema ERD with users + tasks relationship
+**Authentication:**
+- ✓ Google login works
+- ✓ Tasks scoped per user
+- ✓ Logout clears session
+- ✓ Unauthorized access blocked
 
-## Implementation Notes
+**Settings:**
+- ✓ Toggles persist across sessions
+- ✓ Location/Voice off by default
+- ✓ Privacy explanations clear
+- ✓ Revoke permissions works
 
-### Features Requiring Manual Implementation
+**Location (when enabled):**
+- ✓ Reminders trigger locally
+- ✓ Server never receives coordinates
+- ✓ Cooldown prevents spam
+- ✓ Saved places managed correctly
 
-Some features in this plan require manual implementation or external setup:
+**Voice (when enabled):**
+- ✓ Works in Chrome/Edge
+- ✓ Graceful fallback in Firefox/Safari
+- ✓ Recording indicator visible
+- ✓ Cancel/error handling works
 
-**Replit Auth Integration:**
-- Must use `use_integration` tool to add `blueprint:javascript_log_in_with_replit`
-- Requires significant code changes to add authentication layer
-- Database schema must be updated with users and sessions tables
-- All task queries must filter by `userId`
+## Next Steps (Actionable)
 
-**Production Deployment:**
-- Use Replit's built-in "Publish" feature (not manual deployment)
-- Replit handles HTTPS, TLS certificates, and domain management
-- No CI/CD pipeline needed for Replit deployments
+1. **Database Migration**: Implement unified migration adding `user_id`, `deleted_at`, `location`
+2. **Auth Integration**: Set up Replit Auth with Google provider
+3. **Recycle Bin**: Build API endpoints + UI page
+4. **Drag-to-Delete**: Add visual overlay during drag operations
+5. **DnD Expansion**: Extend to Day/Week/Month views with shared handlers
+6. **Settings Page**: Create comprehensive settings UI with privacy controls
+7. **Feature Flags**: Implement flag system for gradual rollout
+8. **Location Service**: Build client-side geofence monitoring (behind flag)
+9. **Voice Input**: Add microphone buttons with Web Speech API (behind flag)
+10. **QA Testing**: Execute full testing matrix
+11. **Beta Release**: Enable location/voice for limited cohort
+12. **Monitor & Iterate**: Collect feedback, adjust before full rollout
 
-**Background Jobs (30-day cleanup):**
-- Consider using cron jobs or scheduled functions
-- Alternative: Cleanup on-demand when viewing recycle bin
+## Known Limitations
 
-## Timeline Estimate
+### Multi-User Conflicts
+- **Current**: 30-second polling may miss rapid changes
+- **Impact**: Low (most users work individually)
+- **Future**: WebSocket real-time sync (Version 2.0)
 
-- **Soft Delete System**: 2-3 days
-- **Drag-and-Drop Expansion**: 3-4 days
-- **Replit Auth Integration**: 4-5 days (includes multi-user support)
-- **Testing & Documentation**: 3-4 days
+### Browser Compatibility
+- Voice input requires Chrome/Edge for full support
+- Location services require HTTPS (already enforced)
+- Geolocation permissions vary by browser
 
-**Total Estimated Time**: 12-17 days
+### Performance Considerations
+- Location monitoring throttled to conserve battery
+- Geofence checks client-side only (no server load)
+- Feature flags prevent unused code from loading
 
-## Success Metrics
+## Upgrade Path
 
-- 95%+ of users successfully authenticate with Google
-- Drag-and-drop works in all 7 calendar views
-- Average task recovery time < 2 minutes
-- Zero data loss incidents in production
-- Application uptime > 99.5%
+### From v1.2.0 to v1.3.0
 
----
+**Required Steps:**
+1. Run database migration (adds columns + indexes)
+2. Configure Replit Secrets for auth
+3. Deploy updated codebase
+4. Clear browser cache for users (CSS/JS updates)
 
-**Status**: This document serves as the planning blueprint for v1.3.0. Features will be prioritized based on user feedback and business value.
+**Data Migration:**
+- Existing tasks: `user_id` backfilled to legacy owner
+- `deleted_at` defaults to NULL (no tasks soft-deleted)
+- `location` defaults to empty string
+
+**No Breaking Changes:**
+- All existing features remain functional
+- New features opt-in via settings
+- API backward compatible (new endpoints only)
