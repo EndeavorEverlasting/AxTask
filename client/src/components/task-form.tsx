@@ -42,6 +42,14 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
     staleTime: 60000, // Cache for 1 minute
   });
 
+  const { data: uniqueLocations = [] } = useQuery<string[]>({
+    queryKey: ["/api/tasks/autocomplete/locations"],
+    staleTime: 60000,
+  });
+
+  const [isListening, setIsListening] = useState(false);
+  const [voiceField, setVoiceField] = useState<'activity' | 'notes' | null>(null);
+
   const form = useForm<InsertTask>({
     resolver: zodResolver(insertTaskSchema),
     defaultValues: task ? {
@@ -53,6 +61,7 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
       impact: task.impact || undefined,
       effort: task.effort || undefined,
       prerequisites: task.prerequisites || "",
+      location: task.location || "",
       status: task.status as "pending" | "in-progress" | "completed",
     } : {
       date: new Date().toISOString().split('T')[0],
@@ -63,9 +72,57 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
       impact: undefined,
       effort: undefined,
       prerequisites: "",
+      location: "",
       status: "pending" as const,
     },
   });
+
+  const startVoiceInput = (fieldName: 'activity' | 'notes') => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      toast({
+        title: "Not supported",
+        description: "Voice input is not supported in your browser. Try Chrome or Edge.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      setVoiceField(fieldName);
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      const currentValue = form.getValues(fieldName) || "";
+      const newValue = currentValue ? `${currentValue} ${transcript}` : transcript;
+      form.setValue(fieldName, newValue);
+    };
+
+    recognition.onerror = (event: any) => {
+      toast({
+        title: "Voice input error",
+        description: event.error === 'no-speech' ? "No speech detected. Please try again." : "An error occurred. Please try again.",
+        variant: "destructive",
+      });
+      setIsListening(false);
+      setVoiceField(null);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      setVoiceField(null);
+    };
+
+    recognition.start();
+  };
 
   const createTaskMutation = useMutation({
     mutationFn: async (taskData: InsertTask) => {
@@ -227,18 +284,32 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
                     <FormItem>
                       <FormLabel>Activity</FormLabel>
                       <FormControl>
-                        <>
+                        <div className="flex gap-2">
                           <Input 
                             placeholder="Enter task activity..." 
                             list="activities-autocomplete"
                             {...field} 
+                            className="flex-1"
                           />
+                          <Button
+                            type="button"
+                            variant={isListening && voiceField === 'activity' ? "default" : "outline"}
+                            size="icon"
+                            onClick={() => startVoiceInput('activity')}
+                            title="Voice input"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                              <line x1="12" x2="12" y1="19" y2="22"/>
+                            </svg>
+                          </Button>
                           <datalist id="activities-autocomplete">
                             {uniqueActivities.map((activity, idx) => (
                               <option key={idx} value={activity} />
                             ))}
                           </datalist>
-                        </>
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -254,11 +325,27 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
                     <FormItem>
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
-                        <Textarea
-                          rows={3}
-                          placeholder="Add detailed notes, tags (@urgent, #blocker), or additional context..."
-                          {...field}
-                        />
+                        <div className="space-y-2">
+                          <Textarea
+                            rows={3}
+                            placeholder="Add detailed notes, tags (@urgent, #blocker), or additional context..."
+                            {...field}
+                          />
+                          <Button
+                            type="button"
+                            variant={isListening && voiceField === 'notes' ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => startVoiceInput('notes')}
+                            className="w-full sm:w-auto"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                              <line x1="12" x2="12" y1="19" y2="22"/>
+                            </svg>
+                            {isListening && voiceField === 'notes' ? 'Listening...' : 'Add Voice Notes'}
+                          </Button>
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -352,6 +439,31 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
                     <FormLabel>Prerequisites</FormLabel>
                     <FormControl>
                       <Input placeholder="Dependencies or prerequisites..." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="location"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Location</FormLabel>
+                    <FormControl>
+                      <>
+                        <Input 
+                          placeholder="Where does this task happen? (e.g., Office, Home, Gym)"
+                          list="locations-autocomplete"
+                          {...field} 
+                        />
+                        <datalist id="locations-autocomplete">
+                          {uniqueLocations.map((location, idx) => (
+                            <option key={idx} value={location} />
+                          ))}
+                        </datalist>
+                      </>
                     </FormControl>
                     <FormMessage />
                   </FormItem>

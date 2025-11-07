@@ -36,6 +36,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get unique locations for autocomplete (must come before :id route)
+  app.get("/api/tasks/autocomplete/locations", async (req, res) => {
+    try {
+      const locations = await storage.getUniqueLocations();
+      res.json(locations);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch locations" });
+    }
+  });
+
   // Get task by ID
   app.get("/api/tasks/:id", async (req, res) => {
     try {

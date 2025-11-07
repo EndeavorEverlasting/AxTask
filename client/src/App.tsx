@@ -10,7 +10,7 @@ import Tasks from "@/pages/tasks";
 import CalendarPage from "@/pages/calendar";
 import Analytics from "@/pages/analytics";
 import ImportExport from "@/pages/import-export";
-import GoogleSheetsSyncPage from "@/pages/google-sheets-sync";
+import Settings from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -21,7 +21,7 @@ function Router() {
       <Route path="/calendar" component={CalendarPage} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/import-export" component={ImportExport} />
-      <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
+      <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>
   );

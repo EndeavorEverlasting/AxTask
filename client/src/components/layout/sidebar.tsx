@@ -26,6 +26,7 @@ export function Sidebar() {
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },
     { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
+    { path: "/settings", icon: Settings, label: "Settings" }, // Added Settings link
   ];
 
   const isActiveRoute = (path: string) => {
@@ -43,7 +44,7 @@ export function Sidebar() {
         </h1>
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Intelligent Task Management</p>
       </div>
-      
+
       <nav className="flex-1 p-4">
         <ul className="space-y-2">
           {menuItems.map(({ path, icon: Icon, label }) => (

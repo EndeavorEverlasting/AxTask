@@ -13,6 +13,7 @@ export const tasks = pgTable("tasks", {
   impact: integer("impact"), // 1-5 or null for auto-calculation
   effort: integer("effort"), // 1-5 or null for auto-calculation
   prerequisites: text("prerequisites").default(""),
+  location: text("location").default(""), // Physical location where task occurs
   priority: text("priority").notNull(), // "Highest", "High", "Medium-High", "Medium", "Low"
   priorityScore: integer("priority_score").notNull(),
   classification: text("classification").notNull(), // "Development", "Meeting", "Administrative", etc.
@@ -39,6 +40,7 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   impact: z.number().min(1).max(5).optional(),
   effort: z.number().min(1).max(5).optional(),
   prerequisites: z.string().optional(),
+  location: z.string().optional(),
   status: z.enum(["pending", "in-progress", "completed"]).default("pending"),
 });
 
