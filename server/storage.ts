@@ -1,6 +1,6 @@
 import { tasks, type Task, type InsertTask, type UpdateTask } from "@shared/schema";
 import { db } from "./db";
-import { eq, ilike, or, sql } from "drizzle-orm";
+import { eq, ilike, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -19,7 +19,6 @@ export interface IStorage {
     avgPriorityScore: number;
   }>;
   getUniqueActivities(): Promise<string[]>;
-  getUniqueLocations(): Promise<string[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -35,7 +34,7 @@ export class DatabaseStorage implements IStorage {
   async createTask(insertTask: InsertTask): Promise<Task> {
     const id = randomUUID();
     const now = new Date();
-
+    
     const taskData = {
       ...insertTask,
       id,
@@ -92,7 +91,7 @@ export class DatabaseStorage implements IStorage {
   }> {
     const allTasks = await this.getTasks();
     const today = new Date().toISOString().split('T')[0];
-
+    
     const totalTasks = allTasks.length;
     const highPriorityTasks = allTasks.filter(task => 
       task.priority === "Highest" || task.priority === "High"
@@ -114,23 +113,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUniqueActivities(): Promise<string[]> {
-    const result = await db
-      .selectDistinct({ activity: tasks.activity })
-      .from(tasks)
-      .where(sql`${tasks.activity} IS NOT NULL AND ${tasks.activity} != ''`)
-      .orderBy(tasks.activity);
-
-    return result.map(r => r.activity);
-  }
-
-  async getUniqueLocations(): Promise<string[]> {
-    const result = await db
-      .selectDistinct({ location: tasks.location })
-      .from(tasks)
-      .where(sql`${tasks.location} IS NOT NULL AND ${tasks.location} != ''`)
-      .orderBy(tasks.location);
-
-    return result.map(r => r.location || '').filter(l => l.length > 0);
+    const allTasks = await this.getTasks();
+    const activitySet = new Set(allTasks.map(task => task.activity));
+    const uniqueActivities = Array.from(activitySet);
+    return uniqueActivities.sort();
   }
 }
 
