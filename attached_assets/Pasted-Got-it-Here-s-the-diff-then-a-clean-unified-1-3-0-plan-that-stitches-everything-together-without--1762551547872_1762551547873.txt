@@ -1,0 +1,263 @@
+Got it. Here’s the diff, then a clean, unified 1.3.0 plan that stitches everything together without stepping on itself.
+
+# Quick diff (a ↔ b)
+
+**Only in a**
+
+* Calendar DnD expansion to **day/week/month**.
+* **Soft delete + Recycle Bin** (+ drag-to-delete target).
+* **Replit Auth** (Google-first, multi-provider), sessions, userId multi-tenancy.
+* **CI/CD + deployment** notes, Replit Secrets hardening.
+
+**Only in b**
+
+* **Location intelligence** (task.location, geofence reminders, cooldown).
+* **Voice input** (Web Speech API) for activity/notes.
+* **Settings & privacy** page + explicit opt-in, local-only location processing.
+
+**Overlap / potential friction**
+
+* Notifications: a uses app toasts; b adds OS notifications. Resolve with a unified notifications layer.
+* Data model: a adds `deleted_at`; b adds `location`. No conflict—merge both.
+* Privacy: b requires **local-only** geodata; ensure backend never stores coordinates.
+* Timeline labeling: a = “TBD minor release”; b = “Q2 2025, in dev”. Pick one schedule, ship in phases.
+
+---
+
+# AxTask 1.3.0 — “Context + Control” (Integrated Plan)
+
+**Theme:** Context-aware productivity with safe, reversible actions.
+**Scope (epics):** Calendar DnD everywhere • Soft Delete • Auth & Multi-tenancy • Location Reminders (local-only) • Voice Input • Unified Settings/Privacy.
+
+## 0) Release strategy (feature flags & phases)
+
+* **Phase 1 (Core):** Calendar DnD (day/week/month), Soft Delete + Recycle Bin, Auth (Replit), Settings page scaffold.
+* **Phase 2 (Context):** Location field + local geofence notifications (+ cooldown), Voice input.
+* **Flags:** `feature.recycleBin`, `feature.dragToDelete`, `feature.locationReminders`, `feature.voiceInput`.
+
+---
+
+## 1) Calendar Drag-and-Drop Everywhere (from a)
+
+* Extend working hourly DnD to **Day/Week/Month** grids.
+* Preserve existing affordances (grip icon, drop highlight, toast).
+* Cross-view invariants: same mutation path, same undo window.
+
+**Key handler (shared):**
+
+```ts
+const handleDropToDate = (taskId: string, targetDate: Date) =>
+  updateTaskMutation.mutate({ taskId, date: format(targetDate,'yyyy-MM-dd') });
+```
+
+---
+
+## 2) Soft Delete + Recycle Bin (from a)
+
+**DB**
+
+```sql
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks(deleted_at);
+```
+
+**API**
+
+```
+DELETE /api/tasks/:id              // soft delete -> set deleted_at=now()
+POST   /api/tasks/:id/restore      // restore -> deleted_at=NULL
+GET    /api/tasks/recycle-bin      // list deleted
+DELETE /api/tasks/:id/permanent    // hard delete
+```
+
+**UX**
+
+* Recycle Bin page (Task | Deleted Date | Days Remaining | Actions).
+* **Drag-to-Delete** target appears during drag; drop = soft delete.
+* Toast with **Undo**; nightly cleanup of >30-day deletes.
+
+---
+
+## 3) Auth, Sessions, Multi-tenancy (from a)
+
+* **Replit Auth** (Google primary; others optional).
+* `users`, `sessions` tables per blueprint; `tasks.user_id` required.
+* All queries scoped: `WHERE user_id = :currentUserId AND (deleted_at IS NULL OR includeDeleted)`.
+
+**DB**
+
+```ts
+export const tasks = pgTable("tasks", {
+  // …existing
+  userId: varchar("user_id").notNull(),     // FK to users.id
+  deletedAt: timestamp("deleted_at"),
+  location: text("location").default(''),   // see Epic 4
+});
+createIndex("idx_tasks_user_deleted").on(tasks.userId, tasks.deletedAt);
+```
+
+---
+
+## 4) Location Intelligence (from b, privacy-tight)
+
+**Principles**
+
+* **Server stores only the human-readable `tasks.location` string.**
+* **Live coordinates never leave the device** (IndexedDB/localStorage).
+* Geofence checks and cooldown timers run **client-side**.
+
+**Client services**
+
+* `location-notifications.ts`
+
+  * Requests permission (Geolocation + Notifications).
+  * Watches position (throttled).
+  * Matches nearby tasks by local store of `{name:"Office", lat, lon, radius}` mapped to textual `tasks.location`.
+  * **30-min cooldown** per location key.
+
+**API**
+
+```
+GET /api/tasks/autocomplete/locations   // unique task.location strings (text only)
+```
+
+**Settings (from b)**
+
+* Toggles: Location Reminders (on/off), Cooldown (e.g., 30m), Manage Saved Places (name + radius), Voice Input (on/off).
+* Clear explanations of local-only processing.
+
+**Geofence sketch**
+
+```ts
+const withinRadius = (a:{lat:number,lon:number}, b:{lat:number,lon:number}, rM:number) => {
+  const R=6371000, toRad=(d:number)=>d*Math.PI/180;
+  const dLat=toRad(b.lat-a.lat), dLon=toRad(b.lon-a.lon);
+  const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLon/2)**2;
+  const d = 2*R*Math.asin(Math.sqrt(s));
+  return d <= rM;
+};
+```
+
+**Unified notifications**
+
+* In-app toast for immediate actions; **OS Notifications** for geofence reminders.
+* Single wrapper picks best channel available.
+
+---
+
+## 5) Voice Input (from b)
+
+* Mic buttons on **Activity** and **Notes** fields.
+* Web Speech API where supported; fall back to a modal that explains unavailability.
+* Respect settings toggle; no recording unless user taps mic.
+
+```ts
+const startDictation = async (onText:(t:string)=>void) => {
+  // @ts-ignore
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return { supported:false };
+  const rec = new SR(); rec.lang='en-US'; rec.interimResults=false;
+  rec.onresult = (e:any) => onText(e.results[0][0].transcript);
+  rec.start(); return { supported:true };
+};
+```
+
+---
+
+## 6) Settings & Privacy (from b, plus a’s security)
+
+* Central **Settings** page with:
+
+  * Sign-in/out (Replit Auth), profile.
+  * **Privacy**: Location processing is local-only, opt-in, clear revoke.
+  * **Toggles**: Recycle Bin, Drag-to-Delete, Location Reminders, Voice Input.
+  * Manage **Saved Places** (name + coords + radius) — stored locally.
+* Security: enforce HTTPS; secure cookies; rate-limit auth routes.
+* Secrets via **Replit Secrets** (no .env in repo).
+
+---
+
+## 7) Unified data model & migrations
+
+**Single migration after deploy**
+
+```ts
+await db.execute(sql`
+  ALTER TABLE tasks
+    ADD COLUMN IF NOT EXISTS user_id VARCHAR NOT NULL,
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL,
+    ADD COLUMN IF NOT EXISTS location TEXT DEFAULT '';
+  CREATE INDEX IF NOT EXISTS idx_tasks_user_deleted ON tasks(user_id, deleted_at);
+`);
+```
+
+* Backfill `user_id` to owner for existing rows.
+* Location defaults to `''`; users can populate later.
+
+---
+
+## 8) API surface (final)
+
+```
+Auth:   GET /auth/google, GET /auth/google/callback, POST /auth/logout, GET /auth/me
+Tasks:  PATCH /api/tasks/:id           // date/time moves (DnD)
+        DELETE /api/tasks/:id          // soft delete
+        POST /api/tasks/:id/restore
+        DELETE /api/tasks/:id/permanent
+        GET /api/tasks/recycle-bin
+        GET /api/tasks/autocomplete/locations
+Flags:  GET /api/feature-flags         // serve per-user flags
+```
+
+---
+
+## 9) Deployment & CI/CD (from a)
+
+* **Secrets:** `SESSION_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` in Replit Secrets.
+* Pipelines: build → test → db migrate → deploy.
+* Smoke tests: auth flow, DnD, recycle bin, settings toggles.
+* Rollout: enable `locationReminders` & `voiceInput` to a small beta cohort first.
+
+---
+
+## 10) QA matrix (targeted, not bloated)
+
+* Browsers: Chrome, Edge, Safari (voice limited), Firefox (no WebKit Speech).
+* Permissions: grant/deny/revoke for Geo + Notifications + Mic.
+* DnD: hourly ↔ day/week/month, cross-month drop, Undo behavior.
+* Soft delete: list, restore, permanent delete; midnight sweeper.
+* Location reminders: radius hit, cooldown respected, no server traffic with coordinates.
+* Voice: dictation inserts expected text; cancel/timeout paths.
+
+---
+
+## 11) Metrics (privacy-safe)
+
+* Counts only (no content): tasks moved via DnD, soft-deleted, restored, permanent deletes.
+* Feature adoption: voice starts, location reminders shown (boolean counters).
+* Error rates: auth failures, API non-200s.
+
+---
+
+## 12) Acceptance criteria (must pass to ship 1.3.0)
+
+* Move a task in **all** calendar views; date updates; Undo works.
+* Soft delete via button **and** drag target; appears in Recycle Bin; restore works.
+* Auth: Google login; tasks scoped per user; logout clears session.
+* Settings toggles persist; location/voice are **off by default** until enabled.
+* When enabled, location reminders trigger locally; server never sees coordinates.
+* Voice input works in Chrome/Edge; graceful fallback elsewhere.
+
+---
+
+## What to build next (short, actionable)
+
+1. Ship the **DB migration** above and add `user_id` scoping in all task queries.
+2. Implement **Recycle Bin** (API + page) and **Drag-to-Delete** overlay.
+3. Extend **DnD** to Day/Week/Month with shared handlers + Undo.
+4. Add **Settings** page with toggles; wire **feature flags**.
+5. Drop in **Replit Auth** and secure secrets.
+6. Add **location-notifications.ts** (local geofence + cooldown) and **voice** mic buttons behind flags.
+7. Run the **QA matrix**, then flip flags for a limited beta.
+
+That gives you one cohesive 1.3.0: faster scheduling, safer deletion, real user isolation, and smarter nudges—without leaking a single coordinate to the server.
