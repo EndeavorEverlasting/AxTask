@@ -53,10 +53,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/tasks", async (req, res) => {
     try {
       const validatedData = insertTaskSchema.parse(req.body);
-      
+
       // Create task first
       let task = await storage.createTask(validatedData);
-      
+
       // Calculate priority and classification using the priority engine
       const allTasks = await storage.getTasks();
       const priorityResult = await PriorityEngine.calculatePriority(
@@ -67,9 +67,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         task.effort,
         allTasks.filter(t => t.id !== task.id) // Exclude current task
       );
-      
+
       const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
-      
+
       // Update task with calculated values
       task = await storage.updateTask({
         id: task.id,
@@ -78,7 +78,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         classification,
         isRepeated: priorityResult.isRepeated,
       }) || task;
-      
+
       res.status(201).json(task);
     } catch (error) {
       if (error instanceof Error) {
@@ -96,12 +96,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         id: req.params.id,
       });
-      
+
       let task = await storage.updateTask(validatedData);
       if (!task) {
         return res.status(404).json({ message: "Task not found" });
       }
-      
+
       // Recalculate priority if activity or notes changed
       if (validatedData.activity || validatedData.notes) {
         const allTasks = await storage.getTasks();
@@ -113,9 +113,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           task!.effort,
           allTasks.filter(t => t.id !== task!.id)
         );
-        
+
         const classification = PriorityEngine.classifyTask(task!.activity, task!.notes || "");
-        
+
         task = await storage.updateTask({
           id: task!.id,
           priority: priorityResult.priority,
@@ -124,7 +124,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isRepeated: priorityResult.isRepeated,
         }) || task;
       }
-      
+
       res.json(task);
     } catch (error) {
       if (error instanceof Error) {
@@ -182,7 +182,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/tasks/recalculate", async (req, res) => {
     try {
       const allTasks = await storage.getTasks();
-      
+
       for (const task of allTasks) {
         const priorityResult = await PriorityEngine.calculatePriority(
           task.activity,
@@ -192,9 +192,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           task.effort,
           allTasks.filter(t => t.id !== task.id)
         );
-        
+
         const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
-        
+
         await storage.updateTask({
           id: task.id,
           priority: priorityResult.priority,
@@ -203,223 +203,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isRepeated: priorityResult.isRepeated,
         });
       }
-      
+
       res.json({ message: "All priorities recalculated successfully" });
     } catch (error) {
       res.status(500).json({ message: "Failed to recalculate priorities" });
     }
   });
 
-  // Google Sheets API Routes
-  
-  // Generate OAuth URL for Google Sheets authentication
-  app.get("/api/google-sheets/auth-url", async (req, res) => {
-    try {
-      if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-        return res.status(400).json({ 
-          message: "Google API credentials not configured. Please check your environment variables." 
-        });
-      }
-
-      const googleSheets = createGoogleSheetsAPI();
-      const authUrl = googleSheets.generateAuthUrl();
-      res.json({ authUrl });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to generate auth URL" });
-    }
-  });
-
-  // Handle OAuth callback and exchange code for tokens
-  app.post("/api/google-sheets/auth-callback", async (req, res) => {
-    try {
-      const { code } = req.body;
-      if (!code) {
-        return res.status(400).json({ message: "Authorization code required" });
-      }
-
-      const googleSheets = createGoogleSheetsAPI();
-      const tokens = await googleSheets.getTokens(code);
-      
-      // In a real app, you'd save these tokens securely for the user
-      res.json({ 
-        message: "Authentication successful",
-        tokens: {
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken
-        }
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to exchange authorization code" });
-    }
-  });
-
-  // Get spreadsheet information
-  app.get("/api/google-sheets/spreadsheet/:id", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { accessToken, refreshToken } = req.query;
-
-      if (!accessToken) {
-        return res.status(400).json({ message: "Access token required" });
-      }
-
-      const googleSheets = createGoogleSheetsAPI({
-        accessToken: accessToken as string,
-        refreshToken: refreshToken as string
-      });
-
-      const info = await googleSheets.getSpreadsheetInfo(id);
-      res.json(info);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get spreadsheet info" });
-    }
-  });
-
-  // Create new task spreadsheet
-  app.post("/api/google-sheets/create-spreadsheet", async (req, res) => {
-    try {
-      const { title, accessToken, refreshToken } = req.body;
-
-      if (!accessToken) {
-        return res.status(400).json({ message: "Access token required" });
-      }
-
-      const googleSheets = createGoogleSheetsAPI({
-        accessToken,
-        refreshToken
-      });
-
-      const spreadsheetId = await googleSheets.createTaskSpreadsheet(title);
-      res.json({ 
-        spreadsheetId,
-        url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to create spreadsheet" });
-    }
-  });
-
-  // Export tasks to Google Sheets
-  app.post("/api/google-sheets/export", async (req, res) => {
-    try {
-      const { spreadsheetId, sheetName, accessToken, refreshToken } = req.body;
-
-      if (!spreadsheetId || !accessToken) {
-        return res.status(400).json({ message: "Spreadsheet ID and access token required" });
-      }
-
-      const googleSheets = createGoogleSheetsAPI({
-        accessToken,
-        refreshToken
-      });
-
-      const tasks = await storage.getTasks();
-      const result = await googleSheets.exportTasks(spreadsheetId, tasks, sheetName);
-      
-      res.json(result);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to export tasks to Google Sheets" });
-    }
-  });
-
-  // Import tasks from Google Sheets
-  app.post("/api/google-sheets/import", async (req, res) => {
-    try {
-      const { spreadsheetId, sheetName, accessToken, refreshToken } = req.body;
-
-      if (!spreadsheetId || !accessToken) {
-        return res.status(400).json({ message: "Spreadsheet ID and access token required" });
-      }
-
-      const googleSheets = createGoogleSheetsAPI({
-        accessToken,
-        refreshToken
-      });
-
-      const importedTasks = await googleSheets.importTasks(spreadsheetId, sheetName);
-      
-      // Process and store imported tasks
-      const processedTasks = [];
-      for (const taskData of importedTasks) {
-        try {
-          // Remove the temporary ID and let the database generate a new one
-          const { id, ...taskWithoutId } = taskData;
-          
-          // Validate the task data
-          const validatedData = insertTaskSchema.parse(taskWithoutId);
-          
-          // Create task
-          let task = await storage.createTask(validatedData);
-          
-          // Calculate priority using the priority engine
-          const allTasks = await storage.getTasks();
-          const priorityResult = await PriorityEngine.calculatePriority(
-            task.activity,
-            task.notes || "",
-            task.urgency,
-            task.impact,
-            task.effort,
-            allTasks.filter(t => t.id !== task.id)
-          );
-          
-          const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
-          
-          // Update with calculated values
-          const updatedTask = await storage.updateTask({
-            id: task.id,
-            priority: priorityResult.priority,
-            priorityScore: Math.round(priorityResult.score * 10),
-            classification,
-            isRepeated: priorityResult.isRepeated,
-          });
-          
-          if (updatedTask) {
-            task = updatedTask;
-          }
-          
-          processedTasks.push(task);
-        } catch (error) {
-          console.warn(`Failed to process imported task:`, error);
-        }
-      }
-      
-      res.json({ 
-        message: "Import completed",
-        imported: processedTasks.length,
-        total: importedTasks.length
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to import tasks from Google Sheets" });
-    }
-  });
-
-  // Sync tasks bidirectionally with Google Sheets
-  app.post("/api/google-sheets/sync", async (req, res) => {
-    try {
-      const { spreadsheetId, sheetName, accessToken, refreshToken } = req.body;
-
-      if (!spreadsheetId || !accessToken) {
-        return res.status(400).json({ message: "Spreadsheet ID and access token required" });
-      }
-
-      const googleSheets = createGoogleSheetsAPI({
-        accessToken,
-        refreshToken
-      });
-
-      const localTasks = await storage.getTasks();
-      const syncResult = await googleSheets.syncTasks(spreadsheetId, localTasks, sheetName);
-      
-      res.json({
-        message: "Sync completed",
-        exported: syncResult.exported,
-        conflicts: syncResult.conflicts.length,
-        conflictDetails: syncResult.conflicts
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to sync with Google Sheets" });
-    }
-  });
+  // Google Sheets API Routes (modular)
+  const { googleSheetsRouter } = await import('./routes/google-sheets-routes');
+  app.use("/api/google-sheets", googleSheetsRouter);
 
   const httpServer = createServer(app);
   return httpServer;

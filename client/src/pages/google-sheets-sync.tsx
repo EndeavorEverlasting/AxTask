@@ -8,46 +8,62 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { 
-  GoogleSheetsSync as GoogleSheetsSyncService, 
-  googleSheetsUtils, 
-  type GoogleSheetsConfig, 
-  type SyncStatus 
+import {
+  GoogleSheetsSync as GoogleSheetsSyncService,
+  googleSheetsUtils,
+  type GoogleSheetsConfig,
+  type SyncStatus
 } from "@/lib/google-sheets-sync";
-import { 
-  googleSheetsClient, 
-  googleAuthUtils, 
-  type GoogleAuthTokens 
+import {
+  googleSheetsClient,
+  googleAuthUtils,
+  type GoogleAuthTokens
 } from "@/lib/google-api";
-import { 
-  FileSpreadsheet, 
-  Download, 
-  Upload, 
-  RefreshCw, 
-  AlertTriangle, 
-  CheckCircle, 
-  Clock, 
+import {
+  FileSpreadsheet,
+  Download,
+  Upload,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
   Share2,
   HelpCircle,
   Settings,
-  Zap
+  Zap,
+  AlertCircle,
+  CheckCircle2
 } from "lucide-react";
 import { type Task } from "@shared/schema";
 
 export default function GoogleSheetsSyncPage() {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
-  
+  const { toast } = useToast();
+
+  // Check configuration status
+  const { data: configStatus } = useQuery({
+    queryKey: ['google-sheets-config'],
+    queryFn: async () => {
+      const response = await fetch('/api/google-sheets/config-status');
+      if (!response.ok) {
+        // Handle cases where the API endpoint might not be ready or returns an error
+        console.error("Failed to fetch config status:", response.statusText);
+        return { isConfigured: false, missingSecrets: [], redirectUri: null };
+      }
+      return response.json();
+    }
+  });
+
   const [config, setConfig] = useState<GoogleSheetsConfig>({
     sheetName: "Task Tracker",
     lastSyncTime: "",
     autoSyncEnabled: false,
     syncInterval: 30 // minutes
   });
-  
+
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
     isActive: false,
     lastSync: null,
@@ -55,7 +71,7 @@ export default function GoogleSheetsSyncPage() {
     pendingChanges: 0,
     conflictCount: 0
   });
-  
+
   const [showInstructions, setShowInstructions] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [authTokens, setAuthTokens] = useState<GoogleAuthTokens | null>(null);
@@ -76,7 +92,7 @@ export default function GoogleSheetsSyncPage() {
       const parsed = JSON.parse(savedConfig);
       setConfig(parsed);
     }
-    
+
     // Update sync status
     setSyncStatus(googleSheetsSync.getSyncStatus());
   }, []);
@@ -94,7 +110,7 @@ export default function GoogleSheetsSyncPage() {
       const csvContent = GoogleSheetsSyncService.formatForGoogleSheets(tasks);
       const blob = new Blob([csvContent], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
-      
+
       const link = document.createElement('a');
       link.href = url;
       link.download = `${config.sheetName.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
@@ -102,13 +118,13 @@ export default function GoogleSheetsSyncPage() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      
+
       // Update last sync time
       setConfig(prev => ({
         ...prev,
         lastSyncTime: new Date().toISOString()
       }));
-      
+
       toast({
         title: "Export completed",
         description: `${tasks.length} tasks exported to Google Sheets format. Import this file to your Google Sheet.`,
@@ -133,13 +149,13 @@ export default function GoogleSheetsSyncPage() {
 
   const getTimeSinceLastSync = (): string => {
     if (!config.lastSyncTime) return "Never synced";
-    
+
     const lastSync = new Date(config.lastSyncTime);
     const now = new Date();
     const diffMs = now.getTime() - lastSync.getTime();
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    
+
     if (diffHours > 24) {
       return `${Math.floor(diffHours / 24)} days ago`;
     } else if (diffHours > 0) {
@@ -151,6 +167,8 @@ export default function GoogleSheetsSyncPage() {
     }
   };
 
+  const storedTokens = localStorage.getItem("googleAuthTokens");
+
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -159,6 +177,39 @@ export default function GoogleSheetsSyncPage() {
           Seamless integration with your Google Sheets workflow - no API keys required
         </p>
       </div>
+
+      {/* Configuration Status Banner */}
+      {!configStatus?.isConfigured && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Setup Required</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <p>Google API credentials need to be configured in Replit Secrets:</p>
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              {configStatus?.missingSecrets?.map((secret: string) => (
+                <li key={secret}><code className="bg-muted px-1 rounded">{secret}</code></li>
+              ))}
+            </ul>
+            <p className="text-sm mt-2">
+              Auto-detected redirect URI: <code className="bg-muted px-1 rounded text-xs">{configStatus?.redirectUri}</code>
+            </p>
+            <p className="text-sm text-muted-foreground mt-2">
+              See the <a href="/docs/GOOGLE_SHEETS_SETUP.md" className="underline" target="_blank" rel="noopener noreferrer">setup guide</a> for detailed instructions.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {configStatus?.isConfigured && !storedTokens && (
+        <Alert>
+          <CheckCircle2 className="h-4 w-4" />
+          <AlertTitle>Ready to Connect</AlertTitle>
+          <AlertDescription>
+            <p>Google API is configured. Click "Authenticate with Google" below to connect your account.</p>
+            <p className="text-xs text-muted-foreground mt-1">Redirect URI: {configStatus.redirectUri}</p>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Status Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -224,27 +275,28 @@ export default function GoogleSheetsSyncPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-3">
-            <Button 
+            <Button
               onClick={handleExportToGoogleSheets}
-              disabled={isExporting}
+              disabled={isExporting || !configStatus?.isConfigured || !storedTokens}
               className="flex items-center"
             >
               <Download className="mr-2 h-4 w-4" />
               {isExporting ? "Exporting..." : "Export to Google Sheets"}
             </Button>
-            
-            <Button 
+
+            <Button
               variant="outline"
               onClick={() => {
                 window.location.href = '/import-export';
               }}
+              disabled={!configStatus?.isConfigured || !storedTokens}
               className="flex items-center"
             >
               <Upload className="mr-2 h-4 w-4" />
               Import from Google Sheets
             </Button>
-            
-            <Button 
+
+            <Button
               variant="outline"
               onClick={() => setShowInstructions(!showInstructions)}
               className="flex items-center"
@@ -252,6 +304,19 @@ export default function GoogleSheetsSyncPage() {
               <HelpCircle className="mr-2 h-4 w-4" />
               {showInstructions ? "Hide" : "Show"} Instructions
             </Button>
+
+            {!storedTokens && configStatus?.isConfigured && (
+              <Button
+                variant="default"
+                onClick={() => {
+                  window.location.href = '/api/google-sheets/auth';
+                }}
+                className="flex items-center bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <LinkIcon className="mr-2 h-4 w-4" />
+                Authenticate with Google
+              </Button>
+            )}
           </div>
 
           {showInstructions && (
@@ -286,6 +351,7 @@ export default function GoogleSheetsSyncPage() {
               value={config.sheetName}
               onChange={(e) => handleConfigChange('sheetName', e.target.value)}
               placeholder="Task Tracker"
+              disabled={!storedTokens}
             />
             <p className="text-xs text-gray-500">Used for exported file names</p>
           </div>
@@ -301,6 +367,7 @@ export default function GoogleSheetsSyncPage() {
               id="autoSync"
               checked={config.autoSyncEnabled}
               onCheckedChange={(checked) => handleConfigChange('autoSyncEnabled', checked)}
+              disabled={!storedTokens}
             />
           </div>
 
@@ -314,6 +381,7 @@ export default function GoogleSheetsSyncPage() {
                 max="1440"
                 value={config.syncInterval}
                 onChange={(e) => handleConfigChange('syncInterval', parseInt(e.target.value) || 30)}
+                disabled={!storedTokens}
               />
               <p className="text-xs text-gray-500">
                 How often to remind you to sync (5 minutes to 24 hours)
@@ -339,6 +407,7 @@ export default function GoogleSheetsSyncPage() {
             readOnly
             value={googleSheetsUtils.generateShareInstructions(config.sheetName)}
             className="min-h-32 text-xs font-mono"
+            disabled={!storedTokens}
           />
         </CardContent>
       </Card>
