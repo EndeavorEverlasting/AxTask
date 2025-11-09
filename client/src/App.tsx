@@ -12,24 +12,26 @@ import CalendarPage from "@/pages/calendar";
 import Analytics from "@/pages/analytics";
 import ImportExport from "@/pages/import-export";
 import GoogleSheetsSyncPage from "@/pages/google-sheets-sync";
+import Landing from "@/pages/landing";
 import NotFound from "@/pages/not-found";
 import { QuickFind } from "./components/quick-find";
 import { type Task } from "@shared/schema";
 import { Dialog, DialogContent } from "./components/ui/dialog";
 import { TaskForm } from "./components/task-form";
+import { useAuth } from "@/hooks/useAuth";
 
 function Router() {
+  const { isAuthenticated, isLoading } = useAuth();
   const [quickFindOpen, setQuickFindOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+F or Cmd+F opens Quick Find (desktop only)
+      if (!isAuthenticated) return;
+      
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        // Check if mobile
         const isMobile = window.innerWidth < 768;
         if (!isMobile) {
-          // Prevent default browser find
           e.preventDefault();
           setQuickFindOpen(true);
         }
@@ -38,7 +40,32 @@ function Router() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [isAuthenticated]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <Switch>
+        <Route path="/" component={Landing} />
+        <Route path="*">
+          {() => {
+            window.location.href = '/api/login';
+            return null;
+          }}
+        </Route>
+      </Switch>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
@@ -55,14 +82,12 @@ function Router() {
         </Switch>
       </main>
 
-      {/* Global Quick Find */}
       <QuickFind
         isOpen={quickFindOpen}
         onClose={() => setQuickFindOpen(false)}
         onSelectTask={(task) => setSelectedTask(task)}
       />
 
-      {/* Task Details Dialog */}
       <Dialog open={!!selectedTask} onOpenChange={() => setSelectedTask(null)}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           {selectedTask && <TaskForm task={selectedTask} onSuccess={() => setSelectedTask(null)} />}

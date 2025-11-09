@@ -10,14 +10,19 @@ import {
   Moon, 
   Sun,
   CheckSquare,
-  FileSpreadsheet
+  FileSpreadsheet,
+  LogOut,
+  User
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export function Sidebar() {
   const [location] = useLocation();
   const { theme, toggleTheme } = useTheme();
+  const { user } = useAuth();
 
   const menuItems = [
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -63,12 +68,36 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+        {user && (
+          <div className="flex items-center gap-3 p-2 mb-2" data-testid="user-profile">
+            <Avatar className="h-8 w-8">
+              <AvatarImage src={user.profileImageUrl || undefined} alt={user.email || "User"} style={{ objectFit: 'cover' }} />
+              <AvatarFallback>
+                {user.email ? user.email[0].toUpperCase() : <User className="h-4 w-4" />}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate" data-testid="text-user-name">
+                {user.firstName || user.lastName 
+                  ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
+                  : user.email}
+              </p>
+              {(user.firstName || user.lastName) && user.email && (
+                <p className="text-xs text-muted-foreground truncate" data-testid="text-user-email">
+                  {user.email}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+        
         <Button
           variant="ghost"
           size="sm"
           onClick={toggleTheme}
           className="w-full justify-start"
+          data-testid="button-toggle-theme"
         >
           {theme === "dark" ? (
             <>
@@ -81,6 +110,17 @@ export function Sidebar() {
               Dark Mode
             </>
           )}
+        </Button>
+        
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => window.location.href = '/api/logout'}
+          className="w-full justify-start text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
+          data-testid="button-logout"
+        >
+          <LogOut className="mr-2 h-4 w-4" />
+          Logout
         </Button>
       </div>
     </aside>

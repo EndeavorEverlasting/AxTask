@@ -4,12 +4,26 @@ import { storage } from "./storage";
 import { insertTaskSchema, updateTaskSchema } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
+import { setupAuth, isAuthenticated } from "./replitAuth";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Get all tasks
-  app.get("/api/tasks", async (req, res) => {
+  await setupAuth(app);
+
+  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
-      const tasks = await storage.getTasks();
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  app.get("/api/tasks", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const tasks = await storage.getTasks(userId);
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks" });
@@ -17,9 +31,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get task stats (must come before :id route)
-  app.get("/api/tasks/stats", async (req, res) => {
+  app.get("/api/tasks/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const stats = await storage.getTaskStats();
+      const userId = req.user.claims.sub;
+      const stats = await storage.getTaskStats(userId);
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch task stats" });
@@ -27,9 +42,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get unique activities for autocomplete (must come before :id route)
-  app.get("/api/tasks/autocomplete/activities", async (req, res) => {
+  app.get("/api/tasks/autocomplete/activities", isAuthenticated, async (req: any, res) => {
     try {
-      const activities = await storage.getUniqueActivities();
+      const userId = req.user.claims.sub;
+      const activities = await storage.getUniqueActivities(userId);
       res.json(activities);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch activities" });
@@ -37,9 +53,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get task by ID
-  app.get("/api/tasks/:id", async (req, res) => {
+  app.get("/api/tasks/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const task = await storage.getTask(req.params.id);
+      const userId = req.user.claims.sub;
+      const task = await storage.getTask(req.params.id, userId);
       if (!task) {
         return res.status(404).json({ message: "Task not found" });
       }
@@ -50,34 +67,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create new task
-  app.post("/api/tasks", async (req, res) => {
+  app.post("/api/tasks", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
       const validatedData = insertTaskSchema.parse(req.body);
 
-      // Create task first
-      let task = await storage.createTask(validatedData);
+      let task = await storage.createTask(validatedData, userId);
 
-      // Calculate priority and classification using the priority engine
-      const allTasks = await storage.getTasks();
+      const allTasks = await storage.getTasks(userId);
       const priorityResult = await PriorityEngine.calculatePriority(
         task.activity,
         task.notes || "",
         task.urgency,
         task.impact,
         task.effort,
-        allTasks.filter(t => t.id !== task.id) // Exclude current task
+        allTasks.filter(t => t.id !== task.id)
       );
 
       const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
 
-      // Update task with calculated values
       task = await storage.updateTask({
         id: task.id,
         priority: priorityResult.priority,
         priorityScore: Math.round(priorityResult.score * 10),
         classification,
         isRepeated: priorityResult.isRepeated,
-      }) || task;
+      }, userId) || task;
 
       res.status(201).json(task);
     } catch (error) {
@@ -90,21 +105,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update task
-  app.put("/api/tasks/:id", async (req, res) => {
+  app.put("/api/tasks/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.claims.sub;
       const validatedData = updateTaskSchema.parse({
         ...req.body,
         id: req.params.id,
       });
 
-      let task = await storage.updateTask(validatedData);
+      let task = await storage.updateTask(validatedData, userId);
       if (!task) {
         return res.status(404).json({ message: "Task not found" });
       }
 
-      // Recalculate priority if activity or notes changed
       if (validatedData.activity || validatedData.notes) {
-        const allTasks = await storage.getTasks();
+        const allTasks = await storage.getTasks(userId);
         const priorityResult = await PriorityEngine.calculatePriority(
           task!.activity,
           task!.notes || "",
@@ -122,7 +137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           priorityScore: Math.round(priorityResult.score * 10),
           classification,
           isRepeated: priorityResult.isRepeated,
-        }) || task;
+        }, userId) || task;
       }
 
       res.json(task);
@@ -136,9 +151,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete task
-  app.delete("/api/tasks/:id", async (req, res) => {
+  app.delete("/api/tasks/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const deleted = await storage.deleteTask(req.params.id);
+      const userId = req.user.claims.sub;
+      const deleted = await storage.deleteTask(req.params.id, userId);
       if (!deleted) {
         return res.status(404).json({ message: "Task not found" });
       }
@@ -149,9 +165,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Search tasks
-  app.get("/api/tasks/search/:query", async (req, res) => {
+  app.get("/api/tasks/search/:query", isAuthenticated, async (req: any, res) => {
     try {
-      const tasks = await storage.searchTasks(req.params.query);
+      const userId = req.user.claims.sub;
+      const tasks = await storage.searchTasks(req.params.query, userId);
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ message: "Failed to search tasks" });
@@ -159,9 +176,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get tasks by status
-  app.get("/api/tasks/status/:status", async (req, res) => {
+  app.get("/api/tasks/status/:status", isAuthenticated, async (req: any, res) => {
     try {
-      const tasks = await storage.getTasksByStatus(req.params.status);
+      const userId = req.user.claims.sub;
+      const tasks = await storage.getTasksByStatus(req.params.status, userId);
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks by status" });
@@ -169,9 +187,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get tasks by priority
-  app.get("/api/tasks/priority/:priority", async (req, res) => {
+  app.get("/api/tasks/priority/:priority", isAuthenticated, async (req: any, res) => {
     try {
-      const tasks = await storage.getTasksByPriority(req.params.priority);
+      const userId = req.user.claims.sub;
+      const tasks = await storage.getTasksByPriority(req.params.priority, userId);
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks by priority" });
@@ -179,9 +198,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Recalculate all priorities
-  app.post("/api/tasks/recalculate", async (req, res) => {
+  app.post("/api/tasks/recalculate", isAuthenticated, async (req: any, res) => {
     try {
-      const allTasks = await storage.getTasks();
+      const userId = req.user.claims.sub;
+      const allTasks = await storage.getTasks(userId);
 
       for (const task of allTasks) {
         const priorityResult = await PriorityEngine.calculatePriority(
@@ -201,7 +221,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           priorityScore: Math.round(priorityResult.score * 10),
           classification,
           isRepeated: priorityResult.isRepeated,
-        });
+        }, userId);
       }
 
       res.json({ message: "All priorities recalculated successfully" });
