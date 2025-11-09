@@ -37,19 +37,32 @@ Preferred communication style: Simple, everyday language.
 - **Delete Functionality**: Hard delete with confirmation dialogs, with plans for soft delete/recycle bin.
 
 ### System Design Choices
-- **Data Architecture**: Tasks table includes priority scores, classifications, and timestamps. Priority calculation involves server-side processing for keyword, tag, time sensitivity, and duplicate checking.
-- **Authentication & Security**: Double validation (client + server) using Zod, parameterized queries via Drizzle ORM, API rate limiting, PostgreSQL-backed session security, and Replit Secrets for sensitive data management (AES-256 encryption at rest, TLS in transit). Planned integration with Replit Auth for multi-provider OAuth.
+- **Data Architecture**: Tasks table includes priority scores, classifications, and timestamps. Priority calculation involves server-side processing for keyword, tag, time sensitivity, and duplicate checking. All tasks are scoped by userId (foreign key relationship to users table).
+- **Authentication & Security**: 
+  - **User Authentication**: Replit Auth (OIDC-based) supporting email/password and social logins (Google, GitHub, etc.)
+  - **Session Management**: PostgreSQL-backed sessions with connect-pg-simple for persistence and security
+  - **Data Isolation**: All task operations are user-scoped - users can only access their own tasks
+  - **Middleware Protection**: isAuthenticated middleware guards all protected routes
+  - **Request Validation**: Double validation (client + server) using Zod schemas
+  - **Database Security**: Parameterized queries via Drizzle ORM prevent SQL injection
+  - **Token Management**: Automatic token refresh for OIDC tokens with memoization
+  - **Secret Management**: Replit Secrets for sensitive data (AES-256 encryption at rest, TLS in transit)
 
 ## External Dependencies
 
+### Authentication
+- **Replit Auth**: OIDC-based authentication with multi-provider support (email/password, Google, GitHub)
+- **Passport.js**: Authentication middleware for Node.js
+- **OpenID Client**: OIDC client library for token validation and refresh
+
 ### Database Services
-- **Neon Database**: Serverless PostgreSQL hosting.
-- **Drizzle ORM**: Type-safe database operations and schema management.
+- **Neon Database**: Serverless PostgreSQL hosting
+- **Drizzle ORM**: Type-safe database operations and schema management
+- **connect-pg-simple**: PostgreSQL session store for Express
 
 ### Google Integration
-- **Google Sheets API**: Real-time synchronization for task import/export.
-- **Google OAuth2**: User authentication for API access.
-- **googleapis**: Official Google API client library for Node.js.
+- **Google Sheets API**: Real-time synchronization for task import/export (optional, per-user OAuth)
+- **googleapis**: Official Google API client library for Node.js
 
 ### Development Tools
 - **Vite**: Frontend build tool.
