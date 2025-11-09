@@ -1,8 +1,4 @@
 
-import { config } from 'dotenv';
-
-config();
-
 export interface GoogleSheetsConfig {
   clientId: string;
   clientSecret: string;
@@ -11,11 +7,15 @@ export interface GoogleSheetsConfig {
   apiKey: string;
 }
 
-// Pre-configured settings to reduce user setup steps
+// Platform-agnostic configuration - works on any hosting platform
 export const GOOGLE_SHEETS_CONFIG: GoogleSheetsConfig = {
   clientId: process.env.GOOGLE_CLIENT_ID || '',
   clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-  redirectUri: process.env.GOOGLE_REDIRECT_URI || `${process.env.REPL_SLUG ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.replit.dev` : 'http://localhost:5000'}/api/google-sheets/auth-callback`,
+  // Redirect URI must be explicitly set in production
+  // Falls back to localhost for local development only
+  redirectUri: process.env.GOOGLE_REDIRECT_URI || process.env.BASE_URL 
+    ? `${process.env.BASE_URL}/api/google-sheets/auth-callback`
+    : 'http://0.0.0.0:5000/api/google-sheets/auth-callback',
   scopes: [
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/drive.file'
@@ -43,26 +43,22 @@ export function getMissingConfig(): string[] {
   return missing;
 }
 
-// Auto-detect environment and provide helpful messages
+// Platform-agnostic configuration guidance
 export function getConfigurationGuide(): {
   isConfigured: boolean;
-  environment: 'replit' | 'local';
+  environment: 'production' | 'development';
   redirectUri: string;
   missingSecrets: string[];
   setupInstructions: string;
 } {
-  const isReplit = !!(process.env.REPL_SLUG && process.env.REPL_OWNER);
-  const environment = isReplit ? 'replit' : 'local';
+  const isProduction = process.env.NODE_ENV === 'production';
+  const environment = isProduction ? 'production' : 'development';
   const missingSecrets = getMissingConfig();
   
   let setupInstructions = '';
   
   if (missingSecrets.length > 0) {
-    if (isReplit) {
-      setupInstructions = `Please add these secrets in the Replit Secrets tab:\n${missingSecrets.map(s => `  - ${s}`).join('\n')}`;
-    } else {
-      setupInstructions = `Please add these to your .env file:\n${missingSecrets.map(s => `  - ${s}=your_value_here`).join('\n')}`;
-    }
+    setupInstructions = `Please configure these environment variables:\n${missingSecrets.map(s => `  - ${s}=your_value_here`).join('\n')}\n\nFor production: Set these in your hosting platform's environment configuration.\nFor development: Add these to your .env file.`;
   }
   
   return {
