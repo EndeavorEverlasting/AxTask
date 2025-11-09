@@ -18,6 +18,7 @@ Version 1.3.0 introduces context-aware productivity with safe, reversible action
 - Location Reminders (local-only)
 - Voice Input
 - Unified Settings/Privacy
+- Keyboard-Driven Navigation & Quick Find
 
 ## Release Strategy
 
@@ -496,6 +497,84 @@ DATABASE_URL=<postgres-connection-string>
 - ✓ 30-day cleanup executes
 
 **Authentication:**
+
+
+## Epic 7: Keyboard-Driven Navigation & Quick Find
+
+### Inspiration
+Replicates Google Sheets keyboard workflow:
+- `Ctrl + F` → Quick search
+- Arrow keys navigate results
+- Enter selects item
+- **No mouse required** for fast, immersive task access
+
+### Features
+
+**Global Quick Find (Ctrl/Cmd + F):**
+- Opens search overlay that filters tasks in real-time
+- Arrow keys (↑↓) navigate between matches
+- Enter opens selected task for editing
+- ESC closes overlay
+- Prevents default browser find behavior
+
+**Arrow Key Navigation:**
+- **All Tasks Table**: ↑↓ move between rows, Enter opens task
+- **Calendar Views**: Navigate between task cards (future enhancement)
+- **Dashboard**: Navigate stat cards and sections (future enhancement)
+
+**Visual Focus:**
+- Focused task highlighted with blue border/background
+- Auto-scroll keeps focused item visible
+- Consistent with existing focus glow system
+
+### Implementation
+
+**New Component:**
+```typescript
+// client/src/components/quick-find.tsx
+export function QuickFind({ isOpen, onClose, onSelectTask })
+  // Real-time search filtering
+  // Arrow key navigation
+  // Enter to select, ESC to close
+```
+
+**Global Handler (App.tsx):**
+```typescript
+useEffect(() => {
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      e.preventDefault();
+      setQuickFindOpen(true);
+    }
+  };
+  window.addEventListener('keydown', handleKeyDown);
+}, []);
+```
+
+**Table Navigation (task-list.tsx):**
+```typescript
+useEffect(() => {
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowDown') setFocusedIndex(prev => prev + 1);
+    if (e.key === 'ArrowUp') setFocusedIndex(prev => prev - 1);
+    if (e.key === 'Enter') openTask(filteredTasks[focusedIndex]);
+  };
+  window.addEventListener('keydown', handleKeyDown);
+}, [focusedIndex]);
+```
+
+### User Benefits
+- **Speed**: Jump to any task without scrolling
+- **Accessibility**: Full keyboard control, no mouse needed
+- **Familiarity**: Matches spreadsheet muscle memory
+- **Efficiency**: Same "List [Item]" → Navigate → Select workflow
+
+### Future Enhancements (Post-1.3.0)
+- Vim-style keybindings (j/k for down/up)
+- Custom keyboard shortcuts per action
+- Quick actions (d = delete, c = complete) without opening task
+- Multi-select with Shift+Arrow
+
 - ✓ Google login works
 - ✓ Tasks scoped per user
 - ✓ Logout clears session

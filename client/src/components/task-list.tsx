@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -29,6 +29,8 @@ export function TaskList() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [deletingTask, setDeletingTask] = useState<Task | null>(null);
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -161,6 +163,36 @@ export function TaskList() {
     return status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ");
   };
 
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!filteredAndSortedTasks.length) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setFocusedIndex(prev => Math.min(prev + 1, filteredAndSortedTasks.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setFocusedIndex(prev => Math.max(prev - 1, 0));
+      } else if (e.key === 'Enter' && filteredAndSortedTasks[focusedIndex]) {
+        e.preventDefault();
+        setEditingTask(filteredAndSortedTasks[focusedIndex]);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredAndSortedTasks, focusedIndex]);
+
+  // Scroll focused row into view
+  useEffect(() => {
+    if (tableRef.current) {
+      const rows = tableRef.current.querySelectorAll('tbody tr');
+      const focusedRow = rows[focusedIndex] as HTMLElement;
+      focusedRow?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [focusedIndex]);
+
   if (isLoading) {
     return (
       <Card>
@@ -233,7 +265,7 @@ export function TaskList() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <Table>
+            <Table ref={tableRef}>
               <TableHeader>
                 <TableRow>
                   <TableHead 
@@ -312,10 +344,12 @@ export function TaskList() {
                     box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3), 0 4px 6px -4px rgba(239, 68, 68, 0.3);
                   }
                 `}</style>
-                {filteredAndSortedTasks.map((task: Task) => (
+                {filteredAndSortedTasks.map((task: Task, index: number) => (
                   <TableRow 
                     key={task.id} 
-                    className="task-row hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-all duration-300"
+                    className={`task-row hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-all duration-300 ${
+                      index === focusedIndex ? 'bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-500 dark:border-blue-400' : ''
+                    }`}
                     onClick={() => setEditingTask(task)}
                   >
                     <TableCell className="font-mono text-sm">{task.date}</TableCell>
