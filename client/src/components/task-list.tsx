@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -22,6 +23,7 @@ type SortDirection = 'asc' | 'desc';
 export function TaskList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -163,8 +165,10 @@ export function TaskList() {
     return status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ");
   };
 
-  // Keyboard navigation
+  // Keyboard navigation (desktop only)
   useEffect(() => {
+    if (isMobile) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!filteredAndSortedTasks.length) return;
 
@@ -182,7 +186,7 @@ export function TaskList() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [filteredAndSortedTasks, focusedIndex]);
+  }, [filteredAndSortedTasks, focusedIndex, isMobile]);
 
   // Scroll focused row into view
   useEffect(() => {
@@ -347,10 +351,11 @@ export function TaskList() {
                 {filteredAndSortedTasks.map((task: Task, index: number) => (
                   <TableRow 
                     key={task.id} 
-                    className={`task-row hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-all duration-300 ${
-                      index === focusedIndex ? 'bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-500 dark:border-blue-400' : ''
+                    className={`task-row hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-all duration-300 active:bg-blue-50 dark:active:bg-blue-900/20 ${
+                      !isMobile && index === focusedIndex ? 'bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-500 dark:border-blue-400' : ''
                     }`}
                     onClick={() => setEditingTask(task)}
+                    onMouseEnter={() => !isMobile && setFocusedIndex(index)}
                   >
                     <TableCell className="font-mono text-sm">{task.date}</TableCell>
                     <TableCell>

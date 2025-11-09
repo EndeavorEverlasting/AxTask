@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { PriorityBadge } from './priority-badge';
 import { ClassificationBadge } from './classification-badge';
 import { Search, ArrowUp, ArrowDown } from 'lucide-react';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface QuickFindProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ export function QuickFind({ isOpen, onClose, onSelectTask }: QuickFindProps) {
   const [focusedIndex, setFocusedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ['/api/tasks'],
@@ -68,6 +70,11 @@ export function QuickFind({ isOpen, onClose, onSelectTask }: QuickFindProps) {
     }
   };
 
+  const handleTaskTap = (task: Task) => {
+    onSelectTask(task);
+    onClose();
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl p-0" onKeyDown={handleKeyDown}>
@@ -98,14 +105,12 @@ export function QuickFind({ isOpen, onClose, onSelectTask }: QuickFindProps) {
             filteredTasks.map((task, index) => (
               <div
                 key={task.id}
-                onClick={() => {
-                  onSelectTask(task);
-                  onClose();
-                }}
-                className={`p-3 rounded-lg cursor-pointer transition-all ${
+                onClick={() => handleTaskTap(task)}
+                onMouseEnter={() => !isMobile && setFocusedIndex(index)}
+                className={`p-3 rounded-lg cursor-pointer transition-all active:scale-98 ${
                   index === focusedIndex
                     ? 'bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-500 dark:border-blue-400'
-                    : 'border border-transparent hover:bg-gray-50 dark:hover:bg-gray-700'
+                    : 'border border-transparent hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-blue-50 dark:active:bg-blue-900/20'
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -137,15 +142,20 @@ export function QuickFind({ isOpen, onClose, onSelectTask }: QuickFindProps) {
         {/* Footer hint */}
         <div className="sticky bottom-0 bg-gray-50 dark:bg-gray-800 border-t px-4 py-2 flex items-center justify-between text-xs text-gray-500">
           <span>{filteredTasks.length} results</span>
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1">
-              <ArrowUp className="h-3 w-3" />
-              <ArrowDown className="h-3 w-3" />
-              Navigate
-            </span>
-            <span>Enter to select</span>
-            <span>ESC to close</span>
-          </div>
+          {!isMobile && (
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1">
+                <ArrowUp className="h-3 w-3" />
+                <ArrowDown className="h-3 w-3" />
+                Navigate
+              </span>
+              <span>Enter to select</span>
+              <span>ESC to close</span>
+            </div>
+          )}
+          {isMobile && (
+            <span>Tap to select</span>
+          )}
         </div>
       </DialogContent>
     </Dialog>

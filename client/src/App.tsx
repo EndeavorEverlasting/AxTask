@@ -24,11 +24,15 @@ function Router() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+F or Cmd+F opens Quick Find
+      // Ctrl+F or Cmd+F opens Quick Find (desktop only)
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        // Prevent default browser find
-        e.preventDefault();
-        setQuickFindOpen(true);
+        // Check if mobile
+        const isMobile = window.innerWidth < 768;
+        if (!isMobile) {
+          // Prevent default browser find
+          e.preventDefault();
+          setQuickFindOpen(true);
+        }
       }
     };
 

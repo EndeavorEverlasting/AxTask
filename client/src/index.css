@@ -115,6 +115,11 @@
   box-shadow: 0 10px 15px -3px rgba(34, 197, 94, 0.3), 0 4px 6px -4px rgba(34, 197, 94, 0.3) !important;
 }
 
+/* Active state for mobile touch feedback */
+.active\:scale-98:active {
+  transform: scale(0.98);
+}
+
 .task-form-card:has(.btn-delete:focus) {
   outline: 2px solid rgb(239, 68, 68) !important;
   box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3), 0 4px 6px -4px rgba(239, 68, 68, 0.3) !important;
