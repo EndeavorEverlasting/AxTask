@@ -1,22 +1,43 @@
-node_modules
-dist
-.DS_Store
+# ── Secrets (never commit) ─────────────────────────────────────────────────
+.env
+.env.*
+.env.local
+.env.production
+
+# ── Dependencies ───────────────────────────────────────────────────────────
+node_modules/
+
+# ── Build output ───────────────────────────────────────────────────────────
+dist/
 server/public
-vite.config.ts.*
 *.tar.gz
-# Local/IDE/build
-.local/
-node_modules/
-dist/
+
+# ── IDE / Editor ───────────────────────────────────────────────────────────
 .vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+*~
+
+# ── Replit ─────────────────────────────────────────────────────────────────
+.replit
+replit.nix
+.cache/
+.config/
+.upm/
+.local/
+
+# ── OS artifacts ───────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
 *.log
 
-
-# Local/IDE/build
-.local/
-dist/
-node_modules/
-.vscode/
-*.log
+# ── Test / Coverage ────────────────────────────────────────────────────────
 coverage/
 
+# ── Misc ───────────────────────────────────────────────────────────────────
+vite.config.ts.*
+# Replit junk artifact
+e*[^a-zA-Z0-9._-]

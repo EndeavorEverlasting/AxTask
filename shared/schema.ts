@@ -3,9 +3,51 @@ import { pgTable, text, varchar, integer, timestamp, boolean } from "drizzle-orm
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// ─── Users ───────────────────────────────────────────────────────────────────
+export const users = pgTable("users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash"),                     // null for OAuth-only users
+  displayName: text("display_name"),
+  role: text("role").notNull().default("user"),            // "admin" | "user"
+  authProvider: text("auth_provider").notNull().default("local"), // "local" | "workos" | "google"
+  workosId: text("workos_id"),                             // WorkOS user ID (when provider=workos)
+  googleId: text("google_id"),                             // Google sub (when provider=google)
+  failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
+  lockedUntil: timestamp("locked_until"),                  // null = not locked
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Strong password: ≥8 chars, uppercase, lowercase, digit, special character
+const strongPassword = z
+  .string()
+  .min(8, "Password must be at least 8 characters")
+  .regex(/[A-Z]/, "Password must contain an uppercase letter")
+  .regex(/[a-z]/, "Password must contain a lowercase letter")
+  .regex(/[0-9]/, "Password must contain a number")
+  .regex(/[^A-Za-z0-9]/, "Password must contain a special character (!@#$%…)");
+
+export const registerSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: strongPassword,
+  displayName: z.string().optional(),
+  inviteCode: z.string().optional(), // required in production
+});
+
+export const loginSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+
+export type User = typeof users.$inferSelect;
+export type SafeUser = Omit<User, "passwordHash" | "failedLoginAttempts" | "lockedUntil" | "workosId" | "googleId">;
+
+// ─── Tasks ───────────────────────────────────────────────────────────────────
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }),
   date: text("date").notNull(),
+  time: text("time"), // HH:mm format, nullable for all-day tasks
   activity: text("activity").notNull(),
   notes: text("notes").default(""),
   urgency: integer("urgency"), // 1-5 or null for auto-calculation
@@ -17,20 +59,24 @@ export const tasks = pgTable("tasks", {
   classification: text("classification").notNull(), // "Development", "Meeting", "Administrative", etc.
   status: text("status").notNull().default("pending"), // "pending", "in-progress", "completed"
   isRepeated: boolean("is_repeated").default(false),
+  sortOrder: integer("sort_order").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({
   id: true,
+  userId: true,
   priority: true,
   priorityScore: true,
   classification: true,
   isRepeated: true,
+  sortOrder: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
   date: z.string().min(1, "Date is required"),
+  time: z.string().optional(),
   activity: z.string().min(1, "Activity is required"),
   notes: z.string().optional(),
   urgency: z.number().min(1).max(5).optional(),
@@ -46,6 +92,11 @@ export const updateTaskSchema = insertTaskSchema.partial().extend({
   priorityScore: z.number().optional(),
   classification: z.string().optional(),
   isRepeated: z.boolean().optional(),
+  sortOrder: z.number().optional(),
+});
+
+export const reorderTasksSchema = z.object({
+  taskIds: z.array(z.string()).min(1, "At least one task ID is required"),
 });
 
 export type InsertTask = z.infer<typeof insertTaskSchema>;

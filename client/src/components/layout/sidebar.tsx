@@ -1,26 +1,32 @@
 import { Link, useLocation } from "wouter";
-import { 
-  LayoutDashboard, 
-  Plus, 
-  List, 
-  BarChart3, 
-  Upload, 
-  Settings, 
-  Moon, 
+import {
+  LayoutDashboard,
+  Plus,
+  List,
+  BarChart3,
+  Upload,
+  Settings,
+  Moon,
   Sun,
   CheckSquare,
-  FileSpreadsheet
+  FileSpreadsheet,
+  CalendarDays,
+  LogOut,
+  User
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
+import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 
 export function Sidebar() {
   const [location] = useLocation();
   const { theme, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
 
   const menuItems = [
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/tasks", icon: List, label: "All Tasks" },
+    { path: "/calendar", icon: CalendarDays, label: "Calendar" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },
     { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
@@ -61,7 +67,14 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+        {/* User info */}
+        {user && (
+          <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 truncate">
+            <User className="h-4 w-4 shrink-0" />
+            <span className="truncate">{user.displayName || user.email}</span>
+          </div>
+        )}
         <Button
           variant="ghost"
           size="sm"
@@ -79,6 +92,15 @@ export function Sidebar() {
               Dark Mode
             </>
           )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={logout}
+          className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+        >
+          <LogOut className="mr-2 h-4 w-4" />
+          Log out
         </Button>
       </div>
     </aside>

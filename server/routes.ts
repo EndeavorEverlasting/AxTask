@@ -1,25 +1,214 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
-import { insertTaskSchema, updateTaskSchema } from "@shared/schema";
+import { timingSafeEqual } from "crypto";
+import rateLimit from "express-rate-limit";
+import passport from "passport";
+import { storage, createUser, getUserByEmail, recordFailedLogin, resetFailedLogins } from "./storage";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
+import { requireAuth } from "./auth";
+
+/** Constant-time string comparison — prevents timing side-channel leaks. */
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    // Compare against self to burn the same CPU time, then return false
+    const buf = Buffer.from(a, "utf8");
+    timingSafeEqual(buf, buf);
+    return false;
+  }
+  return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+}
+
+// ── Rate limiters ───────────────────────────────────────────────────────────
+// Strict limiter for auth endpoints — 10 attempts per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many attempts — try again in 15 minutes" },
+  // use default keyGenerator (handles IPv6 correctly)
+});
+
+// Registration limiter — even stricter: 3 per hour per IP
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many registration attempts — try again in 1 hour" },
+});
+
+// ── Invite-code / registration gate ─────────────────────────────────────────
+// In production, set REGISTRATION_MODE=invite in .env and provide INVITE_CODE.
+// Allowed values: "open" (anyone), "invite" (requires code), "closed" (no signups).
+const REGISTRATION_MODE = process.env.REGISTRATION_MODE || (process.env.NODE_ENV === "production" ? "invite" : "open");
+const INVITE_CODE = process.env.INVITE_CODE || "";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Get all tasks
-  app.get("/api/tasks", async (req, res) => {
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Auth routes (public, rate-limited)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.post("/api/auth/register", registerLimiter, async (req: Request, res: Response) => {
     try {
-      const tasks = await storage.getTasks();
+      // ── Registration gate ──────────────────────────────────────────────
+      if (REGISTRATION_MODE === "closed") {
+        return res.status(403).json({ message: "Registration is currently closed" });
+      }
+      if (REGISTRATION_MODE === "invite") {
+        const code = typeof req.body.inviteCode === "string" ? req.body.inviteCode : "";
+        if (!INVITE_CODE) {
+          return res.status(403).json({ message: "Registration requires an invite code, but none is configured on the server" });
+        }
+        if (!safeEqual(code, INVITE_CODE)) {
+          return res.status(403).json({ message: "Invalid invite code" });
+        }
+      }
+
+      const { email, password, displayName } = registerSchema.parse(req.body);
+      const existing = await getUserByEmail(email);
+      if (existing) {
+        return res.status(409).json({ message: "An account with this email already exists" });
+      }
+      const user = await createUser(email, password, displayName);
+      // Auto-login after registration
+      req.login(user, (err) => {
+        if (err) return res.status(500).json({ message: "Registration succeeded but login failed" });
+        res.status(201).json(user);
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        res.status(400).json({ message: error.message });
+      } else {
+        res.status(500).json({ message: "Registration failed" });
+      }
+    }
+  });
+
+  app.post("/api/auth/login", authLimiter, async (req: Request, res: Response, next) => {
+    try {
+      // ── Account lockout check ────────────────────────────────────────
+      const { email } = req.body;
+      if (email) {
+        const dbUser = await getUserByEmail(email);
+        if (dbUser?.lockedUntil && new Date(dbUser.lockedUntil) > new Date()) {
+          const mins = Math.ceil((new Date(dbUser.lockedUntil).getTime() - Date.now()) / 60000);
+          return res.status(423).json({
+            message: `Account locked due to too many failed attempts. Try again in ${mins} minute(s).`,
+          });
+        }
+      }
+
+      passport.authenticate("local", async (err: any, user: any, info: any) => {
+        if (err) return next(err);
+        if (!user) {
+          // Record the failed attempt
+          if (email) await recordFailedLogin(email);
+          return res.status(401).json({ message: info?.message || "Invalid credentials" });
+        }
+        // Successful login — reset failed attempts
+        await resetFailedLogins(user.email);
+        req.login(user, (err) => {
+          if (err) return next(err);
+          res.json(user);
+        });
+      })(req, res, next);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/logout", (req: Request, res: Response) => {
+    req.logout((err) => {
+      if (err) return res.status(500).json({ message: "Logout failed" });
+      res.json({ message: "Logged out" });
+    });
+  });
+
+  app.get("/api/auth/me", (req: Request, res: Response) => {
+    if (req.isAuthenticated()) {
+      res.json(req.user);
+    } else {
+      res.status(401).json({ message: "Not authenticated" });
+    }
+  });
+
+  // Return registration mode + auth provider so the UI can adapt
+  app.get("/api/auth/config", (_req: Request, res: Response) => {
+    const authProvider = (process.env.AUTH_PROVIDER || "workos").toLowerCase();
+    const loginUrls: Record<string, string> = {
+      workos: "/api/auth/workos/login",
+      google: "/api/auth/google/login",
+      local: "", // local uses the form POST to /api/auth/login
+    };
+    res.json({
+      registrationMode: REGISTRATION_MODE,
+      authProvider,
+      loginUrl: loginUrls[authProvider] || "",
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Task routes (protected — require login)
+  // ════════════════════════════════════════════════════════════════════════
+
+  // Get all tasks
+  app.get("/api/tasks", requireAuth, async (req, res) => {
+    try {
+      const tasks = await storage.getTasks(req.user!.id);
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks" });
     }
   });
 
-  // Get task by ID
-  app.get("/api/tasks/:id", async (req, res) => {
+  // Get task stats (must come before :id route)
+  app.get("/api/tasks/stats", requireAuth, async (req, res) => {
     try {
-      const task = await storage.getTask(req.params.id);
+      const stats = await storage.getTaskStats(req.user!.id);
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch task stats" });
+    }
+  });
+
+  // Search tasks
+  app.get("/api/tasks/search/:query", requireAuth, async (req, res) => {
+    try {
+      const tasks = await storage.searchTasks(req.user!.id, req.params.query);
+      res.json(tasks);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to search tasks" });
+    }
+  });
+
+  // Get tasks by status
+  app.get("/api/tasks/status/:status", requireAuth, async (req, res) => {
+    try {
+      const tasks = await storage.getTasksByStatus(req.user!.id, req.params.status);
+      res.json(tasks);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch tasks by status" });
+    }
+  });
+
+  // Get tasks by priority
+  app.get("/api/tasks/priority/:priority", requireAuth, async (req, res) => {
+    try {
+      const tasks = await storage.getTasksByPriority(req.user!.id, req.params.priority);
+      res.json(tasks);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch tasks by priority" });
+    }
+  });
+
+  // Get task by ID
+  app.get("/api/tasks/:id", requireAuth, async (req, res) => {
+    try {
+      const task = await storage.getTask(req.user!.id, req.params.id);
       if (!task) {
         return res.status(404).json({ message: "Task not found" });
       }
@@ -30,35 +219,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create new task
-  app.post("/api/tasks", async (req, res) => {
+  app.post("/api/tasks", requireAuth, async (req, res) => {
     try {
       const validatedData = insertTaskSchema.parse(req.body);
-      
-      // Create task first
-      let task = await storage.createTask(validatedData);
-      
-      // Calculate priority and classification using the priority engine
-      const allTasks = await storage.getTasks();
+      const userId = req.user!.id;
+
+      let task = await storage.createTask(userId, validatedData);
+
+      const allTasks = await storage.getTasks(userId);
       const priorityResult = await PriorityEngine.calculatePriority(
         task.activity,
         task.notes || "",
         task.urgency,
         task.impact,
         task.effort,
-        allTasks.filter(t => t.id !== task.id) // Exclude current task
+        allTasks.filter(t => t.id !== task.id)
       );
-      
+
       const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
-      
-      // Update task with calculated values
-      task = await storage.updateTask({
+
+      task = await storage.updateTask(userId, {
         id: task.id,
         priority: priorityResult.priority,
         priorityScore: Math.round(priorityResult.score * 10),
         classification,
         isRepeated: priorityResult.isRepeated,
       }) || task;
-      
+
       res.status(201).json(task);
     } catch (error) {
       if (error instanceof Error) {
@@ -70,21 +257,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update task
-  app.put("/api/tasks/:id", async (req, res) => {
+  app.put("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
       const validatedData = updateTaskSchema.parse({
         ...req.body,
         id: req.params.id,
       });
-      
-      let task = await storage.updateTask(validatedData);
+      const userId = req.user!.id;
+
+      let task = await storage.updateTask(userId, validatedData);
       if (!task) {
         return res.status(404).json({ message: "Task not found" });
       }
-      
-      // Recalculate priority if activity or notes changed
+
       if (validatedData.activity || validatedData.notes) {
-        const allTasks = await storage.getTasks();
+        const allTasks = await storage.getTasks(userId);
         const priorityResult = await PriorityEngine.calculatePriority(
           task!.activity,
           task!.notes || "",
@@ -93,10 +280,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           task!.effort,
           allTasks.filter(t => t.id !== task!.id)
         );
-        
+
         const classification = PriorityEngine.classifyTask(task!.activity, task!.notes || "");
-        
-        task = await storage.updateTask({
+
+        task = await storage.updateTask(userId, {
           id: task!.id,
           priority: priorityResult.priority,
           priorityScore: Math.round(priorityResult.score * 10),
@@ -104,7 +291,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isRepeated: priorityResult.isRepeated,
         }) || task;
       }
-      
+
       res.json(task);
     } catch (error) {
       if (error instanceof Error) {
@@ -116,9 +303,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete task
-  app.delete("/api/tasks/:id", async (req, res) => {
+  app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
-      const deleted = await storage.deleteTask(req.params.id);
+      const deleted = await storage.deleteTask(req.user!.id, req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Task not found" });
       }
@@ -128,61 +315,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Search tasks
-  app.get("/api/tasks/search/:query", async (req, res) => {
+  // Reorder tasks
+  app.patch("/api/tasks/reorder", requireAuth, async (req, res) => {
     try {
-      const tasks = await storage.searchTasks(req.params.query);
-      res.json(tasks);
+      const { taskIds } = reorderTasksSchema.parse(req.body);
+      await storage.reorderTasks(req.user!.id, taskIds);
+      res.json({ message: "Tasks reordered successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to search tasks" });
-    }
-  });
-
-  // Get tasks by status
-  app.get("/api/tasks/status/:status", async (req, res) => {
-    try {
-      const tasks = await storage.getTasksByStatus(req.params.status);
-      res.json(tasks);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch tasks by status" });
-    }
-  });
-
-  // Get tasks by priority
-  app.get("/api/tasks/priority/:priority", async (req, res) => {
-    try {
-      const tasks = await storage.getTasksByPriority(req.params.priority);
-      res.json(tasks);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch tasks by priority" });
-    }
-  });
-
-  // Get task stats
-  app.get("/api/tasks/stats", async (req, res) => {
-    try {
-      const stats = await storage.getTaskStats();
-      res.json(stats);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch task stats" });
-    }
-  });
-
-  // Get task statistics  
-  app.get("/api/tasks/stats", async (req, res) => {
-    try {
-      const stats = await storage.getTaskStats();
-      res.json(stats);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch task statistics" });
+      if (error instanceof Error) {
+        res.status(400).json({ message: error.message });
+      } else {
+        res.status(500).json({ message: "Failed to reorder tasks" });
+      }
     }
   });
 
   // Recalculate all priorities
-  app.post("/api/tasks/recalculate", async (req, res) => {
+  app.post("/api/tasks/recalculate", requireAuth, async (req, res) => {
     try {
-      const allTasks = await storage.getTasks();
-      
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+
       for (const task of allTasks) {
         const priorityResult = await PriorityEngine.calculatePriority(
           task.activity,
@@ -192,10 +345,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           task.effort,
           allTasks.filter(t => t.id !== task.id)
         );
-        
+
         const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
-        
-        await storage.updateTask({
+
+        await storage.updateTask(userId, {
           id: task.id,
           priority: priorityResult.priority,
           priorityScore: Math.round(priorityResult.score * 10),
@@ -203,24 +356,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isRepeated: priorityResult.isRepeated,
         });
       }
-      
+
       res.json({ message: "All priorities recalculated successfully" });
     } catch (error) {
       res.status(500).json({ message: "Failed to recalculate priorities" });
     }
   });
 
-  // Google Sheets API Routes
-  
-  // Generate OAuth URL for Google Sheets authentication
-  app.get("/api/google-sheets/auth-url", async (req, res) => {
+  // ════════════════════════════════════════════════════════════════════════
+  //  Google Sheets routes (protected)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/google-sheets/auth-url", requireAuth, async (req, res) => {
     try {
       if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-        return res.status(400).json({ 
-          message: "Google API credentials not configured. Please check your environment variables." 
+        return res.status(400).json({
+          message: "Google API credentials not configured. Please check your environment variables."
         });
       }
-
       const googleSheets = createGoogleSheetsAPI();
       const authUrl = googleSheets.generateAuthUrl();
       res.json({ authUrl });
@@ -229,32 +382,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Handle OAuth callback and exchange code for tokens
-  app.post("/api/google-sheets/auth-callback", async (req, res) => {
+  app.post("/api/google-sheets/auth-callback", requireAuth, async (req, res) => {
     try {
       const { code } = req.body;
       if (!code) {
         return res.status(400).json({ message: "Authorization code required" });
       }
-
       const googleSheets = createGoogleSheetsAPI();
       const tokens = await googleSheets.getTokens(code);
-      
-      // In a real app, you'd save these tokens securely for the user
-      res.json({ 
+      res.json({
         message: "Authentication successful",
-        tokens: {
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken
-        }
+        tokens: { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken }
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to exchange authorization code" });
     }
   });
 
-  // Get spreadsheet information
-  app.get("/api/google-sheets/spreadsheet/:id", async (req, res) => {
+  app.get("/api/google-sheets/spreadsheet/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { accessToken, refreshToken } = req.query;
@@ -275,8 +420,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create new task spreadsheet
-  app.post("/api/google-sheets/create-spreadsheet", async (req, res) => {
+  app.post("/api/google-sheets/create-spreadsheet", requireAuth, async (req, res) => {
     try {
       const { title, accessToken, refreshToken } = req.body;
 
@@ -299,8 +443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Export tasks to Google Sheets
-  app.post("/api/google-sheets/export", async (req, res) => {
+  app.post("/api/google-sheets/export", requireAuth, async (req, res) => {
     try {
       const { spreadsheetId, sheetName, accessToken, refreshToken } = req.body;
 
@@ -313,7 +456,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         refreshToken
       });
 
-      const tasks = await storage.getTasks();
+      const tasks = await storage.getTasks(req.user!.id);
       const result = await googleSheets.exportTasks(spreadsheetId, tasks, sheetName);
       
       res.json(result);
@@ -322,10 +465,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Import tasks from Google Sheets
-  app.post("/api/google-sheets/import", async (req, res) => {
+  app.post("/api/google-sheets/import", requireAuth, async (req, res) => {
     try {
       const { spreadsheetId, sheetName, accessToken, refreshToken } = req.body;
+      const userId = req.user!.id;
 
       if (!spreadsheetId || !accessToken) {
         return res.status(400).json({ message: "Spreadsheet ID and access token required" });
@@ -337,22 +480,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const importedTasks = await googleSheets.importTasks(spreadsheetId, sheetName);
-      
-      // Process and store imported tasks
+
       const processedTasks = [];
       for (const taskData of importedTasks) {
         try {
-          // Remove the temporary ID and let the database generate a new one
           const { id, ...taskWithoutId } = taskData;
-          
-          // Validate the task data
           const validatedData = insertTaskSchema.parse(taskWithoutId);
-          
-          // Create task
-          let task = await storage.createTask(validatedData);
-          
-          // Calculate priority using the priority engine
-          const allTasks = await storage.getTasks();
+
+          let task = await storage.createTask(userId, validatedData);
+
+          const allTasks = await storage.getTasks(userId);
           const priorityResult = await PriorityEngine.calculatePriority(
             task.activity,
             task.notes || "",
@@ -361,29 +498,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
             task.effort,
             allTasks.filter(t => t.id !== task.id)
           );
-          
+
           const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
-          
-          // Update with calculated values
-          const updatedTask = await storage.updateTask({
+
+          const updatedTask = await storage.updateTask(userId, {
             id: task.id,
             priority: priorityResult.priority,
             priorityScore: Math.round(priorityResult.score * 10),
             classification,
             isRepeated: priorityResult.isRepeated,
           });
-          
-          if (updatedTask) {
-            task = updatedTask;
-          }
-          
+
+          if (updatedTask) task = updatedTask;
           processedTasks.push(task);
         } catch (error) {
           console.warn(`Failed to process imported task:`, error);
         }
       }
-      
-      res.json({ 
+
+      res.json({
         message: "Import completed",
         imported: processedTasks.length,
         total: importedTasks.length
@@ -393,8 +526,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Sync tasks bidirectionally with Google Sheets
-  app.post("/api/google-sheets/sync", async (req, res) => {
+  app.post("/api/google-sheets/sync", requireAuth, async (req, res) => {
     try {
       const { spreadsheetId, sheetName, accessToken, refreshToken } = req.body;
 
@@ -407,7 +539,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         refreshToken
       });
 
-      const localTasks = await storage.getTasks();
+      const localTasks = await storage.getTasks(req.user!.id);
       const syncResult = await googleSheets.syncTasks(spreadsheetId, localTasks, sheetName);
       
       res.json({

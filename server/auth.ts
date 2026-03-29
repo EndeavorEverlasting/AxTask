@@ -1,0 +1,116 @@
+import { randomBytes } from "crypto";
+import passport from "passport";
+import { Strategy as LocalStrategy } from "passport-local";
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import { pool } from "./db";
+import { getUserByEmail, getUserById, verifyPassword } from "./storage";
+import type { Express, Request, Response, NextFunction } from "express";
+import type { SafeUser } from "@shared/schema";
+
+// Extend Express types so req.user is typed
+declare global {
+  namespace Express {
+    interface User extends SafeUser {}
+  }
+}
+
+// ── Session secret management ───────────────────────────────────────────────
+function resolveSessionSecret(): string {
+  const envSecret = process.env.SESSION_SECRET;
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (envSecret && envSecret.length >= 32) {
+    return envSecret;
+  }
+
+  if (isProd) {
+    console.error(
+      "[FATAL] SESSION_SECRET must be set to a random string ≥ 32 characters in production.\n" +
+      "Generate one with: node -e \"console.log(require('crypto').randomBytes(48).toString('base64url'))\""
+    );
+    process.exit(1);
+  }
+
+  // Dev mode: generate an ephemeral secret — valid only for this process lifetime
+  const ephemeral = randomBytes(48).toString("base64url");
+  console.warn(
+    "[auth] No SESSION_SECRET set or too short — using ephemeral secret (sessions won't survive restart)"
+  );
+  return ephemeral;
+}
+
+export function setupAuth(app: Express) {
+  const sessionSecret = resolveSessionSecret();
+
+  // ── Session store backed by PostgreSQL ──────────────────────────────────
+  const PgStore = connectPgSimple(session);
+
+  app.use(
+    session({
+      store: new PgStore({
+        pool: pool as any, // Neon Pool is compatible
+        createTableIfMissing: true,
+      }),
+      secret: sessionSecret,
+      name: "axtask.sid",        // non-default name — hides framework identity
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+      },
+    })
+  );
+
+  // ── Passport local strategy ─────────────────────────────────────────────
+  app.use(passport.initialize());
+  app.use(passport.session());
+
+  passport.use(
+    new LocalStrategy(
+      { usernameField: "email" },
+      async (email, password, done) => {
+        try {
+          const user = await getUserByEmail(email);
+          if (!user) {
+            return done(null, false, { message: "Invalid email or password" });
+          }
+          const valid = await verifyPassword(password, user.passwordHash);
+          if (!valid) {
+            return done(null, false, { message: "Invalid email or password" });
+          }
+          // Strip sensitive fields before serializing
+          const { passwordHash, failedLoginAttempts, lockedUntil, ...safeUser } = user;
+          return done(null, safeUser);
+        } catch (err) {
+          return done(err);
+        }
+      }
+    )
+  );
+
+  passport.serializeUser((user, done) => {
+    done(null, (user as SafeUser).id);
+  });
+
+  passport.deserializeUser(async (id: string, done) => {
+    try {
+      const user = await getUserById(id);
+      done(null, user || undefined);
+    } catch (err) {
+      done(err);
+    }
+  });
+}
+
+// ── Middleware: require authentication ────────────────────────────────────
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.status(401).json({ message: "Not authenticated" });
+}
+

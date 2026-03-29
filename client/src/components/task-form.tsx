@@ -12,15 +12,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { PriorityBadge } from "./priority-badge";
-import { Plus } from "lucide-react";
+import { Plus, CalendarIcon, Clock } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { format, parse } from "date-fns";
 
 interface TaskFormProps {
   task?: Task;
+  defaultDate?: string;
   onSuccess?: () => void;
 }
 
-export function TaskForm({ task, onSuccess }: TaskFormProps) {
+export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
@@ -29,6 +34,7 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
     resolver: zodResolver(insertTaskSchema),
     defaultValues: task ? {
       date: task.date,
+      time: task.time || "",
       activity: task.activity,
       notes: task.notes || "",
       urgency: task.urgency || undefined,
@@ -37,7 +43,8 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
       prerequisites: task.prerequisites || "",
       status: task.status,
     } : {
-      date: new Date().toISOString().split('T')[0],
+      date: defaultDate || new Date().toISOString().split('T')[0],
+      time: "",
       activity: "",
       notes: "",
       urgency: undefined,
@@ -115,11 +122,63 @@ export function TaskForm({ task, onSuccess }: TaskFormProps) {
               <FormField
                 control={form.control}
                 name="date"
+                render={({ field }) => {
+                  const dateValue = field.value
+                    ? parse(field.value, "yyyy-MM-dd", new Date())
+                    : undefined;
+                  return (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Date</FormLabel>
+                      <Popover modal={true}>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              className={cn(
+                                "w-full pl-3 text-left font-normal",
+                                !field.value && "text-muted-foreground"
+                              )}
+                            >
+                              {field.value
+                                ? format(dateValue!, "PPP")
+                                : "Pick a date"}
+                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={dateValue}
+                            onSelect={(day) => {
+                              if (day) field.onChange(format(day, "yyyy-MM-dd"));
+                            }}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
+              />
+
+              <FormField
+                control={form.control}
+                name="time"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Date</FormLabel>
+                    <FormLabel>Time <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} />
+                      <div className="relative">
+                        <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          type="time"
+                          className="pl-9"
+                          {...field}
+                          value={field.value || ""}
+                        />
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
