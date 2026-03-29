@@ -146,7 +146,6 @@ Everything else (`passport`, `express-session`, `connect-pg-simple`) is already 
 
 ## Future Enhancements (not in scope now)
 
-- **OAuth providers** (Google, GitHub login) via `passport-google-oauth20`
 - **Row Level Security** in PostgreSQL for defense-in-depth
 - **Password reset** flow with email verification
 - **Team/org accounts** with shared task visibility

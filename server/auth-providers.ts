@@ -1,12 +1,12 @@
 /**
- * Three-tier auth provider abstraction.
+ * Multi-provider auth abstraction.
  *
- * Tier 1: WorkOS AuthKit   (AUTH_PROVIDER=workos)
- * Tier 2: Google OAuth 2.0  (AUTH_PROVIDER=google)
- * Tier 3: Local Passport.js (AUTH_PROVIDER=local)
+ * Supported providers (set AUTH_PROVIDER in .env):
+ *   "google"  — Google OAuth 2.0
+ *   "workos"  — WorkOS AuthKit
+ *   "local"   — Passport.js (email + password)
  *
  * Switching requires changing AUTH_PROVIDER in .env and restarting.
- * NO automatic failover — by design.
  */
 import { WorkOS } from "@workos-inc/node";
 import type { Express, Request, Response } from "express";
@@ -26,7 +26,7 @@ function getWorkOS(): WorkOS {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function getProvider(): "workos" | "google" | "local" {
-  const p = (process.env.AUTH_PROVIDER || "workos").toLowerCase();
+  const p = (process.env.AUTH_PROVIDER || "google").toLowerCase();
   if (p === "workos" || p === "google" || p === "local") return p;
   console.warn(`[auth] Unknown AUTH_PROVIDER "${p}", defaulting to "local"`);
   return "local";
