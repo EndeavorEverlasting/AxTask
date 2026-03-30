@@ -196,7 +196,7 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    const accts = getKnownAccounts();
+    const accts = getKnownAccounts().sort((a, b) => b.lastUsed - a.lastUsed);
     setKnownAccounts(accts);
     if (accts.length === 0) setShowForm(true);
   }, []);
@@ -208,6 +208,16 @@ export default function LoginPage() {
     replit: "/api/auth/replit/login",
     workos: "/api/auth/workos/login",
   };
+
+  const availableProviderNames = useMemo(() => {
+    const names = new Set(providers.map(p => p.name));
+    names.add("local");
+    return names;
+  }, [providers]);
+
+  const isProviderAvailable = useCallback((providerName: string) => {
+    return availableProviderNames.has(providerName);
+  }, [availableProviderNames]);
 
   const mostRecentAccount = useMemo(() => {
     if (knownAccounts.length === 0) return null;
@@ -399,7 +409,7 @@ export default function LoginPage() {
                 </p>
               )}
 
-              {mostRecentAccount && knownAccounts.length === 1 && (
+              {mostRecentAccount && knownAccounts.length === 1 && isProviderAvailable(mostRecentAccount.provider) && (
                 <div className="mb-3">
                   <button
                     onClick={() => handlePickAccount(mostRecentAccount)}
@@ -433,7 +443,7 @@ export default function LoginPage() {
                 </div>
               )}
 
-              {(knownAccounts.length > 1 || (knownAccounts.length === 1 && mostRecentAccount)) && knownAccounts.length > 1 && (
+              {knownAccounts.length > 1 && (
                 <>
                   {knownAccounts.map((acct) => (
                     <div
