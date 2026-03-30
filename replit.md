@@ -40,7 +40,8 @@ Preferred communication style: Simple, everyday language.
 - **Analytics Dashboard**: Visual insights into task metrics, completion rates, and priority distributions.
 - **Real-time Updates**: Optimistic updates and cache invalidation.
 - **Task Reordering**: Drag-and-drop task reordering with persistent sort order.
-- **Task Search**: Full-text search across activity, notes, and classification.
+- **Task Search**: Full-text search across activity, notes, and classification with 200ms debounce.
+- **Performance Optimizations**: React.memo on task rows with reference equality comparison, debounced search input, SQL aggregate queries for dashboard stats, bulk task update method for imports, database indexes on (userId, status), (userId, priority), (userId, sortOrder).
 
 ### Authentication & Security
 - **Multi-tier Auth**: Four authentication providers always visible on the login page. `AUTH_PROVIDER` env var overrides auto-detect when set explicitly. Auto-detection fallback order: WorkOS → Google → Replit → Local.

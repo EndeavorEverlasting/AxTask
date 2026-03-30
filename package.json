@@ -47,6 +47,7 @@
     "@radix-ui/react-toggle-group": "^1.1.3",
     "@radix-ui/react-tooltip": "^1.2.0",
     "@tanstack/react-query": "^5.60.5",
+    "@tanstack/react-virtual": "^3.13.23",
     "@types/memoizee": "^0.4.12",
     "@types/papaparse": "^5.3.16",
     "@workos-inc/node": "^8.10.0",

@@ -455,7 +455,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          await Promise.all(updates.map(upd => storage.updateTask(userId, upd)));
+          await storage.bulkUpdateTasks(userId, updates);
         }
       }
 

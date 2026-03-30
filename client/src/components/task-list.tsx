@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -8,12 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
-import { Search, Edit, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles } from "lucide-react";
+import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -32,19 +31,45 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { TaskAIEngine } from "@/lib/ai-modules";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'manual';
 type SortDirection = 'asc' | 'desc';
 
-// Sortable row component for drag-and-drop
-function SortableTaskRow({
+const VIRTUALIZE_THRESHOLD = 100;
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
+const getStatusBadgeColor = (status: string) => {
+  switch (status) {
+    case "completed":
+      return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+    case "in-progress":
+      return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400";
+    case "pending":
+      return "bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-300";
+    default:
+      return "bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-300";
+  }
+};
+
+const formatStatus = (status: string) => {
+  return status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ");
+};
+
+const SortableTaskRow = memo(function SortableTaskRow({
   task,
   isDragMode,
   onEdit,
   onToggleStatus,
   onDelete,
-  getStatusBadgeColor,
-  formatStatus,
   isUpdating,
   isDeleting,
 }: {
@@ -53,8 +78,6 @@ function SortableTaskRow({
   onEdit: (task: Task) => void;
   onToggleStatus: (id: string, status: string) => void;
   onDelete: (id: string) => void;
-  getStatusBadgeColor: (status: string) => string;
-  formatStatus: (status: string) => string;
   isUpdating: boolean;
   isDeleting: boolean;
 }) {
@@ -143,12 +166,132 @@ function SortableTaskRow({
       </TableCell>
     </TableRow>
   );
+}, (prev, next) => {
+  return (
+    prev.task === next.task &&
+    prev.isDragMode === next.isDragMode &&
+    prev.isUpdating === next.isUpdating &&
+    prev.isDeleting === next.isDeleting
+  );
+});
+
+function VirtualizedTaskTable({
+  tasks,
+  isDragMode,
+  onEdit,
+  onToggleStatus,
+  onDelete,
+  isUpdating,
+  isDeleting,
+  sortField,
+  sortDirection,
+  handleSort,
+}: {
+  tasks: Task[];
+  isDragMode: boolean;
+  onEdit: (task: Task) => void;
+  onToggleStatus: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+  isUpdating: boolean;
+  isDeleting: boolean;
+  sortField: SortField;
+  sortDirection: SortDirection;
+  handleSort: (field: SortField) => void;
+}) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const ROW_HEIGHT = 52;
+
+  const virtualizer = useVirtualizer({
+    count: tasks.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 20,
+  });
+
+  return (
+    <div ref={scrollContainerRef} className="overflow-auto" style={{ maxHeight: '70vh' }}>
+      <Table>
+        <TableHeader className="sticky top-0 z-10 bg-white dark:bg-gray-800">
+          <TableRow>
+            {isDragMode && <TableHead className="w-8"></TableHead>}
+            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('date')}>
+              <div className="flex items-center">
+                Date
+                {sortField === 'date' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+              </div>
+            </TableHead>
+            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priority')}>
+              <div className="flex items-center">
+                Priority
+                {sortField === 'priority' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+              </div>
+            </TableHead>
+            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('activity')}>
+              <div className="flex items-center">
+                Activity
+                {sortField === 'activity' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+              </div>
+            </TableHead>
+            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('classification')}>
+              <div className="flex items-center">
+                Classification
+                {sortField === 'classification' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+              </div>
+            </TableHead>
+            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priorityScore')}>
+              <div className="flex items-center">
+                Score
+                {sortField === 'priorityScore' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+              </div>
+            </TableHead>
+            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('status')}>
+              <div className="flex items-center">
+                Status
+                {sortField === 'status' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+              </div>
+            </TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+          <TableBody>
+            {virtualizer.getVirtualItems().length > 0 && (
+              <tr style={{ height: `${virtualizer.getVirtualItems()[0].start}px` }} aria-hidden="true">
+                <td colSpan={isDragMode ? 8 : 7} />
+              </tr>
+            )}
+            {virtualizer.getVirtualItems().map((virtualItem) => {
+              const task = tasks[virtualItem.index];
+              return (
+                <SortableTaskRow
+                  key={task.id}
+                  task={task}
+                  isDragMode={isDragMode}
+                  onEdit={onEdit}
+                  onToggleStatus={onToggleStatus}
+                  onDelete={onDelete}
+                  isUpdating={isUpdating}
+                  isDeleting={isDeleting}
+                />
+              );
+            })}
+            {virtualizer.getVirtualItems().length > 0 && (
+              <tr style={{ height: `${virtualizer.getTotalSize() - (virtualizer.getVirtualItems()[virtualizer.getVirtualItems().length - 1].end)}px` }} aria-hidden="true">
+                <td colSpan={isDragMode ? 8 : 7} />
+              </tr>
+            )}
+          </TableBody>
+        </SortableContext>
+      </Table>
+    </div>
+  );
 }
 
 export function TaskList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebounce(searchQuery, 200);
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortField, setSortField] = useState<SortField>('manual');
@@ -240,29 +383,28 @@ export function TaskList() {
     },
   });
 
-  // DnD sensors
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  // Handle sorting
-  const handleSort = (field: SortField) => {
+  const handleSort = useCallback((field: SortField) => {
     if (field === 'manual') {
       setSortField('manual');
       setIsDragMode(true);
       return;
     }
     setIsDragMode(false);
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
+    setSortField(prev => {
+      if (prev === field) {
+        setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
+        return prev;
+      }
       setSortDirection('asc');
-    }
-  };
+      return field;
+    });
+  }, []);
 
-  // AI smart sort
   const handleAISort = () => {
     const sorted = TaskAIEngine.suggestOptimalOrder(tasks);
     const taskIds = sorted.map(t => t.id);
@@ -275,7 +417,6 @@ export function TaskList() {
     });
   };
 
-  // Handle drag end
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -285,19 +426,16 @@ export function TaskList() {
     if (oldIndex === -1 || newIndex === -1) return;
 
     const reordered = arrayMove(filteredAndSortedTasks, oldIndex, newIndex);
-    // Optimistically update the cache
     queryClient.setQueryData(["/api/tasks"], reordered);
-    // Persist the new order
     reorderMutation.mutate(reordered.map(t => t.id));
   };
 
-  // Sort and filter tasks
   const filteredAndSortedTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
-      const matchesSearch = !searchQuery ||
-        task.activity.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        task.notes?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        task.classification.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = !debouncedSearchQuery ||
+        task.activity.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        task.notes?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        task.classification.toLowerCase().includes(debouncedSearchQuery.toLowerCase());
 
       const matchesPriority = priorityFilter === "all" || task.priority === priorityFilter;
       const matchesStatus = statusFilter === "all" || task.status === statusFilter;
@@ -306,7 +444,7 @@ export function TaskList() {
     });
 
     if (sortField === 'manual') {
-      return filtered; // Use server sort order (sortOrder column)
+      return filtered;
     }
 
     return [...filtered].sort((a, b) => {
@@ -329,24 +467,17 @@ export function TaskList() {
       if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [tasks, searchQuery, priorityFilter, statusFilter, sortField, sortDirection]);
+  }, [tasks, debouncedSearchQuery, priorityFilter, statusFilter, sortField, sortDirection]);
 
-  const getStatusBadgeColor = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
-      case "in-progress":
-        return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400";
-      case "pending":
-        return "bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-300";
-      default:
-        return "bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-300";
-    }
-  };
+  const handleEdit = useCallback((task: Task) => setEditingTask(task), []);
+  const handleToggleStatus = useCallback((id: string, status: string) => {
+    updateTaskStatusMutation.mutate({ id, status });
+  }, [updateTaskStatusMutation]);
+  const handleDelete = useCallback((id: string) => {
+    deleteTaskMutation.mutate(id);
+  }, [deleteTaskMutation]);
 
-  const formatStatus = (status: string) => {
-    return status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ");
-  };
+  const useVirtualized = filteredAndSortedTasks.length > VIRTUALIZE_THRESHOLD;
 
   if (isLoading) {
     return (
@@ -440,105 +571,87 @@ export function TaskList() {
           </div>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    {isDragMode && <TableHead className="w-8"></TableHead>}
-                    <TableHead
-                      className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
-                      onClick={() => handleSort('date')}
-                    >
-                      <div className="flex items-center">
-                        Date
-                        {sortField === 'date' && (
-                          sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
-                      onClick={() => handleSort('priority')}
-                    >
-                      <div className="flex items-center">
-                        Priority
-                        {sortField === 'priority' && (
-                          sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
-                      onClick={() => handleSort('activity')}
-                    >
-                      <div className="flex items-center">
-                        Activity
-                        {sortField === 'activity' && (
-                          sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
-                      onClick={() => handleSort('classification')}
-                    >
-                      <div className="flex items-center">
-                        Classification
-                        {sortField === 'classification' && (
-                          sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
-                      onClick={() => handleSort('priorityScore')}
-                    >
-                      <div className="flex items-center">
-                        Score
-                        {sortField === 'priorityScore' && (
-                          sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
-                      onClick={() => handleSort('status')}
-                    >
-                      <div className="flex items-center">
-                        Status
-                        {sortField === 'status' && (
-                          sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
-                        )}
-                      </div>
-                    </TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <SortableContext items={filteredAndSortedTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-                  <TableBody>
-                    {filteredAndSortedTasks.map((task: Task) => (
-                      <SortableTaskRow
-                        key={task.id}
-                        task={task}
-                        isDragMode={isDragMode}
-                        onEdit={setEditingTask}
-                        onToggleStatus={(id, status) => updateTaskStatusMutation.mutate({ id, status })}
-                        onDelete={(id) => deleteTaskMutation.mutate(id)}
-                        getStatusBadgeColor={getStatusBadgeColor}
-                        formatStatus={formatStatus}
-                        isUpdating={updateTaskStatusMutation.isPending}
-                        isDeleting={deleteTaskMutation.isPending}
-                      />
-                    ))}
-                  </TableBody>
-                </SortableContext>
-              </Table>
-            </div>
+            {useVirtualized ? (
+              <VirtualizedTaskTable
+                tasks={filteredAndSortedTasks}
+                isDragMode={isDragMode}
+                onEdit={handleEdit}
+                onToggleStatus={handleToggleStatus}
+                onDelete={handleDelete}
+                isUpdating={updateTaskStatusMutation.isPending}
+                isDeleting={deleteTaskMutation.isPending}
+                sortField={sortField}
+                sortDirection={sortDirection}
+                handleSort={handleSort}
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {isDragMode && <TableHead className="w-8"></TableHead>}
+                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('date')}>
+                        <div className="flex items-center">
+                          Date
+                          {sortField === 'date' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+                        </div>
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priority')}>
+                        <div className="flex items-center">
+                          Priority
+                          {sortField === 'priority' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+                        </div>
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('activity')}>
+                        <div className="flex items-center">
+                          Activity
+                          {sortField === 'activity' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+                        </div>
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('classification')}>
+                        <div className="flex items-center">
+                          Classification
+                          {sortField === 'classification' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+                        </div>
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priorityScore')}>
+                        <div className="flex items-center">
+                          Score
+                          {sortField === 'priorityScore' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+                        </div>
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('status')}>
+                        <div className="flex items-center">
+                          Status
+                          {sortField === 'status' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+                        </div>
+                      </TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <SortableContext items={filteredAndSortedTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+                    <TableBody>
+                      {filteredAndSortedTasks.map((task: Task) => (
+                        <SortableTaskRow
+                          key={task.id}
+                          task={task}
+                          isDragMode={isDragMode}
+                          onEdit={handleEdit}
+                          onToggleStatus={handleToggleStatus}
+                          onDelete={handleDelete}
+                          isUpdating={updateTaskStatusMutation.isPending}
+                          isDeleting={deleteTaskMutation.isPending}
+                        />
+                      ))}
+                    </TableBody>
+                  </SortableContext>
+                </Table>
+              </div>
+            )}
           </DndContext>
         )}
       </CardContent>
       
-      {/* Edit Task Dialog */}
       <Dialog open={!!editingTask} onOpenChange={() => setEditingTask(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>

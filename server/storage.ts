@@ -1,6 +1,6 @@
 import { tasks, users, passwordResetTokens, type Task, type InsertTask, type UpdateTask, type User, type SafeUser } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, or, asc, lt } from "drizzle-orm";
+import { eq, and, ilike, or, asc, lt, count, avg, sql } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 
@@ -318,6 +318,7 @@ export interface IStorage {
   getTasksByPriority(userId: string, priority: string): Promise<Task[]>;
   searchTasks(userId: string, query: string): Promise<Task[]>;
   createTasksBulk(userId: string, taskList: InsertTask[]): Promise<Task[]>;
+  bulkUpdateTasks(userId: string, updates: UpdateTask[]): Promise<void>;
   reorderTasks(userId: string, taskIds: string[]): Promise<void>;
   getTaskStats(userId: string): Promise<{
     totalTasks: number;
@@ -436,12 +437,50 @@ export class DatabaseStorage implements IStorage {
       );
   }
 
+  async bulkUpdateTasks(userId: string, updates: UpdateTask[]): Promise<void> {
+    if (updates.length === 0) return;
+    const now = new Date();
+    const BATCH = 500;
+
+    for (let i = 0; i < updates.length; i += BATCH) {
+      const batch = updates.slice(i, i + BATCH);
+
+      const buildCase = (column: string, getValue: (u: UpdateTask) => any | undefined) => {
+        const parts = batch.map(u => {
+          const val = getValue(u);
+          if (val === undefined) return sql`WHEN id = ${u.id} THEN ${sql.raw(column)}`;
+          return sql`WHEN id = ${u.id} THEN ${val}`;
+        });
+        return sql.join([sql`CASE`, ...parts, sql`ELSE ${sql.raw(column)} END`], sql` `);
+      };
+
+      const idParams = batch.map(u => sql`${u.id}`);
+
+      await db.execute(sql`
+        UPDATE tasks SET
+          priority = ${buildCase('priority', u => u.priority)},
+          priority_score = ${buildCase('priority_score', u => u.priorityScore)},
+          classification = ${buildCase('classification', u => u.classification)},
+          is_repeated = ${buildCase('is_repeated', u => u.isRepeated)},
+          updated_at = ${now}
+        WHERE user_id = ${userId} AND id IN (${sql.join(idParams, sql`, `)})
+      `);
+    }
+  }
+
   async reorderTasks(userId: string, taskIds: string[]): Promise<void> {
-    for (let i = 0; i < taskIds.length; i++) {
-      await db
-        .update(tasks)
-        .set({ sortOrder: i, updatedAt: new Date() })
-        .where(and(eq(tasks.id, taskIds[i]), eq(tasks.userId, userId)));
+    const now = new Date();
+    const BATCH = 500;
+    for (let i = 0; i < taskIds.length; i += BATCH) {
+      const batch = taskIds.slice(i, i + BATCH);
+      await Promise.all(
+        batch.map((id, idx) =>
+          db
+            .update(tasks)
+            .set({ sortOrder: i + idx, updatedAt: now })
+            .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
+        )
+      );
     }
   }
 
@@ -451,25 +490,32 @@ export class DatabaseStorage implements IStorage {
     completedToday: number;
     avgPriorityScore: number;
   }> {
-    const allTasks = await this.getTasks(userId);
     const today = new Date().toISOString().split("T")[0];
 
-    const totalTasks = allTasks.length;
-    const highPriorityTasks = allTasks.filter(
-      (task) => task.priority === "Highest" || task.priority === "High"
-    ).length;
-    const completedToday = allTasks.filter(
-      (task) =>
-        task.status === "completed" &&
-        task.updatedAt &&
-        task.updatedAt.toISOString().split("T")[0] === today
-    ).length;
-    const avgPriorityScore =
-      totalTasks > 0
-        ? allTasks.reduce((sum, task) => sum + task.priorityScore, 0) / totalTasks
-        : 0;
+    const [[totalRow], [highPriorityRow], [completedTodayRow], [avgRow]] = await Promise.all([
+      db.select({ value: count() }).from(tasks).where(eq(tasks.userId, userId)),
+      db.select({ value: count() }).from(tasks).where(
+        and(
+          eq(tasks.userId, userId),
+          or(eq(tasks.priority, "Highest"), eq(tasks.priority, "High"))
+        )
+      ),
+      db.select({ value: count() }).from(tasks).where(
+        and(
+          eq(tasks.userId, userId),
+          eq(tasks.status, "completed"),
+          sql`${tasks.updatedAt}::date = ${today}::date`
+        )
+      ),
+      db.select({ value: avg(tasks.priorityScore) }).from(tasks).where(eq(tasks.userId, userId)),
+    ]);
 
-    return { totalTasks, highPriorityTasks, completedToday, avgPriorityScore };
+    return {
+      totalTasks: Number(totalRow?.value) || 0,
+      highPriorityTasks: Number(highPriorityRow?.value) || 0,
+      completedToday: Number(completedTodayRow?.value) || 0,
+      avgPriorityScore: Number(avgRow?.value) || 0,
+    };
   }
 }
 
