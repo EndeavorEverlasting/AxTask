@@ -162,7 +162,7 @@ export default function Analytics() {
             <div className="text-center">
               <div className="text-4xl font-bold text-orange-600 mb-2">
                 {tasks.length > 0 
-                  ? (tasks.reduce((sum, task) => sum + task.priorityScore, 0) / tasks.length / 10).toFixed(1)
+                  ? (tasks.reduce((sum, task) => sum + task.priorityScore, 0) / tasks.length / 10).toFixed(3)
                   : "0.0"
                 }
               </div>

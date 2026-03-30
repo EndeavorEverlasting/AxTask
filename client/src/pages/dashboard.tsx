@@ -79,7 +79,7 @@ export default function Dashboard() {
               <div>
                 <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Avg Priority Score</p>
                 <p className="text-3xl font-bold text-orange-600">
-                  {isLoading ? "..." : stats?.avgPriorityScore || 0}
+                  {isLoading ? "..." : typeof stats?.avgPriorityScore === "number" ? stats.avgPriorityScore.toFixed(3) : "0"}
                 </p>
               </div>
               <div className="bg-orange-100 dark:bg-orange-900/30 p-3 rounded-lg">

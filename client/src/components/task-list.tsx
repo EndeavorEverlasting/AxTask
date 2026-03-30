@@ -131,7 +131,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
         <ClassificationBadge classification={task.classification} />
       </TableCell>
       <TableCell className="font-mono text-sm">
-        {(task.priorityScore / 10).toFixed(1)}
+        {(task.priorityScore / 10).toFixed(3)}
       </TableCell>
       <TableCell>
         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeColor(task.status)}`}>

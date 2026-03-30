@@ -6,7 +6,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { useZoom, ZoomProvider } from "@/hooks/use-zoom";
+import { TutorialProvider } from "@/hooks/use-tutorial";
 import { Sidebar } from "@/components/layout/sidebar";
+import { TutorialOverlay } from "@/components/tutorial-overlay";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
 import Analytics from "@/pages/analytics";
@@ -66,6 +68,7 @@ function AuthenticatedApp() {
           <Router />
         </div>
       </main>
+      <TutorialOverlay />
     </div>
   );
 }
@@ -77,7 +80,9 @@ function App() {
         <TooltipProvider>
           <AuthProvider>
             <ZoomProvider>
-              <AuthenticatedApp />
+              <TutorialProvider>
+                <AuthenticatedApp />
+              </TutorialProvider>
             </ZoomProvider>
           </AuthProvider>
           <Toaster />

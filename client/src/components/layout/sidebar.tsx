@@ -17,10 +17,12 @@ import {
   ZoomOut,
   RotateCcw,
   ClipboardList,
+  GraduationCap,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
 import { useZoom } from "@/hooks/use-zoom";
+import { useTutorial } from "@/hooks/use-tutorial";
 import { Button } from "@/components/ui/button";
 
 export function Sidebar() {
@@ -28,6 +30,7 @@ export function Sidebar() {
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const { zoom, zoomIn, zoomOut, resetZoom, ZOOM_MIN, ZOOM_MAX } = useZoom();
+  const { isActive: tutorialActive, startTutorial, stopTutorial, hasCompleted } = useTutorial();
 
   const menuItems = [
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -60,7 +63,9 @@ export function Sidebar() {
           {menuItems.map(({ path, icon: Icon, label }) => (
             <li key={path}>
               <Link href={path}>
-                <div className={`flex items-center p-3 rounded-lg font-medium transition-colors cursor-pointer ${
+                <div
+                  id={`sidebar-link-${path}`}
+                  className={`flex items-center p-3 rounded-lg font-medium transition-colors cursor-pointer ${
                   isActiveRoute(path)
                     ? "text-primary bg-blue-50 dark:bg-blue-900/30"
                     : "text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -75,7 +80,16 @@ export function Sidebar() {
       </nav>
 
       <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
-        {/* Zoom controls */}
+        <Button
+          variant={tutorialActive ? "default" : "outline"}
+          size="sm"
+          onClick={tutorialActive ? stopTutorial : startTutorial}
+          className={`w-full justify-start ${tutorialActive ? "bg-purple-600 hover:bg-purple-700 text-white" : ""}`}
+        >
+          <GraduationCap className="mr-2 h-4 w-4" />
+          {tutorialActive ? "Exit Tutorial" : hasCompleted ? "Restart Tutorial" : "Start Tutorial"}
+        </Button>
+
         <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700/50">
           <Button
             variant="ghost"

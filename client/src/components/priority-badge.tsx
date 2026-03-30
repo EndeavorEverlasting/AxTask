@@ -6,23 +6,6 @@ interface PriorityBadgeProps {
 }
 
 export function PriorityBadge({ priority, score }: PriorityBadgeProps) {
-  const getVariant = (priority: string) => {
-    switch (priority) {
-      case "Highest":
-        return "destructive";
-      case "High":
-        return "secondary";
-      case "Medium-High":
-        return "outline";
-      case "Medium":
-        return "default";
-      case "Low":
-        return "secondary";
-      default:
-        return "default";
-    }
-  };
-
   const getColorClasses = (priority: string) => {
     switch (priority) {
       case "Highest":
@@ -40,11 +23,16 @@ export function PriorityBadge({ priority, score }: PriorityBadgeProps) {
     }
   };
 
+  const formatScore = (s: number) => {
+    if (Number.isInteger(s)) return s.toString();
+    return s.toFixed(3);
+  };
+
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getColorClasses(priority)}`}>
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getColorClasses(priority)}`}>
       {priority}
-      {score && (
-        <span className="ml-1 text-xs opacity-75">({score})</span>
+      {score !== undefined && score !== null && (
+        <span className="ml-1 text-xs opacity-75">({formatScore(score)})</span>
       )}
     </span>
   );

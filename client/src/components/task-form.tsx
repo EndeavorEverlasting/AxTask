@@ -36,7 +36,9 @@ function getDraftKey(userId?: string, context?: string): string {
 
 function saveDraft(key: string, data: Partial<InsertTask>) {
   try {
-    const hasContent = data.activity || data.notes || data.prerequisites || data.time;
+    const hasContent = data.activity || data.notes || data.prerequisites || data.time ||
+      data.urgency !== undefined || data.impact !== undefined || data.effort !== undefined ||
+      (data.status && data.status !== "pending");
     if (!hasContent) {
       localStorage.removeItem(key);
       return;
@@ -70,6 +72,8 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const queryClient = useQueryClient();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
   const { onFieldBlur, isHinted } = useFieldFlow();
+  const [warningFields, setWarningFields] = useState<Set<string>>(new Set());
+  const warningTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const draftContext = task ? `edit_${task.id}` : defaultDate ? `date_${defaultDate}` : "new";
   const draftKey = getDraftKey(user?.id, draftContext);
@@ -105,14 +109,50 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     defaultValues: mergedDefaults,
   });
 
+  const addWarning = useCallback((fieldName: string) => {
+    const existing = warningTimers.current.get(fieldName);
+    if (existing) clearTimeout(existing);
+
+    setWarningFields(prev => new Set(prev).add(fieldName));
+
+    const timer = setTimeout(() => {
+      setWarningFields(prev => {
+        const next = new Set(prev);
+        next.delete(fieldName);
+        return next;
+      });
+      warningTimers.current.delete(fieldName);
+    }, 5000);
+    warningTimers.current.set(fieldName, timer);
+  }, []);
+
+  const clearWarning = useCallback((fieldName: string) => {
+    const existing = warningTimers.current.get(fieldName);
+    if (existing) clearTimeout(existing);
+    warningTimers.current.delete(fieldName);
+    setWarningFields(prev => {
+      const next = new Set(prev);
+      next.delete(fieldName);
+      return next;
+    });
+  }, []);
+
+  const isWarned = useCallback((fieldName: string) => warningFields.has(fieldName), [warningFields]);
+
+  const getFieldClass = useCallback((fieldName: string, extraClass?: string) => {
+    return cn(
+      isHinted(fieldName) && "field-glow-hint",
+      isWarned(fieldName) && "field-glow-warning",
+      extraClass
+    );
+  }, [isHinted, isWarned]);
+
   const createTaskMutation = useMutation({
     mutationFn: async (taskData: InsertTask) => {
       if (task) {
-        // Update existing task
         const response = await apiRequest("PUT", `/api/tasks/${task.id}`, taskData);
         return response.json();
       } else {
-        // Create new task
         const response = await apiRequest("POST", "/api/tasks", taskData);
         return response.json();
       }
@@ -139,7 +179,6 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     },
   });
 
-  // Real-time priority calculation + draft auto-save
   useEffect(() => {
     const subscription = form.watch((values) => {
       if (values.activity || values.notes) {
@@ -165,9 +204,44 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     };
   }, [form, draftKey, task]);
 
+  useEffect(() => {
+    return () => {
+      warningTimers.current.forEach(t => clearTimeout(t));
+    };
+  }, []);
+
   const onSubmit = (data: InsertTask) => {
     createTaskMutation.mutate(data);
   };
+
+  const handleSubmitWithWarnings = useCallback(() => {
+    const values = form.getValues();
+    let hasWarnings = false;
+
+    if (!values.activity || values.activity.trim() === "") {
+      addWarning("activity");
+      hasWarnings = true;
+    } else {
+      clearWarning("activity");
+    }
+
+    if (!values.date || values.date.trim() === "") {
+      addWarning("date");
+      hasWarnings = true;
+    } else {
+      clearWarning("date");
+    }
+
+    if (hasWarnings) {
+      toast({
+        title: "Missing required fields",
+        description: "Please fill in the highlighted fields before submitting.",
+        variant: "destructive",
+      });
+    }
+
+    form.handleSubmit(onSubmit)();
+  }, [form, addWarning, clearWarning, toast, onSubmit]);
 
   return (
     <Card>
@@ -179,7 +253,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={(e) => { e.preventDefault(); handleSubmitWithWarnings(); }} className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
@@ -190,7 +264,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     : undefined;
                   return (
                     <FormItem className="flex flex-col">
-                      <FormLabel>Date</FormLabel>
+                      <FormLabel>Date <span className="text-red-400">*</span></FormLabel>
                       <Popover modal={true}>
                         <PopoverTrigger asChild>
                           <FormControl>
@@ -199,9 +273,8 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               className={cn(
                                 "w-full pl-3 text-left font-normal",
                                 !field.value && "text-muted-foreground",
-                                isHinted("date") && "field-glow-hint"
+                                getFieldClass("date")
                               )}
-                              
                               onBlur={() => onFieldBlur("date", field.value)}
                             >
                               {field.value
@@ -218,6 +291,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                             onSelect={(day) => {
                               if (day) {
                                 field.onChange(format(day, "yyyy-MM-dd"));
+                                clearWarning("date");
                                 onFieldBlur("date", format(day, "yyyy-MM-dd"));
                               }
                             }}
@@ -240,7 +314,6 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     <FormControl>
                       <div
                         className={cn(isHinted("time") && "rounded-md field-glow-hint")}
-                        
                         onBlur={() => onFieldBlur("time", field.value)}
                       >
                         <ClockTimePicker
@@ -263,11 +336,13 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Status</FormLabel>
-                    <Select onValueChange={(v) => { field.onChange(v); onFieldBlur("status", v); }} defaultValue={field.value}>
+                    <Select
+                      onValueChange={(v) => { field.onChange(v); onFieldBlur("status", v); }}
+                      value={field.value || "pending"}
+                    >
                       <FormControl>
                         <SelectTrigger
-                          className={cn(isHinted("status") && "field-glow-hint")}
-                          
+                          className={getFieldClass("status")}
                         >
                           <SelectValue placeholder="Select status" />
                         </SelectTrigger>
@@ -289,14 +364,21 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   name="activity"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Activity</FormLabel>
+                      <FormLabel>Activity <span className="text-red-400">*</span></FormLabel>
                       <FormControl>
                         <Input
                           placeholder="Enter task activity..."
                           {...field}
-                          className={cn(isHinted("activity") && "field-glow-hint")}
-                          
-                          onBlur={(e) => { field.onBlur(); onFieldBlur("activity", e.target.value); }}
+                          className={getFieldClass("activity")}
+                          onBlur={(e) => {
+                            field.onBlur();
+                            onFieldBlur("activity", e.target.value);
+                            if (e.target.value.trim()) clearWarning("activity");
+                          }}
+                          onChange={(e) => {
+                            field.onChange(e);
+                            if (e.target.value.trim()) clearWarning("activity");
+                          }}
                         />
                       </FormControl>
                       <FormMessage />
@@ -317,8 +399,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           rows={3}
                           placeholder="Add detailed notes, tags (@urgent, #blocker), or additional context..."
                           {...field}
-                          className={cn(isHinted("notes") && "field-glow-hint")}
-                          
+                          className={getFieldClass("notes")}
                           onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); }}
                         />
                       </FormControl>
@@ -334,11 +415,17 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Urgency (1-5)</FormLabel>
-                    <Select onValueChange={(value) => { const v = value && value !== "auto" ? parseInt(value) : undefined; field.onChange(v); onFieldBlur("urgency", v); }}>
+                    <Select
+                      onValueChange={(value) => {
+                        const v = value && value !== "auto" ? parseInt(value) : undefined;
+                        field.onChange(v);
+                        onFieldBlur("urgency", v);
+                      }}
+                      value={field.value !== undefined && field.value !== null ? String(field.value) : "auto"}
+                    >
                       <FormControl>
                         <SelectTrigger
-                          className={cn(isHinted("urgency") && "field-glow-hint")}
-                          
+                          className={getFieldClass("urgency")}
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -363,11 +450,17 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Impact (1-5)</FormLabel>
-                    <Select onValueChange={(value) => { const v = value && value !== "auto" ? parseInt(value) : undefined; field.onChange(v); onFieldBlur("impact", v); }}>
+                    <Select
+                      onValueChange={(value) => {
+                        const v = value && value !== "auto" ? parseInt(value) : undefined;
+                        field.onChange(v);
+                        onFieldBlur("impact", v);
+                      }}
+                      value={field.value !== undefined && field.value !== null ? String(field.value) : "auto"}
+                    >
                       <FormControl>
                         <SelectTrigger
-                          className={cn(isHinted("impact") && "field-glow-hint")}
-                          
+                          className={getFieldClass("impact")}
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -392,11 +485,17 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Effort (1-5)</FormLabel>
-                    <Select onValueChange={(value) => { const v = value && value !== "auto" ? parseInt(value) : undefined; field.onChange(v); onFieldBlur("effort", v); }}>
+                    <Select
+                      onValueChange={(value) => {
+                        const v = value && value !== "auto" ? parseInt(value) : undefined;
+                        field.onChange(v);
+                        onFieldBlur("effort", v);
+                      }}
+                      value={field.value !== undefined && field.value !== null ? String(field.value) : "auto"}
+                    >
                       <FormControl>
                         <SelectTrigger
-                          className={cn(isHinted("effort") && "field-glow-hint")}
-                          
+                          className={getFieldClass("effort")}
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -425,8 +524,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       <Input
                         placeholder="Dependencies or prerequisites..."
                         {...field}
-                        className={cn(isHinted("prerequisites") && "field-glow-hint")}
-                        
+                        className={getFieldClass("prerequisites")}
                         onBlur={(e) => { field.onBlur(); onFieldBlur("prerequisites", e.target.value); }}
                       />
                     </FormControl>
