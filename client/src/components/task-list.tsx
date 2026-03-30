@@ -166,7 +166,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
       animate="animate"
       exit="exit"
       transition={{ duration: 0.2, type: "spring", stiffness: 400, damping: 30 }}
-      className={`hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${isDragging ? "bg-blue-50 dark:bg-blue-900/20 shadow-lg scale-[1.02]" : ""} ${flashClass}`}
+      className={`hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${isDragging ? `bg-blue-50 dark:bg-blue-900/20 shadow-lg ${reducedMotion ? "" : "scale-[1.02]"}` : ""} ${flashClass}`}
       onClick={() => !isDragMode && onEdit(task)}
     >
       {isDragMode && (
@@ -174,7 +174,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
           <button
             {...attributes}
             {...listeners}
-            className="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-transform active:scale-110"
+            className={`cursor-grab active:cursor-grabbing p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded ${reducedMotion ? "" : "transition-transform active:scale-110"}`}
           >
             <GripVertical className="h-4 w-4 text-gray-400" />
           </button>

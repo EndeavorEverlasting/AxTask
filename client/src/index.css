@@ -220,7 +220,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [style*="transform"] {
-    transition-duration: 0.01ms !important;
+  .animate-\\[task-flash-status_0\\.4s_ease-out\\],
+  .animate-\\[task-flash-priority_0\\.4s_ease-out\\] {
+    animation: none !important;
   }
 }
