@@ -3,7 +3,12 @@ import { createServer, type Server } from "http";
 import { timingSafeEqual } from "crypto";
 import rateLimit from "express-rate-limit";
 import passport from "passport";
-import { storage, createUser, getUserByEmail, recordFailedLogin, resetFailedLogins } from "./storage";
+import {
+  storage, createUser, getUserByEmail, recordFailedLogin, resetFailedLogins,
+  createResetToken, verifyResetToken, consumeResetToken,
+  setSecurityQuestion, getSecurityQuestion, verifySecurityAnswer,
+  adminResetPassword,
+} from "./storage";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
@@ -124,11 +129,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/logout", (req: Request, res: Response) => {
     req.logout((err) => {
       if (err) return res.status(500).json({ message: "Logout failed" });
-      res.json({ message: "Logged out" });
+      // Destroy the session entirely so back-button can't restore it
+      req.session.destroy((destroyErr) => {
+        if (destroyErr) console.error("[auth] Session destroy error:", destroyErr);
+        res.clearCookie("axtask.sid");
+        res.json({ message: "Logged out" });
+      });
     });
   });
 
   app.get("/api/auth/me", (req: Request, res: Response) => {
+    // Prevent browser from caching auth state — critical for back-button after logout
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.set("Pragma", "no-cache");
     if (req.isAuthenticated()) {
       res.json(req.user);
     } else {
@@ -138,7 +151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Return registration mode + auth provider so the UI can adapt
   app.get("/api/auth/config", (_req: Request, res: Response) => {
-    const authProvider = (process.env.AUTH_PROVIDER || "workos").toLowerCase();
+    const authProvider = (process.env.AUTH_PROVIDER || "google").toLowerCase();
     const loginUrls: Record<string, string> = {
       workos: "/api/auth/workos/login",
       google: "/api/auth/google/login",
@@ -149,6 +162,162 @@ export async function registerRoutes(app: Express): Promise<Server> {
       authProvider,
       loginUrl: loginUrls[authProvider] || "",
     });
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Password Reset routes (public, rate-limited)
+  // ════════════════════════════════════════════════════════════════════════
+
+  // Tier 1: Request email-based password reset
+  app.post("/api/auth/forgot-password", authLimiter, async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ message: "Email is required" });
+
+      const user = await getUserByEmail(email);
+      // Always return success to prevent email enumeration
+      if (!user || !user.passwordHash) {
+        return res.json({ message: "If that email exists, a reset link has been sent.", method: "email" });
+      }
+
+      const result = await createResetToken(email, "email", 30);
+      if (!result) {
+        return res.json({ message: "If that email exists, a reset link has been sent.", method: "email" });
+      }
+
+      // In production, send email here. For local dev, log the token.
+      const resetUrl = `${req.protocol}://${req.get("host")}/?reset_token=${result.token}`;
+      console.log(`[PASSWORD RESET] Token for ${email}: ${resetUrl}`);
+
+      // Check if security question is available as fallback
+      const hasSecurityQuestion = !!user.securityQuestion;
+
+      res.json({
+        message: "If that email exists, a reset link has been sent.",
+        method: "email",
+        hasSecurityQuestion,
+        // In dev, also return the token so the UI can use it directly
+        ...(process.env.NODE_ENV === "development" ? { _devToken: result.token } : {}),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Password reset request failed" });
+    }
+  });
+
+  // Tier 2: Get security question for an email
+  app.post("/api/auth/security-question", authLimiter, async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ message: "Email is required" });
+
+      const question = await getSecurityQuestion(email);
+      if (!question) {
+        return res.status(404).json({ message: "No security question set for this account" });
+      }
+      res.json({ question });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to retrieve security question" });
+    }
+  });
+
+  // Tier 2: Verify security answer → get reset token
+  app.post("/api/auth/verify-security-answer", authLimiter, async (req: Request, res: Response) => {
+    try {
+      const { email, answer } = req.body;
+      if (!email || !answer) {
+        return res.status(400).json({ message: "Email and answer are required" });
+      }
+
+      const valid = await verifySecurityAnswer(email, answer);
+      if (!valid) {
+        return res.status(401).json({ message: "Incorrect answer" });
+      }
+
+      // Issue a reset token via security_question method
+      const result = await createResetToken(email, "security_question", 15);
+      if (!result) {
+        return res.status(500).json({ message: "Failed to create reset token" });
+      }
+
+      res.json({ token: result.token, expiresAt: result.expiresAt });
+    } catch (error) {
+      res.status(500).json({ message: "Security verification failed" });
+    }
+  });
+
+  // Final step: Reset password using a valid token
+  app.post("/api/auth/reset-password", authLimiter, async (req: Request, res: Response) => {
+    try {
+      const { token, newPassword } = req.body;
+      if (!token || !newPassword) {
+        return res.status(400).json({ message: "Token and new password are required" });
+      }
+
+      // Validate password strength
+      if (newPassword.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+
+      const success = await consumeResetToken(token, newPassword);
+      if (!success) {
+        return res.status(400).json({ message: "Invalid or expired reset token" });
+      }
+
+      res.json({ message: "Password has been reset successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Password reset failed" });
+    }
+  });
+
+  // Tier 3: Admin reset — requires authenticated admin
+  app.post("/api/auth/admin/reset-password", requireAuth, async (req: Request, res: Response) => {
+    try {
+      if (req.user!.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { targetEmail, newPassword } = req.body;
+      if (!targetEmail || !newPassword) {
+        return res.status(400).json({ message: "Target email and new password are required" });
+      }
+
+      const success = await adminResetPassword(targetEmail, newPassword);
+      if (!success) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.json({ message: `Password reset for ${targetEmail}` });
+    } catch (error) {
+      res.status(500).json({ message: "Admin password reset failed" });
+    }
+  });
+
+  // Set/update security question (requires login)
+  app.post("/api/auth/security-question/set", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { question, answer } = req.body;
+      if (!question || !answer) {
+        return res.status(400).json({ message: "Question and answer are required" });
+      }
+      if (answer.trim().length < 2) {
+        return res.status(400).json({ message: "Answer must be at least 2 characters" });
+      }
+
+      await setSecurityQuestion(req.user!.id, question, answer);
+      res.json({ message: "Security question updated" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to set security question" });
+    }
+  });
+
+  // Check if current user has a security question set
+  app.get("/api/auth/security-question/status", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = await getUserByEmail(req.user!.email);
+      res.json({ hasSecurityQuestion: !!user?.securityQuestion, question: user?.securityQuestion || null });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to check security question status" });
+    }
   });
 
   // ════════════════════════════════════════════════════════════════════════

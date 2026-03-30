@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import type { SafeUser } from "@shared/schema";
+import { queryClient } from "./queryClient";
 
 interface AuthContextType {
   user: SafeUser | null;
@@ -15,11 +16,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SafeUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Check if already logged in on mount
+  // Check if already logged in on mount (also handles OAuth redirect)
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => setUser(data))
+      .then((data) => {
+        setUser(data);
+        // If we have a user (e.g. from OAuth redirect), remember the account
+        if (data?.email) {
+          try {
+            const ACCOUNTS_KEY = "axtask_known_accounts";
+            const LAST_KEY = "axtask_last_email";
+            const provider = data.authProvider || "local";
+            const existing = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]")
+              .filter((a: any) => a.email !== data.email);
+            existing.unshift({
+              email: data.email,
+              displayName: data.displayName || data.email.split("@")[0],
+              provider,
+              lastUsed: Date.now(),
+            });
+            localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(existing.slice(0, 5)));
+            localStorage.setItem(LAST_KEY, data.email);
+          } catch { /* localStorage may be unavailable */ }
+        }
+      })
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
@@ -37,13 +58,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const data = await res.json();
     setUser(data);
-    // Remember this account for the account picker
+    // Remember this account for the account picker (local login)
     try {
       const ACCOUNTS_KEY = "axtask_known_accounts";
       const LAST_KEY = "axtask_last_email";
       const existing = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]")
         .filter((a: any) => a.email !== email);
-      existing.unshift({ email, displayName: data.displayName || email.split("@")[0], lastUsed: Date.now() });
+      existing.unshift({ email, displayName: data.displayName || email.split("@")[0], provider: "local", lastUsed: Date.now() });
       localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(existing.slice(0, 5)));
       localStorage.setItem(LAST_KEY, email);
     } catch { /* localStorage may be unavailable */ }
@@ -70,6 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       credentials: "include",
     });
     setUser(null);
+    // Clear all cached queries so back-button can't show stale authenticated data
+    queryClient.clear();
   }, []);
 
   return (

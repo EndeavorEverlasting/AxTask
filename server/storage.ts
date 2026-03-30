@@ -1,13 +1,13 @@
-import { tasks, users, type Task, type InsertTask, type UpdateTask, type User, type SafeUser } from "@shared/schema";
+import { tasks, users, passwordResetTokens, type Task, type InsertTask, type UpdateTask, type User, type SafeUser } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, or, asc } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { eq, and, ilike, or, asc, lt } from "drizzle-orm";
+import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
 
 function toSafeUser(user: User): SafeUser {
-  const { passwordHash, failedLoginAttempts, lockedUntil, workosId, googleId, ...safe } = user;
+  const { passwordHash, securityAnswerHash, failedLoginAttempts, lockedUntil, workosId, googleId, ...safe } = user;
   return safe;
 }
 
@@ -151,6 +151,146 @@ export async function resetFailedLogins(email: string): Promise<void> {
     .update(users)
     .set({ failedLoginAttempts: 0, lockedUntil: null })
     .where(eq(users.email, email.toLowerCase()));
+}
+
+// ─── Security Question ──────────────────────────────────────────────────────
+
+export async function setSecurityQuestion(
+  userId: string,
+  question: string,
+  answer: string
+): Promise<void> {
+  const answerHash = await bcrypt.hash(answer.trim().toLowerCase(), 12);
+  await db
+    .update(users)
+    .set({ securityQuestion: question, securityAnswerHash: answerHash })
+    .where(eq(users.id, userId));
+}
+
+export async function getSecurityQuestion(email: string): Promise<string | null> {
+  const user = await getUserByEmail(email);
+  return user?.securityQuestion || null;
+}
+
+export async function verifySecurityAnswer(
+  email: string,
+  answer: string
+): Promise<boolean> {
+  const user = await getUserByEmail(email);
+  if (!user?.securityAnswerHash) return false;
+  return bcrypt.compare(answer.trim().toLowerCase(), user.securityAnswerHash);
+}
+
+// ─── Password Reset Tokens ──────────────────────────────────────────────────
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * Create a password reset token. Returns the raw token (to send via email or return to client).
+ * Only the SHA-256 hash is stored in the database.
+ */
+export async function createResetToken(
+  email: string,
+  method: "email" | "security_question" | "admin" = "email",
+  expiresInMinutes = 30
+): Promise<{ token: string; expiresAt: Date } | null> {
+  const user = await getUserByEmail(email);
+  if (!user) return null;
+
+  const rawToken = randomBytes(32).toString("base64url");
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + expiresInMinutes * 60 * 1000);
+
+  await db.insert(passwordResetTokens).values({
+    id: randomUUID(),
+    userId: user.id,
+    tokenHash,
+    method,
+    expiresAt,
+  });
+
+  return { token: rawToken, expiresAt };
+}
+
+/**
+ * Verify a reset token is valid (exists, not used, not expired).
+ * Does NOT consume it — call consumeResetToken after password change.
+ */
+export async function verifyResetToken(
+  token: string
+): Promise<{ userId: string; method: string } | null> {
+  const tokenHash = hashToken(token);
+  const [row] = await db
+    .select()
+    .from(passwordResetTokens)
+    .where(eq(passwordResetTokens.tokenHash, tokenHash));
+
+  if (!row) return null;
+  if (row.usedAt) return null;
+  if (new Date(row.expiresAt) < new Date()) return null;
+
+  return { userId: row.userId, method: row.method };
+}
+
+/**
+ * Consume a reset token (mark as used) and change the user's password.
+ */
+export async function consumeResetToken(
+  token: string,
+  newPassword: string
+): Promise<boolean> {
+  const valid = await verifyResetToken(token);
+  if (!valid) return false;
+
+  const tokenHash = hashToken(token);
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+
+  // Mark token as used
+  await db
+    .update(passwordResetTokens)
+    .set({ usedAt: new Date() })
+    .where(eq(passwordResetTokens.tokenHash, tokenHash));
+
+  // Update password + reset lockout
+  await db
+    .update(users)
+    .set({ passwordHash, failedLoginAttempts: 0, lockedUntil: null })
+    .where(eq(users.id, valid.userId));
+
+  return true;
+}
+
+/**
+ * Admin reset — directly set a user's password. Caller must verify admin role.
+ */
+export async function adminResetPassword(
+  targetEmail: string,
+  newPassword: string
+): Promise<boolean> {
+  const user = await getUserByEmail(targetEmail);
+  if (!user) return false;
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await db
+    .update(users)
+    .set({ passwordHash, failedLoginAttempts: 0, lockedUntil: null })
+    .where(eq(users.id, user.id));
+
+  // Log for audit
+  console.log(`[ADMIN] Password reset for ${targetEmail}`);
+  return true;
+}
+
+/**
+ * Clean up expired/used tokens older than 24 hours.
+ */
+export async function cleanupExpiredTokens(): Promise<void> {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  await db
+    .delete(passwordResetTokens)
+    .where(lt(passwordResetTokens.expiresAt, cutoff));
 }
 
 // ─── Task storage ────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { useZoom } from "@/hooks/use-zoom";
 import { Sidebar } from "@/components/layout/sidebar";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
@@ -32,6 +33,8 @@ function Router() {
 
 function AuthenticatedApp() {
   const { user, loading } = useAuth();
+  const { zoom } = useZoom();
+  const scale = zoom / 100;
 
   if (loading) {
     return (
@@ -46,10 +49,19 @@ function AuthenticatedApp() {
   }
 
   return (
-    <div className="min-h-screen flex bg-gray-50 dark:bg-gray-900">
+    <div className="h-screen flex bg-gray-50 dark:bg-gray-900 overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-hidden">
-        <Router />
+      <main className="flex-1 overflow-auto">
+        <div
+          style={{
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+            width: `${100 / scale}%`,
+            minHeight: `${100 / scale}%`,
+          }}
+        >
+          <Router />
+        </div>
       </main>
     </div>
   );

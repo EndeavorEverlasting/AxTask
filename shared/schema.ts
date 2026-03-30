@@ -13,8 +13,21 @@ export const users = pgTable("users", {
   authProvider: text("auth_provider").notNull().default("local"), // "local" | "workos" | "google"
   workosId: text("workos_id"),                             // WorkOS user ID (when provider=workos)
   googleId: text("google_id"),                             // Google sub (when provider=google)
+  securityQuestion: text("security_question"),              // e.g. "What is your pet's name?"
+  securityAnswerHash: text("security_answer_hash"),         // bcrypt hash of the answer
   failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
   lockedUntil: timestamp("locked_until"),                  // null = not locked
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ─── Password Reset Tokens ───────────────────────────────────────────────────
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),                  // SHA-256 hash of the token
+  method: text("method").notNull().default("email"),        // "email" | "security_question" | "admin"
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),                             // null = unused
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -40,7 +53,8 @@ export const loginSchema = z.object({
 });
 
 export type User = typeof users.$inferSelect;
-export type SafeUser = Omit<User, "passwordHash" | "failedLoginAttempts" | "lockedUntil" | "workosId" | "googleId">;
+export type SafeUser = Omit<User, "passwordHash" | "securityAnswerHash" | "failedLoginAttempts" | "lockedUntil" | "workosId" | "googleId">;
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 export const tasks = pgTable("tasks", {

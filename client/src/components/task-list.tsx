@@ -154,7 +154,7 @@ export function TaskList() {
   const [sortField, setSortField] = useState<SortField>('manual');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [isDragMode, setIsDragMode] = useState(true);
+  const [isDragMode, setIsDragMode] = useState(false);
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
