@@ -431,8 +431,11 @@ export default function LoginPage() {
                       <Avatar name={mostRecentAccount.displayName || mostRecentAccount.email} />
                     )}
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 dark:text-white truncate">
+                      <div className="font-semibold text-gray-900 dark:text-white truncate flex items-center gap-2">
                         Continue as {mostRecentAccount.displayName || mostRecentAccount.email.split("@")[0]}
+                        <span className="text-[10px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5 shrink-0">
+                          <Clock className="h-2.5 w-2.5" /> Last used
+                        </span>
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                         {mostRecentAccount.email} · {providerLabel(mostRecentAccount.provider)}
