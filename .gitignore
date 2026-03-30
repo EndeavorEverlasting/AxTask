@@ -1,0 +1,8 @@
+attached_assets/
+dist
+.DS_Store
+.local/
+node_modules
+server/public
+*.tar.gzattached_assets/
+vite.config.ts.*
