@@ -3,15 +3,19 @@ import { createServer, type Server } from "http";
 import { timingSafeEqual } from "crypto";
 import rateLimit from "express-rate-limit";
 import passport from "passport";
+import multer from "multer";
 import {
   storage, createUser, getUserByEmail, recordFailedLogin, resetFailedLogins,
   createResetToken, verifyResetToken, consumeResetToken,
   setSecurityQuestion, getSecurityQuestion, verifySecurityAnswer,
   adminResetPassword,
 } from "./storage";
+import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
+import { generateChecklistPDF } from "./checklist-pdf";
+import { processChecklistImage } from "./ocr-processor";
 import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
 
@@ -803,6 +807,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to sync with Google Sheets" });
+    }
+  });
+
+  // ── Checklist (PDF download & OCR scan) ──────────────────────────────────
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+  const ocrLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many scan requests — try again in a few minutes" },
+  });
+
+  const checklistApplySchema = z.object({
+    updates: z.array(z.object({
+      taskId: z.string().min(1),
+      status: z.enum(["pending", "in-progress", "completed"]),
+    })).min(1).max(500),
+  });
+
+  app.get("/api/checklist/:date", requireAuth, async (req, res) => {
+    try {
+      const { date } = req.params;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
+      }
+
+      const allTasks = await storage.getTasks(req.user!.id);
+      const dayTasks = allTasks.filter(t => t.date === date);
+
+      const userName = req.user!.displayName || req.user!.email;
+      const pdfDoc = generateChecklistPDF(dayTasks, date, userName);
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="AxTask-Checklist-${date}.pdf"`);
+
+      pdfDoc.pipe(res);
+      pdfDoc.end();
+    } catch (error) {
+      console.error("Checklist PDF error:", error);
+      res.status(500).json({ message: "Failed to generate checklist" });
+    }
+  });
+
+  app.post("/api/checklist/scan", requireAuth, ocrLimiter, upload.single("image"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file uploaded" });
+      }
+
+      const date = typeof req.body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date)
+        ? req.body.date
+        : undefined;
+      const allTasks = await storage.getTasks(req.user!.id);
+      const dayTasks = date
+        ? allTasks.filter(t => t.date === date)
+        : allTasks.filter(t => t.status !== "completed");
+
+      const result = await processChecklistImage(req.file.buffer, dayTasks);
+
+      res.json(result);
+    } catch (error) {
+      console.error("OCR scan error:", error);
+      res.status(500).json({ message: "Failed to process checklist image" });
+    }
+  });
+
+  app.post("/api/checklist/apply", requireAuth, async (req, res) => {
+    try {
+      const parsed = checklistApplySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
+      }
+
+      const { updates } = parsed.data;
+      const userId = req.user!.id;
+      const results: { taskId: string; status: string }[] = [];
+
+      for (const { taskId, status } of updates) {
+        const task = await storage.getTask(userId, taskId);
+        if (!task) continue;
+
+        await storage.updateTask(userId, { id: taskId, status });
+        results.push({ taskId, status });
+      }
+
+      res.json({ updated: results.length, results });
+    } catch (error) {
+      console.error("Checklist apply error:", error);
+      res.status(500).json({ message: "Failed to apply updates" });
     }
   });
 

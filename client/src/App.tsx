@@ -13,6 +13,7 @@ import Analytics from "@/pages/analytics";
 import CalendarPage from "@/pages/calendar";
 import ImportExport from "@/pages/import-export";
 import GoogleSheetsSyncPage from "@/pages/google-sheets-sync";
+import ChecklistPage from "@/pages/checklist";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/analytics" component={Analytics} />
       <Route path="/import-export" component={ImportExport} />
       <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
+      <Route path="/checklist" component={ChecklistPage} />
       <Route component={NotFound} />
     </Switch>
   );

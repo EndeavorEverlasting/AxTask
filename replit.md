@@ -37,6 +37,7 @@ Preferred communication style: Simple, everyday language.
 - **Priority Engine**: Intelligent scoring algorithm based on urgency, impact, effort, keywords, tags, deadline, and crisis detection. Crisis keywords (help, death, dying, emergency, safety, OSHA, etc.) auto-flag as "Highest" priority with "Crisis" classification. Future: integrate NodeWeaver or open-source NLP classifier for deeper semantic analysis.
 - **Calendar Views**: Multiple time-based views with interactive task management, drag-and-drop rescheduling.
 - **Import/Export System**: Bulk Excel/CSV import with multi-sheet support (Daily Planner, Archives, Vault), server-side batch processing via `POST /api/tasks/import`, Excel serial date conversion, and per-sheet selection UI. CSV export also supported.
+- **Print Checklist & OCR**: Generate printable PDF daily checklists (`GET /api/checklist/:date`), then upload a photo of the completed checklist for OCR scanning (`POST /api/checklist/scan` via Tesseract.js) to automatically identify checked-off tasks and batch-update their status (`POST /api/checklist/apply`). Designed for users who prefer pen-and-paper workflows.
 - **Analytics Dashboard**: Visual insights into task metrics, completion rates, and priority distributions.
 - **Real-time Updates**: Optimistic updates and cache invalidation.
 - **Task Reordering**: Drag-and-drop task reordering with persistent sort order.
@@ -74,7 +75,10 @@ Preferred communication style: Simple, everyday language.
 - `server/auth-providers.ts` — Multi-provider abstraction (Google OAuth, WorkOS, local)
 - `server/storage.ts` — All database operations (users, tasks, password reset, security questions)
 - `server/seed-dev.ts` — Dev account seeder (only in development mode)
-- `server/routes.ts` — All API routes (auth, tasks, Google Sheets)
+- `server/routes.ts` — All API routes (auth, tasks, Google Sheets, checklist)
+- `server/checklist-pdf.ts` — PDF checklist generator using pdfkit
+- `server/ocr-processor.ts` — OCR image processor using Tesseract.js
+- `client/src/pages/checklist.tsx` — Print Checklist & OCR scan page
 - `server/db.ts` — PostgreSQL connection using `pg` driver with Drizzle ORM
 - `client/src/lib/auth-context.tsx` — AuthProvider context with login/register/logout
 - `client/src/pages/login.tsx` — Full login UI with register, forgot password, security question flows
@@ -106,6 +110,9 @@ Preferred communication style: Simple, everyday language.
 ### File Processing
 - **Papa Parse**: CSV parsing and generation
 - **xlsx**: Excel file processing
+- **pdfkit**: PDF document generation (checklist)
+- **multer**: Multipart file upload handling (OCR image upload)
+- **Tesseract.js**: Client-side OCR engine for checklist scanning
 
 ### Development
 - **Vite**: Frontend build tool
