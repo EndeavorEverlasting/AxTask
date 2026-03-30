@@ -15,7 +15,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { PriorityBadge } from "./priority-badge";
-import { Plus, CalendarIcon, Clock } from "lucide-react";
+import { ClockTimePicker } from "@/components/ui/clock-time-picker";
+import { Plus, CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
 
@@ -167,18 +168,13 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 control={form.control}
                 name="time"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem className="flex flex-col">
                     <FormLabel>Time <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
                     <FormControl>
-                      <div className="relative">
-                        <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          type="time"
-                          className="pl-9"
-                          {...field}
-                          value={field.value || ""}
-                        />
-                      </div>
+                      <ClockTimePicker
+                        value={field.value || undefined}
+                        onChange={(t) => field.onChange(t)}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
