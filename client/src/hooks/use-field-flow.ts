@@ -38,16 +38,6 @@ export function useFieldFlow() {
     scheduleHint(FIELD_ORDER[idx + 1]);
   }, [scheduleHint]);
 
-  const onFieldSkip = useCallback((fieldName: string) => {
-    const idx = FIELD_ORDER.indexOf(fieldName);
-    if (idx === -1 || idx === FIELD_ORDER.length - 1) return;
-
-    scheduleHint(FIELD_ORDER[idx + 1]);
-  }, [scheduleHint]);
-
-  const onFieldFocus = useCallback((_fieldName: string) => {
-  }, []);
-
   const isHinted = useCallback(
     (fieldName: string) => hintField === fieldName,
     [hintField]
@@ -59,5 +49,5 @@ export function useFieldFlow() {
     };
   }, []);
 
-  return { onFieldBlur, onFieldFocus, onFieldSkip, isHinted };
+  return { onFieldBlur, isHinted };
 }

@@ -69,7 +69,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
-  const { onFieldBlur, onFieldFocus, isHinted } = useFieldFlow();
+  const { onFieldBlur, isHinted } = useFieldFlow();
 
   const draftContext = task ? `edit_${task.id}` : defaultDate ? `date_${defaultDate}` : "new";
   const draftKey = getDraftKey(user?.id, draftContext);
@@ -201,7 +201,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                                 !field.value && "text-muted-foreground",
                                 isHinted("date") && "field-glow-hint"
                               )}
-                              onFocus={() => onFieldFocus("date")}
+                              
                               onBlur={() => onFieldBlur("date", field.value)}
                             >
                               {field.value
@@ -240,7 +240,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     <FormControl>
                       <div
                         className={cn(isHinted("time") && "rounded-md field-glow-hint")}
-                        onFocus={() => onFieldFocus("time")}
+                        
                         onBlur={() => onFieldBlur("time", field.value)}
                       >
                         <ClockTimePicker
@@ -267,7 +267,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       <FormControl>
                         <SelectTrigger
                           className={cn(isHinted("status") && "field-glow-hint")}
-                          onFocus={() => onFieldFocus("status")}
+                          
                         >
                           <SelectValue placeholder="Select status" />
                         </SelectTrigger>
@@ -295,7 +295,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           placeholder="Enter task activity..."
                           {...field}
                           className={cn(isHinted("activity") && "field-glow-hint")}
-                          onFocus={() => onFieldFocus("activity")}
+                          
                           onBlur={(e) => { field.onBlur(); onFieldBlur("activity", e.target.value); }}
                         />
                       </FormControl>
@@ -318,7 +318,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           placeholder="Add detailed notes, tags (@urgent, #blocker), or additional context..."
                           {...field}
                           className={cn(isHinted("notes") && "field-glow-hint")}
-                          onFocus={() => onFieldFocus("notes")}
+                          
                           onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); }}
                         />
                       </FormControl>
@@ -338,7 +338,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       <FormControl>
                         <SelectTrigger
                           className={cn(isHinted("urgency") && "field-glow-hint")}
-                          onFocus={() => onFieldFocus("urgency")}
+                          
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -367,7 +367,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       <FormControl>
                         <SelectTrigger
                           className={cn(isHinted("impact") && "field-glow-hint")}
-                          onFocus={() => onFieldFocus("impact")}
+                          
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -396,7 +396,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       <FormControl>
                         <SelectTrigger
                           className={cn(isHinted("effort") && "field-glow-hint")}
-                          onFocus={() => onFieldFocus("effort")}
+                          
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -426,7 +426,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                         placeholder="Dependencies or prerequisites..."
                         {...field}
                         className={cn(isHinted("prerequisites") && "field-glow-hint")}
-                        onFocus={() => onFieldFocus("prerequisites")}
+                        
                         onBlur={(e) => { field.onBlur(); onFieldBlur("prerequisites", e.target.value); }}
                       />
                     </FormControl>
