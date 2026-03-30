@@ -209,13 +209,13 @@
 
 @keyframes task-flash-status {
   0% { background-color: transparent; }
-  20% { background-color: hsla(142, 76%, 56%, 0.15); }
+  25% { background-color: hsla(142, 76%, 56%, 0.15); }
   100% { background-color: transparent; }
 }
 
 @keyframes task-flash-priority {
   0% { background-color: transparent; }
-  20% { background-color: hsla(38, 92%, 50%, 0.15); }
+  25% { background-color: hsla(38, 92%, 50%, 0.15); }
   100% { background-color: transparent; }
 }
 

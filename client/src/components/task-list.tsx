@@ -106,7 +106,14 @@ const SortableTaskRow = memo(function SortableTaskRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: task.id, disabled: !isDragMode });
+  } = useSortable({
+    id: task.id,
+    disabled: !isDragMode,
+    transition: {
+      duration: 250,
+      easing: "cubic-bezier(0.25, 1, 0.5, 1)",
+    },
+  });
 
   const [flash, setFlash] = useState<"status" | "priority" | null>(null);
   const prevStatus = useRef(task.status);
@@ -117,7 +124,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
       prevStatus.current = task.status;
       if (!reducedMotion) {
         setFlash("status");
-        const t = setTimeout(() => setFlash(null), 600);
+        const t = setTimeout(() => setFlash(null), 400);
         return () => clearTimeout(t);
       }
     }
@@ -128,7 +135,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
       prevPriority.current = task.priority;
       if (!reducedMotion) {
         setFlash("priority");
-        const t = setTimeout(() => setFlash(null), 600);
+        const t = setTimeout(() => setFlash(null), 400);
         return () => clearTimeout(t);
       }
     }
@@ -142,9 +149,9 @@ const SortableTaskRow = memo(function SortableTaskRow({
   };
 
   const flashClass = flash === "status"
-    ? "animate-[task-flash-status_0.6s_ease-out]"
+    ? "animate-[task-flash-status_0.4s_ease-out]"
     : flash === "priority"
-    ? "animate-[task-flash-priority_0.6s_ease-out]"
+    ? "animate-[task-flash-priority_0.4s_ease-out]"
     : "";
 
   const variants = reducedMotion ? rowVariantsReduced : rowVariants;
@@ -158,7 +165,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
       initial="initial"
       animate="animate"
       exit="exit"
-      transition={{ duration: 0.25, type: "spring", stiffness: 300, damping: 30 }}
+      transition={{ duration: 0.2, type: "spring", stiffness: 400, damping: 30 }}
       className={`hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${isDragging ? "bg-blue-50 dark:bg-blue-900/20 shadow-lg scale-[1.02]" : ""} ${flashClass}`}
       onClick={() => !isDragMode && onEdit(task)}
     >

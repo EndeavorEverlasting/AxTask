@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useReducedMotion } from "./use-reduced-motion";
 
-export function useCountUp(target: number, duration: number = 600): number {
+export function useCountUp(target: number, duration: number = 400): number {
   const [value, setValue] = useState(0);
   const prevTarget = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -43,7 +43,7 @@ export function useCountUp(target: number, duration: number = 600): number {
   return Math.round(value);
 }
 
-export function useCountUpDecimal(target: number, decimals: number = 3, duration: number = 600): string {
+export function useCountUpDecimal(target: number, decimals: number = 3, duration: number = 400): string {
   const [value, setValue] = useState(0);
   const prevTarget = useRef(0);
   const rafRef = useRef<number | null>(null);

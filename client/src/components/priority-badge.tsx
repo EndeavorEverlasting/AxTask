@@ -29,7 +29,7 @@ export function PriorityBadge({ priority, score }: PriorityBadgeProps) {
   };
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getColorClasses(priority)}`}>
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors duration-300 ${getColorClasses(priority)}`}>
       {priority}
       {score !== undefined && score !== null && (
         <span className="ml-1 text-xs opacity-75">({formatScore(score)})</span>
