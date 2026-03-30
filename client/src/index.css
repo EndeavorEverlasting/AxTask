@@ -58,6 +58,40 @@
   }
 }
 
+/* Focus flow glow — guides users to the next field */
+@keyframes field-glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsla(207, 90%, 54%, 0);
+  }
+  50% {
+    box-shadow: 0 0 8px 2px hsla(207, 90%, 54%, 0.25);
+  }
+}
+
+.field-glow-hint {
+  animation: field-glow-pulse 2s ease-in-out infinite;
+  border-color: hsla(207, 90%, 54%, 0.4) !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.dark .field-glow-hint {
+  animation: field-glow-pulse 2s ease-in-out infinite;
+  border-color: hsla(207, 90%, 54%, 0.35) !important;
+}
+
+.field-glow-hint:focus,
+.field-glow-hint:focus-within {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field-glow-hint {
+    animation: none;
+    border-color: hsla(207, 90%, 54%, 0.5) !important;
+    box-shadow: 0 0 0 2px hsla(207, 90%, 54%, 0.25);
+  }
+}
+
 /* Custom animations and styles */
 .priority-badge-highest {
   background-color: hsl(0, 84.2%, 95%);

@@ -20,6 +20,7 @@ import { ClockTimePicker } from "@/components/ui/clock-time-picker";
 import { Plus, CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
+import { useFieldFlow } from "@/hooks/use-field-flow";
 
 interface TaskFormProps {
   task?: Task;
@@ -68,6 +69,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
+  const { onFieldBlur, onFieldFocus, isHinted } = useFieldFlow();
 
   const draftContext = task ? `edit_${task.id}` : defaultDate ? `date_${defaultDate}` : "new";
   const draftKey = getDraftKey(user?.id, draftContext);
@@ -196,8 +198,11 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               variant="outline"
                               className={cn(
                                 "w-full pl-3 text-left font-normal",
-                                !field.value && "text-muted-foreground"
+                                !field.value && "text-muted-foreground",
+                                isHinted("date") && "field-glow-hint"
                               )}
+                              onFocus={() => onFieldFocus("date")}
+                              onBlur={() => onFieldBlur("date", field.value)}
                             >
                               {field.value
                                 ? format(dateValue!, "PPP")
@@ -211,7 +216,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                             mode="single"
                             selected={dateValue}
                             onSelect={(day) => {
-                              if (day) field.onChange(format(day, "yyyy-MM-dd"));
+                              if (day) {
+                                field.onChange(format(day, "yyyy-MM-dd"));
+                                onFieldBlur("date", format(day, "yyyy-MM-dd"));
+                              }
                             }}
                             initialFocus
                           />
@@ -230,10 +238,19 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   <FormItem className="flex flex-col">
                     <FormLabel>Time <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
                     <FormControl>
-                      <ClockTimePicker
-                        value={field.value || undefined}
-                        onChange={(t) => field.onChange(t)}
-                      />
+                      <div
+                        className={cn(isHinted("time") && "rounded-md field-glow-hint")}
+                        onFocus={() => onFieldFocus("time")}
+                        onBlur={() => onFieldBlur("time", field.value)}
+                      >
+                        <ClockTimePicker
+                          value={field.value || undefined}
+                          onChange={(t) => {
+                            field.onChange(t);
+                            if (t) onFieldBlur("time", t);
+                          }}
+                        />
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -246,9 +263,12 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Status</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={(v) => { field.onChange(v); onFieldBlur("status", v); }} defaultValue={field.value}>
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger
+                          className={cn(isHinted("status") && "field-glow-hint")}
+                          onFocus={() => onFieldFocus("status")}
+                        >
                           <SelectValue placeholder="Select status" />
                         </SelectTrigger>
                       </FormControl>
@@ -271,7 +291,13 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     <FormItem>
                       <FormLabel>Activity</FormLabel>
                       <FormControl>
-                        <Input placeholder="Enter task activity..." {...field} />
+                        <Input
+                          placeholder="Enter task activity..."
+                          {...field}
+                          className={cn(isHinted("activity") && "field-glow-hint")}
+                          onFocus={() => onFieldFocus("activity")}
+                          onBlur={(e) => { field.onBlur(); onFieldBlur("activity", e.target.value); }}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -291,6 +317,9 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           rows={3}
                           placeholder="Add detailed notes, tags (@urgent, #blocker), or additional context..."
                           {...field}
+                          className={cn(isHinted("notes") && "field-glow-hint")}
+                          onFocus={() => onFieldFocus("notes")}
+                          onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); }}
                         />
                       </FormControl>
                       <FormMessage />
@@ -305,9 +334,12 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Urgency (1-5)</FormLabel>
-                    <Select onValueChange={(value) => field.onChange(value && value !== "auto" ? parseInt(value) : undefined)}>
+                    <Select onValueChange={(value) => { const v = value && value !== "auto" ? parseInt(value) : undefined; field.onChange(v); onFieldBlur("urgency", v); }}>
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger
+                          className={cn(isHinted("urgency") && "field-glow-hint")}
+                          onFocus={() => onFieldFocus("urgency")}
+                        >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
                       </FormControl>
@@ -331,9 +363,12 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Impact (1-5)</FormLabel>
-                    <Select onValueChange={(value) => field.onChange(value && value !== "auto" ? parseInt(value) : undefined)}>
+                    <Select onValueChange={(value) => { const v = value && value !== "auto" ? parseInt(value) : undefined; field.onChange(v); onFieldBlur("impact", v); }}>
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger
+                          className={cn(isHinted("impact") && "field-glow-hint")}
+                          onFocus={() => onFieldFocus("impact")}
+                        >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
                       </FormControl>
@@ -357,9 +392,12 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Effort (1-5)</FormLabel>
-                    <Select onValueChange={(value) => field.onChange(value && value !== "auto" ? parseInt(value) : undefined)}>
+                    <Select onValueChange={(value) => { const v = value && value !== "auto" ? parseInt(value) : undefined; field.onChange(v); onFieldBlur("effort", v); }}>
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger
+                          className={cn(isHinted("effort") && "field-glow-hint")}
+                          onFocus={() => onFieldFocus("effort")}
+                        >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
                       </FormControl>
@@ -384,7 +422,13 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   <FormItem>
                     <FormLabel>Prerequisites</FormLabel>
                     <FormControl>
-                      <Input placeholder="Dependencies or prerequisites..." {...field} />
+                      <Input
+                        placeholder="Dependencies or prerequisites..."
+                        {...field}
+                        className={cn(isHinted("prerequisites") && "field-glow-hint")}
+                        onFocus={() => onFieldFocus("prerequisites")}
+                        onBlur={(e) => { field.onBlur(); onFieldBlur("prerequisites", e.target.value); }}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
