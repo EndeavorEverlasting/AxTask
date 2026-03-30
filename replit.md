@@ -63,6 +63,10 @@ Preferred communication style: Simple, everyday language.
 - **Content Security Policy**: Strict CSP in production — self-only with Google OAuth endpoints whitelisted; disabled in dev for Vite HMR
 - **Security Headers**: Helmet.js v8 — X-Frame-Options DENY, strict-origin-when-cross-origin referrer, nosniff, no X-Powered-By, no cross-domain policies
 - **Dev Accounts**: Auto-seeded in development with ephemeral passwords (regenerated on restart)
+- **Persistent Login Provider Memory**: The login page remembers the user's preferred authentication provider and known accounts to streamline re-authentication. A togglable "Remember my login method" preference controls this behavior.
+  - **What IS stored in localStorage**: Display name, email address, provider type string (e.g. "google", "local"), last-used timestamp, and the remember-provider preference flag. These are non-sensitive display metadata only.
+  - **What is NOT stored**: No passwords, authentication tokens, session cookies, OAuth access/refresh tokens, or any credentials are ever written to localStorage. All authentication state remains server-side in httpOnly session cookies managed by Passport.js.
+  - **Security rationale**: Storing only provider-type strings and display metadata poses no credential-leak risk. Even if localStorage is compromised (XSS), no authentication material is exposed. The actual authentication always goes through the full OAuth flow or password verification on the server.
 
 ### Database Schema
 - **users**: id, email, passwordHash, displayName, role, authProvider, workosId, googleId, replitId, profileImageUrl, securityQuestion, securityAnswerHash, failedLoginAttempts, lockedUntil, createdAt

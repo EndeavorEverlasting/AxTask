@@ -27,6 +27,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             const ACCOUNTS_KEY = "axtask_known_accounts";
             const LAST_KEY = "axtask_last_email";
+            const LAST_PROVIDER_KEY = "axtask_last_provider";
+            const REMEMBER_PREF_KEY = "axtask_remember_provider";
             const provider = data.authProvider || data.provider || "local";
             const existing = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]")
               .filter((a: any) => a.email !== data.email);
@@ -38,6 +40,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
             localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(existing.slice(0, 5)));
             localStorage.setItem(LAST_KEY, data.email);
+            if (localStorage.getItem(REMEMBER_PREF_KEY) !== "false") {
+              localStorage.setItem(LAST_PROVIDER_KEY, provider);
+            }
           } catch { /* localStorage may be unavailable */ }
         }
       })
@@ -58,15 +63,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const data = await res.json();
     setUser(data);
-    // Remember this account for the account picker (local login)
     try {
       const ACCOUNTS_KEY = "axtask_known_accounts";
       const LAST_KEY = "axtask_last_email";
+      const LAST_PROVIDER_KEY = "axtask_last_provider";
+      const REMEMBER_PREF_KEY = "axtask_remember_provider";
       const existing = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]")
         .filter((a: any) => a.email !== email);
       existing.unshift({ email, displayName: data.displayName || email.split("@")[0], provider: "local", lastUsed: Date.now() });
       localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(existing.slice(0, 5)));
       localStorage.setItem(LAST_KEY, email);
+      if (localStorage.getItem(REMEMBER_PREF_KEY) !== "false") {
+        localStorage.setItem(LAST_PROVIDER_KEY, "local");
+      }
     } catch { /* localStorage may be unavailable */ }
   }, []);
 

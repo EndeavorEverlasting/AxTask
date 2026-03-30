@@ -7,48 +7,78 @@ import { Label } from "@/components/ui/label";
 import {
   CheckSquare, Loader2, ShieldCheck, ShieldAlert,
   Eye, EyeOff, User, Clock, X, KeyRound, HelpCircle, ShieldQuestion,
+  ArrowRight, ToggleLeft, ToggleRight, Info,
 } from "lucide-react";
 
-// ── Local-storage helpers for "remembered accounts" ─────────────────────────
 const ACCOUNTS_KEY = "axtask_known_accounts";
 const LAST_KEY = "axtask_last_email";
+const LAST_PROVIDER_KEY = "axtask_last_provider";
+const REMEMBER_PREF_KEY = "axtask_remember_provider";
 
 interface KnownAccount {
   email: string;
   displayName: string;
   provider: "google" | "workos" | "replit" | "local";
-  lastUsed: number; // epoch ms
+  lastUsed: number;
 }
 
 function getKnownAccounts(): KnownAccount[] {
   try {
     const raw: any[] = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]");
-    // Migrate legacy entries that lack a provider field
     return raw.map((a) => ({ ...a, provider: a.provider || "local" }));
   } catch { return []; }
 }
 
 function rememberAccount(email: string, displayName: string, provider: KnownAccount["provider"] = "local") {
-  const accounts = getKnownAccounts().filter((a) => a.email !== email);
-  accounts.unshift({ email, displayName, provider, lastUsed: Date.now() });
-  // Keep at most 5 accounts
-  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts.slice(0, 5)));
-  localStorage.setItem(LAST_KEY, email);
+  try {
+    const accounts = getKnownAccounts().filter((a) => a.email !== email);
+    accounts.unshift({ email, displayName, provider, lastUsed: Date.now() });
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts.slice(0, 5)));
+    localStorage.setItem(LAST_KEY, email);
+    if (getRememberPref()) {
+      localStorage.setItem(LAST_PROVIDER_KEY, provider);
+    }
+  } catch { /* localStorage unavailable */ }
 }
 
 function forgetAccount(email: string) {
-  const accounts = getKnownAccounts().filter((a) => a.email !== email);
-  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
-  if (localStorage.getItem(LAST_KEY) === email) {
-    localStorage.setItem(LAST_KEY, accounts[0]?.email || "");
-  }
+  try {
+    const accounts = getKnownAccounts().filter((a) => a.email !== email);
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+    if (localStorage.getItem(LAST_KEY) === email) {
+      localStorage.setItem(LAST_KEY, accounts[0]?.email || "");
+      if (getRememberPref()) {
+        if (accounts[0]) {
+          localStorage.setItem(LAST_PROVIDER_KEY, accounts[0].provider);
+        } else {
+          localStorage.removeItem(LAST_PROVIDER_KEY);
+        }
+      }
+    }
+  } catch { /* localStorage unavailable */ }
 }
 
 function getLastEmail(): string {
-  return localStorage.getItem(LAST_KEY) || "";
+  try { return localStorage.getItem(LAST_KEY) || ""; } catch { return ""; }
 }
 
-// ── Password strength ───────────────────────────────────────────────────────
+function getLastProvider(): string {
+  try { return localStorage.getItem(LAST_PROVIDER_KEY) || ""; } catch { return ""; }
+}
+
+function getRememberPref(): boolean {
+  try { return localStorage.getItem(REMEMBER_PREF_KEY) !== "false"; } catch { return true; }
+}
+
+function setRememberPref(val: boolean) {
+  try {
+    localStorage.setItem(REMEMBER_PREF_KEY, val ? "true" : "false");
+    if (!val) {
+      localStorage.removeItem(LAST_PROVIDER_KEY);
+    }
+  } catch {}
+}
+
 function getPasswordStrength(pw: string) {
   let score = 0;
   if (pw.length >= 8) score++;
@@ -62,7 +92,6 @@ function getPasswordStrength(pw: string) {
   return { label: "Strong", color: "bg-green-500", pct: 100 };
 }
 
-// ── Initials avatar ─────────────────────────────────────────────────────────
 function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
   const initials = name
     .split(/\s+/)
@@ -78,11 +107,30 @@ function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
   );
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+function ProviderIcon({ provider, className = "h-5 w-5" }: { provider: string; className?: string }) {
+  if (provider === "google") {
+    return (
+      <svg className={className} viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+    );
+  }
+  if (provider === "workos") return <ShieldCheck className={className + " text-indigo-600 dark:text-indigo-400"} />;
+  if (provider === "replit") return <KeyRound className={className + " text-orange-600 dark:text-orange-400"} />;
+  return <User className={className} />;
+}
+
+function providerLabel(p: string) {
+  switch (p) {
+    case "google": return "Google";
+    case "workos": return "WorkOS";
+    case "replit": return "Replit";
+    default: return "Password";
+  }
+}
+
 export default function LoginPage() {
   const { login, register } = useAuth();
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
-  const [showForm, setShowForm] = useState(false); // true = manual email/pw form
+  const [showForm, setShowForm] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -94,8 +142,9 @@ export default function LoginPage() {
   const [authProvider, setAuthProvider] = useState<string>("local");
   const [loginUrl, setLoginUrl] = useState<string>("");
   const [providers, setProviders] = useState<{ name: string; loginUrl: string }[]>([]);
+  const [rememberProvider, setRememberProvider] = useState(getRememberPref);
+  const [showSecurityInfo, setShowSecurityInfo] = useState(false);
 
-  // Forgot-password flow state
   type ForgotStep = "email" | "method" | "security" | "reset" | "done";
   const [forgotStep, setForgotStep] = useState<ForgotStep>("email");
   const [resetToken, setResetToken] = useState("");
@@ -108,8 +157,8 @@ export default function LoginPage() {
 
   const [knownAccounts, setKnownAccounts] = useState<KnownAccount[]>([]);
   const lastEmail = getLastEmail();
+  const lastProvider = getLastProvider();
 
-  // Check URL for OAuth error params or reset tokens
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const oauthError = params.get("error");
@@ -125,7 +174,6 @@ export default function LoginPage() {
       setError(messages[oauthError] || `Authentication error: ${oauthError}`);
       window.history.replaceState({}, "", "/");
     }
-    // If we arrived via a password-reset email link
     const token = params.get("reset_token");
     if (token) {
       setMode("forgot");
@@ -135,7 +183,6 @@ export default function LoginPage() {
     }
   }, []);
 
-  // Fetch server auth config
   useEffect(() => {
     fetch("/api/auth/config")
       .then((r) => r.json())
@@ -148,11 +195,9 @@ export default function LoginPage() {
       .catch(() => {});
   }, []);
 
-  // Load known accounts
   useEffect(() => {
     const accts = getKnownAccounts();
     setKnownAccounts(accts);
-    // If no known accounts, go straight to form
     if (accts.length === 0) setShowForm(true);
   }, []);
 
@@ -163,6 +208,11 @@ export default function LoginPage() {
     replit: "/api/auth/replit/login",
     workos: "/api/auth/workos/login",
   };
+
+  const mostRecentAccount = useMemo(() => {
+    if (knownAccounts.length === 0) return null;
+    return knownAccounts.reduce((a, b) => (a.lastUsed > b.lastUsed ? a : b));
+  }, [knownAccounts]);
 
   const handlePickAccount = useCallback((acct: KnownAccount) => {
     const url = providerLoginUrls[acct.provider];
@@ -183,6 +233,12 @@ export default function LoginPage() {
     if (updated.length === 0) setShowForm(true);
   }, []);
 
+  const handleToggleRemember = useCallback(() => {
+    const next = !rememberProvider;
+    setRememberProvider(next);
+    setRememberPref(next);
+  }, [rememberProvider]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -190,8 +246,6 @@ export default function LoginPage() {
     try {
       if (mode === "login") {
         await login(email, password);
-        // On successful login, remember this account
-        // (displayName comes back from the auth context after login)
       } else {
         await register(email, password, displayName || undefined, regMode === "invite" ? inviteCode : undefined);
       }
@@ -202,7 +256,6 @@ export default function LoginPage() {
     }
   };
 
-  // ── Forgot-password handlers ───────────────────────────────────────────
   const handleForgotSubmitEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(""); setSubmitting(true);
@@ -216,7 +269,6 @@ export default function LoginPage() {
 
       setHasSecurityQ(!!data.hasSecurityQuestion);
 
-      // In dev mode, the server returns the token directly
       if (data._devToken) {
         setResetToken(data._devToken);
         setForgotStep("reset");
@@ -304,10 +356,20 @@ export default function LoginPage() {
 
   const canRegister = regMode !== "closed";
 
+  const isLastUsedProvider = (providerName: string) => {
+    return rememberProvider && lastProvider === providerName;
+  };
+
+  const providerButtonClass = (providerName: string, base: string) => {
+    if (isLastUsedProvider(providerName)) {
+      return base + " ring-2 ring-primary ring-offset-2 dark:ring-offset-gray-800 bg-primary/5 dark:bg-primary/10";
+    }
+    return base;
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 text-primary mb-2">
             <CheckSquare className="h-8 w-8" />
@@ -318,7 +380,6 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Card */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-8">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
             {mode === "forgot"
@@ -330,7 +391,6 @@ export default function LoginPage() {
                 : "Create your account"}
           </h2>
 
-          {/* ── Unified account picker (all providers) ───────────────────── */}
           {mode === "login" && !showForm && knownAccounts.length > 0 && (
             <div className="space-y-2">
               {error && (
@@ -339,121 +399,190 @@ export default function LoginPage() {
                 </p>
               )}
 
-              {knownAccounts.map((acct) => (
-                <div
-                  key={acct.email}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handlePickAccount(acct)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handlePickAccount(acct); }}
-                  className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-left group cursor-pointer"
-                >
-                  {/* Provider icon */}
-                  {acct.provider === "google" ? (
-                    <div className="h-10 w-10 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
-                      <svg className="h-5 w-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                    </div>
-                  ) : acct.provider === "workos" ? (
-                    <div className="h-10 w-10 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 flex items-center justify-center shrink-0">
-                      <ShieldCheck className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                    </div>
-                  ) : acct.provider === "replit" ? (
-                    <div className="h-10 w-10 rounded-full bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700 flex items-center justify-center shrink-0">
-                      <KeyRound className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-                    </div>
-                  ) : (
-                    <Avatar name={acct.displayName || acct.email} />
-                  )}
-
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-900 dark:text-white text-sm truncate">
-                      {acct.displayName || acct.email.split("@")[0]}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate flex items-center gap-1">
-                      {acct.email}
-                      <span className="text-[10px] text-gray-400">
-                        · {acct.provider === "google" ? "Google" : acct.provider === "workos" ? "WorkOS" : acct.provider === "replit" ? "Replit" : "Password"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {acct.email === lastEmail && (
-                    <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                      <Clock className="h-2.5 w-2.5" /> Last used
-                    </span>
-                  )}
-
+              {mostRecentAccount && knownAccounts.length === 1 && (
+                <div className="mb-3">
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleRemoveAccount(e, acct.email); }}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-opacity shrink-0"
-                    title="Forget this account"
+                    onClick={() => handlePickAccount(mostRecentAccount)}
+                    className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-primary bg-primary/5 dark:bg-primary/10 hover:bg-primary/10 dark:hover:bg-primary/20 transition-all text-left group"
                   >
-                    <X className="h-3.5 w-3.5 text-gray-400" />
+                    {mostRecentAccount.provider === "google" ? (
+                      <div className="h-12 w-12 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
+                        <ProviderIcon provider="google" />
+                      </div>
+                    ) : mostRecentAccount.provider === "workos" ? (
+                      <div className="h-12 w-12 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 flex items-center justify-center shrink-0">
+                        <ProviderIcon provider="workos" />
+                      </div>
+                    ) : mostRecentAccount.provider === "replit" ? (
+                      <div className="h-12 w-12 rounded-full bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700 flex items-center justify-center shrink-0">
+                        <ProviderIcon provider="replit" />
+                      </div>
+                    ) : (
+                      <Avatar name={mostRecentAccount.displayName || mostRecentAccount.email} />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-gray-900 dark:text-white truncate">
+                        Continue as {mostRecentAccount.displayName || mostRecentAccount.email.split("@")[0]}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        {mostRecentAccount.email} · {providerLabel(mostRecentAccount.provider)}
+                      </div>
+                    </div>
+                    <ArrowRight className="h-5 w-5 text-primary shrink-0 group-hover:translate-x-0.5 transition-transform" />
                   </button>
                 </div>
-              ))}
+              )}
+
+              {(knownAccounts.length > 1 || (knownAccounts.length === 1 && mostRecentAccount)) && knownAccounts.length > 1 && (
+                <>
+                  {knownAccounts.map((acct) => (
+                    <div
+                      key={acct.email}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handlePickAccount(acct)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handlePickAccount(acct); }}
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left group cursor-pointer ${
+                        acct.email === lastEmail
+                          ? "border-primary/40 bg-primary/5 dark:bg-primary/10 hover:bg-primary/10 dark:hover:bg-primary/15"
+                          : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                      }`}
+                    >
+                      {acct.provider === "google" ? (
+                        <div className="h-10 w-10 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
+                          <ProviderIcon provider="google" />
+                        </div>
+                      ) : acct.provider === "workos" ? (
+                        <div className="h-10 w-10 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 flex items-center justify-center shrink-0">
+                          <ProviderIcon provider="workos" />
+                        </div>
+                      ) : acct.provider === "replit" ? (
+                        <div className="h-10 w-10 rounded-full bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700 flex items-center justify-center shrink-0">
+                          <ProviderIcon provider="replit" />
+                        </div>
+                      ) : (
+                        <Avatar name={acct.displayName || acct.email} />
+                      )}
+
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-gray-900 dark:text-white text-sm truncate">
+                          {acct.displayName || acct.email.split("@")[0]}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate flex items-center gap-1">
+                          {acct.email}
+                          <span className="text-[10px] text-gray-400">
+                            · {providerLabel(acct.provider)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {acct.email === lastEmail && (
+                        <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                          <Clock className="h-2.5 w-2.5" /> Last used
+                        </span>
+                      )}
+
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRemoveAccount(e, acct.email); }}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-opacity shrink-0"
+                        title="Forget this account"
+                      >
+                        <X className="h-3.5 w-3.5 text-gray-400" />
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
 
               <div className="relative my-3">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200 dark:border-gray-700" /></div>
                 <div className="relative flex justify-center text-xs"><span className="bg-white dark:bg-gray-800 px-2 text-gray-400">or</span></div>
               </div>
 
-              {/* Quick-add buttons for other sign-in methods */}
               <div className="flex flex-wrap gap-2">
                 <a href="/api/auth/google/login"
-                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm text-gray-600 dark:text-gray-300">
-                  <svg className="h-4 w-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                  className={providerButtonClass("google", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm text-gray-600 dark:text-gray-300")}>
+                  <ProviderIcon provider="google" className="h-4 w-4" />
                   Google
+                  {isLastUsedProvider("google") && <span className="text-[9px] text-primary font-medium">★</span>}
                 </a>
                 <a href="/api/auth/replit/login"
-                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm text-gray-600 dark:text-gray-300">
+                  className={providerButtonClass("replit", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm text-gray-600 dark:text-gray-300")}>
                   <KeyRound className="h-4 w-4" />
                   Replit
+                  {isLastUsedProvider("replit") && <span className="text-[9px] text-primary font-medium">★</span>}
                 </a>
                 <a href="/api/auth/workos/login"
-                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm text-gray-600 dark:text-gray-300">
+                  className={providerButtonClass("workos", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm text-gray-600 dark:text-gray-300")}>
                   <ShieldCheck className="h-4 w-4" />
                   WorkOS
+                  {isLastUsedProvider("workos") && <span className="text-[9px] text-primary font-medium">★</span>}
                 </a>
                 <button
                   onClick={() => { setShowForm(true); setEmail(""); setError(""); }}
-                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm text-gray-500 dark:text-gray-400"
+                  className={providerButtonClass("local", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm text-gray-500 dark:text-gray-400")}
                 >
                   <User className="h-4 w-4" />
                   Password
+                  {isLastUsedProvider("local") && <span className="text-[9px] text-primary font-medium">★</span>}
                 </button>
               </div>
+
+              <div className="flex items-center justify-between pt-2 mt-1">
+                <button
+                  onClick={handleToggleRemember}
+                  className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                >
+                  {rememberProvider ? (
+                    <ToggleRight className="h-4 w-4 text-primary" />
+                  ) : (
+                    <ToggleLeft className="h-4 w-4" />
+                  )}
+                  Remember my login method
+                </button>
+                <button
+                  onClick={() => setShowSecurityInfo(!showSecurityInfo)}
+                  className="text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors"
+                  title="What's stored?"
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {showSecurityInfo && (
+                <div className="text-[11px] text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-900/50 rounded-lg p-2.5 leading-relaxed">
+                  Only your display name, email, and provider type (e.g. "Google") are stored locally to speed up sign-in. No passwords, tokens, or session data are ever saved in your browser.
+                </div>
+              )}
             </div>
           )}
 
-          {/* ── Sign-in options (no known accounts, no form yet) ────── */}
           {mode === "login" && !showForm && knownAccounts.length === 0 && (
             <div className="space-y-3">
-              {/* 1. Google */}
               <a
                 href="/api/auth/google/login"
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors font-medium text-gray-700 dark:text-gray-200"
+                className={providerButtonClass("google", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
               >
-                <svg className="h-5 w-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                <ProviderIcon provider="google" />
                 Continue with Google
+                {isLastUsedProvider("google") && <span className="text-xs text-primary font-medium ml-1">★ Last used</span>}
               </a>
 
-              {/* 2. Replit */}
               <a
                 href="/api/auth/replit/login"
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors font-medium text-gray-700 dark:text-gray-200"
+                className={providerButtonClass("replit", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
               >
                 <KeyRound className="h-5 w-5" />
                 Sign in with Replit
+                {isLastUsedProvider("replit") && <span className="text-xs text-primary font-medium ml-1">★ Last used</span>}
               </a>
 
-              {/* 3. WorkOS */}
               <a
                 href="/api/auth/workos/login"
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors font-medium text-gray-700 dark:text-gray-200"
+                className={providerButtonClass("workos", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
               >
                 <ShieldCheck className="h-5 w-5" />
                 Continue with WorkOS
+                {isLastUsedProvider("workos") && <span className="text-xs text-primary font-medium ml-1">★ Last used</span>}
               </a>
 
               {error && (
@@ -462,7 +591,6 @@ export default function LoginPage() {
                 </p>
               )}
 
-              {/* 4. Email & password */}
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200 dark:border-gray-700" /></div>
                 <div className="relative flex justify-center text-xs"><span className="bg-white dark:bg-gray-800 px-2 text-gray-400">or use email & password</span></div>
@@ -470,32 +598,61 @@ export default function LoginPage() {
 
               <button
                 onClick={() => setShowForm(true)}
-                className="w-full text-center text-sm text-gray-500 dark:text-gray-400 hover:text-primary py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                className={providerButtonClass("local", "w-full text-center text-sm text-gray-500 dark:text-gray-400 hover:text-primary py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all")}
               >
                 Sign in with email & password
+                {isLastUsedProvider("local") && <span className="text-xs text-primary font-medium ml-1">★ Last used</span>}
               </button>
+
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  onClick={handleToggleRemember}
+                  className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                >
+                  {rememberProvider ? (
+                    <ToggleRight className="h-4 w-4 text-primary" />
+                  ) : (
+                    <ToggleLeft className="h-4 w-4" />
+                  )}
+                  Remember my login method
+                </button>
+                <button
+                  onClick={() => setShowSecurityInfo(!showSecurityInfo)}
+                  className="text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors"
+                  title="What's stored?"
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {showSecurityInfo && (
+                <div className="text-[11px] text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-900/50 rounded-lg p-2.5 leading-relaxed">
+                  Only your display name, email, and provider type (e.g. "Google") are stored locally to speed up sign-in. No passwords, tokens, or session data are ever saved in your browser.
+                </div>
+              )}
             </div>
           )}
 
-          {/* ── Email / password form ────────────────────────────────────── */}
           {mode !== "forgot" && (showForm || mode === "register") && (
             <>
               {mode === "login" && (
                 <div className="space-y-2 mb-4">
                   <a href="/api/auth/google/login"
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200">
-                    <svg className="h-4 w-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                    className={providerButtonClass("google", "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm font-medium text-gray-700 dark:text-gray-200")}>
+                    <ProviderIcon provider="google" className="h-4 w-4" />
                     Continue with Google
+                    {isLastUsedProvider("google") && <span className="text-[10px] text-primary font-medium">★</span>}
                   </a>
                   <a href="/api/auth/replit/login"
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200">
+                    className={providerButtonClass("replit", "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm font-medium text-gray-700 dark:text-gray-200")}>
                     <KeyRound className="h-4 w-4" />
                     Sign in with Replit
+                    {isLastUsedProvider("replit") && <span className="text-[10px] text-primary font-medium">★</span>}
                   </a>
                   <a href="/api/auth/workos/login"
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200">
+                    className={providerButtonClass("workos", "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm font-medium text-gray-700 dark:text-gray-200")}>
                     <ShieldCheck className="h-4 w-4" />
                     Continue with WorkOS
+                    {isLastUsedProvider("workos") && <span className="text-[10px] text-primary font-medium">★</span>}
                   </a>
                   <div className="relative my-1">
                     <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200 dark:border-gray-700" /></div>
@@ -590,7 +747,6 @@ export default function LoginPage() {
                 </button>
               )}
 
-              {/* Back to account picker */}
               {mode === "login" && knownAccounts.length > 0 && (
                 <button type="button"
                   onClick={() => { setShowForm(false); setError(""); setPassword(""); }}
@@ -602,10 +758,8 @@ export default function LoginPage() {
             </>
           )}
 
-          {/* ── Forgot-password flow ──────────────────────────────────── */}
           {mode === "forgot" && (
             <div className="space-y-4">
-              {/* Step: Enter email */}
               {forgotStep === "email" && (
                 <form onSubmit={handleForgotSubmitEmail} className="space-y-4">
                   <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -625,7 +779,6 @@ export default function LoginPage() {
                 </form>
               )}
 
-              {/* Step: Choose method (email sent + security question available) */}
               {forgotStep === "method" && (
                 <div className="space-y-3">
                   <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 text-sm text-green-700 dark:text-green-300">
@@ -642,7 +795,6 @@ export default function LoginPage() {
                 </div>
               )}
 
-              {/* Step: Security question */}
               {forgotStep === "security" && (
                 <form onSubmit={handleVerifySecurityAnswer} className="space-y-4">
                   <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
@@ -665,7 +817,6 @@ export default function LoginPage() {
                 </form>
               )}
 
-              {/* Step: Set new password */}
               {forgotStep === "reset" && (
                 <form onSubmit={handleResetPassword} className="space-y-4">
                   <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -703,7 +854,6 @@ export default function LoginPage() {
                 </form>
               )}
 
-              {/* Step: Done */}
               {forgotStep === "done" && (
                 <div className="space-y-4">
                   <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 text-sm text-green-700 dark:text-green-300 text-center">
@@ -715,7 +865,6 @@ export default function LoginPage() {
                 </div>
               )}
 
-              {/* Back to login (always available except done) */}
               {forgotStep !== "done" && (
                 <button type="button" onClick={resetForgotFlow}
                   className="w-full text-center text-sm text-gray-500 dark:text-gray-400 hover:text-primary">
@@ -751,4 +900,3 @@ export default function LoginPage() {
     </div>
   );
 }
-
