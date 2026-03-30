@@ -544,7 +544,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 <Button 
                   type="button" 
                   variant="outline" 
-                  onClick={() => form.reset()}
+                  onClick={() => { form.reset(freshDefaults); clearDraft(draftKey); }}
                 >
                   Clear
                 </Button>
