@@ -32,6 +32,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { TaskAIEngine } from "@/lib/ai-modules";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { motion, AnimatePresence } from "framer-motion";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'manual';
 type SortDirection = 'asc' | 'desc';
@@ -64,6 +66,20 @@ const formatStatus = (status: string) => {
   return status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ");
 };
 
+const MotionTableRow = motion.create(TableRow);
+
+const rowVariants = {
+  initial: { opacity: 0, y: -8 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, x: -20, transition: { duration: 0.2 } },
+};
+
+const rowVariantsReduced = {
+  initial: { opacity: 1 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0, transition: { duration: 0.1 } },
+};
+
 const SortableTaskRow = memo(function SortableTaskRow({
   task,
   isDragMode,
@@ -72,6 +88,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
   onDelete,
   isUpdating,
   isDeleting,
+  reducedMotion,
 }: {
   task: Task;
   isDragMode: boolean;
@@ -80,6 +97,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
   onDelete: (id: string) => void;
   isUpdating: boolean;
   isDeleting: boolean;
+  reducedMotion: boolean;
 }) {
   const {
     attributes,
@@ -90,18 +108,58 @@ const SortableTaskRow = memo(function SortableTaskRow({
     isDragging,
   } = useSortable({ id: task.id, disabled: !isDragMode });
 
-  const style = {
+  const [flash, setFlash] = useState<"status" | "priority" | null>(null);
+  const prevStatus = useRef(task.status);
+  const prevPriority = useRef(task.priority);
+
+  useEffect(() => {
+    if (prevStatus.current !== task.status) {
+      prevStatus.current = task.status;
+      if (!reducedMotion) {
+        setFlash("status");
+        const t = setTimeout(() => setFlash(null), 600);
+        return () => clearTimeout(t);
+      }
+    }
+  }, [task.status, reducedMotion]);
+
+  useEffect(() => {
+    if (prevPriority.current !== task.priority) {
+      prevPriority.current = task.priority;
+      if (!reducedMotion) {
+        setFlash("priority");
+        const t = setTimeout(() => setFlash(null), 600);
+        return () => clearTimeout(t);
+      }
+    }
+  }, [task.priority, reducedMotion]);
+
+  const dragStyle = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
     zIndex: isDragging ? 100 : undefined,
   };
 
+  const flashClass = flash === "status"
+    ? "animate-[task-flash-status_0.6s_ease-out]"
+    : flash === "priority"
+    ? "animate-[task-flash-priority_0.6s_ease-out]"
+    : "";
+
+  const variants = reducedMotion ? rowVariantsReduced : rowVariants;
+
   return (
-    <TableRow
+    <MotionTableRow
       ref={setNodeRef}
-      style={style}
-      className={`hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${isDragging ? "bg-blue-50 dark:bg-blue-900/20 shadow-lg" : ""}`}
+      style={dragStyle}
+      layout={!reducedMotion}
+      variants={variants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.25, type: "spring", stiffness: 300, damping: 30 }}
+      className={`hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${isDragging ? "bg-blue-50 dark:bg-blue-900/20 shadow-lg scale-[1.02]" : ""} ${flashClass}`}
       onClick={() => !isDragMode && onEdit(task)}
     >
       {isDragMode && (
@@ -109,7 +167,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
           <button
             {...attributes}
             {...listeners}
-            className="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
+            className="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-transform active:scale-110"
           >
             <GripVertical className="h-4 w-4 text-gray-400" />
           </button>
@@ -134,7 +192,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
         {(task.priorityScore / 10).toFixed(3)}
       </TableCell>
       <TableCell>
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeColor(task.status)}`}>
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors duration-300 ${getStatusBadgeColor(task.status)}`}>
           {formatStatus(task.status)}
         </span>
       </TableCell>
@@ -164,14 +222,15 @@ const SortableTaskRow = memo(function SortableTaskRow({
           </Button>
         </div>
       </TableCell>
-    </TableRow>
+    </MotionTableRow>
   );
 }, (prev, next) => {
   return (
     prev.task === next.task &&
     prev.isDragMode === next.isDragMode &&
     prev.isUpdating === next.isUpdating &&
-    prev.isDeleting === next.isDeleting
+    prev.isDeleting === next.isDeleting &&
+    prev.reducedMotion === next.reducedMotion
   );
 });
 
@@ -272,6 +331,7 @@ function VirtualizedTaskTable({
                   onDelete={onDelete}
                   isUpdating={isUpdating}
                   isDeleting={isDeleting}
+                  reducedMotion={true}
                 />
               );
             })}
@@ -298,6 +358,7 @@ export function TaskList() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isDragMode, setIsDragMode] = useState(false);
+  const reducedMotion = useReducedMotion();
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -631,18 +692,21 @@ export function TaskList() {
                   </TableHeader>
                   <SortableContext items={filteredAndSortedTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
                     <TableBody>
-                      {filteredAndSortedTasks.map((task: Task) => (
-                        <SortableTaskRow
-                          key={task.id}
-                          task={task}
-                          isDragMode={isDragMode}
-                          onEdit={handleEdit}
-                          onToggleStatus={handleToggleStatus}
-                          onDelete={handleDelete}
-                          isUpdating={updateTaskStatusMutation.isPending}
-                          isDeleting={deleteTaskMutation.isPending}
-                        />
-                      ))}
+                      <AnimatePresence mode="popLayout">
+                        {filteredAndSortedTasks.map((task: Task) => (
+                          <SortableTaskRow
+                            key={task.id}
+                            task={task}
+                            isDragMode={isDragMode}
+                            onEdit={handleEdit}
+                            onToggleStatus={handleToggleStatus}
+                            onDelete={handleDelete}
+                            isUpdating={updateTaskStatusMutation.isPending}
+                            isDeleting={deleteTaskMutation.isPending}
+                            reducedMotion={reducedMotion}
+                          />
+                        ))}
+                      </AnimatePresence>
                     </TableBody>
                   </SortableContext>
                 </Table>

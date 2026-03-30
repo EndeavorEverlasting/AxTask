@@ -43,6 +43,7 @@ Preferred communication style: Simple, everyday language.
 - **Task Reordering**: Drag-and-drop task reordering with persistent sort order.
 - **Task Search**: Full-text search across activity, notes, and classification with 200ms debounce.
 - **Performance Optimizations**: React.memo on task rows with reference equality comparison, debounced search input, SQL aggregate queries for dashboard stats, bulk task update method for imports, database indexes on (userId, status), (userId, priority), (userId, sortOrder).
+- **Animations**: framer-motion for task list entrance/exit/reorder animations (AnimatePresence + layout), status/priority change flash effects (CSS keyframes), dashboard stat count-up on load, drag-and-drop scale-up on grab. All animations respect `prefers-reduced-motion`. Virtualized tables (100+ tasks) disable layout animations for performance.
 
 ### Authentication & Security
 - **Multi-tier Auth**: Four authentication providers always visible on the login page. `AUTH_PROVIDER` env var overrides auto-detect when set explicitly. Auto-detection fallback order: WorkOS → Google → Replit → Local.
