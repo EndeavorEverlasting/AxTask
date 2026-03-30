@@ -9,25 +9,60 @@ import { seedDevAccounts } from "./seed-dev";
 
 const app = express();
 
-// ── Security headers ────────────────────────────────────────────────────────
-// Helmet sets a battery of HTTP headers to mitigate XSS, click-jacking,
-// MIME-sniffing, and other common attacks.  In dev mode we relax CSP so that
-// Vite's HMR websocket & inline scripts work.
+app.set("trust proxy", 1);
+
 const isDev = process.env.NODE_ENV !== "production";
+const productionDomain = "axtask.replit.app";
+
 app.use(
   helmet({
-    contentSecurityPolicy: isDev ? false : undefined, // Vite injects inline scripts in dev
+    contentSecurityPolicy: isDev ? false : {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'", "https://accounts.google.com", "https://oauth2.googleapis.com"],
+        frameSrc: ["'none'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'", "https://accounts.google.com"],
+        upgradeInsecureRequests: [],
+      },
+    },
     crossOriginEmbedderPolicy: isDev ? false : undefined,
+    hsts: isDev ? false : {
+      maxAge: 63072000,
+      includeSubDomains: true,
+      preload: true,
+    },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    noSniff: true,
+    hidePoweredBy: true,
+    frameguard: { action: "deny" },
+    permittedCrossDomainPolicies: { permittedPolicies: "none" },
   })
 );
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+if (!isDev) {
+  app.use((req, res, next) => {
+    if (req.protocol !== "https") {
+      return res.redirect(301, `https://${productionDomain}${req.originalUrl}`);
+    }
+    const host = req.get("host") || "";
+    if (host && host !== productionDomain && !host.endsWith(".replit.dev")) {
+      return res.redirect(301, `https://${productionDomain}${req.originalUrl}`);
+    }
+    next();
+  });
+}
 
-// Auth must be set up before routes
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: false, limit: "50mb" }));
+
 setupAuth(app);
 
-// OAuth provider routes (WorkOS, Google) — registered after session middleware
 registerOAuthRoutes(app);
 
 app.use((req, res, next) => {
@@ -46,7 +81,6 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
 
-      // Never log response bodies for auth endpoints — they contain user objects
       const isSensitive = path.startsWith("/api/auth");
       if (capturedJsonResponse && !isSensitive) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
@@ -64,14 +98,12 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Seed dev accounts (no-op in production)
   await seedDevAccounts();
 
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    // In production, never leak internal error details to the client
     const message =
       process.env.NODE_ENV === "production" && status >= 500
         ? "Internal Server Error"
@@ -83,19 +115,12 @@ app.use((req, res, next) => {
     }
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
   server.listen(
     {

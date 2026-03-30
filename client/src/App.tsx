@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
-import { useZoom } from "@/hooks/use-zoom";
+import { useZoom, ZoomProvider } from "@/hooks/use-zoom";
 import { Sidebar } from "@/components/layout/sidebar";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
@@ -51,13 +51,14 @@ function AuthenticatedApp() {
   return (
     <div className="h-screen flex bg-gray-50 dark:bg-gray-900 overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-hidden">
         <div
+          className="h-full overflow-auto"
           style={{
             transform: `scale(${scale})`,
             transformOrigin: "top left",
             width: `${100 / scale}%`,
-            minHeight: `${100 / scale}%`,
+            height: `${100 / scale}%`,
           }}
         >
           <Router />
@@ -73,7 +74,9 @@ function App() {
       <ThemeProvider>
         <TooltipProvider>
           <AuthProvider>
-            <AuthenticatedApp />
+            <ZoomProvider>
+              <AuthenticatedApp />
+            </ZoomProvider>
           </AuthProvider>
           <Toaster />
         </TooltipProvider>

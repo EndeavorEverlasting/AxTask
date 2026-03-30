@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, boolean, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -10,9 +10,11 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash"),                     // null for OAuth-only users
   displayName: text("display_name"),
   role: text("role").notNull().default("user"),            // "admin" | "user"
-  authProvider: text("auth_provider").notNull().default("local"), // "local" | "workos" | "google"
+  authProvider: text("auth_provider").notNull().default("local"), // "local" | "workos" | "google" | "replit"
   workosId: text("workos_id"),                             // WorkOS user ID (when provider=workos)
   googleId: text("google_id"),                             // Google sub (when provider=google)
+  replitId: text("replit_id"),                             // Replit OIDC sub (when provider=replit)
+  profileImageUrl: text("profile_image_url"),              // Profile picture URL from OAuth
   securityQuestion: text("security_question"),              // e.g. "What is your pet's name?"
   securityAnswerHash: text("security_answer_hash"),         // bcrypt hash of the answer
   failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
@@ -53,7 +55,7 @@ export const loginSchema = z.object({
 });
 
 export type User = typeof users.$inferSelect;
-export type SafeUser = Omit<User, "passwordHash" | "securityAnswerHash" | "failedLoginAttempts" | "lockedUntil" | "workosId" | "googleId">;
+export type SafeUser = Omit<User, "passwordHash" | "securityAnswerHash" | "failedLoginAttempts" | "lockedUntil" | "workosId" | "googleId" | "replitId">;
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 
 // ─── Tasks ───────────────────────────────────────────────────────────────────
@@ -61,22 +63,26 @@ export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }),
   date: text("date").notNull(),
-  time: text("time"), // HH:mm format, nullable for all-day tasks
+  time: text("time"),
   activity: text("activity").notNull(),
   notes: text("notes").default(""),
-  urgency: integer("urgency"), // 1-5 or null for auto-calculation
-  impact: integer("impact"), // 1-5 or null for auto-calculation
-  effort: integer("effort"), // 1-5 or null for auto-calculation
+  urgency: integer("urgency"),
+  impact: integer("impact"),
+  effort: integer("effort"),
   prerequisites: text("prerequisites").default(""),
-  priority: text("priority").notNull(), // "Highest", "High", "Medium-High", "Medium", "Low"
+  priority: text("priority").notNull(),
   priorityScore: integer("priority_score").notNull(),
-  classification: text("classification").notNull(), // "Development", "Meeting", "Administrative", etc.
-  status: text("status").notNull().default("pending"), // "pending", "in-progress", "completed"
+  classification: text("classification").notNull(),
+  status: text("status").notNull().default("pending"),
   isRepeated: boolean("is_repeated").default(false),
   sortOrder: integer("sort_order").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_tasks_user_status").on(table.userId, table.status),
+  index("idx_tasks_user_priority").on(table.userId, table.priority),
+  index("idx_tasks_user_sort_order").on(table.userId, table.sortOrder),
+]);
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({
   id: true,

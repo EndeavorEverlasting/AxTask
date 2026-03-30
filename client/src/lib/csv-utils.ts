@@ -1,8 +1,252 @@
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
+
+function excelDateToString(serial: number): string {
+  if (!serial || typeof serial !== 'number' || serial < 1) return '';
+  const utcDays = Math.floor(serial) - 25569;
+  const d = new Date(utcDays * 86400 * 1000);
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseIntegerValue(value: any): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const num = parseInt(String(value));
+  return !isNaN(num) && num >= 0 && num <= 5 ? (num === 0 ? null : num) : null;
+}
+
+function parseStarRating(value: string): number | null {
+  if (!value || value === '☆☆☆☆☆') return null;
+  const starCount = (value.match(/★/g) || []).length;
+  return starCount >= 1 && starCount <= 5 ? starCount : null;
+}
+
+interface ParsedSheetResult {
+  sheetName: string;
+  tasks: any[];
+  rowCount: number;
+}
+
+export function parseTasksFromExcel(file: File): Promise<any[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const allTasks: any[] = [];
+
+        const importSheets = [
+          'Daily Planner 2026',
+          'Archive 2025',
+          'Archive 2024',
+          'Vault',
+        ];
+
+        for (const sheetName of importSheets) {
+          if (!workbook.SheetNames.includes(sheetName)) continue;
+          const sheet = workbook.Sheets[sheetName];
+          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          if (rows.length < 2) continue;
+
+          const headers = (rows[0] || []).map((h: any) =>
+            String(h || '').trim().toLowerCase()
+          );
+
+          if (sheetName === 'Vault') {
+            const parsed = parseVaultRows(rows, headers);
+            allTasks.push(...parsed);
+          } else {
+            const parsed = parsePlannerRows(rows, headers, sheetName);
+            allTasks.push(...parsed);
+          }
+        }
+
+        resolve(allTasks);
+      } catch (error) {
+        console.error('Excel parse error:', error);
+        reject(error);
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+export function parseExcelSheetInfo(file: File): Promise<ParsedSheetResult[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const results: ParsedSheetResult[] = [];
+
+        for (const sheetName of workbook.SheetNames) {
+          const sheet = workbook.Sheets[sheetName];
+          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          if (rows.length < 2) continue;
+          const headers = (rows[0] || []).map((h: any) => String(h || '').trim().toLowerCase());
+
+          let tasks: any[] = [];
+          if (sheetName === 'Vault') {
+            tasks = parseVaultRows(rows, headers);
+          } else if (sheetName === 'README' || sheetName === 'Roadmap' || sheetName === 'Scripts') {
+            continue;
+          } else {
+            tasks = parsePlannerRows(rows, headers, sheetName);
+          }
+
+          if (tasks.length > 0) {
+            results.push({ sheetName, tasks, rowCount: tasks.length });
+          }
+        }
+        resolve(results);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function findCol(headers: string[], ...candidates: string[]): number {
+  for (const c of candidates) {
+    const idx = headers.indexOf(c.toLowerCase());
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+function cellVal(row: any[], idx: number): any {
+  return idx >= 0 && idx < row.length ? row[idx] : undefined;
+}
+
+function parsePlannerRows(rows: any[][], headers: string[], sheetName: string): any[] {
+  const dateIdx = findCol(headers, 'date');
+  const activityIdx = findCol(headers, 'activity');
+  const notesIdx = findCol(headers, 'notes');
+  const urgencyIdx = findCol(headers, 'urgency');
+  const impactIdx = findCol(headers, 'impact');
+  const effortIdx = findCol(headers, 'effort');
+  const resultIdx = findCol(headers, 'result');
+  const prereqIdx = findCol(headers, 'pre-reqs', 'prerequisites');
+  const priorityIdx = findCol(headers, 'priority', '#ref!');
+  const timeStartIdx = findCol(headers, 'time start');
+  const timeEndIdx = findCol(headers, 'time end');
+
+  const tasks: any[] = [];
+  let lastDate = '';
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length === 0) continue;
+
+    let activity = cellVal(row, activityIdx);
+    if (activity === null || activity === undefined || String(activity).trim() === '') continue;
+    activity = String(activity).trim();
+
+    if (activity === 'Activity' || activity === 'Date') continue;
+
+    let dateStr = '';
+    const rawDate = cellVal(row, dateIdx);
+    if (typeof rawDate === 'number' && rawDate > 1000) {
+      dateStr = excelDateToString(rawDate);
+    } else if (typeof rawDate === 'string' && rawDate.trim()) {
+      if (rawDate.includes('/')) {
+        const parts = rawDate.split('/');
+        if (parts.length === 3) {
+          dateStr = `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+        }
+      } else if (rawDate.includes('-')) {
+        dateStr = rawDate;
+      }
+    }
+
+    if (!dateStr && lastDate) {
+      dateStr = lastDate;
+    }
+    if (!dateStr) {
+      dateStr = new Date().toISOString().split('T')[0];
+    }
+    lastDate = dateStr;
+
+    const notes = cellVal(row, notesIdx);
+    const rawResult = cellVal(row, resultIdx);
+    const status = (rawResult === true || String(rawResult).toLowerCase() === 'true')
+      ? 'completed' : 'pending';
+
+    const urgency = parseIntegerValue(cellVal(row, urgencyIdx));
+    const impact = parseIntegerValue(cellVal(row, impactIdx));
+    const effort = parseIntegerValue(cellVal(row, effortIdx));
+    const prerequisites = cellVal(row, prereqIdx);
+
+    const task: any = {
+      date: dateStr,
+      activity: activity,
+      notes: notes ? String(notes) : '',
+      status,
+    };
+
+    if (urgency) task.urgency = urgency;
+    if (impact) task.impact = impact;
+    if (effort) task.effort = effort;
+    if (prerequisites) task.prerequisites = String(prerequisites);
+
+    tasks.push(task);
+  }
+
+  return tasks;
+}
+
+function parseVaultRows(rows: any[][], headers: string[]): any[] {
+  const keyIdx = findCol(headers, 'key');
+  const categoryIdx = findCol(headers, 'category');
+  const itemIdx = findCol(headers, 'item');
+  const notesIdx = findCol(headers, 'notes');
+  const sourceDateIdx = findCol(headers, 'source date');
+
+  const tasks: any[] = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length === 0) continue;
+
+    const item = cellVal(row, itemIdx);
+    if (!item || String(item).trim() === '') continue;
+
+    let dateStr = '';
+    const rawDate = cellVal(row, sourceDateIdx);
+    if (typeof rawDate === 'number' && rawDate > 1000) {
+      dateStr = excelDateToString(rawDate);
+    }
+    if (!dateStr) dateStr = new Date().toISOString().split('T')[0];
+
+    const notes = cellVal(row, notesIdx);
+    const category = cellVal(row, categoryIdx);
+    const key = cellVal(row, keyIdx);
+
+    const noteParts = [];
+    if (notes) noteParts.push(String(notes));
+    if (category) noteParts.push(`[Vault: ${category}]`);
+    if (key) noteParts.push(`[Key: ${key}]`);
+
+    tasks.push({
+      date: dateStr,
+      activity: String(item).trim(),
+      notes: noteParts.join('\n'),
+      status: 'pending',
+    });
+  }
+
+  return tasks;
+}
 
 export function parseTasksFromCSV(csvText: string): any[] {
   try {
-    // Use Papa Parse for better CSV handling
     const result = Papa.parse(csvText, {
       header: true,
       skipEmptyLines: true,
@@ -15,11 +259,9 @@ export function parseTasksFromCSV(csvText: string): any[] {
 
     const tasks = result.data.map((row: any) => {
       const task: any = {};
-      
-      // Handle date - try multiple formats
+
       const dateValue = row.date || row.Date;
       if (dateValue) {
-        // Handle M/D/YYYY format
         const dateParts = dateValue.split('/');
         if (dateParts.length === 3) {
           const month = dateParts[0].padStart(2, '0');
@@ -32,17 +274,12 @@ export function parseTasksFromCSV(csvText: string): any[] {
       } else {
         task.date = new Date().toISOString().split('T')[0];
       }
-      
-      // Handle activity/task
+
       task.activity = row.activity || row.task || row.title || '';
-      
-      // Handle notes/description
       task.notes = row.notes || row.description || '';
-      
-      // Handle priority - convert Google Sheets format
+
       let priority = row.priority || '';
       if (priority) {
-        // Normalize priority values
         priority = priority.toLowerCase();
         if (priority.includes('highest') || priority.includes('urgent')) {
           task.priority = 'Highest';
@@ -56,79 +293,44 @@ export function parseTasksFromCSV(csvText: string): any[] {
           task.priority = 'Low';
         }
       }
-      
-      // Handle status - check Result column for TRUE/FALSE or status
-      const result = row.result || row.status || '';
-      if (result.toString().toLowerCase() === 'true' || result.toLowerCase() === 'completed') {
+
+      const resultVal = row.result || row.status || '';
+      if (resultVal.toString().toLowerCase() === 'true' || resultVal.toLowerCase() === 'completed') {
         task.status = 'completed';
-      } else if (result.toString().toLowerCase() === 'false') {
+      } else if (resultVal.toString().toLowerCase() === 'false') {
         task.status = 'pending';
       } else {
         task.status = 'pending';
       }
-      
-      // Handle star ratings (☆☆☆☆☆) - convert to numbers
-      const parseStarRating = (value: string): number | null => {
-        if (!value || value === '☆☆☆☆☆') return null;
-        const starCount = (value.match(/★/g) || []).length;
-        return starCount >= 1 && starCount <= 5 ? starCount : null;
-      };
-      
+
       task.urgency = parseStarRating(row.urgency) || parseIntegerValue(row.urgency) || 3;
       task.impact = parseStarRating(row.impact) || parseIntegerValue(row.impact) || 3;
       task.effort = parseStarRating(row.effort) || parseIntegerValue(row.effort) || 3;
-      
-      // Handle prerequisites
+
       task.prerequisites = row.prerequisites || row['pre-reqs'] || '';
-      
+
       return task;
     });
-    
-    // Filter out tasks without activity
+
     return tasks.filter(task => task.activity && task.activity.trim());
-    
+
   } catch (error) {
     console.error('Error parsing CSV:', error);
     return [];
   }
 }
 
-function parseIntegerValue(value: any): number | null {
-  const num = parseInt(value);
-  return !isNaN(num) && num >= 1 && num <= 5 ? num : null;
-}
-
-export function parseTasksFromExcel(file: File): Promise<any[]> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        // For now, treat Excel files as CSV since we don't have xlsx on client
-        // In a real implementation, you'd use xlsx library
-        const text = e.target?.result as string;
-        const tasks = parseTasksFromCSV(text);
-        resolve(tasks);
-      } catch (error) {
-        reject(error);
-      }
-    };
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsText(file);
-  });
-}
-
 export function tasksToCSV(tasks: any[]): string {
   if (tasks.length === 0) return '';
-  
-  // Define headers that match your Google Sheets format
+
   const headers = [
     'Date',
-    'Priority', 
+    'Priority',
     'Result',
     'Activity',
     'Notes',
     'Urgency',
-    'Impact', 
+    'Impact',
     'Effort',
     'Pre-Reqs',
     'Sub-Priority',
@@ -137,7 +339,7 @@ export function tasksToCSV(tasks: any[]): string {
     'Time End',
     'Subtypes'
   ];
-  
+
   const rows = tasks.map(task => [
     task.date || '',
     task.priority || '',
@@ -148,13 +350,13 @@ export function tasksToCSV(tasks: any[]): string {
     task.impact ? '★'.repeat(task.impact) + '☆'.repeat(5 - task.impact) : '☆☆☆☆☆',
     task.effort ? '★'.repeat(task.effort) + '☆'.repeat(5 - task.effort) : '☆☆☆☆☆',
     task.prerequisites || '',
-    '', // Sub-Priority
-    '', // Impact (duplicate column)
-    '', // Time Start
-    '', // Time End
-    ''  // Subtypes
+    '',
+    '',
+    '',
+    '',
+    ''
   ]);
-  
+
   return Papa.unparse({
     fields: headers,
     data: rows

@@ -1,43 +1,8 @@
-# ── Secrets (never commit) ─────────────────────────────────────────────────
-.env
-.env.*
-.env.local
-.env.production
-
-# ── Dependencies ───────────────────────────────────────────────────────────
-node_modules/
-
-# ── Build output ───────────────────────────────────────────────────────────
-dist/
-server/public
-*.tar.gz
-
-# ── IDE / Editor ───────────────────────────────────────────────────────────
-.vscode/
-.idea/
-.cursor/
-*.swp
-*.swo
-*~
-
-# ── Replit ─────────────────────────────────────────────────────────────────
-.replit
-replit.nix
-.cache/
-.config/
-.upm/
-.local/
-
-# ── OS artifacts ───────────────────────────────────────────────────────────
+attached_assets/
+dist
 .DS_Store
-Thumbs.db
-Desktop.ini
-*.log
-
-# ── Test / Coverage ────────────────────────────────────────────────────────
-coverage/
-
-# ── Misc ───────────────────────────────────────────────────────────────────
+.local/
+node_modules
+server/public
+*.tar.gzattached_assets/
 vite.config.ts.*
-# Replit junk artifact
-e*[^a-zA-Z0-9._-]

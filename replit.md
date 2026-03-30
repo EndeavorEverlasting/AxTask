@@ -1,125 +1,123 @@
-# Priority Engine Task Management System
+# AxTask — Priority Engine Task Management System
 
 ## Overview
 
-This is a full-stack task management application built with a React frontend and Express backend. The system features an intelligent priority scoring engine that automatically calculates task priorities based on content analysis, similar to the Google Sheets priority engine described in the attached assets. The application provides comprehensive task management capabilities including creation, editing, filtering, analytics, and data import/export functionality.
-
-**Version:** 1.1.0 (Google Sheets Integration)  
-**Last Updated:** July 30, 2025
+A full-stack intelligent task management application that automatically calculates task priorities using an advanced scoring engine. The system analyzes task content, keywords, tags, and other factors to assign priorities automatically, reducing manual effort and improving task organization.
 
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
-Cost monitoring: Required for server operations, especially import processes.
-Processing time indicators: Help users decide whether to proceed with large imports or develop more compact versions.
 
-## Recent Changes (v1.1.0)
+## Top Priorities
 
-### Google Sheets Integration (July 30, 2025)
-- **Real-time API Integration**: Full Google Sheets API implementation with OAuth2 authentication
-- **Comprehensive Documentation**: Added detailed setup guide (GOOGLE_SHEETS_SETUP.md) with multi-user security considerations
-- **Hybrid Sync Approach**: Maintains CSV import/export as fallback while adding real-time API sync
-- **Security-First Design**: API key protection, multi-user configurations, and credential rotation guidelines
-- **Professional Setup Guide**: Step-by-step instructions for Google Cloud Console, API enablement, and OAuth setup
-
-### Features Added
-- **API Endpoints**: Complete Google Sheets REST API with authentication, import, export, and bidirectional sync
-- **Client Library**: Type-safe Google API client with token management and error handling
-- **UI Integration**: Enhanced Google Sheets sync page with authentication flow and real-time status
-- **Documentation Suite**: Added GOOGLE_SHEETS_SETUP.md with security best practices and troubleshooting
+1. **No browser security false positives**: The app must not trigger browser security tools (Malwarebytes Threat Protection Pro, Norton Safe Web, etc.). All URLs, redirects, and content security headers must be clean and trustworthy. This is a user-facing production app — false positives are unacceptable.
+2. **Clean, professional URLs**: Avoid exposing long dev domain URLs (e.g., `.spock.replit.dev`) to end users. Production should use clean `axtask.replit.app` paths. Consider custom domain support in the future.
 
 ## System Architecture
 
-### Frontend Architecture
-- **Framework**: React with TypeScript
-- **Styling**: Tailwind CSS with shadcn/ui component library
-- **State Management**: TanStack Query (React Query) for server state management
-- **Routing**: Wouter for client-side routing
-- **Build Tool**: Vite for development and build processes
-- **Form Handling**: React Hook Form with Zod validation
+### UI/UX Decisions
+- **Framework**: React 18 with TypeScript
+- **UI Components**: shadcn/ui built on Radix UI with Tailwind CSS for styling
+- **Responsive Design**: Full mobile device compatibility
+- **Accessibility**: Dynamic focus glow system using CSS `:has()`, auto-focus for quick entry, improved button labels, and full keyboard navigation.
+- **Zoom**: UI scale control for accessibility
 
-### Backend Architecture
-- **Runtime**: Node.js with Express.js framework
-- **Language**: TypeScript with ES modules
-- **Database**: PostgreSQL with Drizzle ORM
-- **Database Provider**: Neon Database (serverless PostgreSQL)
-- **API Design**: RESTful API with JSON responses
-- **Session Management**: PostgreSQL-based session storage
+### Technical Implementations
+- **Frontend State Management**: TanStack Query for server state management, caching, and data synchronization.
+- **Routing**: Wouter for lightweight client-side routing.
+- **Form Handling**: React Hook Form with Zod schema validation.
+- **Build System**: Vite for frontend, esbuild for backend.
+- **Backend Runtime**: Node.js with Express.js (TypeScript, ES modules).
+- **Database**: PostgreSQL with Drizzle ORM (local Replit Helium database, using `pg` driver).
+- **API Design**: RESTful API with JSON responses and CRUD operations.
+- **Session Management**: PostgreSQL-backed session storage using connect-pg-simple.
+- **Validation**: Zod schemas for client and server-side request/response validation.
 
-### Key Components
+### Feature Specifications
+- **Priority Engine**: Intelligent scoring algorithm based on urgency, impact, effort, keywords, tags, deadline, and crisis detection. Crisis keywords (help, death, dying, emergency, safety, OSHA, etc.) auto-flag as "Highest" priority with "Crisis" classification. Future: integrate NodeWeaver or open-source NLP classifier for deeper semantic analysis.
+- **Calendar Views**: Multiple time-based views with interactive task management, drag-and-drop rescheduling.
+- **Import/Export System**: Bulk Excel/CSV import with multi-sheet support (Daily Planner, Archives, Vault), server-side batch processing via `POST /api/tasks/import`, Excel serial date conversion, and per-sheet selection UI. CSV export also supported.
+- **Analytics Dashboard**: Visual insights into task metrics, completion rates, and priority distributions.
+- **Real-time Updates**: Optimistic updates and cache invalidation.
+- **Task Reordering**: Drag-and-drop task reordering with persistent sort order.
+- **Task Search**: Full-text search across activity, notes, and classification with 200ms debounce.
+- **Performance Optimizations**: React.memo on task rows with reference equality comparison, debounced search input, SQL aggregate queries for dashboard stats, bulk task update method for imports, database indexes on (userId, status), (userId, priority), (userId, sortOrder).
 
-#### Priority Engine
-- **Location**: `client/src/lib/priority-engine.ts`
-- **Purpose**: Intelligent task classification and priority scoring
-- **Features**:
-  - Keyword-based scoring system
-  - Tag detection (@urgent, #blocker, etc.)
-  - Time sensitivity analysis
-  - Date pattern recognition
-  - Problem indicator detection
-  - Repetition checking using Jaccard similarity
-  - Priority scale: Highest (8+), High (6-7), Medium-High (4-5), Medium (2-3), Low (<2)
+### Authentication & Security
+- **Multi-tier Auth**: Four authentication providers always visible on the login page. `AUTH_PROVIDER` env var overrides auto-detect when set explicitly. Auto-detection fallback order: WorkOS → Google → Replit → Local.
+  - **Tier 1 (Google)**: Google OAuth 2.0 (auto-detected if `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` set)
+  - **Tier 2 (Replit)**: Replit OIDC — Google/GitHub/Apple via Replit identity (auto-detected if `REPL_ID` set)
+  - **Tier 3 (WorkOS)**: WorkOS AuthKit — enterprise SSO (auto-detected if `WORKOS_API_KEY` + `WORKOS_CLIENT_ID` set)
+  - **Tier 4 (Local)**: Hardened Passport.js email/password with bcrypt (fallback, always available)
+  - **Login page**: All four options always shown (Google, Replit, WorkOS, Email/Password) regardless of server config. OAuth routes gate by credential availability, not by active provider.
+- **Registration Control**: `REGISTRATION_MODE` env var — "open", "invite" (requires `INVITE_CODE`), or "closed"
+- **Account Lockout**: 5 failed attempts → 15-minute lockout with security logging
+- **Password Policy**: Minimum 8 chars, uppercase, lowercase, digit, special character
+- **Security Questions**: Optional password recovery via user-set security questions
+- **Password Reset Tokens**: SHA-256 hashed tokens with expiry, stored in database
+- **Admin Role**: Admin users can reset any user's password
+- **Rate Limiting**: Auth endpoints rate-limited (10 login/15min, 3 register/hr)
+- **Session Security**: httpOnly cookies, secure flag in production, 7-day expiry, non-default cookie name
+- **HTTPS Protocol**: Production enforces HTTPS via 301 redirect, HSTS (2yr max-age, preload), upgrade-insecure-requests
+- **Content Security Policy**: Strict CSP in production — self-only with Google OAuth endpoints whitelisted; disabled in dev for Vite HMR
+- **Security Headers**: Helmet.js v8 — X-Frame-Options DENY, strict-origin-when-cross-origin referrer, nosniff, no X-Powered-By, no cross-domain policies
+- **Dev Accounts**: Auto-seeded in development with ephemeral passwords (regenerated on restart)
 
-#### Database Schema
-- **Location**: `shared/schema.ts`
-- **Tables**: Single `tasks` table with comprehensive task metadata
-- **Fields**: id, date, activity, notes, urgency, impact, effort, prerequisites, priority, priorityScore, classification, status, isRepeated, timestamps
-- **Validation**: Zod schemas for insert and update operations
+### Database Schema
+- **users**: id, email, passwordHash, displayName, role, authProvider, workosId, googleId, replitId, profileImageUrl, securityQuestion, securityAnswerHash, failedLoginAttempts, lockedUntil, createdAt
+- **password_reset_tokens**: id, userId, tokenHash, method, expiresAt, usedAt, createdAt
+- **tasks**: id, userId, date, time, activity, notes, urgency, impact, effort, prerequisites, priority, priorityScore, classification, status, isRepeated, sortOrder, createdAt, updatedAt
+- **session**: managed by connect-pg-simple (excluded from drizzle migrations)
 
-#### UI Components
-- **Design System**: shadcn/ui components with custom styling
-- **Key Components**: TaskForm, TaskList, PriorityBadge, ClassificationBadge
-- **Layout**: Sidebar navigation with dashboard, tasks, analytics, and import/export pages
-- **Theme**: Light/dark mode support with CSS variables
-
-## Data Flow
-
-1. **Task Creation**: User submits task via TaskForm → validated with Zod → sent to backend API
-2. **Priority Calculation**: Backend calls PriorityEngine to calculate priority and classification
-3. **Database Storage**: Task stored in PostgreSQL via Drizzle ORM
-4. **Real-time Updates**: TanStack Query invalidates and refetches data
-5. **UI Updates**: Components re-render with new data
+### Key Files
+- `server/auth.ts` — Passport.js local strategy setup, session config, requireAuth middleware
+- `server/auth-providers.ts` — Multi-provider abstraction (Google OAuth, WorkOS, local)
+- `server/storage.ts` — All database operations (users, tasks, password reset, security questions)
+- `server/seed-dev.ts` — Dev account seeder (only in development mode)
+- `server/routes.ts` — All API routes (auth, tasks, Google Sheets)
+- `server/db.ts` — PostgreSQL connection using `pg` driver with Drizzle ORM
+- `client/src/lib/auth-context.tsx` — AuthProvider context with login/register/logout
+- `client/src/pages/login.tsx` — Full login UI with register, forgot password, security question flows
+- `shared/schema.ts` — Drizzle schema + Zod validation schemas
 
 ## External Dependencies
 
-### Core Dependencies
-- **@neondatabase/serverless**: Serverless PostgreSQL database connection
-- **drizzle-orm**: Type-safe database ORM
-- **@tanstack/react-query**: Server state management
-- **@radix-ui/***: Headless UI components
-- **react-hook-form**: Form handling and validation
-- **zod**: Schema validation
-- **tailwindcss**: Utility-first CSS framework
+### Authentication
+- **Passport.js**: Authentication middleware with local strategy
+- **bcrypt**: Password hashing (cost factor 12)
+- **express-session + connect-pg-simple**: PostgreSQL-backed sessions
+- **express-rate-limit**: Rate limiting on auth endpoints
+- **helmet**: Security headers
 
-### Development Tools
-- **vite**: Build tool and dev server
-- **typescript**: Type checking
-- **esbuild**: Server bundling
-- **tsx**: TypeScript execution for development
+### Database
+- **PostgreSQL**: Replit Helium database (local, `pg` driver)
+- **Drizzle ORM**: Type-safe database operations and schema management
 
-## Deployment Strategy
+### Google Integration
+- **Google Sheets API**: Task import/export sync (optional, requires OAuth credentials)
+- **googleapis**: Official Google API client library
+
+### UI Libraries
+- **Radix UI**: Headless UI primitives
+- **Lucide React**: Icon library
+- **Recharts**: Data visualization
+- **date-fns**: Date manipulation
+
+### File Processing
+- **Papa Parse**: CSV parsing and generation
+- **xlsx**: Excel file processing
 
 ### Development
-- **Frontend**: Vite dev server with HMR
-- **Backend**: tsx for TypeScript execution
-- **Database**: Neon serverless PostgreSQL
-- **Environment**: NODE_ENV=development
+- **Vite**: Frontend build tool
+- **esbuild**: Backend bundling
+- **TypeScript**: Type safety across the stack
+- **Tailwind CSS**: Utility-first CSS
+- **Vitest**: Unit testing
+- **cross-env**: Cross-platform env vars
 
-### Production
-- **Build Process**: 
-  - Frontend: `vite build` → static files in `dist/public`
-  - Backend: `esbuild` → bundled server in `dist/index.js`
-- **Server**: Express serves both API and static files
-- **Database**: Drizzle migrations with `db:push` command
-- **Environment**: NODE_ENV=production
-
-### File Structure
-```
-├── client/          # React frontend
-├── server/          # Express backend
-├── shared/          # Shared types and schemas
-├── migrations/      # Database migrations
-└── dist/           # Built application
-```
-
-The application uses a monorepo structure with clear separation between client, server, and shared code, enabling efficient development and deployment workflows.
+## Deployment
+- **Target**: Replit Autoscale
+- **Build**: `npm run build` (Vite frontend + esbuild backend)
+- **Start**: `npm run start` (Node.js production server)
+- **Database**: Replit Helium PostgreSQL (auto-provisioned)
+- **Secrets**: SESSION_SECRET, AUTH_PROVIDER, REGISTRATION_MODE set via Replit Secrets

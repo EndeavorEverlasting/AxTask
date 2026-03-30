@@ -16,7 +16,7 @@ const LAST_KEY = "axtask_last_email";
 interface KnownAccount {
   email: string;
   displayName: string;
-  provider: "google" | "workos" | "local";
+  provider: "google" | "workos" | "replit" | "local";
   lastUsed: number; // epoch ms
 }
 
@@ -93,6 +93,7 @@ export default function LoginPage() {
   const [regMode, setRegMode] = useState<string>("open");
   const [authProvider, setAuthProvider] = useState<string>("local");
   const [loginUrl, setLoginUrl] = useState<string>("");
+  const [providers, setProviders] = useState<{ name: string; loginUrl: string }[]>([]);
 
   // Forgot-password flow state
   type ForgotStep = "email" | "method" | "security" | "reset" | "done";
@@ -117,6 +118,9 @@ export default function LoginPage() {
         missing_code: "Authentication failed — no authorization code received.",
         session_failed: "Authentication succeeded but session creation failed.",
         auth_failed: "Authentication failed. Please try again.",
+        google_not_configured: "Google sign-in is not available. Please use another sign-in method.",
+        workos_not_configured: "WorkOS sign-in is not available. Please use another sign-in method.",
+        replit_not_configured: "Replit sign-in is not available. Please use another sign-in method.",
       };
       setError(messages[oauthError] || `Authentication error: ${oauthError}`);
       window.history.replaceState({}, "", "/");
@@ -139,6 +143,7 @@ export default function LoginPage() {
         setRegMode(d.registrationMode);
         setAuthProvider(d.authProvider || "local");
         setLoginUrl(d.loginUrl || "");
+        if (d.providers) setProviders(d.providers);
       })
       .catch(() => {});
   }, []);
@@ -153,21 +158,22 @@ export default function LoginPage() {
 
   const strength = useMemo(() => getPasswordStrength(password), [password]);
 
+  const providerLoginUrls: Record<string, string> = {
+    google: "/api/auth/google/login",
+    replit: "/api/auth/replit/login",
+    workos: "/api/auth/workos/login",
+  };
+
   const handlePickAccount = useCallback((acct: KnownAccount) => {
-    if (acct.provider === "google" && loginUrl) {
-      // One-click: redirect straight to Google OAuth
-      window.location.href = loginUrl;
+    const url = providerLoginUrls[acct.provider];
+    if (url) {
+      window.location.href = url;
       return;
     }
-    if (acct.provider === "workos" && loginUrl) {
-      window.location.href = loginUrl;
-      return;
-    }
-    // Local account: pre-fill email and show the password form
     setEmail(acct.email);
     setShowForm(true);
     setError("");
-  }, [loginUrl]);
+  }, []);
 
   const handleRemoveAccount = useCallback((e: React.MouseEvent, email: string) => {
     e.stopPropagation();
@@ -334,10 +340,13 @@ export default function LoginPage() {
               )}
 
               {knownAccounts.map((acct) => (
-                <button
+                <div
                   key={acct.email}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => handlePickAccount(acct)}
-                  className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-left group"
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handlePickAccount(acct); }}
+                  className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-left group cursor-pointer"
                 >
                   {/* Provider icon */}
                   {acct.provider === "google" ? (
@@ -347,6 +356,10 @@ export default function LoginPage() {
                   ) : acct.provider === "workos" ? (
                     <div className="h-10 w-10 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 flex items-center justify-center shrink-0">
                       <ShieldCheck className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                    </div>
+                  ) : acct.provider === "replit" ? (
+                    <div className="h-10 w-10 rounded-full bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700 flex items-center justify-center shrink-0">
+                      <KeyRound className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                     </div>
                   ) : (
                     <Avatar name={acct.displayName || acct.email} />
@@ -359,7 +372,7 @@ export default function LoginPage() {
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate flex items-center gap-1">
                       {acct.email}
                       <span className="text-[10px] text-gray-400">
-                        · {acct.provider === "google" ? "Google" : acct.provider === "workos" ? "WorkOS" : "Password"}
+                        · {acct.provider === "google" ? "Google" : acct.provider === "workos" ? "WorkOS" : acct.provider === "replit" ? "Replit" : "Password"}
                       </span>
                     </div>
                   </div>
@@ -371,13 +384,13 @@ export default function LoginPage() {
                   )}
 
                   <button
-                    onClick={(e) => handleRemoveAccount(e, acct.email)}
+                    onClick={(e) => { e.stopPropagation(); handleRemoveAccount(e, acct.email); }}
                     className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-opacity shrink-0"
                     title="Forget this account"
                   >
                     <X className="h-3.5 w-3.5 text-gray-400" />
                   </button>
-                </button>
+                </div>
               ))}
 
               <div className="relative my-3">
@@ -386,45 +399,61 @@ export default function LoginPage() {
               </div>
 
               {/* Quick-add buttons for other sign-in methods */}
-              <div className="flex gap-2">
-                {authProvider !== "local" && loginUrl && (
-                  <a href={loginUrl}
-                    className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm text-gray-600 dark:text-gray-300">
-                    {authProvider === "google" ? (
-                      <svg className="h-4 w-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                      ) : <ShieldCheck className="h-4 w-4" />}
-                    New {authProvider === "google" ? "Google" : "WorkOS"} account
-                  </a>
-                )}
+              <div className="flex flex-wrap gap-2">
+                <a href="/api/auth/google/login"
+                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm text-gray-600 dark:text-gray-300">
+                  <svg className="h-4 w-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                  Google
+                </a>
+                <a href="/api/auth/replit/login"
+                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm text-gray-600 dark:text-gray-300">
+                  <KeyRound className="h-4 w-4" />
+                  Replit
+                </a>
+                <a href="/api/auth/workos/login"
+                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm text-gray-600 dark:text-gray-300">
+                  <ShieldCheck className="h-4 w-4" />
+                  WorkOS
+                </a>
                 <button
                   onClick={() => { setShowForm(true); setEmail(""); setError(""); }}
                   className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm text-gray-500 dark:text-gray-400"
                 >
                   <User className="h-4 w-4" />
-                  Use email & password
+                  Password
                 </button>
               </div>
             </div>
           )}
 
-          {/* ── OAuth buttons (no known accounts yet) ─────────────────── */}
-          {mode === "login" && authProvider !== "local" && loginUrl && !showForm && knownAccounts.length === 0 && (
+          {/* ── Sign-in options (no known accounts, no form yet) ────── */}
+          {mode === "login" && !showForm && knownAccounts.length === 0 && (
             <div className="space-y-3">
+              {/* 1. Google */}
               <a
-                href={loginUrl}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-primary text-white font-medium hover:bg-primary/90 transition-colors"
+                href="/api/auth/google/login"
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors font-medium text-gray-700 dark:text-gray-200"
               >
-                {authProvider === "workos" ? (
-                  <>
-                    <ShieldCheck className="h-5 w-5" />
-                    Continue with WorkOS
-                  </>
-                ) : (
-                  <>
-                    <svg className="h-5 w-5" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                    Continue with Google
-                  </>
-                )}
+                <svg className="h-5 w-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                Continue with Google
+              </a>
+
+              {/* 2. Replit */}
+              <a
+                href="/api/auth/replit/login"
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors font-medium text-gray-700 dark:text-gray-200"
+              >
+                <KeyRound className="h-5 w-5" />
+                Sign in with Replit
+              </a>
+
+              {/* 3. WorkOS */}
+              <a
+                href="/api/auth/workos/login"
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors font-medium text-gray-700 dark:text-gray-200"
+              >
+                <ShieldCheck className="h-5 w-5" />
+                Continue with WorkOS
               </a>
 
               {error && (
@@ -433,6 +462,7 @@ export default function LoginPage() {
                 </p>
               )}
 
+              {/* 4. Email & password */}
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200 dark:border-gray-700" /></div>
                 <div className="relative flex justify-center text-xs"><span className="bg-white dark:bg-gray-800 px-2 text-gray-400">or use email & password</span></div>
@@ -449,6 +479,30 @@ export default function LoginPage() {
 
           {/* ── Email / password form ────────────────────────────────────── */}
           {mode !== "forgot" && (showForm || mode === "register") && (
+            <>
+              {mode === "login" && (
+                <div className="space-y-2 mb-4">
+                  <a href="/api/auth/google/login"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                    Continue with Google
+                  </a>
+                  <a href="/api/auth/replit/login"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200">
+                    <KeyRound className="h-4 w-4" />
+                    Sign in with Replit
+                  </a>
+                  <a href="/api/auth/workos/login"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200">
+                    <ShieldCheck className="h-4 w-4" />
+                    Continue with WorkOS
+                  </a>
+                  <div className="relative my-1">
+                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200 dark:border-gray-700" /></div>
+                    <div className="relative flex justify-center text-xs"><span className="bg-white dark:bg-gray-800 px-2 text-gray-400">or use email & password</span></div>
+                  </div>
+                </div>
+              )}
             <form onSubmit={handleSubmit} className="space-y-4">
               {mode === "register" && (
                 <div>
@@ -545,6 +599,7 @@ export default function LoginPage() {
                 </button>
               )}
             </form>
+            </>
           )}
 
           {/* ── Forgot-password flow ──────────────────────────────────── */}

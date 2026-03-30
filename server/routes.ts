@@ -9,10 +9,11 @@ import {
   setSecurityQuestion, getSecurityQuestion, verifySecurityAnswer,
   adminResetPassword,
 } from "./storage";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { requireAuth } from "./auth";
+import { getProvider, getAvailableProviders } from "./auth-providers";
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
 function safeEqual(a: string, b: string): boolean {
@@ -151,16 +152,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Return registration mode + auth provider so the UI can adapt
   app.get("/api/auth/config", (_req: Request, res: Response) => {
-    const authProvider = (process.env.AUTH_PROVIDER || "google").toLowerCase();
+    const authProvider = getProvider();
+    const providers = getAvailableProviders();
     const loginUrls: Record<string, string> = {
       workos: "/api/auth/workos/login",
       google: "/api/auth/google/login",
-      local: "", // local uses the form POST to /api/auth/login
+      replit: "/api/auth/replit/login",
+      local: "",
     };
     res.json({
       registrationMode: REGISTRATION_MODE,
       authProvider,
       loginUrl: loginUrls[authProvider] || "",
+      providers,
     });
   });
 
@@ -384,6 +388,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(task);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch task" });
+    }
+  });
+
+  // Bulk import tasks (must be before /api/tasks POST)
+  app.post("/api/tasks/import", requireAuth, async (req, res) => {
+    try {
+      const { tasks: taskList } = req.body;
+      if (!Array.isArray(taskList) || taskList.length === 0) {
+        return res.status(400).json({ message: "No tasks provided" });
+      }
+
+      if (taskList.length > 50000) {
+        return res.status(400).json({ message: "Maximum 50,000 tasks per import" });
+      }
+
+      const userId = req.user!.id;
+
+      const validTasks: any[] = [];
+      const errors: { index: number; error: string }[] = [];
+
+      for (let i = 0; i < taskList.length; i++) {
+        try {
+          const validated = insertTaskSchema.parse(taskList[i]);
+          validTasks.push(validated);
+        } catch (err: any) {
+          errors.push({ index: i, error: err.message || "Validation failed" });
+        }
+      }
+
+      let inserted: any[] = [];
+      if (validTasks.length > 0) {
+        inserted = await storage.createTasksBulk(userId, validTasks);
+
+        const existingTasks = await storage.getTasks(userId);
+
+        const UPDATE_BATCH = 500;
+        for (let i = 0; i < inserted.length; i += UPDATE_BATCH) {
+          const batch = inserted.slice(i, i + UPDATE_BATCH);
+          const updates: UpdateTask[] = [];
+
+          for (const task of batch) {
+            try {
+              const contextTasks = existingTasks.filter(t => t.id !== task.id);
+              const priorityResult = await PriorityEngine.calculatePriority(
+                task.activity, task.notes || "", task.urgency, task.impact, task.effort,
+                contextTasks
+              );
+              const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
+              updates.push({
+                id: task.id,
+                priority: priorityResult.priority,
+                priorityScore: Math.round(priorityResult.score * 10),
+                classification,
+                isRepeated: priorityResult.isRepeated,
+              });
+            } catch (e) {
+              const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
+              updates.push({
+                id: task.id,
+                priority: "Low",
+                priorityScore: 0,
+                classification,
+                isRepeated: false,
+              });
+            }
+          }
+
+          await storage.bulkUpdateTasks(userId, updates);
+        }
+      }
+
+      res.status(201).json({
+        imported: inserted.length,
+        failed: errors.length,
+        total: taskList.length,
+        errors: errors.slice(0, 50),
+      });
+    } catch (error) {
+      console.error("Bulk import error:", error);
+      res.status(500).json({ message: "Failed to import tasks" });
     }
   });
 

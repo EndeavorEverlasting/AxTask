@@ -434,7 +434,7 @@ export function TaskCalendar() {
 
       {/* Edit Task Dialog */}
       <Dialog open={!!editingTask} onOpenChange={() => setEditingTask(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Task</DialogTitle>
           </DialogHeader>
@@ -452,7 +452,7 @@ export function TaskCalendar() {
 
       {/* Create Task for Date Dialog */}
       <Dialog open={!!creatingForDate} onOpenChange={() => setCreatingForDate(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               <Plus className="h-4 w-4 inline mr-2" />

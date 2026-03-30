@@ -104,10 +104,13 @@ export function Sidebar() {
           </Button>
         </div>
 
-        {/* User info */}
         {user && (
           <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 truncate">
-            <User className="h-4 w-4 shrink-0" />
+            {user.profileImageUrl ? (
+              <img src={user.profileImageUrl} alt="" className="h-5 w-5 rounded-full shrink-0" />
+            ) : (
+              <User className="h-4 w-4 shrink-0" />
+            )}
             <span className="truncate">{user.displayName || user.email}</span>
           </div>
         )}

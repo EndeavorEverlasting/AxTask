@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -6,6 +6,7 @@ import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { PriorityEngine } from "@/lib/priority-engine";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,34 +27,80 @@ interface TaskFormProps {
   onSuccess?: () => void;
 }
 
+const DRAFT_KEY_PREFIX = "axtask_draft";
+
+function getDraftKey(userId?: string, context?: string): string {
+  return `${DRAFT_KEY_PREFIX}_${userId || "anon"}_${context || "new"}`;
+}
+
+function saveDraft(key: string, data: Partial<InsertTask>) {
+  try {
+    const hasContent = data.activity || data.notes || data.prerequisites || data.time;
+    if (!hasContent) {
+      localStorage.removeItem(key);
+      return;
+    }
+    localStorage.setItem(key, JSON.stringify({ ...data, savedAt: Date.now() }));
+  } catch { /* localStorage unavailable */ }
+}
+
+function loadDraft(key: string): Partial<InsertTask> | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const oneDay = 24 * 60 * 60 * 1000;
+    if (parsed.savedAt && Date.now() - parsed.savedAt > oneDay) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    const { savedAt, ...draft } = parsed;
+    return draft;
+  } catch { return null; }
+}
+
+function clearDraft(key: string) {
+  try { localStorage.removeItem(key); } catch {}
+}
+
 export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
 
+  const draftContext = task ? `edit_${task.id}` : defaultDate ? `date_${defaultDate}` : "new";
+  const draftKey = getDraftKey(user?.id, draftContext);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const freshDefaults: InsertTask = task ? {
+    date: task.date,
+    time: task.time || "",
+    activity: task.activity,
+    notes: task.notes || "",
+    urgency: task.urgency || undefined,
+    impact: task.impact || undefined,
+    effort: task.effort || undefined,
+    prerequisites: task.prerequisites || "",
+    status: task.status,
+  } : {
+    date: defaultDate || new Date().toISOString().split('T')[0],
+    time: "",
+    activity: "",
+    notes: "",
+    urgency: undefined,
+    impact: undefined,
+    effort: undefined,
+    prerequisites: "",
+    status: "pending",
+  };
+
+  const draft = !task ? loadDraft(draftKey) : null;
+  const mergedDefaults = draft ? { ...freshDefaults, ...draft } : freshDefaults;
+
   const form = useForm<InsertTask>({
     resolver: zodResolver(insertTaskSchema),
-    defaultValues: task ? {
-      date: task.date,
-      time: task.time || "",
-      activity: task.activity,
-      notes: task.notes || "",
-      urgency: task.urgency || undefined,
-      impact: task.impact || undefined,
-      effort: task.effort || undefined,
-      prerequisites: task.prerequisites || "",
-      status: task.status,
-    } : {
-      date: defaultDate || new Date().toISOString().split('T')[0],
-      time: "",
-      activity: "",
-      notes: "",
-      urgency: undefined,
-      impact: undefined,
-      effort: undefined,
-      prerequisites: "",
-      status: "pending",
-    },
+    defaultValues: mergedDefaults,
   });
 
   const createTaskMutation = useMutation({
@@ -75,7 +122,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
         title: task ? "Task updated" : "Task created",
         description: task ? "Your task has been updated successfully." : "Your task has been added successfully.",
       });
-      if (!task) form.reset(); // Only reset for new tasks
+      if (!task) {
+        form.reset();
+        clearDraft(draftKey);
+      }
       onSuccess?.();
     },
     onError: (error: any) => {
@@ -87,7 +137,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     },
   });
 
-  // Real-time priority calculation
+  // Real-time priority calculation + draft auto-save
   useEffect(() => {
     const subscription = form.watch((values) => {
       if (values.activity || values.notes) {
@@ -100,9 +150,18 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
         );
         setPreviewPriority(result);
       }
+      if (!task) {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+          saveDraft(draftKey, values as Partial<InsertTask>);
+        }, 500);
+      }
     });
-    return () => subscription.unsubscribe();
-  }, [form]);
+    return () => {
+      subscription.unsubscribe();
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [form, draftKey, task]);
 
   const onSubmit = (data: InsertTask) => {
     createTaskMutation.mutate(data);

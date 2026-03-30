@@ -4,14 +4,17 @@
  * Supported providers (set AUTH_PROVIDER in .env):
  *   "google"  — Google OAuth 2.0
  *   "workos"  — WorkOS AuthKit
+ *   "replit"  — Replit OIDC (Google/GitHub/Apple via Replit)
  *   "local"   — Passport.js (email + password)
  *
  * Switching requires changing AUTH_PROVIDER in .env and restarting.
  */
 import { WorkOS } from "@workos-inc/node";
+import * as oidcClient from "openid-client";
 import type { Express, Request, Response } from "express";
 import { findOrCreateOAuthUser } from "./storage";
 import { randomBytes } from "crypto";
+import memoize from "memoizee";
 
 // ── WorkOS singleton (only initialized when needed) ──────────────────────────
 let _workos: WorkOS | null = null;
@@ -24,25 +27,61 @@ function getWorkOS(): WorkOS {
   return _workos;
 }
 
+// ── Replit OIDC config (memoized) ────────────────────────────────────────────
+const getReplitOidcConfig = memoize(
+  async () => {
+    return await oidcClient.discovery(
+      new URL(process.env.ISSUER_URL ?? "https://replit.com/oidc"),
+      process.env.REPL_ID!,
+    );
+  },
+  { maxAge: 3600 * 1000 },
+);
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
-function getProvider(): "workos" | "google" | "local" {
-  const p = (process.env.AUTH_PROVIDER || "google").toLowerCase();
-  if (p === "workos" || p === "google" || p === "local") return p;
-  console.warn(`[auth] Unknown AUTH_PROVIDER "${p}", defaulting to "local"`);
+export function getProvider(): "workos" | "google" | "replit" | "local" {
+  const explicit = process.env.AUTH_PROVIDER?.toLowerCase();
+
+  if (explicit) {
+    if (explicit === "workos" || explicit === "google" || explicit === "replit" || explicit === "local") return explicit;
+    console.warn(`[auth] Unknown AUTH_PROVIDER "${explicit}", falling through to auto-detect`);
+  }
+
+  if (process.env.WORKOS_API_KEY && process.env.WORKOS_CLIENT_ID) return "workos";
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) return "google";
+  if (process.env.REPL_ID) return "replit";
   return "local";
+}
+
+export type ProviderInfo = { name: string; loginUrl: string };
+
+export function getAvailableProviders(): ProviderInfo[] {
+  const available: ProviderInfo[] = [];
+  if (process.env.WORKOS_API_KEY && process.env.WORKOS_CLIENT_ID) {
+    available.push({ name: "workos", loginUrl: "/api/auth/workos/login" });
+  }
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    available.push({ name: "google", loginUrl: "/api/auth/google/login" });
+  }
+  if (process.env.REPL_ID) {
+    available.push({ name: "replit", loginUrl: "/api/auth/replit/login" });
+  }
+  return available;
 }
 
 // ── Register provider-specific routes ────────────────────────────────────────
 export function registerOAuthRoutes(app: Express) {
   const provider = getProvider();
-  console.log(`[auth] Active provider: ${provider}`);
+  const available = getAvailableProviders();
+  console.log(`[auth] Primary provider: ${provider}`);
+  console.log(`[auth] Available providers: ${available.map(p => p.name).join(", ") || "local only"}`);
 
   // ══════════════════════════════════════════════════════════════════════════
   //  WorkOS AuthKit routes (Tier 1)
   // ══════════════════════════════════════════════════════════════════════════
   app.get("/api/auth/workos/login", (_req: Request, res: Response) => {
-    if (provider !== "workos") {
-      return res.status(400).json({ message: "WorkOS auth is not active" });
+    if (!process.env.WORKOS_API_KEY || !process.env.WORKOS_CLIENT_ID) {
+      return res.redirect("/?error=workos_not_configured");
     }
     try {
       const workos = getWorkOS();
@@ -104,14 +143,13 @@ export function registerOAuthRoutes(app: Express) {
   //  Google OAuth 2.0 routes (Tier 2)
   // ══════════════════════════════════════════════════════════════════════════
   app.get("/api/auth/google/login", (req: Request, res: Response) => {
-    if (provider !== "google") {
-      return res.status(400).json({ message: "Google auth is not active" });
-    }
     const clientId = process.env.GOOGLE_CLIENT_ID;
-    if (!clientId) {
-      return res.status(500).json({ message: "GOOGLE_CLIENT_ID not configured" });
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      return res.redirect("/?error=google_not_configured");
     }
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI || "http://localhost:5000/api/auth/google/callback";
+    const origin = `${req.protocol}://${req.get("host")}`;
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${origin}/api/auth/google/callback`;
     const state = randomBytes(24).toString("base64url");
     ((req as any).session as any).oauthState = state;
 
@@ -134,7 +172,8 @@ export function registerOAuthRoutes(app: Express) {
     try {
       const clientId = process.env.GOOGLE_CLIENT_ID!;
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
-      const redirectUri = process.env.GOOGLE_REDIRECT_URI || "http://localhost:5000/api/auth/google/callback";
+      const origin = `${req.protocol}://${req.get("host")}`;
+      const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${origin}/api/auth/google/callback`;
 
       // Exchange code for tokens
       const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -148,7 +187,12 @@ export function registerOAuthRoutes(app: Express) {
           grant_type: "authorization_code",
         }),
       });
-      if (!tokenRes.ok) throw new Error(`Token exchange failed: ${tokenRes.status}`);
+      if (!tokenRes.ok) {
+        const errBody = await tokenRes.text();
+        console.error("[auth] Google token exchange response:", errBody);
+        console.error("[auth] Redirect URI used:", redirectUri);
+        throw new Error(`Token exchange failed: ${tokenRes.status}`);
+      }
       const tokens = (await tokenRes.json()) as { id_token?: string; access_token: string };
 
       // Get user info
@@ -171,6 +215,96 @@ export function registerOAuthRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("[auth] Google callback error:", err.message);
+      res.redirect("/?error=auth_failed");
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  Replit OIDC routes (Google/GitHub/Apple via Replit identity)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/auth/replit/login", async (req: Request, res: Response) => {
+    if (!process.env.REPL_ID) {
+      return res.redirect("/?error=replit_not_configured");
+    }
+    try {
+      const config = await getReplitOidcConfig();
+      const state = randomBytes(24).toString("base64url");
+      const nonce = randomBytes(24).toString("base64url");
+      const codeVerifier = oidcClient.randomPKCECodeVerifier();
+      const codeChallenge = await oidcClient.calculatePKCECodeChallenge(codeVerifier);
+
+      (req.session as any).oauthState = state;
+      (req.session as any).oauthNonce = nonce;
+      (req.session as any).pkceCodeVerifier = codeVerifier;
+
+      const origin = `${req.protocol}://${req.get("host")}`;
+      const redirectUri = `${origin}/api/auth/replit/callback`;
+      const params = new URLSearchParams({
+        response_type: "code",
+        client_id: process.env.REPL_ID!,
+        redirect_uri: redirectUri,
+        scope: "openid email profile",
+        state,
+        nonce,
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+        prompt: "login consent",
+      });
+
+      const authEndpoint = config.serverMetadata().authorization_endpoint;
+      if (!authEndpoint) throw new Error("No authorization endpoint in OIDC config");
+      res.redirect(`${authEndpoint}?${params}`);
+    } catch (err: any) {
+      console.error("[auth] Replit OIDC login error:", err.message);
+      res.status(500).json({ message: "Failed to initiate Replit login" });
+    }
+  });
+
+  app.get("/api/auth/replit/callback", async (req: Request, res: Response) => {
+    const code = req.query.code as string | undefined;
+    if (!code) return res.redirect("/?error=missing_code");
+
+    try {
+      const config = await getReplitOidcConfig();
+      const origin = `${req.protocol}://${req.get("host")}`;
+      const currentUrl = new URL(req.url, origin);
+
+      const tokens = await oidcClient.authorizationCodeGrant(config, currentUrl, {
+        expectedState: (req.session as any).oauthState,
+        expectedNonce: (req.session as any).oauthNonce,
+        pkceCodeVerifier: (req.session as any).pkceCodeVerifier,
+        idTokenExpected: true,
+      });
+
+      const claims = tokens.claims();
+      if (!claims || !claims.email) {
+        throw new Error("No email claim in OIDC response");
+      }
+
+      const displayName = [claims.first_name, claims.last_name].filter(Boolean).join(" ") || (claims.email as string).split("@")[0];
+
+      const user = await findOrCreateOAuthUser({
+        email: claims.email as string,
+        displayName,
+        profileImageUrl: claims.profile_image_url as string | undefined,
+        provider: "replit",
+        providerId: claims.sub,
+      });
+
+      delete (req.session as any).oauthState;
+      delete (req.session as any).oauthNonce;
+      delete (req.session as any).pkceCodeVerifier;
+
+      req.login(user, (err) => {
+        if (err) {
+          console.error("[auth] Replit session error:", err);
+          return res.redirect("/?error=session_failed");
+        }
+        res.redirect("/");
+      });
+    } catch (err: any) {
+      console.error("[auth] Replit OIDC callback error:", err.message);
       res.redirect("/?error=auth_failed");
     }
   });

@@ -27,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             const ACCOUNTS_KEY = "axtask_known_accounts";
             const LAST_KEY = "axtask_last_email";
-            const provider = data.authProvider || "local";
+            const provider = data.authProvider || data.provider || "local";
             const existing = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]")
               .filter((a: any) => a.email !== data.email);
             existing.unshift({

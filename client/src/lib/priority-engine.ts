@@ -19,7 +19,7 @@ export class PriorityEngine {
     let score = 0;
 
     // Keyword classification scoring (from original script)
-    const criticalKeywords = {
+    const criticalKeywords: Record<string, number> = {
       "submit": 4, "deadline": 4, "urgent": 4, "license": 4, "confirm": 3,
       "install": 3, "fix": 3, "setup": 3, "configure": 3, "coord": 3,
       "meeting": 2, "call": 2, "follow": 2, "email": 2, "share": 2,
@@ -28,14 +28,31 @@ export class PriorityEngine {
 
     Object.keys(criticalKeywords).forEach(keyword => {
       if (combined.includes(keyword)) {
-        score += criticalKeywords[keyword as keyof typeof criticalKeywords];
+        score += criticalKeywords[keyword];
       }
+    });
+
+    // Crisis / safety-critical keywords — highest priority
+    const crisisKeywords = [
+      "help", "emergency", "danger", "death", "dying", "dead", "suicide",
+      "hurt", "injured", "injury", "accident", "fire", "flood", "collapse",
+      "trapped", "rescue", "critical", "severe", "fatal", "hazard",
+      "threat", "alarm", "evacuate", "evacuation", "panic", "sos",
+      "medical", "ambulance", "hospital", "poison", "overdose",
+      "bleeding", "unconscious", "choking", "seizure", "stroke",
+      "safety", "unsafe", "violation", "osha", "inspection"
+    ];
+    crisisKeywords.forEach(keyword => {
+      if (combined.match(new RegExp(`\\b${keyword}\\b`))) score += 5;
     });
 
     // Tag detection
     if (combined.includes("@urgent") || combined.includes("#urgent")) score += 5;
     if (combined.includes("@blocker") || combined.includes("#blocker")) score += 4;
     if (combined.includes("@followup") || combined.includes("#followup")) score += 2;
+    if (combined.includes("@critical") || combined.includes("#critical")) score += 5;
+    if (combined.includes("@emergency") || combined.includes("#emergency")) score += 5;
+    if (combined.includes("@safety") || combined.includes("#safety")) score += 5;
 
     // Time sensitivity
     const timeKeywords = ["today", "tomorrow", "asap", "immediately", "now"];
@@ -89,6 +106,7 @@ export class PriorityEngine {
   static classifyTask(activity: string, notes: string): string {
     const combined = (activity + " " + notes).toLowerCase();
     
+    if (combined.match(/\b(help|emergency|danger|death|dying|dead|suicide|hurt|injured|injury|accident|fire|flood|collapse|trapped|rescue|critical|severe|fatal|hazard|threat|alarm|evacuate|panic|sos|medical|ambulance|hospital|poison|overdose|bleeding|unconscious|choking|seizure|stroke|safety|unsafe|violation|osha)\b/)) return "Crisis";
     if (combined.match(/\b(code|develop|deploy|build|fix|debug|test|programming|software)\b/)) return "Development";
     if (combined.match(/\b(meeting|call|discuss|present|conference|standup)\b/)) return "Meeting";
     if (combined.match(/\b(research|investigate|explore|analyze|study|learn)\b/)) return "Research";
@@ -137,7 +155,7 @@ export class PriorityEngine {
     const combined = (activity + " " + notes).toLowerCase();
     let score = 0;
 
-    const criticalKeywords = {
+    const criticalKeywords: Record<string, number> = {
       "submit": 4, "deadline": 4, "urgent": 4, "license": 4, "confirm": 3,
       "install": 3, "fix": 3, "setup": 3, "configure": 3, "coord": 3,
       "meeting": 2, "call": 2, "follow": 2, "email": 2, "share": 2,
@@ -145,12 +163,28 @@ export class PriorityEngine {
     };
 
     Object.keys(criticalKeywords).forEach(keyword => {
-      if (combined.includes(keyword)) score += criticalKeywords[keyword as keyof typeof criticalKeywords];
+      if (combined.includes(keyword)) score += criticalKeywords[keyword];
+    });
+
+    const crisisKeywords = [
+      "help", "emergency", "danger", "death", "dying", "dead", "suicide",
+      "hurt", "injured", "injury", "accident", "fire", "flood", "collapse",
+      "trapped", "rescue", "critical", "severe", "fatal", "hazard",
+      "threat", "alarm", "evacuate", "evacuation", "panic", "sos",
+      "medical", "ambulance", "hospital", "poison", "overdose",
+      "bleeding", "unconscious", "choking", "seizure", "stroke",
+      "safety", "unsafe", "violation", "osha", "inspection"
+    ];
+    crisisKeywords.forEach(keyword => {
+      if (combined.match(new RegExp(`\\b${keyword}\\b`))) score += 5;
     });
 
     if (combined.includes("@urgent") || combined.includes("#urgent")) score += 5;
     if (combined.includes("@blocker") || combined.includes("#blocker")) score += 4;
     if (combined.includes("@followup") || combined.includes("#followup")) score += 2;
+    if (combined.includes("@critical") || combined.includes("#critical")) score += 5;
+    if (combined.includes("@emergency") || combined.includes("#emergency")) score += 5;
+    if (combined.includes("@safety") || combined.includes("#safety")) score += 5;
 
     const timeKeywords = ["today", "tomorrow", "asap", "immediately", "now"];
     timeKeywords.forEach(keyword => {

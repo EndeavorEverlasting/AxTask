@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Task, type InsertTask } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
-import { tasksToCSV, parseTasksFromCSV, downloadCSV, parseTasksFromExcel } from "@/lib/csv-utils";
+import { tasksToCSV, parseTasksFromCSV, downloadCSV, parseExcelSheetInfo } from "@/lib/csv-utils";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,66 +10,33 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Upload, Download, FileText, AlertCircle, Clock, DollarSign } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Upload, Download, FileText, AlertCircle, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+
+interface SheetInfo {
+  sheetName: string;
+  tasks: any[];
+  rowCount: number;
+  selected: boolean;
+}
 
 export default function ImportExport() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
-  const [importLogs, setImportLogs] = useState<string[]>([]);
-  const [importStats, setImportStats] = useState({
-    totalTasks: 0,
-    processed: 0,
-    successful: 0,
-    failed: 0,
-    estimatedTime: 0,
-    estimatedCost: 0,
-    startTime: 0,
-    elapsedTime: 0
-  });
-
-  // Calculate costs and time estimates
-  const calculateImportEstimates = (taskCount: number) => {
-    // Estimates based on server processing
-    const avgProcessingTimePerTask = 150; // ms per task (database insert + priority calculation)
-    const serverCostPerHour = 0.02; // Estimated server cost per hour
-    const totalTimeMs = taskCount * avgProcessingTimePerTask;
-    const totalTimeHours = totalTimeMs / (1000 * 60 * 60);
-    
-    return {
-      estimatedTimeMs: totalTimeMs,
-      estimatedTimeSec: Math.ceil(totalTimeMs / 1000),
-      estimatedCost: Math.round(totalTimeHours * serverCostPerHour * 1000) / 1000 // Round to 3 decimal places
-    };
-  };
-
-  // Update elapsed time during import
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isImporting && importStats.startTime > 0) {
-      interval = setInterval(() => {
-        setImportStats(prev => ({
-          ...prev,
-          elapsedTime: Date.now() - prev.startTime
-        }));
-      }, 500);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isImporting, importStats.startTime]);
+  const [importMessage, setImportMessage] = useState("");
+  const [sheets, setSheets] = useState<SheetInfo[]>([]);
+  const [importResult, setImportResult] = useState<{
+    imported: number;
+    failed: number;
+    total: number;
+  } | null>(null);
 
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
-  });
-
-  const createTaskMutation = useMutation({
-    mutationFn: async (task: InsertTask) => {
-      const response = await apiRequest("POST", "/api/tasks", task);
-      return response.json();
-    },
   });
 
   const handleExport = () => {
@@ -100,7 +67,7 @@ export default function ImportExport() {
     }
   };
 
-  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -116,164 +83,116 @@ export default function ImportExport() {
       return;
     }
 
-    setIsImporting(true);
+    setIsParsing(true);
+    setImportResult(null);
+    setSheets([]);
 
     try {
-      let importedTasks: any[] = [];
-      
-      if (isCSV) {
-        const content = await file.text();
-        importedTasks = parseTasksFromCSV(content);
-      } else if (isExcel) {
-        importedTasks = await parseTasksFromExcel(file);
-      }
-
-      if (importedTasks.length === 0) {
-        toast({
-          title: "No valid tasks found",
-          description: "The CSV file doesn't contain any valid task data.",
-          variant: "destructive",
-        });
-        setIsImporting(false);
-        return;
-      }
-
-      // Calculate and display cost/time estimates
-      const estimates = calculateImportEstimates(importedTasks.length);
-      setImportStats({
-        totalTasks: importedTasks.length,
-        processed: 0,
-        successful: 0,
-        failed: 0,
-        estimatedTime: estimates.estimatedTimeSec,
-        estimatedCost: estimates.estimatedCost,
-        startTime: Date.now(),
-        elapsedTime: 0
-      });
-
-      // Show cost/time warning for large imports
-      if (importedTasks.length > 20) {
-        const proceed = window.confirm(
-          `📊 IMPORT COST ANALYSIS\n` +
-          `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-          `Tasks to import: ${importedTasks.length}\n` +
-          `Estimated time: ${estimates.estimatedTimeSec} seconds (${Math.ceil(estimates.estimatedTimeSec/60)} min)\n` +
-          `Estimated server cost: $${estimates.estimatedCost}\n` +
-          `Processing rate: ~${Math.round(importedTasks.length/estimates.estimatedTimeSec)} tasks/second\n\n` +
-          `💡 RECOMMENDATION:\n` +
-          `${importedTasks.length > 100 ? 
-            '⚠️  Large import - consider splitting into smaller files' : 
-            '✅ Reasonable size for single import'}\n\n` +
-          `Continue with import?`
-        );
-        
-        if (!proceed) {
-          setIsImporting(false);
-          return;
-        }
-      }
-
-      // Import tasks one by one with progress tracking and logging
-      let successCount = 0;
-      let errorCount = 0;
-
-      // Add initial log
-      setImportLogs([`🚀 Starting import of ${importedTasks.length} tasks...`]);
-
-      for (let i = 0; i < importedTasks.length; i++) {
-        const task = importedTasks[i];
-        const taskNumber = i + 1;
-        
-        try {
-          // Log current task being processed
-          setImportLogs(prev => [...prev, `⏳ Processing task ${taskNumber}/${importedTasks.length}: "${task.activity?.substring(0, 40) || 'Untitled'}${task.activity?.length > 40 ? '...' : ''}"`]);
-          
-          await createTaskMutation.mutateAsync(task);
-          successCount++;
-          
-          // Log success
-          setImportLogs(prev => [...prev, `✅ Task ${taskNumber} imported successfully`]);
-        } catch (error) {
-          errorCount++;
-          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-          
-          // Log failure with details
-          setImportLogs(prev => [...prev, `❌ Task ${taskNumber} failed: ${errorMsg}`]);
-          console.error("Failed to import task:", task, error);
-        }
-
-        // Update progress
-        const processed = taskNumber;
-        const progressPercent = (processed / importedTasks.length) * 100;
-        setImportProgress(progressPercent);
-        setImportStats(prev => ({
-          ...prev,
-          processed,
-          successful: successCount,
-          failed: errorCount
+      if (isExcel) {
+        const sheetResults = await parseExcelSheetInfo(file);
+        const sheetInfos: SheetInfo[] = sheetResults.map(s => ({
+          ...s,
+          selected: true,
         }));
-
-        // Add cost/time updates every 10 tasks
-        if (taskNumber % 10 === 0) {
-          const elapsedSeconds = Math.round((Date.now() - importStats.startTime) / 1000);
-          const estimatedRemaining = Math.round((importedTasks.length - taskNumber) * (elapsedSeconds / taskNumber));
-          setImportLogs(prev => [...prev, `📊 Progress: ${Math.round(progressPercent)}% • ${elapsedSeconds}s elapsed • ~${estimatedRemaining}s remaining`]);
-        }
-
-        // Add small delay to prevent overwhelming the server
-        if (i < importedTasks.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 50));
+        setSheets(sheetInfos);
+        
+        const totalTasks = sheetInfos.reduce((sum, s) => sum + s.rowCount, 0);
+        toast({
+          title: "File analyzed",
+          description: `Found ${totalTasks} tasks across ${sheetInfos.length} sheets. Select which sheets to import.`,
+        });
+      } else {
+        const content = await file.text();
+        const parsed = parseTasksFromCSV(content);
+        if (parsed.length > 0) {
+          setSheets([{ sheetName: file.name, tasks: parsed, rowCount: parsed.length, selected: true }]);
+        } else {
+          toast({
+            title: "No tasks found",
+            description: "The file doesn't contain any valid task data.",
+            variant: "destructive",
+          });
         }
       }
-
-      // Final log
-      const finalElapsed = Math.round((Date.now() - importStats.startTime) / 1000);
-      setImportLogs(prev => [...prev, `🎉 Import completed! ${successCount} successful, ${errorCount} failed in ${finalElapsed}s`]);
-
-      // Refresh data
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-
-      const actualTimeSeconds = Math.round((Date.now() - importStats.startTime) / 1000);
-      const actualCost = Math.round((actualTimeSeconds / 3600) * 0.02 * 1000) / 1000;
-      
-      toast({
-        title: "Import completed",
-        description: `✅ ${successCount} tasks imported successfully\n` +
-                    `${errorCount > 0 ? `❌ ${errorCount} tasks failed\n` : ''}` +
-                    `⏱️ Completed in ${actualTimeSeconds}s (estimated ${importStats.estimatedTime}s)\n` +
-                    `💰 Actual cost: $${actualCost} (estimated $${importStats.estimatedCost})`,
-      });
-
     } catch (error) {
+      console.error("Parse error:", error);
       toast({
-        title: "Import failed",
-        description: "Failed to parse CSV file. Please check the format and try again.",
+        title: "Failed to read file",
+        description: "Please check the file format and try again.",
         variant: "destructive",
       });
     } finally {
-      // Keep logs visible for a few seconds after completion
-      setTimeout(() => {
-        setIsImporting(false);
-        setImportProgress(0);
-        setImportLogs([]);
-        setImportStats({
-          totalTasks: 0,
-          processed: 0,
-          successful: 0,
-          failed: 0,
-          estimatedTime: 0,
-          estimatedCost: 0,
-          startTime: 0,
-          elapsedTime: 0
-        });
-      }, 3000);
-      
+      setIsParsing(false);
+    }
+  };
+
+  const toggleSheet = (index: number) => {
+    setSheets(prev => prev.map((s, i) => i === index ? { ...s, selected: !s.selected } : s));
+  };
+
+  const handleImport = async () => {
+    const selectedSheets = sheets.filter(s => s.selected);
+    if (selectedSheets.length === 0) {
+      toast({ title: "No sheets selected", variant: "destructive" });
+      return;
+    }
+
+    const allTasks = selectedSheets.flatMap(s => s.tasks);
+    if (allTasks.length === 0) return;
+
+    setIsImporting(true);
+    setImportProgress(0);
+    setImportMessage(`Importing ${allTasks.length} tasks...`);
+    setImportResult(null);
+
+    try {
+      const CHUNK_SIZE = 2000;
+      let totalImported = 0;
+      let totalFailed = 0;
+
+      for (let i = 0; i < allTasks.length; i += CHUNK_SIZE) {
+        const chunk = allTasks.slice(i, i + CHUNK_SIZE);
+        const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
+        const totalChunks = Math.ceil(allTasks.length / CHUNK_SIZE);
+
+        setImportMessage(`Sending batch ${chunkNum} of ${totalChunks} (${chunk.length} tasks)...`);
+
+        const response = await apiRequest("POST", "/api/tasks/import", { tasks: chunk });
+        const result = await response.json();
+
+        totalImported += result.imported;
+        totalFailed += result.failed;
+
+        const progress = Math.round(((i + chunk.length) / allTasks.length) * 100);
+        setImportProgress(progress);
+      }
+
+      setImportResult({ imported: totalImported, failed: totalFailed, total: allTasks.length });
+      setImportMessage(`Done! ${totalImported} tasks imported successfully.`);
+
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+
+      toast({
+        title: "Import complete",
+        description: `${totalImported} tasks imported${totalFailed > 0 ? `, ${totalFailed} failed` : ''}.`,
+      });
+    } catch (error) {
+      console.error("Import error:", error);
+      toast({
+        title: "Import failed",
+        description: error instanceof Error ? error.message : "An error occurred during import.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsImporting(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     }
   };
+
+  const totalSelected = sheets.filter(s => s.selected).reduce((sum, s) => sum + s.rowCount, 0);
 
   const csvTemplate = `Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
 2025-07-30,"Deploy new version","@urgent deployment needed",4,5,3,"Testing completed",pending
@@ -296,7 +215,6 @@ export default function ImportExport() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Export Section */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center">
@@ -323,7 +241,6 @@ export default function ImportExport() {
           </CardContent>
         </Card>
 
-        {/* Import Section */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center">
@@ -331,31 +248,123 @@ export default function ImportExport() {
               Import Tasks
             </CardTitle>
             <CardDescription>
-              Upload a CSV file to import tasks from Google Sheets or other sources.
+              Upload a CSV or Excel file to import tasks. Supports your Google Sheets task tracker format.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="csv-file">Choose CSV File</Label>
+              <Label htmlFor="csv-file">Choose File</Label>
               <Input
                 id="csv-file"
                 ref={fileInputRef}
                 type="file"
                 accept=".csv,.xlsx,.xls"
-                onChange={handleImport}
-                disabled={isImporting}
+                onChange={handleFileSelect}
+                disabled={isImporting || isParsing}
               />
             </div>
+
+            {isParsing && (
+              <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+                <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                <span className="text-sm text-blue-900 dark:text-blue-100">Analyzing file...</span>
+              </div>
+            )}
+
+            {sheets.length > 0 && !isImporting && (
+              <div className="space-y-3">
+                <div className="text-sm font-medium">Sheets found:</div>
+                {sheets.map((sheet, idx) => (
+                  <div
+                    key={sheet.sheetName}
+                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                    onClick={() => toggleSheet(idx)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Checkbox
+                        checked={sheet.selected}
+                        onCheckedChange={() => toggleSheet(idx)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <div>
+                        <div className="text-sm font-medium">{sheet.sheetName}</div>
+                        <div className="text-xs text-gray-500">{sheet.rowCount.toLocaleString()} tasks</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-between">
+                  <span className="text-sm font-medium">
+                    Total selected: {totalSelected.toLocaleString()} tasks
+                  </span>
+                  <Button
+                    onClick={handleImport}
+                    disabled={totalSelected === 0}
+                    size="sm"
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    Import Selected
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {isImporting && (
+              <div className="space-y-3 p-4 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                  <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                    {importMessage}
+                  </span>
+                </div>
+                <Progress value={importProgress} className="h-2" />
+                <div className="text-xs text-blue-700 dark:text-blue-300">
+                  {importProgress}% complete
+                </div>
+              </div>
+            )}
+
+            {importResult && !isImporting && (
+              <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-lg space-y-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  <span className="text-sm font-medium text-green-900 dark:text-green-100">
+                    Import Complete
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div>
+                    <div className="font-bold text-lg text-green-700 dark:text-green-300">
+                      {importResult.imported.toLocaleString()}
+                    </div>
+                    <div className="text-gray-600 dark:text-gray-400">Imported</div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-lg text-red-600">
+                      {importResult.failed.toLocaleString()}
+                    </div>
+                    <div className="text-gray-600 dark:text-gray-400">Failed</div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-lg text-gray-700 dark:text-gray-300">
+                      {importResult.total.toLocaleString()}
+                    </div>
+                    <div className="text-gray-600 dark:text-gray-400">Total</div>
+                  </div>
+                </div>
+              </div>
+            )}
             
             <div className="bg-yellow-50 dark:bg-yellow-900/30 p-4 rounded-lg">
               <div className="flex items-start">
                 <AlertCircle className="mr-2 h-4 w-4 text-yellow-600 mt-0.5" />
                 <div className="text-sm text-yellow-900 dark:text-yellow-100">
-                  <p className="font-medium mb-1">CSV Format Requirements:</p>
+                  <p className="font-medium mb-1">Supported formats:</p>
                   <ul className="text-xs space-y-1 list-disc list-inside">
-                    <li>Required: Date, Activity</li>
-                    <li>Optional: Notes, Urgency (1-5), Impact (1-5), Effort (1-5), Prerequisites, Status</li>
-                    <li>Priority and Classification will be auto-calculated</li>
+                    <li>Excel (.xlsx) with sheets: Daily Planner 2026, Archives, Vault</li>
+                    <li>CSV with columns: Date, Activity, Notes, Urgency, Impact, Effort</li>
+                    <li>Priority and classification are auto-calculated after import</li>
                   </ul>
                 </div>
               </div>
@@ -369,69 +378,10 @@ export default function ImportExport() {
               <FileText className="mr-2 h-4 w-4" />
               Download Template
             </Button>
-
-            {isImporting && (
-              <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <AlertCircle className="mr-2 h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                      Importing tasks...
-                    </span>
-                  </div>
-                  <div className="flex space-x-2">
-                    <Badge variant="outline" className="flex items-center">
-                      <Clock className="mr-1 h-3 w-3" />
-                      {Math.round(importStats.elapsedTime / 1000)}s / {importStats.estimatedTime}s
-                    </Badge>
-                    <Badge variant="outline" className="flex items-center">
-                      <DollarSign className="mr-1 h-3 w-3" />
-                      ${importStats.estimatedCost}
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs text-blue-800 dark:text-blue-200">
-                    <span>{importStats.processed} / {importStats.totalTasks} tasks</span>
-                    <span>{Math.round(importProgress)}%</span>
-                  </div>
-                  <Progress value={importProgress} className="h-2" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="flex items-center">
-                    <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                    <span>Success: {importStats.successful}</span>
-                  </div>
-                  <div className="flex items-center">
-                    <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
-                    <span>Failed: {importStats.failed}</span>
-                  </div>
-                </div>
-
-                {importStats.totalTasks > 50 && (
-                  <div className="text-xs text-amber-700 dark:text-amber-300">
-                    💡 Tip: For faster imports, consider splitting large files into smaller chunks
-                  </div>
-                )}
-
-                {importLogs.length > 0 && (
-                  <div className="bg-gray-900 dark:bg-gray-800 rounded-md p-3 max-h-32 overflow-y-auto">
-                    <div className="text-xs font-mono text-green-400 space-y-1">
-                      {importLogs.slice(-8).map((log, index) => (
-                        <div key={index} className="whitespace-pre-wrap">{log}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Google Sheets Integration Guide */}
       <Card>
         <CardHeader>
           <CardTitle>Google Sheets Integration</CardTitle>
@@ -446,7 +396,7 @@ export default function ImportExport() {
               <ol className="text-sm text-gray-600 dark:text-gray-400 space-y-1 list-decimal list-inside">
                 <li>Click "Export to CSV" above to download your tasks</li>
                 <li>Open Google Sheets and create a new spreadsheet</li>
-                <li>Go to File → Import → Upload and select your CSV file</li>
+                <li>Go to File, Import, Upload and select your CSV file</li>
                 <li>Choose "Replace spreadsheet" and click "Import data"</li>
               </ol>
             </div>
@@ -454,16 +404,17 @@ export default function ImportExport() {
             <div>
               <h4 className="font-semibold text-sm mb-2">To import from Google Sheets:</h4>
               <ol className="text-sm text-gray-600 dark:text-gray-400 space-y-1 list-decimal list-inside">
-                <li>In your Google Sheet, go to File → Download → Comma-separated values (.csv)</li>
-                <li>Use the "Choose CSV File" button above to upload the downloaded file</li>
-                <li>Tasks will be automatically processed and priority scores calculated</li>
+                <li>Download your Google Sheet as .xlsx (File, Download, Excel)</li>
+                <li>Use the file picker above to upload it</li>
+                <li>Select which sheets to import and click Import</li>
+                <li>Priority scores will be auto-calculated</li>
               </ol>
             </div>
 
             <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                <strong>Tip:</strong> The original Google Apps Script priority calculation logic is preserved, 
-                so your tasks will maintain consistent priority scoring across both platforms.
+                <strong>Tip:</strong> The priority scoring engine from your Google Apps Script 
+                is built into AxTask, so your tasks will have consistent priority scoring.
               </p>
             </div>
           </div>
