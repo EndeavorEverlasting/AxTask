@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { timingSafeEqual } from "crypto";
 import rateLimit from "express-rate-limit";
@@ -53,7 +53,7 @@ const registerLimiter = rateLimit({
   message: { message: "Too many registration attempts — try again in 1 hour" },
 });
 
-function userOrIpKey(req: any): string {
+function userOrIpKey(req: Request): string {
   if (req.user?.id) return `user:${req.user.id}`;
   const forwarded = req.headers["x-forwarded-for"];
   const addr = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.socket?.remoteAddress;
@@ -676,6 +676,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   //  Google Sheets routes (protected)
   // ════════════════════════════════════════════════════════════════════════
 
+  app.use("/api/google-sheets", apiLimiter);
+
   app.get("/api/google-sheets/auth-url", requireAuth, async (req, res) => {
     try {
       if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -863,6 +865,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Checklist (PDF download & OCR scan) ──────────────────────────────────
+  app.use("/api/checklist", apiLimiter);
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
   const ocrLimiter = rateLimit({
@@ -1108,7 +1111,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   //  Admin routes (protected — require admin role)
   // ════════════════════════════════════════════════════════════════════════
 
-  function requireAdmin(req: Request, res: Response, next: any) {
+  app.use("/api/admin", apiLimiter);
+
+  function requireAdmin(req: Request, res: Response, next: NextFunction) {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Not authenticated" });
     }

@@ -1,11 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import type { SafeUser } from "@shared/schema";
-import { queryClient } from "./queryClient";
-
-function getCsrfToken(): string | null {
-  const match = document.cookie.match(/(?:^|;\s*)axtask\.csrf=([^;]*)/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
+import { queryClient, getCsrfToken } from "./queryClient";
 
 function csrfHeaders(): Record<string, string> {
   const token = getCsrfToken();

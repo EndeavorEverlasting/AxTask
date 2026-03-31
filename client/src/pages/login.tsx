@@ -1,10 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
+import { getCsrfToken } from "@/lib/queryClient";
 
-function getCsrfToken(): string | null {
-  const match = document.cookie.match(/(?:^|;\s*)axtask\.csrf=([^;]*)/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
 function csrfHeaders(): Record<string, string> {
   const token = getCsrfToken();
   return token ? { "Content-Type": "application/json", "x-csrf-token": token } : { "Content-Type": "application/json" };

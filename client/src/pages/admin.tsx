@@ -47,7 +47,7 @@ export default function AdminPage() {
       setBanTarget(null);
       setBanReason("");
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       toast({ title: "Ban failed", description: err.message || "Could not ban user", variant: "destructive" });
     },
   });
@@ -61,7 +61,7 @@ export default function AdminPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/security-logs"] });
       toast({ title: "User unbanned", description: "The user account has been restored." });
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       toast({ title: "Unban failed", description: err.message || "Could not unban user", variant: "destructive" });
     },
   });

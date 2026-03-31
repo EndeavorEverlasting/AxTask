@@ -7,7 +7,7 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
-function getCsrfToken(): string | null {
+export function getCsrfToken(): string | null {
   const match = document.cookie.match(/(?:^|;\s*)axtask\.csrf=([^;]*)/);
   return match ? decodeURIComponent(match[1]) : null;
 }

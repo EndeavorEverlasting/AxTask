@@ -1,5 +1,4 @@
-// Google Sheets API client-side integration
-import { apiRequest } from "./queryClient";
+import { apiRequest, getCsrfToken } from "./queryClient";
 
 export interface GoogleAuthTokens {
   accessToken: string;
@@ -53,11 +52,17 @@ export class GoogleSheetsClient {
     return data.authUrl;
   }
 
-  // Exchange authorization code for tokens
+  private postHeaders(): Record<string, string> {
+    const h: Record<string, string> = { 'Content-Type': 'application/json' };
+    const csrf = getCsrfToken();
+    if (csrf) h['x-csrf-token'] = csrf;
+    return h;
+  }
+
   async authenticateWithCode(code: string): Promise<GoogleAuthTokens> {
     const response = await fetch('/api/google-sheets/auth-callback', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.postHeaders(),
       body: JSON.stringify({ code })
     });
     const data = await response.json();
@@ -80,7 +85,7 @@ export class GoogleSheetsClient {
   async createSpreadsheet(title: string, tokens: GoogleAuthTokens): Promise<{ spreadsheetId: string; url: string }> {
     const response = await fetch('/api/google-sheets/create-spreadsheet', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.postHeaders(),
       body: JSON.stringify({
         title,
         accessToken: tokens.accessToken,
@@ -103,7 +108,7 @@ export class GoogleSheetsClient {
   ): Promise<SyncResult> {
     const response = await fetch('/api/google-sheets/export', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.postHeaders(),
       body: JSON.stringify({
         spreadsheetId,
         sheetName,
@@ -123,7 +128,7 @@ export class GoogleSheetsClient {
   ): Promise<{ imported: number; total: number; message: string }> {
     const response = await fetch('/api/google-sheets/import', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.postHeaders(),
       body: JSON.stringify({
         spreadsheetId,
         sheetName,
@@ -148,7 +153,7 @@ export class GoogleSheetsClient {
   }> {
     const response = await fetch('/api/google-sheets/sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.postHeaders(),
       body: JSON.stringify({
         spreadsheetId,
         sheetName,
