@@ -163,37 +163,43 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
     queryChunked(taskPatterns, eq(taskPatterns.userId, userId)),
   ]);
 
-  const allCollabs = await queryChunked(taskCollaborators);
-  const collabData = allCollabs.filter((c) => (c.userId as string) === userId);
-
-  const allContribs = await queryChunked(classificationContributions);
-  const contribData = allContribs.filter((c) => (c.userId as string) === userId);
-
-  const allConfirms = await queryChunked(classificationConfirmations);
-  const confirmData = allConfirms.filter((c) => (c.userId as string) === userId);
-
   const ownedTaskIdSet = new Set(taskIds);
-  const referencedTaskIds = new Set<string>();
-  for (const row of collabData) {
-    const tid = row.taskId as string;
-    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
-  }
-  for (const row of contribData) {
-    const tid = row.taskId as string;
-    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
-  }
-  for (const row of confirmData) {
-    const tid = row.taskId as string;
-    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
-  }
 
-  let referencedTasks: Record<string, unknown>[] = [];
-  if (referencedTaskIds.size > 0) {
-    const allTasks = await queryChunked(tasks);
-    referencedTasks = allTasks.filter((t) => referencedTaskIds.has(t.id as string));
-  }
+  const allCollabs = await queryChunked(taskCollaborators);
+  const allContribs = await queryChunked(classificationContributions);
+  const allConfirms = await queryChunked(classificationConfirmations);
 
-  const allExportedTasks = [...userTasks, ...referencedTasks];
+  let collabData: Record<string, unknown>[];
+  let contribData: Record<string, unknown>[];
+  let confirmData: Record<string, unknown>[];
+  let exportedTasks = userTasks;
+
+  if (adminMode) {
+    collabData = allCollabs.filter((c) => (c.userId as string) === userId);
+    contribData = allContribs.filter((c) => (c.userId as string) === userId);
+    confirmData = allConfirms.filter((c) => (c.userId as string) === userId);
+
+    const referencedTaskIds = new Set<string>();
+    for (const row of [...collabData, ...contribData, ...confirmData]) {
+      const tid = row.taskId as string;
+      if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
+    }
+    if (referencedTaskIds.size > 0) {
+      const allTasks = await queryChunked(tasks);
+      const refTasks = allTasks.filter((t) => referencedTaskIds.has(t.id as string));
+      exportedTasks = [...userTasks, ...refTasks];
+    }
+  } else {
+    collabData = allCollabs.filter((c) =>
+      (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
+    );
+    contribData = allContribs.filter((c) =>
+      (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
+    );
+    confirmData = allConfirms.filter((c) =>
+      (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
+    );
+  }
 
   const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
   const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
@@ -201,7 +207,7 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows([adminMode ? (userData as Record<string, unknown>) : sanitizeUserRow(userData as Record<string, unknown>)]),
     rewardsCatalog: serializeRows(filteredCatalog),
-    tasks: serializeRows(allExportedTasks),
+    tasks: serializeRows(exportedTasks),
     wallets: serializeRows(walletData),
     coinTransactions: serializeRows(coinTxData),
     userBadges: serializeRows(badgeData),
