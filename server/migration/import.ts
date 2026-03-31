@@ -93,11 +93,14 @@ interface FkRule {
 }
 
 const FK_RULES: Record<TableName, FkRule[]> = {
-  users: [],
+  users: [{ field: "bannedBy", refTable: "users", refField: "id", nullable: true }],
   rewardsCatalog: [],
   tasks: [{ field: "userId", refTable: "users", refField: "id" }],
   wallets: [{ field: "userId", refTable: "users", refField: "id" }],
-  coinTransactions: [{ field: "userId", refTable: "users", refField: "id" }],
+  coinTransactions: [
+    { field: "userId", refTable: "users", refField: "id" },
+    { field: "taskId", refTable: "tasks", refField: "id", nullable: true },
+  ],
   userBadges: [{ field: "userId", refTable: "users", refField: "id" }],
   userRewards: [
     { field: "userId", refTable: "users", refField: "id" },
@@ -324,19 +327,6 @@ function remapRow(row: BundleRow, tableName: TableName, pkField: string, idMap: 
       const pkKey = remapKey(tableName, String(oldPk));
       if (idMap.has(pkKey)) {
         out[pkField] = idMap.get(pkKey);
-      }
-    }
-  }
-
-  const unmappedFkFields = FK_FIELDS_BY_TABLE[tableName].filter(
-    f => !fkRules.some(r => r.field === f)
-  );
-  for (const field of unmappedFkFields) {
-    const val = out[field];
-    if (val) {
-      const usersKey = remapKey("users", String(val));
-      if (idMap.has(usersKey)) {
-        out[field] = idMap.get(usersKey);
       }
     }
   }

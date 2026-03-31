@@ -172,13 +172,36 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
   const allConfirms = await queryChunked(classificationConfirmations);
   const confirmData = allConfirms.filter((c) => (c.userId as string) === userId);
 
+  const ownedTaskIdSet = new Set(taskIds);
+  const referencedTaskIds = new Set<string>();
+  for (const row of collabData) {
+    const tid = row.taskId as string;
+    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
+  }
+  for (const row of contribData) {
+    const tid = row.taskId as string;
+    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
+  }
+  for (const row of confirmData) {
+    const tid = row.taskId as string;
+    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
+  }
+
+  let referencedTasks: Record<string, unknown>[] = [];
+  if (referencedTaskIds.size > 0) {
+    const allTasks = await queryChunked(tasks);
+    referencedTasks = allTasks.filter((t) => referencedTaskIds.has(t.id as string));
+  }
+
+  const allExportedTasks = [...userTasks, ...referencedTasks];
+
   const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
   const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
 
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows([adminMode ? (userData as Record<string, unknown>) : sanitizeUserRow(userData as Record<string, unknown>)]),
     rewardsCatalog: serializeRows(filteredCatalog),
-    tasks: serializeRows(userTasks),
+    tasks: serializeRows(allExportedTasks),
     wallets: serializeRows(walletData),
     coinTransactions: serializeRows(coinTxData),
     userBadges: serializeRows(badgeData),
