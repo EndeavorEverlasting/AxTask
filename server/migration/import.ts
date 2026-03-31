@@ -766,6 +766,11 @@ export async function importUserBundle(
           const rawRow = rows[i];
 
           if (hasUnresolvableFks(rawRow, tableName)) {
+            validation.warnings.push({
+              table: tableName, rowIndex: i, field: "fk",
+              message: `Skipped row — references external data not in this user bundle`,
+              severity: "warning",
+            });
             skipCount++;
             continue;
           }
