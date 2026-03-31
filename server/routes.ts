@@ -14,6 +14,7 @@ import {
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
   addCollaborator, removeCollaborator, getTaskCollaborators, updateCollaboratorRole,
   getSharedTasks, canAccessTask, isTaskOwner,
+  resetStreak,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
@@ -1293,6 +1294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const diffDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
         if (diffDays > 1) {
           wallet.currentStreak = 0;
+          await resetStreak(req.user!.id);
         }
       }
       res.json(wallet);

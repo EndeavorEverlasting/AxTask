@@ -699,6 +699,13 @@ export async function updateStreak(userId: string): Promise<Wallet> {
   return updated;
 }
 
+export async function resetStreak(userId: string): Promise<void> {
+  await db
+    .update(wallets)
+    .set({ currentStreak: 0 })
+    .where(eq(wallets.userId, userId));
+}
+
 export async function getUserBadges(userId: string): Promise<UserBadge[]> {
   return db.select().from(userBadges).where(eq(userBadges.userId, userId)).orderBy(desc(userBadges.earnedAt));
 }
