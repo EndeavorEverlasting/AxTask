@@ -169,7 +169,7 @@ export default function PlannerPage() {
                 bg: "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800",
               },
               {
-                label: "This Week",
+                label: "Week Total",
                 value: briefing.thisWeek.total,
                 icon: <CalendarDays className="h-5 w-5" />,
                 color: "text-purple-600 dark:text-purple-400",
@@ -204,9 +204,9 @@ export default function PlannerPage() {
 
           <p className="text-sm text-gray-600 dark:text-gray-400 -mt-2">
             {briefing.overdue.count > 0
-              ? `You have ${briefing.dueToday.count} task${briefing.dueToday.count !== 1 ? "s" : ""} due today, ${briefing.overdue.count} overdue, and ${briefing.thisWeek.total} coming this week.`
+              ? `You have ${briefing.dueToday.count} task${briefing.dueToday.count !== 1 ? "s" : ""} due today, ${briefing.overdue.count} overdue, and ${briefing.thisWeek.total} total this week.`
               : briefing.dueToday.count > 0
-                ? `You have ${briefing.dueToday.count} task${briefing.dueToday.count !== 1 ? "s" : ""} due today and ${briefing.thisWeek.total} this week. No overdue tasks!`
+                ? `You have ${briefing.dueToday.count} task${briefing.dueToday.count !== 1 ? "s" : ""} due today and ${briefing.thisWeek.total} total this week. No overdue tasks!`
                 : `You have ${briefing.thisWeek.total} task${briefing.thisWeek.total !== 1 ? "s" : ""} this week. Looking good!`}
           </p>
 
@@ -478,7 +478,12 @@ export default function PlannerPage() {
             </Card>
           </motion.div>
         </>
-      ) : null}
+      ) : (
+        <div className="text-center py-16">
+          <AlertTriangle className="h-8 w-8 text-yellow-500 mx-auto mb-3" />
+          <p className="text-gray-600 dark:text-gray-400">Unable to load your daily briefing. Please try refreshing the page.</p>
+        </div>
+      )}
     </div>
   );
 }
