@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -851,4 +851,60 @@ export async function canAccessTask(userId: string, taskId: string): Promise<{ c
 export async function isTaskOwner(userId: string, taskId: string): Promise<boolean> {
   const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
   return task?.userId === userId;
+}
+
+// ─── Pattern Learning Storage ────────────────────────────────────────────────
+
+export async function upsertPattern(
+  userId: string,
+  patternType: string,
+  patternKey: string,
+  data: Record<string, any>,
+  confidence: number
+): Promise<TaskPattern> {
+  const now = new Date();
+  const dataStr = JSON.stringify(data);
+
+  const result = await db.execute(sql`
+    INSERT INTO task_patterns (id, user_id, pattern_type, pattern_key, data, confidence, occurrences, last_seen, created_at)
+    VALUES (${randomUUID()}, ${userId}, ${patternType}, ${patternKey}, ${dataStr}, ${confidence}, 1, ${now}, ${now})
+    ON CONFLICT (user_id, pattern_type, pattern_key)
+    DO UPDATE SET
+      data = ${dataStr},
+      confidence = ${confidence},
+      occurrences = task_patterns.occurrences + 1,
+      last_seen = ${now}
+    RETURNING *
+  `);
+
+  return result.rows[0] as unknown as TaskPattern;
+}
+
+export async function getPatterns(userId: string): Promise<TaskPattern[]> {
+  return db
+    .select()
+    .from(taskPatterns)
+    .where(eq(taskPatterns.userId, userId))
+    .orderBy(desc(taskPatterns.occurrences));
+}
+
+export async function getPatternsByType(userId: string, patternType: string): Promise<TaskPattern[]> {
+  return db
+    .select()
+    .from(taskPatterns)
+    .where(and(eq(taskPatterns.userId, userId), eq(taskPatterns.patternType, patternType)))
+    .orderBy(desc(taskPatterns.occurrences));
+}
+
+export async function deleteStalePatterns(userId: string, olderThanDays: number = 90): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+  const result = await db
+    .delete(taskPatterns)
+    .where(and(eq(taskPatterns.userId, userId), lt(taskPatterns.lastSeen, cutoff)))
+    .returning();
+  return result.length;
+}
+
+export async function clearPatterns(userId: string): Promise<void> {
+  await db.delete(taskPatterns).where(eq(taskPatterns.userId, userId));
 }

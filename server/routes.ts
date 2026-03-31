@@ -22,6 +22,8 @@ import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
+import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from "./engines/pattern-engine";
+import { getPatterns, getPatternsByType } from "./storage";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { generateChecklistPDF } from "./checklist-pdf";
 import { processChecklistImage } from "./ocr-processor";
@@ -551,6 +553,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         classification,
         isRepeated: priorityResult.isRepeated,
       }) || task;
+
+      learnFromTask(userId, task, allTasks).catch(err =>
+        console.error("[PatternEngine] learn error:", err)
+      );
 
       res.status(201).json(task);
     } catch (error) {
@@ -1214,6 +1220,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Task review apply error:", error);
       res.status(500).json({ message: "Failed to apply task review" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Pattern Learning routes (protected)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/patterns/insights", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const patterns = await getPatterns(userId);
+      const insights = getInsights(patterns);
+      res.json({ insights, patternCount: patterns.length });
+    } catch (error) {
+      console.error("Pattern insights error:", error);
+      res.status(500).json({ message: "Failed to get pattern insights" });
+    }
+  });
+
+  app.post("/api/patterns/learn", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const patterns = await analyzeTaskHistory(userId, allTasks);
+      const insights = getInsights(patterns);
+      res.json({ learned: patterns.length, insights });
+    } catch (error) {
+      console.error("Pattern learning error:", error);
+      res.status(500).json({ message: "Failed to analyze patterns" });
+    }
+  });
+
+  app.post("/api/patterns/suggest-deadline", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const { activity } = req.body;
+      if (!activity || typeof activity !== "string") {
+        return res.status(400).json({ message: "Activity is required" });
+      }
+      const patterns = await getPatterns(userId);
+      const suggestion = suggestDeadline(activity, patterns);
+      res.json({ suggestion });
+    } catch (error) {
+      console.error("Deadline suggestion error:", error);
+      res.status(500).json({ message: "Failed to suggest deadline" });
     }
   });
 

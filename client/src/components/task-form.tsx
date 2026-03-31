@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { PriorityEngine } from "@/lib/priority-engine";
@@ -24,7 +24,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PriorityBadge } from "./priority-badge";
 import { ClockTimePicker } from "@/components/ui/clock-time-picker";
-import { Plus, CalendarIcon } from "lucide-react";
+import { Plus, CalendarIcon, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
 import { useFieldFlow } from "@/hooks/use-field-flow";
@@ -82,6 +82,13 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const [warningFields, setWarningFields] = useState<Set<string>>(new Set());
   const warningTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [voiceTarget, setVoiceTarget] = useState<"activity" | "notes">("activity");
+  const [debouncedActivity, setDebouncedActivity] = useState("");
+  const [deadlineSuggestion, setDeadlineSuggestion] = useState<{
+    suggestedDate: string;
+    reason: string;
+    confidence: number;
+  } | null>(null);
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
 
   const collab = useCollaboration(task?.id ?? null);
   const isEditing = !!task;
@@ -275,6 +282,44 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     };
   }, [form, draftKey, task]);
 
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (task) return;
+    const sub = form.watch((values) => {
+      const activity = values.activity || "";
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      if (activity.length >= 3) {
+        debounceTimerRef.current = setTimeout(() => setDebouncedActivity(activity), 600);
+      } else {
+        setDebouncedActivity("");
+        setDeadlineSuggestion(null);
+      }
+    });
+    return () => {
+      sub.unsubscribe();
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [form, task]);
+
+  useEffect(() => {
+    if (!debouncedActivity || debouncedActivity.length < 3 || task) return;
+    let cancelled = false;
+
+    apiRequest("POST", "/api/patterns/suggest-deadline", { activity: debouncedActivity })
+      .then(res => res.json())
+      .then(data => {
+        if (!cancelled && data.suggestion) {
+          setDeadlineSuggestion(data.suggestion);
+          setSuggestionDismissed(false);
+        } else if (!cancelled) {
+          setDeadlineSuggestion(null);
+        }
+      })
+      .catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [debouncedActivity, task]);
+
   useEffect(() => {
     return () => {
       warningTimers.current.forEach(t => clearTimeout(t));
@@ -457,6 +502,35 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   );
                 }}
               />
+
+              {deadlineSuggestion && !suggestionDismissed && !task && (
+                <div className="col-span-1 lg:col-span-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-sm">
+                  <Lightbulb className="h-4 w-4 text-emerald-500 shrink-0" />
+                  <span className="text-emerald-700 dark:text-emerald-300 flex-1">
+                    {deadlineSuggestion.reason}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
+                    onClick={() => {
+                      form.setValue("date", deadlineSuggestion.suggestedDate);
+                      clearWarning("date");
+                      setDeadlineSuggestion(null);
+                    }}
+                  >
+                    Use {new Date(deadlineSuggestion.suggestedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                  </Button>
+                  <button
+                    type="button"
+                    className="text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-200 text-xs"
+                    onClick={() => setSuggestionDismissed(true)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
 
               <FormField
                 control={form.control}

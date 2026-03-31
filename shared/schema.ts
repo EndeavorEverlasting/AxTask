@@ -224,3 +224,25 @@ export const userRewards = pgTable("user_rewards", {
 }, (table) => [
   index("idx_user_rewards_user").on(table.userId),
 ]);
+
+export type UserReward = typeof userRewards.$inferSelect;
+
+// ─── Pattern Learning ────────────────────────────────────────────────────────
+export const taskPatterns = pgTable("task_patterns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  patternType: text("pattern_type").notNull(),
+  patternKey: text("pattern_key").notNull(),
+  data: text("data").notNull().default("{}"),
+  confidence: integer("confidence").notNull().default(0),
+  occurrences: integer("occurrences").notNull().default(1),
+  lastSeen: timestamp("last_seen").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_patterns_user").on(table.userId),
+  index("idx_patterns_user_type").on(table.userId, table.patternType),
+  index("idx_patterns_user_key").on(table.userId, table.patternKey),
+]);
+
+export type TaskPattern = typeof taskPatterns.$inferSelect;
+export type InsertTaskPattern = typeof taskPatterns.$inferInsert;

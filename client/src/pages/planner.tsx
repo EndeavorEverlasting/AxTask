@@ -27,6 +27,10 @@ import {
   Users,
   Mic,
   ClipboardCheck,
+  Repeat,
+  BarChart3,
+  Lightbulb,
+  RefreshCw,
 } from "lucide-react";
 import type { Task } from "@shared/schema";
 
@@ -76,13 +80,45 @@ export default function PlannerPage() {
   const [reviewMessage, setReviewMessage] = useState("");
   const [reviewUnmatched, setReviewUnmatched] = useState<string[]>([]);
   const voice = useVoice();
+  const { toast } = useToast();
 
   const { data: briefing, isLoading } = useQuery<BriefingData>({
     queryKey: ["/api/planner/briefing"],
     refetchInterval: 60000,
   });
 
-  const { toast } = useToast();
+  interface PatternInsight {
+    type: "topic" | "recurrence" | "deadline_rhythm" | "similarity_cluster";
+    title: string;
+    description: string;
+    confidence: number;
+    data: Record<string, any>;
+  }
+
+  const { data: patternData, isLoading: patternsLoading } = useQuery<{
+    insights: PatternInsight[];
+    patternCount: number;
+  }>({
+    queryKey: ["/api/patterns/insights"],
+    refetchInterval: 120000,
+  });
+
+  const learnMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/patterns/learn", {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/patterns/insights"] });
+      toast({
+        title: "Patterns updated",
+        description: `Analyzed your tasks and found ${data.learned} patterns.`,
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to analyze patterns.", variant: "destructive" });
+    },
+  });
 
   const markCompleteMutation = useMutation({
     mutationFn: async (taskId: string) => {
@@ -507,6 +543,108 @@ export default function PlannerPage() {
                     )}
                   </Button>
                 </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          <motion.div
+            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.38 }}
+          >
+            <Card className="border-emerald-200 dark:border-emerald-800 bg-gradient-to-r from-emerald-50/50 to-teal-50/50 dark:from-emerald-900/10 dark:to-teal-900/10">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Lightbulb className="h-4 w-4 text-emerald-500" />
+                  Patterns & Insights
+                  <div className="ml-auto flex items-center gap-2">
+                    {patternData && patternData.patternCount > 0 && (
+                      <span className="text-xs text-emerald-600 dark:text-emerald-400 font-normal">
+                        {patternData.patternCount} patterns learned
+                      </span>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
+                      onClick={() => learnMutation.mutate()}
+                      disabled={learnMutation.isPending}
+                    >
+                      {learnMutation.isPending ? (
+                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                      )}
+                      Analyze
+                    </Button>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {patternsLoading ? (
+                  <div className="flex items-center justify-center py-6">
+                    <Loader2 className="h-5 w-5 animate-spin text-emerald-500" />
+                  </div>
+                ) : patternData && patternData.insights.length > 0 ? (
+                  <div className="space-y-3">
+                    {patternData.insights.slice(0, 6).map((insight, idx) => {
+                      const iconMap: Record<string, typeof Repeat> = {
+                        topic: BarChart3,
+                        recurrence: Repeat,
+                        deadline_rhythm: CalendarClock,
+                        similarity_cluster: Users,
+                      };
+                      const colorMap: Record<string, string> = {
+                        topic: "text-blue-500 bg-blue-50 dark:bg-blue-900/20",
+                        recurrence: "text-amber-500 bg-amber-50 dark:bg-amber-900/20",
+                        deadline_rhythm: "text-purple-500 bg-purple-50 dark:bg-purple-900/20",
+                        similarity_cluster: "text-teal-500 bg-teal-50 dark:bg-teal-900/20",
+                      };
+                      const InsightIcon = iconMap[insight.type] || Lightbulb;
+                      const colorClass = colorMap[insight.type] || "text-gray-500 bg-gray-50 dark:bg-gray-900/20";
+
+                      return (
+                        <motion.div
+                          key={idx}
+                          initial={reducedMotion ? false : { opacity: 0, x: -8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: idx * 0.05 }}
+                          className="flex items-start gap-3 p-3 rounded-lg bg-white/60 dark:bg-gray-800/40 border border-emerald-100 dark:border-emerald-900/30"
+                        >
+                          <div className={`p-1.5 rounded-md shrink-0 ${colorClass}`}>
+                            <InsightIcon className="h-3.5 w-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                              {insight.title}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+                              {insight.description}
+                            </p>
+                          </div>
+                          <div className="shrink-0">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                              insight.confidence >= 70
+                                ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                                : insight.confidence >= 40
+                                  ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400"
+                                  : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+                            }`}>
+                              {insight.confidence}%
+                            </span>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <Lightbulb className="h-8 w-8 text-emerald-300 dark:text-emerald-700 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      No patterns detected yet. Click "Analyze" to learn from your task history, or keep using AxTask and patterns will build automatically.
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
