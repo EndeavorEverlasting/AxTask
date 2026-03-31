@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -760,4 +760,95 @@ export async function seedRewardsCatalog(): Promise<void> {
 export async function getCompletedTaskCount(userId: string): Promise<number> {
   const [row] = await db.select({ value: count() }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.status, "completed")));
   return Number(row?.value) || 0;
+}
+
+// ─── Collaboration helpers ──────────────────────────────────────────────────
+
+export async function addCollaborator(
+  taskId: string,
+  userId: string,
+  role: string,
+  invitedBy: string
+): Promise<TaskCollaborator> {
+  const existing = await db
+    .select()
+    .from(taskCollaborators)
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)));
+  if (existing.length > 0) {
+    const [updated] = await db
+      .update(taskCollaborators)
+      .set({ role })
+      .where(eq(taskCollaborators.id, existing[0].id))
+      .returning();
+    return updated;
+  }
+  const [collab] = await db
+    .insert(taskCollaborators)
+    .values({ id: randomUUID(), taskId, userId, role, invitedBy })
+    .returning();
+  return collab;
+}
+
+export async function removeCollaborator(taskId: string, userId: string): Promise<boolean> {
+  const result = await db
+    .delete(taskCollaborators)
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)))
+    .returning();
+  return result.length > 0;
+}
+
+export async function getTaskCollaborators(taskId: string): Promise<(TaskCollaborator & { email: string; displayName: string | null })[]> {
+  const rows = await db
+    .select({
+      id: taskCollaborators.id,
+      taskId: taskCollaborators.taskId,
+      userId: taskCollaborators.userId,
+      role: taskCollaborators.role,
+      invitedBy: taskCollaborators.invitedBy,
+      invitedAt: taskCollaborators.invitedAt,
+      email: users.email,
+      displayName: users.displayName,
+    })
+    .from(taskCollaborators)
+    .innerJoin(users, eq(taskCollaborators.userId, users.id))
+    .where(eq(taskCollaborators.taskId, taskId));
+  return rows;
+}
+
+export async function updateCollaboratorRole(taskId: string, userId: string, role: string): Promise<TaskCollaborator | null> {
+  const [updated] = await db
+    .update(taskCollaborators)
+    .set({ role })
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)))
+    .returning();
+  return updated ?? null;
+}
+
+export async function getSharedTasks(userId: string): Promise<Task[]> {
+  const rows = await db
+    .select({ taskId: taskCollaborators.taskId })
+    .from(taskCollaborators)
+    .where(eq(taskCollaborators.userId, userId));
+  if (rows.length === 0) return [];
+  const taskIds = rows.map(r => r.taskId);
+  const result = await db.select().from(tasks).where(
+    or(...taskIds.map(id => eq(tasks.id, id)))
+  );
+  return result;
+}
+
+export async function canAccessTask(userId: string, taskId: string): Promise<{ canAccess: boolean; role: string }> {
+  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
+  if (task?.userId === userId) return { canAccess: true, role: "owner" };
+  const [collab] = await db
+    .select({ role: taskCollaborators.role })
+    .from(taskCollaborators)
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)));
+  if (collab) return { canAccess: true, role: collab.role };
+  return { canAccess: false, role: "" };
+}
+
+export async function isTaskOwner(userId: string, taskId: string): Promise<boolean> {
+  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
+  return task?.userId === userId;
 }

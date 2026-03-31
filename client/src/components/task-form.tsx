@@ -10,7 +10,9 @@ import { useAuth } from "@/lib/auth-context";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { parseVoiceCommands, stripCommandText } from "@/lib/voice-commands";
 import { useVoice } from "@/hooks/use-voice";
+import { useCollaboration } from "@/hooks/use-collaboration";
 import { MicButton } from "@/components/mic-button";
+import { ShareDialog } from "@/components/share-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,6 +21,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PriorityBadge } from "./priority-badge";
 import { ClockTimePicker } from "@/components/ui/clock-time-picker";
 import { Plus, CalendarIcon } from "lucide-react";
@@ -79,6 +82,29 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const [warningFields, setWarningFields] = useState<Set<string>>(new Set());
   const warningTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [voiceTarget, setVoiceTarget] = useState<"activity" | "notes">("activity");
+
+  const collab = useCollaboration(task?.id ?? null);
+  const isEditing = !!task;
+  const isOwner = !task || task.userId === user?.id;
+
+  const getCollabFieldStyle = useCallback((fieldName: string): string => {
+    if (!collab.connected || !task) return "";
+    const editing = collab.users.find(u => u.focusedField === fieldName && u.userId !== user?.id);
+    if (editing) return `ring-2 ring-offset-1`;
+    return "";
+  }, [collab.users, collab.connected, task, user?.id]);
+
+  const getCollabFieldColor = useCallback((fieldName: string): string | undefined => {
+    if (!collab.connected || !task) return undefined;
+    const editing = collab.users.find(u => u.focusedField === fieldName && u.userId !== user?.id);
+    return editing?.color;
+  }, [collab.users, collab.connected, task, user?.id]);
+
+  const getCollabFieldUser = useCallback((fieldName: string): string | undefined => {
+    if (!collab.connected || !task) return undefined;
+    const editing = collab.users.find(u => u.focusedField === fieldName && u.userId !== user?.id);
+    return editing ? (editing.displayName || editing.email) : undefined;
+  }, [collab.users, collab.connected, task, user?.id]);
 
   const draftContext = task ? `edit_${task.id}` : defaultDate ? `date_${defaultDate}` : "new";
   const draftKey = getDraftKey(user?.id, draftContext);
@@ -334,16 +360,49 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
               Add a new task with automatic priority calculation
             </CardDescription>
           </div>
-          {speech.status === "listening" && (
-            <div className="flex items-center gap-2 text-sm text-red-500 font-medium animate-pulse">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
-              </span>
-              Listening ({voiceTarget})
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {speech.status === "listening" && (
+              <div className="flex items-center gap-2 text-sm text-red-500 font-medium animate-pulse">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                </span>
+                Listening ({voiceTarget})
+              </div>
+            )}
+            {isEditing && (
+              <ShareDialog taskId={task!.id} isOwner={isOwner} />
+            )}
+          </div>
         </div>
+        {collab.connected && collab.users.length > 1 && (
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs text-muted-foreground">Editing with:</span>
+            <TooltipProvider>
+              <div className="flex -space-x-2">
+                {collab.users
+                  .filter(u => u.userId !== user?.id)
+                  .map(u => (
+                    <Tooltip key={u.userId}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold border-2 border-white dark:border-gray-900 cursor-default"
+                          style={{ backgroundColor: u.color }}
+                        >
+                          {(u.displayName || u.email).charAt(0).toUpperCase()}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{u.displayName || u.email}</p>
+                        {u.focusedField && <p className="text-xs opacity-70">Editing: {u.focusedField}</p>}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+              </div>
+            </TooltipProvider>
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -468,21 +527,31 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       <FormLabel>Activity <span className="text-red-400">*</span></FormLabel>
                       <FormControl>
                         <div className="flex gap-2 items-center">
-                          <Input
-                            placeholder="Enter task activity or use the mic..."
-                            {...field}
-                            className={cn(getFieldClass("activity"), "flex-1")}
-                            onFocus={() => setVoiceTarget("activity")}
-                            onBlur={(e) => {
-                              field.onBlur();
-                              onFieldBlur("activity", e.target.value);
-                              if (e.target.value.trim()) clearWarning("activity");
-                            }}
-                            onChange={(e) => {
-                              field.onChange(e);
-                              if (e.target.value.trim()) clearWarning("activity");
-                            }}
-                          />
+                          <div className="relative flex-1">
+                            <Input
+                              placeholder="Enter task activity or use the mic..."
+                              {...field}
+                              className={cn(getFieldClass("activity"), getCollabFieldStyle("activity"), "w-full")}
+                              style={getCollabFieldColor("activity") ? { "--tw-ring-color": getCollabFieldColor("activity") } as React.CSSProperties : undefined}
+                              onFocus={() => { setVoiceTarget("activity"); collab.focusField("activity"); }}
+                              onBlur={(e) => {
+                                field.onBlur();
+                                onFieldBlur("activity", e.target.value);
+                                if (e.target.value.trim()) clearWarning("activity");
+                                collab.blurField();
+                              }}
+                              onChange={(e) => {
+                                field.onChange(e);
+                                if (e.target.value.trim()) clearWarning("activity");
+                                collab.sendFieldEdit("activity", e.target.value);
+                              }}
+                            />
+                            {getCollabFieldUser("activity") && (
+                              <span className="absolute -top-5 right-0 text-xs px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCollabFieldColor("activity") }}>
+                                {getCollabFieldUser("activity")}
+                              </span>
+                            )}
+                          </div>
                           <MicButton
                             status={voiceTarget === "activity" ? speech.status : "idle"}
                             isSupported={speech.isSupported}
@@ -514,18 +583,27 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
                         <div className="flex gap-2 items-start">
-                          <Textarea
-                            rows={3}
-                            placeholder="Add detailed notes, tags (@urgent, #blocker), or dictate with mic..."
-                            {...field}
-                            className={cn(getFieldClass("notes"), "flex-1")}
-                            onFocus={() => setVoiceTarget("notes")}
-                            onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); }}
-                            onChange={(e) => {
-                              field.onChange(e);
-                              if (e.target.value.trim()) clearWarning("notes");
-                            }}
-                          />
+                          <div className="relative flex-1">
+                            <Textarea
+                              rows={3}
+                              placeholder="Add detailed notes, tags (@urgent, #blocker), or dictate with mic..."
+                              {...field}
+                              className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full")}
+                              style={getCollabFieldColor("notes") ? { "--tw-ring-color": getCollabFieldColor("notes") } as React.CSSProperties : undefined}
+                              onFocus={() => { setVoiceTarget("notes"); collab.focusField("notes"); }}
+                              onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); collab.blurField(); }}
+                              onChange={(e) => {
+                                field.onChange(e);
+                                if (e.target.value.trim()) clearWarning("notes");
+                                collab.sendFieldEdit("notes", e.target.value);
+                              }}
+                            />
+                            {getCollabFieldUser("notes") && (
+                              <span className="absolute -top-5 right-0 text-xs px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCollabFieldColor("notes") }}>
+                                {getCollabFieldUser("notes")}
+                              </span>
+                            )}
+                          </div>
                           <MicButton
                             status={voiceTarget === "notes" ? speech.status : "idle"}
                             isSupported={speech.isSupported}

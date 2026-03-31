@@ -143,6 +143,23 @@ export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type UpdateTask = z.infer<typeof updateTaskSchema>;
 export type Task = typeof tasks.$inferSelect;
 
+// ─── Task Collaborators ─────────────────────────────────────────────────────
+export const taskCollaborators = pgTable("task_collaborators", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("editor"),
+  invitedBy: varchar("invited_by").references(() => users.id),
+  invitedAt: timestamp("invited_at").defaultNow(),
+}, (table) => [
+  index("idx_collab_task").on(table.taskId),
+  index("idx_collab_user").on(table.userId),
+  index("idx_collab_task_user").on(table.taskId, table.userId),
+]);
+
+export type TaskCollaborator = typeof taskCollaborators.$inferSelect;
+export const insertCollaboratorSchema = createInsertSchema(taskCollaborators).omit({ id: true, invitedAt: true });
+
 // ─── Gamification: Wallets ──────────────────────────────────────────────────
 export const wallets = pgTable("wallets", {
   userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),

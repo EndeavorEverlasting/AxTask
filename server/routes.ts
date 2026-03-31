@@ -12,6 +12,8 @@ import {
   banUser, unbanUser, getAllUsers, isUserBanned,
   logSecurityEvent, getSecurityLogs,
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
+  addCollaborator, removeCollaborator, getTaskCollaborators, updateCollaboratorRole,
+  getSharedTasks, canAccessTask, isTaskOwner,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
@@ -1300,6 +1302,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(logs);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch security logs" });
+    }
+  });
+
+  // ─── Collaboration routes ──────────────────────────────────────────────────
+
+  app.get("/api/tasks/shared", requireAuth, async (req, res) => {
+    try {
+      const shared = await getSharedTasks(req.user!.id);
+      res.json(shared);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch shared tasks" });
+    }
+  });
+
+  app.get("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
+    try {
+      const access = await canAccessTask(req.user!.id, req.params.id);
+      if (!access.canAccess) return res.status(403).json({ message: "Access denied" });
+      const collaborators = await getTaskCollaborators(req.params.id);
+      res.json(collaborators);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch collaborators" });
+    }
+  });
+
+  app.post("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can add collaborators" });
+      const { email, role } = req.body;
+      if (!email) return res.status(400).json({ message: "Email is required" });
+      const validRoles = ["editor", "viewer"];
+      if (role && !validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
+      const user = await getUserByEmail(email);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (user.id === req.user!.id) return res.status(400).json({ message: "Cannot add yourself" });
+      const collab = await addCollaborator(req.params.id, user.id, role || "editor", req.user!.id);
+      res.json(collab);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to add collaborator" });
+    }
+  });
+
+  app.put("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can change roles" });
+      const { role } = req.body;
+      const validRoles = ["editor", "viewer"];
+      if (!validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
+      const updated = await updateCollaboratorRole(req.params.id, req.params.userId, role);
+      if (!updated) return res.status(404).json({ message: "Collaborator not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update collaborator" });
+    }
+  });
+
+  app.delete("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      const isSelf = req.params.userId === req.user!.id;
+      if (!ownerCheck && !isSelf) return res.status(403).json({ message: "Access denied" });
+      const removed = await removeCollaborator(req.params.id, req.params.userId);
+      if (!removed) return res.status(404).json({ message: "Collaborator not found" });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to remove collaborator" });
     }
   });
 
