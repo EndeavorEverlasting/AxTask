@@ -739,21 +739,20 @@ export async function redeemReward(userId: string, rewardId: string): Promise<bo
 
     const [wallet] = await tx
       .select()
-      .from(coinWallets)
-      .where(eq(coinWallets.userId, userId));
+      .from(wallets)
+      .where(eq(wallets.userId, userId));
     if (!wallet || wallet.balance < reward.cost) return false;
 
     await tx
-      .update(coinWallets)
-      .set({ balance: wallet.balance - reward.cost, totalSpent: wallet.totalSpent + reward.cost })
-      .where(eq(coinWallets.userId, userId));
+      .update(wallets)
+      .set({ balance: wallet.balance - reward.cost })
+      .where(eq(wallets.userId, userId));
 
     await tx.insert(coinTransactions).values({
       id: randomUUID(),
       userId,
       amount: -reward.cost,
-      type: "spend",
-      description: `Redeemed: ${reward.name}`,
+      reason: `Redeemed: ${reward.name}`,
     });
 
     await tx.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
