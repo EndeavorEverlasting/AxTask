@@ -276,10 +276,17 @@ function remapKey(table: string, id: string): string {
   return `${table}:${id}`;
 }
 
+function pkIsAlsoFk(tableName: TableName): boolean {
+  const pk = PK_FIELD[tableName];
+  return FK_RULES[tableName].some(r => r.field === pk);
+}
+
 function buildIdRemapTable(bundle: ExportBundle): Map<string, string> {
   const remap = new Map<string, string>();
 
   for (const tableName of TABLE_INSERT_ORDER) {
+    if (pkIsAlsoFk(tableName)) continue;
+
     const rows = getBundleRows(bundle, tableName);
     const pkField = PK_FIELD[tableName];
 
@@ -300,14 +307,6 @@ function buildIdRemapTable(bundle: ExportBundle): Map<string, string> {
 function remapRow(row: BundleRow, tableName: TableName, pkField: string, idMap: Map<string, string>): BundleRow {
   const out = { ...row };
 
-  const oldPk = out[pkField];
-  if (oldPk) {
-    const pkKey = remapKey(tableName, String(oldPk));
-    if (idMap.has(pkKey)) {
-      out[pkField] = idMap.get(pkKey);
-    }
-  }
-
   const fkRules = FK_RULES[tableName];
   for (const rule of fkRules) {
     const val = out[rule.field];
@@ -319,16 +318,22 @@ function remapRow(row: BundleRow, tableName: TableName, pkField: string, idMap: 
     }
   }
 
-  const selfRefFields = FK_FIELDS_BY_TABLE[tableName].filter(
+  if (!pkIsAlsoFk(tableName)) {
+    const oldPk = row[pkField];
+    if (oldPk) {
+      const pkKey = remapKey(tableName, String(oldPk));
+      if (idMap.has(pkKey)) {
+        out[pkField] = idMap.get(pkKey);
+      }
+    }
+  }
+
+  const unmappedFkFields = FK_FIELDS_BY_TABLE[tableName].filter(
     f => !fkRules.some(r => r.field === f)
   );
-  for (const field of selfRefFields) {
+  for (const field of unmappedFkFields) {
     const val = out[field];
     if (val) {
-      const selfKey = remapKey(tableName, String(val));
-      if (idMap.has(selfKey)) {
-        out[field] = idMap.get(selfKey);
-      }
       const usersKey = remapKey("users", String(val));
       if (idMap.has(usersKey)) {
         out[field] = idMap.get(usersKey);
@@ -489,8 +494,13 @@ export async function importBundle(
           if (existingUser) {
             const originalId = originalRow[pkField];
             if (originalId) {
-              idMap.set(remapKey("users", String(originalId)), existingUser.id);
+              idMap.delete(remapKey("users", String(originalId)));
             }
+            validation.warnings.push({
+              table: "users", rowIndex: i, field: "email",
+              message: `User with email ${email} already exists — skipping user and all dependent records`,
+              severity: "warning",
+            });
             skipCount++;
             conflictCount++;
             continue;
@@ -570,6 +580,7 @@ export async function importUserBundle(
 
   for (const tableName of TABLE_INSERT_ORDER) {
     if (skipTables.has(tableName)) continue;
+    if (pkIsAlsoFk(tableName)) continue;
     const rows = getBundleRows(bundle, tableName);
     const pkField = PK_FIELD[tableName];
     for (const row of rows) {
