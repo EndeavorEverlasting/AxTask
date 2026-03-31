@@ -258,6 +258,62 @@ describe("parseVoiceCommands", () => {
     });
   });
 
+  describe("partial matches and false positives", () => {
+    it("does not trigger priority from word 'prioritize'", () => {
+      const cmds = parseVoiceCommands("prioritize this list");
+      expect(findCmd(cmds, "urgency")).toBeUndefined();
+    });
+
+    it("does not trigger status from word 'complete' in normal sentence", () => {
+      const cmds = parseVoiceCommands("the complete guide to cooking");
+      expect(findCmd(cmds, "status")).toBeUndefined();
+    });
+
+    it("does not trigger date from word 'today' without 'due' prefix", () => {
+      const cmds = parseVoiceCommands("today is a good day");
+      expect(findCmd(cmds, "date")).toBeUndefined();
+    });
+
+    it("does not trigger date from word 'tomorrow' without 'due' prefix", () => {
+      const cmds = parseVoiceCommands("tomorrow will be better");
+      expect(findCmd(cmds, "date")).toBeUndefined();
+    });
+
+    it("does not trigger tag from word 'tagging' in middle of sentence", () => {
+      const cmds = parseVoiceCommands("I was tagging photos earlier");
+      expect(findCmd(cmds, "tag")).toBeUndefined();
+    });
+  });
+
+  describe("overlapping commands and precedence", () => {
+    it("priority pattern takes precedence when both priority and urgency match", () => {
+      const cmds = parseVoiceCommands("set priority to high urgent");
+      const urgencyCmds = cmds.filter(c => c.type === "urgency");
+      expect(urgencyCmds.length).toBeGreaterThanOrEqual(1);
+      expect(urgencyCmds[0].value).toBe(4);
+    });
+
+    it("only first matching priority pattern wins", () => {
+      const cmds = parseVoiceCommands("set priority to high low priority");
+      const urgencyCmds = cmds.filter(c => c.type === "urgency");
+      expect(urgencyCmds[0].value).toBe(4);
+    });
+
+    it("only first matching status pattern wins", () => {
+      const cmds = parseVoiceCommands("mark as completed mark as pending");
+      const statusCmds = cmds.filter(c => c.type === "status");
+      expect(statusCmds).toHaveLength(1);
+      expect(statusCmds[0].value).toBe("completed");
+    });
+
+    it("only first matching date pattern wins", () => {
+      const cmds = parseVoiceCommands("due today due tomorrow");
+      const dateCmds = cmds.filter(c => c.type === "date");
+      expect(dateCmds).toHaveLength(1);
+      expect(dateCmds[0].value).toBe("2026-03-31");
+    });
+  });
+
   describe("edge cases", () => {
     it("returns empty array for plain text with no commands", () => {
       const cmds = parseVoiceCommands("go to the grocery store and buy milk");

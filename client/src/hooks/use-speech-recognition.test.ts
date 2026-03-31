@@ -1,13 +1,44 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
+interface MockSpeechResultItem {
+  readonly transcript: string;
+  readonly confidence: number;
+}
+
+interface MockSpeechResult {
+  readonly isFinal: boolean;
+  readonly length: number;
+  readonly [index: number]: MockSpeechResultItem;
+}
+
+interface MockSpeechResultList {
+  readonly length: number;
+  readonly [index: number]: MockSpeechResult;
+}
+
+interface MockSpeechEvent {
+  results: MockSpeechResultList;
+  resultIndex: number;
+}
+
+interface MockSpeechErrorEvent {
+  error: string;
+  message: string;
+}
+
+interface WindowWithSpeech extends Window {
+  SpeechRecognition?: new () => MockSpeechRecognition;
+  webkitSpeechRecognition?: new () => MockSpeechRecognition;
+}
+
 class MockSpeechRecognition {
   continuous = false;
   interimResults = false;
   lang = "en-US";
   onstart: (() => void) | null = null;
-  onresult: ((event: any) => void) | null = null;
-  onerror: ((event: any) => void) | null = null;
+  onresult: ((event: MockSpeechEvent) => void) | null = null;
+  onerror: ((event: MockSpeechErrorEvent) => void) | null = null;
   onend: (() => void) | null = null;
   _started = false;
 
@@ -22,7 +53,7 @@ class MockSpeechRecognition {
   }
 
   simulateResult(transcript: string, isFinal: boolean) {
-    this.onresult?.({
+    const event: MockSpeechEvent = {
       resultIndex: 0,
       results: {
         length: 1,
@@ -32,11 +63,13 @@ class MockSpeechRecognition {
           0: { transcript, confidence: 0.95 },
         },
       },
-    });
+    };
+    this.onresult?.(event);
   }
 
   simulateError(error: string) {
-    this.onerror?.({ error, message: `Error: ${error}` });
+    const event: MockSpeechErrorEvent = { error, message: `Error: ${error}` };
+    this.onerror?.(event);
   }
 }
 
@@ -51,16 +84,18 @@ function makeMockConstructor() {
   };
 }
 
+const speechWindow = window as unknown as WindowWithSpeech;
+
 describe("useSpeechRecognition", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockInstance = null;
-    (window as any).SpeechRecognition = makeMockConstructor();
+    speechWindow.SpeechRecognition = makeMockConstructor();
   });
 
   afterEach(() => {
-    delete (window as any).SpeechRecognition;
-    delete (window as any).webkitSpeechRecognition;
+    delete speechWindow.SpeechRecognition;
+    delete speechWindow.webkitSpeechRecognition;
     mockInstance = null;
     vi.useRealTimers();
     vi.resetModules();
@@ -78,8 +113,8 @@ describe("useSpeechRecognition", () => {
   });
 
   it("reports isSupported=true with webkit prefix", async () => {
-    delete (window as any).SpeechRecognition;
-    (window as any).webkitSpeechRecognition = makeMockConstructor();
+    delete speechWindow.SpeechRecognition;
+    speechWindow.webkitSpeechRecognition = makeMockConstructor();
     const useSpeechRecognition = await loadHook();
     const { result } = renderHook(() => useSpeechRecognition());
     expect(result.current.isSupported).toBe(true);
@@ -349,8 +384,8 @@ describe("useSpeechRecognition", () => {
 
   describe("browser compatibility", () => {
     it("reports isSupported=false and sets error on start when API missing", async () => {
-      delete (window as any).SpeechRecognition;
-      delete (window as any).webkitSpeechRecognition;
+      delete speechWindow.SpeechRecognition;
+      delete speechWindow.webkitSpeechRecognition;
       const useSpeechRecognition = await loadHook();
       const { result } = renderHook(() => useSpeechRecognition());
 
