@@ -659,7 +659,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json({ ...task, coinReward, classificationReward, bountyReward, cleanupReward });
+      let finalBalance: number | null = null;
+      if (coinReward || classificationReward || bountyReward || cleanupReward) {
+        const wallet = await storage.getOrCreateWallet(userId);
+        finalBalance = wallet.balance;
+      }
+
+      res.json({ ...task, coinReward, classificationReward, bountyReward, cleanupReward, finalBalance });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });

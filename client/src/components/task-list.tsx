@@ -1,23 +1,4 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo, type TouchEvent as ReactTouchEvent } from "react";
-
-const DAY_ABBREV: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
-
-function formatRecurrenceLabel(recurrence: string): string {
-  if (recurrence.startsWith("custom:days:")) {
-    const days = recurrence.replace("custom:days:", "").split(",");
-    return days.map(d => DAY_ABBREV[d] || d).join(", ");
-  }
-  if (recurrence.startsWith("custom:dates:")) {
-    const dates = recurrence.replace("custom:dates:", "").split(",");
-    const suffix = (n: number) => {
-      if (n >= 11 && n <= 13) return "th";
-      const m = n % 10;
-      return m === 1 ? "st" : m === 2 ? "nd" : m === 3 ? "rd" : "th";
-    };
-    return dates.map(d => `${d}${suffix(Number(d))}`).join(", ");
-  }
-  return recurrence;
-}
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -56,6 +37,25 @@ import { ClassificationConfirm } from "./classification-confirm";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, AnimatePresence } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+
+const DAY_ABBREV: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+
+function formatRecurrenceLabel(recurrence: string): string {
+  if (recurrence.startsWith("custom:days:")) {
+    const days = recurrence.replace("custom:days:", "").split(",");
+    return days.map(d => DAY_ABBREV[d] || d).join(", ");
+  }
+  if (recurrence.startsWith("custom:dates:")) {
+    const dates = recurrence.replace("custom:dates:", "").split(",");
+    const suffix = (n: number) => {
+      if (n >= 11 && n <= 13) return "th";
+      const m = n % 10;
+      return m === 1 ? "st" : m === 2 ? "nd" : m === 3 ? "rd" : "th";
+    };
+    return dates.map(d => `${d}${suffix(Number(d))}`).join(", ");
+  }
+  return recurrence;
+}
 
 type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'manual';
 type SortDirection = 'asc' | 'desc';
@@ -716,9 +716,10 @@ export function TaskList() {
         const badgeText = cr.badgesEarned?.length > 0 ? ` 🏅 New badge${cr.badgesEarned.length > 1 ? "s" : ""}!` : "";
         const bountyText = data.bountyReward ? ` +${data.bountyReward} bounty!` : "";
         const cleanupText = data.cleanupReward ? ` +${data.cleanupReward.coinsEarned} cleanup!` : "";
+        const balance = data.finalBalance ?? cr.newBalance;
         toast({
           title: `+${cr.coinsEarned} AxCoins earned!${bountyText}${cleanupText}`,
-          description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${badgeText}`,
+          description: `Balance: ${balance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${badgeText}`,
         });
       } else if (data?.bountyReward) {
         toast({
