@@ -6,7 +6,38 @@ export interface VoiceCommand {
   original: string;
 }
 
-const priorityPatterns = [
+interface PatternWithValue {
+  pattern: RegExp;
+  value: string;
+}
+
+interface UrgencyPatternFixed {
+  pattern: RegExp;
+  value: number;
+  extract?: false;
+}
+
+interface UrgencyPatternExtract {
+  pattern: RegExp;
+  extract: true;
+}
+
+type UrgencyPattern = UrgencyPatternFixed | UrgencyPatternExtract;
+
+interface DatePatternFixed {
+  pattern: RegExp;
+  days: number;
+  daysExtract?: false;
+}
+
+interface DatePatternExtract {
+  pattern: RegExp;
+  daysExtract: true;
+}
+
+type DatePattern = DatePatternFixed | DatePatternExtract;
+
+const priorityPatterns: PatternWithValue[] = [
   { pattern: /\b(?:priority|set priority|make it)\s+(?:to\s+)?(?:very\s+)?high(?:est)?\b/i, value: "high" },
   { pattern: /\b(?:priority|set priority|make it)\s+(?:to\s+)?critical\b/i, value: "critical" },
   { pattern: /\b(?:priority|set priority|make it)\s+(?:to\s+)?medium\b/i, value: "medium" },
@@ -17,7 +48,7 @@ const priorityPatterns = [
   { pattern: /\bcritical\s+priority\b/i, value: "critical" },
 ];
 
-const urgencyPatterns = [
+const urgencyPatterns: UrgencyPattern[] = [
   { pattern: /\burgency\s+(\d)\b/i, extract: true },
   { pattern: /\bset urgency\s+(?:to\s+)?(\d)\b/i, extract: true },
   { pattern: /\bnot\s+urgent\b/i, value: 1 },
@@ -25,15 +56,15 @@ const urgencyPatterns = [
   { pattern: /\burgent\b/i, value: 4 },
 ];
 
-const statusPatterns = [
+const statusPatterns: PatternWithValue[] = [
   { pattern: /\b(?:mark|set)\s+(?:as\s+|it\s+)?complete(?:d)?\b/i, value: "completed" },
   { pattern: /\b(?:mark|set)\s+(?:as\s+|it\s+)?in\s*progress\b/i, value: "in-progress" },
   { pattern: /\b(?:mark|set)\s+(?:as\s+|it\s+)?pending\b/i, value: "pending" },
-  { pattern: /\bdone\b/i, value: "completed" },
+  { pattern: /\b(?:mark|set)\s+(?:as\s+|it\s+)?done\b/i, value: "completed" },
   { pattern: /\bin\s+progress\b/i, value: "in-progress" },
 ];
 
-const datePatterns = [
+const datePatterns: DatePattern[] = [
   { pattern: /\bdue\s+today\b/i, days: 0 },
   { pattern: /\bdue\s+tomorrow\b/i, days: 1 },
   { pattern: /\bdue\s+(?:in\s+)?(\d+)\s+days?\b/i, daysExtract: true },
@@ -59,7 +90,7 @@ export function parseVoiceCommands(text: string): VoiceCommand[] {
   for (const p of urgencyPatterns) {
     const match = lower.match(p.pattern);
     if (match) {
-      const val = (p as any).extract ? parseInt(match[1]) : (p as any).value;
+      const val = p.extract ? parseInt(match[1]) : p.value;
       if (val >= 1 && val <= 5) {
         commands.push({ type: "urgency", value: val, original: text });
       }
@@ -69,7 +100,7 @@ export function parseVoiceCommands(text: string): VoiceCommand[] {
 
   for (const p of statusPatterns) {
     if (p.pattern.test(lower)) {
-      commands.push({ type: "status", value: p.value!, original: text });
+      commands.push({ type: "status", value: p.value, original: text });
       break;
     }
   }
@@ -77,7 +108,7 @@ export function parseVoiceCommands(text: string): VoiceCommand[] {
   for (const p of datePatterns) {
     const match = lower.match(p.pattern);
     if (match) {
-      const days = (p as any).daysExtract ? parseInt(match[1]) : (p as any).days;
+      const days = p.daysExtract ? parseInt(match[1]) : p.days;
       const targetDate = addDays(new Date(), days);
       commands.push({ type: "date", value: format(targetDate, "yyyy-MM-dd"), original: text });
       break;

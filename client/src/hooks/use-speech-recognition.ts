@@ -14,20 +14,51 @@ interface SpeechRecognitionHook {
   resetTranscript: () => void;
 }
 
-interface SpeechRecognitionEvent {
-  results: SpeechRecognitionResultList;
+interface BrowserSpeechRecognitionResult {
+  readonly isFinal: boolean;
+  readonly length: number;
+  readonly [index: number]: { readonly transcript: string; readonly confidence: number };
+}
+
+interface BrowserSpeechRecognitionResultList {
+  readonly length: number;
+  readonly [index: number]: BrowserSpeechRecognitionResult;
+}
+
+interface BrowserSpeechRecognitionEvent {
+  results: BrowserSpeechRecognitionResultList;
   resultIndex: number;
 }
 
-interface SpeechRecognitionErrorEvent {
+interface BrowserSpeechRecognitionErrorEvent {
   error: string;
   message?: string;
 }
 
-const SpeechRecognitionAPI =
-  typeof window !== "undefined"
-    ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    : null;
+interface BrowserSpeechRecognitionInstance {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+
+type SpeechRecognitionConstructor = new () => BrowserSpeechRecognitionInstance;
+
+function getSpeechRecognitionAPI(): SpeechRecognitionConstructor | null {
+  if (typeof window === "undefined") return null;
+  const win = window as Window & {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  };
+  return win.SpeechRecognition || win.webkitSpeechRecognition || null;
+}
+
+const SpeechRecognitionAPI = getSpeechRecognitionAPI();
 
 export function useSpeechRecognition(options?: {
   continuous?: boolean;
@@ -41,7 +72,7 @@ export function useSpeechRecognition(options?: {
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(null);
   const onResultRef = useRef(onResult);
   const onEndRef = useRef(onEnd);
 
@@ -84,7 +115,7 @@ export function useSpeechRecognition(options?: {
       setStatus("listening");
     };
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: BrowserSpeechRecognitionEvent) => {
       let interim = "";
       let final = "";
 
@@ -107,7 +138,7 @@ export function useSpeechRecognition(options?: {
       setInterimTranscript(interim);
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    recognition.onerror = (event: BrowserSpeechRecognitionErrorEvent) => {
       const messages: Record<string, string> = {
         "not-allowed": "Microphone permission was denied. Please allow microphone access in your browser settings.",
         "no-speech": "No speech was detected. Please try again.",
@@ -133,8 +164,9 @@ export function useSpeechRecognition(options?: {
 
     try {
       recognition.start();
-    } catch (e: any) {
-      setError(e.message || "Failed to start speech recognition.");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to start speech recognition.";
+      setError(message);
       setStatus("error");
     }
   }, [continuous, language]);
