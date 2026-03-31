@@ -647,7 +647,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let cleanupReward = null;
       if (existingTask && existingTask.status === "pending") {
         const statusChanged = task!.status !== existingTask.status;
-        const dateChanged = validatedData.date && validatedData.date !== existingTask.date;
+        const dateChanged = (validatedData.date && validatedData.date !== existingTask.date) ||
+          (validatedData.time && validatedData.time !== existingTask.time);
         const contentChanged = (validatedData.activity && validatedData.activity !== existingTask.activity) ||
           (validatedData.notes !== undefined && validatedData.notes !== existingTask.notes) ||
           (validatedData.prerequisites !== undefined && validatedData.prerequisites !== existingTask.prerequisites);
