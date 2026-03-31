@@ -99,12 +99,15 @@ export const tasks = pgTable("tasks", {
   bounty: integer("bounty").default(0),
   bountySetBy: varchar("bounty_set_by").references(() => users.id),
   sortOrder: integer("sort_order").default(0),
+  contentHash: varchar("content_hash", { length: 64 }),
+  forceImported: boolean("force_imported").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_tasks_user_status").on(table.userId, table.status),
   index("idx_tasks_user_priority").on(table.userId, table.priority),
   index("idx_tasks_user_sort_order").on(table.userId, table.sortOrder),
+  index("idx_tasks_user_content_hash").on(table.userId, table.contentHash),
 ]);
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({
@@ -115,6 +118,8 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   classification: true,
   isRepeated: true,
   sortOrder: true,
+  contentHash: true,
+  forceImported: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
@@ -161,6 +166,25 @@ export const reorderTasksSchema = z.object({
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type UpdateTask = z.infer<typeof updateTaskSchema>;
 export type Task = typeof tasks.$inferSelect;
+
+// ─── Import History ─────────────────────────────────────────────────────────
+export const importHistory = pgTable("import_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  fileHash: varchar("file_hash", { length: 64 }).notNull(),
+  totalParsed: integer("total_parsed").notNull().default(0),
+  imported: integer("imported").notNull().default(0),
+  skippedCompleted: integer("skipped_completed").notNull().default(0),
+  skippedDuplicate: integer("skipped_duplicate").notNull().default(0),
+  forceImported: integer("force_imported").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_import_history_user").on(table.userId),
+  index("idx_import_history_file_hash").on(table.userId, table.fileHash),
+]);
+
+export type ImportHistory = typeof importHistory.$inferSelect;
 
 // ─── Task Collaborators ─────────────────────────────────────────────────────
 export const taskCollaborators = pgTable("task_collaborators", {

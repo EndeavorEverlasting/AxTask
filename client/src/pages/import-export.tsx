@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type Task, type InsertTask } from "@shared/schema";
+import { useState, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type Task, type ImportHistory } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { tasksToCSV, parseTasksFromCSV, downloadCSV, parseExcelSheetInfo } from "@/lib/csv-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -11,13 +11,24 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Upload, Download, FileText, AlertCircle, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Upload, Download, FileText, AlertCircle, AlertTriangle, CheckCircle2, Loader2, History, ShieldAlert, SkipForward } from "lucide-react";
 
 interface SheetInfo {
   sheetName: string;
   tasks: any[];
   rowCount: number;
   selected: boolean;
+}
+
+interface ImportResult {
+  imported: number;
+  forceImported: number;
+  skippedCompleted: number;
+  skippedDuplicate: number;
+  failed: number;
+  total: number;
+  fileWarning: string | null;
 }
 
 export default function ImportExport() {
@@ -29,14 +40,17 @@ export default function ImportExport() {
   const [importProgress, setImportProgress] = useState(0);
   const [importMessage, setImportMessage] = useState("");
   const [sheets, setSheets] = useState<SheetInfo[]>([]);
-  const [importResult, setImportResult] = useState<{
-    imported: number;
-    failed: number;
-    total: number;
-  } | null>(null);
+  const [forceImport, setForceImport] = useState(false);
+  const [fileContent, setFileContent] = useState<string>("");
+  const [fileName, setFileName] = useState<string>("");
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
+  });
+
+  const { data: importHistoryData = [] } = useQuery<ImportHistory[]>({
+    queryKey: ["/api/import-history"],
   });
 
   const handleExport = () => {
@@ -53,7 +67,6 @@ export default function ImportExport() {
       const csvContent = tasksToCSV(tasks);
       const filename = `tasks-export-${new Date().toISOString().split('T')[0]}.csv`;
       downloadCSV(csvContent, filename);
-      
       toast({
         title: "Export successful",
         description: `Downloaded ${tasks.length} tasks to ${filename}`,
@@ -73,7 +86,7 @@ export default function ImportExport() {
 
     const isCSV = file.name.endsWith('.csv');
     const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
-    
+
     if (!isCSV && !isExcel) {
       toast({
         title: "Invalid file type",
@@ -86,8 +99,12 @@ export default function ImportExport() {
     setIsParsing(true);
     setImportResult(null);
     setSheets([]);
+    setFileName(file.name);
 
     try {
+      const rawContent = await file.text();
+      setFileContent(rawContent);
+
       if (isExcel) {
         const sheetResults = await parseExcelSheetInfo(file);
         const sheetInfos: SheetInfo[] = sheetResults.map(s => ({
@@ -95,15 +112,14 @@ export default function ImportExport() {
           selected: true,
         }));
         setSheets(sheetInfos);
-        
+
         const totalTasks = sheetInfos.reduce((sum, s) => sum + s.rowCount, 0);
         toast({
           title: "File analyzed",
           description: `Found ${totalTasks} tasks across ${sheetInfos.length} sheets. Select which sheets to import.`,
         });
       } else {
-        const content = await file.text();
-        const parsed = parseTasksFromCSV(content);
+        const parsed = parseTasksFromCSV(rawContent);
         if (parsed.length > 0) {
           setSheets([{ sheetName: file.name, tasks: parsed, rowCount: parsed.length, selected: true }]);
         } else {
@@ -148,7 +164,11 @@ export default function ImportExport() {
     try {
       const CHUNK_SIZE = 2000;
       let totalImported = 0;
+      let totalForceImported = 0;
+      let totalSkippedCompleted = 0;
+      let totalSkippedDuplicate = 0;
       let totalFailed = 0;
+      let lastFileWarning: string | null = null;
 
       for (let i = 0; i < allTasks.length; i += CHUNK_SIZE) {
         const chunk = allTasks.slice(i, i + CHUNK_SIZE);
@@ -157,25 +177,45 @@ export default function ImportExport() {
 
         setImportMessage(`Sending batch ${chunkNum} of ${totalChunks} (${chunk.length} tasks)...`);
 
-        const response = await apiRequest("POST", "/api/tasks/import", { tasks: chunk });
+        const response = await apiRequest("POST", "/api/tasks/import", {
+          tasks: chunk,
+          forceImport,
+          fileName,
+          fileContent: i === 0 ? fileContent : undefined,
+        });
         const result = await response.json();
 
-        totalImported += result.imported;
-        totalFailed += result.failed;
+        totalImported += result.imported || 0;
+        totalForceImported += result.forceImported || 0;
+        totalSkippedCompleted += result.skippedCompleted || 0;
+        totalSkippedDuplicate += result.skippedDuplicate || 0;
+        totalFailed += result.failed || 0;
+        if (result.fileWarning) lastFileWarning = result.fileWarning;
 
         const progress = Math.round(((i + chunk.length) / allTasks.length) * 100);
         setImportProgress(progress);
       }
 
-      setImportResult({ imported: totalImported, failed: totalFailed, total: allTasks.length });
-      setImportMessage(`Done! ${totalImported} tasks imported successfully.`);
+      const res: ImportResult = {
+        imported: totalImported,
+        forceImported: totalForceImported,
+        skippedCompleted: totalSkippedCompleted,
+        skippedDuplicate: totalSkippedDuplicate,
+        failed: totalFailed,
+        total: allTasks.length,
+        fileWarning: lastFileWarning,
+      };
+      setImportResult(res);
+      setImportMessage(`Done! ${totalImported} new tasks imported.`);
 
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/import-history"] });
 
+      const skipped = totalSkippedCompleted + totalSkippedDuplicate;
       toast({
         title: "Import complete",
-        description: `${totalImported} tasks imported${totalFailed > 0 ? `, ${totalFailed} failed` : ''}.`,
+        description: `${totalImported} imported${skipped > 0 ? `, ${skipped} duplicates skipped` : ''}${totalFailed > 0 ? `, ${totalFailed} failed` : ''}.`,
       });
     } catch (error) {
       console.error("Import error:", error);
@@ -248,7 +288,7 @@ export default function ImportExport() {
               Import Tasks
             </CardTitle>
             <CardDescription>
-              Upload a CSV or Excel file to import tasks. Supports your Google Sheets task tracker format.
+              Upload a CSV or Excel file to import tasks. Duplicates are automatically detected and skipped.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -294,6 +334,17 @@ export default function ImportExport() {
                   </div>
                 ))}
 
+                <div className="flex items-center justify-between p-3 border rounded-lg bg-amber-50 dark:bg-amber-900/20">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4 text-amber-600" />
+                    <div>
+                      <div className="text-sm font-medium text-amber-900 dark:text-amber-100">Force import duplicates</div>
+                      <div className="text-xs text-amber-700 dark:text-amber-300">Import even if tasks already exist. Forced duplicates earn no rewards.</div>
+                    </div>
+                  </div>
+                  <Switch checked={forceImport} onCheckedChange={setForceImport} />
+                </div>
+
                 <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-between">
                   <span className="text-sm font-medium">
                     Total selected: {totalSelected.toLocaleString()} tasks
@@ -326,36 +377,71 @@ export default function ImportExport() {
             )}
 
             {importResult && !isImporting && (
-              <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-lg space-y-2">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-5 w-5 text-green-600" />
-                  <span className="text-sm font-medium text-green-900 dark:text-green-100">
-                    Import Complete
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div>
-                    <div className="font-bold text-lg text-green-700 dark:text-green-300">
-                      {importResult.imported.toLocaleString()}
-                    </div>
-                    <div className="text-gray-600 dark:text-gray-400">Imported</div>
+              <div className="space-y-3">
+                {importResult.fileWarning && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-900/30 rounded-lg flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                    <span className="text-sm text-amber-900 dark:text-amber-100">{importResult.fileWarning}</span>
                   </div>
-                  <div>
-                    <div className="font-bold text-lg text-red-600">
-                      {importResult.failed.toLocaleString()}
-                    </div>
-                    <div className="text-gray-600 dark:text-gray-400">Failed</div>
+                )}
+
+                <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-lg space-y-3">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                    <span className="text-sm font-medium text-green-900 dark:text-green-100">
+                      Import Complete
+                    </span>
                   </div>
-                  <div>
-                    <div className="font-bold text-lg text-gray-700 dark:text-gray-300">
-                      {importResult.total.toLocaleString()}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center text-xs">
+                    <div className="p-2 bg-white dark:bg-gray-800 rounded">
+                      <div className="font-bold text-lg text-green-700 dark:text-green-300">
+                        {importResult.imported.toLocaleString()}
+                      </div>
+                      <div className="text-gray-600 dark:text-gray-400">New Imported</div>
                     </div>
-                    <div className="text-gray-600 dark:text-gray-400">Total</div>
+                    {importResult.skippedCompleted > 0 && (
+                      <div className="p-2 bg-white dark:bg-gray-800 rounded">
+                        <div className="font-bold text-lg text-orange-600">
+                          {importResult.skippedCompleted.toLocaleString()}
+                        </div>
+                        <div className="text-gray-600 dark:text-gray-400">Already Done</div>
+                      </div>
+                    )}
+                    {importResult.skippedDuplicate > 0 && (
+                      <div className="p-2 bg-white dark:bg-gray-800 rounded">
+                        <div className="font-bold text-lg text-yellow-600">
+                          {importResult.skippedDuplicate.toLocaleString()}
+                        </div>
+                        <div className="text-gray-600 dark:text-gray-400">Existing Duplicates</div>
+                      </div>
+                    )}
+                    {importResult.forceImported > 0 && (
+                      <div className="p-2 bg-white dark:bg-gray-800 rounded">
+                        <div className="font-bold text-lg text-amber-600">
+                          {importResult.forceImported.toLocaleString()}
+                        </div>
+                        <div className="text-gray-600 dark:text-gray-400">Force Imported</div>
+                      </div>
+                    )}
+                    {importResult.failed > 0 && (
+                      <div className="p-2 bg-white dark:bg-gray-800 rounded">
+                        <div className="font-bold text-lg text-red-600">
+                          {importResult.failed.toLocaleString()}
+                        </div>
+                        <div className="text-gray-600 dark:text-gray-400">Failed</div>
+                      </div>
+                    )}
                   </div>
+                  {(importResult.skippedCompleted > 0 || importResult.skippedDuplicate > 0) && (
+                    <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                      <SkipForward className="h-3 w-3" />
+                      {importResult.skippedCompleted + importResult.skippedDuplicate} duplicate tasks were skipped to prevent reward inflation.
+                    </div>
+                  )}
                 </div>
               </div>
             )}
-            
+
             <div className="bg-yellow-50 dark:bg-yellow-900/30 p-4 rounded-lg">
               <div className="flex items-start">
                 <AlertCircle className="mr-2 h-4 w-4 text-yellow-600 mt-0.5" />
@@ -365,13 +451,14 @@ export default function ImportExport() {
                     <li>Excel (.xlsx) with sheets: Daily Planner 2026, Archives, Vault</li>
                     <li>CSV with columns: Date, Activity, Notes, Urgency, Impact, Effort</li>
                     <li>Priority and classification are auto-calculated after import</li>
+                    <li>Duplicate tasks are automatically detected and skipped</li>
                   </ul>
                 </div>
               </div>
             </div>
 
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={handleDownloadTemplate}
               className="w-full"
             >
@@ -381,6 +468,41 @@ export default function ImportExport() {
           </CardContent>
         </Card>
       </div>
+
+      {importHistoryData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <History className="mr-2 h-5 w-5" />
+              Import History
+            </CardTitle>
+            <CardDescription>Previous file imports and their results</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {importHistoryData.map((h) => (
+                <div key={h.id} className="flex items-center justify-between p-3 border rounded-lg text-sm">
+                  <div>
+                    <div className="font-medium">{h.fileName}</div>
+                    <div className="text-xs text-gray-500">
+                      {h.createdAt ? new Date(h.createdAt).toLocaleDateString() : "Unknown date"}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Badge variant="secondary">{h.imported} imported</Badge>
+                    {(h.skippedCompleted + h.skippedDuplicate) > 0 && (
+                      <Badge variant="outline">{h.skippedCompleted + h.skippedDuplicate} skipped</Badge>
+                    )}
+                    {h.forceImported > 0 && (
+                      <Badge variant="outline" className="text-amber-600">{h.forceImported} forced</Badge>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -400,7 +522,7 @@ export default function ImportExport() {
                 <li>Choose "Replace spreadsheet" and click "Import data"</li>
               </ol>
             </div>
-            
+
             <div>
               <h4 className="font-semibold text-sm mb-2">To import from Google Sheets:</h4>
               <ol className="text-sm text-gray-600 dark:text-gray-400 space-y-1 list-decimal list-inside">
@@ -413,7 +535,7 @@ export default function ImportExport() {
 
             <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                <strong>Tip:</strong> The priority scoring engine from your Google Apps Script 
+                <strong>Tip:</strong> The priority scoring engine from your Google Apps Script
                 is built into AxTask, so your tasks will have consistent priority scoring.
               </p>
             </div>

@@ -20,6 +20,7 @@ import {
   resetStreak, useStreakShield, buyStreakShield, giftCoins, setTaskBounty, claimBounty, boostTaskPriority,
 } from "./storage";
 import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, BADGE_DEFINITIONS } from "./coin-engine";
+import { computeContentHash, computeFileHash } from "./fingerprint";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
 import { getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution } from "./storage";
 import { z } from "zod";
@@ -464,7 +465,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Bulk import tasks (must be before /api/tasks POST)
   app.post("/api/tasks/import", requireAuth, async (req, res) => {
     try {
-      const { tasks: taskList } = req.body;
+      const { tasks: taskList, forceImport, fileName, fileContent } = req.body;
       if (!Array.isArray(taskList) || taskList.length === 0) {
         return res.status(400).json({ message: "No tasks provided" });
       }
@@ -474,6 +475,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const userId = req.user!.id;
+
+      let fileWarning: string | null = null;
+      const fileHash = fileContent ? computeFileHash(fileContent) : null;
+      if (fileHash) {
+        const prev = await storage.findImportByFileHash(userId, fileHash);
+        if (prev) {
+          const date = prev.createdAt ? new Date(prev.createdAt).toLocaleDateString() : "previously";
+          fileWarning = `This looks like a file you imported on ${date} (${prev.imported} tasks imported).`;
+        }
+      }
 
       const validTasks: any[] = [];
       const errors: { index: number; error: string }[] = [];
@@ -487,9 +498,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      const taskHashes = validTasks.map(t => computeContentHash(t.activity, t.date));
+      const uniqueHashes = [...new Set(taskHashes)];
+      const existingByHash = await storage.findTasksByContentHashes(userId, uniqueHashes);
+      const hashStatusMap = new Map<string, string>();
+      for (const t of existingByHash) {
+        if (t.contentHash) {
+          const current = hashStatusMap.get(t.contentHash);
+          if (current === "completed" || !current) {
+            hashStatusMap.set(t.contentHash, t.status);
+          }
+        }
+      }
+
+      const newTasks: any[] = [];
+      const forcedTasks: any[] = [];
+      let skippedCompleted = 0;
+      let skippedDuplicate = 0;
+
+      for (let i = 0; i < validTasks.length; i++) {
+        const hash = taskHashes[i];
+        const existingStatus = hashStatusMap.get(hash);
+
+        if (!existingStatus) {
+          newTasks.push(validTasks[i]);
+        } else if (existingStatus === "completed") {
+          if (forceImport) {
+            forcedTasks.push(validTasks[i]);
+          }
+          skippedCompleted++;
+        } else {
+          if (forceImport) {
+            forcedTasks.push(validTasks[i]);
+          }
+          skippedDuplicate++;
+        }
+      }
+
       let inserted: any[] = [];
-      if (validTasks.length > 0) {
-        inserted = await storage.createTasksBulk(userId, validTasks);
+      const tasksToInsert = [...newTasks, ...forcedTasks];
+
+      if (tasksToInsert.length > 0) {
+        const isForced = forcedTasks.length > 0;
+        inserted = await storage.createTasksBulk(
+          userId,
+          newTasks,
+          { forceImported: false }
+        );
+        if (forcedTasks.length > 0) {
+          const forcedInserted = await storage.createTasksBulk(
+            userId,
+            forcedTasks,
+            { forceImported: true }
+          );
+          inserted.push(...forcedInserted);
+        }
 
         const existingTasks = await storage.getTasks(userId);
 
@@ -529,11 +592,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      if (fileHash) {
+        await storage.createImportRecord({
+          userId,
+          fileName: fileName || "unknown",
+          fileHash,
+          totalParsed: validTasks.length,
+          imported: newTasks.length,
+          skippedCompleted,
+          skippedDuplicate,
+          forceImported: forcedTasks.length,
+        });
+      }
+
       res.status(201).json({
-        imported: inserted.length,
+        imported: newTasks.length,
+        forceImported: forcedTasks.length,
+        skippedCompleted,
+        skippedDuplicate,
         failed: errors.length,
         total: taskList.length,
         errors: errors.slice(0, 50),
+        fileWarning,
       });
     } catch (error) {
       console.error("Bulk import error:", error);
@@ -1336,6 +1416,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   await seedRewardsCatalog();
 
+  storage.backfillContentHashes().then(count => {
+    if (count > 0) console.log(`[startup] Backfilled ${count} task content hashes`);
+  }).catch(() => {});
+
   app.get("/api/gamification/wallet", requireAuth, async (req, res) => {
     try {
       const wallet = await getOrCreateWallet(req.user!.id);
@@ -1576,6 +1660,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch cleanup stats" });
+    }
+  });
+
+  app.get("/api/import-history", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const history = await storage.getImportHistory(userId);
+      res.json(history);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch import history" });
+    }
+  });
+
+  app.post("/api/tasks/backfill-hashes", requireAuth, async (req, res) => {
+    try {
+      const count = await storage.backfillContentHashes();
+      res.json({ backfilled: count });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to backfill content hashes" });
     }
   });
 

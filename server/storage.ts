@@ -1,4 +1,5 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory } from "@shared/schema";
+import { computeContentHash } from "./fingerprint";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -405,9 +406,14 @@ export interface IStorage {
   getTasksByStatus(userId: string, status: string): Promise<Task[]>;
   getTasksByPriority(userId: string, priority: string): Promise<Task[]>;
   searchTasks(userId: string, query: string): Promise<Task[]>;
-  createTasksBulk(userId: string, taskList: InsertTask[]): Promise<Task[]>;
+  createTasksBulk(userId: string, taskList: InsertTask[], options?: { forceImported?: boolean }): Promise<Task[]>;
   bulkUpdateTasks(userId: string, updates: UpdateTask[]): Promise<void>;
   reorderTasks(userId: string, taskIds: string[]): Promise<void>;
+  findTasksByContentHashes(userId: string, hashes: string[]): Promise<Pick<Task, 'id' | 'contentHash' | 'status'>[]>;
+  createImportRecord(record: { userId: string; fileName: string; fileHash: string; totalParsed: number; imported: number; skippedCompleted: number; skippedDuplicate: number; forceImported: number }): Promise<ImportHistory>;
+  getImportHistory(userId: string): Promise<ImportHistory[]>;
+  findImportByFileHash(userId: string, fileHash: string): Promise<ImportHistory | undefined>;
+  backfillContentHashes(): Promise<number>;
   getTaskStats(userId: string): Promise<{
     totalTasks: number;
     highPriorityTasks: number;
@@ -436,6 +442,7 @@ export class DatabaseStorage implements IStorage {
   async createTask(userId: string, insertTask: InsertTask): Promise<Task> {
     const id = randomUUID();
     const now = new Date();
+    const contentHash = computeContentHash(insertTask.activity, insertTask.date);
 
     const taskData = {
       ...insertTask,
@@ -445,6 +452,7 @@ export class DatabaseStorage implements IStorage {
       priorityScore: 0,
       classification: "General",
       isRepeated: false,
+      contentHash,
       createdAt: now,
       updatedAt: now,
     };
@@ -453,7 +461,7 @@ export class DatabaseStorage implements IStorage {
     return task;
   }
 
-  async createTasksBulk(userId: string, taskList: InsertTask[]): Promise<Task[]> {
+  async createTasksBulk(userId: string, taskList: InsertTask[], options?: { forceImported?: boolean }): Promise<Task[]> {
     if (taskList.length === 0) return [];
     const now = new Date();
     const BATCH_SIZE = 500;
@@ -469,6 +477,8 @@ export class DatabaseStorage implements IStorage {
         priorityScore: 0,
         classification: "General",
         isRepeated: false,
+        contentHash: computeContentHash(t.activity, t.date),
+        forceImported: options?.forceImported || false,
         createdAt: now,
         updatedAt: now,
       }));
@@ -479,9 +489,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateTask(userId: string, updateTask: UpdateTask): Promise<Task | undefined> {
+    const updates: any = { ...updateTask, updatedAt: new Date() };
+    if (updateTask.activity || updateTask.date) {
+      const existing = await this.getTask(userId, updateTask.id);
+      if (existing) {
+        const activity = updateTask.activity || existing.activity;
+        const date = updateTask.date || existing.date;
+        updates.contentHash = computeContentHash(activity, date);
+      }
+    }
     const [task] = await db
       .update(tasks)
-      .set({ ...updateTask, updatedAt: new Date() })
+      .set(updates)
       .where(and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId)))
       .returning();
     return task || undefined;
@@ -570,6 +589,65 @@ export class DatabaseStorage implements IStorage {
         )
       );
     }
+  }
+
+  async findTasksByContentHashes(userId: string, hashes: string[]): Promise<Pick<Task, 'id' | 'contentHash' | 'status'>[]> {
+    if (hashes.length === 0) return [];
+    const BATCH = 500;
+    const results: Pick<Task, 'id' | 'contentHash' | 'status'>[] = [];
+    for (let i = 0; i < hashes.length; i += BATCH) {
+      const batch = hashes.slice(i, i + BATCH);
+      const hashParams = batch.map(h => sql`${h}`);
+      const rows = await db
+        .select({ id: tasks.id, contentHash: tasks.contentHash, status: tasks.status })
+        .from(tasks)
+        .where(and(
+          eq(tasks.userId, userId),
+          sql`${tasks.contentHash} IN (${sql.join(hashParams, sql`, `)})`
+        ));
+      results.push(...rows);
+    }
+    return results;
+  }
+
+  async createImportRecord(record: { userId: string; fileName: string; fileHash: string; totalParsed: number; imported: number; skippedCompleted: number; skippedDuplicate: number; forceImported: number }): Promise<ImportHistory> {
+    const [row] = await db.insert(importHistory).values(record).returning();
+    return row;
+  }
+
+  async getImportHistory(userId: string): Promise<ImportHistory[]> {
+    return await db
+      .select()
+      .from(importHistory)
+      .where(eq(importHistory.userId, userId))
+      .orderBy(desc(importHistory.createdAt))
+      .limit(50);
+  }
+
+  async findImportByFileHash(userId: string, fileHash: string): Promise<ImportHistory | undefined> {
+    const [row] = await db
+      .select()
+      .from(importHistory)
+      .where(and(eq(importHistory.userId, userId), eq(importHistory.fileHash, fileHash)))
+      .orderBy(desc(importHistory.createdAt))
+      .limit(1);
+    return row || undefined;
+  }
+
+  async backfillContentHashes(): Promise<number> {
+    const unhashed = await db
+      .select({ id: tasks.id, activity: tasks.activity, date: tasks.date, userId: tasks.userId })
+      .from(tasks)
+      .where(sql`${tasks.contentHash} IS NULL`)
+      .limit(5000);
+
+    if (unhashed.length === 0) return 0;
+
+    for (const t of unhashed) {
+      const hash = computeContentHash(t.activity, t.date);
+      await db.update(tasks).set({ contentHash: hash }).where(eq(tasks.id, t.id));
+    }
+    return unhashed.length;
   }
 
   async getTaskStats(userId: string): Promise<{
