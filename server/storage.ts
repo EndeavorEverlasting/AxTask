@@ -729,6 +729,11 @@ export async function getUserRewards(userId: string): Promise<(typeof userReward
 export async function redeemReward(userId: string, rewardId: string): Promise<boolean> {
   const reward = await getRewardById(rewardId);
   if (!reward) return false;
+  const [existing] = await db
+    .select({ value: count() })
+    .from(userRewards)
+    .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
+  if ((Number(existing?.value) || 0) > 0) return false;
   const wallet = await spendCoins(userId, reward.cost, `Redeemed: ${reward.name}`);
   if (!wallet) return false;
   await db.insert(userRewards).values({ id: randomUUID(), userId, rewardId });

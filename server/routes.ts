@@ -1120,6 +1120,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/gamification/wallet", requireAuth, async (req, res) => {
     try {
       const wallet = await getOrCreateWallet(req.user!.id);
+      if (wallet.currentStreak > 0 && wallet.lastCompletionDate) {
+        const lastDate = new Date(wallet.lastCompletionDate);
+        lastDate.setHours(0, 0, 0, 0);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const diffDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays > 1) {
+          wallet.currentStreak = 0;
+        }
+      }
       res.json(wallet);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch wallet" });
