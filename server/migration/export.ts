@@ -6,12 +6,26 @@ import {
   classificationContributions, classificationConfirmations,
 } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
+import { createHmac } from "crypto";
+
+const BUNDLE_SIGNING_KEY = process.env.SESSION_SECRET || process.env.REPL_ID || "axtask-migration-key";
+
+export function signBundle(bundle: ExportBundle): string {
+  const payload = JSON.stringify(bundle.data) + bundle.metadata.exportedAt;
+  return createHmac("sha256", BUNDLE_SIGNING_KEY).update(payload).digest("hex");
+}
+
+export function verifyBundleSignature(bundle: ExportBundle, signature: string): boolean {
+  const expected = signBundle(bundle);
+  return expected === signature;
+}
 
 export interface ExportMetadata {
   schemaVersion: number;
   exportedAt: string;
   exportMode: "full" | "user";
   sourceEnvironment: string;
+  signature?: string;
   userId?: string;
   tableCounts: Record<string, number>;
 }
@@ -169,19 +183,13 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
   const allContribs = await queryChunked(classificationContributions);
   const allConfirms = await queryChunked(classificationConfirmations);
 
-  const collabData = allCollabs.filter((c) =>
-    (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
-  );
+  const collabData = allCollabs.filter((c) => (c.userId as string) === userId);
 
-  const contribData = allContribs.filter((c) =>
-    (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
-  );
+  const userContribs = allContribs.filter((c) => (c.userId as string) === userId);
 
-  const userConfirms = allConfirms.filter((c) =>
-    (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
-  );
+  const userConfirms = allConfirms.filter((c) => (c.userId as string) === userId);
 
-  const exportedContribIds = new Set(contribData.map((c) => c.id as string));
+  const exportedContribIds = new Set(userContribs.map((c) => c.id as string));
   const neededContribIds = new Set<string>();
   for (const confirm of userConfirms) {
     const cid = confirm.contributionId as string;
@@ -193,7 +201,7 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
   const referencedContribs = neededContribIds.size > 0
     ? allContribs.filter((c) => neededContribIds.has(c.id as string))
     : [];
-  const allExportedContribs = [...contribData, ...referencedContribs];
+  const allExportedContribs = [...userContribs, ...referencedContribs];
 
   const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
   const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
@@ -219,7 +227,7 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
     tableCounts[key] = rows.length;
   }
 
-  return {
+  const bundle: ExportBundle = {
     metadata: {
       schemaVersion: 1,
       exportedAt: new Date().toISOString(),
@@ -230,4 +238,6 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
     },
     data,
   };
+  bundle.metadata.signature = signBundle(bundle);
+  return bundle;
 }

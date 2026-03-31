@@ -206,8 +206,12 @@ export function validateBundle(bundle: ExportBundle): { errors: ValidationIssue[
           continue;
         }
 
-        if (isUserBundle && rule.refTable === "users" && rule.field === "userId" &&
-            (tableName === "classificationContributions" || tableName === "classificationConfirmations" || tableName === "taskCollaborators")) {
+        if (isUserBundle && (
+          (rule.refTable === "users" && rule.field === "userId" &&
+            (tableName === "classificationContributions" || tableName === "classificationConfirmations" || tableName === "taskCollaborators")) ||
+          (rule.refTable === "tasks" && rule.field === "taskId" &&
+            (tableName === "classificationContributions" || tableName === "classificationConfirmations" || tableName === "taskCollaborators"))
+        )) {
           continue;
         }
 
@@ -600,6 +604,7 @@ export async function importUserBundle(
   function hasUnresolvableFks(row: BundleRow, tableName: TableName): boolean {
     const fkRules = FK_RULES[tableName];
     for (const rule of fkRules) {
+      if (skipTables.has(rule.refTable)) continue;
       const val = row[rule.field];
       if (val) {
         const fkKey = remapKey(rule.refTable, String(val));

@@ -1715,6 +1715,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Only user-level export bundles can be imported via self-service. Full database imports require admin access." });
       }
 
+      const { verifyBundleSignature } = await import("./migration/export");
+      const signature = bundle.metadata.signature;
+      if (!signature || !verifyBundleSignature(bundle, signature)) {
+        return res.status(403).json({ message: "Invalid or missing bundle signature. Only bundles exported from this server can be imported." });
+      }
+
       const result = await importUserBundle(bundle, req.user!.id, { dryRun: !!dryRun });
 
       if (!dryRun && result.success) {
