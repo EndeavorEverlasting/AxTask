@@ -617,14 +617,7 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                           className={cn("min-h-[44px]", getFieldClass("time"))}
                         />
                       ) : (
-                        <div
-                          className={cn(
-                            "rounded-md",
-                            isHinted("time") && "field-glow-hint",
-                            isWarned("time") && "field-glow-warning"
-                          )}
-                          onBlur={() => onFieldBlur("time", field.value)}
-                        >
+                        <div onBlur={() => onFieldBlur("time", field.value)}>
                           <ClockTimePicker
                             value={field.value || undefined}
                             onChange={(t) => {
@@ -634,6 +627,10 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                                 clearWarning("time");
                               }
                             }}
+                            className={cn(
+                              isHinted("time") && "field-glow-hint",
+                              isWarned("time") && "field-glow-warning"
+                            )}
                           />
                         </div>
                       )}
