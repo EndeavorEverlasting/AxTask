@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, memo, type TouchEvent as ReactTouchEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
-import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw } from "lucide-react";
+import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw, Loader2 as RefreshLoader } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -371,55 +371,155 @@ function MobileTaskCard({
   isUpdating: boolean;
   isDeleting: boolean;
 }) {
+  const [swipeX, setSwipeX] = useState(0);
+  const [swiping, setSwiping] = useState(false);
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const SWIPE_THRESHOLD = 80;
+
+  const handleTouchStart = (e: ReactTouchEvent) => {
+    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
+    setSwiping(false);
+  };
+
+  const handleTouchMove = (e: ReactTouchEvent) => {
+    if (!touchStartRef.current) return;
+    const dx = e.touches[0].clientX - touchStartRef.current.x;
+    const dy = e.touches[0].clientY - touchStartRef.current.y;
+    if (Math.abs(dy) > Math.abs(dx) && !swiping) return;
+    if (Math.abs(dx) > 10) setSwiping(true);
+    if (swiping) {
+      setSwipeX(Math.max(-SWIPE_THRESHOLD * 1.5, Math.min(SWIPE_THRESHOLD * 1.5, dx)));
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (swipeX > SWIPE_THRESHOLD) {
+      onToggleStatus(task.id, task.status === "completed" ? "pending" : "completed");
+    } else if (swipeX < -SWIPE_THRESHOLD) {
+      onDelete(task.id);
+    }
+    setSwipeX(0);
+    setSwiping(false);
+    touchStartRef.current = null;
+  };
+
+  const handleCardClick = () => {
+    if (!swiping) onEdit(task);
+  };
+
   return (
-    <div
-      className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm active:bg-gray-50 dark:active:bg-gray-750 transition-colors"
-      onClick={() => onEdit(task)}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 line-clamp-2">{task.activity}</p>
-          {task.notes && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 mt-1">{task.notes}</p>
-          )}
+    <div className="relative overflow-hidden rounded-xl">
+      <div className="absolute inset-y-0 left-0 w-24 flex items-center justify-center bg-green-500 rounded-l-xl">
+        <Check className="h-6 w-6 text-white" />
+      </div>
+      <div className="absolute inset-y-0 right-0 w-24 flex items-center justify-center bg-red-500 rounded-r-xl">
+        <Trash2 className="h-6 w-6 text-white" />
+      </div>
+      <div
+        className="relative p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-xl transition-transform"
+        style={{ transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onClick={handleCardClick}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 line-clamp-2">{task.activity}</p>
+            {task.notes && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 mt-1">{task.notes}</p>
+            )}
+          </div>
+          <PriorityBadge priority={task.priority} />
         </div>
-        <PriorityBadge priority={task.priority} />
-      </div>
-      <div className="flex items-center gap-3 mt-3">
-        <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-          <CalendarDays className="h-3 w-3" />
-          {task.date}
-        </span>
-        {task.time && (
-          <span className="text-xs text-gray-500 dark:text-gray-400">{task.time}</span>
-        )}
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${getStatusBadgeColor(task.status)}`}>
-          {formatStatus(task.status)}
-        </span>
-      </div>
-      <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
-        <Button
-          variant="outline"
-          size="sm"
-          className="flex-1 h-10 text-xs"
-          onClick={() => onToggleStatus(task.id, task.status === "completed" ? "pending" : "completed")}
-          disabled={isUpdating}
-        >
-          <Check className="h-4 w-4 mr-1" />
-          {task.status === "completed" ? "Undo" : "Done"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-10 text-xs text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20"
-          onClick={() => onDelete(task.id)}
-          disabled={isDeleting}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-3 mt-3">
+          <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+            <CalendarDays className="h-3 w-3" />
+            {task.date}
+          </span>
+          {task.time && (
+            <span className="text-xs text-gray-500 dark:text-gray-400">{task.time}</span>
+          )}
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${getStatusBadgeColor(task.status)}`}>
+            {formatStatus(task.status)}
+          </span>
+        </div>
+        <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1 min-h-[44px] text-xs"
+            onClick={() => onToggleStatus(task.id, task.status === "completed" ? "pending" : "completed")}
+            disabled={isUpdating}
+          >
+            <Check className="h-4 w-4 mr-1" />
+            {task.status === "completed" ? "Undo" : "Done"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-[44px] text-xs text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20"
+            onClick={() => onDelete(task.id)}
+            disabled={isDeleting}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );
+}
+
+function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefObject<HTMLElement | null>) {
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const touchStartY = useRef(0);
+  const pulling = useRef(false);
+  const PULL_THRESHOLD = 60;
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e: globalThis.TouchEvent) => {
+      if (el.scrollTop <= 0) {
+        touchStartY.current = e.touches[0].clientY;
+        pulling.current = true;
+      }
+    };
+
+    const onTouchMove = (e: globalThis.TouchEvent) => {
+      if (!pulling.current || isRefreshing) return;
+      const dy = e.touches[0].clientY - touchStartY.current;
+      if (dy > 0 && el.scrollTop <= 0) {
+        setPullDistance(Math.min(dy * 0.5, PULL_THRESHOLD * 2));
+        if (dy > 10) e.preventDefault();
+      }
+    };
+
+    const onTouchEnd = async () => {
+      if (pullDistance >= PULL_THRESHOLD && !isRefreshing) {
+        setIsRefreshing(true);
+        setPullDistance(PULL_THRESHOLD);
+        await onRefresh();
+        setIsRefreshing(false);
+      }
+      setPullDistance(0);
+      pulling.current = false;
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [scrollRef, onRefresh, pullDistance, isRefreshing]);
+
+  return { pullDistance, isRefreshing };
 }
 
 export function TaskList() {
@@ -436,14 +536,15 @@ export function TaskList() {
   const [isDragMode, setIsDragMode] = useState(false);
   const reducedMotion = useReducedMotion();
   const { consumeVoiceSearch } = useVoice();
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const mobileScrollRef = useRef<HTMLDivElement | null>(null);
 
   const handlePullRefresh = useCallback(async () => {
-    setIsRefreshing(true);
     await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
     await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-    setTimeout(() => setIsRefreshing(false), 500);
+    await new Promise(r => setTimeout(r, 400));
   }, [queryClient]);
+
+  const { pullDistance, isRefreshing } = usePullToRefresh(handlePullRefresh, mobileScrollRef);
 
   useEffect(() => {
     const voiceQuery = consumeVoiceSearch();
@@ -746,18 +847,28 @@ export function TaskList() {
             {tasks.length === 0 ? "No tasks found. Create your first task!" : "No tasks match your filters."}
           </div>
         ) : isMobile ? (
-          <div className="space-y-3">
-            {filteredAndSortedTasks.map((task: Task) => (
-              <MobileTaskCard
-                key={task.id}
-                task={task}
-                onEdit={handleEdit}
-                onToggleStatus={handleToggleStatus}
-                onDelete={handleDelete}
-                isUpdating={updateTaskStatusMutation.isPending}
-                isDeleting={deleteTaskMutation.isPending}
-              />
-            ))}
+          <div ref={mobileScrollRef} className="relative">
+            {(pullDistance > 0 || isRefreshing) && (
+              <div
+                className="flex items-center justify-center overflow-hidden transition-all"
+                style={{ height: isRefreshing ? 40 : pullDistance * 0.6 }}
+              >
+                <RefreshLoader className={`h-5 w-5 text-primary ${isRefreshing ? "animate-spin" : ""}`} style={{ opacity: Math.min(1, pullDistance / 60) }} />
+              </div>
+            )}
+            <div className="space-y-3">
+              {filteredAndSortedTasks.map((task: Task) => (
+                <MobileTaskCard
+                  key={task.id}
+                  task={task}
+                  onEdit={handleEdit}
+                  onToggleStatus={handleToggleStatus}
+                  onDelete={handleDelete}
+                  isUpdating={updateTaskStatusMutation.isPending}
+                  isDeleting={deleteTaskMutation.isPending}
+                />
+              ))}
+            </div>
           </div>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

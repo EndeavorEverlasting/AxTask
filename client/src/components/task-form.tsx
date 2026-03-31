@@ -469,7 +469,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                             <Button
                               variant="outline"
                               className={cn(
-                                "w-full pl-3 text-left font-normal",
+                                "w-full pl-3 text-left font-normal min-h-[44px]",
                                 !field.value && "text-muted-foreground",
                                 getFieldClass("date")
                               )}
@@ -576,7 +576,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger
-                          className={getFieldClass("status")}
+                          className={cn("min-h-[44px]", getFieldClass("status"))}
                         >
                           <SelectValue placeholder="Select status" />
                         </SelectTrigger>
@@ -605,7 +605,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                             <Input
                               placeholder="Enter task activity or use the mic..."
                               {...field}
-                              className={cn(getFieldClass("activity"), getCollabFieldStyle("activity"), "w-full")}
+                              className={cn("min-h-[44px]", getFieldClass("activity"), getCollabFieldStyle("activity"), "w-full")}
                               style={getCollabFieldColor("activity") ? { "--tw-ring-color": getCollabFieldColor("activity") } as React.CSSProperties : undefined}
                               onFocus={() => { setVoiceTarget("activity"); collab.focusField("activity"); }}
                               onBlur={(e) => {
@@ -717,7 +717,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger
-                          className={getFieldClass("urgency")}
+                          className={cn("min-h-[44px]", getFieldClass("urgency"))}
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -752,7 +752,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger
-                          className={getFieldClass("impact")}
+                          className={cn("min-h-[44px]", getFieldClass("impact"))}
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -787,7 +787,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger
-                          className={getFieldClass("effort")}
+                          className={cn("min-h-[44px]", getFieldClass("effort"))}
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -816,7 +816,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       <Input
                         placeholder="Dependencies or prerequisites..."
                         {...field}
-                        className={getFieldClass("prerequisites")}
+                        className={cn("min-h-[44px]", getFieldClass("prerequisites"))}
                         onBlur={(e) => { field.onBlur(); onFieldBlur("prerequisites", e.target.value); }}
                       />
                     </FormControl>
@@ -840,7 +840,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 >
                   Clear
                 </Button>
-                <Button type="submit" disabled={createTaskMutation.isPending} title="Submit (Ctrl+Enter)">
+                <Button type="submit" disabled={createTaskMutation.isPending} title="Submit (Ctrl+Enter)" className="min-h-[44px]">
                   <Plus className="mr-2 h-4 w-4" />
                   {createTaskMutation.isPending 
             ? (task ? "Updating..." : "Adding...") 
