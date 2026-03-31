@@ -706,6 +706,142 @@ export async function resetStreak(userId: string): Promise<void> {
     .where(eq(wallets.userId, userId));
 }
 
+export async function useStreakShield(userId: string): Promise<boolean> {
+  const wallet = await getOrCreateWallet(userId);
+  if (wallet.streakShields <= 0) return false;
+  await db
+    .update(wallets)
+    .set({ streakShields: sql`${wallets.streakShields} - 1` })
+    .where(eq(wallets.userId, userId));
+  return true;
+}
+
+export async function buyStreakShield(userId: string): Promise<{ success: boolean; wallet?: Wallet; error?: string }> {
+  const SHIELD_COST = 25;
+  const wallet = await getOrCreateWallet(userId);
+  if (wallet.balance < SHIELD_COST) return { success: false, error: "Insufficient balance" };
+  if (wallet.streakShields >= 3) return { success: false, error: "Maximum 3 shields" };
+  const [updated] = await db
+    .update(wallets)
+    .set({
+      balance: sql`${wallets.balance} - ${SHIELD_COST}`,
+      streakShields: sql`${wallets.streakShields} + 1`,
+    })
+    .where(eq(wallets.userId, userId))
+    .returning();
+  await db.insert(coinTransactions).values({
+    id: randomUUID(),
+    userId,
+    amount: -SHIELD_COST,
+    reason: "streak_shield_purchase",
+    details: "Purchased streak shield",
+  });
+  return { success: true, wallet: updated };
+}
+
+export async function giftCoins(
+  fromUserId: string,
+  toUserId: string,
+  amount: number
+): Promise<{ success: boolean; senderBalance?: number; error?: string }> {
+  if (amount < 1 || amount > 500) return { success: false, error: "Amount must be 1-500" };
+  if (fromUserId === toUserId) return { success: false, error: "Cannot gift to yourself" };
+  const sender = await getOrCreateWallet(fromUserId);
+  if (sender.balance < amount) return { success: false, error: "Insufficient balance" };
+  await getOrCreateWallet(toUserId);
+  await db
+    .update(wallets)
+    .set({ balance: sql`${wallets.balance} - ${amount}` })
+    .where(eq(wallets.userId, fromUserId));
+  await db
+    .update(wallets)
+    .set({
+      balance: sql`${wallets.balance} + ${amount}`,
+      lifetimeEarned: sql`${wallets.lifetimeEarned} + ${amount}`,
+    })
+    .where(eq(wallets.userId, toUserId));
+  const txId1 = randomUUID();
+  const txId2 = randomUUID();
+  await db.insert(coinTransactions).values([
+    { id: txId1, userId: fromUserId, amount: -amount, reason: "coin_gift_sent", details: `Gifted to user` },
+    { id: txId2, userId: toUserId, amount, reason: "coin_gift_received", details: `Received gift` },
+  ]);
+  const updatedSender = await getOrCreateWallet(fromUserId);
+  return { success: true, senderBalance: updatedSender.balance };
+}
+
+export async function setTaskBounty(
+  userId: string,
+  taskId: string,
+  amount: number
+): Promise<{ success: boolean; error?: string }> {
+  if (amount < 5 || amount > 200) return { success: false, error: "Bounty must be 5-200 coins" };
+  const wallet = await getOrCreateWallet(userId);
+  if (wallet.balance < amount) return { success: false, error: "Insufficient balance" };
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+  if (!task) return { success: false, error: "Task not found" };
+  if (task.bounty && task.bounty > 0) return { success: false, error: "Task already has a bounty" };
+  await db.update(wallets).set({ balance: sql`${wallets.balance} - ${amount}` }).where(eq(wallets.userId, userId));
+  await db.update(tasks).set({ bounty: amount, bountySetBy: userId }).where(eq(tasks.id, taskId));
+  await db.insert(coinTransactions).values({
+    id: randomUUID(),
+    userId,
+    amount: -amount,
+    reason: "bounty_set",
+    details: `Set bounty on task: ${task.activity.substring(0, 80)}`,
+    taskId,
+  });
+  return { success: true };
+}
+
+export async function claimBounty(
+  userId: string,
+  taskId: string
+): Promise<{ success: boolean; amount?: number; error?: string }> {
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+  if (!task || !task.bounty || task.bounty <= 0) return { success: false, error: "No bounty on this task" };
+  if (task.bountySetBy === userId) return { success: false, error: "Cannot claim your own bounty" };
+  const amount = task.bounty;
+  await getOrCreateWallet(userId);
+  await db.update(wallets).set({
+    balance: sql`${wallets.balance} + ${amount}`,
+    lifetimeEarned: sql`${wallets.lifetimeEarned} + ${amount}`,
+  }).where(eq(wallets.userId, userId));
+  await db.update(tasks).set({ bounty: 0, bountySetBy: null }).where(eq(tasks.id, taskId));
+  await db.insert(coinTransactions).values({
+    id: randomUUID(),
+    userId,
+    amount,
+    reason: "bounty_claimed",
+    details: `Claimed bounty on: ${task.activity.substring(0, 80)}`,
+    taskId,
+  });
+  return { success: true, amount };
+}
+
+export async function boostTaskPriority(
+  userId: string,
+  taskId: string
+): Promise<{ success: boolean; error?: string }> {
+  const BOOST_COST = 20;
+  const wallet = await getOrCreateWallet(userId);
+  if (wallet.balance < BOOST_COST) return { success: false, error: "Insufficient balance (need 20 coins)" };
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+  if (!task) return { success: false, error: "Task not found" };
+  if (task.priority === "Highest") return { success: false, error: "Task is already Highest priority" };
+  await db.update(wallets).set({ balance: sql`${wallets.balance} - ${BOOST_COST}` }).where(eq(wallets.userId, userId));
+  await db.update(tasks).set({ priority: "Highest", priorityScore: 100 }).where(eq(tasks.id, taskId));
+  await db.insert(coinTransactions).values({
+    id: randomUUID(),
+    userId,
+    amount: -BOOST_COST,
+    reason: "priority_boost",
+    details: `Boosted task to Highest: ${task.activity.substring(0, 80)}`,
+    taskId,
+  });
+  return { success: true };
+}
+
 export async function getUserBadges(userId: string): Promise<UserBadge[]> {
   return db.select().from(userBadges).where(eq(userBadges.userId, userId)).orderBy(desc(userBadges.earnedAt));
 }

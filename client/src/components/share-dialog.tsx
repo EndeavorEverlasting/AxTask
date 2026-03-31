@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Users, UserPlus, Trash2, Crown, Eye, Pencil, Coins } from "lucide-react";
+import { Users, UserPlus, Trash2, Crown, Eye, Pencil, Coins, Gift } from "lucide-react";
 
 interface Collaborator {
   id: string;
@@ -32,6 +32,8 @@ export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("editor");
   const [open, setOpen] = useState(false);
+  const [giftUserId, setGiftUserId] = useState<string | null>(null);
+  const [giftAmount, setGiftAmount] = useState("");
 
   const { data: collaborators = [] } = useQuery<Collaborator[]>({
     queryKey: ["/api/tasks", taskId, "collaborators"],
@@ -86,6 +88,23 @@ export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
+    },
+  });
+
+  const giftMutation = useMutation({
+    mutationFn: async ({ toUserId, amount }: { toUserId: string; amount: number }) => {
+      const res = await apiRequest("POST", "/api/gamification/gift", { toUserId, amount });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      toast({ title: "Coins gifted!", description: `Your new balance: ${data.senderBalance}` });
+      setGiftUserId(null);
+      setGiftAmount("");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gift failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -168,34 +187,70 @@ export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {isOwner ? (
-                    <>
-                      <Select
-                        value={c.role}
-                        onValueChange={(newRole) => updateRoleMutation.mutate({ userId: c.userId, role: newRole })}
+                  {giftUserId === c.userId ? (
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        min="1"
+                        max="500"
+                        placeholder="Coins"
+                        value={giftAmount}
+                        onChange={(e) => setGiftAmount(e.target.value)}
+                        className="w-20 h-8 text-xs"
+                      />
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs"
+                        disabled={!giftAmount || parseInt(giftAmount) < 1 || giftMutation.isPending}
+                        onClick={() => giftMutation.mutate({ toUserId: c.userId, amount: parseInt(giftAmount) })}
                       >
-                        <SelectTrigger className="w-24 h-8 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="editor">Editor</SelectItem>
-                          <SelectItem value="viewer">Viewer</SelectItem>
-                        </SelectContent>
-                      </Select>
+                        Send
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setGiftUserId(null); setGiftAmount(""); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-red-500 hover:text-red-700"
-                        onClick={() => removeMutation.mutate(c.userId)}
+                        className="h-8 w-8 text-amber-500 hover:text-amber-700"
+                        onClick={() => setGiftUserId(c.userId)}
+                        title="Gift coins"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Gift className="h-3.5 w-3.5" />
                       </Button>
+                      {isOwner ? (
+                        <>
+                          <Select
+                            value={c.role}
+                            onValueChange={(newRole) => updateRoleMutation.mutate({ userId: c.userId, role: newRole })}
+                          >
+                            <SelectTrigger className="w-24 h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="editor">Editor</SelectItem>
+                              <SelectItem value="viewer">Viewer</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-500 hover:text-red-700"
+                            onClick={() => removeMutation.mutate(c.userId)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          {roleIcon(c.role)}
+                          <span className="capitalize">{c.role}</span>
+                        </div>
+                      )}
                     </>
-                  ) : (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      {roleIcon(c.role)}
-                      <span className="capitalize">{c.role}</span>
-                    </div>
                   )}
                 </div>
               </div>

@@ -96,6 +96,8 @@ export const tasks = pgTable("tasks", {
   classification: text("classification").notNull(),
   status: text("status").notNull().default("pending"),
   isRepeated: boolean("is_repeated").default(false),
+  bounty: integer("bounty").default(0),
+  bountySetBy: varchar("bounty_set_by").references(() => users.id),
   sortOrder: integer("sort_order").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -170,6 +172,7 @@ export const wallets = pgTable("wallets", {
   currentStreak: integer("current_streak").notNull().default(0),
   longestStreak: integer("longest_streak").notNull().default(0),
   lastCompletionDate: text("last_completion_date"),
+  streakShields: integer("streak_shields").notNull().default(0),
 });
 
 export type Wallet = typeof wallets.$inferSelect;

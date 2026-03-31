@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp } from "lucide-react";
+import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp, Shield, Zap, Gift } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 
@@ -17,6 +17,8 @@ interface Wallet {
   currentStreak: number;
   longestStreak: number;
   lastCompletionDate: string | null;
+  streakShields: number;
+  streakShieldUsed?: boolean;
 }
 
 interface RewardItem {
@@ -87,6 +89,21 @@ export default function RewardsPage() {
     },
   });
 
+  const shieldMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/gamification/streak-shield", {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      toast({ title: "Streak Shield purchased!", description: "Your streak is now protected for one missed day." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Purchase failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const ownedRewardIds = new Set(myRewards.map(r => r.rewardId));
 
   const groupedRewards = {
@@ -116,7 +133,7 @@ export default function RewardsPage() {
       </div>
 
       {wallet && (
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
               <div className="bg-amber-100 dark:bg-amber-900/30 p-2 rounded-lg">
@@ -161,12 +178,24 @@ export default function RewardsPage() {
               </div>
             </CardContent>
           </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="bg-cyan-100 dark:bg-cyan-900/30 p-2 rounded-lg">
+                <Shield className="h-5 w-5 text-cyan-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Streak Shields</p>
+                <p className="text-xl font-bold tabular-nums">{wallet.streakShields}</p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="power-ups">Power-Ups</TabsTrigger>
           <TabsTrigger value="investments">Investments</TabsTrigger>
           <TabsTrigger value="shop">Shop</TabsTrigger>
           <TabsTrigger value="badges">Badges</TabsTrigger>
@@ -252,6 +281,111 @@ export default function RewardsPage() {
                     })}
                   </div>
                 )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="power-ups" className="mt-4 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card className="border-cyan-200 dark:border-cyan-800">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Shield className="h-5 w-5 text-cyan-500" />
+                  Streak Shield
+                </CardTitle>
+                <CardDescription>
+                  Protects your streak when you miss a day. Consumed automatically.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-cyan-50 dark:bg-cyan-900/20">
+                  <div>
+                    <p className="text-sm font-medium">You have</p>
+                    <p className="text-2xl font-bold text-cyan-600">{wallet?.streakShields ?? 0} / 3</p>
+                  </div>
+                  <div className="flex gap-1">
+                    {[0, 1, 2].map(i => (
+                      <Shield key={i} className={`h-6 w-6 ${i < (wallet?.streakShields ?? 0) ? "text-cyan-500" : "text-gray-300 dark:text-gray-600"}`} />
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1 text-amber-600 font-bold">
+                    <Coins className="h-4 w-4" /> 25 each
+                  </span>
+                  <Button
+                    size="sm"
+                    disabled={(wallet?.streakShields ?? 0) >= 3 || (wallet?.balance ?? 0) < 25 || shieldMutation.isPending}
+                    onClick={() => shieldMutation.mutate()}
+                  >
+                    {shieldMutation.isPending ? "..." : "Buy Shield"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-violet-200 dark:border-violet-800">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Zap className="h-5 w-5 text-violet-500" />
+                  Priority Boost
+                </CardTitle>
+                <CardDescription>
+                  Instantly boost any task to Highest priority.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-3 rounded-lg bg-violet-50 dark:bg-violet-900/20">
+                  <p className="text-sm text-violet-700 dark:text-violet-300">
+                    Use the <strong>Boost</strong> button on any task in your task list to instantly elevate it to Highest priority.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 text-amber-600 font-bold">
+                  <Coins className="h-4 w-4" /> 20 per boost
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-pink-200 dark:border-pink-800">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Gift className="h-5 w-5 text-pink-500" />
+                  Task Bounties
+                </CardTitle>
+                <CardDescription>
+                  Attach coins to shared tasks as a reward for the collaborator who completes them.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-3 rounded-lg bg-pink-50 dark:bg-pink-900/20">
+                  <p className="text-sm text-pink-700 dark:text-pink-300">
+                    Set a bounty (5-200 coins) on any shared task. When a collaborator completes it, they automatically receive the bounty.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 text-amber-600 font-bold">
+                  <Coins className="h-4 w-4" /> 5-200 per bounty
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Gift className="h-5 w-5 text-green-500" />
+                Coin Gifting
+              </CardTitle>
+              <CardDescription>
+                Send AxCoins to collaborators on your shared tasks as a thank-you or incentive.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="p-4 rounded-xl bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/10 dark:to-emerald-900/10 border border-green-200 dark:border-green-800">
+                <div className="text-sm text-green-700 dark:text-green-400 space-y-1">
+                  <p>Send 1-500 coins to any collaborator directly from the sharing dialog.</p>
+                  <p>Coins are deducted from your balance and added to theirs instantly.</p>
+                </div>
               </div>
             </CardContent>
           </Card>

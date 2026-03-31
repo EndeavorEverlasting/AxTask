@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
-import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw, Loader2 as RefreshLoader, Repeat, Paintbrush } from "lucide-react";
+import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw, Loader2 as RefreshLoader, Repeat, Paintbrush, Zap, Coins } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -119,8 +119,10 @@ const SortableTaskRow = memo(function SortableTaskRow({
   onEdit,
   onToggleStatus,
   onDelete,
+  onBoost,
   isUpdating,
   isDeleting,
+  isBoosting,
   reducedMotion,
   highlightMode = "none",
 }: {
@@ -129,8 +131,10 @@ const SortableTaskRow = memo(function SortableTaskRow({
   onEdit: (task: Task) => void;
   onToggleStatus: (id: string, status: string) => void;
   onDelete: (id: string) => void;
+  onBoost: (id: string) => void;
   isUpdating: boolean;
   isDeleting: boolean;
+  isBoosting: boolean;
   reducedMotion: boolean;
   highlightMode?: HighlightMode;
 }) {
@@ -252,7 +256,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
         </span>
       </TableCell>
       <TableCell onClick={(e) => e.stopPropagation()}>
-        <div className="flex space-x-2">
+        <div className="flex space-x-1">
           <Button
             variant="ghost"
             size="sm"
@@ -264,6 +268,21 @@ const SortableTaskRow = memo(function SortableTaskRow({
           >
             <Check className="h-4 w-4" />
           </Button>
+          {task.priority !== "Highest" && task.status !== "completed" && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onBoost(task.id);
+              }}
+              disabled={isBoosting}
+              title="Boost to Highest priority (20 coins)"
+              className="text-violet-500 hover:text-violet-700 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+            >
+              <Zap className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -285,6 +304,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
     prev.isDragMode === next.isDragMode &&
     prev.isUpdating === next.isUpdating &&
     prev.isDeleting === next.isDeleting &&
+    prev.isBoosting === next.isBoosting &&
     prev.reducedMotion === next.reducedMotion &&
     prev.highlightMode === next.highlightMode
   );
@@ -296,8 +316,10 @@ function VirtualizedTaskTable({
   onEdit,
   onToggleStatus,
   onDelete,
+  onBoost,
   isUpdating,
   isDeleting,
+  isBoosting,
   sortField,
   sortDirection,
   handleSort,
@@ -308,8 +330,10 @@ function VirtualizedTaskTable({
   onEdit: (task: Task) => void;
   onToggleStatus: (id: string, status: string) => void;
   onDelete: (id: string) => void;
+  onBoost: (id: string) => void;
   isUpdating: boolean;
   isDeleting: boolean;
+  isBoosting: boolean;
   sortField: SortField;
   sortDirection: SortDirection;
   handleSort: (field: SortField) => void;
@@ -387,8 +411,10 @@ function VirtualizedTaskTable({
                   onEdit={onEdit}
                   onToggleStatus={onToggleStatus}
                   onDelete={onDelete}
+                  onBoost={onBoost}
                   isUpdating={isUpdating}
                   isDeleting={isDeleting}
+                  isBoosting={isBoosting}
                   reducedMotion={true}
                   highlightMode={highlightMode}
                 />
@@ -411,16 +437,20 @@ function MobileTaskCard({
   onEdit,
   onToggleStatus,
   onDelete,
+  onBoost,
   isUpdating,
   isDeleting,
+  isBoosting,
   highlightMode = "none",
 }: {
   task: Task;
   onEdit: (task: Task) => void;
   onToggleStatus: (id: string, status: string) => void;
   onDelete: (id: string) => void;
+  onBoost: (id: string) => void;
   isUpdating: boolean;
   isDeleting: boolean;
+  isBoosting: boolean;
   highlightMode?: HighlightMode;
 }) {
   const [swipeX, setSwipeX] = useState(0);
@@ -517,6 +547,17 @@ function MobileTaskCard({
             <Check className="h-4 w-4 mr-1" />
             {task.status === "completed" ? "Undo" : "Done"}
           </Button>
+          {task.priority !== "Highest" && task.status !== "completed" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-[44px] text-xs text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+              onClick={() => onBoost(task.id)}
+              disabled={isBoosting}
+            >
+              <Zap className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -653,9 +694,15 @@ export function TaskList() {
       if (data?.coinReward) {
         const cr = data.coinReward;
         const badgeText = cr.badgesEarned?.length > 0 ? ` 🏅 New badge${cr.badgesEarned.length > 1 ? "s" : ""}!` : "";
+        const bountyText = data.bountyReward ? ` +${data.bountyReward} bounty!` : "";
         toast({
-          title: `+${cr.coinsEarned} AxCoins earned!`,
+          title: `+${cr.coinsEarned} AxCoins earned!${bountyText}`,
           description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${badgeText}`,
+        });
+      } else if (data?.bountyReward) {
+        toast({
+          title: `+${data.bountyReward} bounty coins earned!`,
+          description: "You completed a bounty task!",
         });
       } else {
         toast({
@@ -709,6 +756,33 @@ export function TaskList() {
       });
     },
   });
+
+  const boostMutation = useMutation({
+    mutationFn: async (taskId: string) => {
+      const response = await apiRequest("POST", `/api/tasks/${taskId}/boost`, {});
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      toast({
+        title: "Task boosted!",
+        description: "Priority elevated to Highest (-20 AxCoins)",
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Boost failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleBoost = useCallback((taskId: string) => {
+    boostMutation.mutate(taskId);
+  }, [boostMutation]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -947,8 +1021,10 @@ export function TaskList() {
                   onEdit={handleEdit}
                   onToggleStatus={handleToggleStatus}
                   onDelete={handleDelete}
+                  onBoost={handleBoost}
                   isUpdating={updateTaskStatusMutation.isPending}
                   isDeleting={deleteTaskMutation.isPending}
+                  isBoosting={boostMutation.isPending}
                   highlightMode={highlightMode}
                 />
               ))}
@@ -963,8 +1039,10 @@ export function TaskList() {
                 onEdit={handleEdit}
                 onToggleStatus={handleToggleStatus}
                 onDelete={handleDelete}
+                onBoost={handleBoost}
                 isUpdating={updateTaskStatusMutation.isPending}
                 isDeleting={deleteTaskMutation.isPending}
+                isBoosting={boostMutation.isPending}
                 sortField={sortField}
                 sortDirection={sortDirection}
                 handleSort={handleSort}
@@ -1026,8 +1104,10 @@ export function TaskList() {
                             onEdit={handleEdit}
                             onToggleStatus={handleToggleStatus}
                             onDelete={handleDelete}
+                            onBoost={handleBoost}
                             isUpdating={updateTaskStatusMutation.isPending}
                             isDeleting={deleteTaskMutation.isPending}
+                            isBoosting={boostMutation.isPending}
                             reducedMotion={reducedMotion}
                             highlightMode={highlightMode}
                           />

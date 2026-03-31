@@ -17,7 +17,7 @@ import {
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
   addCollaborator, removeCollaborator, getTaskCollaborators, updateCollaboratorRole,
   getSharedTasks, canAccessTask, isTaskOwner,
-  resetStreak,
+  resetStreak, useStreakShield, buyStreakShield, giftCoins, setTaskBounty, claimBounty, boostTaskPriority,
 } from "./storage";
 import { awardCoinsForCompletion, awardCoinsForSharing, BADGE_DEFINITIONS } from "./coin-engine";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
@@ -632,13 +632,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
       }
 
+      let bountyReward = null;
+      if (task!.status === "completed" && previousStatus !== "completed" && task!.bounty && task!.bounty > 0 && task!.bountySetBy !== userId) {
+        const bountyResult = await claimBounty(userId, task!.id);
+        if (bountyResult.success) bountyReward = bountyResult.amount;
+      }
+
       let classificationReward = null;
       const previousClassification = existingTask?.classification;
       if (task!.classification && task!.classification !== "General" && task!.classification !== previousClassification) {
         classificationReward = await awardCoinsForClassification(userId, task!);
       }
 
-      res.json({ ...task, coinReward, classificationReward });
+      res.json({ ...task, coinReward, classificationReward, bountyReward });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
@@ -1318,6 +1324,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         today.setHours(0, 0, 0, 0);
         const diffDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
         if (diffDays > 1) {
+          const shieldUsed = await useStreakShield(req.user!.id);
+          if (shieldUsed) {
+            const refreshed = await getOrCreateWallet(req.user!.id);
+            return res.json({ ...refreshed, streakShieldUsed: true });
+          }
           wallet.currentStreak = 0;
           await resetStreak(req.user!.id);
         }
@@ -1379,6 +1390,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "Reward redeemed!", wallet });
     } catch (error) {
       res.status(500).json({ message: "Failed to redeem reward" });
+    }
+  });
+
+  app.post("/api/gamification/streak-shield", requireAuth, async (req, res) => {
+    try {
+      const result = await buyStreakShield(req.user!.id);
+      if (!result.success) return res.status(400).json({ message: result.error });
+      res.json({ message: "Streak shield purchased!", wallet: result.wallet });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to purchase streak shield" });
+    }
+  });
+
+  app.post("/api/gamification/gift", requireAuth, async (req, res) => {
+    try {
+      const { toUserId, amount } = req.body;
+      if (!toUserId || typeof toUserId !== "string") return res.status(400).json({ message: "Recipient required" });
+      const parsed = parseInt(amount);
+      if (isNaN(parsed) || parsed < 1) return res.status(400).json({ message: "Valid amount required" });
+      const result = await giftCoins(req.user!.id, toUserId, parsed);
+      if (!result.success) return res.status(400).json({ message: result.error });
+      res.json({ message: `Gifted ${parsed} coins!`, senderBalance: result.senderBalance });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to send gift" });
+    }
+  });
+
+  app.post("/api/tasks/:id/bounty", requireAuth, async (req, res) => {
+    try {
+      const { amount } = req.body;
+      const parsed = parseInt(amount);
+      if (isNaN(parsed) || parsed < 5) return res.status(400).json({ message: "Bounty must be at least 5 coins" });
+      const result = await setTaskBounty(req.user!.id, req.params.id, parsed);
+      if (!result.success) return res.status(400).json({ message: result.error });
+      res.json({ message: `Bounty of ${parsed} coins set!` });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to set bounty" });
+    }
+  });
+
+  app.post("/api/tasks/:id/boost", requireAuth, async (req, res) => {
+    try {
+      const result = await boostTaskPriority(req.user!.id, req.params.id);
+      if (!result.success) return res.status(400).json({ message: result.error });
+      res.json({ message: "Task boosted to Highest priority!" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to boost task" });
     }
   });
 
