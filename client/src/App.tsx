@@ -29,6 +29,8 @@ import PlannerPage from "@/pages/planner";
 import AdminPage from "@/pages/admin";
 import RewardsPage from "@/pages/rewards";
 import LoginPage from "@/pages/login";
+import PrivacyPolicy from "@/pages/privacy";
+import TermsOfService from "@/pages/terms";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 import { Link } from "wouter";
@@ -139,7 +141,7 @@ function AuthenticatedApp() {
   const { zoom } = useZoom();
   const isMobile = useIsMobile();
   const scale = isMobile ? 1 : zoom / 100;
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
 
   useRoutePersistence();
@@ -158,6 +160,9 @@ function AuthenticatedApp() {
   const handleNavigate = useCallback((path: string) => {
     setLocation(path);
   }, [setLocation]);
+
+  if (location === "/privacy") return <PrivacyPolicy />;
+  if (location === "/terms") return <TermsOfService />;
 
   if (loading) {
     return (
