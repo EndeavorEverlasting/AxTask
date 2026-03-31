@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
@@ -58,6 +59,7 @@ if (!isDev) {
   });
 }
 
+app.use(cookieParser());
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 
@@ -78,6 +80,46 @@ if (!isDev) {
     next();
   });
 }
+
+import { randomBytes as csrfRandomBytes } from "crypto";
+
+const CSRF_COOKIE = "axtask.csrf";
+const CSRF_HEADER = "x-csrf-token";
+
+app.use("/api", (req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+    if (!req.cookies?.[CSRF_COOKIE]) {
+      const token = csrfRandomBytes(32).toString("base64url");
+      res.cookie(CSRF_COOKIE, token, {
+        httpOnly: false,
+        secure: !isDev,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+    }
+    return next();
+  }
+
+  if (req.path.startsWith("/auth/callback") || req.path.startsWith("/auth/google/callback") || req.path.startsWith("/auth/replit/callback")) {
+    return next();
+  }
+
+  const cookieToken = req.cookies?.[CSRF_COOKIE];
+  const headerToken = req.get(CSRF_HEADER);
+  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+    const token = csrfRandomBytes(32).toString("base64url");
+    res.cookie(CSRF_COOKIE, token, {
+      httpOnly: false,
+      secure: !isDev,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+    return res.status(403).json({ message: "Invalid CSRF token" });
+  }
+  next();
+});
 
 setupAuth(app);
 

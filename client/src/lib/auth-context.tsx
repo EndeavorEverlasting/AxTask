@@ -2,6 +2,16 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import type { SafeUser } from "@shared/schema";
 import { queryClient } from "./queryClient";
 
+function getCsrfToken(): string | null {
+  const match = document.cookie.match(/(?:^|;\s*)axtask\.csrf=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function csrfHeaders(): Record<string, string> {
+  const token = getCsrfToken();
+  return token ? { "Content-Type": "application/json", "x-csrf-token": token } : { "Content-Type": "application/json" };
+}
+
 interface AuthContextType {
   user: SafeUser | null;
   loading: boolean;
@@ -53,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const res = await fetch("/api/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: csrfHeaders(),
       credentials: "include",
       body: JSON.stringify({ email, password }),
     });
@@ -82,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = useCallback(async (email: string, password: string, displayName?: string, inviteCode?: string) => {
     const res = await fetch("/api/auth/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: csrfHeaders(),
       credentials: "include",
       body: JSON.stringify({ email, password, displayName, inviteCode }),
     });
@@ -97,6 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     await fetch("/api/auth/logout", {
       method: "POST",
+      headers: csrfHeaders(),
       credentials: "include",
     });
     setUser(null);

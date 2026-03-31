@@ -1,5 +1,14 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
+
+function getCsrfToken(): string | null {
+  const match = document.cookie.match(/(?:^|;\s*)axtask\.csrf=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+function csrfHeaders(): Record<string, string> {
+  const token = getCsrfToken();
+  return token ? { "Content-Type": "application/json", "x-csrf-token": token } : { "Content-Type": "application/json" };
+}
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SecureInput } from "@/components/ui/secure-input";
@@ -167,6 +176,7 @@ export default function LoginPage() {
         missing_code: "Authentication failed — no authorization code received.",
         session_failed: "Authentication succeeded but session creation failed.",
         auth_failed: "Authentication failed. Please try again.",
+        account_suspended: "This account has been suspended. Contact an administrator for assistance.",
         google_not_configured: "Google sign-in is not available. Please use another sign-in method.",
         workos_not_configured: "WorkOS sign-in is not available. Please use another sign-in method.",
         replit_not_configured: "Replit sign-in is not available. Please use another sign-in method.",
@@ -271,7 +281,7 @@ export default function LoginPage() {
     setError(""); setSubmitting(true);
     try {
       const res = await fetch("/api/auth/forgot-password", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: csrfHeaders(),
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
@@ -297,7 +307,7 @@ export default function LoginPage() {
     setError(""); setSubmitting(true);
     try {
       const res = await fetch("/api/auth/security-question", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: csrfHeaders(),
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
@@ -314,7 +324,7 @@ export default function LoginPage() {
     setError(""); setSubmitting(true);
     try {
       const res = await fetch("/api/auth/verify-security-answer", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: csrfHeaders(),
         body: JSON.stringify({ email, answer: securityAnswer }),
       });
       const data = await res.json();
@@ -338,7 +348,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const res = await fetch("/api/auth/reset-password", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: csrfHeaders(),
         body: JSON.stringify({ token: resetToken, newPassword }),
       });
       const data = await res.json();

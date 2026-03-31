@@ -151,6 +151,7 @@ export async function recordFailedLogin(email: string): Promise<void> {
   if (attempts >= MAX_FAILED_ATTEMPTS) {
     update.lockedUntil = new Date(Date.now() + LOCKOUT_DURATION_MS);
     console.warn(`[SECURITY] Account locked: ${email} after ${attempts} failed attempts`);
+    await logSecurityEvent("account_locked", user.id, undefined, undefined, `Account locked after ${attempts} failed attempts`);
   }
 
   await db

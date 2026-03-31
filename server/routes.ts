@@ -53,11 +53,19 @@ const registerLimiter = rateLimit({
   message: { message: "Too many registration attempts — try again in 1 hour" },
 });
 
+function userOrIpKey(req: any): string {
+  if (req.user?.id) return `user:${req.user.id}`;
+  const forwarded = req.headers["x-forwarded-for"];
+  const addr = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.socket?.remoteAddress;
+  return addr || "unknown";
+}
+
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: userOrIpKey,
   message: { message: "Too many requests — slow down" },
 });
 
@@ -66,6 +74,7 @@ const voiceLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: userOrIpKey,
   message: { message: "Too many voice requests — try again shortly" },
 });
 
@@ -74,6 +83,7 @@ const uploadLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: userOrIpKey,
   message: { message: "Too many uploads — try again shortly" },
 });
 
@@ -231,9 +241,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ message: "If that email exists, a reset link has been sent.", method: "email" });
       }
 
-      // In production, send email here. For local dev, log the token.
       const resetUrl = `${req.protocol}://${req.get("host")}/?reset_token=${result.token}`;
       console.log(`[PASSWORD RESET] Token for ${email}: ${resetUrl}`);
+      await logSecurityEvent("password_reset_requested", undefined, undefined, req.ip, `Reset requested for: ${email}`);
 
       // Check if security question is available as fallback
       const hasSecurityQuestion = !!user.securityQuestion;
@@ -306,9 +316,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const success = await consumeResetToken(token, newPassword);
       if (!success) {
+        await logSecurityEvent("password_reset_failed", undefined, undefined, req.ip, "Invalid or expired reset token");
         return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 
+      await logSecurityEvent("password_reset_completed", undefined, undefined, req.ip);
       res.json({ message: "Password has been reset successfully" });
     } catch (error) {
       res.status(500).json({ message: "Password reset failed" });
@@ -332,6 +344,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
+      await logSecurityEvent("admin_password_reset", req.user!.id, undefined, req.ip, `Admin reset password for: ${targetEmail}`);
       res.json({ message: `Password reset for ${targetEmail}` });
     } catch (error) {
       res.status(500).json({ message: "Admin password reset failed" });
@@ -1050,6 +1063,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!question || typeof question !== "string") {
         return res.status(400).json({ message: "Question is required" });
       }
+      if (question.length > 500) {
+        return res.status(400).json({ message: "Question must be under 500 characters" });
+      }
 
       const userId = req.user!.id;
       const allTasks = await storage.getTasks(userId);
@@ -1070,13 +1086,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!transcript || typeof transcript !== "string") {
         return res.status(400).json({ message: "Transcript is required" });
       }
+      if (transcript.length > 1000) {
+        return res.status(400).json({ message: "Transcript must be under 1000 characters" });
+      }
+      const sanitizedTranscript = transcript.replace(/<[^>]*>/g, "").trim();
 
       const userId = req.user!.id;
       const allTasks = await storage.getTasks(userId);
       const now = new Date();
       const todayStr = now.toISOString().split("T")[0];
 
-      const result = await dispatchVoiceCommand(transcript, allTasks, userId, todayStr, now);
+      const result = await dispatchVoiceCommand(sanitizedTranscript, allTasks, userId, todayStr, now);
       res.json(result);
     } catch (error) {
       console.error("Voice processing error:", error);

@@ -169,9 +169,10 @@ export default function AdminPage() {
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground truncate">{u.email}</p>
-                        {u.isBanned && u.banReason && (
+                        {u.isBanned && (
                           <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                            Reason: {u.banReason}
+                            {u.banReason && <>Reason: {u.banReason}</>}
+                            {u.bannedAt && <> · Banned {new Date(u.bannedAt).toLocaleDateString()}</>}
                           </p>
                         )}
                       </div>
