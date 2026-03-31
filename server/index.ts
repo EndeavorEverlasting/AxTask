@@ -190,7 +190,12 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
+  app.get("/healthz", (_req, res) => {
+    res.status(200).send("ok");
+  });
+
   const port = parseInt(process.env.PORT || '5000', 10);
+  console.log(`[startup] NODE_ENV=${process.env.NODE_ENV}, binding to port ${port}`);
 
   const killPortAndListen = async (targetPort: number, retries = 2): Promise<void> => {
     return new Promise((resolve, reject) => {
