@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
-import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw, Loader2 as RefreshLoader, Repeat } from "lucide-react";
+import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw, Loader2 as RefreshLoader, Repeat, Paintbrush } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -40,6 +40,36 @@ import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'manual';
 type SortDirection = 'asc' | 'desc';
+type HighlightMode = 'none' | 'priority' | 'classification';
+
+function getPriorityRowColor(priority: string): string {
+  switch (priority) {
+    case "Highest": return "border-l-4 border-l-red-500 bg-red-50/40 dark:bg-red-950/20";
+    case "High": return "border-l-4 border-l-orange-500 bg-orange-50/40 dark:bg-orange-950/20";
+    case "Medium-High": return "border-l-4 border-l-yellow-500 bg-yellow-50/40 dark:bg-yellow-950/20";
+    case "Medium": return "border-l-4 border-l-blue-500 bg-blue-50/40 dark:bg-blue-950/20";
+    case "Low": return "border-l-4 border-l-gray-400 bg-gray-50/40 dark:bg-gray-800/30";
+    default: return "border-l-4 border-l-gray-300";
+  }
+}
+
+function getClassificationRowColor(classification: string): string {
+  switch (classification) {
+    case "Crisis": return "border-l-4 border-l-red-500 bg-red-50/40 dark:bg-red-950/20";
+    case "Development": return "border-l-4 border-l-blue-500 bg-blue-50/40 dark:bg-blue-950/20";
+    case "Meeting": return "border-l-4 border-l-green-500 bg-green-50/40 dark:bg-green-950/20";
+    case "Administrative": return "border-l-4 border-l-purple-500 bg-purple-50/40 dark:bg-purple-950/20";
+    case "Research": return "border-l-4 border-l-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20";
+    case "Maintenance": return "border-l-4 border-l-teal-500 bg-teal-50/40 dark:bg-teal-950/20";
+    default: return "border-l-4 border-l-gray-300 bg-gray-50/40 dark:bg-gray-800/30";
+  }
+}
+
+function getRowHighlight(task: Task, mode: HighlightMode): string {
+  if (mode === "priority") return getPriorityRowColor(task.priority);
+  if (mode === "classification") return getClassificationRowColor(task.classification);
+  return "";
+}
 
 const VIRTUALIZE_THRESHOLD = 100;
 
@@ -92,6 +122,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
   isUpdating,
   isDeleting,
   reducedMotion,
+  highlightMode = "none",
 }: {
   task: Task;
   isDragMode: boolean;
@@ -101,6 +132,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
   isUpdating: boolean;
   isDeleting: boolean;
   reducedMotion: boolean;
+  highlightMode?: HighlightMode;
 }) {
   const {
     attributes,
@@ -169,7 +201,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
       animate="animate"
       exit="exit"
       transition={{ duration: 0.2, type: "spring", stiffness: 400, damping: 30 }}
-      className={`hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${isDragging ? `bg-blue-50 dark:bg-blue-900/20 shadow-lg ${reducedMotion ? "" : "scale-[1.02]"}` : ""} ${flashClass}`}
+      className={`hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${isDragging ? `bg-blue-50 dark:bg-blue-900/20 shadow-lg ${reducedMotion ? "" : "scale-[1.02]"}` : ""} ${flashClass} ${getRowHighlight(task, highlightMode)}`}
       onClick={() => !isDragMode && onEdit(task)}
     >
       {isDragMode && (
@@ -253,7 +285,8 @@ const SortableTaskRow = memo(function SortableTaskRow({
     prev.isDragMode === next.isDragMode &&
     prev.isUpdating === next.isUpdating &&
     prev.isDeleting === next.isDeleting &&
-    prev.reducedMotion === next.reducedMotion
+    prev.reducedMotion === next.reducedMotion &&
+    prev.highlightMode === next.highlightMode
   );
 });
 
@@ -268,6 +301,7 @@ function VirtualizedTaskTable({
   sortField,
   sortDirection,
   handleSort,
+  highlightMode = "none",
 }: {
   tasks: Task[];
   isDragMode: boolean;
@@ -279,6 +313,7 @@ function VirtualizedTaskTable({
   sortField: SortField;
   sortDirection: SortDirection;
   handleSort: (field: SortField) => void;
+  highlightMode?: HighlightMode;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const ROW_HEIGHT = 52;
@@ -355,6 +390,7 @@ function VirtualizedTaskTable({
                   isUpdating={isUpdating}
                   isDeleting={isDeleting}
                   reducedMotion={true}
+                  highlightMode={highlightMode}
                 />
               );
             })}
@@ -377,6 +413,7 @@ function MobileTaskCard({
   onDelete,
   isUpdating,
   isDeleting,
+  highlightMode = "none",
 }: {
   task: Task;
   onEdit: (task: Task) => void;
@@ -384,6 +421,7 @@ function MobileTaskCard({
   onDelete: (id: string) => void;
   isUpdating: boolean;
   isDeleting: boolean;
+  highlightMode?: HighlightMode;
 }) {
   const [swipeX, setSwipeX] = useState(0);
   const [swiping, setSwiping] = useState(false);
@@ -430,7 +468,7 @@ function MobileTaskCard({
         <Trash2 className="h-6 w-6 text-white" />
       </div>
       <div
-        className="relative p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-xl transition-transform"
+        className={`relative p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-xl transition-transform ${getRowHighlight(task, highlightMode)}`}
         style={{ transform: `translateX(${swipeX}px)`, transition: swiping ? "none" : "transform 0.3s ease" }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -558,6 +596,7 @@ export function TaskList() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isDragMode, setIsDragMode] = useState(false);
+  const [highlightMode, setHighlightMode] = useState<HighlightMode>("none");
   const reducedMotion = useReducedMotion();
   const { consumeVoiceSearch } = useVoice();
   const mobileScrollRef = useRef<HTMLDivElement | null>(null);
@@ -828,6 +867,17 @@ export function TaskList() {
                   <SelectItem value="completed">Completed</SelectItem>
                 </SelectContent>
               </Select>
+              {isMobile && (
+                <Button
+                  variant={highlightMode !== "none" ? "default" : "outline"}
+                  size="icon"
+                  className="h-10 w-10 shrink-0"
+                  title={`Highlight: ${highlightMode === "none" ? "Off" : highlightMode === "priority" ? "By Priority" : "By Classification"}`}
+                  onClick={() => setHighlightMode(prev => prev === "none" ? "priority" : prev === "priority" ? "classification" : "none")}
+                >
+                  <Paintbrush className="h-4 w-4" />
+                </Button>
+              )}
             </div>
             {!isMobile && (
               <div className="flex items-center space-x-3">
@@ -860,6 +910,15 @@ export function TaskList() {
                   <RotateCcw className="h-4 w-4 mr-2" />
                   {recalculatePrioritiesMutation.isPending ? "Recalculating..." : "Recalculate"}
                 </Button>
+                <Button
+                  variant={highlightMode !== "none" ? "default" : "outline"}
+                  size="sm"
+                  title={`Highlight: ${highlightMode === "none" ? "Off" : highlightMode === "priority" ? "By Priority" : "By Classification"}`}
+                  onClick={() => setHighlightMode(prev => prev === "none" ? "priority" : prev === "priority" ? "classification" : "none")}
+                >
+                  <Paintbrush className="h-4 w-4 mr-2" />
+                  {highlightMode === "none" ? "Highlight" : highlightMode === "priority" ? "Priority" : "Class"}
+                </Button>
               </div>
             )}
           </div>
@@ -890,6 +949,7 @@ export function TaskList() {
                   onDelete={handleDelete}
                   isUpdating={updateTaskStatusMutation.isPending}
                   isDeleting={deleteTaskMutation.isPending}
+                  highlightMode={highlightMode}
                 />
               ))}
             </div>
@@ -908,6 +968,7 @@ export function TaskList() {
                 sortField={sortField}
                 sortDirection={sortDirection}
                 handleSort={handleSort}
+                highlightMode={highlightMode}
               />
             ) : (
               <div className="overflow-x-auto">
@@ -968,6 +1029,7 @@ export function TaskList() {
                             isUpdating={updateTaskStatusMutation.isPending}
                             isDeleting={deleteTaskMutation.isPending}
                             reducedMotion={reducedMotion}
+                            highlightMode={highlightMode}
                           />
                         ))}
                       </AnimatePresence>
