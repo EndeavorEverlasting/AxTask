@@ -174,11 +174,12 @@ export default function LoginPage() {
         session_failed: "Authentication succeeded but session creation failed.",
         auth_failed: "Authentication failed. Please try again.",
         account_suspended: "This account has been suspended. Contact an administrator for assistance.",
-        google_not_configured: "Google sign-in is not available. Please use another sign-in method.",
-        workos_not_configured: "WorkOS sign-in is not available. Please use another sign-in method.",
-        replit_not_configured: "Replit sign-in is not available. Please use another sign-in method.",
+        google_not_configured: "Google sign-in is not available. Please use email & password instead.",
+        workos_not_configured: "WorkOS sign-in is not available. Please use email & password instead.",
+        replit_not_configured: "Replit sign-in is not available. Please use email & password instead.",
       };
       setError(messages[oauthError] || `Authentication error: ${oauthError}`);
+      setShowForm(true);
       window.history.replaceState({}, "", "/");
     }
     const token = params.get("reset_token");
