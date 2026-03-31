@@ -412,7 +412,14 @@ export async function importBundle(
           const pkCol = (table as Record<string, unknown>)[pkField];
           if (pkCol) {
             const [existing] = await db.select().from(table as AnyPgTable).where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);
-            if (existing) conflictCount++;
+            if (existing) {
+              conflictCount++;
+              continue;
+            }
+          }
+          if (tableName === "users" && row.email) {
+            const [emailConflict] = await db.select().from(users).where(eq(users.email, String(row.email))).limit(1);
+            if (emailConflict) conflictCount++;
           }
         }
 

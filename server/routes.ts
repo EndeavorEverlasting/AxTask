@@ -1618,6 +1618,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/export/:userId", requireAdmin, migrationLimiter, async (req, res) => {
     try {
       const bundle = await exportUserData(req.params.userId, { adminMode: true });
+
+      await logSecurityEvent(
+        "data_export",
+        req.user!.id,
+        req.params.userId,
+        req.ip,
+        `User data export for ${req.params.userId.slice(0, 8)}... (${Object.values(bundle.metadata.tableCounts).reduce((a: number, b: number) => a + b, 0)} records)`
+      );
+
       res.setHeader("Content-Type", "application/json");
       res.setHeader(
         "Content-Disposition",
