@@ -12,7 +12,7 @@
 import { WorkOS } from "@workos-inc/node";
 import * as oidcClient from "openid-client";
 import type { Express, Request, Response } from "express";
-import { findOrCreateOAuthUser } from "./storage";
+import { findOrCreateOAuthUser, isUserBanned, logSecurityEvent } from "./storage";
 import { randomBytes } from "crypto";
 import memoize from "memoizee";
 
@@ -117,7 +117,6 @@ export function registerOAuthRoutes(app: Express) {
         clientId: process.env.WORKOS_CLIENT_ID!,
       });
 
-      // Find or create local user linked to WorkOS
       const user = await findOrCreateOAuthUser({
         email: workosUser.email,
         displayName: `${workosUser.firstName || ""} ${workosUser.lastName || ""}`.trim() || undefined,
@@ -125,7 +124,12 @@ export function registerOAuthRoutes(app: Express) {
         providerId: workosUser.id,
       });
 
-      // Create session via Passport
+      const banStatus = await isUserBanned(workosUser.email);
+      if (banStatus.banned) {
+        await logSecurityEvent("login_banned_attempt", undefined, undefined, req.ip, `Banned user tried OAuth login: ${workosUser.email}`);
+        return res.redirect("/?error=account_suspended");
+      }
+
       req.login(user, (err) => {
         if (err) {
           console.error("[auth] Session creation error:", err);
@@ -208,6 +212,12 @@ export function registerOAuthRoutes(app: Express) {
         provider: "google",
         providerId: gUser.sub,
       });
+
+      const banStatus = await isUserBanned(gUser.email);
+      if (banStatus.banned) {
+        await logSecurityEvent("login_banned_attempt", undefined, undefined, req.ip, `Banned user tried Google login: ${gUser.email}`);
+        return res.redirect("/?error=account_suspended");
+      }
 
       req.login(user, (err) => {
         if (err) return res.redirect("/?error=session_failed");
@@ -295,6 +305,12 @@ export function registerOAuthRoutes(app: Express) {
       delete (req.session as any).oauthState;
       delete (req.session as any).oauthNonce;
       delete (req.session as any).pkceCodeVerifier;
+
+      const banStatus = await isUserBanned(claims.email as string);
+      if (banStatus.banned) {
+        await logSecurityEvent("login_banned_attempt", undefined, undefined, req.ip, `Banned user tried Replit login: ${claims.email}`);
+        return res.redirect("/?error=account_suspended");
+      }
 
       req.login(user, (err) => {
         if (err) {

@@ -20,6 +20,7 @@ import {
   ClipboardList,
   GraduationCap,
   Brain,
+  Shield,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -50,6 +51,7 @@ export function Sidebar() {
     { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },
     { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
+    ...(user?.role === "admin" ? [{ path: "/admin", icon: Shield, label: "Security Admin" }] : []),
   ];
 
   const isActiveRoute = (path: string) => {

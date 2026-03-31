@@ -58,8 +58,26 @@ if (!isDev) {
   });
 }
 
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: false, limit: "50mb" }));
+app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: false, limit: "2mb" }));
+
+if (!isDev) {
+  app.use("/api", (req, res, next) => {
+    if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+      return next();
+    }
+    const origin = req.get("origin");
+    const referer = req.get("referer");
+    const allowed = [`https://${productionDomain}`];
+    if (origin && !allowed.some((a) => origin.startsWith(a))) {
+      return res.status(403).json({ message: "Forbidden — invalid origin" });
+    }
+    if (!origin && referer && !allowed.some((a) => referer.startsWith(a))) {
+      return res.status(403).json({ message: "Forbidden — invalid referer" });
+    }
+    next();
+  });
+}
 
 setupAuth(app);
 

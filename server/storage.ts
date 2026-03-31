@@ -1,6 +1,6 @@
-import { tasks, users, passwordResetTokens, type Task, type InsertTask, type UpdateTask, type User, type SafeUser } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, or, asc, lt, count, avg, sql } from "drizzle-orm";
+import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 
@@ -304,6 +304,91 @@ export async function cleanupExpiredTokens(): Promise<void> {
   await db
     .delete(passwordResetTokens)
     .where(lt(passwordResetTokens.expiresAt, cutoff));
+}
+
+// ─── Ban / Unban ────────────────────────────────────────────────────────────
+
+export async function banUser(
+  targetUserId: string,
+  bannedByUserId: string,
+  reason: string
+): Promise<boolean> {
+  const [user] = await db.select().from(users).where(eq(users.id, targetUserId));
+  if (!user) return false;
+  if (user.role === "admin") return false;
+
+  await db
+    .update(users)
+    .set({
+      isBanned: true,
+      banReason: reason,
+      bannedAt: new Date(),
+      bannedBy: bannedByUserId,
+    })
+    .where(eq(users.id, targetUserId));
+
+  await logSecurityEvent("user_banned", bannedByUserId, targetUserId, undefined, reason);
+  return true;
+}
+
+export async function unbanUser(
+  targetUserId: string,
+  unbannedByUserId: string
+): Promise<boolean> {
+  const [user] = await db.select().from(users).where(eq(users.id, targetUserId));
+  if (!user) return false;
+
+  await db
+    .update(users)
+    .set({
+      isBanned: false,
+      banReason: null,
+      bannedAt: null,
+      bannedBy: null,
+    })
+    .where(eq(users.id, targetUserId));
+
+  await logSecurityEvent("user_unbanned", unbannedByUserId, targetUserId);
+  return true;
+}
+
+export async function getAllUsers(): Promise<SafeUser[]> {
+  const rows = await db.select().from(users).orderBy(asc(users.createdAt));
+  return rows.map(toSafeUser);
+}
+
+export async function isUserBanned(email: string): Promise<{ banned: boolean; reason?: string }> {
+  const user = await getUserByEmail(email);
+  if (!user) return { banned: false };
+  if (user.isBanned) return { banned: true, reason: user.banReason || undefined };
+  return { banned: false };
+}
+
+// ─── Security Audit Logging ─────────────────────────────────────────────────
+
+export async function logSecurityEvent(
+  eventType: string,
+  userId?: string,
+  targetUserId?: string,
+  ipAddress?: string,
+  details?: string
+): Promise<void> {
+  await db.insert(securityLogs).values({
+    id: randomUUID(),
+    eventType,
+    userId: userId || null,
+    targetUserId: targetUserId || null,
+    ipAddress: ipAddress || null,
+    details: details || null,
+  });
+}
+
+export async function getSecurityLogs(limit = 100): Promise<SecurityLog[]> {
+  return db
+    .select()
+    .from(securityLogs)
+    .orderBy(desc(securityLogs.createdAt))
+    .limit(limit);
 }
 
 // ─── Task storage ────────────────────────────────────────────────────────────

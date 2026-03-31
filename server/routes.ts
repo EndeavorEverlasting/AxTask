@@ -9,6 +9,8 @@ import {
   createResetToken, verifyResetToken, consumeResetToken,
   setSecurityQuestion, getSecurityQuestion, verifySecurityAnswer,
   adminResetPassword,
+  banUser, unbanUser, getAllUsers, isUserBanned,
+  logSecurityEvent, getSecurityLogs,
 } from "./storage";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask } from "@shared/schema";
@@ -43,13 +45,36 @@ const authLimiter = rateLimit({
   // use default keyGenerator (handles IPv6 correctly)
 });
 
-// Registration limiter — even stricter: 3 per hour per IP
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 3,
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: "Too many registration attempts — try again in 1 hour" },
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many requests — slow down" },
+});
+
+const voiceLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many voice requests — try again shortly" },
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many uploads — try again shortly" },
 });
 
 // ── Invite-code / registration gate ─────────────────────────────────────────
@@ -102,9 +127,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/login", authLimiter, async (req: Request, res: Response, next) => {
     try {
-      // ── Account lockout check ────────────────────────────────────────
       const { email } = req.body;
       if (email) {
+        const banStatus = await isUserBanned(email);
+        if (banStatus.banned) {
+          await logSecurityEvent("login_banned_attempt", undefined, undefined, req.ip, `Banned user tried to login: ${email}`);
+          return res.status(403).json({
+            message: "This account has been suspended. Contact an administrator for assistance.",
+          });
+        }
+
         const dbUser = await getUserByEmail(email);
         if (dbUser?.lockedUntil && new Date(dbUser.lockedUntil) > new Date()) {
           const mins = Math.ceil((new Date(dbUser.lockedUntil).getTime() - Date.now()) / 60000);
@@ -117,12 +149,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       passport.authenticate("local", async (err: any, user: any, info: any) => {
         if (err) return next(err);
         if (!user) {
-          // Record the failed attempt
-          if (email) await recordFailedLogin(email);
+          if (email) {
+            await recordFailedLogin(email);
+            await logSecurityEvent("login_failed", undefined, undefined, req.ip, `Failed login for: ${email}`);
+          }
           return res.status(401).json({ message: info?.message || "Invalid credentials" });
         }
-        // Successful login — reset failed attempts
         await resetFailedLogins(user.email);
+        await logSecurityEvent("login_success", user.id, undefined, req.ip);
         req.login(user, (err) => {
           if (err) return next(err);
           res.json(user);
@@ -146,14 +180,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/auth/me", (req: Request, res: Response) => {
-    // Prevent browser from caching auth state — critical for back-button after logout
     res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
     res.set("Pragma", "no-cache");
-    if (req.isAuthenticated()) {
-      res.json(req.user);
-    } else {
-      res.status(401).json({ message: "Not authenticated" });
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
     }
+    if ((req.user as any)?.isBanned) {
+      req.logout(() => {});
+      return res.status(403).json({ message: "This account has been suspended." });
+    }
+    res.json(req.user);
   });
 
   // Return registration mode + auth provider so the UI can adapt
@@ -334,7 +370,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   //  Task routes (protected — require login)
   // ════════════════════════════════════════════════════════════════════════
 
-  // Get all tasks
+  app.use("/api/tasks", apiLimiter);
+
   app.get("/api/tasks", requireAuth, async (req, res) => {
     try {
       const tasks = await storage.getTasks(req.user!.id);
@@ -918,6 +955,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return false;
   }
 
+  app.use("/api/planner", apiLimiter);
+
   app.get("/api/planner/briefing", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
@@ -1025,7 +1064,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/voice/process", requireAuth, async (req, res) => {
+  app.post("/api/voice/process", voiceLimiter, requireAuth, async (req, res) => {
     try {
       const { transcript } = req.body;
       if (!transcript || typeof transcript !== "string") {
@@ -1042,6 +1081,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Voice processing error:", error);
       res.status(500).json({ message: "Failed to process voice command" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Admin routes (protected — require admin role)
+  // ════════════════════════════════════════════════════════════════════════
+
+  function requireAdmin(req: Request, res: Response, next: any) {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    if (req.user!.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    next();
+  }
+
+  app.get("/api/admin/users", requireAdmin, async (req, res) => {
+    try {
+      const userList = await getAllUsers();
+      res.json(userList);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.post("/api/admin/users/:userId/ban", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { reason } = req.body;
+      if (!reason || typeof reason !== "string" || reason.trim().length < 3) {
+        return res.status(400).json({ message: "Ban reason is required (min 3 characters)" });
+      }
+      if (userId === req.user!.id) {
+        return res.status(400).json({ message: "You cannot ban yourself" });
+      }
+
+      const success = await banUser(userId, req.user!.id, reason.trim());
+      if (!success) {
+        return res.status(400).json({ message: "Cannot ban this user (not found or is an admin)" });
+      }
+      res.json({ message: "User has been banned" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to ban user" });
+    }
+  });
+
+  app.post("/api/admin/users/:userId/unban", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const success = await unbanUser(userId, req.user!.id);
+      if (!success) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.json({ message: "User has been unbanned" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to unban user" });
+    }
+  });
+
+  app.get("/api/admin/security-logs", requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+      const logs = await getSecurityLogs(limit);
+      res.json(logs);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch security logs" });
     }
   });
 

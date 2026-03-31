@@ -106,11 +106,14 @@ export function setupAuth(app: Express) {
   });
 }
 
-// ── Middleware: require authentication ────────────────────────────────────
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (req.isAuthenticated()) {
-    return next();
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ message: "Not authenticated" });
   }
-  res.status(401).json({ message: "Not authenticated" });
+  if ((req.user as any)?.isBanned) {
+    req.logout(() => {});
+    return res.status(403).json({ message: "This account has been suspended." });
+  }
+  next();
 }
 

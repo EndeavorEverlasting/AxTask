@@ -1,0 +1,278 @@
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth-context";
+import { useToast } from "@/hooks/use-toast";
+import type { SafeUser, SecurityLog } from "@shared/schema";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Shield, ShieldOff, Users, ScrollText, AlertTriangle, Search } from "lucide-react";
+
+export default function AdminPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [banTarget, setBanTarget] = useState<SafeUser | null>(null);
+  const [banReason, setBanReason] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const { data: users = [], isLoading: usersLoading } = useQuery<SafeUser[]>({
+    queryKey: ["/api/admin/users"],
+    enabled: user?.role === "admin",
+  });
+
+  const { data: logs = [], isLoading: logsLoading } = useQuery<SecurityLog[]>({
+    queryKey: ["/api/admin/security-logs"],
+    enabled: user?.role === "admin",
+  });
+
+  const banMutation = useMutation({
+    mutationFn: async ({ userId, reason }: { userId: string; reason: string }) => {
+      await apiRequest("POST", `/api/admin/users/${userId}/ban`, { reason });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/security-logs"] });
+      toast({ title: "User banned", description: "The user account has been suspended." });
+      setBanTarget(null);
+      setBanReason("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Ban failed", description: err.message || "Could not ban user", variant: "destructive" });
+    },
+  });
+
+  const unbanMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      await apiRequest("POST", `/api/admin/users/${userId}/unban`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/security-logs"] });
+      toast({ title: "User unbanned", description: "The user account has been restored." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Unban failed", description: err.message || "Could not unban user", variant: "destructive" });
+    },
+  });
+
+  if (user?.role !== "admin") {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertTriangle className="h-12 w-12 mx-auto text-yellow-500 mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
+            <p className="text-muted-foreground">You need administrator privileges to view this page.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const filteredUsers = users.filter(
+    (u) =>
+      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (u.displayName || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const bannedCount = users.filter((u) => u.isBanned).length;
+
+  return (
+    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+      <div className="flex items-center gap-3">
+        <Shield className="h-7 w-7 text-primary" />
+        <h1 className="text-2xl font-bold dark:text-white">Security Admin</h1>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Users className="h-5 w-5 text-blue-500" />
+              <div>
+                <p className="text-2xl font-bold dark:text-white">{users.length}</p>
+                <p className="text-sm text-muted-foreground">Total Users</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <ShieldOff className="h-5 w-5 text-red-500" />
+              <div>
+                <p className="text-2xl font-bold dark:text-white">{bannedCount}</p>
+                <p className="text-sm text-muted-foreground">Banned Users</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <ScrollText className="h-5 w-5 text-green-500" />
+              <div>
+                <p className="text-2xl font-bold dark:text-white">{logs.length}</p>
+                <p className="text-sm text-muted-foreground">Security Events</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs defaultValue="users">
+        <TabsList>
+          <TabsTrigger value="users">User Management</TabsTrigger>
+          <TabsTrigger value="logs">Security Logs</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="users" className="space-y-4">
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search users..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          {usersLoading ? (
+            <p className="text-muted-foreground">Loading users...</p>
+          ) : (
+            <div className="space-y-2">
+              {filteredUsers.map((u) => (
+                <Card key={u.id} className={u.isBanned ? "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/20" : ""}>
+                  <CardContent className="py-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium truncate dark:text-white">
+                            {u.displayName || u.email}
+                          </p>
+                          <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-xs">
+                            {u.role}
+                          </Badge>
+                          {u.isBanned && (
+                            <Badge variant="destructive" className="text-xs">Banned</Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground truncate">{u.email}</p>
+                        {u.isBanned && u.banReason && (
+                          <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                            Reason: {u.banReason}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0 ml-4">
+                      {u.role !== "admin" && u.id !== user?.id && (
+                        u.isBanned ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => unbanMutation.mutate(u.id)}
+                            disabled={unbanMutation.isPending}
+                          >
+                            <ShieldOff className="h-4 w-4 mr-1" />
+                            Unban
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => { setBanTarget(u); setBanReason(""); }}
+                          >
+                            <Shield className="h-4 w-4 mr-1" />
+                            Ban
+                          </Button>
+                        )
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {filteredUsers.length === 0 && (
+                <p className="text-center text-muted-foreground py-8">No users found</p>
+              )}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="logs" className="space-y-4">
+          {logsLoading ? (
+            <p className="text-muted-foreground">Loading security logs...</p>
+          ) : logs.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">No security events logged yet</p>
+          ) : (
+            <div className="space-y-1">
+              {logs.map((log) => (
+                <div
+                  key={log.id}
+                  className="flex items-start gap-3 py-2 px-3 rounded-md hover:bg-muted/50 text-sm"
+                >
+                  <Badge
+                    variant={
+                      log.eventType.includes("banned") || log.eventType.includes("failed")
+                        ? "destructive"
+                        : log.eventType.includes("success") || log.eventType.includes("unbanned")
+                        ? "default"
+                        : "secondary"
+                    }
+                    className="text-xs shrink-0 mt-0.5"
+                  >
+                    {log.eventType}
+                  </Badge>
+                  <div className="min-w-0 flex-1">
+                    {log.details && <p className="text-muted-foreground truncate">{log.details}</p>}
+                    <p className="text-xs text-muted-foreground">
+                      {log.createdAt ? new Date(log.createdAt).toLocaleString() : "—"}
+                      {log.ipAddress && ` · ${log.ipAddress}`}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={!!banTarget} onOpenChange={(open) => !open && setBanTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ban User</DialogTitle>
+            <DialogDescription>
+              Ban <strong>{banTarget?.displayName || banTarget?.email}</strong>? They will not be able to log in until unbanned.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            placeholder="Reason for ban (required)"
+            value={banReason}
+            onChange={(e) => setBanReason(e.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBanTarget(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={banReason.trim().length < 3 || banMutation.isPending}
+              onClick={() => banTarget && banMutation.mutate({ userId: banTarget.id, reason: banReason })}
+            >
+              Confirm Ban
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
