@@ -304,6 +304,24 @@ function remapRow(row: BundleRow, tableName: TableName, pkField: string, idMap: 
   return out;
 }
 
+const UNIQUE_FIELD_CHECKS: Partial<Record<TableName, { field: string; column: typeof users.email }[]>> = {
+  users: [{ field: "email", column: users.email }],
+};
+
+async function checkUniqueConflict(tableName: TableName, row: BundleRow): Promise<boolean> {
+  const checks = UNIQUE_FIELD_CHECKS[tableName];
+  if (!checks) return false;
+  for (const check of checks) {
+    const val = row[check.field];
+    if (val) {
+      const [existing] = await db.select().from(TABLE_MAP[tableName] as typeof users)
+        .where(eq(check.column, String(val))).limit(1);
+      if (existing) return true;
+    }
+  }
+  return false;
+}
+
 async function insertRow(table: DrizzleTable, row: BundleRow): Promise<number> {
   const result = await db.insert(table as typeof users).values(row as typeof users.$inferInsert).onConflictDoNothing();
   return (result as { rowCount?: number }).rowCount ?? 1;
@@ -346,9 +364,22 @@ export async function importBundle(
       }
 
       if (mode === "remap") {
-        inserted[tableName] = rows.length;
-        skipped[tableName] = 0;
-        conflicts[tableName] = 0;
+        let uniqueConflicts = 0;
+        for (const row of rows) {
+          if (await checkUniqueConflict(tableName, row)) {
+            uniqueConflicts++;
+          }
+        }
+        inserted[tableName] = rows.length - uniqueConflicts;
+        skipped[tableName] = uniqueConflicts;
+        conflicts[tableName] = uniqueConflicts;
+        if (uniqueConflicts > 0) {
+          validation.warnings.push({
+            table: tableName, rowIndex: -1, field: "unique",
+            message: `${uniqueConflicts} records have unique constraint conflicts (e.g. duplicate email) and will be skipped`,
+            severity: "warning",
+          });
+        }
       } else {
         const table = TABLE_MAP[tableName];
         const pkField = PK_FIELD[tableName];
@@ -398,6 +429,7 @@ export async function importBundle(
 
     for (let i = 0; i < rows.length; i++) {
       let row = parseTimestamps(rows[i]);
+      const originalRow = rows[i];
 
       if (idMap) {
         row = remapRow(row, tableName, pkField, idMap);
@@ -412,6 +444,22 @@ export async function importBundle(
           skipCount++;
           conflictCount++;
           continue;
+        }
+      }
+
+      if (mode === "remap" && tableName === "users" && idMap) {
+        const email = row.email;
+        if (email) {
+          const [existingUser] = await db.select().from(users).where(eq(users.email, String(email))).limit(1);
+          if (existingUser) {
+            const originalId = originalRow[pkField];
+            if (originalId) {
+              idMap.set(String(originalId), existingUser.id);
+            }
+            skipCount++;
+            conflictCount++;
+            continue;
+          }
         }
       }
 

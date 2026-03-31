@@ -153,12 +153,16 @@ export async function exportUserData(userId: string): Promise<ExportBundle> {
   const collabData = allCollabs.filter((c) => taskIdSet.has(c.taskId as string) && (c.userId as string) === userId);
 
   const allContribs = await queryChunked(classificationContributions);
-  const contribData = allContribs.filter((c) => (c.userId as string) === userId);
+  const contribData = allContribs.filter((c) =>
+    (c.userId as string) === userId && taskIdSet.has(c.taskId as string)
+  );
 
   const contribIdSet = new Set(contribData.map((c) => c.id as string));
   const allConfirms = await queryChunked(classificationConfirmations);
   const confirmData = allConfirms.filter((c) =>
-    (c.userId as string) === userId || contribIdSet.has(c.contributionId as string)
+    contribIdSet.has(c.contributionId as string) &&
+    taskIdSet.has(c.taskId as string) &&
+    (c.userId as string) === userId
   );
 
   const resetTokens = await queryChunked(passwordResetTokens, eq(passwordResetTokens.userId, userId));

@@ -1639,6 +1639,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const importMode = mode === "remap" ? "remap" : "preserve";
+
+      if (!dryRun) {
+        const preCheck = await validateBundleWithDb(bundle);
+        if (preCheck.errors.length > 0) {
+          return res.json({
+            success: false,
+            dryRun: false,
+            mode: importMode,
+            inserted: {},
+            skipped: {},
+            conflicts: preCheck.conflicts,
+            errors: preCheck.errors,
+            warnings: preCheck.warnings,
+          });
+        }
+      }
+
       const result = await importBundle(bundle, { dryRun: !!dryRun, mode: importMode });
 
       if (!dryRun && result.success) {
