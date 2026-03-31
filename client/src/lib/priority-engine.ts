@@ -18,12 +18,17 @@ export class PriorityEngine {
     const combined = (activity + " " + notes).toLowerCase();
     let score = 0;
 
-    // Keyword classification scoring (from original script)
     const criticalKeywords: Record<string, number> = {
       "submit": 4, "deadline": 4, "urgent": 4, "license": 4, "confirm": 3,
       "install": 3, "fix": 3, "setup": 3, "configure": 3, "coord": 3,
       "meeting": 2, "call": 2, "follow": 2, "email": 2, "share": 2,
-      "plan": 1, "research": 1, "review": 1, "update": 1, "test": 3
+      "plan": 1, "research": 1, "review": 1, "update": 1, "test": 3,
+      "upgrade": 2, "replace": 2, "order": 2, "schedule": 2, "prepare": 2,
+      "clean": 1, "organize": 1, "move": 1, "check": 1, "buy": 2,
+      "send": 2, "deliver": 2, "pack": 1, "arrange": 1, "renew": 3,
+      "pay": 3, "transfer": 2, "complete": 1, "finish": 1, "create": 1,
+      "book": 2, "register": 2, "apply": 2, "request": 2, "return": 2,
+      "cancel": 2, "repair": 2, "assemble": 1, "pick": 1, "drop": 1
     };
 
     Object.keys(criticalKeywords).forEach(keyword => {
@@ -77,13 +82,15 @@ export class PriorityEngine {
       score -= 1;
     }
 
-    // Manual override with Urgency × Impact
     if (urgency && impact) {
       const manualScore = (urgency * impact) / 2;
       score = Math.max(score, manualScore);
+    } else if (urgency) {
+      score = Math.max(score, urgency * 0.8);
+    } else if (impact) {
+      score = Math.max(score, impact * 0.8);
     }
 
-    // Effort penalty (higher effort = slight priority reduction)
     if (effort && effort > 3) {
       score = score * 0.9;
     }
@@ -159,7 +166,13 @@ export class PriorityEngine {
       "submit": 4, "deadline": 4, "urgent": 4, "license": 4, "confirm": 3,
       "install": 3, "fix": 3, "setup": 3, "configure": 3, "coord": 3,
       "meeting": 2, "call": 2, "follow": 2, "email": 2, "share": 2,
-      "plan": 1, "research": 1, "review": 1, "update": 1, "test": 3
+      "plan": 1, "research": 1, "review": 1, "update": 1, "test": 3,
+      "upgrade": 2, "replace": 2, "order": 2, "schedule": 2, "prepare": 2,
+      "clean": 1, "organize": 1, "move": 1, "check": 1, "buy": 2,
+      "send": 2, "deliver": 2, "pack": 1, "arrange": 1, "renew": 3,
+      "pay": 3, "transfer": 2, "complete": 1, "finish": 1, "create": 1,
+      "book": 2, "register": 2, "apply": 2, "request": 2, "return": 2,
+      "cancel": 2, "repair": 2, "assemble": 1, "pick": 1, "drop": 1
     };
 
     Object.keys(criticalKeywords).forEach(keyword => {
@@ -201,6 +214,10 @@ export class PriorityEngine {
     if (urgency && impact) {
       const manualScore = (urgency * impact) / 2;
       score = Math.max(score, manualScore);
+    } else if (urgency) {
+      score = Math.max(score, urgency * 0.8);
+    } else if (impact) {
+      score = Math.max(score, impact * 0.8);
     }
 
     if (effort && effort > 3) {
