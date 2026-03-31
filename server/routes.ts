@@ -1593,7 +1593,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.body;
       const bundle = userId
-        ? await exportUserData(userId)
+        ? await exportUserData(userId, { adminMode: true })
         : await exportFullDatabase();
 
       await logSecurityEvent(
@@ -1617,7 +1617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/admin/export/:userId", requireAdmin, migrationLimiter, async (req, res) => {
     try {
-      const bundle = await exportUserData(req.params.userId);
+      const bundle = await exportUserData(req.params.userId, { adminMode: true });
       res.setHeader("Content-Type", "application/json");
       res.setHeader(
         "Content-Disposition",

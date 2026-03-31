@@ -272,6 +272,10 @@ export async function validateBundleWithDb(bundle: ExportBundle): Promise<{
   return { ...base, conflicts };
 }
 
+function remapKey(table: string, id: string): string {
+  return `${table}:${id}`;
+}
+
 function buildIdRemapTable(bundle: ExportBundle): Map<string, string> {
   const remap = new Map<string, string>();
 
@@ -281,8 +285,11 @@ function buildIdRemapTable(bundle: ExportBundle): Map<string, string> {
 
     for (const row of rows) {
       const oldId = row[pkField];
-      if (oldId && !remap.has(String(oldId))) {
-        remap.set(String(oldId), randomUUID());
+      if (oldId) {
+        const key = remapKey(tableName, String(oldId));
+        if (!remap.has(key)) {
+          remap.set(key, randomUUID());
+        }
       }
     }
   }
@@ -294,15 +301,38 @@ function remapRow(row: BundleRow, tableName: TableName, pkField: string, idMap: 
   const out = { ...row };
 
   const oldPk = out[pkField];
-  if (oldPk && idMap.has(String(oldPk))) {
-    out[pkField] = idMap.get(String(oldPk));
+  if (oldPk) {
+    const pkKey = remapKey(tableName, String(oldPk));
+    if (idMap.has(pkKey)) {
+      out[pkField] = idMap.get(pkKey);
+    }
   }
 
-  const fkFields = FK_FIELDS_BY_TABLE[tableName] || [];
-  for (const field of fkFields) {
+  const fkRules = FK_RULES[tableName];
+  for (const rule of fkRules) {
+    const val = out[rule.field];
+    if (val) {
+      const fkKey = remapKey(rule.refTable, String(val));
+      if (idMap.has(fkKey)) {
+        out[rule.field] = idMap.get(fkKey);
+      }
+    }
+  }
+
+  const selfRefFields = FK_FIELDS_BY_TABLE[tableName].filter(
+    f => !fkRules.some(r => r.field === f)
+  );
+  for (const field of selfRefFields) {
     const val = out[field];
-    if (val && idMap.has(String(val))) {
-      out[field] = idMap.get(String(val));
+    if (val) {
+      const selfKey = remapKey(tableName, String(val));
+      if (idMap.has(selfKey)) {
+        out[field] = idMap.get(selfKey);
+      }
+      const usersKey = remapKey("users", String(val));
+      if (idMap.has(usersKey)) {
+        out[field] = idMap.get(usersKey);
+      }
     }
   }
 
@@ -459,7 +489,7 @@ export async function importBundle(
           if (existingUser) {
             const originalId = originalRow[pkField];
             if (originalId) {
-              idMap.set(String(originalId), existingUser.id);
+              idMap.set(remapKey("users", String(originalId)), existingUser.id);
             }
             skipCount++;
             conflictCount++;
@@ -535,7 +565,7 @@ export async function importUserBundle(
 
   const bundleUserIds = getBundleRows(bundle, "users").map((u) => String(u.id));
   for (const oldUserId of bundleUserIds) {
-    idMap.set(oldUserId, targetUserId);
+    idMap.set(remapKey("users", oldUserId), targetUserId);
   }
 
   for (const tableName of TABLE_INSERT_ORDER) {
@@ -544,8 +574,11 @@ export async function importUserBundle(
     const pkField = PK_FIELD[tableName];
     for (const row of rows) {
       const oldId = row[pkField];
-      if (oldId && !idMap.has(String(oldId))) {
-        idMap.set(String(oldId), randomUUID());
+      if (oldId) {
+        const key = remapKey(tableName, String(oldId));
+        if (!idMap.has(key)) {
+          idMap.set(key, randomUUID());
+        }
       }
     }
   }
@@ -555,13 +588,12 @@ export async function importUserBundle(
   const conflicts: Record<string, number> = {};
 
   function hasUnresolvableFks(row: BundleRow, tableName: TableName): boolean {
-    const fkFields = FK_FIELDS_BY_TABLE[tableName] || [];
-    for (const field of fkFields) {
-      const val = row[field];
-      if (val && !idMap.has(String(val))) {
-        const fkRules = FK_RULES[tableName];
-        const rule = fkRules.find(r => r.field === field);
-        if (rule && !rule.nullable) {
+    const fkRules = FK_RULES[tableName];
+    for (const rule of fkRules) {
+      const val = row[rule.field];
+      if (val) {
+        const fkKey = remapKey(rule.refTable, String(val));
+        if (!idMap.has(fkKey) && !rule.nullable) {
           return true;
         }
       }

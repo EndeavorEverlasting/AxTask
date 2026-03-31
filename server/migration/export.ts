@@ -137,7 +137,8 @@ function sanitizeUserRow(row: Record<string, unknown>): Record<string, unknown> 
   return out;
 }
 
-export async function exportUserData(userId: string): Promise<ExportBundle> {
+export async function exportUserData(userId: string, options: { adminMode?: boolean } = {}): Promise<ExportBundle> {
+  const { adminMode = false } = options;
   const [userData] = await db.select().from(users).where(eq(users.id, userId));
   if (!userData) {
     throw new Error(`User ${userId} not found`);
@@ -186,7 +187,7 @@ export async function exportUserData(userId: string): Promise<ExportBundle> {
   const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
 
   const data: Record<string, Record<string, unknown>[]> = {
-    users: serializeRows([sanitizeUserRow(userData as Record<string, unknown>)]),
+    users: serializeRows([adminMode ? (userData as Record<string, unknown>) : sanitizeUserRow(userData as Record<string, unknown>)]),
     rewardsCatalog: serializeRows(filteredCatalog),
     tasks: serializeRows(userTasks),
     wallets: serializeRows(walletData),
