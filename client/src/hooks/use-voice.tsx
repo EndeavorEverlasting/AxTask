@@ -209,10 +209,6 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "m") {
-        const target = e.target as HTMLElement;
-        const isFormField = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
-        if (isFormField) return;
-
         e.preventDefault();
         if (!isBarOpen) {
           setIsBarOpen(true);

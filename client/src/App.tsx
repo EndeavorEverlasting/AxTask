@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -117,23 +117,27 @@ function MobileVoiceFAB() {
 const ROUTE_STORAGE_KEY = "axtask_last_route";
 const VALID_ROUTES = ["/", "/tasks", "/calendar", "/analytics", "/import-export", "/google-sheets", "/checklist", "/planner", "/admin", "/rewards"];
 
-function useRoutePeristence() {
+function useRoutePersistence() {
   const [location, setLocation] = useLocation();
+  const restoredRef = useRef(false);
 
   useEffect(() => {
-    if (location && location !== "/") {
-      localStorage.setItem(ROUTE_STORAGE_KEY, location);
-    }
-  }, [location]);
-
-  useEffect(() => {
-    if (window.location.pathname === "/" || window.location.pathname === "") {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    const pathname = window.location.pathname;
+    if (pathname === "/" || pathname === "") {
       const saved = localStorage.getItem(ROUTE_STORAGE_KEY);
       if (saved && saved !== "/" && VALID_ROUTES.includes(saved)) {
         setLocation(saved);
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (location && location !== "/" && VALID_ROUTES.includes(location)) {
+      localStorage.setItem(ROUTE_STORAGE_KEY, location);
+    }
+  }, [location]);
 }
 
 function AuthenticatedApp() {
@@ -143,7 +147,7 @@ function AuthenticatedApp() {
   const scale = isMobile ? 1 : zoom / 100;
   const [, setLocation] = useLocation();
 
-  useRoutePeristence();
+  useRoutePersistence();
 
   const handleNavigate = useCallback((path: string) => {
     setLocation(path);

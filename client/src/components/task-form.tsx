@@ -83,7 +83,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { onFieldBlur, isHinted } = useFieldFlow();
   const [warningFields, setWarningFields] = useState<Set<string>>(new Set());
   const warningTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const [voiceTarget, setVoiceTarget] = useState<"activity" | "notes">("activity");
+  const [voiceTarget, setVoiceTarget] = useState<"activity" | "notes" | "prerequisites">("activity");
   const [debouncedActivity, setDebouncedActivity] = useState("");
   const [deadlineSuggestion, setDeadlineSuggestion] = useState<{
     suggestedDate: string;
@@ -151,21 +151,23 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     defaultValues: mergedDefaults,
   });
 
-  const addWarning = useCallback((fieldName: string) => {
+  const addWarning = useCallback((fieldName: string, autoExpire = false) => {
     const existing = warningTimers.current.get(fieldName);
     if (existing) clearTimeout(existing);
 
     setWarningFields(prev => new Set(prev).add(fieldName));
 
-    const timer = setTimeout(() => {
-      setWarningFields(prev => {
-        const next = new Set(prev);
-        next.delete(fieldName);
-        return next;
-      });
-      warningTimers.current.delete(fieldName);
-    }, 5000);
-    warningTimers.current.set(fieldName, timer);
+    if (autoExpire) {
+      const timer = setTimeout(() => {
+        setWarningFields(prev => {
+          const next = new Set(prev);
+          next.delete(fieldName);
+          return next;
+        });
+        warningTimers.current.delete(fieldName);
+      }, 5000);
+      warningTimers.current.set(fieldName, timer);
+    }
   }, []);
 
   const clearWarning = useCallback((fieldName: string) => {
@@ -383,6 +385,12 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
         description: "Some fields are empty — highlighted in yellow. You can still submit.",
         variant: "destructive",
       });
+    }
+
+    if (!values.prerequisites || values.prerequisites.trim() === "") {
+      addWarning("prerequisites", true);
+    } else {
+      clearWarning("prerequisites");
     }
 
     form.handleSubmit(onSubmit)();
@@ -900,12 +908,35 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   <FormItem>
                     <FormLabel>Prerequisites</FormLabel>
                     <FormControl>
-                      <Input
-                        placeholder="Dependencies or prerequisites..."
-                        {...field}
-                        className={cn("min-h-[44px]", getFieldClass("prerequisites"))}
-                        onBlur={(e) => { field.onBlur(); onFieldBlur("prerequisites", e.target.value); }}
-                      />
+                      <div className="flex gap-2 items-center">
+                        <div className="relative flex-1">
+                          <Input
+                            placeholder="Dependencies or prerequisites..."
+                            {...field}
+                            className={cn("min-h-[44px]", getFieldClass("prerequisites"), "w-full")}
+                            onFocus={() => { setVoiceTarget("prerequisites"); collab.focusField("prerequisites"); }}
+                            onBlur={(e) => {
+                              field.onBlur();
+                              onFieldBlur("prerequisites", e.target.value);
+                              if (e.target.value.trim()) clearWarning("prerequisites");
+                              collab.blurField();
+                            }}
+                            onChange={(e) => {
+                              field.onChange(e);
+                              if (e.target.value.trim()) clearWarning("prerequisites");
+                            }}
+                          />
+                        </div>
+                        <MicButton
+                          status={voiceTarget === "prerequisites" ? speech.status : "idle"}
+                          isSupported={speech.isSupported}
+                          onClick={() => {
+                            setVoiceTarget("prerequisites");
+                            speech.toggle();
+                          }}
+                          error={speech.error}
+                        />
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -936,7 +967,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     "min-h-[44px]",
                     task 
                       ? "bg-blue-600 hover:bg-blue-700 text-white" 
-                      : "bg-green-600 hover:bg-green-700 text-white"
+                      : "bg-green-600 hover:bg-green-700 text-white field-glow-success"
                   )}
                 >
                   {task ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
