@@ -487,8 +487,22 @@ export async function importBundle(
           }
 
           if (mode === "remap" && tableName !== "users" && skippedUserIds.size > 0) {
-            const rowUserId = originalRow.userId;
-            if (rowUserId && skippedUserIds.has(String(rowUserId))) {
+            const fkRules = FK_RULES[tableName];
+            let referencesSkippedUser = false;
+            for (const rule of fkRules) {
+              if (rule.refTable === "users") {
+                const fkVal = originalRow[rule.field];
+                if (fkVal && skippedUserIds.has(String(fkVal))) {
+                  if (rule.nullable) {
+                    row[rule.field] = null;
+                  } else {
+                    referencesSkippedUser = true;
+                    break;
+                  }
+                }
+              }
+            }
+            if (referencesSkippedUser) {
               skipCount++;
               continue;
             }

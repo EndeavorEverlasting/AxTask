@@ -5,7 +5,9 @@ import {
   userRewards, taskCollaborators, taskPatterns,
   classificationContributions, classificationConfirmations,
 } from "@shared/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, type SQL } from "drizzle-orm";
+import type { PgTable } from "drizzle-orm/pg-core";
+
 export interface ExportMetadata {
   schemaVersion: number;
   exportedAt: string;
@@ -22,16 +24,14 @@ export interface ExportBundle {
 
 const CHUNK_SIZE = 1000;
 
-async function queryChunked(table: Parameters<typeof db.select>[0] extends undefined ? typeof users : never, condition?: Parameters<typeof db.select>[0] extends undefined ? unknown : never): Promise<Record<string, unknown>[]>;
-async function queryChunked(table: unknown, condition?: unknown): Promise<Record<string, unknown>[]> {
+async function queryChunked(table: PgTable, condition?: SQL): Promise<Record<string, unknown>[]> {
   const results: Record<string, unknown>[] = [];
   let offset = 0;
 
   while (true) {
-    const tbl = table as typeof users;
     const baseQuery = condition
-      ? db.select().from(tbl).where(condition as ReturnType<typeof eq>)
-      : db.select().from(tbl);
+      ? db.select().from(table).where(condition)
+      : db.select().from(table);
     const chunk = await baseQuery.limit(CHUNK_SIZE).offset(offset);
     results.push(...(chunk as Record<string, unknown>[]));
     if (chunk.length < CHUNK_SIZE) break;
@@ -174,13 +174,37 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
 
   const confirmData = allConfirms.filter((c) => (c.userId as string) === userId);
 
+  const referencedTaskIds = new Set<string>();
+  for (const c of collabData) {
+    const tid = c.taskId as string;
+    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
+  }
+  for (const c of contribData) {
+    const tid = c.taskId as string;
+    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
+  }
+  for (const c of confirmData) {
+    const tid = c.taskId as string;
+    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
+  }
+
+  let referencedTasks: Record<string, unknown>[] = [];
+  if (referencedTaskIds.size > 0) {
+    const allTasks = await queryChunked(tasks);
+    referencedTasks = allTasks.filter(
+      (t) => referencedTaskIds.has(t.id as string)
+    ) as Record<string, unknown>[];
+  }
+
+  const allTaskRows = [...userTasks, ...referencedTasks];
+
   const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
   const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
 
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows([adminMode ? (userData as Record<string, unknown>) : sanitizeUserRow(userData as Record<string, unknown>)]),
     rewardsCatalog: serializeRows(filteredCatalog),
-    tasks: serializeRows(userTasks),
+    tasks: serializeRows(allTaskRows),
     wallets: serializeRows(walletData),
     coinTransactions: serializeRows(coinTxData),
     userBadges: serializeRows(badgeData),
