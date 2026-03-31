@@ -9,7 +9,7 @@ async function main() {
     console.log("");
     console.log("Usage:");
     console.log("  npx tsx scripts/migrate.ts export [--output file.json] [--user userId]");
-    console.log("  npx tsx scripts/migrate.ts import --file file.json [--dry-run]");
+    console.log("  npx tsx scripts/migrate.ts import --file file.json [--dry-run] [--mode preserve|remap]");
     console.log("");
     console.log("Commands:");
     console.log("  export    Export database to JSON file");
@@ -20,6 +20,7 @@ async function main() {
     console.log("  --user    Export only a specific user's data");
     console.log("  --file    Input file path for import");
     console.log("  --dry-run Validate without writing to database");
+    console.log("  --mode    Import mode: 'preserve' keeps original IDs (default), 'remap' generates new IDs");
     process.exit(1);
   }
 
@@ -30,7 +31,7 @@ async function main() {
   const hasDryRun = args.includes("--dry-run");
 
   const { exportFullDatabase, exportUserData } = await import("../server/migration/export");
-  const { importBundle, validateBundle } = await import("../server/migration/import");
+  const { importBundle, validateBundleWithDb } = await import("../server/migration/import");
 
   if (command === "export") {
     const userId = getArg("user");
@@ -65,6 +66,12 @@ async function main() {
       process.exit(1);
     }
 
+    const mode = (getArg("mode") as "preserve" | "remap") || "preserve";
+    if (!["preserve", "remap"].includes(mode)) {
+      console.error("Error: --mode must be 'preserve' or 'remap'");
+      process.exit(1);
+    }
+
     console.log(`Reading: ${file}`);
     let bundle: any;
     try {
@@ -83,26 +90,31 @@ async function main() {
     const totalRecords = Object.values(bundle.metadata.tableCounts as Record<string, number>).reduce((a: number, b: number) => a + b, 0);
     console.log(`Bundle: ${bundle.metadata.exportMode} export from ${bundle.metadata.exportedAt}`);
     console.log(`Total records: ${totalRecords}`);
+    console.log(`Import mode: ${mode}`);
 
     if (hasDryRun) {
-      console.log("\nRunning dry-run validation...");
+      console.log("\nRunning dry-run validation (checking DB conflicts)...");
     } else {
       console.log("\nImporting data...");
     }
 
     try {
-      const result = await importBundle(bundle, { dryRun: hasDryRun });
+      const result = await importBundle(bundle, { dryRun: hasDryRun, mode });
 
       console.log(`\nResult: ${result.success ? "SUCCESS" : "FAILED"}`);
+      console.log(`Mode: ${result.mode}`);
 
       const totalInserted = Object.values(result.inserted).reduce((a, b) => a + b, 0);
       const totalSkipped = Object.values(result.skipped).reduce((a, b) => a + b, 0);
+      const totalConflicts = Object.values(result.conflicts).reduce((a, b) => a + b, 0);
       console.log(`Records ${hasDryRun ? "would be" : ""} inserted: ${totalInserted}`);
       console.log(`Records skipped: ${totalSkipped}`);
+      if (totalConflicts > 0) console.log(`ID conflicts: ${totalConflicts}`);
 
       for (const [table, count] of Object.entries(result.inserted)) {
         if (count > 0 || (result.skipped[table] || 0) > 0) {
-          console.log(`  ${table}: ${count} inserted, ${result.skipped[table] || 0} skipped`);
+          const conflictNote = result.conflicts[table] ? ` (${result.conflicts[table]} conflicts)` : "";
+          console.log(`  ${table}: ${count} inserted, ${result.skipped[table] || 0} skipped${conflictNote}`);
         }
       }
 

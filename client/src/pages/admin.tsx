@@ -28,6 +28,7 @@ export default function AdminPage() {
   const [importResult, setImportResult] = useState<any>(null);
   const [importBundle, setImportBundle] = useState<any>(null);
   const [importFileName, setImportFileName] = useState("");
+  const [importMode, setImportMode] = useState<"preserve" | "remap">("preserve");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: users = [], isLoading: usersLoading } = useQuery<SafeUser[]>({
@@ -92,8 +93,8 @@ export default function AdminPage() {
   });
 
   const importMutation = useMutation({
-    mutationFn: async ({ bundle, dryRun }: { bundle: any; dryRun: boolean }) => {
-      const res = await apiRequest("POST", "/api/admin/import", { bundle, dryRun });
+    mutationFn: async ({ bundle, dryRun, mode }: { bundle: any; dryRun: boolean; mode?: string }) => {
+      const res = await apiRequest("POST", "/api/admin/import", { bundle, dryRun, mode: mode || "preserve" });
       return res.json();
     },
     onSuccess: (data) => {
@@ -426,12 +427,31 @@ export default function AdminPage() {
                       </div>
                     </div>
 
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <label className="text-sm font-medium dark:text-white">Import Mode:</label>
+                        <select
+                          value={importMode}
+                          onChange={(e) => setImportMode(e.target.value as "preserve" | "remap")}
+                          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                        >
+                          <option value="preserve">Preserve IDs (skip existing)</option>
+                          <option value="remap">Remap IDs (generate new)</option>
+                        </select>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {importMode === "preserve"
+                          ? "Records with matching IDs in the database will be skipped."
+                          : "All records get new IDs. Use this to duplicate data or import into a populated database."}
+                      </p>
+                    </div>
+
                     <div className="flex gap-2">
                       <Button
                         variant="outline"
                         className="flex-1"
                         disabled={importMutation.isPending}
-                        onClick={() => importMutation.mutate({ bundle: importBundle, dryRun: true })}
+                        onClick={() => importMutation.mutate({ bundle: importBundle, dryRun: true, mode: importMode })}
                       >
                         {importMutation.isPending ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -445,7 +465,7 @@ export default function AdminPage() {
                         disabled={importMutation.isPending}
                         onClick={() => {
                           if (confirm("This will import data into the database. Records with existing IDs will be skipped. Continue?")) {
-                            importMutation.mutate({ bundle: importBundle, dryRun: false });
+                            importMutation.mutate({ bundle: importBundle, dryRun: false, mode: importMode });
                           }
                         }}
                       >

@@ -5,7 +5,7 @@ import {
   userRewards, taskCollaborators, taskPatterns,
   classificationContributions, classificationConfirmations,
 } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export interface ExportMetadata {
   schemaVersion: number;
@@ -37,10 +37,20 @@ export interface ExportBundle {
 const CHUNK_SIZE = 1000;
 
 async function queryChunked<T>(table: any, condition?: any): Promise<T[]> {
-  const query = condition
-    ? db.select().from(table).where(condition)
-    : db.select().from(table);
-  return await query as T[];
+  const results: T[] = [];
+  let offset = 0;
+
+  while (true) {
+    const baseQuery = condition
+      ? db.select().from(table).where(condition)
+      : db.select().from(table);
+    const chunk = await baseQuery.limit(CHUNK_SIZE).offset(offset) as T[];
+    results.push(...chunk);
+    if (chunk.length < CHUNK_SIZE) break;
+    offset += CHUNK_SIZE;
+  }
+
+  return results;
 }
 
 function serializeRow(row: any): any {

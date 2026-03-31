@@ -6,7 +6,7 @@ import passport from "passport";
 import multer from "multer";
 import express from "express";
 import { exportFullDatabase, exportUserData } from "./migration/export";
-import { importBundle, validateBundle } from "./migration/import";
+import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
 import {
   storage, createUser, getUserByEmail, recordFailedLogin, resetFailedLogins,
   createResetToken, verifyResetToken, consumeResetToken,
@@ -1626,21 +1626,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/import", requireAdmin, largeJsonParser, async (req, res) => {
     try {
-      const { bundle, dryRun } = req.body;
+      const { bundle, dryRun, mode } = req.body;
       if (!bundle || !bundle.metadata || !bundle.data) {
         return res.status(400).json({ message: "Invalid export bundle format" });
       }
 
-      const result = await importBundle(bundle, { dryRun: !!dryRun });
+      const importMode = mode === "remap" ? "remap" : "preserve";
+      const result = await importBundle(bundle, { dryRun: !!dryRun, mode: importMode });
 
-      if (!dryRun) {
+      if (!dryRun && result.success) {
         const totalInserted = Object.values(result.inserted).reduce((a, b) => a + b, 0);
         await logSecurityEvent(
           "data_import",
           req.user!.id,
           undefined,
           req.ip,
-          `Database import: ${totalInserted} records inserted, ${result.errors.length} errors`
+          `Database import (${importMode}): ${totalInserted} records inserted, ${result.errors.length} errors`
         );
       }
 
@@ -1656,14 +1657,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!bundle || !bundle.metadata || !bundle.data) {
         return res.status(400).json({ message: "Invalid export bundle format" });
       }
-      const validation = validateBundle(bundle);
+      const validation = await validateBundleWithDb(bundle);
       res.json(validation);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Validation failed" });
     }
   });
 
-  // ─── User Self-Service Export (GDPR) ───────────────────────────────────────
+  // ─── User Self-Service Export & Import (GDPR) ──────────────────────────────
 
   app.get("/api/account/export", requireAuth, async (req, res) => {
     try {
@@ -1676,6 +1677,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(bundle);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Export failed" });
+    }
+  });
+
+  app.post("/api/account/import", requireAuth, largeJsonParser, async (req, res) => {
+    try {
+      const { bundle, dryRun } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+
+      if (bundle.metadata.exportMode !== "user") {
+        return res.status(400).json({ message: "Only user-level export bundles can be imported via self-service. Full database imports require admin access." });
+      }
+
+      const result = await importUserBundle(bundle, req.user!.id, { dryRun: !!dryRun });
+
+      if (!dryRun && result.success) {
+        const totalInserted = Object.values(result.inserted).reduce((a, b) => a + b, 0);
+        await logSecurityEvent(
+          "user_data_import",
+          req.user!.id,
+          undefined,
+          req.ip,
+          `User self-service import: ${totalInserted} records imported`
+        );
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Import failed" });
     }
   });
 
