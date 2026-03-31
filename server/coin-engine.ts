@@ -1,5 +1,5 @@
 import { type Task, tasks } from "@shared/schema";
-import { addCoins, updateStreak, awardBadge, getOrCreateWallet, getCompletedTaskCount, getUserBadges } from "./storage";
+import { addCoins, updateStreak, awardBadge, getOrCreateWallet, getCompletedTaskCount, getUserBadges, hasTaskBeenAwarded } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, count } from "drizzle-orm";
 
@@ -57,6 +57,9 @@ export async function awardCoinsForCompletion(
 ): Promise<CoinAwardResult | null> {
   if (previousStatus === "completed" || task.status !== "completed") return null;
 
+  const alreadyAwarded = await hasTaskBeenAwarded(userId, task.id);
+  if (alreadyAwarded) return null;
+
   const wallet = await getOrCreateWallet(userId);
   const breakdown: { label: string; amount: number }[] = [];
   let totalCoins = 0;
@@ -89,7 +92,7 @@ export async function awardCoinsForCompletion(
     }
   }
 
-  const { wallet: finalWallet } = await addCoins(userId, totalCoins, "task_completion", `Completed: ${task.activity.substring(0, 100)}`);
+  const { wallet: finalWallet } = await addCoins(userId, totalCoins, "task_completion", `Completed: ${task.activity.substring(0, 100)}`, task.id);
 
   const badgesEarned: string[] = [];
 

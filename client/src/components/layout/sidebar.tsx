@@ -28,6 +28,7 @@ import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
 import { useZoom } from "@/hooks/use-zoom";
 import { useTutorial } from "@/hooks/use-tutorial";
+import { useState, useEffect, useRef } from "react";
 import { useCountUp } from "@/hooks/use-count-up";
 import { Button } from "@/components/ui/button";
 import { VoiceBarTrigger } from "@/components/voice-command-bar";
@@ -50,6 +51,17 @@ export function Sidebar() {
     refetchInterval: 30000,
   });
   const animatedBalance = useCountUp(wallet?.balance ?? 0);
+  const [sparkle, setSparkle] = useState(false);
+  const prevBalanceRef = useRef(0);
+  useEffect(() => {
+    const bal = wallet?.balance ?? 0;
+    if (bal > prevBalanceRef.current && prevBalanceRef.current > 0) {
+      setSparkle(true);
+      const t = setTimeout(() => setSparkle(false), 1200);
+      return () => clearTimeout(t);
+    }
+    prevBalanceRef.current = bal;
+  }, [wallet?.balance]);
 
   const menuItems = [
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -112,10 +124,11 @@ export function Sidebar() {
       <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
         {wallet && (
           <Link href="/rewards">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 cursor-pointer hover:shadow-md transition-shadow">
-              <Coins className="h-4 w-4 text-amber-500" />
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 cursor-pointer hover:shadow-md transition-all duration-300 ${sparkle ? "ring-2 ring-yellow-400 shadow-lg shadow-yellow-400/30 scale-105" : ""}`}>
+              <Coins className={`h-4 w-4 text-amber-500 transition-transform ${sparkle ? "animate-spin" : ""}`} />
               <span className="text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300">{animatedBalance}</span>
               <span className="text-xs text-amber-600 dark:text-amber-400">AxCoins</span>
+              {sparkle && <span className="text-xs animate-bounce">✨</span>}
               {(wallet.currentStreak ?? 0) > 0 && (
                 <span className="ml-auto text-xs text-orange-500 font-medium">🔥{wallet.currentStreak}</span>
               )}

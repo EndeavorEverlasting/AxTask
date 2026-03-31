@@ -162,10 +162,12 @@ export const coinTransactions = pgTable("coin_transactions", {
   amount: integer("amount").notNull(),
   reason: text("reason").notNull(),
   details: text("details"),
+  taskId: varchar("task_id"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_coin_tx_user").on(table.userId),
   index("idx_coin_tx_created").on(table.createdAt),
+  index("idx_coin_tx_task").on(table.taskId),
 ]);
 
 export type CoinTransaction = typeof coinTransactions.$inferSelect;

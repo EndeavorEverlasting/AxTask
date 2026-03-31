@@ -622,7 +622,8 @@ export async function addCoins(
   userId: string,
   amount: number,
   reason: string,
-  details?: string
+  details?: string,
+  taskId?: string
 ): Promise<{ wallet: Wallet; transaction: CoinTransaction }> {
   const wallet = await getOrCreateWallet(userId);
   const [updated] = await db
@@ -635,9 +636,21 @@ export async function addCoins(
     .returning();
   const [transaction] = await db
     .insert(coinTransactions)
-    .values({ id: randomUUID(), userId, amount, reason, details })
+    .values({ id: randomUUID(), userId, amount, reason, details, taskId })
     .returning();
   return { wallet: updated, transaction };
+}
+
+export async function hasTaskBeenAwarded(userId: string, taskId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(coinTransactions)
+    .where(and(
+      eq(coinTransactions.userId, userId),
+      eq(coinTransactions.taskId, taskId),
+      eq(coinTransactions.reason, "task_completion")
+    ));
+  return (Number(row?.value) || 0) > 0;
 }
 
 export async function spendCoins(userId: string, amount: number, reason: string): Promise<Wallet | null> {

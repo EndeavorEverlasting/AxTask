@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles } from "lucide-react";
+import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 
@@ -54,7 +54,7 @@ interface UserBadge {
 export default function RewardsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState("shop");
+  const [activeTab, setActiveTab] = useState("profile");
 
   const { data: wallet } = useQuery<Wallet>({ queryKey: ["/api/gamification/wallet"] });
   const { data: rewards = [] } = useQuery<RewardItem[]>({ queryKey: ["/api/gamification/rewards"] });
@@ -161,10 +161,95 @@ export default function RewardsPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="shop">Shop</TabsTrigger>
           <TabsTrigger value="badges">Badges</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="profile" className="mt-4 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                Your Rewards Profile
+              </CardTitle>
+              <CardDescription>Your achievements, active rewards, and stats at a glance</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="text-center p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20">
+                  <p className="text-2xl font-bold text-amber-600">{wallet?.balance ?? 0}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Current Balance</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-green-50 dark:bg-green-900/20">
+                  <p className="text-2xl font-bold text-green-600">{wallet?.lifetimeEarned ?? 0}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Total Earned</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-orange-50 dark:bg-orange-900/20">
+                  <p className="text-2xl font-bold text-orange-600">{wallet?.currentStreak ?? 0}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Day Streak</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-purple-50 dark:bg-purple-900/20">
+                  <p className="text-2xl font-bold text-purple-600">{badgeData?.earned?.length ?? 0}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Badges Earned</p>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Award className="h-4 w-4 text-amber-500" />
+                  Earned Badges
+                </h4>
+                {(badgeData?.earned?.length ?? 0) === 0 ? (
+                  <p className="text-sm text-muted-foreground">No badges earned yet. Complete tasks to unlock achievements!</p>
+                ) : (
+                  <div className="flex flex-wrap gap-3">
+                    {badgeData!.earned.map(b => {
+                      const def = badgeData!.definitions[b.badgeId];
+                      return (
+                        <motion.div
+                          key={b.id}
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          className="flex items-center gap-2 px-3 py-2 rounded-full bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700"
+                        >
+                          <span className="text-lg">{def?.icon}</span>
+                          <span className="text-sm font-medium">{def?.name}</span>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-purple-500" />
+                  Active Rewards
+                </h4>
+                {myRewards.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No rewards redeemed yet. Visit the Shop to spend your AxCoins!</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {myRewards.map(mr => {
+                      const reward = rewards.find(r => r.id === mr.rewardId);
+                      return (
+                        <div key={mr.id} className="flex items-center gap-3 p-3 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20">
+                          <span className="text-2xl">{reward?.icon}</span>
+                          <div>
+                            <p className="text-sm font-medium">{reward?.name}</p>
+                            <p className="text-xs text-muted-foreground">Redeemed {new Date(mr.redeemedAt).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="shop" className="space-y-6 mt-4">
           {(["theme", "badge", "title"] as const).map(type => (
