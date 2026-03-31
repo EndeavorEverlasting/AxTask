@@ -8,20 +8,20 @@ export interface TutorialStep {
   targetId?: string;
   page?: string;
   position?: "top" | "bottom" | "left" | "right";
-  glowClass?: "field-glow-tutorial" | "field-glow-tutorial-success";
+  glowClass?: "field-glow-tutorial" | "field-glow-tutorial-success" | "field-glow-success" | "field-glow-hint" | "field-glow-warning";
 }
 
 const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "welcome",
     title: "Welcome to AxTask",
-    description: "Let's walk through the key features. This intelligent task manager uses AI-powered priority scoring, gamification, and voice commands to help you stay organized.",
+    description: "Let's walk through the key features. This intelligent task manager uses AI-powered priority scoring, gamification with AxCoins, voice commands, and real-time collaboration to keep you productive.",
     position: "bottom",
   },
   {
     id: "dashboard",
     title: "Your Dashboard",
-    description: "This is your home base. It shows task statistics, upcoming deadlines, and your overall productivity at a glance.",
+    description: "Your home base — see task statistics, upcoming deadlines, productivity metrics, and your AxCoin balance all in one view.",
     page: "/",
     targetId: "sidebar-link-/",
     position: "right",
@@ -30,7 +30,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "planner",
     title: "AI Planner",
-    description: "Your intelligent planning assistant. Get daily briefings, top recommended tasks, a weekly load overview, and ask questions about your schedule.",
+    description: "Your intelligent planning assistant. Get daily briefings, top recommended tasks, a weekly load overview, and ask questions about your schedule using the AI chat.",
     page: "/planner",
     targetId: "sidebar-link-/planner",
     position: "right",
@@ -38,8 +38,26 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "task-form",
-    title: "Creating a Task",
-    description: "Fill in the activity field and the system automatically calculates priority based on urgency, impact, and effort. A yellow glow guides you to key areas.",
+    title: "Creating & Editing Tasks",
+    description: "Add tasks with the green \"+Add Task\" button or edit existing ones (blue \"Update\" button). Priority is auto-calculated from urgency, impact, and effort. Yellow glows highlight empty fields, and the RAG engine suggests deadlines based on your patterns.",
+    page: "/tasks",
+    targetId: "sidebar-link-/tasks",
+    position: "right",
+    glowClass: "field-glow-tutorial-success",
+  },
+  {
+    id: "voice-commands",
+    title: "Voice Commands",
+    description: "Tap the microphone icon or press Ctrl+M to dictate tasks hands-free. Say things like \"urgency 4\" or \"due tomorrow\" and the form fills in automatically. Switch between Activity and Notes targets.",
+    page: "/tasks",
+    targetId: "sidebar-link-/tasks",
+    position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "classification",
+    title: "Classification & Compound Interest",
+    description: "Every task gets a classification (Crisis, Research, Development, etc.) that earns you AxCoins. When others confirm your classification, you earn 8% compound interest per confirmation — your classifications are investments!",
     page: "/tasks",
     targetId: "sidebar-link-/tasks",
     position: "right",
@@ -48,7 +66,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "calendar",
     title: "Calendar View",
-    description: "See all your tasks laid out on a calendar. Click any date to add a task for that day, and drag tasks to reschedule them.",
+    description: "See all your tasks on a calendar. Click any date to add a task for that day, and drag tasks to reschedule them.",
     page: "/calendar",
     targetId: "sidebar-link-/calendar",
     position: "right",
@@ -57,7 +75,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "analytics",
     title: "Analytics & Insights",
-    description: "Track your productivity trends, see priority distributions, and monitor completion rates over time with interactive charts.",
+    description: "Track productivity trends, view priority and classification distributions, and monitor completion rates over time with interactive charts.",
     page: "/analytics",
     targetId: "sidebar-link-/analytics",
     position: "right",
@@ -65,8 +83,8 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: "rewards",
-    title: "Rewards & AxCoins",
-    description: "Earn AxCoins by completing tasks and classifying them. Spend coins in the Rewards Shop to unlock badges and perks. Your streak multiplier earns you bonus coins!",
+    title: "Rewards Shop & AxCoins",
+    description: "Earn AxCoins by completing tasks, maintaining streaks, and classifying tasks. Spend coins in the Shop on themes, badges, and titles. Check the Investments tab to see your compound interest earnings grow!",
     page: "/rewards",
     targetId: "sidebar-link-/rewards",
     position: "right",
@@ -82,15 +100,33 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     glowClass: "field-glow-tutorial",
   },
   {
+    id: "import-export",
+    title: "Import & Export",
+    description: "Back up your tasks or migrate data between accounts. Export includes all related records (comments, shares, classifications) and import validates everything before applying changes.",
+    page: "/import-export",
+    targetId: "sidebar-link-/import-export",
+    position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "google-sheets",
+    title: "Google Sheets Sync",
+    description: "Connect your Google Sheets to sync tasks between AxTask and your spreadsheets for flexible reporting and bulk management.",
+    page: "/google-sheets",
+    targetId: "sidebar-link-/google-sheets",
+    position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
     id: "shortcuts",
-    title: "Keyboard Shortcuts",
-    description: "Power user tip: press Ctrl+Shift+B to toggle the sidebar, Ctrl+Shift+/ to see all keyboard shortcuts, Ctrl+M for voice commands, and Ctrl+Enter to submit the task form.",
+    title: "Keyboard Shortcuts & Sidebar",
+    description: "Power user tips: Ctrl+Shift+B toggles the sidebar, Ctrl+Shift+/ opens the shortcut reference, Ctrl+M starts voice input, Ctrl+Enter submits the task form, and Ctrl+T restarts this tutorial.",
     position: "bottom",
   },
   {
     id: "complete",
     title: "You're All Set!",
-    description: "You can restart this tutorial anytime from the sidebar (Ctrl+T). Enjoy using AxTask to stay on top of your tasks!",
+    description: "You now know every corner of AxTask. Restart this tutorial anytime with Ctrl+T or from the sidebar. Happy tasking!",
     position: "bottom",
     glowClass: "field-glow-tutorial-success",
   },

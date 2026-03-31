@@ -114,6 +114,32 @@
   animation: none;
 }
 
+/* Success glow — universal green highlight for completed actions */
+@keyframes field-glow-success-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsla(142, 71%, 45%, 0);
+  }
+  50% {
+    box-shadow: 0 0 8px 2px hsla(142, 71%, 45%, 0.3);
+  }
+}
+
+.field-glow-success {
+  animation: field-glow-success-pulse 2s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.5) !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.dark .field-glow-success {
+  animation: field-glow-success-pulse 2s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.4) !important;
+}
+
+.field-glow-success:focus,
+.field-glow-success:focus-within {
+  animation: none;
+}
+
 /* Tutorial glow — yellow pulsing highlight to guide users */
 @keyframes field-glow-tutorial-pulse {
   0%, 100% {
@@ -190,6 +216,11 @@
     animation: none;
     border-color: hsla(142, 71%, 45%, 0.6) !important;
     box-shadow: 0 0 0 2px hsla(142, 71%, 45%, 0.3);
+  }
+  .field-glow-success {
+    animation: none;
+    border-color: hsla(142, 71%, 45%, 0.5) !important;
+    box-shadow: 0 0 0 2px hsla(142, 71%, 45%, 0.25);
   }
 }
 

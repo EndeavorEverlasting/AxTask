@@ -48,6 +48,9 @@ export function TutorialOverlay() {
       if (el) {
         el.classList.remove("field-glow-tutorial");
         el.classList.remove("field-glow-tutorial-success");
+        el.classList.remove("field-glow-success");
+        el.classList.remove("field-glow-hint");
+        el.classList.remove("field-glow-warning");
       }
     };
   }, [isActive, currentStep, findTarget, navigate]);
