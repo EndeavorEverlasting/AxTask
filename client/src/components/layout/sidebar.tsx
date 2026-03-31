@@ -88,7 +88,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full outline-none" tabIndex={-1}>
       <div className="p-6 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-primary flex items-center">
@@ -252,6 +252,27 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
 export function Sidebar() {
   const isMobile = useIsMobile();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [showHotkeys, setShowHotkeys] = useState(false);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "B") {
+        e.preventDefault();
+        if (isMobile) {
+          setMobileOpen((v) => !v);
+        } else {
+          setCollapsed((v) => !v);
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "/") {
+        e.preventDefault();
+        setShowHotkeys((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobile]);
 
   if (isMobile) {
     return (
@@ -266,13 +287,57 @@ export function Sidebar() {
             <SidebarContent onNavigate={() => setMobileOpen(false)} />
           </SheetContent>
         </Sheet>
+        <HotkeyDialog open={showHotkeys} onOpenChange={setShowHotkeys} />
       </>
     );
   }
 
   return (
-    <aside className="w-64 bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex flex-col shrink-0 hidden md:flex">
-      <SidebarContent />
-    </aside>
+    <>
+      <aside
+        className={`bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex-col shrink-0 hidden md:flex transition-all duration-200 overflow-hidden outline-none ${
+          collapsed ? "w-0 border-r-0" : "w-64"
+        }`}
+      >
+        {!collapsed && <SidebarContent />}
+      </aside>
+      <HotkeyDialog open={showHotkeys} onOpenChange={setShowHotkeys} />
+    </>
+  );
+}
+
+function HotkeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  if (!open) return null;
+
+  const hotkeys = [
+    { keys: "Ctrl + Shift + B", action: "Toggle sidebar" },
+    { keys: "Ctrl + Shift + /", action: "Show keyboard shortcuts" },
+    { keys: "Ctrl + Enter", action: "Submit task form" },
+    { keys: "Ctrl + M", action: "Voice commands" },
+    { keys: "Ctrl + T", action: "Toggle tutorial" },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => onOpenChange(false)}>
+      <div
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-[400px] max-w-[90vw] border border-gray-200 dark:border-gray-700"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-lg font-bold mb-4 text-gray-900 dark:text-gray-100">Keyboard Shortcuts</h2>
+        <div className="space-y-3">
+          {hotkeys.map(({ keys, action }) => (
+            <div key={keys} className="flex items-center justify-between">
+              <span className="text-sm text-gray-600 dark:text-gray-400">{action}</span>
+              <kbd className="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">
+                {keys}
+              </kbd>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 text-right">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Close</Button>
+        </div>
+      </div>
+    </div>
   );
 }
