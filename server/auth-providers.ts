@@ -130,11 +130,12 @@ export function registerOAuthRoutes(app: Express) {
         return res.redirect("/?error=account_suspended");
       }
 
-      req.login(user, (err) => {
+      req.login(user, async (err) => {
         if (err) {
           console.error("[auth] Session creation error:", err);
           return res.redirect("/?error=session_failed");
         }
+        await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "WorkOS OAuth login");
         res.redirect("/");
       });
     } catch (err: any) {
@@ -219,8 +220,9 @@ export function registerOAuthRoutes(app: Express) {
         return res.redirect("/?error=account_suspended");
       }
 
-      req.login(user, (err) => {
+      req.login(user, async (err) => {
         if (err) return res.redirect("/?error=session_failed");
+        await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "Google OAuth login");
         res.redirect("/");
       });
     } catch (err: any) {
@@ -312,11 +314,12 @@ export function registerOAuthRoutes(app: Express) {
         return res.redirect("/?error=account_suspended");
       }
 
-      req.login(user, (err) => {
+      req.login(user, async (err) => {
         if (err) {
           console.error("[auth] Replit session error:", err);
           return res.redirect("/?error=session_failed");
         }
+        await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "Replit OAuth login");
         res.redirect("/");
       });
     } catch (err: any) {

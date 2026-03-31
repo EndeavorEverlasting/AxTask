@@ -160,7 +160,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (err) return next(err);
         if (!user) {
           if (email) {
-            await recordFailedLogin(email);
+            await recordFailedLogin(email, req.ip);
             await logSecurityEvent("login_failed", undefined, undefined, req.ip, `Failed login for: ${email}`);
           }
           return res.status(401).json({ message: info?.message || "Invalid credentials" });
@@ -1143,7 +1143,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "You cannot ban yourself" });
       }
 
-      const success = await banUser(userId, req.user!.id, reason.trim());
+      const success = await banUser(userId, req.user!.id, reason.trim(), req.ip);
       if (!success) {
         return res.status(400).json({ message: "Cannot ban this user (not found or is an admin)" });
       }
@@ -1156,7 +1156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/users/:userId/unban", requireAdmin, async (req, res) => {
     try {
       const { userId } = req.params;
-      const success = await unbanUser(userId, req.user!.id);
+      const success = await unbanUser(userId, req.user!.id, req.ip);
       if (!success) {
         return res.status(404).json({ message: "User not found" });
       }

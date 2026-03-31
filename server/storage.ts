@@ -141,17 +141,17 @@ export async function verifyPassword(
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 
-export async function recordFailedLogin(email: string): Promise<void> {
+export async function recordFailedLogin(email: string, ipAddress?: string): Promise<void> {
   const user = await getUserByEmail(email);
-  if (!user) return; // don't reveal whether account exists
+  if (!user) return;
 
   const attempts = (user.failedLoginAttempts ?? 0) + 1;
-  const update: Record<string, any> = { failedLoginAttempts: attempts };
+  const update: Record<string, unknown> = { failedLoginAttempts: attempts };
 
   if (attempts >= MAX_FAILED_ATTEMPTS) {
     update.lockedUntil = new Date(Date.now() + LOCKOUT_DURATION_MS);
     console.warn(`[SECURITY] Account locked: ${email} after ${attempts} failed attempts`);
-    await logSecurityEvent("account_locked", user.id, undefined, undefined, `Account locked after ${attempts} failed attempts`);
+    await logSecurityEvent("account_locked", user.id, undefined, ipAddress, `Account locked after ${attempts} failed attempts`);
   }
 
   await db
@@ -312,7 +312,8 @@ export async function cleanupExpiredTokens(): Promise<void> {
 export async function banUser(
   targetUserId: string,
   bannedByUserId: string,
-  reason: string
+  reason: string,
+  ipAddress?: string
 ): Promise<boolean> {
   const [user] = await db.select().from(users).where(eq(users.id, targetUserId));
   if (!user) return false;
@@ -328,13 +329,14 @@ export async function banUser(
     })
     .where(eq(users.id, targetUserId));
 
-  await logSecurityEvent("user_banned", bannedByUserId, targetUserId, undefined, reason);
+  await logSecurityEvent("user_banned", bannedByUserId, targetUserId, ipAddress, reason);
   return true;
 }
 
 export async function unbanUser(
   targetUserId: string,
-  unbannedByUserId: string
+  unbannedByUserId: string,
+  ipAddress?: string
 ): Promise<boolean> {
   const [user] = await db.select().from(users).where(eq(users.id, targetUserId));
   if (!user) return false;
@@ -349,7 +351,7 @@ export async function unbanUser(
     })
     .where(eq(users.id, targetUserId));
 
-  await logSecurityEvent("user_unbanned", unbannedByUserId, targetUserId);
+  await logSecurityEvent("user_unbanned", unbannedByUserId, targetUserId, ipAddress);
   return true;
 }
 
