@@ -223,7 +223,10 @@ export async function awardCleanupBonus(
   if (existingContrib) {
     await db
       .update(classificationContributions)
-      .set({ cleanupBonuses: sql`${classificationContributions.cleanupBonuses} + 1` })
+      .set({
+        cleanupBonuses: sql`${classificationContributions.cleanupBonuses} + 1`,
+        totalCoinsEarned: sql`${classificationContributions.totalCoinsEarned} + ${CLEANUP_BONUS_COINS}`,
+      })
       .where(eq(classificationContributions.id, existingContrib.id));
   } else {
     await db.insert(classificationContributions).values({
