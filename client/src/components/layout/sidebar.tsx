@@ -26,6 +26,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useZoom } from "@/hooks/use-zoom";
 import { useTutorial } from "@/hooks/use-tutorial";
 import { Button } from "@/components/ui/button";
+import { VoiceBarTrigger } from "@/components/voice-command-bar";
 
 export function Sidebar() {
   const [location] = useLocation();
@@ -60,10 +61,13 @@ export function Sidebar() {
   return (
     <aside className="w-64 bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex flex-col">
       <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-        <h1 className="text-xl font-bold text-primary flex items-center">
-          <CheckSquare className="mr-2 h-6 w-6" />
-          AxTask
-        </h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-bold text-primary flex items-center">
+            <CheckSquare className="mr-2 h-6 w-6" />
+            AxTask
+          </h1>
+          <VoiceBarTrigger />
+        </div>
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Intelligent Task Management</p>
       </div>
       

@@ -46,6 +46,12 @@ Preferred communication style: Simple, everyday language.
 - **Performance Optimizations**: React.memo on task rows with reference equality comparison, debounced search input, SQL aggregate queries for dashboard stats, bulk task update method for imports, database indexes on (userId, status), (userId, priority), (userId, sortOrder).
 - **Animations**: framer-motion for task list entrance/exit/reorder animations (AnimatePresence + layout), status/priority change flash effects (CSS keyframes), dashboard stat count-up on load, drag-and-drop scale-up on grab. All animations respect `prefers-reduced-motion`. Virtualized tables (100+ tasks) disable layout animations for performance.
 - **Voice Input**: Browser-native speech recognition (Web Speech API) for dictating task activity and notes. Mic buttons appear next to Activity and Notes fields. Supports voice commands: "priority high/medium/low", "due today/tomorrow/next week", "mark as completed/in-progress", "tag it as [name]". Graceful degradation — mic buttons hidden in unsupported browsers. Real-time interim transcript display while speaking. Key files: `client/src/hooks/use-speech-recognition.ts`, `client/src/lib/voice-commands.ts`, `client/src/components/mic-button.tsx`.
+- **Universal Voice Command System**: Global voice command bar (VoiceCommandBar) accessible from any page via Ctrl+M or the mic icon in the sidebar. The VoiceProvider context wraps the app, making speech recognition state available to all components. Transcribed text is sent to `POST /api/voice/process` which routes it through the Audio-to-Engine dispatcher. Engines:
+  - **Dispatcher** (`server/engines/dispatcher.ts`): Classifies intent from transcribed text using keyword/regex patterns into categories: task_create, planner_query, calendar_command, navigation, search.
+  - **Calendar Engine** (`server/engines/calendar-engine.ts`): Parses schedule-related commands (reschedule, query-by-date, create-on-date) with day-name resolution.
+  - **Planner Engine** (`server/engines/planner-engine.ts`): Refactored from inline `/api/planner/ask` logic. Handles urgency queries, overdue, due-today, weekly summaries, status overviews, and text search.
+  - All engines return structured responses (`{ intent, action, payload, message }`) that the frontend acts on (navigate, prefill task forms, display answers, reschedule tasks).
+  - Frontend response handler in `client/src/hooks/use-voice.tsx` handles navigation, task pre-fill, and calendar rescheduling actions.
 
 ### Authentication & Security
 - **Multi-tier Auth**: Four authentication providers always visible on the login page. `AUTH_PROVIDER` env var overrides auto-detect when set explicitly. Auto-detection fallback order: WorkOS → Google → Replit → Local.
@@ -82,7 +88,12 @@ Preferred communication style: Simple, everyday language.
 - `server/auth-providers.ts` — Multi-provider abstraction (Google OAuth, WorkOS, local)
 - `server/storage.ts` — All database operations (users, tasks, password reset, security questions)
 - `server/seed-dev.ts` — Dev account seeder (only in development mode)
-- `server/routes.ts` — All API routes (auth, tasks, Google Sheets, checklist, planner)
+- `server/routes.ts` — All API routes (auth, tasks, Google Sheets, checklist, planner, voice)
+- `server/engines/dispatcher.ts` — Audio-to-Engine dispatcher for voice command intent classification
+- `server/engines/calendar-engine.ts` — Calendar dictation engine for schedule-related voice commands
+- `server/engines/planner-engine.ts` — Planner engine (refactored from inline planner Q&A logic)
+- `client/src/hooks/use-voice.tsx` — VoiceProvider context and global voice state management
+- `client/src/components/voice-command-bar.tsx` — Global VoiceCommandBar UI component
 - `client/src/pages/planner.tsx` — AI Planner page with daily briefing, weekly summary, Q&A
 - `server/checklist-pdf.ts` — PDF checklist generator using pdfkit
 - `server/ocr-processor.ts` — OCR image processor using Tesseract.js

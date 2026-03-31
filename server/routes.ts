@@ -13,6 +13,8 @@ import {
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
+import { dispatchVoiceCommand } from "./engines/dispatcher";
+import { processPlannerQuery } from "./engines/planner-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { generateChecklistPDF } from "./checklist-pdf";
 import { processChecklistImage } from "./ocr-processor";
@@ -1014,88 +1016,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allTasks = await storage.getTasks(userId);
       const now = new Date();
       const todayStr = now.toISOString().split("T")[0];
-      const pendingTasks = allTasks.filter(t => t.status !== "completed");
-      const q = question.toLowerCase();
 
-      let answer = "";
-      let relatedTasks: typeof allTasks = [];
-
-      if (q.match(/\b(most urgent|highest priority|what.*first|what.*next|important)\b/)) {
-        const sorted = [...pendingTasks].map(t => {
-          let urgencyBoost = 0;
-          const daysUntilDue = Math.floor((new Date(t.date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysUntilDue < 0) urgencyBoost = 30;
-          else if (daysUntilDue === 0) urgencyBoost = 20;
-          else if (daysUntilDue === 1) urgencyBoost = 10;
-          else if (daysUntilDue <= 3) urgencyBoost = 5;
-          return { task: t, combinedScore: (t.priorityScore || 0) + urgencyBoost };
-        }).sort((a, b) => b.combinedScore - a.combinedScore);
-        relatedTasks = sorted.slice(0, 5).map(s => s.task);
-        if (relatedTasks.length === 0) {
-          answer = "You have no pending tasks right now. Great job!";
-        } else {
-          answer = `Your most urgent tasks are:\n${relatedTasks.map((t, i) => `${i + 1}. ${t.activity} (${t.priority}, due ${t.date})`).join("\n")}`;
-        }
-      } else if (q.match(/\b(overdue|late|missed|past due)\b/)) {
-        relatedTasks = pendingTasks.filter(t => isOverdueTask(t, todayStr, now));
-        if (relatedTasks.length === 0) {
-          answer = "No overdue tasks. You're all caught up!";
-        } else {
-          answer = `You have ${relatedTasks.length} overdue task(s):\n${relatedTasks.slice(0, 5).map((t, i) => `${i + 1}. ${t.activity} (was due ${t.date})`).join("\n")}`;
-        }
-      } else if (q.match(/\b(due today|today's|today)\b/)) {
-        relatedTasks = pendingTasks.filter(t => t.date === todayStr);
-        if (relatedTasks.length === 0) {
-          answer = "You have no tasks due today.";
-        } else {
-          answer = `You have ${relatedTasks.length} task(s) due today:\n${relatedTasks.map((t, i) => `${i + 1}. ${t.activity}${t.time ? ` at ${t.time}` : ""}`).join("\n")}`;
-        }
-      } else if (q.match(/\b(summarize.*week|week.*summary|weekly)\b/)) {
-        const weekEnd = new Date(now);
-        weekEnd.setDate(now.getDate() + (6 - now.getDay()));
-        const endStr = weekEnd.toISOString().split("T")[0];
-        relatedTasks = pendingTasks.filter(t => t.date >= todayStr && t.date <= endStr);
-        if (relatedTasks.length === 0) {
-          answer = "Your week looks clear — no tasks scheduled.";
-        } else {
-          answer = `You have ${relatedTasks.length} task(s) remaining this week:\n${relatedTasks.slice(0, 8).map((t, i) => `${i + 1}. ${t.activity} (${t.date})`).join("\n")}`;
-        }
-      } else if (q.match(/\b(summarize|summary|how.*doing|status|overview)\b/)) {
-        const completed = allTasks.filter(t => t.status === "completed").length;
-        const overdue = pendingTasks.filter(t => isOverdueTask(t, todayStr, now)).length;
-        const dueToday = pendingTasks.filter(t => t.date === todayStr).length;
-        answer = `Here's your overview:\n• ${allTasks.length} total tasks (${completed} completed)\n• ${pendingTasks.length} pending\n• ${overdue} overdue\n• ${dueToday} due today`;
-      } else if (q.match(/\b(this week|week|upcoming)\b/)) {
-        const weekEnd = new Date(now);
-        weekEnd.setDate(now.getDate() + (6 - now.getDay()));
-        const endStr = weekEnd.toISOString().split("T")[0];
-        relatedTasks = pendingTasks.filter(t => t.date >= todayStr && t.date <= endStr);
-        if (relatedTasks.length === 0) {
-          answer = "No tasks due this week.";
-        } else {
-          answer = `You have ${relatedTasks.length} task(s) due this week:\n${relatedTasks.slice(0, 8).map((t, i) => `${i + 1}. ${t.activity} (${t.date})`).join("\n")}`;
-        }
-      } else if (q.match(/\b(completed|done|finished)\b/)) {
-        relatedTasks = allTasks.filter(t => t.status === "completed");
-        answer = `You've completed ${relatedTasks.length} task(s) total.`;
-        relatedTasks = relatedTasks.slice(0, 5);
-      } else {
-        const matches = pendingTasks.filter(t =>
-          t.activity.toLowerCase().includes(q) ||
-          (t.notes || "").toLowerCase().includes(q)
-        );
-        if (matches.length > 0) {
-          relatedTasks = matches.slice(0, 5);
-          answer = `Found ${matches.length} task(s) matching "${question}":\n${relatedTasks.map((t, i) => `${i + 1}. ${t.activity} (${t.priority}, due ${t.date})`).join("\n")}`;
-        } else {
-          answer = "I can help you with questions like:\n• \"What's most urgent?\"\n• \"What's due today?\"\n• \"Show overdue tasks\"\n• \"Summarize my week\"\n• \"What's due this week?\"";
-        }
-      }
-
-      res.json({ answer, relatedTasks: relatedTasks.slice(0, 5) });
+      const result = processPlannerQuery(question, allTasks, todayStr, now);
+      res.json({ answer: result.answer, relatedTasks: result.relatedTasks.slice(0, 5) });
     } catch (error) {
       console.error("Planner Q&A error:", error);
       res.status(500).json({ message: "Failed to answer question" });
+    }
+  });
+
+  app.post("/api/voice/process", requireAuth, async (req, res) => {
+    try {
+      const { transcript } = req.body;
+      if (!transcript || typeof transcript !== "string") {
+        return res.status(400).json({ message: "Transcript is required" });
+      }
+
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const now = new Date();
+      const todayStr = now.toISOString().split("T")[0];
+
+      const result = await dispatchVoiceCommand(transcript, allTasks, userId, todayStr, now);
+      res.json(result);
+    } catch (error) {
+      console.error("Voice processing error:", error);
+      res.status(500).json({ message: "Failed to process voice command" });
     }
   });
 

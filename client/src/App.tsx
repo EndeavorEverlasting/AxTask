@@ -1,4 +1,5 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
+import { useCallback, useState } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -7,8 +8,10 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { useZoom, ZoomProvider } from "@/hooks/use-zoom";
 import { TutorialProvider } from "@/hooks/use-tutorial";
+import { VoiceProvider } from "@/hooks/use-voice";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TutorialOverlay } from "@/components/tutorial-overlay";
+import { VoiceCommandBar } from "@/components/voice-command-bar";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
 import Analytics from "@/pages/analytics";
@@ -41,6 +44,16 @@ function AuthenticatedApp() {
   const { user, loading } = useAuth();
   const { zoom } = useZoom();
   const scale = zoom / 100;
+  const [, setLocation] = useLocation();
+  const [taskPrefill, setTaskPrefill] = useState<{ activity: string; date?: string; time?: string } | null>(null);
+
+  const handleNavigate = useCallback((path: string) => {
+    setLocation(path);
+  }, [setLocation]);
+
+  const handlePrefillTask = useCallback((data: { activity: string; date?: string; time?: string }) => {
+    setTaskPrefill(data);
+  }, []);
 
   if (loading) {
     return (
@@ -55,23 +68,26 @@ function AuthenticatedApp() {
   }
 
   return (
-    <div className="h-screen flex bg-gray-50 dark:bg-gray-900 overflow-hidden">
-      <Sidebar />
-      <main className="flex-1 overflow-hidden">
-        <div
-          className="h-full overflow-auto"
-          style={{
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
-            width: `${100 / scale}%`,
-            height: `${100 / scale}%`,
-          }}
-        >
-          <Router />
-        </div>
-      </main>
-      <TutorialOverlay />
-    </div>
+    <VoiceProvider onNavigate={handleNavigate} onPrefillTask={handlePrefillTask}>
+      <div className="h-screen flex bg-gray-50 dark:bg-gray-900 overflow-hidden">
+        <Sidebar />
+        <main className="flex-1 overflow-hidden">
+          <div
+            className="h-full overflow-auto"
+            style={{
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+              width: `${100 / scale}%`,
+              height: `${100 / scale}%`,
+            }}
+          >
+            <Router />
+          </div>
+        </main>
+        <TutorialOverlay />
+        <VoiceCommandBar />
+      </div>
+    </VoiceProvider>
   );
 }
 
