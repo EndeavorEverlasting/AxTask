@@ -187,9 +187,9 @@ export async function awardCleanupBonus(
 ): Promise<CleanupBonusResult | null> {
   if (!task.createdAt) return null;
 
-  const createdAt = new Date(task.createdAt);
+  const staleRef = task.updatedAt ? new Date(task.updatedAt) : new Date(task.createdAt);
   const now = new Date();
-  const ageInDays = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+  const ageInDays = Math.floor((now.getTime() - staleRef.getTime()) / (1000 * 60 * 60 * 24));
   if (ageInDays < CLEANUP_STALE_DAYS) return null;
 
   const [existing] = await db

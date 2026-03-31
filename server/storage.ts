@@ -1122,6 +1122,7 @@ export async function getContributionsForTask(taskId: string): Promise<(Classifi
       baseCoinsAwarded: classificationContributions.baseCoinsAwarded,
       totalCoinsEarned: classificationContributions.totalCoinsEarned,
       confirmationCount: classificationContributions.confirmationCount,
+      cleanupBonuses: classificationContributions.cleanupBonuses,
       createdAt: classificationContributions.createdAt,
       displayName: users.displayName,
     })
