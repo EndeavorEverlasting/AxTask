@@ -134,8 +134,6 @@ function useRoutePersistence() {
   }, [location]);
 }
 
-import { setPendingEditTask } from "@/lib/pending-edit";
-
 function AuthenticatedApp() {
   const { user, loading } = useAuth();
   const { zoom } = useZoom();

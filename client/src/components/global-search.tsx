@@ -162,7 +162,7 @@ export function GlobalSearch({ open, onClose, onSelectTask }: GlobalSearchProps)
 
         <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-400">
           <span>Press <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-[10px] font-mono">Esc</kbd> to close</span>
-          <span>Ctrl+F to toggle</span>
+          <span>Ctrl+F to open</span>
         </div>
       </div>
     </div>
