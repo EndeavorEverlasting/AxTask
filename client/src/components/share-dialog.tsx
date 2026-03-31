@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Users, UserPlus, Trash2, Crown, Eye, Pencil } from "lucide-react";
+import { Users, UserPlus, Trash2, Crown, Eye, Pencil, Coins } from "lucide-react";
 
 interface Collaborator {
   id: string;
@@ -48,10 +48,22 @@ export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
       const res = await apiRequest("POST", `/api/tasks/${taskId}/collaborators`, { email, role });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      const savedEmail = email;
       setEmail("");
-      toast({ title: "Collaborator added", description: `${email} has been invited.` });
+      if (result.collabReward && result.collabReward.coinsEarned > 0) {
+        const badges = result.collabReward.badgesEarned || [];
+        const badgeText = badges.length > 0 ? ` New badge${badges.length > 1 ? "s" : ""} earned!` : "";
+        toast({
+          title: `Collaborator added! +${result.collabReward.coinsEarned} coins`,
+          description: `${savedEmail} has been invited.${badgeText} Balance: ${result.collabReward.newBalance}`,
+        });
+      } else {
+        toast({ title: "Collaborator added", description: `${savedEmail} has been invited.` });
+      }
     },
     onError: (err: Error) => {
       toast({ title: "Failed to add", description: err.message, variant: "destructive" });

@@ -1,7 +1,7 @@
-import { type Task, tasks } from "@shared/schema";
-import { addCoins, updateStreak, awardBadge, getOrCreateWallet, getCompletedTaskCount, getUserBadges, hasTaskBeenAwarded } from "./storage";
+import { type Task, tasks, taskCollaborators, coinTransactions } from "@shared/schema";
+import { addCoins, updateStreak, awardBadge, getOrCreateWallet, getCompletedTaskCount, getUserBadges, hasTaskBeenAwarded, getTaskCollaborators } from "./storage";
 import { db } from "./db";
-import { eq, and, sql, count } from "drizzle-orm";
+import { eq, and, sql, count, countDistinct } from "drizzle-orm";
 
 const BASE_COINS: Record<string, number> = {
   Highest: 25,
@@ -27,6 +27,12 @@ const COMPLETION_BADGES: Record<number, string> = {
   500: "task-500",
 };
 
+const COLLAB_COINS = {
+  SHARE_TASK: 5,
+  COLLAB_COMPLETION_BONUS: 8,
+  FIRST_COLLAB_SHARE: 10,
+};
+
 export const BADGE_DEFINITIONS: Record<string, { name: string; description: string; icon: string }> = {
   "first-task": { name: "First Step", description: "Complete your first task", icon: "🎯" },
   "task-10": { name: "Getting Going", description: "Complete 10 tasks", icon: "🔥" },
@@ -40,6 +46,9 @@ export const BADGE_DEFINITIONS: Record<string, { name: string; description: stri
   "streak-30": { name: "Monthly Master", description: "30-day completion streak", icon: "🌟" },
   "crisis-handler": { name: "Crisis Handler", description: "Complete 5 Highest-priority tasks", icon: "🚨" },
   "early-bird": { name: "Early Bird", description: "Complete a task before its due date", icon: "🐦" },
+  "team-player": { name: "Team Player", description: "Share your first task with a collaborator", icon: "🤝" },
+  "collab-5": { name: "Collaborator", description: "Share 5 tasks with others", icon: "👥" },
+  "collab-25": { name: "Team Leader", description: "Share 25 tasks with others", icon: "🌐" },
 };
 
 export interface CoinAwardResult {
@@ -145,6 +154,14 @@ export async function awardCoinsForCompletion(
     }
   }
 
+  const collabs = await getTaskCollaborators(task.id);
+  if (collabs.length > 0) {
+    const collabBonus = COLLAB_COINS.COLLAB_COMPLETION_BONUS;
+    breakdown.push({ label: "Collaboration bonus", amount: collabBonus });
+    totalCoins += collabBonus;
+    await addCoins(userId, collabBonus, "collab_completion_bonus", `Collaboration bonus for shared task`, task.id);
+  }
+
   const refreshedWallet = await getOrCreateWallet(userId);
 
   return {
@@ -153,5 +170,69 @@ export async function awardCoinsForCompletion(
     streak,
     badgesEarned,
     breakdown,
+  };
+}
+
+export interface CollabRewardResult {
+  coinsEarned: number;
+  newBalance: number;
+  badgesEarned: string[];
+}
+
+async function getUserShareCount(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ value: countDistinct(taskCollaborators.taskId) })
+    .from(taskCollaborators)
+    .where(eq(taskCollaborators.invitedBy, userId));
+  return Number(row?.value) || 0;
+}
+
+const COLLAB_BADGES: Record<number, string> = {
+  1: "team-player",
+  5: "collab-5",
+  25: "collab-25",
+};
+
+export async function awardCoinsForSharing(
+  userId: string,
+  taskId: string,
+  collaboratorEmail: string
+): Promise<CollabRewardResult | null> {
+  const [existing] = await db
+    .select({ value: count() })
+    .from(coinTransactions)
+    .where(and(
+      eq(coinTransactions.userId, userId),
+      eq(coinTransactions.taskId, taskId),
+      eq(coinTransactions.reason, "collaboration_share")
+    ));
+  if (Number(existing?.value) > 0) return null;
+
+  const wallet = await getOrCreateWallet(userId);
+  let totalCoins = COLLAB_COINS.SHARE_TASK;
+
+  await addCoins(userId, totalCoins, "collaboration_share", `Shared task with ${collaboratorEmail}`, taskId);
+
+  const badgesEarned: string[] = [];
+  const shareCount = await getUserShareCount(userId);
+
+  for (const [threshold, badgeId] of Object.entries(COLLAB_BADGES)) {
+    if (shareCount >= Number(threshold)) {
+      const awarded = await awardBadge(userId, badgeId);
+      if (awarded) {
+        badgesEarned.push(badgeId);
+        const badgeCoins = badgeId === "team-player" ? COLLAB_COINS.FIRST_COLLAB_SHARE : 10;
+        await addCoins(userId, badgeCoins, "badge_earned", `Badge: ${BADGE_DEFINITIONS[badgeId]?.name}`);
+        totalCoins += badgeCoins;
+      }
+    }
+  }
+
+  const refreshedWallet = await getOrCreateWallet(userId);
+
+  return {
+    coinsEarned: totalCoins,
+    newBalance: refreshedWallet.balance,
+    badgesEarned,
   };
 }

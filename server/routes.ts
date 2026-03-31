@@ -19,7 +19,7 @@ import {
   getSharedTasks, canAccessTask, isTaskOwner,
   resetStreak,
 } from "./storage";
-import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
+import { awardCoinsForCompletion, awardCoinsForSharing, BADGE_DEFINITIONS } from "./coin-engine";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
 import { getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution } from "./storage";
 import { z } from "zod";
@@ -1782,7 +1782,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) return res.status(404).json({ message: "User not found" });
       if (user.id === req.user!.id) return res.status(400).json({ message: "Cannot add yourself" });
       const collab = await addCollaborator(req.params.id, user.id, role || "editor", req.user!.id);
-      res.json(collab);
+
+      let collabReward = null;
+      try {
+        collabReward = await awardCoinsForSharing(req.user!.id, req.params.id, email);
+      } catch (rewardErr) {
+        console.error("Collab reward error:", rewardErr);
+      }
+
+      res.json({ ...collab, collabReward });
     } catch (error) {
       res.status(500).json({ message: "Failed to add collaborator" });
     }
