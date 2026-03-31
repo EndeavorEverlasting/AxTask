@@ -78,14 +78,6 @@ const voiceLimiter = rateLimit({
   message: { message: "Too many voice requests — try again shortly" },
 });
 
-const uploadLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: userOrIpKey,
-  message: { message: "Too many uploads — try again shortly" },
-});
 
 // ── Invite-code / registration gate ─────────────────────────────────────────
 // In production, set REGISTRATION_MODE=invite in .env and provide INVITE_CODE.
@@ -1160,6 +1152,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!success) {
         return res.status(404).json({ message: "User not found" });
       }
+      res.json({ message: "User has been unbanned" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to unban user" });
+    }
+  });
+
+  app.post("/api/admin/ban/:userId", requireAdmin, async (req, res) => {
+    const { userId } = req.params;
+    const { reason } = req.body;
+    if (!reason || typeof reason !== "string" || reason.trim().length < 3) {
+      return res.status(400).json({ message: "Ban reason is required (min 3 characters)" });
+    }
+    if (userId === req.user!.id) {
+      return res.status(400).json({ message: "You cannot ban yourself" });
+    }
+    try {
+      const success = await banUser(userId, req.user!.id, reason.trim(), req.ip);
+      if (!success) return res.status(400).json({ message: "Cannot ban this user (not found or is an admin)" });
+      res.json({ message: "User has been banned" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to ban user" });
+    }
+  });
+
+  app.post("/api/admin/unban/:userId", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const success = await unbanUser(userId, req.user!.id, req.ip);
+      if (!success) return res.status(404).json({ message: "User not found" });
       res.json({ message: "User has been unbanned" });
     } catch (error) {
       res.status(500).json({ message: "Failed to unban user" });
