@@ -542,6 +542,21 @@ export async function importUserBundle(
     TABLE_INSERT_ORDER.filter(t => !USER_OWNED_TABLES.has(t))
   );
 
+  function hasUnresolvableFks(row: BundleRow, tableName: TableName): boolean {
+    const fkFields = FK_FIELDS_BY_TABLE[tableName] || [];
+    for (const field of fkFields) {
+      const val = row[field];
+      if (val && !idMap.has(String(val))) {
+        const fkRules = FK_RULES[tableName];
+        const rule = fkRules.find(r => r.field === field);
+        if (rule && !rule.nullable) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   for (const tableName of TABLE_INSERT_ORDER) {
     if (skipTables.has(tableName)) {
       inserted[tableName] = 0;
@@ -559,8 +574,17 @@ export async function importUserBundle(
     }
 
     if (dryRun) {
-      inserted[tableName] = rows.length;
-      skipped[tableName] = 0;
+      let wouldInsert = 0;
+      let wouldSkip = 0;
+      for (const row of rows) {
+        if (hasUnresolvableFks(row, tableName)) {
+          wouldSkip++;
+        } else {
+          wouldInsert++;
+        }
+      }
+      inserted[tableName] = wouldInsert;
+      skipped[tableName] = wouldSkip;
       conflicts[tableName] = 0;
       continue;
     }
@@ -571,22 +595,27 @@ export async function importUserBundle(
     let skipCount = 0;
 
     for (let i = 0; i < rows.length; i++) {
-      let row = parseTimestamps(rows[i]);
+      const rawRow = rows[i];
+
+      if (hasUnresolvableFks(rawRow, tableName)) {
+        skipCount++;
+        continue;
+      }
+
+      let row = parseTimestamps(rawRow);
       row = remapRow(row, tableName, pkField, idMap);
 
       if (tableName === "userRewards" && row.rewardId) {
-        const pkCol = (rewardsCatalog as Record<string, unknown>)["id"];
-        if (pkCol) {
-          const [catalogExists] = await db.select().from(rewardsCatalog).where(eq(pkCol as typeof rewardsCatalog.id, String(row.rewardId))).limit(1);
-          if (!catalogExists) {
-            validation.warnings.push({
-              table: tableName, rowIndex: i, field: "rewardId",
-              message: `Reward catalog item ${row.rewardId} not found in database, skipping`,
-              severity: "warning",
-            });
-            skipCount++;
-            continue;
-          }
+        const [catalogExists] = await db.select().from(rewardsCatalog)
+          .where(eq(rewardsCatalog.id, String(row.rewardId))).limit(1);
+        if (!catalogExists) {
+          validation.warnings.push({
+            table: tableName, rowIndex: i, field: "rewardId",
+            message: `Reward catalog item ${row.rewardId} not found in database, skipping`,
+            severity: "warning",
+          });
+          skipCount++;
+          continue;
         }
       }
 
