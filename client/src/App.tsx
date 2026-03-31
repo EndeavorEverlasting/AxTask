@@ -82,19 +82,17 @@ function MobileBottomNav() {
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 safe-area-bottom">
       <div className="flex items-center justify-around h-14">
         {BOTTOM_NAV_ITEMS.map(({ path, icon: Icon, label }) => (
-          <Link key={path} href={path}>
-            <div
-              role="button"
-              tabIndex={0}
-              className={`flex flex-col items-center justify-center w-full h-full min-w-[64px] min-h-[44px] transition-colors cursor-pointer ${
-                isActive(path)
-                  ? "text-primary"
-                  : "text-gray-400 dark:text-gray-500"
-              }`}
-            >
-              <Icon className="h-5 w-5" />
-              <span className="text-[10px] mt-0.5 font-medium">{label}</span>
-            </div>
+          <Link
+            key={path}
+            href={path}
+            className={`flex flex-col items-center justify-center flex-1 h-full min-w-[64px] min-h-[44px] transition-colors no-underline ${
+              isActive(path)
+                ? "text-primary"
+                : "text-gray-400 dark:text-gray-500"
+            }`}
+          >
+            <Icon className="h-5 w-5" />
+            <span className="text-[10px] mt-0.5 font-medium">{label}</span>
           </Link>
         ))}
       </div>
