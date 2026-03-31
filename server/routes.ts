@@ -1052,21 +1052,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           answer = `You have ${relatedTasks.length} task(s) due today:\n${relatedTasks.map((t, i) => `${i + 1}. ${t.activity}${t.time ? ` at ${t.time}` : ""}`).join("\n")}`;
         }
+      } else if (q.match(/\b(summarize|summary|how.*doing|status|overview)\b/)) {
+        const completed = allTasks.filter(t => t.status === "completed").length;
+        const overdue = pendingTasks.filter(t => isOverdueTask(t, todayStr, now)).length;
+        const dueToday = pendingTasks.filter(t => t.date === todayStr).length;
+        answer = `Here's your overview:\n• ${allTasks.length} total tasks (${completed} completed)\n• ${pendingTasks.length} pending\n• ${overdue} overdue\n• ${dueToday} due today`;
       } else if (q.match(/\b(this week|week|upcoming)\b/)) {
-        const endOfWeek = new Date(now);
-        endOfWeek.setDate(now.getDate() + (6 - now.getDay()));
-        const endStr = endOfWeek.toISOString().split("T")[0];
+        const weekEnd = new Date(now);
+        weekEnd.setDate(now.getDate() + (6 - now.getDay()));
+        const endStr = weekEnd.toISOString().split("T")[0];
         relatedTasks = pendingTasks.filter(t => t.date >= todayStr && t.date <= endStr);
         if (relatedTasks.length === 0) {
           answer = "No tasks due this week.";
         } else {
           answer = `You have ${relatedTasks.length} task(s) due this week:\n${relatedTasks.slice(0, 8).map((t, i) => `${i + 1}. ${t.activity} (${t.date})`).join("\n")}`;
         }
-      } else if (q.match(/\b(summarize|summary|how.*doing|status|overview)\b/)) {
-        const completed = allTasks.filter(t => t.status === "completed").length;
-        const overdue = pendingTasks.filter(t => isOverdueTask(t, todayStr, now)).length;
-        const dueToday = pendingTasks.filter(t => t.date === todayStr).length;
-        answer = `Here's your overview:\n• ${allTasks.length} total tasks (${completed} completed)\n• ${pendingTasks.length} pending\n• ${overdue} overdue\n• ${dueToday} due today`;
       } else if (q.match(/\b(completed|done|finished)\b/)) {
         relatedTasks = allTasks.filter(t => t.status === "completed");
         answer = `You've completed ${relatedTasks.length} task(s) total.`;
