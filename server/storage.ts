@@ -625,12 +625,12 @@ export async function addCoins(
   details?: string,
   taskId?: string
 ): Promise<{ wallet: Wallet; transaction: CoinTransaction }> {
-  const wallet = await getOrCreateWallet(userId);
+  await getOrCreateWallet(userId);
   const [updated] = await db
     .update(wallets)
     .set({
-      balance: wallet.balance + amount,
-      lifetimeEarned: wallet.lifetimeEarned + amount,
+      balance: sql`${wallets.balance} + ${amount}`,
+      lifetimeEarned: sql`${wallets.lifetimeEarned} + ${amount}`,
     })
     .where(eq(wallets.userId, userId))
     .returning();
@@ -654,13 +654,13 @@ export async function hasTaskBeenAwarded(userId: string, taskId: string): Promis
 }
 
 export async function spendCoins(userId: string, amount: number, reason: string): Promise<Wallet | null> {
-  const wallet = await getOrCreateWallet(userId);
-  if (wallet.balance < amount) return null;
+  await getOrCreateWallet(userId);
   const [updated] = await db
     .update(wallets)
-    .set({ balance: wallet.balance - amount })
-    .where(eq(wallets.userId, userId))
+    .set({ balance: sql`${wallets.balance} - ${amount}` })
+    .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${amount}`))
     .returning();
+  if (!updated) return null;
   await db.insert(coinTransactions).values({ id: randomUUID(), userId, amount: -amount, reason });
   return updated;
 }
@@ -737,16 +737,12 @@ export async function redeemReward(userId: string, rewardId: string): Promise<bo
       .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
     if ((Number(existing?.value) || 0) > 0) return false;
 
-    const [wallet] = await tx
-      .select()
-      .from(wallets)
-      .where(eq(wallets.userId, userId));
-    if (!wallet || wallet.balance < reward.cost) return false;
-
-    await tx
+    const [deducted] = await tx
       .update(wallets)
-      .set({ balance: wallet.balance - reward.cost })
-      .where(eq(wallets.userId, userId));
+      .set({ balance: sql`${wallets.balance} - ${reward.cost}` })
+      .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${reward.cost}`))
+      .returning();
+    if (!deducted) return false;
 
     await tx.insert(coinTransactions).values({
       id: randomUUID(),
