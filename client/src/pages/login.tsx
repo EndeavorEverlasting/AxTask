@@ -938,6 +938,12 @@ export default function LoginPage() {
               </>
             ) : null}
           </div>
+
+          <div className="mt-4 flex items-center justify-center gap-3 text-xs text-gray-400 dark:text-gray-500">
+            <a href="/privacy" className="hover:text-primary transition-colors">Privacy Policy</a>
+            <span>·</span>
+            <a href="/terms" className="hover:text-primary transition-colors">Terms of Service</a>
+          </div>
         </div>
       </div>
     </div>
