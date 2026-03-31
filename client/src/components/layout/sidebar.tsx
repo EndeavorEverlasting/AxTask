@@ -150,7 +150,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           variant={tutorialActive ? "default" : "outline"}
           size="sm"
           onClick={tutorialActive ? stopTutorial : startTutorial}
-          title="Toggle tutorial (Ctrl+T)"
+          title="Toggle tutorial (Ctrl+Shift+T)"
           className={`w-full justify-between min-h-[44px] ${tutorialActive ? "bg-yellow-600 hover:bg-yellow-700 text-white" : ""}`}
         >
           <span className="flex items-center">
@@ -314,7 +314,7 @@ function HotkeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
     { keys: "Ctrl + Shift + /", action: "Show keyboard shortcuts" },
     { keys: "Ctrl + Enter", action: "Submit task form" },
     { keys: "Ctrl + M", action: "Voice commands" },
-    { keys: "Ctrl + T", action: "Toggle tutorial" },
+    { keys: "Ctrl + Shift + T", action: "Toggle tutorial" },
   ];
 
   return (

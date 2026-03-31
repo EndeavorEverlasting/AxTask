@@ -120,13 +120,13 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "shortcuts",
     title: "Keyboard Shortcuts & Sidebar",
-    description: "Power user tips: Ctrl+Shift+B toggles the sidebar, Ctrl+Shift+/ opens the shortcut reference, Ctrl+M starts voice input, Ctrl+Enter submits the task form, and Ctrl+T restarts this tutorial.",
+    description: "Power user tips: Ctrl+Shift+B toggles the sidebar, Ctrl+Shift+/ opens the shortcut reference, Ctrl+M starts voice input, Ctrl+Enter submits the task form, and Ctrl+Shift+T restarts this tutorial.",
     position: "bottom",
   },
   {
     id: "complete",
     title: "You're All Set!",
-    description: "You now know every corner of AxTask. Restart this tutorial anytime with Ctrl+T or from the sidebar. Happy tasking!",
+    description: "You now know every corner of AxTask. Restart this tutorial anytime with Ctrl+Shift+T or from the sidebar. Happy tasking!",
     position: "bottom",
     glowClass: "field-glow-tutorial-success",
   },
@@ -169,7 +169,7 @@ function useTutorialEngine(): TutorialContextValue {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "t") {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "T") {
         e.preventDefault();
         if (isActive) {
           stopTutorial();
