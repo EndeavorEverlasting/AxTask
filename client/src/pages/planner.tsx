@@ -1,10 +1,10 @@
 import { useState, useCallback } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { PriorityBadge } from "@/components/priority-badge";
 import { motion, AnimatePresence } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -20,6 +20,9 @@ import {
   ArrowRight,
   MessageCircle,
   Loader2,
+  CheckSquare,
+  CalendarClock,
+  Users,
 } from "lucide-react";
 import type { Task } from "@shared/schema";
 
@@ -34,6 +37,7 @@ interface BriefingData {
   today: string;
   overdue: { count: number; tasks: Task[] };
   dueToday: { count: number; tasks: Task[] };
+  dueWithinHour: { count: number; tasks: Task[] };
   thisWeek: { total: number; days: WeekDay[] };
   topRecommended: (Task & { reason: string })[];
   totalPending: number;
@@ -66,6 +70,36 @@ export default function PlannerPage() {
   const { data: briefing, isLoading } = useQuery<BriefingData>({
     queryKey: ["/api/planner/briefing"],
     refetchInterval: 60000,
+  });
+
+  const { toast } = useToast();
+
+  const markCompleteMutation = useMutation({
+    mutationFn: async (taskId: string) => {
+      const res = await apiRequest("PUT", `/api/tasks/${taskId}`, { id: taskId, status: "completed" });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      toast({ title: "Task completed", description: "Task marked as done." });
+    },
+  });
+
+  const rescheduleMutation = useMutation({
+    mutationFn: async (taskId: string) => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const newDate = tomorrow.toISOString().split("T")[0];
+      const res = await apiRequest("PUT", `/api/tasks/${taskId}`, { id: taskId, date: newDate });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({ title: "Task rescheduled", description: "Task moved to tomorrow." });
+    },
   });
 
   const askMutation = useMutation({
@@ -185,13 +219,82 @@ export default function PlannerPage() {
                   {briefing.overdue.tasks.map(t => (
                     <div
                       key={t.id}
-                      className="flex items-center justify-between p-2.5 bg-white dark:bg-gray-800 rounded-lg border border-red-100 dark:border-red-900/30"
+                      className="p-2.5 bg-white dark:bg-gray-800 rounded-lg border border-red-100 dark:border-red-900/30"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{t.activity}</p>
+                          <p className="text-xs text-red-500">Was due {t.date}</p>
+                        </div>
+                        <PriorityBadge priority={t.priority} score={(t.priorityScore || 0) / 10} />
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs text-green-700 dark:text-green-400 border-green-200 dark:border-green-800 hover:bg-green-50 dark:hover:bg-green-900/20"
+                          onClick={() => markCompleteMutation.mutate(t.id)}
+                          disabled={markCompleteMutation.isPending}
+                        >
+                          <CheckSquare className="h-3 w-3 mr-1" />
+                          Complete
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                          onClick={() => rescheduleMutation.mutate(t.id)}
+                          disabled={rescheduleMutation.isPending}
+                        >
+                          <CalendarClock className="h-3 w-3 mr-1" />
+                          Reschedule
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800 hover:bg-purple-50 dark:hover:bg-purple-900/20"
+                          onClick={() => {
+                            toast({
+                              title: "Delegate task",
+                              description: `Share "${t.activity}" with your team to delegate it.`,
+                            });
+                          }}
+                        >
+                          <Users className="h-3 w-3 mr-1" />
+                          Delegate
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {briefing.dueWithinHour.count > 0 && (
+            <motion.div
+              initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.28 }}
+            >
+              <Card className="border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-900/10">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2 text-orange-700 dark:text-orange-400">
+                    <Clock className="h-4 w-4" />
+                    Due Within the Hour
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {briefing.dueWithinHour.tasks.map(t => (
+                    <div
+                      key={t.id}
+                      className="flex items-center justify-between p-2.5 bg-white dark:bg-gray-800 rounded-lg border border-orange-100 dark:border-orange-900/30"
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{t.activity}</p>
-                        <p className="text-xs text-red-500">Was due {t.date}</p>
+                        <p className="text-xs text-orange-600 dark:text-orange-400">Due at {t.time}</p>
                       </div>
-                      <PriorityBadge priority={t.priority} score={(t.priorityScore || 0) / 10} />
+                      <PriorityBadge priority={t.priority} />
                     </div>
                   ))}
                 </CardContent>

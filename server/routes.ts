@@ -934,6 +934,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const dueTodayTasks = pendingTasks.filter(t => t.date === todayStr);
 
+      const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+      const dueWithinHourTasks = pendingTasks.filter(t => {
+        if (t.date !== todayStr || !t.time) return false;
+        const [h, m] = t.time.split(":").map(Number);
+        const taskTime = new Date(now);
+        taskTime.setHours(h, m, 0, 0);
+        return taskTime >= now && taskTime <= oneHourFromNow;
+      });
+
       const weekDays: { date: string; dayName: string; count: number; load: "none" | "light" | "moderate" | "heavy" }[] = [];
       for (let i = 0; i < 7; i++) {
         const d = new Date(startOfWeek);
@@ -985,6 +994,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         today: todayStr,
         overdue: { count: overdueTasks.length, tasks: overdueTasks.slice(0, 5) },
         dueToday: { count: dueTodayTasks.length, tasks: dueTodayTasks.slice(0, 5) },
+        dueWithinHour: { count: dueWithinHourTasks.length, tasks: dueWithinHourTasks },
         thisWeek: { total: thisWeekTotal, days: weekDays },
         topRecommended: topTasks,
         totalPending: pendingTasks.length,

@@ -34,11 +34,11 @@ export function Sidebar() {
   const { zoom, zoomIn, zoomOut, resetZoom, ZOOM_MIN, ZOOM_MAX } = useZoom();
   const { isActive: tutorialActive, startTutorial, stopTutorial, hasCompleted } = useTutorial();
 
-  const { data: briefing } = useQuery<{ overdue: { count: number } }>({
+  const { data: briefing } = useQuery<{ overdue: { count: number }; dueWithinHour: { count: number } }>({
     queryKey: ["/api/planner/briefing"],
     refetchInterval: 60000,
   });
-  const overdueCount = briefing?.overdue?.count || 0;
+  const overdueCount = (briefing?.overdue?.count || 0) + (briefing?.dueWithinHour?.count || 0);
 
   const menuItems = [
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
