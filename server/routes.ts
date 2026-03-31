@@ -1023,12 +1023,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let relatedTasks: typeof allTasks = [];
 
       if (q.match(/\b(most urgent|highest priority|what.*first|what.*next|important)\b/)) {
-        const sorted = [...pendingTasks].sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0));
-        relatedTasks = sorted.slice(0, 5);
+        const sorted = [...pendingTasks].map(t => {
+          let urgencyBoost = 0;
+          const daysUntilDue = Math.floor((new Date(t.date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysUntilDue < 0) urgencyBoost = 30;
+          else if (daysUntilDue === 0) urgencyBoost = 20;
+          else if (daysUntilDue === 1) urgencyBoost = 10;
+          else if (daysUntilDue <= 3) urgencyBoost = 5;
+          return { task: t, combinedScore: (t.priorityScore || 0) + urgencyBoost };
+        }).sort((a, b) => b.combinedScore - a.combinedScore);
+        relatedTasks = sorted.slice(0, 5).map(s => s.task);
         if (relatedTasks.length === 0) {
           answer = "You have no pending tasks right now. Great job!";
         } else {
-          answer = `Your most urgent tasks are:\n${relatedTasks.map((t, i) => `${i + 1}. ${t.activity} (${t.priority}, score: ${(t.priorityScore || 0) / 10})`).join("\n")}`;
+          answer = `Your most urgent tasks are:\n${relatedTasks.map((t, i) => `${i + 1}. ${t.activity} (${t.priority}, due ${t.date})`).join("\n")}`;
         }
       } else if (q.match(/\b(overdue|late|missed|past due)\b/)) {
         relatedTasks = pendingTasks.filter(t => isOverdueTask(t, todayStr, now));

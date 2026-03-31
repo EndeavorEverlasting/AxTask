@@ -202,6 +202,14 @@ export default function PlannerPage() {
             ))}
           </div>
 
+          <p className="text-sm text-gray-600 dark:text-gray-400 -mt-2">
+            {briefing.overdue.count > 0
+              ? `You have ${briefing.dueToday.count} task${briefing.dueToday.count !== 1 ? "s" : ""} due today, ${briefing.overdue.count} overdue, and ${briefing.thisWeek.total} coming this week.`
+              : briefing.dueToday.count > 0
+                ? `You have ${briefing.dueToday.count} task${briefing.dueToday.count !== 1 ? "s" : ""} due today and ${briefing.thisWeek.total} this week. No overdue tasks!`
+                : `You have ${briefing.thisWeek.total} task${briefing.thisWeek.total !== 1 ? "s" : ""} this week. Looking good!`}
+          </p>
+
           {briefing.overdue.count > 0 && (
             <motion.div
               initial={reducedMotion ? false : { opacity: 0, y: 12 }}
