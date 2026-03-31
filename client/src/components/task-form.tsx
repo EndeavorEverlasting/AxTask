@@ -153,21 +153,7 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
   });
 
   const formClearedRef = useRef(false);
-  const resetWatchCountRef = useRef(0);
-  useEffect(() => {
-    if (!task || !onClearedChange) return;
-    const sub = form.watch(() => {
-      if (resetWatchCountRef.current > 0) {
-        resetWatchCountRef.current--;
-        return;
-      }
-      if (formClearedRef.current) {
-        formClearedRef.current = false;
-        onClearedChange(false);
-      }
-    });
-    return () => sub.unsubscribe();
-  }, [task, onClearedChange, form]);
+  const ignoreWatchUntilRef = useRef(0);
 
   const addWarning = useCallback((fieldName: string, autoExpire = false) => {
     const existing = warningTimers.current.get(fieldName);
@@ -512,7 +498,7 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={(e) => { e.preventDefault(); handleSubmitWithWarnings(); }} className="space-y-6">
+          <form onSubmit={(e) => { e.preventDefault(); handleSubmitWithWarnings(); }} onChangeCapture={() => { if (formClearedRef.current && Date.now() > ignoreWatchUntilRef.current) { formClearedRef.current = false; if (onClearedChange) onClearedChange(false); } }} className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
@@ -1112,7 +1098,7 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                         urgency: undefined, impact: undefined, effort: undefined,
                         prerequisites: "", recurrence: "none" as const, status: "pending",
                       });
-                      if (onClearedChange) { resetWatchCountRef.current = 10; formClearedRef.current = true; onClearedChange(true); }
+                      if (onClearedChange) { ignoreWatchUntilRef.current = Date.now() + 200; formClearedRef.current = true; onClearedChange(true); }
                     } else {
                       form.reset(freshDefaults);
                     }

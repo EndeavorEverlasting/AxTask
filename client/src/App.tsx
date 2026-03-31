@@ -133,8 +133,12 @@ function useRoutePersistence() {
   }, [location]);
 }
 
-export let pendingEditTask: any = null;
-export function consumePendingEditTask() {
+import type { Task } from "@shared/schema";
+let pendingEditTask: Task | null = null;
+export function setPendingEditTask(task: Task) {
+  pendingEditTask = task;
+}
+export function consumePendingEditTask(): Task | null {
   const t = pendingEditTask;
   pendingEditTask = null;
   return t;
@@ -207,7 +211,7 @@ function AuthenticatedApp() {
           open={globalSearchOpen}
           onClose={() => setGlobalSearchOpen(false)}
           onSelectTask={(task) => {
-            pendingEditTask = task;
+            setPendingEditTask(task);
             setLocation("/tasks");
           }}
         />
