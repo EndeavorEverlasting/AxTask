@@ -203,6 +203,11 @@ export function validateBundle(bundle: ExportBundle): { errors: ValidationIssue[
           continue;
         }
 
+        if (isUserBundle && rule.refTable === "users" && rule.field === "userId" &&
+            (tableName === "classificationConfirmations" || tableName === "taskCollaborators")) {
+          continue;
+        }
+
         if (!idSets[rule.refTable].has(String(fkValue))) {
           if (rule.nullable) {
             warnings.push({
@@ -324,7 +329,7 @@ async function checkUniqueConflict(tableName: TableName, row: BundleRow): Promis
 
 async function insertRow(table: DrizzleTable, row: BundleRow): Promise<number> {
   const result = await db.insert(table as typeof users).values(row as typeof users.$inferInsert).onConflictDoNothing();
-  return (result as { rowCount?: number }).rowCount ?? 1;
+  return (result as { rowCount?: number }).rowCount ?? 0;
 }
 
 export async function importBundle(

@@ -122,6 +122,21 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
   };
 }
 
+const SENSITIVE_USER_FIELDS = new Set([
+  "passwordHash", "securityAnswerHash", "securityQuestion",
+  "failedLoginAttempts", "lockedUntil",
+]);
+
+function sanitizeUserRow(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (!SENSITIVE_USER_FIELDS.has(key)) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 export async function exportUserData(userId: string): Promise<ExportBundle> {
   const [userData] = await db.select().from(users).where(eq(users.id, userId));
   if (!userData) {
@@ -150,7 +165,7 @@ export async function exportUserData(userId: string): Promise<ExportBundle> {
   const taskIdSet = new Set(taskIds);
 
   const allCollabs = await queryChunked(taskCollaborators);
-  const collabData = allCollabs.filter((c) => taskIdSet.has(c.taskId as string) && (c.userId as string) === userId);
+  const collabData = allCollabs.filter((c) => taskIdSet.has(c.taskId as string));
 
   const allContribs = await queryChunked(classificationContributions);
   const contribData = allContribs.filter((c) =>
@@ -161,18 +176,14 @@ export async function exportUserData(userId: string): Promise<ExportBundle> {
   const allConfirms = await queryChunked(classificationConfirmations);
   const confirmData = allConfirms.filter((c) =>
     contribIdSet.has(c.contributionId as string) &&
-    taskIdSet.has(c.taskId as string) &&
-    (c.userId as string) === userId
+    taskIdSet.has(c.taskId as string)
   );
-
-  const resetTokens = await queryChunked(passwordResetTokens, eq(passwordResetTokens.userId, userId));
-  const userSecLogs = await queryChunked(securityLogs, eq(securityLogs.userId, userId));
 
   const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
   const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
 
   const data: Record<string, Record<string, unknown>[]> = {
-    users: serializeRows([userData as Record<string, unknown>]),
+    users: serializeRows([sanitizeUserRow(userData as Record<string, unknown>)]),
     rewardsCatalog: serializeRows(filteredCatalog),
     tasks: serializeRows(userTasks),
     wallets: serializeRows(walletData),
@@ -183,8 +194,8 @@ export async function exportUserData(userId: string): Promise<ExportBundle> {
     taskCollaborators: serializeRows(collabData),
     classificationContributions: serializeRows(contribData),
     classificationConfirmations: serializeRows(confirmData),
-    passwordResetTokens: serializeRows(resetTokens),
-    securityLogs: serializeRows(userSecLogs),
+    passwordResetTokens: [],
+    securityLogs: [],
   };
 
   const tableCounts: Record<string, number> = {};
