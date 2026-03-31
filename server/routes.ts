@@ -1428,6 +1428,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/tasks/:id/reclassify", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const taskId = req.params.id;
+      const { classification } = req.body;
+
+      const validCategories = ["Crisis", "Development", "Meeting", "Research", "Maintenance", "Administrative", "General"];
+      if (!classification || !validCategories.includes(classification)) {
+        return res.status(400).json({ message: "Invalid classification category" });
+      }
+
+      const accessCheck = await canAccessTask(userId, taskId);
+      if (!accessCheck.canAccess) return res.status(403).json({ message: "Access denied" });
+
+      const existingTask = await storage.getTask(userId, taskId);
+      if (!existingTask) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      if (existingTask.classification === classification) {
+        return res.status(400).json({ message: "Task is already classified as " + classification });
+      }
+
+      const task = await storage.updateTask(userId, {
+        id: taskId,
+        classification,
+      });
+
+      let classificationReward = null;
+      if (classification !== "General") {
+        classificationReward = await awardCoinsForClassification(userId, task!);
+      }
+
+      res.json({ ...task, classificationReward });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to reclassify task" });
+    }
+  });
+
   app.get("/api/gamification/classification-stats", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;

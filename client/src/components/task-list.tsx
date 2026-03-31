@@ -197,7 +197,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-1.5">
-          <ClassificationBadge classification={task.classification} />
+          <ClassificationBadge classification={task.classification} taskId={task.id} editable />
           <ClassificationConfirm taskId={task.id} classification={task.classification} compact />
         </div>
       </TableCell>
@@ -449,7 +449,7 @@ function MobileTaskCard({
           </span>
         </div>
         <div className="flex items-center gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
-          <ClassificationBadge classification={task.classification} />
+          <ClassificationBadge classification={task.classification} taskId={task.id} editable />
           <ClassificationConfirm taskId={task.id} classification={task.classification} compact />
         </div>
         <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
