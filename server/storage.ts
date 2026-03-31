@@ -859,7 +859,7 @@ export async function upsertPattern(
   userId: string,
   patternType: string,
   patternKey: string,
-  data: Record<string, any>,
+  data: Record<string, unknown>,
   confidence: number
 ): Promise<TaskPattern> {
   const now = new Date();

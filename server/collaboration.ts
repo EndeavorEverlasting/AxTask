@@ -51,8 +51,12 @@ function nextColor(): string {
 
 const clients = new Map<WebSocket, CollabClient>();
 
-function getSessionStore(): any {
-  return (global as any).__sessionStore;
+interface SessionStoreWithGet {
+  get(sid: string, callback: (err: Error | null, session: { passport?: { user?: string } } | null) => void): void;
+}
+
+function getSessionStore(): SessionStoreWithGet | undefined {
+  return (global as { __sessionStore?: SessionStoreWithGet }).__sessionStore;
 }
 
 async function authenticateWs(req: IncomingMessage): Promise<{ userId: string; email: string; displayName: string | null } | null> {
@@ -69,7 +73,7 @@ async function authenticateWs(req: IncomingMessage): Promise<{ userId: string; e
   if (!store) return null;
 
   return new Promise((resolve) => {
-    store.get(rawSid, async (err: Error | null, session: any) => {
+    store.get(rawSid, async (err: Error | null, session: { passport?: { user?: string } } | null) => {
       if (err || !session?.passport?.user) {
         resolve(null);
         return;

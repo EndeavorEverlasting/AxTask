@@ -72,7 +72,7 @@ export interface PatternInsight {
   title: string;
   description: string;
   confidence: number;
-  data: Record<string, any>;
+  data: TopicData | RecurrenceData | DeadlineRhythmData | Record<string, unknown>;
 }
 
 export interface DeadlineSuggestion {

@@ -50,7 +50,7 @@ export function setupAuth(app: Express) {
     pool: pool as any,
     createTableIfMissing: true,
   });
-  (global as any).__sessionStore = sessionStore;
+  (global as { __sessionStore?: InstanceType<typeof PgStore> }).__sessionStore = sessionStore;
 
   app.use(
     session({
