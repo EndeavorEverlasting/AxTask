@@ -201,6 +201,9 @@ function AuthenticatedApp() {
           onClose={() => setGlobalSearchOpen(false)}
           onSelectTask={(task) => {
             setLocation("/tasks");
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent("axtask:edit-task", { detail: task }));
+            }, 100);
           }}
         />
       </div>

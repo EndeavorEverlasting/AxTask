@@ -662,6 +662,15 @@ export function TaskList() {
   const { consumeVoiceSearch } = useVoice();
   const mobileScrollRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const task = (e as CustomEvent).detail as Task;
+      if (task) setEditingTask(task);
+    };
+    window.addEventListener("axtask:edit-task", handler);
+    return () => window.removeEventListener("axtask:edit-task", handler);
+  }, []);
+
   const handlePullRefresh = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
     await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
