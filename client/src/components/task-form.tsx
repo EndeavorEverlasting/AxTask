@@ -25,7 +25,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PriorityBadge } from "./priority-badge";
 import { ClockTimePicker } from "@/components/ui/clock-time-picker";
-import { Plus, CalendarIcon, Lightbulb } from "lucide-react";
+import { Plus, CalendarIcon, Lightbulb, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
 import { useFieldFlow } from "@/hooks/use-field-flow";
@@ -425,9 +425,9 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Quick Task Entry</CardTitle>
+            <CardTitle>{task ? "Edit Task" : "Quick Task Entry"}</CardTitle>
             <CardDescription>
-              Add a new task with automatic priority calculation
+              {task ? "Update this task's details" : "Add a new task with automatic priority calculation"}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -928,12 +928,22 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 >
                   Clear
                 </Button>
-                <Button type="submit" disabled={createTaskMutation.isPending} title="Submit (Ctrl+Enter)" className="min-h-[44px]">
-                  <Plus className="mr-2 h-4 w-4" />
+                <Button 
+                  type="submit" 
+                  disabled={createTaskMutation.isPending} 
+                  title="Submit (Ctrl+Enter)" 
+                  className={cn(
+                    "min-h-[44px]",
+                    task 
+                      ? "bg-blue-600 hover:bg-blue-700 text-white" 
+                      : "bg-green-600 hover:bg-green-700 text-white"
+                  )}
+                >
+                  {task ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
                   {createTaskMutation.isPending 
-            ? (task ? "Updating..." : "Adding...") 
-            : (task ? "Update Task" : "Add Task")
-          }
+                    ? (task ? "Updating..." : "Adding...") 
+                    : (task ? "Update Task" : "+ Add Task")
+                  }
                   <kbd className="ml-2 hidden sm:inline-flex items-center gap-0.5 rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-mono opacity-70">⌃↵</kbd>
                 </Button>
               </div>
