@@ -66,6 +66,8 @@ export async function awardCoinsForCompletion(
 ): Promise<CoinAwardResult | null> {
   if (previousStatus === "completed" || task.status !== "completed") return null;
 
+  if (task.forceImported) return null;
+
   const alreadyAwarded = await hasTaskBeenAwarded(userId, task.id);
   if (alreadyAwarded) return null;
 
@@ -186,6 +188,8 @@ export async function awardCleanupBonus(
   task: Task,
   preUpdateTask?: { createdAt: Date | null; updatedAt: Date | null }
 ): Promise<CleanupBonusResult | null> {
+  if (task.forceImported) return null;
+
   const ref = preUpdateTask || task;
   if (!ref.createdAt) return null;
 

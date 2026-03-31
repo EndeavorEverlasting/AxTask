@@ -635,19 +635,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async backfillContentHashes(): Promise<number> {
-    const unhashed = await db
-      .select({ id: tasks.id, activity: tasks.activity, date: tasks.date, userId: tasks.userId })
-      .from(tasks)
-      .where(sql`${tasks.contentHash} IS NULL`)
-      .limit(5000);
+    let totalProcessed = 0;
+    const BATCH_SIZE = 5000;
 
-    if (unhashed.length === 0) return 0;
+    while (true) {
+      const unhashed = await db
+        .select({ id: tasks.id, activity: tasks.activity, date: tasks.date, userId: tasks.userId })
+        .from(tasks)
+        .where(sql`${tasks.contentHash} IS NULL`)
+        .limit(BATCH_SIZE);
 
-    for (const t of unhashed) {
-      const hash = computeContentHash(t.activity, t.date);
-      await db.update(tasks).set({ contentHash: hash }).where(eq(tasks.id, t.id));
+      if (unhashed.length === 0) break;
+
+      for (const t of unhashed) {
+        const hash = computeContentHash(t.activity, t.date);
+        await db.update(tasks).set({ contentHash: hash }).where(eq(tasks.id, t.id));
+      }
+      totalProcessed += unhashed.length;
+
+      if (unhashed.length < BATCH_SIZE) break;
     }
-    return unhashed.length;
+
+    return totalProcessed;
   }
 
   async getTaskStats(userId: string): Promise<{
@@ -995,7 +1004,7 @@ export async function seedRewardsCatalog(): Promise<void> {
 }
 
 export async function getCompletedTaskCount(userId: string): Promise<number> {
-  const [row] = await db.select({ value: count() }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.status, "completed")));
+  const [row] = await db.select({ value: count() }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.status, "completed"), sql`(${tasks.forceImported} IS NULL OR ${tasks.forceImported} = false)`));
   return Number(row?.value) || 0;
 }
 

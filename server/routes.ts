@@ -505,7 +505,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const t of existingByHash) {
         if (t.contentHash) {
           const current = hashStatusMap.get(t.contentHash);
-          if (current === "completed" || !current) {
+          if (!current || t.status === "completed") {
             hashStatusMap.set(t.contentHash, t.status);
           }
         }
