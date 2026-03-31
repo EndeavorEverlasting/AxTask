@@ -133,16 +133,7 @@ function useRoutePersistence() {
   }, [location]);
 }
 
-import type { Task } from "@shared/schema";
-let pendingEditTask: Task | null = null;
-export function setPendingEditTask(task: Task) {
-  pendingEditTask = task;
-}
-export function consumePendingEditTask(): Task | null {
-  const t = pendingEditTask;
-  pendingEditTask = null;
-  return t;
-}
+import { setPendingEditTask } from "@/lib/pending-edit";
 
 function AuthenticatedApp() {
   const { user, loading } = useAuth();

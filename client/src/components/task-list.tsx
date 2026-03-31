@@ -5,7 +5,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useVoice } from "@/hooks/use-voice";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { consumePendingEditTask } from "@/App";
+import { consumePendingEditTask } from "@/lib/pending-edit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -663,11 +663,6 @@ export function TaskList() {
   const { consumeVoiceSearch } = useVoice();
   const mobileScrollRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    const pending = consumePendingEditTask();
-    if (pending) setEditingTask(pending);
-  });
-
   const handlePullRefresh = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
     await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
@@ -686,6 +681,11 @@ export function TaskList() {
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
   });
+
+  useEffect(() => {
+    const pending = consumePendingEditTask() as Task | null;
+    if (pending) setEditingTask(pending);
+  }, [tasks]);
 
   const deleteTaskMutation = useMutation({
     mutationFn: async (id: string) => {
