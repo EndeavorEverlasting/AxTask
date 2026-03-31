@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -930,4 +930,150 @@ export async function deleteStalePatterns(userId: string, olderThanDays: number 
 
 export async function clearPatterns(userId: string): Promise<void> {
   await db.delete(taskPatterns).where(eq(taskPatterns.userId, userId));
+}
+
+// ─── Classification Contributions ──────────────────────────────────────────
+
+export async function createClassificationContribution(
+  taskId: string,
+  userId: string,
+  classification: string,
+  baseCoinsAwarded: number
+): Promise<ClassificationContribution> {
+  const [existing] = await db
+    .select()
+    .from(classificationContributions)
+    .where(and(
+      eq(classificationContributions.taskId, taskId),
+      eq(classificationContributions.userId, userId)
+    ))
+    .limit(1);
+
+  if (existing) {
+    const [updated] = await db
+      .update(classificationContributions)
+      .set({
+        classification,
+        baseCoinsAwarded,
+      })
+      .where(eq(classificationContributions.id, existing.id))
+      .returning();
+    return updated;
+  }
+
+  const [contrib] = await db
+    .insert(classificationContributions)
+    .values({
+      id: randomUUID(),
+      taskId,
+      userId,
+      classification,
+      baseCoinsAwarded,
+      totalCoinsEarned: baseCoinsAwarded,
+      confirmationCount: 0,
+    })
+    .returning();
+  return contrib;
+}
+
+export async function getContributionsForTask(taskId: string): Promise<(ClassificationContribution & { displayName: string | null })[]> {
+  const rows = await db
+    .select({
+      id: classificationContributions.id,
+      taskId: classificationContributions.taskId,
+      userId: classificationContributions.userId,
+      classification: classificationContributions.classification,
+      baseCoinsAwarded: classificationContributions.baseCoinsAwarded,
+      totalCoinsEarned: classificationContributions.totalCoinsEarned,
+      confirmationCount: classificationContributions.confirmationCount,
+      createdAt: classificationContributions.createdAt,
+      displayName: users.displayName,
+    })
+    .from(classificationContributions)
+    .innerJoin(users, eq(users.id, classificationContributions.userId))
+    .where(eq(classificationContributions.taskId, taskId))
+    .orderBy(desc(classificationContributions.createdAt));
+  return rows;
+}
+
+export async function getContribution(taskId: string, userId: string): Promise<ClassificationContribution | null> {
+  const [row] = await db
+    .select()
+    .from(classificationContributions)
+    .where(and(
+      eq(classificationContributions.taskId, taskId),
+      eq(classificationContributions.userId, userId)
+    ))
+    .limit(1);
+  return row || null;
+}
+
+export async function hasUserConfirmedTask(taskId: string, userId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(classificationConfirmations)
+    .where(and(
+      eq(classificationConfirmations.taskId, taskId),
+      eq(classificationConfirmations.userId, userId)
+    ));
+  return (Number(row?.value) || 0) > 0;
+}
+
+export async function recordConfirmation(
+  contributionId: string,
+  taskId: string,
+  confirmingUserId: string,
+  coinsAwarded: number
+): Promise<ClassificationConfirmation> {
+  const [confirmation] = await db
+    .insert(classificationConfirmations)
+    .values({
+      id: randomUUID(),
+      contributionId,
+      taskId,
+      userId: confirmingUserId,
+      coinsAwarded,
+    })
+    .returning();
+
+  return confirmation;
+}
+
+export async function incrementContributionConfirmCount(contributionId: string): Promise<void> {
+  await db
+    .update(classificationContributions)
+    .set({
+      confirmationCount: sql`${classificationContributions.confirmationCount} + 1`,
+    })
+    .where(eq(classificationContributions.id, contributionId));
+}
+
+export async function updateContributionEarnings(contributionId: string, additionalCoins: number): Promise<void> {
+  await db
+    .update(classificationContributions)
+    .set({
+      totalCoinsEarned: sql`${classificationContributions.totalCoinsEarned} + ${additionalCoins}`,
+    })
+    .where(eq(classificationContributions.id, contributionId));
+}
+
+export async function getUserClassificationStats(userId: string): Promise<{
+  totalClassifications: number;
+  totalConfirmationsReceived: number;
+  totalClassificationCoins: number;
+}> {
+  const [classRow] = await db
+    .select({
+      total: count(),
+      totalCoins: sql<number>`COALESCE(SUM(${classificationContributions.totalCoinsEarned}), 0)`,
+      totalConfirmations: sql<number>`COALESCE(SUM(${classificationContributions.confirmationCount}), 0)`,
+    })
+    .from(classificationContributions)
+    .where(eq(classificationContributions.userId, userId));
+
+  return {
+    totalClassifications: Number(classRow?.total) || 0,
+    totalConfirmationsReceived: Number(classRow?.totalConfirmations) || 0,
+    totalClassificationCoins: Number(classRow?.totalCoins) || 0,
+  };
 }

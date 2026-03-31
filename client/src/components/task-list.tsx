@@ -33,6 +33,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { TaskAIEngine } from "@/lib/ai-modules";
+import { ClassificationConfirm } from "./classification-confirm";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, AnimatePresence } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -195,7 +196,10 @@ const SortableTaskRow = memo(function SortableTaskRow({
         )}
       </TableCell>
       <TableCell>
-        <ClassificationBadge classification={task.classification} />
+        <div className="flex items-center gap-1.5">
+          <ClassificationBadge classification={task.classification} />
+          <ClassificationConfirm taskId={task.id} classification={task.classification} compact />
+        </div>
       </TableCell>
       <TableCell className="font-mono text-sm">
         {(task.priorityScore / 10).toFixed(3)}
@@ -443,6 +447,10 @@ function MobileTaskCard({
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${getStatusBadgeColor(task.status)}`}>
             {formatStatus(task.status)}
           </span>
+        </div>
+        <div className="flex items-center gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
+          <ClassificationBadge classification={task.classification} />
+          <ClassificationConfirm taskId={task.id} classification={task.classification} compact />
         </div>
         <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
           <Button

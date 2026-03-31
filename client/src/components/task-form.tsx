@@ -237,13 +237,24 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
         return response.json();
       }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-      toast({
-        title: task ? "Task updated" : "Task created",
-        description: task ? "Your task has been updated successfully." : "Your task has been added successfully.",
-      });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+
+      if (data?.classificationReward) {
+        const cr = data.classificationReward;
+        toast({
+          title: `${task ? "Task updated" : "Task created"} — +${cr.coinsEarned} AxCoins!`,
+          description: `Classified as ${cr.classification}. New balance: ${cr.newBalance}`,
+        });
+      } else {
+        toast({
+          title: task ? "Task updated" : "Task created",
+          description: task ? "Your task has been updated successfully." : "Your task has been added successfully.",
+        });
+      }
+
       if (!task) {
         form.reset();
         clearDraft(draftKey);

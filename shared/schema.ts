@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -247,3 +247,37 @@ export const taskPatterns = pgTable("task_patterns", {
 
 export type TaskPattern = typeof taskPatterns.$inferSelect;
 export type InsertTaskPattern = typeof taskPatterns.$inferInsert;
+
+// ─── Classification Contributions ───────────────────────────────────────────
+export const classificationContributions = pgTable("classification_contributions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  classification: text("classification").notNull(),
+  baseCoinsAwarded: integer("base_coins_awarded").notNull().default(0),
+  totalCoinsEarned: integer("total_coins_earned").notNull().default(0),
+  confirmationCount: integer("confirmation_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_class_contrib_task").on(table.taskId),
+  index("idx_class_contrib_user").on(table.userId),
+  uniqueIndex("idx_class_contrib_task_user").on(table.taskId, table.userId),
+]);
+
+export type ClassificationContribution = typeof classificationContributions.$inferSelect;
+
+// ─── Classification Confirmations ───────────────────────────────────────────
+export const classificationConfirmations = pgTable("classification_confirmations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contributionId: varchar("contribution_id").notNull().references(() => classificationContributions.id, { onDelete: "cascade" }),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  coinsAwarded: integer("coins_awarded").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_class_confirm_contrib").on(table.contributionId),
+  index("idx_class_confirm_task").on(table.taskId),
+  uniqueIndex("idx_class_confirm_task_user").on(table.taskId, table.userId),
+]);
+
+export type ClassificationConfirmation = typeof classificationConfirmations.$inferSelect;

@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User } from "lucide-react";
+import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 
@@ -63,6 +63,11 @@ export default function RewardsPage() {
   const { data: badgeData } = useQuery<{ earned: UserBadge[]; definitions: Record<string, BadgeDefinition> }>({
     queryKey: ["/api/gamification/badges"],
   });
+  const { data: classificationStats } = useQuery<{
+    totalClassifications: number;
+    totalConfirmationsReceived: number;
+    totalClassificationCoins: number;
+  }>({ queryKey: ["/api/gamification/classification-stats"] });
 
   const animatedBalance = useCountUp(wallet?.balance ?? 0);
 
@@ -162,6 +167,7 @@ export default function RewardsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="investments">Investments</TabsTrigger>
           <TabsTrigger value="shop">Shop</TabsTrigger>
           <TabsTrigger value="badges">Badges</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
@@ -246,6 +252,62 @@ export default function RewardsPage() {
                     })}
                   </div>
                 )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="investments" className="mt-4 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-amber-500" />
+                Classification Investments
+              </CardTitle>
+              <CardDescription>
+                Earn coins by classifying tasks. When others confirm your classifications,
+                you earn compounding interest — like an investment that grows with each confirmation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 mb-1">
+                    <Sparkles className="h-4 w-4" />
+                    <span className="text-sm font-medium">Classifications Made</span>
+                  </div>
+                  <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
+                    {classificationStats?.totalClassifications ?? 0}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400 mb-1">
+                    <ThumbsUp className="h-4 w-4" />
+                    <span className="text-sm font-medium">Confirmations Received</span>
+                  </div>
+                  <p className="text-3xl font-bold text-green-900 dark:text-green-100">
+                    {classificationStats?.totalConfirmationsReceived ?? 0}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 mb-1">
+                    <Coins className="h-4 w-4" />
+                    <span className="text-sm font-medium">Total Classification Coins</span>
+                  </div>
+                  <p className="text-3xl font-bold text-amber-900 dark:text-amber-100">
+                    {classificationStats?.totalClassificationCoins ?? 0}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 p-4 rounded-xl bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/10 dark:to-yellow-900/10 border border-amber-200 dark:border-amber-800">
+                <h4 className="font-semibold text-amber-800 dark:text-amber-300 mb-2">How Compound Interest Works</h4>
+                <div className="text-sm text-amber-700 dark:text-amber-400 space-y-1">
+                  <p>1. Classify a task to earn base coins (5-15 depending on category)</p>
+                  <p>2. Each time someone confirms your classification, you earn compound interest at 8% per confirmation</p>
+                  <p>3. The formula: <code className="bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-xs">base × (1.08)^n</code> where n = number of confirmations</p>
+                  <p>4. Confirmers also earn 3 coins for each confirmation they give</p>
+                </div>
               </div>
             </CardContent>
           </Card>

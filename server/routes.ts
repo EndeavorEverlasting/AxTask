@@ -17,6 +17,8 @@ import {
   resetStreak,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
+import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
+import { getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution } from "./storage";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
@@ -559,7 +561,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("[PatternEngine] learn error:", err)
       );
 
-      res.status(201).json(task);
+      let classificationReward = null;
+      if (task.classification && task.classification !== "General") {
+        classificationReward = await awardCoinsForClassification(userId, task);
+      }
+
+      res.status(201).json({ ...task, classificationReward });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
@@ -613,7 +620,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
       }
 
-      res.json({ ...task, coinReward });
+      let classificationReward = null;
+      const previousClassification = existingTask?.classification;
+      if (task!.classification && task!.classification !== "General" && task!.classification !== previousClassification) {
+        classificationReward = await awardCoinsForClassification(userId, task!);
+      }
+
+      res.json({ ...task, coinReward, classificationReward });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
@@ -1360,15 +1373,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/gamification/profile", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const [wallet, badges, rewards, txs] = await Promise.all([
+      const [wallet, badges, rewards, txs, classificationStats] = await Promise.all([
         getOrCreateWallet(userId),
         getUserBadges(userId),
         getUserRewards(userId),
         getTransactions(userId, 20),
+        getUserClassificationStats(userId),
       ]);
-      res.json({ wallet, badges, rewards, transactions: txs, definitions: BADGE_DEFINITIONS });
+      res.json({ wallet, badges, rewards, transactions: txs, definitions: BADGE_DEFINITIONS, classificationStats });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch profile" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Classification Contribution & Confirmation routes
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/tasks/:id/classifications", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const taskId = req.params.id;
+
+      const hasAccess = await canAccessTask(taskId, userId);
+      if (!hasAccess) return res.status(403).json({ message: "Access denied" });
+
+      const [contributions, hasConfirmed] = await Promise.all([
+        getContributionsForTask(taskId),
+        hasUserConfirmedTask(taskId, userId),
+      ]);
+      const isContributor = contributions.some(c => c.userId === userId);
+      res.json({ contributions, hasConfirmed, isContributor });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch classifications" });
+    }
+  });
+
+  app.post("/api/tasks/:id/confirm-classification", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const taskId = req.params.id;
+
+      const hasAccess = await canAccessTask(taskId, userId);
+      if (!hasAccess) return res.status(403).json({ message: "Access denied" });
+
+      const result = await awardCoinsForConfirmation(userId, taskId);
+      if (!result) {
+        return res.status(400).json({ message: "Already confirmed or you are the original classifier" });
+      }
+
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to confirm classification" });
+    }
+  });
+
+  app.get("/api/gamification/classification-stats", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const stats = await getUserClassificationStats(userId);
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch classification stats" });
     }
   });
 
