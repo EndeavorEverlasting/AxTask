@@ -5,6 +5,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useVoice } from "@/hooks/use-voice";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { consumePendingEditTask } from "@/App";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -663,13 +664,9 @@ export function TaskList() {
   const mobileScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      const task = (e as CustomEvent).detail as Task;
-      if (task) setEditingTask(task);
-    };
-    window.addEventListener("axtask:edit-task", handler);
-    return () => window.removeEventListener("axtask:edit-task", handler);
-  }, []);
+    const pending = consumePendingEditTask();
+    if (pending) setEditingTask(pending);
+  });
 
   const handlePullRefresh = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });

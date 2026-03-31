@@ -133,6 +133,13 @@ function useRoutePersistence() {
   }, [location]);
 }
 
+export let pendingEditTask: any = null;
+export function consumePendingEditTask() {
+  const t = pendingEditTask;
+  pendingEditTask = null;
+  return t;
+}
+
 function AuthenticatedApp() {
   const { user, loading } = useAuth();
   const { zoom } = useZoom();
@@ -200,10 +207,8 @@ function AuthenticatedApp() {
           open={globalSearchOpen}
           onClose={() => setGlobalSearchOpen(false)}
           onSelectTask={(task) => {
+            pendingEditTask = task;
             setLocation("/tasks");
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent("axtask:edit-task", { detail: task }));
-            }, 100);
           }}
         />
       </div>

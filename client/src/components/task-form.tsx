@@ -153,9 +153,14 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
   });
 
   const formClearedRef = useRef(false);
+  const resetWatchCountRef = useRef(0);
   useEffect(() => {
     if (!task || !onClearedChange) return;
     const sub = form.watch(() => {
+      if (resetWatchCountRef.current > 0) {
+        resetWatchCountRef.current--;
+        return;
+      }
       if (formClearedRef.current) {
         formClearedRef.current = false;
         onClearedChange(false);
@@ -1107,7 +1112,7 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                         urgency: undefined, impact: undefined, effort: undefined,
                         prerequisites: "", recurrence: "none" as const, status: "pending",
                       });
-                      if (onClearedChange) { onClearedChange(true); setTimeout(() => { formClearedRef.current = true; }, 50); }
+                      if (onClearedChange) { resetWatchCountRef.current = 10; formClearedRef.current = true; onClearedChange(true); }
                     } else {
                       form.reset(freshDefaults);
                     }
