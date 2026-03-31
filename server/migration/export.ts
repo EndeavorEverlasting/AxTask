@@ -169,12 +169,8 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
   const allContribs = await queryChunked(classificationContributions);
   const contribData = allContribs.filter((c) => (c.userId as string) === userId);
 
-  const contribIdSet = new Set(contribData.map((c) => c.id as string));
   const allConfirms = await queryChunked(classificationConfirmations);
-  const confirmData = allConfirms.filter((c) =>
-    (c.userId as string) === userId &&
-    contribIdSet.has(c.contributionId as string)
-  );
+  const confirmData = allConfirms.filter((c) => (c.userId as string) === userId);
 
   const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
   const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));

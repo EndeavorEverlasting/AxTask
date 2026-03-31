@@ -638,18 +638,40 @@ export async function importUserBundle(
     }
 
     if (dryRun) {
+      const table = TABLE_MAP[tableName];
+      const pkField = PK_FIELD[tableName];
       let wouldInsert = 0;
       let wouldSkip = 0;
+      let wouldConflict = 0;
       for (const row of rows) {
         if (hasUnresolvableFks(row, tableName)) {
           wouldSkip++;
-        } else {
-          wouldInsert++;
+          continue;
         }
+        const remapped = remapRow(parseTimestamps(row), tableName, pkField, idMap);
+        const pkValue = remapped[pkField];
+        if (pkValue) {
+          const pkCol = (table as Record<string, unknown>)[pkField];
+          if (pkCol) {
+            const [existing] = await db.select().from(table as typeof users)
+              .where(eq(pkCol as typeof users.id, String(pkValue))).limit(1);
+            if (existing) {
+              wouldSkip++;
+              wouldConflict++;
+              continue;
+            }
+          }
+        }
+        if (await checkUniqueConflict(tableName, remapped)) {
+          wouldSkip++;
+          wouldConflict++;
+          continue;
+        }
+        wouldInsert++;
       }
       inserted[tableName] = wouldInsert;
       skipped[tableName] = wouldSkip;
-      conflicts[tableName] = 0;
+      conflicts[tableName] = wouldConflict;
       continue;
     }
 
