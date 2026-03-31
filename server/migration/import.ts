@@ -207,7 +207,7 @@ export function validateBundle(bundle: ExportBundle): { errors: ValidationIssue[
         }
 
         if (isUserBundle && rule.refTable === "users" && rule.field === "userId" &&
-            (tableName === "classificationConfirmations" || tableName === "taskCollaborators")) {
+            (tableName === "classificationContributions" || tableName === "classificationConfirmations" || tableName === "taskCollaborators")) {
           continue;
         }
 

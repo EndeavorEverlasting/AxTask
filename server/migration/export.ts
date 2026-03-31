@@ -169,37 +169,31 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
   const allContribs = await queryChunked(classificationContributions);
   const allConfirms = await queryChunked(classificationConfirmations);
 
-  let collabData: Record<string, unknown>[];
-  let contribData: Record<string, unknown>[];
-  let confirmData: Record<string, unknown>[];
-  let exportedTasks = userTasks;
+  const collabData = allCollabs.filter((c) =>
+    (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
+  );
 
-  if (adminMode) {
-    collabData = allCollabs.filter((c) => (c.userId as string) === userId);
-    contribData = allContribs.filter((c) => (c.userId as string) === userId);
-    confirmData = allConfirms.filter((c) => (c.userId as string) === userId);
+  const contribData = allContribs.filter((c) =>
+    (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
+  );
 
-    const referencedTaskIds = new Set<string>();
-    for (const row of [...collabData, ...contribData, ...confirmData]) {
-      const tid = row.taskId as string;
-      if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
+  const userConfirms = allConfirms.filter((c) =>
+    (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
+  );
+
+  const exportedContribIds = new Set(contribData.map((c) => c.id as string));
+  const neededContribIds = new Set<string>();
+  for (const confirm of userConfirms) {
+    const cid = confirm.contributionId as string;
+    if (cid && !exportedContribIds.has(cid)) {
+      neededContribIds.add(cid);
     }
-    if (referencedTaskIds.size > 0) {
-      const allTasks = await queryChunked(tasks);
-      const refTasks = allTasks.filter((t) => referencedTaskIds.has(t.id as string));
-      exportedTasks = [...userTasks, ...refTasks];
-    }
-  } else {
-    collabData = allCollabs.filter((c) =>
-      (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
-    );
-    contribData = allContribs.filter((c) =>
-      (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
-    );
-    confirmData = allConfirms.filter((c) =>
-      (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
-    );
   }
+
+  const referencedContribs = neededContribIds.size > 0
+    ? allContribs.filter((c) => neededContribIds.has(c.id as string))
+    : [];
+  const allExportedContribs = [...contribData, ...referencedContribs];
 
   const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
   const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
@@ -207,15 +201,15 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows([adminMode ? (userData as Record<string, unknown>) : sanitizeUserRow(userData as Record<string, unknown>)]),
     rewardsCatalog: serializeRows(filteredCatalog),
-    tasks: serializeRows(exportedTasks),
+    tasks: serializeRows(userTasks),
     wallets: serializeRows(walletData),
     coinTransactions: serializeRows(coinTxData),
     userBadges: serializeRows(badgeData),
     userRewards: serializeRows(userRewardData),
     taskPatterns: serializeRows(patternData),
     taskCollaborators: serializeRows(collabData),
-    classificationContributions: serializeRows(contribData),
-    classificationConfirmations: serializeRows(confirmData),
+    classificationContributions: serializeRows(allExportedContribs),
+    classificationConfirmations: serializeRows(userConfirms),
     passwordResetTokens: [],
     securityLogs: [],
   };
