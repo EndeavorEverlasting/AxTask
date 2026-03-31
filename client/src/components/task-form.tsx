@@ -232,10 +232,24 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       clearWarning("date");
     }
 
+    if (!values.time || values.time.trim() === "") {
+      addWarning("time");
+      hasWarnings = true;
+    } else {
+      clearWarning("time");
+    }
+
+    if (!values.notes || values.notes.trim() === "") {
+      addWarning("notes");
+      hasWarnings = true;
+    } else {
+      clearWarning("notes");
+    }
+
     if (hasWarnings) {
       toast({
-        title: "Missing required fields",
-        description: "Please fill in the highlighted fields before submitting.",
+        title: "Missing fields",
+        description: "Some fields are empty — highlighted in yellow. You can still submit.",
         variant: "destructive",
       });
     }
@@ -310,17 +324,24 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 name="time"
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
-                    <FormLabel>Time <span className="text-xs text-muted-foreground">(optional)</span></FormLabel>
+                    <FormLabel>Time</FormLabel>
                     <FormControl>
                       <div
-                        className={cn(isHinted("time") && "rounded-md field-glow-hint")}
+                        className={cn(
+                          "rounded-md",
+                          isHinted("time") && "field-glow-hint",
+                          isWarned("time") && "field-glow-warning"
+                        )}
                         onBlur={() => onFieldBlur("time", field.value)}
                       >
                         <ClockTimePicker
                           value={field.value || undefined}
                           onChange={(t) => {
                             field.onChange(t);
-                            if (t) onFieldBlur("time", t);
+                            if (t) {
+                              onFieldBlur("time", t);
+                              clearWarning("time");
+                            }
                           }}
                         />
                       </div>
@@ -401,6 +422,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           {...field}
                           className={getFieldClass("notes")}
                           onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); }}
+                          onChange={(e) => {
+                            field.onChange(e);
+                            if (e.target.value.trim()) clearWarning("notes");
+                          }}
                         />
                       </FormControl>
                       <FormMessage />
