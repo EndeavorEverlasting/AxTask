@@ -115,7 +115,7 @@ function CalendarCell({
           {date.getDate()}
         </span>
         {insight && insight.severity === "critical" && (
-          <AlertTriangle className="h-3 w-3 text-red-500" title={insight.message} />
+          <AlertTriangle className="h-3 w-3 text-red-500" aria-label={insight.message} />
         )}
         {tasks.length > 0 && (
           <span className="text-[10px] text-gray-400">{tasks.length}</span>

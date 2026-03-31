@@ -40,6 +40,7 @@ function detectCadence(intervals: number[]): { cadence: string; avgDays: number 
 }
 
 interface TopicData {
+  [key: string]: unknown;
   topic: string;
   count: number;
   avgPriorityScore: number;
@@ -48,6 +49,7 @@ interface TopicData {
 }
 
 interface RecurrenceData {
+  [key: string]: unknown;
   activity: string;
   count: number;
   cadence: string;
@@ -59,6 +61,7 @@ interface RecurrenceData {
 }
 
 interface DeadlineRhythmData {
+  [key: string]: unknown;
   activity: string;
   typicalDayOfWeek: string;
   typicalDayIndex: number;

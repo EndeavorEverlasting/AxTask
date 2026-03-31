@@ -172,7 +172,7 @@ function drawTaskRow(doc: PDFKit.PDFDocument, task: Task, num: number, pageWidth
 
   if (timeStr) {
     doc.font("Helvetica").fontSize(8).fillColor(COLORS.mediumText)
-      .text(timeStr, textX + doc.widthOfString(numStr + task.activity, { font: "Helvetica-Bold", fontSize: 10 }) + 4, y + 3);
+      .text(timeStr, textX + doc.widthOfString(numStr + task.activity, { fontSize: 10 } as any) + 4, y + 3);
     doc.y = y + 16;
   }
 

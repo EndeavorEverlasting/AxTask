@@ -130,7 +130,7 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
     effort: task.effort || undefined,
     prerequisites: task.prerequisites || "",
     recurrence: (task.recurrence as "none" | "daily" | "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly") || "none",
-    status: task.status,
+    status: task.status as "pending" | "in-progress" | "completed",
   } : {
     date: defaultDate || new Date().toISOString().split('T')[0],
     time: "",
@@ -195,7 +195,7 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
       if (cmd.type === "urgency" && typeof cmd.value === "number") {
         form.setValue("urgency", cmd.value);
       } else if (cmd.type === "status" && typeof cmd.value === "string") {
-        form.setValue("status", cmd.value);
+        form.setValue("status", cmd.value as "pending" | "in-progress" | "completed");
       } else if (cmd.type === "date" && typeof cmd.value === "string") {
         form.setValue("date", cmd.value);
       } else if (cmd.type === "tag" && typeof cmd.value === "string") {

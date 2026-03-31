@@ -781,7 +781,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let finalBalance: number | null = null;
       if (coinReward || classificationReward || bountyReward || cleanupReward) {
-        const wallet = await storage.getOrCreateWallet(userId);
+        const wallet = await getOrCreateWallet(userId);
         finalBalance = wallet.balance;
       }
 

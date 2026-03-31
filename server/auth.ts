@@ -81,7 +81,7 @@ export function setupAuth(app: Express) {
           if (!user) {
             return done(null, false, { message: "Invalid email or password" });
           }
-          const valid = await verifyPassword(password, user.passwordHash);
+          const valid = await verifyPassword(password, user.passwordHash!);
           if (!valid) {
             return done(null, false, { message: "Invalid email or password" });
           }

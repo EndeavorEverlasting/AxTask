@@ -85,3 +85,15 @@ Key tables include `users`, `password_reset_tokens`, `security_logs`, `tasks`, `
 -   **Tailwind CSS**: Styling framework.
 -   **Vitest**: Testing framework.
 -   **cross-env**: Cross-platform environment variables.
+
+## Pre-Publish Validation
+The project includes automated pre-publish checks (`scripts/pre-publish-check.sh`) that run before deployment:
+1. **TypeScript compilation** — Verifies zero type errors with `tsc --noEmit`
+2. **Production build** — Runs `npm run build` and checks for success
+3. **Build output verification** — Confirms `dist/index.js` and `dist/public/` exist
+4. **Server smoke test** — Starts the production server on a test port, verifies `/healthz` and `/api/auth/config` respond
+
+These checks are also registered as validation commands (`typecheck`, `build`, `pre-publish`) for automated CI-style verification.
+
+### Health Check
+The server exposes `/healthz` endpoint that returns 200 "ok" for deployment health monitoring.

@@ -229,9 +229,9 @@ export default function BulkActionDialog({
                         {action.reason}
                       </span>
                     </div>
-                    {action.type === "reschedule" && action.details.fromDate && (
+                    {action.type === "reschedule" && !!action.details.fromDate && (
                       <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
-                        Currently: {action.details.fromDate as string} → {action.details.newDate as string}
+                        Currently: {String(action.details.fromDate)} → {String(action.details.newDate)}
                       </p>
                     )}
                     {action.confidence < 0.5 && (
