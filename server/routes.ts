@@ -901,6 +901,178 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ════════════════════════════════════════════════════════════════════════
+  //  Planner / AI Agent routes (protected)
+  // ════════════════════════════════════════════════════════════════════════
+
+  function isOverdueTask(t: { date: string; time: string | null }, todayStr: string, now: Date): boolean {
+    if (t.date < todayStr) return true;
+    if (t.date === todayStr && t.time) {
+      const [h, m] = t.time.split(":").map(Number);
+      const taskTime = new Date(now);
+      taskTime.setHours(h, m, 0, 0);
+      return taskTime < now;
+    }
+    return false;
+  }
+
+  app.get("/api/planner/briefing", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const now = new Date();
+      const todayStr = now.toISOString().split("T")[0];
+
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+
+      const pendingTasks = allTasks.filter(t => t.status !== "completed");
+
+      const overdueTasks = pendingTasks.filter(t => isOverdueTask(t, todayStr, now));
+
+      const dueTodayTasks = pendingTasks.filter(t => t.date === todayStr);
+
+      const weekDays: { date: string; dayName: string; count: number; load: "none" | "light" | "moderate" | "heavy" }[] = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(startOfWeek);
+        d.setDate(startOfWeek.getDate() + i);
+        const dateStr = d.toISOString().split("T")[0];
+        const dayTasks = allTasks.filter(t => t.date === dateStr && t.status !== "completed");
+        const cnt = dayTasks.length;
+        weekDays.push({
+          date: dateStr,
+          dayName: d.toLocaleDateString("en-US", { weekday: "short" }),
+          count: cnt,
+          load: cnt === 0 ? "none" : cnt <= 2 ? "light" : cnt <= 5 ? "moderate" : "heavy",
+        });
+      }
+
+      const scoredTasks = pendingTasks.map(t => {
+        let urgencyBoost = 0;
+        const daysUntilDue = Math.floor((new Date(t.date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysUntilDue < 0) urgencyBoost = 30;
+        else if (daysUntilDue === 0) urgencyBoost = 20;
+        else if (daysUntilDue === 1) urgencyBoost = 10;
+        else if (daysUntilDue <= 3) urgencyBoost = 5;
+
+        const combinedScore = (t.priorityScore || 0) + urgencyBoost;
+
+        let reason = "";
+        if (daysUntilDue < 0) reason = `Overdue by ${Math.abs(daysUntilDue)} day(s)`;
+        else if (daysUntilDue === 0 && t.time) reason = `Due today at ${t.time}`;
+        else if (daysUntilDue === 0) reason = "Due today";
+        else if (daysUntilDue === 1) reason = "Due tomorrow";
+        else if (daysUntilDue <= 3) reason = `Due in ${daysUntilDue} days`;
+
+        if (t.priority === "Highest" || t.priority === "High") {
+          reason = reason ? `${t.priority} priority — ${reason}` : `${t.priority} priority`;
+        }
+
+        return { task: t, combinedScore, reason };
+      });
+
+      scoredTasks.sort((a, b) => b.combinedScore - a.combinedScore);
+      const topTasks = scoredTasks.slice(0, 3).map(s => ({
+        ...s.task,
+        reason: s.reason || `Priority: ${s.task.priority}`,
+      }));
+
+      const thisWeekTotal = weekDays.reduce((sum, d) => sum + d.count, 0);
+
+      res.json({
+        today: todayStr,
+        overdue: { count: overdueTasks.length, tasks: overdueTasks.slice(0, 5) },
+        dueToday: { count: dueTodayTasks.length, tasks: dueTodayTasks.slice(0, 5) },
+        thisWeek: { total: thisWeekTotal, days: weekDays },
+        topRecommended: topTasks,
+        totalPending: pendingTasks.length,
+      });
+    } catch (error) {
+      console.error("Planner briefing error:", error);
+      res.status(500).json({ message: "Failed to generate planner briefing" });
+    }
+  });
+
+  app.post("/api/planner/ask", requireAuth, async (req, res) => {
+    try {
+      const { question } = req.body;
+      if (!question || typeof question !== "string") {
+        return res.status(400).json({ message: "Question is required" });
+      }
+
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const now = new Date();
+      const todayStr = now.toISOString().split("T")[0];
+      const pendingTasks = allTasks.filter(t => t.status !== "completed");
+      const q = question.toLowerCase();
+
+      let answer = "";
+      let relatedTasks: typeof allTasks = [];
+
+      if (q.match(/\b(most urgent|highest priority|what.*first|what.*next|important)\b/)) {
+        const sorted = [...pendingTasks].sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0));
+        relatedTasks = sorted.slice(0, 5);
+        if (relatedTasks.length === 0) {
+          answer = "You have no pending tasks right now. Great job!";
+        } else {
+          answer = `Your most urgent tasks are:\n${relatedTasks.map((t, i) => `${i + 1}. ${t.activity} (${t.priority}, score: ${(t.priorityScore || 0) / 10})`).join("\n")}`;
+        }
+      } else if (q.match(/\b(overdue|late|missed|past due)\b/)) {
+        relatedTasks = pendingTasks.filter(t => isOverdueTask(t, todayStr, now));
+        if (relatedTasks.length === 0) {
+          answer = "No overdue tasks. You're all caught up!";
+        } else {
+          answer = `You have ${relatedTasks.length} overdue task(s):\n${relatedTasks.slice(0, 5).map((t, i) => `${i + 1}. ${t.activity} (was due ${t.date})`).join("\n")}`;
+        }
+      } else if (q.match(/\b(due today|today's|today)\b/)) {
+        relatedTasks = pendingTasks.filter(t => t.date === todayStr);
+        if (relatedTasks.length === 0) {
+          answer = "You have no tasks due today.";
+        } else {
+          answer = `You have ${relatedTasks.length} task(s) due today:\n${relatedTasks.map((t, i) => `${i + 1}. ${t.activity}${t.time ? ` at ${t.time}` : ""}`).join("\n")}`;
+        }
+      } else if (q.match(/\b(this week|week|upcoming)\b/)) {
+        const endOfWeek = new Date(now);
+        endOfWeek.setDate(now.getDate() + (6 - now.getDay()));
+        const endStr = endOfWeek.toISOString().split("T")[0];
+        relatedTasks = pendingTasks.filter(t => t.date >= todayStr && t.date <= endStr);
+        if (relatedTasks.length === 0) {
+          answer = "No tasks due this week.";
+        } else {
+          answer = `You have ${relatedTasks.length} task(s) due this week:\n${relatedTasks.slice(0, 8).map((t, i) => `${i + 1}. ${t.activity} (${t.date})`).join("\n")}`;
+        }
+      } else if (q.match(/\b(summarize|summary|how.*doing|status|overview)\b/)) {
+        const completed = allTasks.filter(t => t.status === "completed").length;
+        const overdue = pendingTasks.filter(t => isOverdueTask(t, todayStr, now)).length;
+        const dueToday = pendingTasks.filter(t => t.date === todayStr).length;
+        answer = `Here's your overview:\n• ${allTasks.length} total tasks (${completed} completed)\n• ${pendingTasks.length} pending\n• ${overdue} overdue\n• ${dueToday} due today`;
+      } else if (q.match(/\b(completed|done|finished)\b/)) {
+        relatedTasks = allTasks.filter(t => t.status === "completed");
+        answer = `You've completed ${relatedTasks.length} task(s) total.`;
+        relatedTasks = relatedTasks.slice(0, 5);
+      } else {
+        const matches = pendingTasks.filter(t =>
+          t.activity.toLowerCase().includes(q) ||
+          (t.notes || "").toLowerCase().includes(q)
+        );
+        if (matches.length > 0) {
+          relatedTasks = matches.slice(0, 5);
+          answer = `Found ${matches.length} task(s) matching "${question}":\n${relatedTasks.map((t, i) => `${i + 1}. ${t.activity} (${t.priority}, due ${t.date})`).join("\n")}`;
+        } else {
+          answer = "I can help you with questions like:\n• \"What's most urgent?\"\n• \"What's due today?\"\n• \"Show overdue tasks\"\n• \"Summarize my week\"\n• \"What's due this week?\"";
+        }
+      }
+
+      res.json({ answer, relatedTasks: relatedTasks.slice(0, 5) });
+    } catch (error) {
+      console.error("Planner Q&A error:", error);
+      res.status(500).json({ message: "Failed to answer question" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

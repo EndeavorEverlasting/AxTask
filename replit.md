@@ -38,6 +38,7 @@ Preferred communication style: Simple, everyday language.
 - **Calendar Views**: Multiple time-based views with interactive task management, drag-and-drop rescheduling.
 - **Import/Export System**: Bulk Excel/CSV import with multi-sheet support (Daily Planner, Archives, Vault), server-side batch processing via `POST /api/tasks/import`, Excel serial date conversion, and per-sheet selection UI. CSV export also supported.
 - **Print Checklist & OCR**: Generate printable PDF daily checklists (`GET /api/checklist/:date`), then upload a photo of the completed checklist for OCR scanning (`POST /api/checklist/scan` via Tesseract.js) to automatically identify checked-off tasks and batch-update their status (`POST /api/checklist/apply`). Designed for users who prefer pen-and-paper workflows.
+- **AI Planner Agent**: Intelligent planning panel accessible from the sidebar. Features daily briefing (overdue count, due-today, this-week totals), top-3 recommended tasks with priority reasoning (deadline proximity + priority score weighting), weekly mini-calendar with color-coded load indicators (light/moderate/heavy), and a conversational Q&A interface for natural language queries ("What's most urgent?", "Show overdue tasks", "Summarize my week"). Notification badge on the sidebar icon shows overdue task count with 60s polling. Endpoints: `GET /api/planner/briefing`, `POST /api/planner/ask`.
 - **Analytics Dashboard**: Visual insights into task metrics, completion rates, and priority distributions.
 - **Real-time Updates**: Optimistic updates and cache invalidation.
 - **Task Reordering**: Drag-and-drop task reordering with persistent sort order.
@@ -81,7 +82,8 @@ Preferred communication style: Simple, everyday language.
 - `server/auth-providers.ts` — Multi-provider abstraction (Google OAuth, WorkOS, local)
 - `server/storage.ts` — All database operations (users, tasks, password reset, security questions)
 - `server/seed-dev.ts` — Dev account seeder (only in development mode)
-- `server/routes.ts` — All API routes (auth, tasks, Google Sheets, checklist)
+- `server/routes.ts` — All API routes (auth, tasks, Google Sheets, checklist, planner)
+- `client/src/pages/planner.tsx` — AI Planner page with daily briefing, weekly summary, Q&A
 - `server/checklist-pdf.ts` — PDF checklist generator using pdfkit
 - `server/ocr-processor.ts` — OCR image processor using Tesseract.js
 - `client/src/pages/checklist.tsx` — Print Checklist & OCR scan page

@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Plus,
@@ -18,6 +19,7 @@ import {
   RotateCcw,
   ClipboardList,
   GraduationCap,
+  Brain,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -32,8 +34,15 @@ export function Sidebar() {
   const { zoom, zoomIn, zoomOut, resetZoom, ZOOM_MIN, ZOOM_MAX } = useZoom();
   const { isActive: tutorialActive, startTutorial, stopTutorial, hasCompleted } = useTutorial();
 
+  const { data: briefing } = useQuery<{ overdue: { count: number } }>({
+    queryKey: ["/api/planner/briefing"],
+    refetchInterval: 60000,
+  });
+  const overdueCount = briefing?.overdue?.count || 0;
+
   const menuItems = [
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+    { path: "/planner", icon: Brain, label: "AI Planner", badge: overdueCount },
     { path: "/tasks", icon: List, label: "All Tasks" },
     { path: "/calendar", icon: CalendarDays, label: "Calendar" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
@@ -60,7 +69,7 @@ export function Sidebar() {
       
       <nav className="flex-1 p-4">
         <ul className="space-y-2">
-          {menuItems.map(({ path, icon: Icon, label }) => (
+          {menuItems.map(({ path, icon: Icon, label, badge }) => (
             <li key={path}>
               <Link href={path}>
                 <div
@@ -72,6 +81,11 @@ export function Sidebar() {
                 }`}>
                   <Icon className="mr-3 h-5 w-5" />
                   {label}
+                  {typeof badge === "number" && badge > 0 && (
+                    <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+                      {badge > 99 ? "99+" : badge}
+                    </span>
+                  )}
                 </div>
               </Link>
             </li>

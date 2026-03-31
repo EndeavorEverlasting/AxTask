@@ -42,6 +42,14 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     position: "right",
   },
   {
+    id: "planner",
+    title: "AI Planner",
+    description: "Your intelligent planning assistant. Get daily briefings, see top recommended tasks, a weekly load overview, and ask questions about your schedule.",
+    page: "/planner",
+    targetId: "sidebar-link-/planner",
+    position: "right",
+  },
+  {
     id: "analytics",
     title: "Analytics & Insights",
     description: "Track your productivity trends, see priority distributions, and monitor completion rates over time.",
