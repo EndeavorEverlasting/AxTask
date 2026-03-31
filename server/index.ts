@@ -191,14 +191,53 @@ app.use((req, res, next) => {
   }
 
   const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      ...(process.platform !== "win32" && { reusePort: true }),
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
+
+  const killPortAndListen = async (targetPort: number, retries = 2): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const onError = async (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE" && retries > 0) {
+          console.warn(`[startup] Port ${targetPort} in use — attempting to free it (${retries} retries left)`);
+          try {
+            const { execSync } = await import("child_process");
+            try {
+              const pids = execSync(`lsof -ti :${targetPort}`, { encoding: "utf8" }).trim();
+              if (pids) {
+                for (const pid of pids.split("\n")) {
+                  const p = pid.trim();
+                  if (p && p !== String(process.pid)) {
+                    try { process.kill(Number(p), "SIGTERM"); } catch {}
+                  }
+                }
+                await new Promise(r => setTimeout(r, 1000));
+              }
+            } catch {}
+          } catch {}
+          server.removeListener("error", onError);
+          return killPortAndListen(targetPort, retries - 1).then(resolve, reject);
+        }
+        reject(err);
+      };
+
+      server.once("error", onError);
+      server.listen(
+        {
+          port: targetPort,
+          host: "0.0.0.0",
+          ...(process.platform !== "win32" && { reusePort: true }),
+        },
+        () => {
+          server.removeListener("error", onError);
+          log(`serving on port ${targetPort}`);
+          resolve();
+        },
+      );
+    });
+  };
+
+  try {
+    await killPortAndListen(port);
+  } catch (err) {
+    console.error(`[startup] Failed to bind port ${port}:`, err);
+    process.exit(1);
+  }
 })();
