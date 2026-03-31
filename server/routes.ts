@@ -925,8 +925,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const startOfWeek = new Date(now);
       startOfWeek.setDate(now.getDate() - now.getDay());
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6);
 
       const pendingTasks = allTasks.filter(t => t.status !== "completed");
 
@@ -1051,6 +1049,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           answer = "You have no tasks due today.";
         } else {
           answer = `You have ${relatedTasks.length} task(s) due today:\n${relatedTasks.map((t, i) => `${i + 1}. ${t.activity}${t.time ? ` at ${t.time}` : ""}`).join("\n")}`;
+        }
+      } else if (q.match(/\b(summarize.*week|week.*summary|weekly)\b/)) {
+        const weekEnd = new Date(now);
+        weekEnd.setDate(now.getDate() + (6 - now.getDay()));
+        const endStr = weekEnd.toISOString().split("T")[0];
+        relatedTasks = pendingTasks.filter(t => t.date >= todayStr && t.date <= endStr);
+        if (relatedTasks.length === 0) {
+          answer = "Your week looks clear — no tasks scheduled.";
+        } else {
+          answer = `You have ${relatedTasks.length} task(s) remaining this week:\n${relatedTasks.slice(0, 8).map((t, i) => `${i + 1}. ${t.activity} (${t.date})`).join("\n")}`;
         }
       } else if (q.match(/\b(summarize|summary|how.*doing|status|overview)\b/)) {
         const completed = allTasks.filter(t => t.status === "completed").length;
