@@ -206,14 +206,6 @@ export function validateBundle(bundle: ExportBundle): { errors: ValidationIssue[
           continue;
         }
 
-        if (isUserBundle && (
-          (rule.refTable === "users" && rule.field === "userId" &&
-            (tableName === "classificationContributions" || tableName === "classificationConfirmations" || tableName === "taskCollaborators")) ||
-          (rule.refTable === "tasks" && rule.field === "taskId" &&
-            (tableName === "classificationContributions" || tableName === "classificationConfirmations" || tableName === "taskCollaborators"))
-        )) {
-          continue;
-        }
 
         if (!idSets[rule.refTable].has(String(fkValue))) {
           if (rule.nullable) {
