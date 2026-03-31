@@ -7,7 +7,11 @@ import {
   classificationContributions, classificationConfirmations,
 } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import type { PgTable } from "drizzle-orm/pg-core";
 import type { ExportBundle } from "./export";
+
+type AnyPgTable = PgTable;
+type AnyPgColumn = typeof users.id;
 
 export interface ValidationIssue {
   table: string;
@@ -202,16 +206,11 @@ export function validateBundle(bundle: ExportBundle): { errors: ValidationIssue[
         const fkValue = row[rule.field];
         if (fkValue === null || fkValue === undefined) continue;
 
-        if (isUserBundle && rule.refTable === "rewardsCatalog") {
-          continue;
-        }
-
-
         if (!idSets[rule.refTable].has(String(fkValue))) {
-          if (rule.nullable) {
+          if (rule.nullable || isUserBundle) {
             warnings.push({
               table: tableName, rowIndex: i, field: rule.field,
-              message: `References ${rule.refTable}.${rule.refField}=${fkValue} not in export (nullable FK)`,
+              message: `References ${rule.refTable}.${rule.refField}=${fkValue} not in export${isUserBundle ? " (user bundle — will be resolved at import or skipped)" : " (nullable FK)"}`,
               severity: "warning",
             });
           } else {
@@ -253,7 +252,7 @@ export async function validateBundleWithDb(bundle: ExportBundle): Promise<{
       if (!pkValue) continue;
       const pkCol = (table as Record<string, unknown>)[pkField];
       if (pkCol) {
-        const [existing] = await db.select().from(table as typeof users).where(eq(pkCol as typeof users.id, String(pkValue))).limit(1);
+        const [existing] = await db.select().from(table as AnyPgTable).where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);
         if (existing) conflictCount++;
       }
     }
@@ -340,17 +339,12 @@ async function checkUniqueConflict(tableName: TableName, row: BundleRow): Promis
   for (const check of checks) {
     const val = row[check.field];
     if (val) {
-      const [existing] = await db.select().from(TABLE_MAP[tableName] as typeof users)
+      const [existing] = await db.select().from(TABLE_MAP[tableName] as AnyPgTable)
         .where(eq(check.column, String(val))).limit(1);
       if (existing) return true;
     }
   }
   return false;
-}
-
-async function insertRow(table: DrizzleTable, row: BundleRow): Promise<number> {
-  const result = await db.insert(table as typeof users).values(row as typeof users.$inferInsert).onConflictDoNothing();
-  return (result as { rowCount?: number }).rowCount ?? 0;
 }
 
 export async function importBundle(
@@ -417,7 +411,7 @@ export async function importBundle(
           if (!pkValue) continue;
           const pkCol = (table as Record<string, unknown>)[pkField];
           if (pkCol) {
-            const [existing] = await db.select().from(table as typeof users).where(eq(pkCol as typeof users.id, String(pkValue))).limit(1);
+            const [existing] = await db.select().from(table as AnyPgTable).where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);
             if (existing) conflictCount++;
           }
         }
@@ -439,98 +433,152 @@ export async function importBundle(
     };
   }
 
-  for (const tableName of TABLE_INSERT_ORDER) {
-    const rows = getBundleRows(bundle, tableName);
-    if (rows.length === 0) {
-      inserted[tableName] = 0;
-      skipped[tableName] = 0;
-      conflicts[tableName] = 0;
-      continue;
+  const bundleIsUserExport = bundle.metadata.exportMode === "user";
+  const bundleIdSets: Record<string, Set<string>> = {};
+  if (bundleIsUserExport) {
+    for (const tn of TABLE_INSERT_ORDER) {
+      const pkf = PK_FIELD[tn];
+      bundleIdSets[tn] = new Set(getBundleRows(bundle, tn).map((r) => String(r[pkf])));
     }
+  }
 
-    const table = TABLE_MAP[tableName];
-    const pkField = PK_FIELD[tableName];
-    let insertCount = 0;
-    let skipCount = 0;
-    let conflictCount = 0;
+  try {
+    await db.transaction(async (tx) => {
+      const insertRowTx = async (table: DrizzleTable, row: BundleRow): Promise<number> => {
+        const result = await tx.insert(table as AnyPgTable).values(row as Record<string, unknown>).onConflictDoNothing();
+        return (result as { rowCount?: number }).rowCount ?? 0;
+      };
 
-    for (let i = 0; i < rows.length; i++) {
-      let row = parseTimestamps(rows[i]);
-      const originalRow = rows[i];
-
-      if (mode === "remap" && tableName !== "users" && skippedUserIds.size > 0) {
-        const rowUserId = originalRow.userId;
-        if (rowUserId && skippedUserIds.has(String(rowUserId))) {
-          skipCount++;
+      for (const tableName of TABLE_INSERT_ORDER) {
+        const rows = getBundleRows(bundle, tableName);
+        if (rows.length === 0) {
+          inserted[tableName] = 0;
+          skipped[tableName] = 0;
+          conflicts[tableName] = 0;
           continue;
         }
-      }
 
-      if (idMap) {
-        row = remapRow(row, tableName, pkField, idMap);
-      }
+        const table = TABLE_MAP[tableName];
+        const pkField = PK_FIELD[tableName];
+        let insertCount = 0;
+        let skipCount = 0;
+        let conflictCount = 0;
 
-      const pkValue = row[pkField];
-      const pkCol = (table as Record<string, unknown>)[pkField];
+        for (let i = 0; i < rows.length; i++) {
+          let row = parseTimestamps(rows[i]);
+          const originalRow = rows[i];
 
-      if (mode === "preserve" && pkCol && pkValue) {
-        const [existing] = await db.select().from(table as typeof users).where(eq(pkCol as typeof users.id, String(pkValue))).limit(1);
-        if (existing) {
-          skipCount++;
-          conflictCount++;
-          continue;
-        }
-      }
-
-      if (mode === "remap" && tableName === "users" && idMap) {
-        const email = row.email;
-        if (email) {
-          const [existingUser] = await db.select().from(users).where(eq(users.email, String(email))).limit(1);
-          if (existingUser) {
-            const originalId = originalRow[pkField];
-            if (originalId) {
-              skippedUserIds.add(String(originalId));
+          if (bundleIsUserExport) {
+            const fkRules = FK_RULES[tableName];
+            let hasUnresolvable = false;
+            for (const rule of fkRules) {
+              const fkVal = originalRow[rule.field];
+              if (fkVal === null || fkVal === undefined) continue;
+              const refIds = bundleIdSets[rule.refTable];
+              if (refIds && !refIds.has(String(fkVal)) && !rule.nullable) {
+                hasUnresolvable = true;
+                break;
+              }
             }
-            validation.warnings.push({
-              table: "users", rowIndex: i, field: "email",
-              message: `User with email ${email} already exists — skipping user and all dependent records`,
-              severity: "warning",
+            if (hasUnresolvable) {
+              skipCount++;
+              continue;
+            }
+          }
+
+          if (mode === "remap" && tableName !== "users" && skippedUserIds.size > 0) {
+            const rowUserId = originalRow.userId;
+            if (rowUserId && skippedUserIds.has(String(rowUserId))) {
+              skipCount++;
+              continue;
+            }
+          }
+
+          if (idMap) {
+            row = remapRow(row, tableName, pkField, idMap);
+          }
+
+          const pkValue = row[pkField];
+          const pkCol = (table as Record<string, unknown>)[pkField];
+
+          if (mode === "preserve" && pkCol && pkValue) {
+            const [existing] = await tx.select().from(table as AnyPgTable).where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);
+            if (existing) {
+              skipCount++;
+              conflictCount++;
+              continue;
+            }
+          }
+
+          if (mode === "remap" && tableName === "users" && idMap) {
+            const email = row.email;
+            if (email) {
+              const [existingUser] = await tx.select().from(users).where(eq(users.email, String(email))).limit(1);
+              if (existingUser) {
+                const originalId = originalRow[pkField];
+                if (originalId) {
+                  skippedUserIds.add(String(originalId));
+                }
+                validation.warnings.push({
+                  table: "users", rowIndex: i, field: "email",
+                  message: `User with email ${email} already exists — skipping user and all dependent records`,
+                  severity: "warning",
+                });
+                skipCount++;
+                conflictCount++;
+                continue;
+              }
+            }
+          }
+
+          try {
+            const affected = await insertRowTx(table, row);
+            if (affected > 0) {
+              insertCount++;
+            } else {
+              skipCount++;
+              conflictCount++;
+            }
+          } catch (rowErr: unknown) {
+            const errMsg = rowErr instanceof Error ? rowErr.message.slice(0, 200) : "Insert failed";
+            validation.errors.push({
+              table: tableName,
+              rowIndex: i,
+              field: "insert",
+              message: errMsg,
+              severity: "error",
             });
             skipCount++;
-            conflictCount++;
-            continue;
           }
         }
+
+        inserted[tableName] = insertCount;
+        skipped[tableName] = skipCount;
+        conflicts[tableName] = conflictCount;
       }
 
-      try {
-        const affected = await insertRow(table, row);
-        if (affected > 0) {
-          insertCount++;
-        } else {
-          skipCount++;
-          conflictCount++;
-        }
-      } catch (rowErr: unknown) {
-        const errMsg = rowErr instanceof Error ? rowErr.message.slice(0, 200) : "Insert failed";
-        validation.errors.push({
-          table: tableName,
-          rowIndex: i,
-          field: "insert",
-          message: errMsg,
-          severity: "error",
-        });
-        skipCount++;
+      if (validation.errors.length > 0) {
+        throw new Error("ROLLBACK_IMPORT");
       }
+    });
+  } catch (txErr: unknown) {
+    if (txErr instanceof Error && txErr.message === "ROLLBACK_IMPORT") {
+      return {
+        success: false,
+        dryRun: false,
+        mode,
+        inserted: {},
+        skipped: {},
+        conflicts: {},
+        errors: validation.errors,
+        warnings: validation.warnings,
+      };
     }
-
-    inserted[tableName] = insertCount;
-    skipped[tableName] = skipCount;
-    conflicts[tableName] = conflictCount;
+    throw txErr;
   }
 
   return {
-    success: validation.errors.length === 0,
+    success: true,
     dryRun: false,
     mode,
     inserted,
@@ -592,6 +640,7 @@ export async function importUserBundle(
   const inserted: Record<string, number> = {};
   const skipped: Record<string, number> = {};
   const conflicts: Record<string, number> = {};
+  const pendingTables: TableName[] = [];
 
   function hasUnresolvableFks(row: BundleRow, tableName: TableName): boolean {
     const fkRules = FK_RULES[tableName];
@@ -640,8 +689,8 @@ export async function importUserBundle(
         if (pkValue) {
           const pkCol = (table as Record<string, unknown>)[pkField];
           if (pkCol) {
-            const [existing] = await db.select().from(table as typeof users)
-              .where(eq(pkCol as typeof users.id, String(pkValue))).limit(1);
+            const [existing] = await db.select().from(table as AnyPgTable)
+              .where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);
             if (existing) {
               wouldSkip++;
               wouldConflict++;
@@ -662,64 +711,109 @@ export async function importUserBundle(
       continue;
     }
 
-    const table = TABLE_MAP[tableName];
-    const pkField = PK_FIELD[tableName];
-    let insertCount = 0;
-    let skipCount = 0;
+    pendingTables.push(tableName);
+  }
 
-    for (let i = 0; i < rows.length; i++) {
-      const rawRow = rows[i];
+  if (dryRun) {
+    return {
+      success: validation.errors.length === 0,
+      dryRun: true,
+      mode: "remap",
+      inserted,
+      skipped,
+      conflicts,
+      errors: validation.errors,
+      warnings: validation.warnings,
+    };
+  }
 
-      if (hasUnresolvableFks(rawRow, tableName)) {
-        skipCount++;
-        continue;
-      }
+  try {
+    await db.transaction(async (tx) => {
+      const insertRowTx = async (table: DrizzleTable, row: BundleRow): Promise<number> => {
+        const result = await tx.insert(table as AnyPgTable).values(row as Record<string, unknown>).onConflictDoNothing();
+        return (result as { rowCount?: number }).rowCount ?? 0;
+      };
 
-      let row = parseTimestamps(rawRow);
-      row = remapRow(row, tableName, pkField, idMap);
+      for (const tableName of pendingTables) {
+        const rows = getBundleRows(bundle, tableName);
+        const table = TABLE_MAP[tableName];
+        const pkField = PK_FIELD[tableName];
+        let insertCount = 0;
+        let skipCount = 0;
 
-      if (tableName === "userRewards" && row.rewardId) {
-        const [catalogExists] = await db.select().from(rewardsCatalog)
-          .where(eq(rewardsCatalog.id, String(row.rewardId))).limit(1);
-        if (!catalogExists) {
-          validation.warnings.push({
-            table: tableName, rowIndex: i, field: "rewardId",
-            message: `Reward catalog item ${row.rewardId} not found in database, skipping`,
-            severity: "warning",
-          });
-          skipCount++;
-          continue;
+        for (let i = 0; i < rows.length; i++) {
+          const rawRow = rows[i];
+
+          if (hasUnresolvableFks(rawRow, tableName)) {
+            skipCount++;
+            continue;
+          }
+
+          let row = parseTimestamps(rawRow);
+          row = remapRow(row, tableName, pkField, idMap);
+
+          if (tableName === "userRewards" && row.rewardId) {
+            const [catalogExists] = await tx.select().from(rewardsCatalog)
+              .where(eq(rewardsCatalog.id, String(row.rewardId))).limit(1);
+            if (!catalogExists) {
+              validation.warnings.push({
+                table: tableName, rowIndex: i, field: "rewardId",
+                message: `Reward catalog item ${row.rewardId} not found in database, skipping`,
+                severity: "warning",
+              });
+              skipCount++;
+              continue;
+            }
+          }
+
+          try {
+            const affected = await insertRowTx(table, row);
+            if (affected > 0) {
+              insertCount++;
+            } else {
+              skipCount++;
+            }
+          } catch (rowErr: unknown) {
+            const errMsg = rowErr instanceof Error ? rowErr.message.slice(0, 200) : "Insert failed";
+            validation.errors.push({
+              table: tableName,
+              rowIndex: i,
+              field: "insert",
+              message: errMsg,
+              severity: "error",
+            });
+            skipCount++;
+          }
         }
+
+        inserted[tableName] = insertCount;
+        skipped[tableName] = skipCount;
+        conflicts[tableName] = 0;
       }
 
-      try {
-        const affected = await insertRow(table, row);
-        if (affected > 0) {
-          insertCount++;
-        } else {
-          skipCount++;
-        }
-      } catch (rowErr: unknown) {
-        const errMsg = rowErr instanceof Error ? rowErr.message.slice(0, 200) : "Insert failed";
-        validation.errors.push({
-          table: tableName,
-          rowIndex: i,
-          field: "insert",
-          message: errMsg,
-          severity: "error",
-        });
-        skipCount++;
+      if (validation.errors.length > 0) {
+        throw new Error("ROLLBACK_IMPORT");
       }
+    });
+  } catch (txErr: unknown) {
+    if (txErr instanceof Error && txErr.message === "ROLLBACK_IMPORT") {
+      return {
+        success: false,
+        dryRun: false,
+        mode: "remap",
+        inserted: {},
+        skipped: {},
+        conflicts: {},
+        errors: validation.errors,
+        warnings: validation.warnings,
+      };
     }
-
-    inserted[tableName] = insertCount;
-    skipped[tableName] = skipCount;
-    conflicts[tableName] = 0;
+    throw txErr;
   }
 
   return {
-    success: validation.errors.length === 0,
-    dryRun,
+    success: true,
+    dryRun: false,
     mode: "remap",
     inserted,
     skipped,

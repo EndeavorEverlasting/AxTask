@@ -168,20 +168,11 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
   const allContribs = await queryChunked(classificationContributions);
   const allConfirms = await queryChunked(classificationConfirmations);
 
-  const collabData = allCollabs.filter((c) =>
-    (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
-  );
+  const collabData = allCollabs.filter((c) => (c.userId as string) === userId);
 
-  const contribData = allContribs.filter((c) =>
-    (c.userId as string) === userId && ownedTaskIdSet.has(c.taskId as string)
-  );
+  const contribData = allContribs.filter((c) => (c.userId as string) === userId);
 
-  const contribIdSet = new Set(contribData.map((c) => c.id as string));
-  const confirmData = allConfirms.filter((c) =>
-    (c.userId as string) === userId &&
-    ownedTaskIdSet.has(c.taskId as string) &&
-    contribIdSet.has(c.contributionId as string)
-  );
+  const confirmData = allConfirms.filter((c) => (c.userId as string) === userId);
 
   const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
   const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
