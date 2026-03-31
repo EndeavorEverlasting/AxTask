@@ -15,6 +15,7 @@ import { VoiceCommandBar } from "@/components/voice-command-bar";
 import { MobileVoiceOverlay } from "@/components/mobile-voice-overlay";
 import BulkActionDialog from "@/components/bulk-action-dialog";
 import { GlobalSearch } from "@/components/global-search";
+import { setPendingEditTask } from "@/lib/pending-edit";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LayoutDashboard, List, CalendarDays, Brain } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
@@ -149,7 +150,7 @@ function AuthenticatedApp() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
         e.preventDefault();
-        setGlobalSearchOpen(prev => !prev);
+        setGlobalSearchOpen(true);
       }
     };
     document.addEventListener("keydown", handleKeyDown);
