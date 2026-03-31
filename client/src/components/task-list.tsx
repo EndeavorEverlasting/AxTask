@@ -5,7 +5,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useVoice } from "@/hooks/use-voice";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { consumePendingEditTask } from "@/lib/pending-edit";
+import { consumePendingEditTask, subscribePendingEdit, getPendingVersion } from "@/lib/pending-edit";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -682,10 +682,14 @@ export function TaskList() {
     queryKey: ["/api/tasks"],
   });
 
+  const [pendingEditVersion, setPendingEditVersion] = useState(() => getPendingVersion());
   useEffect(() => {
-    const pending = consumePendingEditTask() as Task | null;
+    return subscribePendingEdit(() => setPendingEditVersion(getPendingVersion()));
+  }, []);
+  useEffect(() => {
+    const pending = consumePendingEditTask();
     if (pending) setEditingTask(pending);
-  }, [tasks]);
+  }, [pendingEditVersion]);
 
   const deleteTaskMutation = useMutation({
     mutationFn: async (id: string) => {
