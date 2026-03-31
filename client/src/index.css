@@ -58,6 +58,10 @@
   }
 }
 
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* Focus flow glow — guides users to the next field */
 @keyframes field-glow-pulse {
   0%, 100% {

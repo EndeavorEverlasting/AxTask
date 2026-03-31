@@ -91,11 +91,11 @@ export default function RewardsPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-            <ShoppingBag className="h-7 w-7 text-amber-500" />
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <ShoppingBag className="h-6 w-6 md:h-7 md:w-7 text-amber-500" />
             Rewards Shop
           </h2>
           <p className="text-gray-600 dark:text-gray-400">Spend your AxCoins on themes, badges, and titles</p>

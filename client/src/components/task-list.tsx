@@ -4,6 +4,7 @@ import { type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useVoice } from "@/hooks/use-voice";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
-import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles } from "lucide-react";
+import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -355,9 +356,76 @@ function VirtualizedTaskTable({
   );
 }
 
+function MobileTaskCard({
+  task,
+  onEdit,
+  onToggleStatus,
+  onDelete,
+  isUpdating,
+  isDeleting,
+}: {
+  task: Task;
+  onEdit: (task: Task) => void;
+  onToggleStatus: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+  isUpdating: boolean;
+  isDeleting: boolean;
+}) {
+  return (
+    <div
+      className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm active:bg-gray-50 dark:active:bg-gray-750 transition-colors"
+      onClick={() => onEdit(task)}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 line-clamp-2">{task.activity}</p>
+          {task.notes && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 mt-1">{task.notes}</p>
+          )}
+        </div>
+        <PriorityBadge priority={task.priority} />
+      </div>
+      <div className="flex items-center gap-3 mt-3">
+        <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+          <CalendarDays className="h-3 w-3" />
+          {task.date}
+        </span>
+        {task.time && (
+          <span className="text-xs text-gray-500 dark:text-gray-400">{task.time}</span>
+        )}
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${getStatusBadgeColor(task.status)}`}>
+          {formatStatus(task.status)}
+        </span>
+      </div>
+      <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-1 h-10 text-xs"
+          onClick={() => onToggleStatus(task.id, task.status === "completed" ? "pending" : "completed")}
+          disabled={isUpdating}
+        >
+          <Check className="h-4 w-4 mr-1" />
+          {task.status === "completed" ? "Undo" : "Done"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-10 text-xs text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20"
+          onClick={() => onDelete(task.id)}
+          disabled={isDeleting}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function TaskList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 200);
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -368,6 +436,14 @@ export function TaskList() {
   const [isDragMode, setIsDragMode] = useState(false);
   const reducedMotion = useReducedMotion();
   const { consumeVoiceSearch } = useVoice();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handlePullRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+    setTimeout(() => setIsRefreshing(false), 500);
+  }, [queryClient]);
 
   useEffect(() => {
     const voiceQuery = consumeVoiceSearch();
@@ -582,79 +658,106 @@ export function TaskList() {
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>Task List</CardTitle>
-          <div className="flex items-center space-x-3">
+      <CardHeader className="px-4 md:px-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center justify-between">
+            <CardTitle>Task List</CardTitle>
+            {isMobile && (
+              <Button variant="ghost" size="icon" className="h-10 w-10" onClick={handlePullRefresh} disabled={isRefreshing}>
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+              </Button>
+            )}
+          </div>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:space-x-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input
                 placeholder="Search tasks..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 w-64"
+                className="pl-10 w-full md:w-64 h-10"
               />
             </div>
-            <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Priorities</SelectItem>
-                <SelectItem value="Highest">Highest</SelectItem>
-                <SelectItem value="High">High</SelectItem>
-                <SelectItem value="Medium-High">Medium-High</SelectItem>
-                <SelectItem value="Medium">Medium</SelectItem>
-                <SelectItem value="Low">Low</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="in-progress">In Progress</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              variant={isDragMode ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                setIsDragMode(!isDragMode);
-                if (!isDragMode) setSortField('manual');
-              }}
-            >
-              <GripVertical className="h-4 w-4 mr-2" />
-              {isDragMode ? "Drag Mode" : "Drag"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleAISort}
-              disabled={reorderMutation.isPending}
-            >
-              <Sparkles className="h-4 w-4 mr-2" />
-              AI Sort
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => recalculatePrioritiesMutation.mutate()}
-              disabled={recalculatePrioritiesMutation.isPending}
-            >
-              <RotateCcw className="h-4 w-4 mr-2" />
-              {recalculatePrioritiesMutation.isPending ? "Recalculating..." : "Recalculate"}
-            </Button>
+            <div className="flex gap-2">
+              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                <SelectTrigger className="flex-1 md:w-40 h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Priorities</SelectItem>
+                  <SelectItem value="Highest">Highest</SelectItem>
+                  <SelectItem value="High">High</SelectItem>
+                  <SelectItem value="Medium-High">Medium-High</SelectItem>
+                  <SelectItem value="Medium">Medium</SelectItem>
+                  <SelectItem value="Low">Low</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="flex-1 md:w-32 h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="in-progress">In Progress</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {!isMobile && (
+              <div className="flex items-center space-x-3">
+                <Button
+                  variant={isDragMode ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setIsDragMode(!isDragMode);
+                    if (!isDragMode) setSortField('manual');
+                  }}
+                >
+                  <GripVertical className="h-4 w-4 mr-2" />
+                  {isDragMode ? "Drag Mode" : "Drag"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAISort}
+                  disabled={reorderMutation.isPending}
+                >
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  AI Sort
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => recalculatePrioritiesMutation.mutate()}
+                  disabled={recalculatePrioritiesMutation.isPending}
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  {recalculatePrioritiesMutation.isPending ? "Recalculating..." : "Recalculate"}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 md:px-6">
         {filteredAndSortedTasks.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             {tasks.length === 0 ? "No tasks found. Create your first task!" : "No tasks match your filters."}
+          </div>
+        ) : isMobile ? (
+          <div className="space-y-3">
+            {filteredAndSortedTasks.map((task: Task) => (
+              <MobileTaskCard
+                key={task.id}
+                task={task}
+                onEdit={handleEdit}
+                onToggleStatus={handleToggleStatus}
+                onDelete={handleDelete}
+                isUpdating={updateTaskStatusMutation.isPending}
+                isDeleting={deleteTaskMutation.isPending}
+              />
+            ))}
           </div>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -743,7 +846,7 @@ export function TaskList() {
       </CardContent>
       
       <Dialog open={!!editingTask} onOpenChange={() => setEditingTask(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl">
           <DialogHeader>
             <DialogTitle>Edit Task</DialogTitle>
           </DialogHeader>
