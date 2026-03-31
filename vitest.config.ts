@@ -10,6 +10,9 @@ export default defineConfig({
       "@shared": path.resolve(__dirname, "shared"),
     },
   },
+  oxc: {
+    jsx: "automatic",
+  },
   test: {
     globals: true,
     environment: "jsdom",
