@@ -277,6 +277,7 @@ export const classificationContributions = pgTable("classification_contributions
   baseCoinsAwarded: integer("base_coins_awarded").notNull().default(0),
   totalCoinsEarned: integer("total_coins_earned").notNull().default(0),
   confirmationCount: integer("confirmation_count").notNull().default(0),
+  cleanupBonuses: integer("cleanup_bonuses").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_class_contrib_task").on(table.taskId),

@@ -1,4 +1,4 @@
-import { type Task, tasks, taskCollaborators, coinTransactions } from "@shared/schema";
+import { type Task, tasks, taskCollaborators, coinTransactions, classificationContributions } from "@shared/schema";
 import { addCoins, updateStreak, awardBadge, getOrCreateWallet, getCompletedTaskCount, getUserBadges, hasTaskBeenAwarded, getTaskCollaborators } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, count, countDistinct } from "drizzle-orm";
@@ -210,6 +210,30 @@ export async function awardCleanupBonus(
     `Cleanup: updated stale task (${ageInDays} days old)`,
     task.id
   );
+
+  const [existingContrib] = await db
+    .select()
+    .from(classificationContributions)
+    .where(and(
+      eq(classificationContributions.taskId, task.id),
+      eq(classificationContributions.userId, userId)
+    ));
+
+  if (existingContrib) {
+    await db
+      .update(classificationContributions)
+      .set({ cleanupBonuses: sql`${classificationContributions.cleanupBonuses} + 1` })
+      .where(eq(classificationContributions.id, existingContrib.id));
+  } else {
+    await db.insert(classificationContributions).values({
+      taskId: task.id,
+      userId,
+      classification: task.classification || "General",
+      baseCoinsAwarded: 0,
+      totalCoinsEarned: CLEANUP_BONUS_COINS,
+      cleanupBonuses: 1,
+    });
+  }
 
   return {
     coinsEarned: CLEANUP_BONUS_COINS,

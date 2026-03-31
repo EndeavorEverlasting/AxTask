@@ -715,8 +715,9 @@ export function TaskList() {
         const cr = data.coinReward;
         const badgeText = cr.badgesEarned?.length > 0 ? ` 🏅 New badge${cr.badgesEarned.length > 1 ? "s" : ""}!` : "";
         const bountyText = data.bountyReward ? ` +${data.bountyReward} bounty!` : "";
+        const cleanupText = data.cleanupReward ? ` +${data.cleanupReward.coinsEarned} cleanup!` : "";
         toast({
-          title: `+${cr.coinsEarned} AxCoins earned!${bountyText}`,
+          title: `+${cr.coinsEarned} AxCoins earned!${bountyText}${cleanupText}`,
           description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${badgeText}`,
         });
       } else if (data?.bountyReward) {
