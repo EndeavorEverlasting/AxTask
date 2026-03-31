@@ -42,6 +42,7 @@ export async function awardCoinsForClassification(
   task: Task
 ): Promise<ClassificationAwardResult | null> {
   if (!task.classification || task.classification === "General") return null;
+  if (task.forceImported) return null;
 
   await getOrCreateWallet(userId);
 

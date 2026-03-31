@@ -679,7 +679,8 @@ export class DatabaseStorage implements IStorage {
         and(
           eq(tasks.userId, userId),
           eq(tasks.status, "completed"),
-          sql`${tasks.updatedAt}::date = ${today}::date`
+          sql`${tasks.updatedAt}::date = ${today}::date`,
+          sql`(${tasks.forceImported} IS NULL OR ${tasks.forceImported} = false)`
         )
       ),
       db.select({ value: avg(tasks.priorityScore) }).from(tasks).where(eq(tasks.userId, userId)),

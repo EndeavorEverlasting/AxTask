@@ -170,18 +170,22 @@ export default function ImportExport() {
       let totalFailed = 0;
       let lastFileWarning: string | null = null;
 
+      const totalChunks = Math.ceil(allTasks.length / CHUNK_SIZE);
+
       for (let i = 0; i < allTasks.length; i += CHUNK_SIZE) {
         const chunk = allTasks.slice(i, i + CHUNK_SIZE);
         const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
-        const totalChunks = Math.ceil(allTasks.length / CHUNK_SIZE);
+        const isLastChunk = i + chunk.length >= allTasks.length;
 
         setImportMessage(`Sending batch ${chunkNum} of ${totalChunks} (${chunk.length} tasks)...`);
 
+        const isOnlyChunk = totalChunks === 1;
         const response = await apiRequest("POST", "/api/tasks/import", {
           tasks: chunk,
           forceImport,
           fileName,
           fileContent: i === 0 ? fileContent : undefined,
+          skipHistory: !isOnlyChunk,
         });
         const result = await response.json();
 
@@ -194,6 +198,22 @@ export default function ImportExport() {
 
         const progress = Math.round(((i + chunk.length) / allTasks.length) * 100);
         setImportProgress(progress);
+
+        if (isLastChunk && totalChunks > 1 && fileContent) {
+          await apiRequest("POST", "/api/tasks/import", {
+            tasks: [],
+            forceImport,
+            fileName,
+            fileContent,
+            summaryTotals: {
+              total: allTasks.length,
+              imported: totalImported,
+              skippedCompleted: totalSkippedCompleted,
+              skippedDuplicate: totalSkippedDuplicate,
+              forceImported: totalForceImported,
+            },
+          }).catch(() => {});
+        }
       }
 
       const res: ImportResult = {

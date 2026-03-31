@@ -465,7 +465,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Bulk import tasks (must be before /api/tasks POST)
   app.post("/api/tasks/import", requireAuth, async (req, res) => {
     try {
-      const { tasks: taskList, forceImport, fileName, fileContent } = req.body;
+      const { tasks: taskList, forceImport, fileName, fileContent, summaryTotals, skipHistory } = req.body;
+
+      if (summaryTotals && fileContent) {
+        const userId = req.user!.id;
+        const fileHash = computeFileHash(fileContent);
+        await storage.createImportRecord({
+          userId,
+          fileName: fileName || "unknown",
+          fileHash,
+          totalParsed: summaryTotals.total || 0,
+          imported: summaryTotals.imported || 0,
+          skippedCompleted: summaryTotals.skippedCompleted || 0,
+          skippedDuplicate: summaryTotals.skippedDuplicate || 0,
+          forceImported: summaryTotals.forceImported || 0,
+        });
+        return res.status(201).json({ historyRecorded: true });
+      }
+
       if (!Array.isArray(taskList) || taskList.length === 0) {
         return res.status(400).json({ message: "No tasks provided" });
       }
@@ -592,7 +609,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      if (fileHash) {
+      if (fileHash && !skipHistory) {
         await storage.createImportRecord({
           userId,
           fileName: fileName || "unknown",
@@ -1675,6 +1692,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/tasks/backfill-hashes", requireAuth, async (req, res) => {
     try {
+      if (req.user!.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
       const count = await storage.backfillContentHashes();
       res.json({ backfilled: count });
     } catch (error) {
