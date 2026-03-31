@@ -527,20 +527,32 @@ export async function importUserBundle(
     };
   }
 
-  const idMap = buildIdRemapTable(bundle);
+  const skipTables = new Set(
+    TABLE_INSERT_ORDER.filter(t => !USER_OWNED_TABLES.has(t))
+  );
+
+  const idMap = new Map<string, string>();
 
   const bundleUserIds = getBundleRows(bundle, "users").map((u) => String(u.id));
   for (const oldUserId of bundleUserIds) {
     idMap.set(oldUserId, targetUserId);
   }
 
+  for (const tableName of TABLE_INSERT_ORDER) {
+    if (skipTables.has(tableName)) continue;
+    const rows = getBundleRows(bundle, tableName);
+    const pkField = PK_FIELD[tableName];
+    for (const row of rows) {
+      const oldId = row[pkField];
+      if (oldId && !idMap.has(String(oldId))) {
+        idMap.set(String(oldId), randomUUID());
+      }
+    }
+  }
+
   const inserted: Record<string, number> = {};
   const skipped: Record<string, number> = {};
   const conflicts: Record<string, number> = {};
-
-  const skipTables = new Set(
-    TABLE_INSERT_ORDER.filter(t => !USER_OWNED_TABLES.has(t))
-  );
 
   function hasUnresolvableFks(row: BundleRow, tableName: TableName): boolean {
     const fkFields = FK_FIELDS_BY_TABLE[tableName] || [];

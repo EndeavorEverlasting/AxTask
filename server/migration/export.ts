@@ -162,44 +162,25 @@ export async function exportUserData(userId: string): Promise<ExportBundle> {
     queryChunked(taskPatterns, eq(taskPatterns.userId, userId)),
   ]);
 
-  const ownedTaskIdSet = new Set(taskIds);
-
-  const allContribs = await queryChunked(classificationContributions);
-  const contribData = allContribs.filter((c) => (c.userId as string) === userId);
-
-  const contribTaskIds = new Set(contribData.map((c) => c.taskId as string));
-  const allTaskIdSet = new Set([...ownedTaskIdSet, ...contribTaskIds]);
+  const taskIdSet = new Set(taskIds);
 
   const allCollabs = await queryChunked(taskCollaborators);
-  const collabData = allCollabs.filter((c) => ownedTaskIdSet.has(c.taskId as string));
+  const collabData = allCollabs.filter((c) =>
+    taskIdSet.has(c.taskId as string) && (c.userId as string) === userId
+  );
+
+  const allContribs = await queryChunked(classificationContributions);
+  const contribData = allContribs.filter((c) =>
+    (c.userId as string) === userId && taskIdSet.has(c.taskId as string)
+  );
 
   const contribIdSet = new Set(contribData.map((c) => c.id as string));
   const allConfirms = await queryChunked(classificationConfirmations);
   const confirmData = allConfirms.filter((c) =>
-    contribIdSet.has(c.contributionId as string) ||
-    ((c.userId as string) === userId && allTaskIdSet.has(c.taskId as string))
+    (c.userId as string) === userId &&
+    contribIdSet.has(c.contributionId as string) &&
+    taskIdSet.has(c.taskId as string)
   );
-
-  const referencedTaskIds = new Set<string>();
-  for (const taskId of contribTaskIds) {
-    if (!ownedTaskIdSet.has(taskId)) {
-      referencedTaskIds.add(taskId);
-    }
-  }
-  for (const confirm of confirmData) {
-    const tid = confirm.taskId as string;
-    if (!ownedTaskIdSet.has(tid)) {
-      referencedTaskIds.add(tid);
-    }
-  }
-
-  let referencedTasks: Record<string, unknown>[] = [];
-  if (referencedTaskIds.size > 0) {
-    const allTasks = await queryChunked(tasks);
-    referencedTasks = allTasks.filter((t) => referencedTaskIds.has(t.id as string));
-  }
-
-  const allExportedTasks = [...userTasks, ...referencedTasks];
 
   const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
   const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
@@ -207,7 +188,7 @@ export async function exportUserData(userId: string): Promise<ExportBundle> {
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows([sanitizeUserRow(userData as Record<string, unknown>)]),
     rewardsCatalog: serializeRows(filteredCatalog),
-    tasks: serializeRows(allExportedTasks),
+    tasks: serializeRows(userTasks),
     wallets: serializeRows(walletData),
     coinTransactions: serializeRows(coinTxData),
     userBadges: serializeRows(badgeData),
