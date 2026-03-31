@@ -532,9 +532,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const forcedTasks: any[] = [];
       let skippedCompleted = 0;
       let skippedDuplicate = 0;
+      const seenInChunk = new Set<string>();
 
       for (let i = 0; i < validTasks.length; i++) {
         const hash = taskHashes[i];
+
+        if (seenInChunk.has(hash)) {
+          skippedDuplicate++;
+          continue;
+        }
+        seenInChunk.add(hash);
+
         const existingStatus = hashStatusMap.get(hash);
 
         if (!existingStatus) {
@@ -542,21 +550,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else if (existingStatus === "completed") {
           if (forceImport) {
             forcedTasks.push(validTasks[i]);
+          } else {
+            skippedCompleted++;
           }
-          skippedCompleted++;
         } else {
           if (forceImport) {
             forcedTasks.push(validTasks[i]);
+          } else {
+            skippedDuplicate++;
           }
-          skippedDuplicate++;
         }
       }
 
       let inserted: any[] = [];
-      const tasksToInsert = [...newTasks, ...forcedTasks];
 
-      if (tasksToInsert.length > 0) {
-        const isForced = forcedTasks.length > 0;
+      if (newTasks.length > 0 || forcedTasks.length > 0) {
         inserted = await storage.createTasksBulk(
           userId,
           newTasks,
