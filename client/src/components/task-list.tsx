@@ -57,7 +57,7 @@ function formatRecurrenceLabel(recurrence: string): string {
   return recurrence;
 }
 
-type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'manual';
+type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'createdAt' | 'updatedAt' | 'manual';
 type SortDirection = 'asc' | 'desc';
 type HighlightMode = 'none' | 'priority' | 'classification';
 
@@ -655,6 +655,7 @@ export function TaskList() {
   const [sortField, setSortField] = useState<SortField>('manual');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editFormCleared, setEditFormCleared] = useState(false);
   const [isDragMode, setIsDragMode] = useState(false);
   const [highlightMode, setHighlightMode] = useState<HighlightMode>("none");
   const reducedMotion = useReducedMotion();
@@ -828,7 +829,8 @@ export function TaskList() {
         setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
         return prev;
       }
-      setSortDirection('asc');
+      const defaultDesc = field === 'createdAt' || field === 'updatedAt';
+      setSortDirection(defaultDesc ? 'desc' : 'asc');
       return field;
     });
   }, []);
@@ -879,9 +881,9 @@ export function TaskList() {
       let aValue: any = a[sortField];
       let bValue: any = b[sortField];
 
-      if (sortField === 'date') {
-        aValue = new Date(aValue).getTime();
-        bValue = new Date(bValue).getTime();
+      if (sortField === 'date' || sortField === 'createdAt' || sortField === 'updatedAt') {
+        aValue = aValue ? new Date(aValue).getTime() : 0;
+        bValue = bValue ? new Date(bValue).getTime() : 0;
       } else if (sortField === 'priority') {
         const priorityOrder = { 'Highest': 5, 'High': 4, 'Medium-High': 3, 'Medium': 2, 'Low': 1 };
         aValue = priorityOrder[aValue as keyof typeof priorityOrder] || 0;
@@ -966,6 +968,22 @@ export function TaskList() {
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="in-progress">In Progress</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sortField} onValueChange={(v) => handleSort(v as SortField)}>
+                <SelectTrigger className="flex-1 md:w-36 h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Default Order</SelectItem>
+                  <SelectItem value="date">Sort by Date</SelectItem>
+                  <SelectItem value="priority">Sort by Priority</SelectItem>
+                  <SelectItem value="priorityScore">Sort by Score</SelectItem>
+                  <SelectItem value="createdAt">Recently Created</SelectItem>
+                  <SelectItem value="updatedAt">Recently Updated</SelectItem>
+                  <SelectItem value="activity">Sort by Activity</SelectItem>
+                  <SelectItem value="classification">Sort by Class</SelectItem>
+                  <SelectItem value="status">Sort by Status</SelectItem>
                 </SelectContent>
               </Select>
               {isMobile && (
@@ -1149,7 +1167,17 @@ export function TaskList() {
         )}
       </CardContent>
       
-      <Dialog open={!!editingTask} onOpenChange={() => setEditingTask(null)}>
+      <Dialog open={!!editingTask} onOpenChange={(open) => {
+        if (!open && editFormCleared) {
+          if (window.confirm("You cleared the form. Close without saving changes?")) {
+            setEditingTask(null);
+            setEditFormCleared(false);
+          }
+        } else if (!open) {
+          setEditingTask(null);
+          setEditFormCleared(false);
+        }
+      }}>
         <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl">
           <DialogHeader>
             <DialogTitle>Edit Task</DialogTitle>
@@ -1157,8 +1185,10 @@ export function TaskList() {
           {editingTask && (
             <TaskForm
               task={editingTask}
+              onClearedChange={setEditFormCleared}
               onSuccess={() => {
                 setEditingTask(null);
+                setEditFormCleared(false);
                 queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
               }}
             />

@@ -419,7 +419,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Search tasks
+  // Search tasks (query param version for global search overlay)
+  app.get("/api/tasks/search", requireAuth, async (req, res) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      if (!q || q.length < 2) {
+        return res.json([]);
+      }
+      const results = await storage.searchTasks(req.user!.id, q);
+      res.json(results);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to search tasks" });
+    }
+  });
+
+  // Search tasks (path param version - legacy)
   app.get("/api/tasks/search/:query", requireAuth, async (req, res) => {
     try {
       const tasks = await storage.searchTasks(req.user!.id, req.params.query);

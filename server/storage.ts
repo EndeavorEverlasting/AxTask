@@ -541,7 +541,9 @@ export class DatabaseStorage implements IStorage {
             ilike(tasks.classification, lowercaseQuery)
           )
         )
-      );
+      )
+      .orderBy(desc(tasks.updatedAt))
+      .limit(50);
   }
 
   async bulkUpdateTasks(userId: string, updates: UpdateTask[]): Promise<void> {

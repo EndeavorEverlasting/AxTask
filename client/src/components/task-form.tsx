@@ -34,6 +34,7 @@ interface TaskFormProps {
   task?: Task;
   defaultDate?: string;
   onSuccess?: () => void;
+  onClearedChange?: (cleared: boolean) => void;
 }
 
 const DRAFT_KEY_PREFIX = "axtask_draft";
@@ -74,7 +75,7 @@ function clearDraft(key: string) {
   try { localStorage.removeItem(key); } catch {}
 }
 
-export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
+export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: TaskFormProps) {
   const { toast } = useToast();
   const { user } = useAuth();
   const isMobile = useIsMobile();
@@ -150,6 +151,18 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     resolver: zodResolver(insertTaskSchema),
     defaultValues: mergedDefaults,
   });
+
+  const formClearedRef = useRef(false);
+  useEffect(() => {
+    if (!task || !onClearedChange) return;
+    const sub = form.watch(() => {
+      if (formClearedRef.current) {
+        formClearedRef.current = false;
+        onClearedChange(false);
+      }
+    });
+    return () => sub.unsubscribe();
+  }, [task, onClearedChange, form]);
 
   const addWarning = useCallback((fieldName: string, autoExpire = false) => {
     const existing = warningTimers.current.get(fieldName);
@@ -1086,7 +1099,20 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   type="button" 
                   variant="outline"
                   className="min-h-[44px]"
-                  onClick={() => { form.reset(freshDefaults); clearDraft(draftKey); }}
+                  onClick={() => {
+                    if (task) {
+                      form.reset({
+                        date: defaultDate || new Date().toISOString().split('T')[0],
+                        time: "", activity: "", notes: "",
+                        urgency: undefined, impact: undefined, effort: undefined,
+                        prerequisites: "", recurrence: "none" as const, status: "pending",
+                      });
+                      if (onClearedChange) { onClearedChange(true); setTimeout(() => { formClearedRef.current = true; }, 50); }
+                    } else {
+                      form.reset(freshDefaults);
+                    }
+                    clearDraft(draftKey);
+                  }}
                 >
                   Clear
                 </Button>

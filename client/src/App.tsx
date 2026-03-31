@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -14,6 +14,7 @@ import { TutorialOverlay } from "@/components/tutorial-overlay";
 import { VoiceCommandBar } from "@/components/voice-command-bar";
 import { MobileVoiceOverlay } from "@/components/mobile-voice-overlay";
 import BulkActionDialog from "@/components/bulk-action-dialog";
+import { GlobalSearch } from "@/components/global-search";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LayoutDashboard, List, CalendarDays, Brain } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
@@ -138,8 +139,20 @@ function AuthenticatedApp() {
   const isMobile = useIsMobile();
   const scale = isMobile ? 1 : zoom / 100;
   const [, setLocation] = useLocation();
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
 
   useRoutePersistence();
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        setGlobalSearchOpen(prev => !prev);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const handleNavigate = useCallback((path: string) => {
     setLocation(path);
@@ -183,6 +196,13 @@ function AuthenticatedApp() {
         <TutorialOverlay />
         <VoiceCommandBar />
         <ReviewDialogBridge />
+        <GlobalSearch
+          open={globalSearchOpen}
+          onClose={() => setGlobalSearchOpen(false)}
+          onSelectTask={(task) => {
+            setLocation("/tasks");
+          }}
+        />
       </div>
     </VoiceProvider>
   );
