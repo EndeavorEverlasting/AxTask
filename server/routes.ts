@@ -19,7 +19,7 @@ import {
   getSharedTasks, canAccessTask, isTaskOwner,
   resetStreak, useStreakShield, buyStreakShield, giftCoins, setTaskBounty, claimBounty, boostTaskPriority,
 } from "./storage";
-import { awardCoinsForCompletion, awardCoinsForSharing, BADGE_DEFINITIONS } from "./coin-engine";
+import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, BADGE_DEFINITIONS } from "./coin-engine";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
 import { getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution } from "./storage";
 import { z } from "zod";
@@ -644,7 +644,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         classificationReward = await awardCoinsForClassification(userId, task!);
       }
 
-      res.json({ ...task, coinReward, classificationReward, bountyReward });
+      let cleanupReward = null;
+      if (existingTask && existingTask.status === "pending") {
+        const statusChanged = task!.status !== existingTask.status;
+        const dateChanged = validatedData.date && validatedData.date !== existingTask.date;
+        const contentChanged = (validatedData.activity && validatedData.activity !== existingTask.activity) ||
+          (validatedData.notes !== undefined && validatedData.notes !== existingTask.notes) ||
+          (validatedData.prerequisites !== undefined && validatedData.prerequisites !== existingTask.prerequisites);
+        if (statusChanged || dateChanged || contentChanged) {
+          cleanupReward = await awardCleanupBonus(userId, task!);
+        }
+      }
+
+      res.json({ ...task, coinReward, classificationReward, bountyReward, cleanupReward });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
@@ -1544,6 +1556,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch classification stats" });
+    }
+  });
+
+  app.get("/api/gamification/cleanup-stats", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const stats = await getCleanupStats(userId);
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch cleanup stats" });
     }
   });
 

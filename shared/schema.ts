@@ -126,7 +126,22 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   impact: z.number().min(1).max(5).optional(),
   effort: z.number().min(1).max(5).optional(),
   prerequisites: z.string().max(1000, "Prerequisites must be under 1000 characters").optional(),
-  recurrence: z.enum(["none", "daily", "weekly", "biweekly", "monthly", "quarterly", "yearly"]).default("none"),
+  recurrence: z.string().refine(
+    (v) => {
+      if (["none", "daily", "weekly", "biweekly", "monthly", "quarterly", "yearly"].includes(v)) return true;
+      if (v.startsWith("custom:days:")) {
+        const days = v.replace("custom:days:", "").split(",");
+        const valid = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+        return days.length > 0 && days.every(d => valid.includes(d));
+      }
+      if (v.startsWith("custom:dates:")) {
+        const dates = v.replace("custom:dates:", "").split(",").map(Number);
+        return dates.length > 0 && dates.every(d => Number.isInteger(d) && d >= 1 && d <= 31);
+      }
+      return false;
+    },
+    { message: "Invalid recurrence pattern" }
+  ).default("none"),
   status: z.enum(["pending", "in-progress", "completed"]).default("pending"),
 });
 

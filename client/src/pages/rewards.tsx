@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp, Shield, Zap, Gift } from "lucide-react";
+import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp, Shield, Zap, Gift, Wrench } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 
@@ -70,6 +70,10 @@ export default function RewardsPage() {
     totalConfirmationsReceived: number;
     totalClassificationCoins: number;
   }>({ queryKey: ["/api/gamification/classification-stats"] });
+  const { data: cleanupStats } = useQuery<{
+    totalCleanups: number;
+    totalCleanupCoins: number;
+  }>({ queryKey: ["/api/gamification/cleanup-stats"] });
 
   const animatedBalance = useCountUp(wallet?.balance ?? 0);
 
@@ -281,6 +285,26 @@ export default function RewardsPage() {
                     })}
                   </div>
                 )}
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Wrench className="h-4 w-4 text-teal-500" />
+                  Maintenance Activity
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-4 rounded-lg bg-teal-50 dark:bg-teal-900/20">
+                    <p className="text-2xl font-bold text-teal-600">{cleanupStats?.totalCleanups ?? 0}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Tasks Cleaned Up</p>
+                  </div>
+                  <div className="text-center p-4 rounded-lg bg-teal-50 dark:bg-teal-900/20">
+                    <p className="text-2xl font-bold text-teal-600">{cleanupStats?.totalCleanupCoins ?? 0}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Cleanup Coins Earned</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Earn 4 AxCoins when you update tasks that have been pending for more than 7 days — by completing, rescheduling, or adding details.
+                </p>
               </div>
             </CardContent>
           </Card>

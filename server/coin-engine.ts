@@ -173,6 +173,71 @@ export async function awardCoinsForCompletion(
   };
 }
 
+const CLEANUP_BONUS_COINS = 4;
+const CLEANUP_STALE_DAYS = 7;
+
+export interface CleanupBonusResult {
+  coinsEarned: number;
+  newBalance: number;
+}
+
+export async function awardCleanupBonus(
+  userId: string,
+  task: Task
+): Promise<CleanupBonusResult | null> {
+  if (!task.createdAt) return null;
+
+  const createdAt = new Date(task.createdAt);
+  const now = new Date();
+  const ageInDays = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+  if (ageInDays < CLEANUP_STALE_DAYS) return null;
+
+  const [existing] = await db
+    .select({ value: count() })
+    .from(coinTransactions)
+    .where(and(
+      eq(coinTransactions.userId, userId),
+      eq(coinTransactions.taskId, task.id),
+      eq(coinTransactions.reason, "cleanup_bonus")
+    ));
+  if (Number(existing?.value) > 0) return null;
+
+  await getOrCreateWallet(userId);
+  const { wallet } = await addCoins(
+    userId,
+    CLEANUP_BONUS_COINS,
+    "cleanup_bonus",
+    `Cleanup: updated stale task (${ageInDays} days old)`,
+    task.id
+  );
+
+  return {
+    coinsEarned: CLEANUP_BONUS_COINS,
+    newBalance: wallet.balance,
+  };
+}
+
+export async function getCleanupStats(userId: string): Promise<{
+  totalCleanups: number;
+  totalCleanupCoins: number;
+}> {
+  const [row] = await db
+    .select({
+      totalCleanups: count(),
+      totalCleanupCoins: sql<number>`COALESCE(SUM(${coinTransactions.amount}), 0)`,
+    })
+    .from(coinTransactions)
+    .where(and(
+      eq(coinTransactions.userId, userId),
+      eq(coinTransactions.reason, "cleanup_bonus")
+    ));
+
+  return {
+    totalCleanups: Number(row?.totalCleanups) || 0,
+    totalCleanupCoins: Number(row?.totalCleanupCoins) || 0,
+  };
+}
+
 export interface CollabRewardResult {
   coinsEarned: number;
   newBalance: number;

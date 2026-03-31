@@ -245,12 +245,22 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/cleanup-stats"] });
 
+      const bonusParts: string[] = [];
       if (data?.classificationReward) {
-        const cr = data.classificationReward;
+        bonusParts.push(`+${data.classificationReward.coinsEarned} classification`);
+      }
+      if (data?.cleanupReward) {
+        bonusParts.push(`+${data.cleanupReward.coinsEarned} cleanup bonus`);
+      }
+
+      if (bonusParts.length > 0) {
         toast({
-          title: `${task ? "Task updated" : "Task created"} — +${cr.coinsEarned} AxCoins!`,
-          description: `Classified as ${cr.classification}. New balance: ${cr.newBalance}`,
+          title: `${task ? "Task updated" : "Task created"} — ${bonusParts.join(", ")} AxCoins!`,
+          description: data?.classificationReward
+            ? `Classified as ${data.classificationReward.classification}.`
+            : "You earned coins for maintaining an old task.",
         });
       } else {
         toast({
@@ -874,31 +884,152 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
               <FormField
                 control={form.control}
                 name="recurrence"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Recurrence</FormLabel>
-                    <Select
-                      onValueChange={(v) => field.onChange(v)}
-                      value={field.value || "none"}
-                    >
-                      <FormControl>
-                        <SelectTrigger className={cn("min-h-[44px]", getFieldClass("recurrence"))}>
-                          <SelectValue placeholder="No recurrence" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="none">No recurrence</SelectItem>
-                        <SelectItem value="daily">Daily</SelectItem>
-                        <SelectItem value="weekly">Weekly</SelectItem>
-                        <SelectItem value="biweekly">Biweekly</SelectItem>
-                        <SelectItem value="monthly">Monthly</SelectItem>
-                        <SelectItem value="quarterly">Quarterly</SelectItem>
-                        <SelectItem value="yearly">Yearly</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={({ field }) => {
+                  const isCustom = field.value?.startsWith("custom:");
+                  const selectValue = isCustom ? "custom" : (field.value || "none");
+                  const customType = field.value?.startsWith("custom:days:") ? "days" : field.value?.startsWith("custom:dates:") ? "dates" : "days";
+                  const selectedDays = field.value?.startsWith("custom:days:")
+                    ? field.value.replace("custom:days:", "").split(",")
+                    : [];
+                  const selectedDates = field.value?.startsWith("custom:dates:")
+                    ? field.value.replace("custom:dates:", "").split(",")
+                    : [];
+
+                  const DAY_LABELS = [
+                    { key: "mon", label: "Mon" },
+                    { key: "tue", label: "Tue" },
+                    { key: "wed", label: "Wed" },
+                    { key: "thu", label: "Thu" },
+                    { key: "fri", label: "Fri" },
+                    { key: "sat", label: "Sat" },
+                    { key: "sun", label: "Sun" },
+                  ];
+
+                  return (
+                    <FormItem>
+                      <FormLabel>Recurrence</FormLabel>
+                      <Select
+                        onValueChange={(v) => {
+                          if (v === "custom") {
+                            field.onChange("custom:days:mon");
+                          } else {
+                            field.onChange(v);
+                          }
+                        }}
+                        value={selectValue}
+                      >
+                        <FormControl>
+                          <SelectTrigger className={cn("min-h-[44px]", getFieldClass("recurrence"))}>
+                            <SelectValue placeholder="No recurrence" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="none">No recurrence</SelectItem>
+                          <SelectItem value="daily">Daily</SelectItem>
+                          <SelectItem value="weekly">Weekly</SelectItem>
+                          <SelectItem value="biweekly">Biweekly</SelectItem>
+                          <SelectItem value="monthly">Monthly</SelectItem>
+                          <SelectItem value="quarterly">Quarterly</SelectItem>
+                          <SelectItem value="yearly">Yearly</SelectItem>
+                          <SelectItem value="custom">Custom...</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      {isCustom && (
+                        <div className="mt-2 p-3 rounded-lg border bg-gray-50 dark:bg-gray-800/50 space-y-3">
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant={customType === "days" ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => field.onChange("custom:days:mon")}
+                            >
+                              Days of week
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={customType === "dates" ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => field.onChange("custom:dates:1")}
+                            >
+                              Dates in month
+                            </Button>
+                          </div>
+
+                          {customType === "days" && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {DAY_LABELS.map(({ key, label }) => {
+                                const active = selectedDays.includes(key);
+                                return (
+                                  <button
+                                    key={key}
+                                    type="button"
+                                    className={cn(
+                                      "px-3 py-1.5 rounded-md text-xs font-medium transition-colors border",
+                                      active
+                                        ? "bg-primary text-primary-foreground border-primary"
+                                        : "bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-primary/50"
+                                    )}
+                                    onClick={() => {
+                                      let newDays: string[];
+                                      if (active) {
+                                        newDays = selectedDays.filter(d => d !== key);
+                                      } else {
+                                        newDays = [...selectedDays, key];
+                                      }
+                                      const ordered = DAY_LABELS.map(d => d.key).filter(d => newDays.includes(d));
+                                      if (ordered.length === 0) ordered.push(key);
+                                      field.onChange(`custom:days:${ordered.join(",")}`);
+                                    }}
+                                  >
+                                    {label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {customType === "dates" && (
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap gap-1">
+                                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
+                                  const active = selectedDates.includes(String(d));
+                                  return (
+                                    <button
+                                      key={d}
+                                      type="button"
+                                      className={cn(
+                                        "w-8 h-8 rounded text-xs font-medium transition-colors border",
+                                        active
+                                          ? "bg-primary text-primary-foreground border-primary"
+                                          : "bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-primary/50"
+                                      )}
+                                      onClick={() => {
+                                        let newDates: string[];
+                                        if (active) {
+                                          newDates = selectedDates.filter(x => x !== String(d));
+                                        } else {
+                                          newDates = [...selectedDates, String(d)];
+                                        }
+                                        const sorted = newDates.map(Number).sort((a, b) => a - b).map(String);
+                                        if (sorted.length === 0) sorted.push(String(d));
+                                        field.onChange(`custom:dates:${sorted.join(",")}`);
+                                      }}
+                                    >
+                                      {d}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <p className="text-[10px] text-muted-foreground">Select dates each month this task repeats</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
 
               <FormField

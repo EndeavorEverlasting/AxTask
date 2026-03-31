@@ -32,7 +32,8 @@ Key features include:
 -   **Gamification (AxCoins)**: A currency and rewards system with coin earning (priority-based amounts, on-time bonuses, streak multipliers), achievement badges, a Rewards Shop, and transaction history.
 -   **Classification Rewards & Compound Interest**: Users earn AxCoins for classifying tasks, with additional coins earned for confirmations from other users and compound interest.
 -   **Data Migration Toolkit**: Full database export/import with referential integrity validation, including an admin UI and user self-service options for GDPR data portability.
--   **Task Recurrence**: Tasks can be configured with various recurrence schedules (daily, weekly, monthly, etc.).
+-   **Task Recurrence**: Tasks can be configured with various recurrence schedules (daily, weekly, monthly, etc.) plus custom day-of-week (`custom:days:mon,wed,fri`) and day-of-month (`custom:dates:1,15`) patterns via an interactive picker UI.
+-   **Cleanup Bonus**: Users earn 4 AxCoins for meaningful updates to pending tasks older than 7 days (once per task). Stats shown on Rewards Profile tab.
 -   **Proactive Field Glow Warnings**: Visual cues (yellow glow) for empty required fields in forms, clearing upon input.
 -   **Universal Glow System**: Five CSS glow classes (`field-glow-hint`, `field-glow-warning`, `field-glow-success`, `field-glow-tutorial`, `field-glow-tutorial-success`) for various UI feedback and tutorial purposes.
 -   **Interactive Tutorial**: A 14-step guided walkthrough covering key application features, utilizing the universal glow system.

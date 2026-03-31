@@ -1,4 +1,23 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo, type TouchEvent as ReactTouchEvent } from "react";
+
+const DAY_ABBREV: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+
+function formatRecurrenceLabel(recurrence: string): string {
+  if (recurrence.startsWith("custom:days:")) {
+    const days = recurrence.replace("custom:days:", "").split(",");
+    return days.map(d => DAY_ABBREV[d] || d).join(", ");
+  }
+  if (recurrence.startsWith("custom:dates:")) {
+    const dates = recurrence.replace("custom:dates:", "").split(",");
+    const suffix = (n: number) => {
+      if (n >= 11 && n <= 13) return "th";
+      const m = n % 10;
+      return m === 1 ? "st" : m === 2 ? "nd" : m === 3 ? "rd" : "th";
+    };
+    return dates.map(d => `${d}${suffix(Number(d))}`).join(", ");
+  }
+  return recurrence;
+}
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -225,7 +244,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
           {task.recurrence && task.recurrence !== "none" && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
               <Repeat className="h-3 w-3" />
-              {task.recurrence}
+              {formatRecurrenceLabel(task.recurrence)}
             </span>
           )}
         </div>
@@ -525,7 +544,7 @@ function MobileTaskCard({
           {task.recurrence && task.recurrence !== "none" && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
               <Repeat className="h-3 w-3" />
-              {task.recurrence}
+              {formatRecurrenceLabel(task.recurrence)}
             </span>
           )}
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${getStatusBadgeColor(task.status)}`}>
@@ -691,6 +710,7 @@ export function TaskList() {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/cleanup-stats"] });
       if (data?.coinReward) {
         const cr = data.coinReward;
         const badgeText = cr.badgesEarned?.length > 0 ? ` 🏅 New badge${cr.badgesEarned.length > 1 ? "s" : ""}!` : "";
@@ -703,6 +723,11 @@ export function TaskList() {
         toast({
           title: `+${data.bountyReward} bounty coins earned!`,
           description: "You completed a bounty task!",
+        });
+      } else if (data?.cleanupReward) {
+        toast({
+          title: `+${data.cleanupReward.coinsEarned} Cleanup Bonus!`,
+          description: "You earned coins for maintaining an old task.",
         });
       } else {
         toast({
