@@ -183,11 +183,13 @@ export interface CleanupBonusResult {
 
 export async function awardCleanupBonus(
   userId: string,
-  task: Task
+  task: Task,
+  preUpdateTask?: { createdAt: Date | null; updatedAt: Date | null }
 ): Promise<CleanupBonusResult | null> {
-  if (!task.createdAt) return null;
+  const ref = preUpdateTask || task;
+  if (!ref.createdAt) return null;
 
-  const staleRef = task.updatedAt ? new Date(task.updatedAt) : new Date(task.createdAt);
+  const staleRef = ref.updatedAt ? new Date(ref.updatedAt) : new Date(ref.createdAt);
   const now = new Date();
   const ageInDays = Math.floor((now.getTime() - staleRef.getTime()) / (1000 * 60 * 60 * 24));
   if (ageInDays < CLEANUP_STALE_DAYS) return null;
@@ -196,7 +198,6 @@ export async function awardCleanupBonus(
     .select({ value: count() })
     .from(coinTransactions)
     .where(and(
-      eq(coinTransactions.userId, userId),
       eq(coinTransactions.taskId, task.id),
       eq(coinTransactions.reason, "cleanup_bonus")
     ));

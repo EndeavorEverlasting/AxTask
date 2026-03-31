@@ -652,7 +652,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           (validatedData.notes !== undefined && validatedData.notes !== existingTask.notes) ||
           (validatedData.prerequisites !== undefined && validatedData.prerequisites !== existingTask.prerequisites);
         if (statusChanged || dateChanged || contentChanged) {
-          cleanupReward = await awardCleanupBonus(userId, task!);
+          cleanupReward = await awardCleanupBonus(userId, task!, {
+            createdAt: existingTask.createdAt,
+            updatedAt: existingTask.updatedAt,
+          });
         }
       }
 
