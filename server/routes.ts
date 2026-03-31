@@ -4,6 +4,9 @@ import { timingSafeEqual } from "crypto";
 import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
+import express from "express";
+import { exportFullDatabase, exportUserData } from "./migration/export";
+import { importBundle, validateBundle } from "./migration/import";
 import {
   storage, createUser, getUserByEmail, recordFailedLogin, resetFailedLogins,
   createResetToken, verifyResetToken, consumeResetToken,
@@ -1572,6 +1575,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(logs);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch security logs" });
+    }
+  });
+
+  // ─── Data Migration (Admin) ────────────────────────────────────────────────
+
+  app.post("/api/admin/export", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.body;
+      const bundle = userId
+        ? await exportUserData(userId)
+        : await exportFullDatabase();
+
+      await logSecurityEvent(
+        "data_export",
+        req.user!.id,
+        userId || undefined,
+        req.ip,
+        `${userId ? "User" : "Full"} database export (${Object.values(bundle.metadata.tableCounts).reduce((a, b) => a + b, 0)} records)`
+      );
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="axtask-export-${userId ? "user-" + userId.slice(0, 8) : "full"}-${new Date().toISOString().slice(0, 10)}.json"`
+      );
+      res.json(bundle);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Export failed" });
+    }
+  });
+
+  app.get("/api/admin/export/:userId", requireAdmin, async (req, res) => {
+    try {
+      const bundle = await exportUserData(req.params.userId);
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="axtask-user-${req.params.userId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json"`
+      );
+      res.json(bundle);
+    } catch (error: any) {
+      const msg = error.message || "Export failed";
+      const status = msg.includes("not found") ? 404 : 500;
+      res.status(status).json({ message: msg });
+    }
+  });
+
+  const largeJsonParser = express.json({ limit: "50mb" });
+
+  app.post("/api/admin/import", requireAdmin, largeJsonParser, async (req, res) => {
+    try {
+      const { bundle, dryRun } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+
+      const result = await importBundle(bundle, { dryRun: !!dryRun });
+
+      if (!dryRun) {
+        const totalInserted = Object.values(result.inserted).reduce((a, b) => a + b, 0);
+        await logSecurityEvent(
+          "data_import",
+          req.user!.id,
+          undefined,
+          req.ip,
+          `Database import: ${totalInserted} records inserted, ${result.errors.length} errors`
+        );
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Import failed" });
+    }
+  });
+
+  app.post("/api/admin/import/validate", requireAdmin, largeJsonParser, async (req, res) => {
+    try {
+      const { bundle } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+      const validation = validateBundle(bundle);
+      res.json(validation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Validation failed" });
+    }
+  });
+
+  // ─── User Self-Service Export (GDPR) ───────────────────────────────────────
+
+  app.get("/api/account/export", requireAuth, async (req, res) => {
+    try {
+      const bundle = await exportUserData(req.user!.id);
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="my-axtask-data-${new Date().toISOString().slice(0, 10)}.json"`
+      );
+      res.json(bundle);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Export failed" });
     }
   });
 
