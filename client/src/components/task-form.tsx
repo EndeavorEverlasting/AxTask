@@ -7,6 +7,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { PriorityEngine } from "@/lib/priority-engine";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { parseVoiceCommands, stripCommandText } from "@/lib/voice-commands";
 import { useVoice } from "@/hooks/use-voice";
@@ -76,6 +77,7 @@ function clearDraft(key: string) {
 export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { toast } = useToast();
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
   const { onFieldBlur, isHinted } = useFieldFlow();
@@ -463,40 +465,57 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   return (
                     <FormItem className="flex flex-col">
                       <FormLabel>Date <span className="text-red-400">*</span></FormLabel>
-                      <Popover modal={true}>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                "w-full pl-3 text-left font-normal min-h-[44px]",
-                                !field.value && "text-muted-foreground",
-                                getFieldClass("date")
-                              )}
-                              onBlur={() => onFieldBlur("date", field.value)}
-                            >
-                              {field.value
-                                ? format(dateValue!, "PPP")
-                                : "Pick a date"}
-                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={dateValue}
-                            onSelect={(day) => {
-                              if (day) {
-                                field.onChange(format(day, "yyyy-MM-dd"));
+                      {isMobile ? (
+                        <FormControl>
+                          <Input
+                            type="date"
+                            value={field.value || ""}
+                            onChange={(e) => {
+                              field.onChange(e.target.value);
+                              if (e.target.value) {
                                 clearWarning("date");
-                                onFieldBlur("date", format(day, "yyyy-MM-dd"));
+                                onFieldBlur("date", e.target.value);
                               }
                             }}
-                            initialFocus
+                            className={cn("min-h-[44px]", getFieldClass("date"))}
                           />
-                        </PopoverContent>
-                      </Popover>
+                        </FormControl>
+                      ) : (
+                        <Popover modal={true}>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant="outline"
+                                className={cn(
+                                  "w-full pl-3 text-left font-normal min-h-[44px]",
+                                  !field.value && "text-muted-foreground",
+                                  getFieldClass("date")
+                                )}
+                                onBlur={() => onFieldBlur("date", field.value)}
+                              >
+                                {field.value
+                                  ? format(dateValue!, "PPP")
+                                  : "Pick a date"}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={dateValue}
+                              onSelect={(day) => {
+                                if (day) {
+                                  field.onChange(format(day, "yyyy-MM-dd"));
+                                  clearWarning("date");
+                                  onFieldBlur("date", format(day, "yyyy-MM-dd"));
+                                }
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      )}
                       <FormMessage />
                     </FormItem>
                   );
@@ -539,25 +558,40 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   <FormItem className="flex flex-col">
                     <FormLabel>Time</FormLabel>
                     <FormControl>
-                      <div
-                        className={cn(
-                          "rounded-md",
-                          isHinted("time") && "field-glow-hint",
-                          isWarned("time") && "field-glow-warning"
-                        )}
-                        onBlur={() => onFieldBlur("time", field.value)}
-                      >
-                        <ClockTimePicker
-                          value={field.value || undefined}
-                          onChange={(t) => {
-                            field.onChange(t);
-                            if (t) {
-                              onFieldBlur("time", t);
+                      {isMobile ? (
+                        <Input
+                          type="time"
+                          value={field.value || ""}
+                          onChange={(e) => {
+                            field.onChange(e.target.value);
+                            if (e.target.value) {
+                              onFieldBlur("time", e.target.value);
                               clearWarning("time");
                             }
                           }}
+                          className={cn("min-h-[44px]", getFieldClass("time"))}
                         />
-                      </div>
+                      ) : (
+                        <div
+                          className={cn(
+                            "rounded-md",
+                            isHinted("time") && "field-glow-hint",
+                            isWarned("time") && "field-glow-warning"
+                          )}
+                          onBlur={() => onFieldBlur("time", field.value)}
+                        >
+                          <ClockTimePicker
+                            value={field.value || undefined}
+                            onChange={(t) => {
+                              field.onChange(t);
+                              if (t) {
+                                onFieldBlur("time", t);
+                                clearWarning("time");
+                              }
+                            }}
+                          />
+                        </div>
+                      )}
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -835,7 +869,8 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
               <div className="flex space-x-3">
                 <Button 
                   type="button" 
-                  variant="outline" 
+                  variant="outline"
+                  className="min-h-[44px]"
                   onClick={() => { form.reset(freshDefaults); clearDraft(draftKey); }}
                 >
                   Clear
