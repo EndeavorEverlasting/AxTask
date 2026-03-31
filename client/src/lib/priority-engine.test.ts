@@ -82,8 +82,44 @@ describe("PriorityEngine", () => {
 
     it("uses manual urgency * impact when provided", () => {
       const result = PriorityEngine.calculatePreviewPriority("simple task", "", 5, 5);
-      // manual = (5*5)/2 = 12.5, so score = max(keywordScore, 12.5)
       expect(result.score).toBeGreaterThanOrEqual(12);
+    });
+
+    it("scores non-zero with urgency only (no impact)", () => {
+      const result = PriorityEngine.calculatePreviewPriority("", "", 5, null);
+      expect(result.score).toBe(4);
+      expect(result.priority).toBe("Medium-High");
+    });
+
+    it("scores non-zero with impact only (no urgency)", () => {
+      const result = PriorityEngine.calculatePreviewPriority("", "", null, 5);
+      expect(result.score).toBe(4);
+      expect(result.priority).toBe("Medium-High");
+    });
+
+    it("prefers urgency*impact over single urgency when both set", () => {
+      const both = PriorityEngine.calculatePreviewPriority("", "", 5, 5);
+      const single = PriorityEngine.calculatePreviewPriority("", "", 5, null);
+      expect(both.score).toBeGreaterThan(single.score);
+    });
+
+    it("scores everyday keywords: upgrade", () => {
+      const result = PriorityEngine.calculatePreviewPriority("upgrade SSD", "");
+      expect(result.score).toBeGreaterThanOrEqual(2);
+      expect(result.priority).not.toBe("Low");
+    });
+
+    it("scores everyday keywords: order, schedule", () => {
+      const r1 = PriorityEngine.calculatePreviewPriority("order supplies", "");
+      expect(r1.score).toBeGreaterThanOrEqual(2);
+      const r2 = PriorityEngine.calculatePreviewPriority("schedule dentist", "");
+      expect(r2.score).toBeGreaterThanOrEqual(2);
+    });
+
+    it("scores everyday keywords: buy, pay, renew", () => {
+      expect(PriorityEngine.calculatePreviewPriority("buy groceries", "").score).toBeGreaterThanOrEqual(2);
+      expect(PriorityEngine.calculatePreviewPriority("pay bills", "").score).toBeGreaterThanOrEqual(3);
+      expect(PriorityEngine.calculatePreviewPriority("renew license", "").score).toBeGreaterThanOrEqual(3);
     });
 
     it("applies effort penalty for effort > 3", () => {
@@ -99,6 +135,23 @@ describe("PriorityEngine", () => {
       expect(result).toHaveProperty("score");
       expect(result).toHaveProperty("priority");
       expect(result).toHaveProperty("isRepeated");
+    });
+
+    it("scores non-zero with urgency only", async () => {
+      const result = await PriorityEngine.calculatePriority("", "", 5, null);
+      expect(result.score).toBe(4);
+      expect(result.priority).toBe("Medium-High");
+    });
+
+    it("scores non-zero with impact only", async () => {
+      const result = await PriorityEngine.calculatePriority("", "", null, 5);
+      expect(result.score).toBe(4);
+      expect(result.priority).toBe("Medium-High");
+    });
+
+    it("scores everyday keywords in async path", async () => {
+      const result = await PriorityEngine.calculatePriority("upgrade SSD", "");
+      expect(result.score).toBeGreaterThanOrEqual(2);
     });
 
     it("detects repetition with similar existing tasks", async () => {

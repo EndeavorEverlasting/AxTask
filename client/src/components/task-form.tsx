@@ -276,7 +276,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
 
   useEffect(() => {
     const subscription = form.watch((values) => {
-      if (values.activity || values.notes) {
+      if (values.activity || values.notes || values.urgency || values.impact) {
         const result = PriorityEngine.calculatePreviewPriority(
           values.activity || "",
           values.notes || "",
