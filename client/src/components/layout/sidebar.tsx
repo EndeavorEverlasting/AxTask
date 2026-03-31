@@ -21,11 +21,14 @@ import {
   GraduationCap,
   Brain,
   Shield,
+  Coins,
+  ShoppingBag,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
 import { useZoom } from "@/hooks/use-zoom";
 import { useTutorial } from "@/hooks/use-tutorial";
+import { useCountUp } from "@/hooks/use-count-up";
 import { Button } from "@/components/ui/button";
 import { VoiceBarTrigger } from "@/components/voice-command-bar";
 
@@ -42,12 +45,19 @@ export function Sidebar() {
   });
   const overdueCount = (briefing?.overdue?.count || 0) + (briefing?.dueWithinHour?.count || 0);
 
+  const { data: wallet } = useQuery<{ balance: number; currentStreak: number }>({
+    queryKey: ["/api/gamification/wallet"],
+    refetchInterval: 30000,
+  });
+  const animatedBalance = useCountUp(wallet?.balance ?? 0);
+
   const menuItems = [
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/planner", icon: Brain, label: "AI Planner", badge: overdueCount },
     { path: "/tasks", icon: List, label: "All Tasks" },
     { path: "/calendar", icon: CalendarDays, label: "Calendar" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
+    { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
     { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },
     { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
@@ -100,6 +110,19 @@ export function Sidebar() {
       </nav>
 
       <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+        {wallet && (
+          <Link href="/rewards">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 cursor-pointer hover:shadow-md transition-shadow">
+              <Coins className="h-4 w-4 text-amber-500" />
+              <span className="text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300">{animatedBalance}</span>
+              <span className="text-xs text-amber-600 dark:text-amber-400">AxCoins</span>
+              {(wallet.currentStreak ?? 0) > 0 && (
+                <span className="ml-auto text-xs text-orange-500 font-medium">🔥{wallet.currentStreak}</span>
+              )}
+            </div>
+          </Link>
+        )}
+
         <Button
           variant={tutorialActive ? "default" : "outline"}
           size="sm"

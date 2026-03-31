@@ -406,13 +406,23 @@ export function TaskList() {
       const response = await apiRequest("PUT", `/api/tasks/${id}`, { status });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-      toast({
-        title: "Task updated",
-        description: "Task status has been updated successfully.",
-      });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      if (data?.coinReward) {
+        const cr = data.coinReward;
+        const badgeText = cr.badgesEarned?.length > 0 ? ` 🏅 New badge${cr.badgesEarned.length > 1 ? "s" : ""}!` : "";
+        toast({
+          title: `+${cr.coinsEarned} AxCoins earned!`,
+          description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${badgeText}`,
+        });
+      } else {
+        toast({
+          title: "Task updated",
+          description: "Task status has been updated successfully.",
+        });
+      }
     },
     onError: () => {
       toast({

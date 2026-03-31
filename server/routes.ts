@@ -11,7 +11,9 @@ import {
   adminResetPassword,
   banUser, unbanUser, getAllUsers, isUserBanned,
   logSecurityEvent, getSecurityLogs,
+  getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
 } from "./storage";
+import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
@@ -566,6 +568,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const userId = req.user!.id;
 
+      const existingTask = await storage.getTask(userId, req.params.id);
+      const previousStatus = existingTask?.status || "pending";
+
       let task = await storage.updateTask(userId, validatedData);
       if (!task) {
         return res.status(404).json({ message: "Task not found" });
@@ -593,7 +598,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }) || task;
       }
 
-      res.json(task);
+      let coinReward = null;
+      if (task!.status === "completed" && previousStatus !== "completed") {
+        coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
+      }
+
+      res.json({ ...task, coinReward });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
@@ -1096,6 +1106,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Voice processing error:", error);
       res.status(500).json({ message: "Failed to process voice command" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Gamification routes (protected)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.use("/api/gamification", apiLimiter);
+
+  await seedRewardsCatalog();
+
+  app.get("/api/gamification/wallet", requireAuth, async (req, res) => {
+    try {
+      const wallet = await getOrCreateWallet(req.user!.id);
+      res.json(wallet);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch wallet" });
+    }
+  });
+
+  app.get("/api/gamification/transactions", requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const txs = await getTransactions(req.user!.id, limit);
+      res.json(txs);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch transactions" });
+    }
+  });
+
+  app.get("/api/gamification/badges", requireAuth, async (req, res) => {
+    try {
+      const earned = await getUserBadges(req.user!.id);
+      res.json({ earned, definitions: BADGE_DEFINITIONS });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch badges" });
+    }
+  });
+
+  app.get("/api/gamification/rewards", requireAuth, async (_req, res) => {
+    try {
+      const catalog = await getRewardsCatalog();
+      res.json(catalog);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch rewards" });
+    }
+  });
+
+  app.get("/api/gamification/my-rewards", requireAuth, async (req, res) => {
+    try {
+      const rewards = await getUserRewards(req.user!.id);
+      res.json(rewards);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch your rewards" });
+    }
+  });
+
+  app.post("/api/gamification/redeem", requireAuth, async (req, res) => {
+    try {
+      const { rewardId } = req.body;
+      if (!rewardId || typeof rewardId !== "string") {
+        return res.status(400).json({ message: "Reward ID is required" });
+      }
+      const success = await redeemReward(req.user!.id, rewardId);
+      if (!success) {
+        return res.status(400).json({ message: "Insufficient coins or reward not found" });
+      }
+      const wallet = await getOrCreateWallet(req.user!.id);
+      res.json({ message: "Reward redeemed!", wallet });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to redeem reward" });
+    }
+  });
+
+  app.get("/api/gamification/profile", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const [wallet, badges, rewards, txs] = await Promise.all([
+        getOrCreateWallet(userId),
+        getUserBadges(userId),
+        getUserRewards(userId),
+        getTransactions(userId, 20),
+      ]);
+      res.json({ wallet, badges, rewards, transactions: txs, definitions: BADGE_DEFINITIONS });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch profile" });
     }
   });
 

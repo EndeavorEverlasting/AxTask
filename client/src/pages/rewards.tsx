@@ -1,0 +1,272 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useCountUp } from "@/hooks/use-count-up";
+
+interface Wallet {
+  userId: string;
+  balance: number;
+  lifetimeEarned: number;
+  currentStreak: number;
+  longestStreak: number;
+  lastCompletionDate: string | null;
+}
+
+interface RewardItem {
+  id: string;
+  name: string;
+  description: string;
+  cost: number;
+  type: string;
+  icon: string | null;
+  data: string | null;
+}
+
+interface Transaction {
+  id: string;
+  userId: string;
+  amount: number;
+  reason: string;
+  details: string | null;
+  createdAt: string;
+}
+
+interface BadgeDefinition {
+  name: string;
+  description: string;
+  icon: string;
+}
+
+interface UserBadge {
+  id: string;
+  userId: string;
+  badgeId: string;
+  earnedAt: string;
+}
+
+export default function RewardsPage() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("shop");
+
+  const { data: wallet } = useQuery<Wallet>({ queryKey: ["/api/gamification/wallet"] });
+  const { data: rewards = [] } = useQuery<RewardItem[]>({ queryKey: ["/api/gamification/rewards"] });
+  const { data: myRewards = [] } = useQuery<{ id: string; rewardId: string; redeemedAt: string }[]>({ queryKey: ["/api/gamification/my-rewards"] });
+  const { data: transactions = [] } = useQuery<Transaction[]>({ queryKey: ["/api/gamification/transactions"] });
+  const { data: badgeData } = useQuery<{ earned: UserBadge[]; definitions: Record<string, BadgeDefinition> }>({
+    queryKey: ["/api/gamification/badges"],
+  });
+
+  const animatedBalance = useCountUp(wallet?.balance ?? 0);
+
+  const redeemMutation = useMutation({
+    mutationFn: async (rewardId: string) => {
+      const res = await apiRequest("POST", "/api/gamification/redeem", { rewardId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      toast({ title: "Reward redeemed!", description: "Check your profile for your new reward." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Redemption failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const ownedRewardIds = new Set(myRewards.map(r => r.rewardId));
+
+  const groupedRewards = {
+    theme: rewards.filter(r => r.type === "theme"),
+    badge: rewards.filter(r => r.type === "badge"),
+    title: rewards.filter(r => r.type === "title"),
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <ShoppingBag className="h-7 w-7 text-amber-500" />
+            Rewards Shop
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400">Spend your AxCoins on themes, badges, and titles</p>
+        </div>
+        <motion.div
+          className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-yellow-400 text-white px-5 py-3 rounded-xl shadow-lg"
+          whileHover={{ scale: 1.05 }}
+        >
+          <Coins className="h-6 w-6" />
+          <span className="text-2xl font-bold tabular-nums">{animatedBalance}</span>
+          <span className="text-sm opacity-80">AxCoins</span>
+        </motion.div>
+      </div>
+
+      {wallet && (
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="bg-amber-100 dark:bg-amber-900/30 p-2 rounded-lg">
+                <Coins className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Balance</p>
+                <p className="text-xl font-bold tabular-nums">{wallet.balance}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="bg-green-100 dark:bg-green-900/30 p-2 rounded-lg">
+                <Trophy className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Lifetime Earned</p>
+                <p className="text-xl font-bold tabular-nums">{wallet.lifetimeEarned}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="bg-orange-100 dark:bg-orange-900/30 p-2 rounded-lg">
+                <Flame className="h-5 w-5 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Current Streak</p>
+                <p className="text-xl font-bold tabular-nums">{wallet.currentStreak} day{wallet.currentStreak !== 1 ? "s" : ""}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="bg-purple-100 dark:bg-purple-900/30 p-2 rounded-lg">
+                <Award className="h-5 w-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Best Streak</p>
+                <p className="text-xl font-bold tabular-nums">{wallet.longestStreak} day{wallet.longestStreak !== 1 ? "s" : ""}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="shop">Shop</TabsTrigger>
+          <TabsTrigger value="badges">Badges</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="shop" className="space-y-6 mt-4">
+          {(["theme", "badge", "title"] as const).map(type => (
+            <div key={type}>
+              <h3 className="text-lg font-semibold capitalize mb-3">{type}s</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {groupedRewards[type].map(reward => {
+                  const owned = ownedRewardIds.has(reward.id);
+                  return (
+                    <motion.div key={reward.id} whileHover={{ y: -2 }} transition={{ duration: 0.15 }}>
+                      <Card className={owned ? "border-green-400 dark:border-green-600" : ""}>
+                        <CardContent className="p-5">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="text-3xl">{reward.icon}</div>
+                            {owned && <Badge className="bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Owned</Badge>}
+                          </div>
+                          <h4 className="font-semibold text-base">{reward.name}</h4>
+                          <p className="text-sm text-muted-foreground mt-1">{reward.description}</p>
+                          <div className="flex items-center justify-between mt-4">
+                            <span className="flex items-center gap-1 text-amber-600 font-bold">
+                              <Coins className="h-4 w-4" /> {reward.cost}
+                            </span>
+                            <Button
+                              size="sm"
+                              disabled={owned || (wallet?.balance ?? 0) < reward.cost || redeemMutation.isPending}
+                              onClick={() => redeemMutation.mutate(reward.id)}
+                            >
+                              {owned ? "Owned" : redeemMutation.isPending ? "..." : "Redeem"}
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </TabsContent>
+
+        <TabsContent value="badges" className="mt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {badgeData && Object.entries(badgeData.definitions).map(([id, def]) => {
+              const earned = badgeData.earned.find(b => b.badgeId === id);
+              return (
+                <motion.div key={id} whileHover={{ scale: 1.02 }} transition={{ duration: 0.15 }}>
+                  <Card className={earned ? "border-amber-400 dark:border-amber-600" : "opacity-60"}>
+                    <CardContent className="p-5">
+                      <div className="flex items-center gap-3">
+                        <span className={`text-3xl ${!earned ? "grayscale" : ""}`}>{def.icon}</span>
+                        <div>
+                          <h4 className="font-semibold">{def.name}</h4>
+                          <p className="text-xs text-muted-foreground">{def.description}</p>
+                          {earned && (
+                            <p className="text-xs text-amber-600 mt-1">
+                              Earned {new Date(earned.earnedAt).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="history" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                Coin History
+              </CardTitle>
+              <CardDescription>Your recent AxCoin transactions</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {transactions.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No transactions yet. Complete tasks to earn AxCoins!</p>
+              ) : (
+                <div className="space-y-2">
+                  {transactions.map(tx => (
+                    <div key={tx.id} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                      <div>
+                        <p className="text-sm font-medium capitalize">{tx.reason.replace(/_/g, " ")}</p>
+                        {tx.details && <p className="text-xs text-muted-foreground">{tx.details}</p>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold tabular-nums ${tx.amount > 0 ? "text-green-600" : "text-red-500"}`}>
+                          {tx.amount > 0 ? `+${tx.amount}` : tx.amount}
+                        </span>
+                        <Coins className="h-4 w-4 text-amber-500" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

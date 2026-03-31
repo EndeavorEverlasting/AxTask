@@ -21,6 +21,7 @@ import GoogleSheetsSyncPage from "@/pages/google-sheets-sync";
 import ChecklistPage from "@/pages/checklist";
 import PlannerPage from "@/pages/planner";
 import AdminPage from "@/pages/admin";
+import RewardsPage from "@/pages/rewards";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
@@ -37,6 +38,7 @@ function Router() {
       <Route path="/checklist" component={ChecklistPage} />
       <Route path="/planner" component={PlannerPage} />
       <Route path="/admin" component={AdminPage} />
+      <Route path="/rewards" component={RewardsPage} />
       <Route component={NotFound} />
     </Switch>
   );

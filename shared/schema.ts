@@ -142,3 +142,66 @@ export const reorderTasksSchema = z.object({
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type UpdateTask = z.infer<typeof updateTaskSchema>;
 export type Task = typeof tasks.$inferSelect;
+
+// ─── Gamification: Wallets ──────────────────────────────────────────────────
+export const wallets = pgTable("wallets", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  balance: integer("balance").notNull().default(0),
+  lifetimeEarned: integer("lifetime_earned").notNull().default(0),
+  currentStreak: integer("current_streak").notNull().default(0),
+  longestStreak: integer("longest_streak").notNull().default(0),
+  lastCompletionDate: text("last_completion_date"),
+});
+
+export type Wallet = typeof wallets.$inferSelect;
+
+// ─── Gamification: Coin Transactions ────────────────────────────────────────
+export const coinTransactions = pgTable("coin_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  amount: integer("amount").notNull(),
+  reason: text("reason").notNull(),
+  details: text("details"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_coin_tx_user").on(table.userId),
+  index("idx_coin_tx_created").on(table.createdAt),
+]);
+
+export type CoinTransaction = typeof coinTransactions.$inferSelect;
+
+// ─── Gamification: User Badges ──────────────────────────────────────────────
+export const userBadges = pgTable("user_badges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  badgeId: text("badge_id").notNull(),
+  earnedAt: timestamp("earned_at").defaultNow(),
+}, (table) => [
+  index("idx_user_badges_user").on(table.userId),
+]);
+
+export type UserBadge = typeof userBadges.$inferSelect;
+
+// ─── Gamification: Rewards Catalog ──────────────────────────────────────────
+export const rewardsCatalog = pgTable("rewards_catalog", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  cost: integer("cost").notNull(),
+  type: text("type").notNull(),
+  icon: text("icon"),
+  data: text("data"),
+});
+
+export type RewardItem = typeof rewardsCatalog.$inferSelect;
+
+// ─── Gamification: User Redeemed Rewards ────────────────────────────────────
+export const userRewards = pgTable("user_rewards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  rewardId: varchar("reward_id").notNull().references(() => rewardsCatalog.id),
+  redeemedAt: timestamp("redeemed_at").defaultNow(),
+  isActive: boolean("is_active").notNull().default(true),
+}, (table) => [
+  index("idx_user_rewards_user").on(table.userId),
+]);

@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -608,3 +608,138 @@ export class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
+
+// ─── Gamification Storage ────────────────────────────────────────────────────
+
+export async function getOrCreateWallet(userId: string): Promise<Wallet> {
+  const [existing] = await db.select().from(wallets).where(eq(wallets.userId, userId));
+  if (existing) return existing;
+  const [wallet] = await db.insert(wallets).values({ userId }).returning();
+  return wallet;
+}
+
+export async function addCoins(
+  userId: string,
+  amount: number,
+  reason: string,
+  details?: string
+): Promise<{ wallet: Wallet; transaction: CoinTransaction }> {
+  const wallet = await getOrCreateWallet(userId);
+  const [updated] = await db
+    .update(wallets)
+    .set({
+      balance: wallet.balance + amount,
+      lifetimeEarned: wallet.lifetimeEarned + amount,
+    })
+    .where(eq(wallets.userId, userId))
+    .returning();
+  const [transaction] = await db
+    .insert(coinTransactions)
+    .values({ id: randomUUID(), userId, amount, reason, details })
+    .returning();
+  return { wallet: updated, transaction };
+}
+
+export async function spendCoins(userId: string, amount: number, reason: string): Promise<Wallet | null> {
+  const wallet = await getOrCreateWallet(userId);
+  if (wallet.balance < amount) return null;
+  const [updated] = await db
+    .update(wallets)
+    .set({ balance: wallet.balance - amount })
+    .where(eq(wallets.userId, userId))
+    .returning();
+  await db.insert(coinTransactions).values({ id: randomUUID(), userId, amount: -amount, reason });
+  return updated;
+}
+
+export async function getTransactions(userId: string, limit = 50): Promise<CoinTransaction[]> {
+  return db
+    .select()
+    .from(coinTransactions)
+    .where(eq(coinTransactions.userId, userId))
+    .orderBy(desc(coinTransactions.createdAt))
+    .limit(limit);
+}
+
+export async function updateStreak(userId: string): Promise<Wallet> {
+  const wallet = await getOrCreateWallet(userId);
+  const today = new Date().toISOString().split("T")[0];
+
+  if (wallet.lastCompletionDate === today) return wallet;
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+  let newStreak = 1;
+  if (wallet.lastCompletionDate === yesterdayStr) {
+    newStreak = wallet.currentStreak + 1;
+  }
+
+  const longestStreak = Math.max(wallet.longestStreak, newStreak);
+
+  const [updated] = await db
+    .update(wallets)
+    .set({ currentStreak: newStreak, longestStreak, lastCompletionDate: today })
+    .where(eq(wallets.userId, userId))
+    .returning();
+  return updated;
+}
+
+export async function getUserBadges(userId: string): Promise<UserBadge[]> {
+  return db.select().from(userBadges).where(eq(userBadges.userId, userId)).orderBy(desc(userBadges.earnedAt));
+}
+
+export async function awardBadge(userId: string, badgeId: string): Promise<UserBadge | null> {
+  const existing = await db
+    .select()
+    .from(userBadges)
+    .where(and(eq(userBadges.userId, userId), eq(userBadges.badgeId, badgeId)));
+  if (existing.length > 0) return null;
+  const [badge] = await db.insert(userBadges).values({ id: randomUUID(), userId, badgeId }).returning();
+  return badge;
+}
+
+export async function getRewardsCatalog(): Promise<RewardItem[]> {
+  return db.select().from(rewardsCatalog);
+}
+
+export async function getRewardById(id: string): Promise<RewardItem | undefined> {
+  const [item] = await db.select().from(rewardsCatalog).where(eq(rewardsCatalog.id, id));
+  return item;
+}
+
+export async function getUserRewards(userId: string): Promise<(typeof userRewards.$inferSelect)[]> {
+  return db.select().from(userRewards).where(eq(userRewards.userId, userId)).orderBy(desc(userRewards.redeemedAt));
+}
+
+export async function redeemReward(userId: string, rewardId: string): Promise<boolean> {
+  const reward = await getRewardById(rewardId);
+  if (!reward) return false;
+  const wallet = await spendCoins(userId, reward.cost, `Redeemed: ${reward.name}`);
+  if (!wallet) return false;
+  await db.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
+  return true;
+}
+
+export async function seedRewardsCatalog(): Promise<void> {
+  const existing = await db.select().from(rewardsCatalog);
+  if (existing.length > 0) return;
+  await db.insert(rewardsCatalog).values([
+    { id: randomUUID(), name: "Midnight Theme", description: "Unlock a deep dark theme with neon accents", cost: 100, type: "theme", icon: "🌙", data: "midnight" },
+    { id: randomUUID(), name: "Sunset Theme", description: "Warm orange and pink gradient theme", cost: 100, type: "theme", icon: "🌅", data: "sunset" },
+    { id: randomUUID(), name: "Ocean Theme", description: "Cool blue and teal oceanic theme", cost: 100, type: "theme", icon: "🌊", data: "ocean" },
+    { id: randomUUID(), name: "Forest Theme", description: "Deep green nature-inspired theme", cost: 100, type: "theme", icon: "🌲", data: "forest" },
+    { id: randomUUID(), name: "Gold Star Badge", description: "A shiny gold star displayed on your profile", cost: 50, type: "badge", icon: "⭐", data: "gold-star" },
+    { id: randomUUID(), name: "Diamond Badge", description: "The prestigious diamond badge", cost: 200, type: "badge", icon: "💎", data: "diamond" },
+    { id: randomUUID(), name: "Crown Badge", description: "A royal crown for task royalty", cost: 300, type: "badge", icon: "👑", data: "crown" },
+    { id: randomUUID(), name: "Task Master Title", description: "Display 'Task Master' on your profile", cost: 150, type: "title", icon: "🏅", data: "Task Master" },
+    { id: randomUUID(), name: "Productivity Guru Title", description: "Display 'Productivity Guru' on your profile", cost: 250, type: "title", icon: "🧠", data: "Productivity Guru" },
+    { id: randomUUID(), name: "Legend Title", description: "Display 'Legend' on your profile", cost: 500, type: "title", icon: "🏆", data: "Legend" },
+  ]);
+}
+
+export async function getCompletedTaskCount(userId: string): Promise<number> {
+  const [row] = await db.select({ value: count() }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.status, "completed")));
+  return Number(row?.value) || 0;
+}
