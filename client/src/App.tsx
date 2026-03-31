@@ -12,9 +12,10 @@ import { VoiceProvider, useVoice } from "@/hooks/use-voice";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TutorialOverlay } from "@/components/tutorial-overlay";
 import { VoiceCommandBar } from "@/components/voice-command-bar";
+import { MobileVoiceOverlay } from "@/components/mobile-voice-overlay";
 import BulkActionDialog from "@/components/bulk-action-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { LayoutDashboard, List, CalendarDays, Brain, Mic } from "lucide-react";
+import { LayoutDashboard, List, CalendarDays, Brain } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
 import Analytics from "@/pages/analytics";
@@ -100,19 +101,6 @@ function MobileBottomNav() {
   );
 }
 
-function MobileVoiceFAB() {
-  const { openBar } = useVoice();
-
-  return (
-    <button
-      className="md:hidden fixed right-4 bottom-20 z-50 w-14 h-14 rounded-full bg-primary text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform"
-      onClick={openBar}
-      aria-label="Voice command"
-    >
-      <Mic className="h-6 w-6" />
-    </button>
-  );
-}
 
 const ROUTE_STORAGE_KEY = "axtask_last_route";
 const VALID_ROUTES = ["/", "/tasks", "/calendar", "/analytics", "/import-export", "/google-sheets", "/checklist", "/planner", "/admin", "/rewards"];
@@ -124,19 +112,23 @@ function useRoutePersistence() {
   useEffect(() => {
     if (restoredRef.current) return;
     restoredRef.current = true;
-    const pathname = window.location.pathname;
-    if (pathname === "/" || pathname === "") {
-      const saved = localStorage.getItem(ROUTE_STORAGE_KEY);
-      if (saved && saved !== "/" && VALID_ROUTES.includes(saved)) {
-        setLocation(saved);
+    try {
+      const pathname = window.location.pathname;
+      if (pathname === "/" || pathname === "") {
+        const saved = localStorage.getItem(ROUTE_STORAGE_KEY);
+        if (saved && saved !== "/" && VALID_ROUTES.includes(saved)) {
+          setLocation(saved);
+        }
       }
-    }
+    } catch {}
   }, []);
 
   useEffect(() => {
-    if (location && location !== "/" && VALID_ROUTES.includes(location)) {
-      localStorage.setItem(ROUTE_STORAGE_KEY, location);
-    }
+    try {
+      if (location && location !== "/" && VALID_ROUTES.includes(location)) {
+        localStorage.setItem(ROUTE_STORAGE_KEY, location);
+      }
+    } catch {}
   }, [location]);
 }
 
@@ -187,7 +179,7 @@ function AuthenticatedApp() {
           </div>
         </main>
         <MobileBottomNav />
-        <MobileVoiceFAB />
+        <MobileVoiceOverlay />
         <TutorialOverlay />
         <VoiceCommandBar />
         <ReviewDialogBridge />

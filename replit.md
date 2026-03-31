@@ -27,6 +27,7 @@ Key features include:
 -   **Animations**: Uses `framer-motion` for various UI animations, respecting `prefers-reduced-motion`.
 -   **Voice Input**: Browser-native Web Speech API for dictating task activity and notes, including voice commands for task attributes.
 -   **Universal Voice Command System**: A global voice command bar (Ctrl+M) with server-side dispatching to classify intent (task creation, planner query, calendar command, navigation, search, task review) and process commands through dedicated engines.
+-   **Immersive Mobile Voice Overlay**: Full-screen mobile voice experience with animated waveform bars, large mic button with ripple effects, intent-branded result cards, swipe-down-to-close gesture, auto-start listening, and full accessibility (dialog role, aria labels, focus management, reduced motion respect). Desktop retains the compact command bar.
 -   **Task Review Engine**: Voice/text-driven bulk task management with natural language parsing to process user feedback on recommended tasks and generate structured proposals for approval.
 -   **Gamification (AxCoins)**: A currency and rewards system with coin earning (priority-based amounts, on-time bonuses, streak multipliers), achievement badges, a Rewards Shop, and transaction history.
 -   **Classification Rewards & Compound Interest**: Users earn AxCoins for classifying tasks, with additional coins earned for confirmations from other users and compound interest.

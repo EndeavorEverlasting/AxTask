@@ -1,4 +1,5 @@
 import { useVoice } from "@/hooks/use-voice";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { AnimatePresence, motion } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import {
@@ -48,7 +49,9 @@ export function VoiceCommandBar() {
 
   const reducedMotion = useReducedMotion();
 
-  if (!isSupported || !isBarOpen) return null;
+  const isMobile = useIsMobile();
+
+  if (!isSupported || !isBarOpen || isMobile) return null;
 
   const IntentIcon = lastResponse ? (INTENT_ICONS[lastResponse.intent] || Mic) : Mic;
   const intentColor = lastResponse ? (INTENT_COLORS[lastResponse.intent] || "text-gray-500") : "";
