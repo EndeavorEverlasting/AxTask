@@ -114,19 +114,19 @@
   animation: none;
 }
 
-/* Tutorial glow — guides users through interactive tutorial */
+/* Tutorial glow — yellow pulsing highlight to guide users */
 @keyframes field-glow-tutorial-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 hsla(270, 76%, 55%, 0);
+    box-shadow: 0 0 0 0 hsla(45, 93%, 47%, 0);
   }
   50% {
-    box-shadow: 0 0 12px 3px hsla(270, 76%, 55%, 0.35);
+    box-shadow: 0 0 14px 4px hsla(45, 93%, 47%, 0.4);
   }
 }
 
 .field-glow-tutorial {
   animation: field-glow-tutorial-pulse 1.5s ease-in-out infinite;
-  border-color: hsla(270, 76%, 55%, 0.5) !important;
+  border-color: hsla(45, 93%, 47%, 0.55) !important;
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
   position: relative;
   z-index: 10;
@@ -134,12 +134,40 @@
 
 .dark .field-glow-tutorial {
   animation: field-glow-tutorial-pulse 1.5s ease-in-out infinite;
-  border-color: hsla(270, 76%, 55%, 0.45) !important;
+  border-color: hsla(45, 93%, 47%, 0.45) !important;
 }
 
 .field-glow-tutorial:focus,
 .field-glow-tutorial:focus-within {
   animation: field-glow-tutorial-pulse 1.5s ease-in-out infinite;
+}
+
+/* Tutorial success glow — green pulse for action/completion targets */
+@keyframes field-glow-tutorial-success-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsla(142, 71%, 45%, 0);
+  }
+  50% {
+    box-shadow: 0 0 14px 4px hsla(142, 71%, 45%, 0.4);
+  }
+}
+
+.field-glow-tutorial-success {
+  animation: field-glow-tutorial-success-pulse 1.5s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.55) !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
+  z-index: 10;
+}
+
+.dark .field-glow-tutorial-success {
+  animation: field-glow-tutorial-success-pulse 1.5s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.45) !important;
+}
+
+.field-glow-tutorial-success:focus,
+.field-glow-tutorial-success:focus-within {
+  animation: field-glow-tutorial-success-pulse 1.5s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -155,8 +183,13 @@
   }
   .field-glow-tutorial {
     animation: none;
-    border-color: hsla(270, 76%, 55%, 0.6) !important;
-    box-shadow: 0 0 0 2px hsla(270, 76%, 55%, 0.3);
+    border-color: hsla(45, 93%, 47%, 0.6) !important;
+    box-shadow: 0 0 0 2px hsla(45, 93%, 47%, 0.3);
+  }
+  .field-glow-tutorial-success {
+    animation: none;
+    border-color: hsla(142, 71%, 45%, 0.6) !important;
+    box-shadow: 0 0 0 2px hsla(142, 71%, 45%, 0.3);
   }
 }
 

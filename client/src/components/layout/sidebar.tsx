@@ -151,7 +151,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           size="sm"
           onClick={tutorialActive ? stopTutorial : startTutorial}
           title="Toggle tutorial (Ctrl+T)"
-          className={`w-full justify-between min-h-[44px] ${tutorialActive ? "bg-purple-600 hover:bg-purple-700 text-white" : ""}`}
+          className={`w-full justify-between min-h-[44px] ${tutorialActive ? "bg-yellow-600 hover:bg-yellow-700 text-white" : ""}`}
         >
           <span className="flex items-center">
             <GraduationCap className="mr-2 h-4 w-4" />

@@ -8,13 +8,14 @@ export interface TutorialStep {
   targetId?: string;
   page?: string;
   position?: "top" | "bottom" | "left" | "right";
+  glowClass?: "field-glow-tutorial" | "field-glow-tutorial-success";
 }
 
 const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "welcome",
     title: "Welcome to AxTask",
-    description: "Let's walk through the key features. This intelligent task manager uses AI-powered priority scoring to help you stay organized.",
+    description: "Let's walk through the key features. This intelligent task manager uses AI-powered priority scoring, gamification, and voice commands to help you stay organized.",
     position: "bottom",
   },
   {
@@ -24,38 +25,52 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     page: "/",
     targetId: "sidebar-link-/",
     position: "right",
-  },
-  {
-    id: "task-form",
-    title: "Creating a Task",
-    description: "Fill in the activity field and the system automatically calculates priority. The blue glow guides you through each field in order.",
-    page: "/tasks",
-    targetId: "sidebar-link-/tasks",
-    position: "right",
-  },
-  {
-    id: "calendar",
-    title: "Calendar View",
-    description: "See all your tasks laid out on a calendar. Click any date to add a task for that day.",
-    page: "/calendar",
-    targetId: "sidebar-link-/calendar",
-    position: "right",
+    glowClass: "field-glow-tutorial",
   },
   {
     id: "planner",
     title: "AI Planner",
-    description: "Your intelligent planning assistant. Get daily briefings, see top recommended tasks, a weekly load overview, and ask questions about your schedule.",
+    description: "Your intelligent planning assistant. Get daily briefings, top recommended tasks, a weekly load overview, and ask questions about your schedule.",
     page: "/planner",
     targetId: "sidebar-link-/planner",
     position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "task-form",
+    title: "Creating a Task",
+    description: "Fill in the activity field and the system automatically calculates priority based on urgency, impact, and effort. A yellow glow guides you to key areas.",
+    page: "/tasks",
+    targetId: "sidebar-link-/tasks",
+    position: "right",
+    glowClass: "field-glow-tutorial-success",
+  },
+  {
+    id: "calendar",
+    title: "Calendar View",
+    description: "See all your tasks laid out on a calendar. Click any date to add a task for that day, and drag tasks to reschedule them.",
+    page: "/calendar",
+    targetId: "sidebar-link-/calendar",
+    position: "right",
+    glowClass: "field-glow-tutorial",
   },
   {
     id: "analytics",
     title: "Analytics & Insights",
-    description: "Track your productivity trends, see priority distributions, and monitor completion rates over time.",
+    description: "Track your productivity trends, see priority distributions, and monitor completion rates over time with interactive charts.",
     page: "/analytics",
     targetId: "sidebar-link-/analytics",
     position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "rewards",
+    title: "Rewards & AxCoins",
+    description: "Earn AxCoins by completing tasks and classifying them. Spend coins in the Rewards Shop to unlock badges and perks. Your streak multiplier earns you bonus coins!",
+    page: "/rewards",
+    targetId: "sidebar-link-/rewards",
+    position: "right",
+    glowClass: "field-glow-tutorial-success",
   },
   {
     id: "checklist",
@@ -64,12 +79,20 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     page: "/checklist",
     targetId: "sidebar-link-/checklist",
     position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "shortcuts",
+    title: "Keyboard Shortcuts",
+    description: "Power user tip: press Ctrl+Shift+B to toggle the sidebar, Ctrl+Shift+/ to see all keyboard shortcuts, Ctrl+M for voice commands, and Ctrl+Enter to submit the task form.",
+    position: "bottom",
   },
   {
     id: "complete",
     title: "You're All Set!",
-    description: "You can restart this tutorial anytime from the sidebar. Enjoy using AxTask to stay on top of your tasks!",
+    description: "You can restart this tutorial anytime from the sidebar (Ctrl+T). Enjoy using AxTask to stay on top of your tasks!",
     position: "bottom",
+    glowClass: "field-glow-tutorial-success",
   },
 ];
 
