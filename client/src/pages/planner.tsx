@@ -92,7 +92,7 @@ export default function PlannerPage() {
     title: string;
     description: string;
     confidence: number;
-    data: Record<string, any>;
+    data: Record<string, unknown>;
   }
 
   const { data: patternData, isLoading: patternsLoading } = useQuery<{

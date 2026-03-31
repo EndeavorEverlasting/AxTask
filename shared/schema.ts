@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -242,6 +242,7 @@ export const taskPatterns = pgTable("task_patterns", {
   index("idx_patterns_user").on(table.userId),
   index("idx_patterns_user_type").on(table.userId, table.patternType),
   index("idx_patterns_user_key").on(table.userId, table.patternKey),
+  uniqueIndex("idx_patterns_user_type_key").on(table.userId, table.patternType, table.patternKey),
 ]);
 
 export type TaskPattern = typeof taskPatterns.$inferSelect;

@@ -1178,7 +1178,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (updatedTask) {
                 try {
                   await awardCoinsForCompletion(userId, updatedTask, previousStatus);
-                } catch {}
+                } catch (coinErr) {
+                  console.error(`Coin award failed for task ${action.taskId}:`, coinErr);
+                }
               }
               results.push({ taskId: action.taskId, success: true });
               break;
