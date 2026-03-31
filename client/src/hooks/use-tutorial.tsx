@@ -100,6 +100,21 @@ function useTutorialEngine(): TutorialContextValue {
     } catch {}
   }, []);
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "t") {
+        e.preventDefault();
+        if (isActive) {
+          stopTutorial();
+        } else {
+          startTutorial();
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isActive, startTutorial, stopTutorial]);
+
   const nextStep = useCallback(() => {
     if (stepIndex < TUTORIAL_STEPS.length - 1) {
       setStepIndex(i => i + 1);

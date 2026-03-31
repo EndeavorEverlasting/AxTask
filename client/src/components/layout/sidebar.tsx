@@ -84,10 +84,14 @@ export function Sidebar() {
           variant={tutorialActive ? "default" : "outline"}
           size="sm"
           onClick={tutorialActive ? stopTutorial : startTutorial}
-          className={`w-full justify-start ${tutorialActive ? "bg-purple-600 hover:bg-purple-700 text-white" : ""}`}
+          title="Toggle tutorial (Ctrl+T)"
+          className={`w-full justify-between ${tutorialActive ? "bg-purple-600 hover:bg-purple-700 text-white" : ""}`}
         >
-          <GraduationCap className="mr-2 h-4 w-4" />
-          {tutorialActive ? "Exit Tutorial" : hasCompleted ? "Restart Tutorial" : "Start Tutorial"}
+          <span className="flex items-center">
+            <GraduationCap className="mr-2 h-4 w-4" />
+            {tutorialActive ? "Exit Tutorial" : hasCompleted ? "Restart Tutorial" : "Start Tutorial"}
+          </span>
+          <kbd className="ml-2 text-[10px] font-mono opacity-60 bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">⌃T</kbd>
         </Button>
 
         <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700/50">

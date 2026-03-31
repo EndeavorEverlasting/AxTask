@@ -301,6 +301,21 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     form.handleSubmit(onSubmit)();
   }, [form, addWarning, clearWarning, toast, onSubmit]);
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleSubmitWithWarnings();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "m") {
+        e.preventDefault();
+        speech.toggle();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleSubmitWithWarnings, speech]);
+
   return (
     <Card>
       <CardHeader>
@@ -665,12 +680,13 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 >
                   Clear
                 </Button>
-                <Button type="submit" disabled={createTaskMutation.isPending}>
+                <Button type="submit" disabled={createTaskMutation.isPending} title="Submit (Ctrl+Enter)">
                   <Plus className="mr-2 h-4 w-4" />
                   {createTaskMutation.isPending 
             ? (task ? "Updating..." : "Adding...") 
             : (task ? "Update Task" : "Add Task")
           }
+                  <kbd className="ml-2 hidden sm:inline-flex items-center gap-0.5 rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-mono opacity-70">⌃↵</kbd>
                 </Button>
               </div>
             </div>
