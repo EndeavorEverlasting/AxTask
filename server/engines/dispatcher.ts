@@ -1,8 +1,9 @@
 import type { Task } from "@shared/schema";
 import { classifyCalendarIntent, processCalendarCommand, type CalendarResult } from "./calendar-engine";
 import { processPlannerQuery, type PlannerResult } from "./planner-engine";
+import { isTaskReviewIntent, processTaskReview, type ReviewResult } from "./review-engine";
 
-export type IntentType = "task_create" | "planner_query" | "calendar_command" | "navigation" | "search";
+export type IntentType = "task_create" | "planner_query" | "calendar_command" | "navigation" | "search" | "task_review";
 
 export interface EngineResponse {
   intent: IntentType;
@@ -29,6 +30,19 @@ const INTENT_PATTERNS: IntentPattern[] = [
       /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?checklist\b/i,
     ],
     priority: 10,
+  },
+  {
+    intent: "task_review",
+    patterns: [
+      /\b(?:i\s+)?(?:already\s+)?(?:finished|completed|did|done with|done|checked off|knocked out|took care of)\s+/i,
+      /\bmark\s+.+?\s+(?:as\s+)?(?:completed?|done|finished)\b/i,
+      /\b(?:i(?:'ve| have)\s+)?(?:already\s+)?(?:finished|completed|done)\s+/i,
+      /\bbulk\s+(?:complete|update|review)\b/i,
+      /\b(?:i\s+)?(?:already\s+)?(?:took care of|handled|wrapped up|cleared)\s+/i,
+      /\b(?:i\s+)?(?:finished|completed|did).+(?:and|,).+/i,
+      /\b(?:move|reschedule|push)\s+.+?\s+to\s+.+?\s+(?:and|,)\s+/i,
+    ],
+    priority: 8,
   },
   {
     intent: "task_create",
@@ -216,6 +230,19 @@ export async function dispatchVoiceCommand(
         action: result.action,
         payload: { answer: result.answer, relatedTasks: result.relatedTasks },
         message: result.answer,
+      };
+    }
+
+    case "task_review": {
+      const reviewResult = processTaskReview(transcript, tasks, now);
+      return {
+        intent: "task_review",
+        action: "show_review",
+        payload: {
+          actions: reviewResult.actions,
+          unmatched: reviewResult.unmatched,
+        },
+        message: reviewResult.message,
       };
     }
 

@@ -8,10 +8,11 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { useZoom, ZoomProvider } from "@/hooks/use-zoom";
 import { TutorialProvider } from "@/hooks/use-tutorial";
-import { VoiceProvider } from "@/hooks/use-voice";
+import { VoiceProvider, useVoice } from "@/hooks/use-voice";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TutorialOverlay } from "@/components/tutorial-overlay";
 import { VoiceCommandBar } from "@/components/voice-command-bar";
+import BulkActionDialog from "@/components/bulk-action-dialog";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
 import Analytics from "@/pages/analytics";
@@ -41,6 +42,20 @@ function Router() {
       <Route path="/rewards" component={RewardsPage} />
       <Route component={NotFound} />
     </Switch>
+  );
+}
+
+function ReviewDialogBridge() {
+  const { reviewProposal, clearReviewProposal } = useVoice();
+  if (!reviewProposal) return null;
+  return (
+    <BulkActionDialog
+      open={!!reviewProposal}
+      onOpenChange={(open) => { if (!open) clearReviewProposal(); }}
+      actions={reviewProposal.actions}
+      message={reviewProposal.message}
+      unmatched={reviewProposal.unmatched}
+    />
   );
 }
 
@@ -85,6 +100,7 @@ function AuthenticatedApp() {
         </main>
         <TutorialOverlay />
         <VoiceCommandBar />
+        <ReviewDialogBridge />
       </div>
     </VoiceProvider>
   );

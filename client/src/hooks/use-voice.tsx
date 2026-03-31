@@ -17,6 +17,19 @@ export interface TaskPrefill {
   time?: string;
 }
 
+export interface ReviewProposal {
+  actions: Array<{
+    type: "complete" | "reschedule" | "update";
+    taskId: string;
+    taskActivity: string;
+    details: Record<string, unknown>;
+    confidence: number;
+    reason: string;
+  }>;
+  unmatched: string[];
+  message: string;
+}
+
 interface VoiceContextType {
   isSupported: boolean;
   status: SpeechStatus;
@@ -28,6 +41,7 @@ interface VoiceContextType {
   isProcessing: boolean;
   taskPrefill: TaskPrefill | null;
   voiceSearchQuery: string | null;
+  reviewProposal: ReviewProposal | null;
   toggleListening: () => void;
   openBar: () => void;
   closeBar: () => void;
@@ -35,6 +49,7 @@ interface VoiceContextType {
   clearResponse: () => void;
   consumeTaskPrefill: () => TaskPrefill | null;
   consumeVoiceSearch: () => string | null;
+  clearReviewProposal: () => void;
 }
 
 const VoiceContext = createContext<VoiceContextType | null>(null);
@@ -55,6 +70,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
   const [lastResponse, setLastResponse] = useState<EngineResponse | null>(null);
   const [taskPrefill, setTaskPrefill] = useState<TaskPrefill | null>(null);
   const [voiceSearchQuery, setVoiceSearchQuery] = useState<string | null>(null);
+  const [reviewProposal, setReviewProposal] = useState<ReviewProposal | null>(null);
   const { toast } = useToast();
   const onNavigateRef = useRef(onNavigate);
   onNavigateRef.current = onNavigate;
@@ -100,6 +116,24 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
           if (query) {
             setVoiceSearchQuery(query);
             onNavigateRef.current?.("/tasks");
+          }
+          break;
+        }
+        case "show_review": {
+          const reviewActions = data.payload.actions as ReviewProposal["actions"];
+          const reviewUnmatched = data.payload.unmatched as string[];
+          if (reviewActions && reviewActions.length > 0) {
+            setReviewProposal({
+              actions: reviewActions,
+              unmatched: reviewUnmatched || [],
+              message: data.message,
+            });
+          } else {
+            toast({
+              title: "No matches found",
+              description: data.message,
+              variant: "destructive",
+            });
           }
           break;
         }
@@ -168,6 +202,10 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
     return current;
   }, [voiceSearchQuery]);
 
+  const clearReviewProposal = useCallback(() => {
+    setReviewProposal(null);
+  }, []);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "m") {
@@ -218,6 +256,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         isProcessing: processMutation.isPending,
         taskPrefill,
         voiceSearchQuery,
+        reviewProposal,
         toggleListening,
         openBar,
         closeBar,
@@ -225,6 +264,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         clearResponse,
         consumeTaskPrefill,
         consumeVoiceSearch,
+        clearReviewProposal,
       }}
     >
       {children}

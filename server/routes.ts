@@ -21,6 +21,7 @@ import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema,
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
+import { processTaskReview, type ReviewAction } from "./engines/review-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { generateChecklistPDF } from "./checklist-pdf";
 import { processChecklistImage } from "./ocr-processor";
@@ -1108,6 +1109,111 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Voice processing error:", error);
       res.status(500).json({ message: "Failed to process voice command" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Task Review routes (bulk voice-driven task management)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.post("/api/tasks/review", requireAuth, async (req, res) => {
+    try {
+      const { transcript } = req.body;
+      if (!transcript || typeof transcript !== "string") {
+        return res.status(400).json({ message: "Transcript is required" });
+      }
+      if (transcript.length > 2000) {
+        return res.status(400).json({ message: "Transcript must be under 2000 characters" });
+      }
+      const sanitized = transcript.replace(/<[^>]*>/g, "").trim();
+
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const now = new Date();
+      const result = processTaskReview(sanitized, allTasks, now);
+      res.json(result);
+    } catch (error) {
+      console.error("Task review error:", error);
+      res.status(500).json({ message: "Failed to process task review" });
+    }
+  });
+
+  app.post("/api/tasks/review/apply", requireAuth, async (req, res) => {
+    try {
+      const { actions } = req.body;
+      if (!Array.isArray(actions) || actions.length === 0) {
+        return res.status(400).json({ message: "Actions array is required" });
+      }
+      if (actions.length > 50) {
+        return res.status(400).json({ message: "Maximum 50 actions per batch" });
+      }
+
+      const userId = req.user!.id;
+      const results: Array<{ taskId: string; success: boolean; error?: string }> = [];
+
+      for (const action of actions as ReviewAction[]) {
+        try {
+          if (!action.taskId || !action.type) {
+            results.push({ taskId: action.taskId || "unknown", success: false, error: "Invalid action" });
+            continue;
+          }
+
+          const existingTask = await storage.getTask(userId, action.taskId);
+          if (!existingTask) {
+            results.push({ taskId: action.taskId, success: false, error: "Task not found or access denied" });
+            continue;
+          }
+
+          switch (action.type) {
+            case "complete": {
+              await storage.updateTask(userId, { id: action.taskId, status: "completed" } as any);
+              try {
+                const { awardCoinsForCompletion } = await import("./coin-engine");
+                await awardCoinsForCompletion(userId, existingTask);
+              } catch {}
+              results.push({ taskId: action.taskId, success: true });
+              break;
+            }
+            case "reschedule": {
+              const newDate = action.details?.newDate;
+              if (typeof newDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+                await storage.updateTask(userId, { id: action.taskId, date: newDate } as any);
+                results.push({ taskId: action.taskId, success: true });
+              } else {
+                results.push({ taskId: action.taskId, success: false, error: "Invalid date" });
+              }
+              break;
+            }
+            case "update": {
+              const updates: Record<string, unknown> = { id: action.taskId };
+              if (action.details?.priority && typeof action.details.priority === "string") {
+                updates.priority = action.details.priority;
+              }
+              if (action.details?.notes && typeof action.details.notes === "string") {
+                updates.notes = action.details.notes;
+              }
+              if (Object.keys(updates).length > 1) {
+                await storage.updateTask(userId, updates as any);
+                results.push({ taskId: action.taskId, success: true });
+              } else {
+                results.push({ taskId: action.taskId, success: false, error: "No valid updates" });
+              }
+              break;
+            }
+            default:
+              results.push({ taskId: action.taskId, success: false, error: "Unknown action type" });
+          }
+        } catch (err) {
+          results.push({ taskId: action.taskId, success: false, error: "Processing error" });
+        }
+      }
+
+      const applied = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      res.json({ applied, failed, results });
+    } catch (error) {
+      console.error("Task review apply error:", error);
+      res.status(500).json({ message: "Failed to apply task review" });
     }
   });
 

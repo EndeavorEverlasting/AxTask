@@ -2,12 +2,14 @@ import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useVoice } from "@/hooks/use-voice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PriorityBadge } from "@/components/priority-badge";
 import { motion, AnimatePresence } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import BulkActionDialog, { type ProposedAction } from "@/components/bulk-action-dialog";
 import {
   AlertTriangle,
   CalendarDays,
@@ -23,6 +25,8 @@ import {
   CheckSquare,
   CalendarClock,
   Users,
+  Mic,
+  ClipboardCheck,
 } from "lucide-react";
 import type { Task } from "@shared/schema";
 
@@ -66,6 +70,12 @@ export default function PlannerPage() {
   const reducedMotion = useReducedMotion();
   const [question, setQuestion] = useState("");
   const [chatHistory, setChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [reviewInput, setReviewInput] = useState("");
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [reviewActions, setReviewActions] = useState<ProposedAction[]>([]);
+  const [reviewMessage, setReviewMessage] = useState("");
+  const [reviewUnmatched, setReviewUnmatched] = useState<string[]>([]);
+  const voice = useVoice();
 
   const { data: briefing, isLoading } = useQuery<BriefingData>({
     queryKey: ["/api/planner/briefing"],
@@ -101,6 +111,37 @@ export default function PlannerPage() {
       toast({ title: "Task rescheduled", description: "Task moved to tomorrow." });
     },
   });
+
+  const reviewMutation = useMutation({
+    mutationFn: async (transcript: string) => {
+      const res = await apiRequest("POST", "/api/tasks/review", { transcript });
+      return res.json() as Promise<{ actions: ProposedAction[]; unmatched: string[]; message: string }>;
+    },
+    onSuccess: (data) => {
+      if (data.actions.length > 0) {
+        setReviewActions(data.actions);
+        setReviewMessage(data.message);
+        setReviewUnmatched(data.unmatched);
+        setReviewDialogOpen(true);
+        setReviewInput("");
+      } else {
+        toast({
+          title: "No matches",
+          description: data.message,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to process review. Try again.", variant: "destructive" });
+    },
+  });
+
+  const handleReview = useCallback(() => {
+    const text = reviewInput.trim();
+    if (!text) return;
+    reviewMutation.mutate(text);
+  }, [reviewInput, reviewMutation]);
 
   const askMutation = useMutation({
     mutationFn: async (q: string) => {
@@ -396,6 +437,83 @@ export default function PlannerPage() {
           <motion.div
             initial={reducedMotion ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.35 }}
+          >
+            <Card className="border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50/50 to-purple-50/50 dark:from-indigo-900/10 dark:to-purple-900/10">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ClipboardCheck className="h-4 w-4 text-indigo-500" />
+                  Quick Review
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Tell us which tasks you've completed, need rescheduling, or priority changes. Type or use voice.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    "I finished the ",
+                    "I already did the ",
+                    "Move the report to tomorrow",
+                  ].map(hint => (
+                    <Button
+                      key={hint}
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-7 border-indigo-200 dark:border-indigo-800"
+                      onClick={() => setReviewInput(hint)}
+                    >
+                      {hint}
+                    </Button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder='e.g. "I finished the dentist and groceries, move report to Friday"'
+                    value={reviewInput}
+                    onChange={e => setReviewInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleReview();
+                      }
+                    }}
+                    disabled={reviewMutation.isPending}
+                    className="flex-1"
+                  />
+                  {voice.isSupported && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => {
+                        voice.openBar();
+                        setTimeout(() => voice.toggleListening(), 100);
+                      }}
+                      className="shrink-0 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+                      title="Use voice to review tasks"
+                    >
+                      <Mic className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button
+                    onClick={handleReview}
+                    disabled={!reviewInput.trim() || reviewMutation.isPending}
+                    className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white"
+                  >
+                    {reviewMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ClipboardCheck className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          <motion.div
+            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.4 }}
           >
             <Card>
@@ -484,6 +602,14 @@ export default function PlannerPage() {
           <p className="text-gray-600 dark:text-gray-400">Unable to load your daily briefing. Please try refreshing the page.</p>
         </div>
       )}
+
+      <BulkActionDialog
+        open={reviewDialogOpen}
+        onOpenChange={setReviewDialogOpen}
+        actions={reviewActions}
+        message={reviewMessage}
+        unmatched={reviewUnmatched}
+      />
     </div>
   );
 }
