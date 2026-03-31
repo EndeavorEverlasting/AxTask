@@ -173,6 +173,16 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     onResult: handleVoiceResult,
   });
 
+  useEffect(() => {
+    if (speech.error) {
+      toast({
+        title: "Microphone issue",
+        description: speech.error,
+        variant: "destructive",
+      });
+    }
+  }, [speech.error, toast]);
+
   const getFieldClass = useCallback((fieldName: string, extraClass?: string) => {
     return cn(
       isHinted(fieldName) && "field-glow-hint",
