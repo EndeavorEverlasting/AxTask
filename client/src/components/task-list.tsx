@@ -127,6 +127,22 @@ const rowVariants = {
   exit: { opacity: 0, x: -20, transition: { duration: 0.2 } },
 };
 
+const newTaskRowVariants = {
+  initial: { opacity: 0, y: -30, scale: 0.85 },
+  animate: {
+    opacity: 1,
+    y: 0,
+    scale: [0.85, 1.06, 0.98, 1],
+    transition: {
+      duration: 0.6,
+      scale: { duration: 0.5, times: [0, 0.4, 0.7, 1], ease: "easeOut" },
+      opacity: { duration: 0.3 },
+      y: { duration: 0.4, ease: "easeOut" },
+    },
+  },
+  exit: { opacity: 0, x: -20, transition: { duration: 0.2 } },
+};
+
 const rowVariantsReduced = {
   initial: { opacity: 1 },
   animate: { opacity: 1 },
@@ -145,6 +161,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
   isBoosting,
   reducedMotion,
   highlightMode = "none",
+  isNew = false,
 }: {
   task: Task;
   isDragMode: boolean;
@@ -157,6 +174,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
   isBoosting: boolean;
   reducedMotion: boolean;
   highlightMode?: HighlightMode;
+  isNew?: boolean;
 }) {
   const {
     attributes,
@@ -213,7 +231,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
     ? "animate-[task-flash-priority_0.4s_ease-out]"
     : "";
 
-  const variants = reducedMotion ? rowVariantsReduced : rowVariants;
+  const variants = reducedMotion ? rowVariantsReduced : isNew ? newTaskRowVariants : rowVariants;
 
   return (
     <MotionTableRow
@@ -224,8 +242,8 @@ const SortableTaskRow = memo(function SortableTaskRow({
       initial="initial"
       animate="animate"
       exit="exit"
-      transition={{ duration: 0.2, type: "spring", stiffness: 400, damping: 30 }}
-      className={`hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${isDragging ? `bg-blue-50 dark:bg-blue-900/20 shadow-lg ${reducedMotion ? "" : "scale-[1.02]"}` : ""} ${flashClass} ${getRowHighlight(task, highlightMode)}`}
+      transition={isNew ? undefined : { duration: 0.2, type: "spring", stiffness: 400, damping: 30 }}
+      className={`hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer ${isDragging ? `bg-blue-50 dark:bg-blue-900/20 shadow-lg ${reducedMotion ? "" : "scale-[1.02]"}` : ""} ${flashClass} ${isNew ? "task-new-glow" : ""} ${getRowHighlight(task, highlightMode)}`}
       onClick={() => !isDragMode && onEdit(task)}
     >
       {isDragMode && (
@@ -682,6 +700,52 @@ export function TaskList() {
     queryKey: ["/api/tasks"],
   });
 
+  const [newTaskIds, setNewTaskIds] = useState<Set<string>>(new Set());
+  const prevTaskIdsRef = useRef<Set<string>>(new Set());
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [celebrationSeed, setCelebrationSeed] = useState(0);
+
+  const celebrationParticles = useMemo(() => {
+    const colors = ["#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899"];
+    const seed = celebrationSeed;
+    return Array.from({ length: 12 }).map((_, i) => {
+      const s = (seed + i * 7 + 13) * 2654435761;
+      const r1 = ((s >>> 0) % 1000) / 1000;
+      const r2 = (((s * 31) >>> 0) % 1000) / 1000;
+      const r3 = (((s * 97) >>> 0) % 1000) / 1000;
+      const r4 = (((s * 53) >>> 0) % 1000) / 1000;
+      const r5 = (((s * 71) >>> 0) % 1000) / 1000;
+      return {
+        left: 40 + r1 * 20,
+        top: 30 + r2 * 20,
+        color: colors[i % 5],
+        dx: (r3 - 0.5) * 300,
+        dy: (r4 - 0.5) * 300,
+        dur: 0.8 + r5 * 0.4,
+      };
+    });
+  }, [celebrationSeed]);
+
+  useEffect(() => {
+    if (tasks.length === 0) return;
+    const currentIds = new Set(tasks.map(t => t.id));
+    const prevIds = prevTaskIdsRef.current;
+
+    if (prevIds.size > 0) {
+      const added = new Set<string>();
+      currentIds.forEach(id => { if (!prevIds.has(id)) added.add(id); });
+      if (added.size > 0) {
+        setNewTaskIds(added);
+        setCelebrationSeed(Date.now());
+        setShowCelebration(true);
+        prevTaskIdsRef.current = currentIds;
+        const timer = setTimeout(() => { setNewTaskIds(new Set()); setShowCelebration(false); }, 2500);
+        return () => clearTimeout(timer);
+      }
+    }
+    prevTaskIdsRef.current = currentIds;
+  }, [tasks]);
+
   const [pendingEditVersion, setPendingEditVersion] = useState(() => getPendingVersion());
   useEffect(() => {
     return subscribePendingEdit(() => setPendingEditVersion(getPendingVersion()));
@@ -1070,18 +1134,19 @@ export function TaskList() {
             )}
             <div className="space-y-3">
               {filteredAndSortedTasks.map((task: Task) => (
-                <MobileTaskCard
-                  key={task.id}
-                  task={task}
-                  onEdit={handleEdit}
-                  onToggleStatus={handleToggleStatus}
-                  onDelete={handleDelete}
-                  onBoost={handleBoost}
-                  isUpdating={updateTaskStatusMutation.isPending}
-                  isDeleting={deleteTaskMutation.isPending}
-                  isBoosting={boostMutation.isPending}
-                  highlightMode={highlightMode}
-                />
+                <div key={task.id} className={newTaskIds.has(task.id) ? "task-new-glow animate-[task-pop-in_0.6s_ease-out]" : ""}>
+                  <MobileTaskCard
+                    task={task}
+                    onEdit={handleEdit}
+                    onToggleStatus={handleToggleStatus}
+                    onDelete={handleDelete}
+                    onBoost={handleBoost}
+                    isUpdating={updateTaskStatusMutation.isPending}
+                    isDeleting={deleteTaskMutation.isPending}
+                    isBoosting={boostMutation.isPending}
+                    highlightMode={highlightMode}
+                  />
+                </div>
               ))}
             </div>
           </div>
@@ -1165,6 +1230,7 @@ export function TaskList() {
                             isBoosting={boostMutation.isPending}
                             reducedMotion={reducedMotion}
                             highlightMode={highlightMode}
+                            isNew={newTaskIds.has(task.id)}
                           />
                         ))}
                       </AnimatePresence>
@@ -1205,6 +1271,47 @@ export function TaskList() {
           )}
         </DialogContent>
       </Dialog>
+
+      <AnimatePresence>
+        {showCelebration && (
+          <motion.div
+            className="fixed inset-0 pointer-events-none z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <div className="task-celebration-burst" />
+            {celebrationParticles.map((p, i) => (
+              <motion.div
+                key={i}
+                className="absolute w-2 h-2 rounded-full"
+                style={{
+                  left: `${p.left}%`,
+                  top: `${p.top}%`,
+                  backgroundColor: p.color,
+                }}
+                initial={{ scale: 0, x: 0, y: 0 }}
+                animate={{
+                  scale: [0, 1.5, 0],
+                  x: p.dx,
+                  y: p.dy,
+                  opacity: [0, 1, 0],
+                }}
+                transition={{ duration: p.dur, ease: "easeOut" }}
+              />
+            ))}
+            <motion.div
+              className="absolute left-1/2 top-1/3 -translate-x-1/2 -translate-y-1/2 text-2xl font-bold text-green-500 drop-shadow-lg"
+              initial={{ opacity: 0, scale: 0.5, y: 20 }}
+              animate={{ opacity: [0, 1, 1, 0], scale: [0.5, 1.1, 1, 0.9], y: [20, -10, -20, -40] }}
+              transition={{ duration: 1.2, times: [0, 0.3, 0.7, 1] }}
+            >
+              Task Added!
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </Card>
   );
 }

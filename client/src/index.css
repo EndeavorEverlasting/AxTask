@@ -287,9 +287,64 @@
   100% { background-color: transparent; }
 }
 
+@keyframes task-new-glow-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+  20% { box-shadow: 0 0 20px 4px rgba(34, 197, 94, 0.4), 0 0 40px 8px rgba(34, 197, 94, 0.15); }
+  50% { box-shadow: 0 0 12px 2px rgba(34, 197, 94, 0.25), 0 0 30px 6px rgba(34, 197, 94, 0.1); }
+  80% { box-shadow: 0 0 20px 4px rgba(34, 197, 94, 0.3), 0 0 40px 8px rgba(34, 197, 94, 0.12); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+.task-new-glow {
+  animation: task-new-glow-pulse 2s ease-in-out;
+  position: relative;
+}
+
+.task-new-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent 0%, rgba(34, 197, 94, 0.08) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: task-shimmer 1.2s ease-in-out;
+  pointer-events: none;
+}
+
+@keyframes task-shimmer {
+  0% { background-position: -200% 0; opacity: 1; }
+  100% { background-position: 200% 0; opacity: 0; }
+}
+
+@keyframes task-pop-in {
+  0% { transform: scale(0.85) translateY(-20px); opacity: 0; }
+  40% { transform: scale(1.06) translateY(0); opacity: 1; }
+  70% { transform: scale(0.98) translateY(0); }
+  100% { transform: scale(1) translateY(0); }
+}
+
+.task-celebration-burst {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at 50% 40%, rgba(34, 197, 94, 0.12) 0%, transparent 60%);
+  animation: celebration-flash 0.8s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes celebration-flash {
+  0% { opacity: 0; }
+  30% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-\\[task-flash-status_0\\.4s_ease-out\\],
   .animate-\\[task-flash-priority_0\\.4s_ease-out\\] {
+    animation: none !important;
+  }
+  .task-new-glow,
+  .task-new-glow::after,
+  .task-celebration-burst {
     animation: none !important;
   }
 }
