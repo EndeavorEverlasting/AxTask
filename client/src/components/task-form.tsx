@@ -7,6 +7,9 @@ import { apiRequest } from "@/lib/queryClient";
 import { PriorityEngine } from "@/lib/priority-engine";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
+import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
+import { parseVoiceCommands, stripCommandText } from "@/lib/voice-commands";
+import { MicButton } from "@/components/mic-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -74,6 +77,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { onFieldBlur, isHinted } = useFieldFlow();
   const [warningFields, setWarningFields] = useState<Set<string>>(new Set());
   const warningTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const [voiceTarget, setVoiceTarget] = useState<"activity" | "notes">("activity");
 
   const draftContext = task ? `edit_${task.id}` : defaultDate ? `date_${defaultDate}` : "new";
   const draftKey = getDraftKey(user?.id, draftContext);
@@ -138,6 +142,36 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   }, []);
 
   const isWarned = useCallback((fieldName: string) => warningFields.has(fieldName), [warningFields]);
+
+  const handleVoiceResult = useCallback((transcript: string) => {
+    const commands = parseVoiceCommands(transcript);
+    const cleanText = commands.length > 0 ? stripCommandText(transcript) : transcript;
+
+    for (const cmd of commands) {
+      if (cmd.type === "urgency" && typeof cmd.value === "number") {
+        form.setValue("urgency", cmd.value);
+      } else if (cmd.type === "status" && typeof cmd.value === "string") {
+        form.setValue("status", cmd.value);
+      } else if (cmd.type === "date" && typeof cmd.value === "string") {
+        form.setValue("date", cmd.value);
+      } else if (cmd.type === "tag" && typeof cmd.value === "string") {
+        const notes = form.getValues("notes") || "";
+        form.setValue("notes", notes ? `${notes} ${cmd.value}` : cmd.value);
+      }
+    }
+
+    if (cleanText) {
+      const currentVal = form.getValues(voiceTarget) || "";
+      const newVal = currentVal ? `${currentVal} ${cleanText}` : cleanText;
+      form.setValue(voiceTarget, newVal);
+      clearWarning(voiceTarget);
+    }
+  }, [voiceTarget, form, clearWarning]);
+
+  const speech = useSpeechRecognition({
+    continuous: true,
+    onResult: handleVoiceResult,
+  });
 
   const getFieldClass = useCallback((fieldName: string, extraClass?: string) => {
     return cn(
@@ -260,10 +294,23 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Quick Task Entry</CardTitle>
-        <CardDescription>
-          Add a new task with automatic priority calculation
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Quick Task Entry</CardTitle>
+            <CardDescription>
+              Add a new task with automatic priority calculation
+            </CardDescription>
+          </div>
+          {speech.status === "listening" && (
+            <div className="flex items-center gap-2 text-sm text-red-500 font-medium animate-pulse">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+              </span>
+              Listening ({voiceTarget})
+            </div>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -387,21 +434,38 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     <FormItem>
                       <FormLabel>Activity <span className="text-red-400">*</span></FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="Enter task activity..."
-                          {...field}
-                          className={getFieldClass("activity")}
-                          onBlur={(e) => {
-                            field.onBlur();
-                            onFieldBlur("activity", e.target.value);
-                            if (e.target.value.trim()) clearWarning("activity");
-                          }}
-                          onChange={(e) => {
-                            field.onChange(e);
-                            if (e.target.value.trim()) clearWarning("activity");
-                          }}
-                        />
+                        <div className="flex gap-2 items-center">
+                          <Input
+                            placeholder="Enter task activity or use the mic..."
+                            {...field}
+                            className={cn(getFieldClass("activity"), "flex-1")}
+                            onFocus={() => setVoiceTarget("activity")}
+                            onBlur={(e) => {
+                              field.onBlur();
+                              onFieldBlur("activity", e.target.value);
+                              if (e.target.value.trim()) clearWarning("activity");
+                            }}
+                            onChange={(e) => {
+                              field.onChange(e);
+                              if (e.target.value.trim()) clearWarning("activity");
+                            }}
+                          />
+                          <MicButton
+                            status={voiceTarget === "activity" ? speech.status : "idle"}
+                            isSupported={speech.isSupported}
+                            onClick={() => {
+                              setVoiceTarget("activity");
+                              speech.toggle();
+                            }}
+                            error={speech.error}
+                          />
+                        </div>
                       </FormControl>
+                      {voiceTarget === "activity" && speech.interimTranscript && (
+                        <p className="text-xs text-muted-foreground italic mt-1 animate-pulse">
+                          {speech.interimTranscript}
+                        </p>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -416,18 +480,36 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     <FormItem>
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
-                        <Textarea
-                          rows={3}
-                          placeholder="Add detailed notes, tags (@urgent, #blocker), or additional context..."
-                          {...field}
-                          className={getFieldClass("notes")}
-                          onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); }}
-                          onChange={(e) => {
-                            field.onChange(e);
-                            if (e.target.value.trim()) clearWarning("notes");
-                          }}
-                        />
+                        <div className="flex gap-2 items-start">
+                          <Textarea
+                            rows={3}
+                            placeholder="Add detailed notes, tags (@urgent, #blocker), or dictate with mic..."
+                            {...field}
+                            className={cn(getFieldClass("notes"), "flex-1")}
+                            onFocus={() => setVoiceTarget("notes")}
+                            onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); }}
+                            onChange={(e) => {
+                              field.onChange(e);
+                              if (e.target.value.trim()) clearWarning("notes");
+                            }}
+                          />
+                          <MicButton
+                            status={voiceTarget === "notes" ? speech.status : "idle"}
+                            isSupported={speech.isSupported}
+                            onClick={() => {
+                              setVoiceTarget("notes");
+                              speech.toggle();
+                            }}
+                            error={speech.error}
+                            className="mt-1"
+                          />
+                        </div>
                       </FormControl>
+                      {voiceTarget === "notes" && speech.interimTranscript && (
+                        <p className="text-xs text-muted-foreground italic mt-1 animate-pulse">
+                          {speech.interimTranscript}
+                        </p>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
