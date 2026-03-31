@@ -1170,20 +1170,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             continue;
           }
 
+          const previousStatus = existingTask.status;
+
           switch (action.type) {
             case "complete": {
-              await storage.updateTask(userId, { id: action.taskId, status: "completed" } as any);
-              try {
-                const { awardCoinsForCompletion } = await import("./coin-engine");
-                await awardCoinsForCompletion(userId, existingTask);
-              } catch {}
+              const updatedTask = await storage.updateTask(userId, { id: action.taskId, status: "completed" });
+              if (updatedTask) {
+                try {
+                  await awardCoinsForCompletion(userId, updatedTask, previousStatus);
+                } catch {}
+              }
               results.push({ taskId: action.taskId, success: true });
               break;
             }
             case "reschedule": {
               const newDate = action.details?.newDate;
               if (typeof newDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
-                await storage.updateTask(userId, { id: action.taskId, date: newDate } as any);
+                await storage.updateTask(userId, { id: action.taskId, date: newDate });
                 results.push({ taskId: action.taskId, success: true });
               } else {
                 results.push({ taskId: action.taskId, success: false, error: "Invalid date" });
@@ -1191,15 +1194,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
               break;
             }
             case "update": {
-              const updates: Record<string, unknown> = { id: action.taskId };
-              if (action.details?.priority && typeof action.details.priority === "string") {
-                updates.priority = action.details.priority;
+              const updatePayload: UpdateTask = { id: action.taskId };
+              const validPriorities = ["Lowest", "Low", "Medium", "Medium-High", "High", "Highest"];
+              if (action.details?.priority && typeof action.details.priority === "string" && validPriorities.includes(action.details.priority)) {
+                updatePayload.priority = action.details.priority;
               }
               if (action.details?.notes && typeof action.details.notes === "string") {
-                updates.notes = action.details.notes;
+                updatePayload.notes = action.details.notes.slice(0, 2000);
               }
-              if (Object.keys(updates).length > 1) {
-                await storage.updateTask(userId, updates as any);
+              if (Object.keys(updatePayload).length > 1) {
+                await storage.updateTask(userId, updatePayload);
                 results.push({ taskId: action.taskId, success: true });
               } else {
                 results.push({ taskId: action.taskId, success: false, error: "No valid updates" });
