@@ -118,7 +118,7 @@ export function ClassificationBadge({ classification, taskId, editable = false }
             onClick={(e) => { e.stopPropagation(); dismissHint(); }}
             title="Classify to earn coins"
           >
-            <Pencil className="h-2.5 w-2.5 opacity-0 group-hover:opacity-70 transition-opacity -ml-0.5 mr-0.5" />
+            <Pencil className="h-2.5 w-2.5 opacity-40 group-hover:opacity-70 transition-opacity -ml-0.5 mr-0.5" />
             {classification}
             <ChevronDown className="h-3 w-3 opacity-60" />
           </button>
