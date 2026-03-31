@@ -11,41 +11,30 @@ export interface ExportMetadata {
   schemaVersion: number;
   exportedAt: string;
   exportMode: "full" | "user";
+  sourceEnvironment: string;
   userId?: string;
   tableCounts: Record<string, number>;
 }
 
 export interface ExportBundle {
   metadata: ExportMetadata;
-  data: {
-    users: any[];
-    rewardsCatalog: any[];
-    tasks: any[];
-    wallets: any[];
-    coinTransactions: any[];
-    userBadges: any[];
-    userRewards: any[];
-    taskPatterns: any[];
-    taskCollaborators: any[];
-    classificationContributions: any[];
-    classificationConfirmations: any[];
-    passwordResetTokens: any[];
-    securityLogs: any[];
-  };
+  data: Record<string, Record<string, unknown>[]>;
 }
 
 const CHUNK_SIZE = 1000;
 
-async function queryChunked<T>(table: any, condition?: any): Promise<T[]> {
-  const results: T[] = [];
+async function queryChunked(table: Parameters<typeof db.select>[0] extends undefined ? typeof users : never, condition?: Parameters<typeof db.select>[0] extends undefined ? unknown : never): Promise<Record<string, unknown>[]>;
+async function queryChunked(table: unknown, condition?: unknown): Promise<Record<string, unknown>[]> {
+  const results: Record<string, unknown>[] = [];
   let offset = 0;
 
   while (true) {
+    const tbl = table as typeof users;
     const baseQuery = condition
-      ? db.select().from(table).where(condition)
-      : db.select().from(table);
-    const chunk = await baseQuery.limit(CHUNK_SIZE).offset(offset) as T[];
-    results.push(...chunk);
+      ? db.select().from(tbl).where(condition as ReturnType<typeof eq>)
+      : db.select().from(tbl);
+    const chunk = await baseQuery.limit(CHUNK_SIZE).offset(offset);
+    results.push(...(chunk as Record<string, unknown>[]));
     if (chunk.length < CHUNK_SIZE) break;
     offset += CHUNK_SIZE;
   }
@@ -53,8 +42,8 @@ async function queryChunked<T>(table: any, condition?: any): Promise<T[]> {
   return results;
 }
 
-function serializeRow(row: any): any {
-  const out: any = {};
+function serializeRow(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(row)) {
     if (value instanceof Date) {
       out[key] = value.toISOString();
@@ -65,7 +54,7 @@ function serializeRow(row: any): any {
   return out;
 }
 
-function serializeRows(rows: any[]): any[] {
+function serializeRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
   return rows.map(serializeRow);
 }
 
@@ -100,7 +89,7 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
     queryChunked(securityLogs),
   ]);
 
-  const data = {
+  const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows(usersData),
     rewardsCatalog: serializeRows(rewardsCatalogData),
     tasks: serializeRows(tasksData),
@@ -126,6 +115,7 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
       schemaVersion: 1,
       exportedAt: new Date().toISOString(),
       exportMode: "full",
+      sourceEnvironment: process.env.REPL_SLUG || process.env.REPLIT_DEV_DOMAIN || "unknown",
       tableCounts,
     },
     data,
@@ -139,7 +129,7 @@ export async function exportUserData(userId: string): Promise<ExportBundle> {
   }
 
   const userTasks = await queryChunked(tasks, eq(tasks.userId, userId));
-  const taskIds = userTasks.map((t: any) => t.id);
+  const taskIds = userTasks.map((t) => t.id as string);
 
   const [
     walletData,
@@ -160,25 +150,25 @@ export async function exportUserData(userId: string): Promise<ExportBundle> {
   const taskIdSet = new Set(taskIds);
 
   const allCollabs = await queryChunked(taskCollaborators);
-  const collabData = (allCollabs as any[]).filter((c: any) => taskIdSet.has(c.taskId));
+  const collabData = allCollabs.filter((c) => taskIdSet.has(c.taskId as string) && (c.userId as string) === userId);
 
   const allContribs = await queryChunked(classificationContributions);
-  const contribData = (allContribs as any[]).filter((c: any) => taskIdSet.has(c.taskId));
+  const contribData = allContribs.filter((c) => (c.userId as string) === userId);
 
-  const contribIdSet = new Set(contribData.map((c: any) => c.id));
+  const contribIdSet = new Set(contribData.map((c) => c.id as string));
   const allConfirms = await queryChunked(classificationConfirmations);
-  const confirmData = (allConfirms as any[]).filter((c: any) =>
-    taskIdSet.has(c.taskId) && contribIdSet.has(c.contributionId)
+  const confirmData = allConfirms.filter((c) =>
+    (c.userId as string) === userId && contribIdSet.has(c.contributionId as string)
   );
 
   const resetTokens = await queryChunked(passwordResetTokens, eq(passwordResetTokens.userId, userId));
   const userSecLogs = await queryChunked(securityLogs, eq(securityLogs.userId, userId));
 
-  const rewardIdsNeeded = new Set((userRewardData as any[]).map((r: any) => r.rewardId));
-  const filteredCatalog = (rewardCatalog as any[]).filter((r: any) => rewardIdsNeeded.has(r.id));
+  const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
+  const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
 
-  const data = {
-    users: serializeRows([userData]),
+  const data: Record<string, Record<string, unknown>[]> = {
+    users: serializeRows([userData as Record<string, unknown>]),
     rewardsCatalog: serializeRows(filteredCatalog),
     tasks: serializeRows(userTasks),
     wallets: serializeRows(walletData),
@@ -203,6 +193,7 @@ export async function exportUserData(userId: string): Promise<ExportBundle> {
       schemaVersion: 1,
       exportedAt: new Date().toISOString(),
       exportMode: "user",
+      sourceEnvironment: process.env.REPL_SLUG || process.env.REPLIT_DEV_DOMAIN || "unknown",
       userId,
       tableCounts,
     },

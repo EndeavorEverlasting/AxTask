@@ -28,6 +28,8 @@ export interface ImportResult {
   warnings: ValidationIssue[];
 }
 
+type BundleRow = Record<string, unknown>;
+
 const TABLE_INSERT_ORDER = [
   "users",
   "rewardsCatalog",
@@ -46,7 +48,12 @@ const TABLE_INSERT_ORDER = [
 
 type TableName = typeof TABLE_INSERT_ORDER[number];
 
-const TABLE_MAP: Record<TableName, any> = {
+type DrizzleTable = typeof users | typeof rewardsCatalog | typeof tasks | typeof wallets |
+  typeof coinTransactions | typeof userBadges | typeof userRewards | typeof taskPatterns |
+  typeof taskCollaborators | typeof classificationContributions | typeof classificationConfirmations |
+  typeof passwordResetTokens | typeof securityLogs;
+
+const TABLE_MAP: Record<TableName, DrizzleTable> = {
   users,
   rewardsCatalog,
   tasks,
@@ -78,7 +85,14 @@ const PK_FIELD: Record<TableName, string> = {
   securityLogs: "id",
 };
 
-const FK_RULES: Record<TableName, Array<{ field: string; refTable: TableName; refField: string; nullable?: boolean }>> = {
+interface FkRule {
+  field: string;
+  refTable: TableName;
+  refField: string;
+  nullable?: boolean;
+}
+
+const FK_RULES: Record<TableName, FkRule[]> = {
   users: [],
   rewardsCatalog: [],
   tasks: [{ field: "userId", refTable: "users", refField: "id" }],
@@ -127,18 +141,29 @@ const FK_FIELDS_BY_TABLE: Record<TableName, string[]> = {
   securityLogs: ["userId", "targetUserId"],
 };
 
-function parseTimestamps(row: any): any {
+const USER_OWNED_TABLES = new Set<string>([
+  "tasks", "wallets", "coinTransactions", "userBadges",
+  "userRewards", "taskPatterns", "taskCollaborators",
+  "classificationContributions", "classificationConfirmations",
+]);
+
+const TIMESTAMP_FIELDS = [
+  "createdAt", "updatedAt", "expiresAt", "usedAt", "bannedAt",
+  "lockedUntil", "earnedAt", "redeemedAt", "lastSeen", "invitedAt",
+];
+
+function parseTimestamps(row: BundleRow): BundleRow {
   const out = { ...row };
-  const tsFields = [
-    "createdAt", "updatedAt", "expiresAt", "usedAt", "bannedAt",
-    "lockedUntil", "earnedAt", "redeemedAt", "lastSeen", "invitedAt",
-  ];
-  for (const f of tsFields) {
+  for (const f of TIMESTAMP_FIELDS) {
     if (out[f] && typeof out[f] === "string") {
-      out[f] = new Date(out[f]);
+      out[f] = new Date(out[f] as string);
     }
   }
   return out;
+}
+
+function getBundleRows(bundle: ExportBundle, tableName: string): BundleRow[] {
+  return (bundle.data[tableName] || []) as BundleRow[];
 }
 
 export function validateBundle(bundle: ExportBundle): { errors: ValidationIssue[]; warnings: ValidationIssue[] } {
@@ -155,15 +180,17 @@ export function validateBundle(bundle: ExportBundle): { errors: ValidationIssue[
     return { errors, warnings };
   }
 
+  const isUserBundle = bundle.metadata.exportMode === "user";
+
   const idSets: Record<string, Set<string>> = {};
   for (const tableName of TABLE_INSERT_ORDER) {
-    const rows = bundle.data[tableName] || [];
+    const rows = getBundleRows(bundle, tableName);
     const pkField = PK_FIELD[tableName];
-    idSets[tableName] = new Set(rows.map((r: any) => r[pkField]));
+    idSets[tableName] = new Set(rows.map((r) => String(r[pkField])));
   }
 
   for (const tableName of TABLE_INSERT_ORDER) {
-    const rows = bundle.data[tableName] || [];
+    const rows = getBundleRows(bundle, tableName);
     const fkRules = FK_RULES[tableName];
 
     for (let i = 0; i < rows.length; i++) {
@@ -171,7 +198,12 @@ export function validateBundle(bundle: ExportBundle): { errors: ValidationIssue[
       for (const rule of fkRules) {
         const fkValue = row[rule.field];
         if (fkValue === null || fkValue === undefined) continue;
-        if (!idSets[rule.refTable].has(fkValue)) {
+
+        if (isUserBundle && rule.refTable === "rewardsCatalog") {
+          continue;
+        }
+
+        if (!idSets[rule.refTable].has(String(fkValue))) {
           if (rule.nullable) {
             warnings.push({
               table: tableName, rowIndex: i, field: rule.field,
@@ -202,7 +234,7 @@ export async function validateBundleWithDb(bundle: ExportBundle): Promise<{
   const conflicts: Record<string, number> = {};
 
   for (const tableName of TABLE_INSERT_ORDER) {
-    const rows = bundle.data[tableName] || [];
+    const rows = getBundleRows(bundle, tableName);
     if (rows.length === 0) {
       conflicts[tableName] = 0;
       continue;
@@ -215,9 +247,9 @@ export async function validateBundleWithDb(bundle: ExportBundle): Promise<{
     for (const row of rows) {
       const pkValue = row[pkField];
       if (!pkValue) continue;
-      const pkCol = (table as any)[pkField];
+      const pkCol = (table as Record<string, unknown>)[pkField];
       if (pkCol) {
-        const [existing] = await db.select().from(table).where(eq(pkCol, pkValue)).limit(1);
+        const [existing] = await db.select().from(table as typeof users).where(eq(pkCol as typeof users.id, String(pkValue))).limit(1);
         if (existing) conflictCount++;
       }
     }
@@ -239,13 +271,13 @@ function buildIdRemapTable(bundle: ExportBundle): Map<string, string> {
   const remap = new Map<string, string>();
 
   for (const tableName of TABLE_INSERT_ORDER) {
-    const rows = bundle.data[tableName] || [];
+    const rows = getBundleRows(bundle, tableName);
     const pkField = PK_FIELD[tableName];
 
     for (const row of rows) {
       const oldId = row[pkField];
-      if (oldId && !remap.has(oldId)) {
-        remap.set(oldId, randomUUID());
+      if (oldId && !remap.has(String(oldId))) {
+        remap.set(String(oldId), randomUUID());
       }
     }
   }
@@ -253,22 +285,28 @@ function buildIdRemapTable(bundle: ExportBundle): Map<string, string> {
   return remap;
 }
 
-function remapRow(row: any, tableName: TableName, pkField: string, idMap: Map<string, string>): any {
+function remapRow(row: BundleRow, tableName: TableName, pkField: string, idMap: Map<string, string>): BundleRow {
   const out = { ...row };
 
   const oldPk = out[pkField];
-  if (oldPk && idMap.has(oldPk)) {
-    out[pkField] = idMap.get(oldPk);
+  if (oldPk && idMap.has(String(oldPk))) {
+    out[pkField] = idMap.get(String(oldPk));
   }
 
   const fkFields = FK_FIELDS_BY_TABLE[tableName] || [];
   for (const field of fkFields) {
-    if (out[field] && idMap.has(out[field])) {
-      out[field] = idMap.get(out[field]);
+    const val = out[field];
+    if (val && idMap.has(String(val))) {
+      out[field] = idMap.get(String(val));
     }
   }
 
   return out;
+}
+
+async function insertRow(table: DrizzleTable, row: BundleRow): Promise<number> {
+  const result = await db.insert(table as typeof users).values(row as typeof users.$inferInsert).onConflictDoNothing();
+  return (result as { rowCount?: number }).rowCount ?? 1;
 }
 
 export async function importBundle(
@@ -299,7 +337,7 @@ export async function importBundle(
 
   if (dryRun) {
     for (const tableName of TABLE_INSERT_ORDER) {
-      const rows = bundle.data[tableName] || [];
+      const rows = getBundleRows(bundle, tableName);
       if (rows.length === 0) {
         inserted[tableName] = 0;
         skipped[tableName] = 0;
@@ -319,9 +357,9 @@ export async function importBundle(
         for (const row of rows) {
           const pkValue = row[pkField];
           if (!pkValue) continue;
-          const pkCol = (table as any)[pkField];
+          const pkCol = (table as Record<string, unknown>)[pkField];
           if (pkCol) {
-            const [existing] = await db.select().from(table).where(eq(pkCol, pkValue)).limit(1);
+            const [existing] = await db.select().from(table as typeof users).where(eq(pkCol as typeof users.id, String(pkValue))).limit(1);
             if (existing) conflictCount++;
           }
         }
@@ -344,7 +382,7 @@ export async function importBundle(
   }
 
   for (const tableName of TABLE_INSERT_ORDER) {
-    const rows = bundle.data[tableName] || [];
+    const rows = getBundleRows(bundle, tableName);
     if (rows.length === 0) {
       inserted[tableName] = 0;
       skipped[tableName] = 0;
@@ -358,18 +396,18 @@ export async function importBundle(
     let skipCount = 0;
     let conflictCount = 0;
 
-    for (const rawRow of rows) {
-      let row = parseTimestamps(rawRow);
+    for (let i = 0; i < rows.length; i++) {
+      let row = parseTimestamps(rows[i]);
 
       if (idMap) {
         row = remapRow(row, tableName, pkField, idMap);
       }
 
       const pkValue = row[pkField];
-      const pkCol = (table as any)[pkField];
+      const pkCol = (table as Record<string, unknown>)[pkField];
 
       if (mode === "preserve" && pkCol && pkValue) {
-        const [existing] = await db.select().from(table).where(eq(pkCol, pkValue)).limit(1);
+        const [existing] = await db.select().from(table as typeof users).where(eq(pkCol as typeof users.id, String(pkValue))).limit(1);
         if (existing) {
           skipCount++;
           conflictCount++;
@@ -378,20 +416,20 @@ export async function importBundle(
       }
 
       try {
-        const result = await db.insert(table).values(row).onConflictDoNothing();
-        const affected = (result as any).rowCount ?? 1;
+        const affected = await insertRow(table, row);
         if (affected > 0) {
           insertCount++;
         } else {
           skipCount++;
           conflictCount++;
         }
-      } catch (rowErr: any) {
+      } catch (rowErr: unknown) {
+        const errMsg = rowErr instanceof Error ? rowErr.message.slice(0, 200) : "Insert failed";
         validation.errors.push({
           table: tableName,
-          rowIndex: rows.indexOf(rawRow),
+          rowIndex: i,
           field: "insert",
-          message: rowErr.message?.slice(0, 200) || "Insert failed",
+          message: errMsg,
           severity: "error",
         });
         skipCount++;
@@ -438,7 +476,7 @@ export async function importUserBundle(
 
   const idMap = buildIdRemapTable(bundle);
 
-  const bundleUserIds = (bundle.data.users || []).map((u: any) => u.id);
+  const bundleUserIds = getBundleRows(bundle, "users").map((u) => String(u.id));
   for (const oldUserId of bundleUserIds) {
     idMap.set(oldUserId, targetUserId);
   }
@@ -447,12 +485,6 @@ export async function importUserBundle(
   const skipped: Record<string, number> = {};
   const conflicts: Record<string, number> = {};
 
-  const USER_OWNED_TABLES = new Set([
-    "tasks", "wallets", "coinTransactions", "userBadges",
-    "userRewards", "taskPatterns", "taskCollaborators",
-    "classificationContributions", "classificationConfirmations",
-  ]);
-
   const skipTables = new Set(
     TABLE_INSERT_ORDER.filter(t => !USER_OWNED_TABLES.has(t))
   );
@@ -460,12 +492,12 @@ export async function importUserBundle(
   for (const tableName of TABLE_INSERT_ORDER) {
     if (skipTables.has(tableName)) {
       inserted[tableName] = 0;
-      skipped[tableName] = (bundle.data[tableName] || []).length;
+      skipped[tableName] = getBundleRows(bundle, tableName).length;
       conflicts[tableName] = 0;
       continue;
     }
 
-    const rows = bundle.data[tableName] || [];
+    const rows = getBundleRows(bundle, tableName);
     if (rows.length === 0) {
       inserted[tableName] = 0;
       skipped[tableName] = 0;
@@ -485,24 +517,40 @@ export async function importUserBundle(
     let insertCount = 0;
     let skipCount = 0;
 
-    for (const rawRow of rows) {
-      let row = parseTimestamps(rawRow);
+    for (let i = 0; i < rows.length; i++) {
+      let row = parseTimestamps(rows[i]);
       row = remapRow(row, tableName, pkField, idMap);
 
+      if (tableName === "userRewards" && row.rewardId) {
+        const pkCol = (rewardsCatalog as Record<string, unknown>)["id"];
+        if (pkCol) {
+          const [catalogExists] = await db.select().from(rewardsCatalog).where(eq(pkCol as typeof rewardsCatalog.id, String(row.rewardId))).limit(1);
+          if (!catalogExists) {
+            validation.warnings.push({
+              table: tableName, rowIndex: i, field: "rewardId",
+              message: `Reward catalog item ${row.rewardId} not found in database, skipping`,
+              severity: "warning",
+            });
+            skipCount++;
+            continue;
+          }
+        }
+      }
+
       try {
-        const result = await db.insert(table).values(row).onConflictDoNothing();
-        const affected = (result as any).rowCount ?? 1;
+        const affected = await insertRow(table, row);
         if (affected > 0) {
           insertCount++;
         } else {
           skipCount++;
         }
-      } catch (rowErr: any) {
+      } catch (rowErr: unknown) {
+        const errMsg = rowErr instanceof Error ? rowErr.message.slice(0, 200) : "Insert failed";
         validation.errors.push({
           table: tableName,
-          rowIndex: rows.indexOf(rawRow),
+          rowIndex: i,
           field: "insert",
-          message: rowErr.message?.slice(0, 200) || "Insert failed",
+          message: errMsg,
           severity: "error",
         });
         skipCount++;
