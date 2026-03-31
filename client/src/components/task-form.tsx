@@ -128,6 +128,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     impact: task.impact || undefined,
     effort: task.effort || undefined,
     prerequisites: task.prerequisites || "",
+    recurrence: (task.recurrence as "none" | "daily" | "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly") || "none",
     status: task.status,
   } : {
     date: defaultDate || new Date().toISOString().split('T')[0],
@@ -138,6 +139,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     impact: undefined,
     effort: undefined,
     prerequisites: "",
+    recurrence: "none" as const,
     status: "pending",
   };
 
@@ -396,6 +398,16 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       if (prefill.time) form.setValue("time", prefill.time);
     }
   }, [consumeTaskPrefill, form, task]);
+
+  useEffect(() => {
+    if (task) return;
+    const values = form.getValues();
+    const emptyRequired: string[] = [];
+    if (!values.activity || values.activity.trim() === "") emptyRequired.push("activity");
+    if (!values.time || values.time.trim() === "") emptyRequired.push("time");
+    if (!values.notes || values.notes.trim() === "") emptyRequired.push("notes");
+    emptyRequired.forEach(f => addWarning(f));
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -844,6 +856,36 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                         <SelectItem value="3">3 - Medium (&lt; 4 hours)</SelectItem>
                         <SelectItem value="4">4 - Long (&lt; 1 day)</SelectItem>
                         <SelectItem value="5">5 - Extended (&gt; 1 day)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="recurrence"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Recurrence</FormLabel>
+                    <Select
+                      onValueChange={(v) => field.onChange(v)}
+                      value={field.value || "none"}
+                    >
+                      <FormControl>
+                        <SelectTrigger className={cn("min-h-[44px]", getFieldClass("recurrence"))}>
+                          <SelectValue placeholder="No recurrence" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">No recurrence</SelectItem>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="biweekly">Biweekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="quarterly">Quarterly</SelectItem>
+                        <SelectItem value="yearly">Yearly</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />

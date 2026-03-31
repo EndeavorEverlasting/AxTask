@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
-import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw, Loader2 as RefreshLoader } from "lucide-react";
+import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw, Loader2 as RefreshLoader, Repeat } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -183,7 +183,17 @@ const SortableTaskRow = memo(function SortableTaskRow({
           </button>
         </TableCell>
       )}
-      <TableCell className="font-mono text-sm">{task.date}</TableCell>
+      <TableCell className="font-mono text-sm">
+        <div className="flex items-center gap-1.5">
+          {task.date}
+          {task.recurrence && task.recurrence !== "none" && (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+              <Repeat className="h-3 w-3" />
+              {task.recurrence}
+            </span>
+          )}
+        </div>
+      </TableCell>
       <TableCell>
         <PriorityBadge priority={task.priority} />
       </TableCell>
@@ -443,6 +453,12 @@ function MobileTaskCard({
           </span>
           {task.time && (
             <span className="text-xs text-gray-500 dark:text-gray-400">{task.time}</span>
+          )}
+          {task.recurrence && task.recurrence !== "none" && (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+              <Repeat className="h-3 w-3" />
+              {task.recurrence}
+            </span>
           )}
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${getStatusBadgeColor(task.status)}`}>
             {formatStatus(task.status)}

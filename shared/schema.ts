@@ -90,6 +90,7 @@ export const tasks = pgTable("tasks", {
   impact: integer("impact"),
   effort: integer("effort"),
   prerequisites: text("prerequisites").default(""),
+  recurrence: text("recurrence").default("none"),
   priority: text("priority").notNull(),
   priorityScore: integer("priority_score").notNull(),
   classification: text("classification").notNull(),
@@ -123,6 +124,7 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   impact: z.number().min(1).max(5).optional(),
   effort: z.number().min(1).max(5).optional(),
   prerequisites: z.string().max(1000, "Prerequisites must be under 1000 characters").optional(),
+  recurrence: z.enum(["none", "daily", "weekly", "biweekly", "monthly", "quarterly", "yearly"]).default("none"),
   status: z.enum(["pending", "in-progress", "completed"]).default("pending"),
 });
 
