@@ -91,6 +91,15 @@ const voiceLimiter = rateLimit({
   message: { message: "Too many voice requests — try again shortly" },
 });
 
+const migrationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Too many migration requests — try again later" },
+});
+
 
 // ── Invite-code / registration gate ─────────────────────────────────────────
 // In production, set REGISTRATION_MODE=invite in .env and provide INVITE_CODE.
@@ -1580,7 +1589,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ─── Data Migration (Admin) ────────────────────────────────────────────────
 
-  app.post("/api/admin/export", requireAdmin, async (req, res) => {
+  app.post("/api/admin/export", requireAdmin, migrationLimiter, async (req, res) => {
     try {
       const { userId } = req.body;
       const bundle = userId
@@ -1606,7 +1615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/export/:userId", requireAdmin, async (req, res) => {
+  app.get("/api/admin/export/:userId", requireAdmin, migrationLimiter, async (req, res) => {
     try {
       const bundle = await exportUserData(req.params.userId);
       res.setHeader("Content-Type", "application/json");
@@ -1622,9 +1631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const largeJsonParser = express.json({ limit: "50mb" });
-
-  app.post("/api/admin/import", requireAdmin, largeJsonParser, async (req, res) => {
+  app.post("/api/admin/import", requireAdmin, migrationLimiter, async (req, res) => {
     try {
       const { bundle, dryRun, mode } = req.body;
       if (!bundle || !bundle.metadata || !bundle.data) {
@@ -1651,7 +1658,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/import/validate", requireAdmin, largeJsonParser, async (req, res) => {
+  app.post("/api/admin/import/validate", requireAdmin, migrationLimiter, async (req, res) => {
     try {
       const { bundle } = req.body;
       if (!bundle || !bundle.metadata || !bundle.data) {
@@ -1666,7 +1673,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ─── User Self-Service Export & Import (GDPR) ──────────────────────────────
 
-  app.get("/api/account/export", requireAuth, async (req, res) => {
+  app.get("/api/account/export", requireAuth, migrationLimiter, async (req, res) => {
     try {
       const bundle = await exportUserData(req.user!.id);
       res.setHeader("Content-Type", "application/json");
@@ -1680,7 +1687,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/account/import", requireAuth, largeJsonParser, async (req, res) => {
+  app.post("/api/account/import", requireAuth, migrationLimiter, async (req, res) => {
     try {
       const { bundle, dryRun } = req.body;
       if (!bundle || !bundle.metadata || !bundle.data) {

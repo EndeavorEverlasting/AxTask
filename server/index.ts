@@ -61,7 +61,13 @@ if (!isDev) {
 }
 
 app.use(cookieParser());
-app.use(express.json({ limit: "2mb" }));
+const LARGE_BODY_PATHS = ["/api/admin/import", "/api/account/import"];
+app.use((req, res, next) => {
+  if (LARGE_BODY_PATHS.some(p => req.path.startsWith(p))) {
+    return express.json({ limit: "50mb" })(req, res, next);
+  }
+  return express.json({ limit: "2mb" })(req, res, next);
+});
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 
 if (!isDev) {

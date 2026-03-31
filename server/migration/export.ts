@@ -158,7 +158,7 @@ export async function exportUserData(userId: string): Promise<ExportBundle> {
   const contribIdSet = new Set(contribData.map((c) => c.id as string));
   const allConfirms = await queryChunked(classificationConfirmations);
   const confirmData = allConfirms.filter((c) =>
-    (c.userId as string) === userId && contribIdSet.has(c.contributionId as string)
+    (c.userId as string) === userId || contribIdSet.has(c.contributionId as string)
   );
 
   const resetTokens = await queryChunked(passwordResetTokens, eq(passwordResetTokens.userId, userId));
