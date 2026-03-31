@@ -22,7 +22,6 @@ import {
   Coins,
   ShoppingBag,
   Menu,
-  X,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";

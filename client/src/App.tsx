@@ -83,8 +83,10 @@ function MobileBottomNav() {
       <div className="flex items-center justify-around h-14">
         {BOTTOM_NAV_ITEMS.map(({ path, icon: Icon, label }) => (
           <Link key={path} href={path}>
-            <button
-              className={`flex flex-col items-center justify-center w-full h-full min-w-[64px] min-h-[44px] transition-colors ${
+            <div
+              role="button"
+              tabIndex={0}
+              className={`flex flex-col items-center justify-center w-full h-full min-w-[64px] min-h-[44px] transition-colors cursor-pointer ${
                 isActive(path)
                   ? "text-primary"
                   : "text-gray-400 dark:text-gray-500"
@@ -92,7 +94,7 @@ function MobileBottomNav() {
             >
               <Icon className="h-5 w-5" />
               <span className="text-[10px] mt-0.5 font-medium">{label}</span>
-            </button>
+            </div>
           </Link>
         ))}
       </div>

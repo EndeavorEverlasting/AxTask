@@ -847,7 +847,7 @@ export function TaskList() {
             {tasks.length === 0 ? "No tasks found. Create your first task!" : "No tasks match your filters."}
           </div>
         ) : isMobile ? (
-          <div ref={mobileScrollRef} className="relative">
+          <div ref={mobileScrollRef} className="relative max-h-[60vh] overflow-y-auto -mx-1 px-1">
             {(pullDistance > 0 || isRefreshing) && (
               <div
                 className="flex items-center justify-center overflow-hidden transition-all"
