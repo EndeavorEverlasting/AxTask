@@ -729,15 +729,36 @@ export async function getUserRewards(userId: string): Promise<(typeof userReward
 export async function redeemReward(userId: string, rewardId: string): Promise<boolean> {
   const reward = await getRewardById(rewardId);
   if (!reward) return false;
-  const [existing] = await db
-    .select({ value: count() })
-    .from(userRewards)
-    .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
-  if ((Number(existing?.value) || 0) > 0) return false;
-  const wallet = await spendCoins(userId, reward.cost, `Redeemed: ${reward.name}`);
-  if (!wallet) return false;
-  await db.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
-  return true;
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ value: count() })
+      .from(userRewards)
+      .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
+    if ((Number(existing?.value) || 0) > 0) return false;
+
+    const [wallet] = await tx
+      .select()
+      .from(coinWallets)
+      .where(eq(coinWallets.userId, userId));
+    if (!wallet || wallet.balance < reward.cost) return false;
+
+    await tx
+      .update(coinWallets)
+      .set({ balance: wallet.balance - reward.cost, totalSpent: wallet.totalSpent + reward.cost })
+      .where(eq(coinWallets.userId, userId));
+
+    await tx.insert(coinTransactions).values({
+      id: randomUUID(),
+      userId,
+      amount: -reward.cost,
+      type: "spend",
+      description: `Redeemed: ${reward.name}`,
+    });
+
+    await tx.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
+    return true;
+  });
 }
 
 export async function seedRewardsCatalog(): Promise<void> {

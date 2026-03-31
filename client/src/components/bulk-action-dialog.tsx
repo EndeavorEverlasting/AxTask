@@ -113,7 +113,7 @@ export default function BulkActionDialog({
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
 
       const failedCount = data.failed || 0;
       if (failedCount > 0) {
