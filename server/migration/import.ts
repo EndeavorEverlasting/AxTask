@@ -392,6 +392,7 @@ export async function importBundle(
   const inserted: Record<string, number> = {};
   const skipped: Record<string, number> = {};
   const conflicts: Record<string, number> = {};
+  const skippedUserIds = new Set<string>();
 
   if (dryRun) {
     for (const tableName of TABLE_INSERT_ORDER) {
@@ -471,6 +472,14 @@ export async function importBundle(
       let row = parseTimestamps(rows[i]);
       const originalRow = rows[i];
 
+      if (mode === "remap" && tableName !== "users" && skippedUserIds.size > 0) {
+        const rowUserId = originalRow.userId;
+        if (rowUserId && skippedUserIds.has(String(rowUserId))) {
+          skipCount++;
+          continue;
+        }
+      }
+
       if (idMap) {
         row = remapRow(row, tableName, pkField, idMap);
       }
@@ -494,7 +503,7 @@ export async function importBundle(
           if (existingUser) {
             const originalId = originalRow[pkField];
             if (originalId) {
-              idMap.delete(remapKey("users", String(originalId)));
+              skippedUserIds.add(String(originalId));
             }
             validation.warnings.push({
               table: "users", rowIndex: i, field: "email",

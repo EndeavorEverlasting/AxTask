@@ -163,24 +163,17 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
     queryChunked(taskPatterns, eq(taskPatterns.userId, userId)),
   ]);
 
-  const taskIdSet = new Set(taskIds);
-
   const allCollabs = await queryChunked(taskCollaborators);
-  const collabData = allCollabs.filter((c) =>
-    taskIdSet.has(c.taskId as string) && (c.userId as string) === userId
-  );
+  const collabData = allCollabs.filter((c) => (c.userId as string) === userId);
 
   const allContribs = await queryChunked(classificationContributions);
-  const contribData = allContribs.filter((c) =>
-    (c.userId as string) === userId && taskIdSet.has(c.taskId as string)
-  );
+  const contribData = allContribs.filter((c) => (c.userId as string) === userId);
 
   const contribIdSet = new Set(contribData.map((c) => c.id as string));
   const allConfirms = await queryChunked(classificationConfirmations);
   const confirmData = allConfirms.filter((c) =>
     (c.userId as string) === userId &&
-    contribIdSet.has(c.contributionId as string) &&
-    taskIdSet.has(c.taskId as string)
+    contribIdSet.has(c.contributionId as string)
   );
 
   const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
