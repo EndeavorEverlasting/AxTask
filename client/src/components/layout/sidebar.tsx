@@ -244,7 +244,7 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
         <CheckSquare className="mr-2 h-5 w-5" />
         AxTask
       </h1>
-      <VoiceBarTrigger />
+      <div className="w-10" />
     </div>
   );
 }

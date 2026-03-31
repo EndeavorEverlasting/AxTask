@@ -63,7 +63,7 @@ function ReviewDialogBridge() {
 }
 
 const BOTTOM_NAV_ITEMS = [
-  { path: "/", icon: LayoutDashboard, label: "Home" },
+  { path: "/", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/tasks", icon: List, label: "Tasks" },
   { path: "/calendar", icon: CalendarDays, label: "Calendar" },
   { path: "/planner", icon: Brain, label: "Planner" },
