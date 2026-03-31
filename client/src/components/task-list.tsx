@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useVoice } from "@/hooks/use-voice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -366,6 +367,14 @@ export function TaskList() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isDragMode, setIsDragMode] = useState(false);
   const reducedMotion = useReducedMotion();
+  const { consumeVoiceSearch } = useVoice();
+
+  useEffect(() => {
+    const voiceQuery = consumeVoiceSearch();
+    if (voiceQuery) {
+      setSearchQuery(voiceQuery);
+    }
+  }, [consumeVoiceSearch]);
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],

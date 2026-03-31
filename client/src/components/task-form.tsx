@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { parseVoiceCommands, stripCommandText } from "@/lib/voice-commands";
+import { useVoice } from "@/hooks/use-voice";
 import { MicButton } from "@/components/mic-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -301,20 +302,27 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     form.handleSubmit(onSubmit)();
   }, [form, addWarning, clearWarning, toast, onSubmit]);
 
+  const { consumeTaskPrefill } = useVoice();
+
+  useEffect(() => {
+    const prefill = consumeTaskPrefill();
+    if (prefill && !task) {
+      if (prefill.activity) form.setValue("activity", prefill.activity);
+      if (prefill.date) form.setValue("date", prefill.date);
+      if (prefill.time) form.setValue("time", prefill.time);
+    }
+  }, [consumeTaskPrefill, form, task]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
         handleSubmitWithWarnings();
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === "m") {
-        e.preventDefault();
-        speech.toggle();
-      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleSubmitWithWarnings, speech]);
+  }, [handleSubmitWithWarnings]);
 
   return (
     <Card>

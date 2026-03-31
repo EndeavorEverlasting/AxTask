@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -45,15 +45,10 @@ function AuthenticatedApp() {
   const { zoom } = useZoom();
   const scale = zoom / 100;
   const [, setLocation] = useLocation();
-  const [taskPrefill, setTaskPrefill] = useState<{ activity: string; date?: string; time?: string } | null>(null);
 
   const handleNavigate = useCallback((path: string) => {
     setLocation(path);
   }, [setLocation]);
-
-  const handlePrefillTask = useCallback((data: { activity: string; date?: string; time?: string }) => {
-    setTaskPrefill(data);
-  }, []);
 
   if (loading) {
     return (
@@ -68,7 +63,7 @@ function AuthenticatedApp() {
   }
 
   return (
-    <VoiceProvider onNavigate={handleNavigate} onPrefillTask={handlePrefillTask}>
+    <VoiceProvider onNavigate={handleNavigate}>
       <div className="h-screen flex bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <Sidebar />
         <main className="flex-1 overflow-hidden">

@@ -11,6 +11,12 @@ interface EngineResponse {
   message: string;
 }
 
+export interface TaskPrefill {
+  activity: string;
+  date?: string;
+  time?: string;
+}
+
 interface VoiceContextType {
   isSupported: boolean;
   status: SpeechStatus;
@@ -20,11 +26,15 @@ interface VoiceContextType {
   isBarOpen: boolean;
   lastResponse: EngineResponse | null;
   isProcessing: boolean;
+  taskPrefill: TaskPrefill | null;
+  voiceSearchQuery: string | null;
   toggleListening: () => void;
   openBar: () => void;
   closeBar: () => void;
   toggleBar: () => void;
   clearResponse: () => void;
+  consumeTaskPrefill: () => TaskPrefill | null;
+  consumeVoiceSearch: () => string | null;
 }
 
 const VoiceContext = createContext<VoiceContextType | null>(null);
@@ -38,17 +48,16 @@ export function useVoice() {
 interface VoiceProviderProps {
   children: ReactNode;
   onNavigate?: (path: string) => void;
-  onPrefillTask?: (data: { activity: string; date?: string; time?: string }) => void;
 }
 
-export function VoiceProvider({ children, onNavigate, onPrefillTask }: VoiceProviderProps) {
+export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
   const [isBarOpen, setIsBarOpen] = useState(false);
   const [lastResponse, setLastResponse] = useState<EngineResponse | null>(null);
+  const [taskPrefill, setTaskPrefill] = useState<TaskPrefill | null>(null);
+  const [voiceSearchQuery, setVoiceSearchQuery] = useState<string | null>(null);
   const { toast } = useToast();
   const onNavigateRef = useRef(onNavigate);
-  const onPrefillTaskRef = useRef(onPrefillTask);
   onNavigateRef.current = onNavigate;
-  onPrefillTaskRef.current = onPrefillTask;
 
   const processMutation = useMutation({
     mutationFn: async (transcript: string) => {
@@ -62,12 +71,16 @@ export function VoiceProvider({ children, onNavigate, onPrefillTask }: VoiceProv
         case "navigate":
           onNavigateRef.current?.(data.payload.path as string);
           break;
-        case "prefill_task":
-          onNavigateRef.current?.("/tasks");
-          setTimeout(() => {
-            onPrefillTaskRef.current?.(data.payload as { activity: string; date?: string; time?: string });
-          }, 300);
+        case "prefill_task": {
+          const prefill: TaskPrefill = {
+            activity: (data.payload.activity as string) || "",
+            date: data.payload.date as string | undefined,
+            time: data.payload.time as string | undefined,
+          };
+          setTaskPrefill(prefill);
+          onNavigateRef.current?.("/");
           break;
+        }
         case "reschedule_task": {
           const taskId = data.payload.taskId as string;
           const newDate = data.payload.newDate as string;
@@ -80,6 +93,14 @@ export function VoiceProvider({ children, onNavigate, onPrefillTask }: VoiceProv
             .catch(() => {
               toast({ title: "Error", description: "Failed to reschedule task", variant: "destructive" });
             });
+          break;
+        }
+        case "show_results": {
+          const query = data.payload.query as string;
+          if (query) {
+            setVoiceSearchQuery(query);
+            onNavigateRef.current?.("/tasks");
+          }
           break;
         }
         default:
@@ -135,6 +156,18 @@ export function VoiceProvider({ children, onNavigate, onPrefillTask }: VoiceProv
     setLastResponse(null);
   }, []);
 
+  const consumeTaskPrefill = useCallback(() => {
+    const current = taskPrefill;
+    if (current) setTaskPrefill(null);
+    return current;
+  }, [taskPrefill]);
+
+  const consumeVoiceSearch = useCallback(() => {
+    const current = voiceSearchQuery;
+    if (current) setVoiceSearchQuery(null);
+    return current;
+  }, [voiceSearchQuery]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "m") {
@@ -183,11 +216,15 @@ export function VoiceProvider({ children, onNavigate, onPrefillTask }: VoiceProv
         isBarOpen,
         lastResponse,
         isProcessing: processMutation.isPending,
+        taskPrefill,
+        voiceSearchQuery,
         toggleListening,
         openBar,
         closeBar,
         toggleBar,
         clearResponse,
+        consumeTaskPrefill,
+        consumeVoiceSearch,
       }}
     >
       {children}
