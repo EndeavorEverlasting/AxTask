@@ -2,7 +2,7 @@ import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransacti
 import { computeContentHash } from "./fingerprint";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
-import { randomUUID, randomBytes, createHash } from "crypto";
+import { randomUUID, randomBytes, createHash, createCipheriv, createDecipheriv } from "crypto";
 import bcrypt from "bcrypt";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
@@ -718,7 +718,6 @@ function getMfaEncryptionKey(): Buffer {
 }
 
 function encryptMfaSecret(plaintext: string): string {
-  const { createCipheriv } = require("crypto");
   const key = getMfaEncryptionKey();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
@@ -728,7 +727,6 @@ function encryptMfaSecret(plaintext: string): string {
 }
 
 function decryptMfaSecret(ciphertext: string): string {
-  const { createDecipheriv } = require("crypto");
   const key = getMfaEncryptionKey();
   const parts = ciphertext.split(":");
   if (parts.length !== 3) throw new Error("Invalid encrypted MFA secret format");

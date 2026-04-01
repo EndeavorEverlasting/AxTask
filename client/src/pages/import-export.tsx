@@ -428,6 +428,21 @@ export default function ImportExport() {
     });
   };
 
+  const parse429Message = (error: any): string | null => {
+    const msg = error?.message || "";
+    if (!msg.startsWith("429:")) return null;
+    try {
+      const body = JSON.parse(msg.slice(5));
+      if (body.retryAfterSeconds) {
+        const minutes = Math.ceil(body.retryAfterSeconds / 60);
+        return `Too many MFA attempts. Please wait ${minutes} minute${minutes !== 1 ? "s" : ""} before trying again.`;
+      }
+      return body.message || "Too many requests. Please wait before trying again.";
+    } catch {
+      return "Too many requests. Please wait before trying again.";
+    }
+  };
+
   const handleMfaSetup = async () => {
     setIsMfaSetupLoading(true);
     try {
@@ -436,9 +451,10 @@ export default function ImportExport() {
       setMfaSetupData({ secret: data.secret, qrCode: data.qrCode });
       setMfaCode("");
     } catch (error: any) {
+      const rateLimitMsg = parse429Message(error);
       toast({
-        title: "MFA setup failed",
-        description: error.message || "Could not initiate MFA setup.",
+        title: rateLimitMsg ? "Too many requests" : "MFA setup failed",
+        description: rateLimitMsg || error.message || "Could not initiate MFA setup.",
         variant: "destructive",
       });
     } finally {
@@ -458,8 +474,12 @@ export default function ImportExport() {
         refetchMfa();
       }
     } catch (error: any) {
-      const msg = error?.message || "Invalid code";
-      toast({ title: "Verification failed", description: msg, variant: "destructive" });
+      const rateLimitMsg = parse429Message(error);
+      toast({
+        title: rateLimitMsg ? "Too many requests" : "Verification failed",
+        description: rateLimitMsg || error?.message || "Invalid code",
+        variant: "destructive",
+      });
     }
   };
 
@@ -475,7 +495,12 @@ export default function ImportExport() {
         refetchMfa();
       }
     } catch (error: any) {
-      toast({ title: "Failed to disable MFA", description: error?.message || "Invalid code", variant: "destructive" });
+      const rateLimitMsg = parse429Message(error);
+      toast({
+        title: rateLimitMsg ? "Too many requests" : "Failed to disable MFA",
+        description: rateLimitMsg || error?.message || "Invalid code",
+        variant: "destructive",
+      });
     } finally {
       setIsDisablingMfa(false);
     }
@@ -495,7 +520,12 @@ export default function ImportExport() {
         queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       }
     } catch (error: any) {
-      toast({ title: "Failed to clear tasks", description: error?.message || "Action denied", variant: "destructive" });
+      const rateLimitMsg = parse429Message(error);
+      toast({
+        title: rateLimitMsg ? "Too many requests" : "Failed to clear tasks",
+        description: rateLimitMsg || error?.message || "Action denied",
+        variant: "destructive",
+      });
     } finally {
       setIsClearingAll(false);
     }

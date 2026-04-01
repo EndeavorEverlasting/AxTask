@@ -2069,9 +2069,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const mfaLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 10,
-    message: { message: "Too many MFA attempts. Please wait before trying again." },
     keyGenerator: (req) => `mfa:${(req.user as any)?.id || "anon"}`,
     validate: { xForwardedForHeader: false },
+    handler: (_req, res) => {
+      const retryAfter = res.getHeader("Retry-After");
+      const parsed = typeof retryAfter === "string" ? parseInt(retryAfter, 10) : typeof retryAfter === "number" ? retryAfter : NaN;
+      const retrySeconds = Number.isFinite(parsed) ? parsed : 900;
+      const minutes = Math.ceil(retrySeconds / 60);
+      res.status(429).json({
+        message: `Too many MFA attempts. Please wait ${minutes} minute${minutes !== 1 ? "s" : ""} before trying again.`,
+        retryAfterSeconds: retrySeconds,
+      });
+    },
   });
 
   app.get("/api/mfa/status", requireAuth, async (req, res) => {
