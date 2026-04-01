@@ -153,10 +153,14 @@ export function registerOAuthRoutes(app: Express) {
     if (!clientId || !clientSecret) {
       return res.redirect("/?error=google_not_configured");
     }
-    const origin = `${req.protocol}://${req.get("host")}`;
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${origin}/api/auth/google/callback`;
+    const forwardedHost = req.get("x-forwarded-host") || req.get("host");
+    const forwardedProto = req.get("x-forwarded-proto") || req.protocol;
+    const origin = `${forwardedProto}://${forwardedHost}`;
+    const redirectUri = `${origin}/api/auth/google/callback`;
+    console.log(`[auth] Google OAuth redirect_uri: ${redirectUri}`);
     const state = randomBytes(24).toString("base64url");
     ((req as any).session as any).oauthState = state;
+    ((req as any).session as any).oauthRedirectUri = redirectUri;
 
     const params = new URLSearchParams({
       client_id: clientId,
@@ -177,8 +181,11 @@ export function registerOAuthRoutes(app: Express) {
     try {
       const clientId = process.env.GOOGLE_CLIENT_ID!;
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
-      const origin = `${req.protocol}://${req.get("host")}`;
-      const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${origin}/api/auth/google/callback`;
+      const savedRedirectUri = ((req as any).session as any)?.oauthRedirectUri;
+      const forwardedHost = req.get("x-forwarded-host") || req.get("host");
+      const forwardedProto = req.get("x-forwarded-proto") || req.protocol;
+      const origin = `${forwardedProto}://${forwardedHost}`;
+      const redirectUri = savedRedirectUri || `${origin}/api/auth/google/callback`;
 
       // Exchange code for tokens
       const tokenRes = await fetch("https://oauth2.googleapis.com/token", {

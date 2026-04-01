@@ -86,14 +86,37 @@ Key tables include `users`, `password_reset_tokens`, `security_logs`, `tasks`, `
 -   **Vitest**: Testing framework.
 -   **cross-env**: Cross-platform environment variables.
 
-## Pre-Publish Validation
-The project includes automated pre-publish checks (`scripts/pre-publish-check.sh`) that run before deployment:
-1. **TypeScript compilation** — Verifies zero type errors with `tsc --noEmit`
-2. **Production build** — Runs `npm run build` and checks for success
-3. **Build output verification** — Confirms `dist/index.js` and `dist/public/` exist
-4. **Server smoke test** — Starts the production server on a test port, verifies `/healthz` and `/api/auth/config` respond
+## Deployment & Production
 
-These checks are also registered as validation commands (`typecheck`, `build`, `pre-publish`) for automated CI-style verification.
+### Deployment Target
+The app deploys to **Replit Autoscale** (Cloud Run). The production run command is `npm run start` which executes `node dist/index.js`.
+
+### Port Configuration
+- **Development**: `PORT=5000` is set as a dev-only env var. The dev server runs on port 5000.
+- **Production**: Cloud Run sets its own `PORT` env var automatically. The server reads `process.env.PORT` and falls back to 5000 only if unset. **Never** set `PORT` in shared or production env vars — Cloud Run manages this.
+
+### Google OAuth in Production
+Google OAuth redirect URIs are auto-detected from request headers (`x-forwarded-host`, `x-forwarded-proto`) so the same code works in both dev and production without hardcoding domains. The `GOOGLE_REDIRECT_URI` env var is no longer needed.
+
+**Important**: The production domain (`axtask.replit.app`) must be registered as an authorized redirect URI in Google Cloud Console:
+- Authorized redirect URI: `https://axtask.replit.app/api/auth/google/callback`
+- The Google 403 error occurs when this URI is missing from the OAuth consent screen configuration.
 
 ### Health Check
-The server exposes `/healthz` endpoint that returns 200 "ok" for deployment health monitoring.
+The server exposes `/healthz` endpoint returning 200 "ok" for deployment health monitoring.
+
+### Known Deployment Issues & Fixes
+1. **PORT env var conflict**: Cloud Run sets its own PORT. A shared `PORT=5000` env var overrides it and breaks deployment. Fixed by scoping PORT to development only.
+2. **Google OAuth 403**: Production domain must be in Google Cloud Console authorized redirect URIs. The app now auto-detects the domain from request headers instead of using a hardcoded `GOOGLE_REDIRECT_URI`.
+3. **Port forwarding**: Cloud Run handles port routing automatically. No manual port forwarding rules are needed.
+
+## Pre-Publish Validation
+The project includes automated pre-publish checks (`scripts/pre-publish-check.sh`) with 6 verification steps:
+1. **TypeScript compilation** — Verifies zero type errors with `tsc --noEmit`
+2. **Production build** — Runs `npm run build` and checks for success
+3. **Build output verification** — Confirms `dist/index.js` (with min size check), `dist/public/` (min file count), and `dist/public/index.html` exist
+4. **Server smoke test** — Starts the production server on a test port with retry loop, verifies `/healthz` responds 200
+5. **Auth endpoint checks** — Verifies `/api/auth/config` returns providers, `/api/auth/me` returns 401 for unauthenticated requests, `/api/auth/login` rejects bad credentials, `/api/auth/google/login` redirects properly
+6. **Static asset serving** — Confirms `/` serves index.html with CSS and JS asset references
+
+These checks are registered as validation commands (`typecheck`, `build`, `pre-publish`) for automated CI-style verification.

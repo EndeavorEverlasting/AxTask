@@ -49,10 +49,13 @@ app.use(
 
 if (!isDev) {
   app.use((req, res, next) => {
-    if (req.protocol !== "https") {
+    const host = req.get("host") || "";
+    if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) {
+      return next();
+    }
+    if (req.get("x-forwarded-proto") !== "https" && req.protocol !== "https") {
       return res.redirect(301, `https://${productionDomain}${req.originalUrl}`);
     }
-    const host = req.get("host") || "";
     if (host && host !== productionDomain && !host.endsWith(".replit.dev")) {
       return res.redirect(301, `https://${productionDomain}${req.originalUrl}`);
     }
@@ -184,15 +187,15 @@ app.use((req, res, next) => {
     }
   });
 
+  app.get("/healthz", (_req, res) => {
+    res.status(200).send("ok");
+  });
+
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
     serveStatic(app);
   }
-
-  app.get("/healthz", (_req, res) => {
-    res.status(200).send("ok");
-  });
 
   const port = parseInt(process.env.PORT || '5000', 10);
   console.log(`[startup] NODE_ENV=${process.env.NODE_ENV}, binding to port ${port}`);
