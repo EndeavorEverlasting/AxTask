@@ -162,32 +162,45 @@ export default function ImportExport() {
     setImportResult(null);
 
     try {
-      const CHUNK_SIZE = 2000;
+      const CHUNK_SIZE = 500;
       let totalImported = 0;
       let totalForceImported = 0;
       let totalSkippedCompleted = 0;
       let totalSkippedDuplicate = 0;
       let totalFailed = 0;
       let lastFileWarning: string | null = null;
+      let retriesUsed = 0;
 
       const totalChunks = Math.ceil(allTasks.length / CHUNK_SIZE);
 
       for (let i = 0; i < allTasks.length; i += CHUNK_SIZE) {
         const chunk = allTasks.slice(i, i + CHUNK_SIZE);
         const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
-        const isLastChunk = i + chunk.length >= allTasks.length;
 
         setImportMessage(`Sending batch ${chunkNum} of ${totalChunks} (${chunk.length} tasks)...`);
 
-        const isOnlyChunk = totalChunks === 1;
-        const response = await apiRequest("POST", "/api/tasks/import", {
-          tasks: chunk,
-          forceImport,
-          fileName,
-          fileContent: i === 0 ? fileContent : undefined,
-          skipHistory: !isOnlyChunk,
-        });
-        const result = await response.json();
+        let attempt = 0;
+        let result: any = null;
+        while (attempt < 3) {
+          try {
+            const response = await apiRequest("POST", "/api/tasks/import", {
+              tasks: chunk,
+              forceImport,
+              fileName,
+              skipHistory: true,
+            });
+            result = await response.json();
+            break;
+          } catch (err: any) {
+            attempt++;
+            retriesUsed++;
+            if (attempt >= 3) {
+              throw new Error(`Batch ${chunkNum} failed after 3 attempts: ${err?.message || "Unknown error"}`);
+            }
+            setImportMessage(`Batch ${chunkNum} failed (attempt ${attempt}/3), retrying...`);
+            await new Promise(r => setTimeout(r, 1000 * attempt));
+          }
+        }
 
         totalImported += result.imported || 0;
         totalForceImported += result.forceImported || 0;
@@ -198,22 +211,22 @@ export default function ImportExport() {
 
         const progress = Math.round(((i + chunk.length) / allTasks.length) * 100);
         setImportProgress(progress);
+      }
 
-        if (isLastChunk && totalChunks > 1 && fileContent) {
-          await apiRequest("POST", "/api/tasks/import", {
-            tasks: [],
-            forceImport,
-            fileName,
-            fileContent,
-            summaryTotals: {
-              total: allTasks.length,
-              imported: totalImported,
-              skippedCompleted: totalSkippedCompleted,
-              skippedDuplicate: totalSkippedDuplicate,
-              forceImported: totalForceImported,
-            },
-          }).catch(() => {});
-        }
+      if (fileContent && fileName) {
+        await apiRequest("POST", "/api/tasks/import", {
+          tasks: [],
+          forceImport,
+          fileName,
+          fileContent: fileContent.length > 5_000_000 ? fileContent.slice(0, 5_000_000) : fileContent,
+          summaryTotals: {
+            total: allTasks.length,
+            imported: totalImported,
+            skippedCompleted: totalSkippedCompleted,
+            skippedDuplicate: totalSkippedDuplicate,
+            forceImported: totalForceImported,
+          },
+        }).catch(() => {});
       }
 
       const res: ImportResult = {
