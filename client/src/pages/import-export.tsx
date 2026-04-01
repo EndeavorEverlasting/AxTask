@@ -12,7 +12,15 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
-import { Upload, Download, FileText, AlertCircle, AlertTriangle, CheckCircle2, Loader2, History, ShieldAlert, SkipForward, DatabaseBackup, PackageOpen } from "lucide-react";
+import { Upload, Download, FileText, AlertCircle, AlertTriangle, CheckCircle2, Loader2, History, ShieldAlert, SkipForward, DatabaseBackup, PackageOpen, Shield, Trash2, Lock, Unlock, QrCode } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface SheetInfo {
   sheetName: string;
@@ -56,12 +64,25 @@ export default function ImportExport() {
   } | null>(null);
   const accountFileRef = useRef<HTMLInputElement>(null);
 
+  const [mfaSetupData, setMfaSetupData] = useState<{ secret: string; qrCode: string } | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [isMfaSetupLoading, setIsMfaSetupLoading] = useState(false);
+  const [showClearAllDialog, setShowClearAllDialog] = useState(false);
+  const [clearAllMfaCode, setClearAllMfaCode] = useState("");
+  const [isClearingAll, setIsClearingAll] = useState(false);
+  const [mfaDisableCode, setMfaDisableCode] = useState("");
+  const [isDisablingMfa, setIsDisablingMfa] = useState(false);
+
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
   });
 
   const { data: importHistoryData = [] } = useQuery<ImportHistory[]>({
     queryKey: ["/api/import-history"],
+  });
+
+  const { data: mfaStatus, refetch: refetchMfa } = useQuery<{ mfaEnabled: boolean }>({
+    queryKey: ["/api/mfa/status"],
   });
 
   const handleExport = () => {
@@ -97,14 +118,130 @@ export default function ImportExport() {
 
     const isCSV = file.name.endsWith('.csv');
     const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+    const isJSON = file.name.endsWith('.json');
 
-    if (!isCSV && !isExcel) {
+    if (!isCSV && !isExcel && !isJSON) {
       toast({
         title: "Invalid file type",
-        description: "Please select a CSV or Excel file.",
+        description: "Please select a CSV, Excel, or JSON file.",
         variant: "destructive",
       });
       return;
+    }
+
+    if (isJSON) {
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+
+        if (parsed.metadata && parsed.data) {
+          setIsImportingAccount(true);
+          setAccountImportResult(null);
+          try {
+            const dryRunResponse = await apiRequest("POST", "/api/account/import", { bundle: parsed, dryRun: true });
+            const dryResult = await dryRunResponse.json();
+
+            if (dryResult.errors && dryResult.errors.length > 0) {
+              const errorMsgs = dryResult.errors.slice(0, 5).map((e: any) => `${e.table}: ${e.message}`).join("; ");
+              throw new Error(`Validation issues: ${errorMsgs}`);
+            }
+
+            const response = await apiRequest("POST", "/api/account/import", { bundle: parsed, dryRun: false });
+            const result = await response.json();
+            setAccountImportResult(result);
+
+            if (!result.success || (result.errors && result.errors.length > 0)) {
+              toast({
+                title: "Account restore had issues",
+                description: `Import completed with ${result.errors?.length || 0} error(s).`,
+                variant: "destructive",
+              });
+            } else {
+              const totalInserted = Object.values(result.inserted as Record<string, number>).reduce((a, b) => a + b, 0);
+              queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/gamification/rewards"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/gamification/cleanup-stats"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/patterns/insights"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/import-history"] });
+              toast({
+                title: "Backup restored successfully",
+                description: `${totalInserted} records imported from JSON backup file.`,
+              });
+            }
+          } catch (err: any) {
+            toast({
+              title: "Backup restore failed",
+              description: err.message || "Could not restore from backup file.",
+              variant: "destructive",
+            });
+          } finally {
+            setIsImportingAccount(false);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+          }
+          return;
+        }
+
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const taskArray = parsed.map((item: any) => ({
+            date: item.date || new Date().toISOString().split('T')[0],
+            activity: item.activity || item.title || item.name || '',
+            notes: item.notes || item.description || '',
+            status: item.status || 'pending',
+            urgency: typeof item.urgency === 'number' ? item.urgency : undefined,
+            impact: typeof item.impact === 'number' ? item.impact : undefined,
+            effort: typeof item.effort === 'number' ? item.effort : undefined,
+            prerequisites: item.prerequisites || '',
+          })).filter((t: any) => t.activity && t.activity.trim());
+
+          if (taskArray.length > 0) {
+            setFileName(file.name);
+            setFileContent(text);
+            setSheets([{ sheetName: file.name, tasks: taskArray, rowCount: taskArray.length, selected: true }]);
+            toast({
+              title: "JSON file analyzed",
+              description: `Found ${taskArray.length} tasks in JSON array.`,
+            });
+          } else {
+            toast({
+              title: "No valid tasks found",
+              description: "The JSON array doesn't contain any valid task objects.",
+              variant: "destructive",
+            });
+          }
+          if (fileInputRef.current) fileInputRef.current.value = "";
+          return;
+        }
+
+        toast({
+          title: "Unrecognized JSON format",
+          description: "Expected either an AxTask backup bundle or an array of task objects.",
+          variant: "destructive",
+        });
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      } catch (err: any) {
+        if (err.message?.includes("JSON")) {
+          toast({
+            title: "Invalid JSON file",
+            description: "The file could not be parsed as valid JSON.",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Failed to process JSON file",
+            description: err.message || "An error occurred while processing the file.",
+            variant: "destructive",
+          });
+        }
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
     }
 
     setIsParsing(true);
@@ -289,6 +426,79 @@ export default function ImportExport() {
       title: "Template downloaded",
       description: "Use this template to format your task data for import.",
     });
+  };
+
+  const handleMfaSetup = async () => {
+    setIsMfaSetupLoading(true);
+    try {
+      const response = await apiRequest("POST", "/api/mfa/setup", {});
+      const data = await response.json();
+      setMfaSetupData({ secret: data.secret, qrCode: data.qrCode });
+      setMfaCode("");
+    } catch (error: any) {
+      toast({
+        title: "MFA setup failed",
+        description: error.message || "Could not initiate MFA setup.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsMfaSetupLoading(false);
+    }
+  };
+
+  const handleMfaVerify = async () => {
+    if (!mfaCode.trim()) return;
+    try {
+      const response = await apiRequest("POST", "/api/mfa/verify", { code: mfaCode.trim() });
+      const data = await response.json();
+      if (data.success) {
+        toast({ title: "MFA enabled", description: "Two-factor authentication is now active on your account." });
+        setMfaSetupData(null);
+        setMfaCode("");
+        refetchMfa();
+      }
+    } catch (error: any) {
+      const msg = error?.message || "Invalid code";
+      toast({ title: "Verification failed", description: msg, variant: "destructive" });
+    }
+  };
+
+  const handleMfaDisable = async () => {
+    if (!mfaDisableCode.trim()) return;
+    setIsDisablingMfa(true);
+    try {
+      const response = await apiRequest("POST", "/api/mfa/disable", { code: mfaDisableCode.trim() });
+      const data = await response.json();
+      if (data.success) {
+        toast({ title: "MFA disabled", description: "Two-factor authentication has been removed from your account." });
+        setMfaDisableCode("");
+        refetchMfa();
+      }
+    } catch (error: any) {
+      toast({ title: "Failed to disable MFA", description: error?.message || "Invalid code", variant: "destructive" });
+    } finally {
+      setIsDisablingMfa(false);
+    }
+  };
+
+  const handleClearAllTasks = async () => {
+    if (!clearAllMfaCode.trim()) return;
+    setIsClearingAll(true);
+    try {
+      const response = await apiRequest("POST", "/api/tasks/clear-all", { mfaCode: clearAllMfaCode.trim() });
+      const data = await response.json();
+      if (data.success) {
+        toast({ title: "All tasks cleared", description: `${data.deletedCount} tasks have been permanently deleted.` });
+        setShowClearAllDialog(false);
+        setClearAllMfaCode("");
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      }
+    } catch (error: any) {
+      toast({ title: "Failed to clear tasks", description: error?.message || "Action denied", variant: "destructive" });
+    } finally {
+      setIsClearingAll(false);
+    }
   };
 
   const handleAccountExport = async () => {
@@ -586,7 +796,7 @@ export default function ImportExport() {
               Import Tasks
             </CardTitle>
             <CardDescription>
-              Upload a CSV or Excel file to import tasks. Duplicates are automatically detected and skipped.
+              Upload a CSV, Excel, or JSON file to import tasks. Duplicates are automatically detected and skipped.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -596,7 +806,7 @@ export default function ImportExport() {
                 id="csv-file"
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.xlsx,.xls"
+                accept=".csv,.xlsx,.xls,.json"
                 onChange={handleFileSelect}
                 disabled={isImporting || isParsing}
               />
@@ -748,6 +958,7 @@ export default function ImportExport() {
                   <ul className="text-xs space-y-1 list-disc list-inside">
                     <li>Excel (.xlsx) with sheets: Daily Planner 2026, Archives, Vault</li>
                     <li>CSV with columns: Date, Activity, Notes, Urgency, Impact, Effort</li>
+                    <li>JSON — AxTask backup bundles or plain task arrays</li>
                     <li>Priority and classification are auto-calculated after import</li>
                     <li>Duplicate tasks are automatically detected and skipped</li>
                   </ul>
@@ -840,6 +1051,216 @@ export default function ImportExport() {
           </div>
         </CardContent>
       </Card>
+
+      <Card className="border-2 border-indigo-200 dark:border-indigo-800">
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <Shield className="mr-2 h-5 w-5 text-indigo-600" />
+            Two-Factor Authentication (MFA)
+          </CardTitle>
+          <CardDescription>
+            Secure your account with TOTP-based two-factor authentication using an authenticator app like Google Authenticator, Authy, or 1Password. MFA is required for destructive actions like clearing all tasks.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {mfaStatus?.mfaEnabled ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/30 rounded-lg">
+                <Lock className="h-5 w-5 text-green-600" />
+                <span className="text-sm font-medium text-green-900 dark:text-green-100">
+                  MFA is enabled on your account
+                </span>
+              </div>
+              <div className="space-y-2">
+                <Label>To disable MFA, enter your current authenticator code:</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    placeholder="000000"
+                    value={mfaDisableCode}
+                    onChange={(e) => setMfaDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="w-32 text-center font-mono text-lg tracking-widest"
+                  />
+                  <Button
+                    variant="destructive"
+                    onClick={handleMfaDisable}
+                    disabled={mfaDisableCode.length !== 6 || isDisablingMfa}
+                  >
+                    {isDisablingMfa ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Unlock className="mr-2 h-4 w-4" />}
+                    Disable MFA
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : mfaSetupData ? (
+            <div className="space-y-4">
+              <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg space-y-3">
+                <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100">
+                  Scan this QR code with your authenticator app:
+                </p>
+                <div className="flex justify-center">
+                  <img src={mfaSetupData.qrCode} alt="MFA QR Code" className="w-48 h-48 rounded-lg border" />
+                </div>
+                <div className="text-xs text-center text-gray-500 dark:text-gray-400 space-y-1">
+                  <p>Or enter this secret manually:</p>
+                  <code className="block bg-white dark:bg-gray-800 px-3 py-1.5 rounded text-sm font-mono select-all break-all">
+                    {mfaSetupData.secret}
+                  </code>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Enter the 6-digit code from your authenticator app to confirm:</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    placeholder="000000"
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="w-32 text-center font-mono text-lg tracking-widest"
+                  />
+                  <Button onClick={handleMfaVerify} disabled={mfaCode.length !== 6}>
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Verify & Enable
+                  </Button>
+                </div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => { setMfaSetupData(null); setMfaCode(""); }}>
+                Cancel Setup
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg">
+                <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                <span className="text-sm text-yellow-900 dark:text-yellow-100">
+                  MFA is not enabled. Enable it to unlock Danger Zone actions and add an extra layer of security.
+                </span>
+              </div>
+              <Button onClick={handleMfaSetup} disabled={isMfaSetupLoading}>
+                {isMfaSetupLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <QrCode className="mr-2 h-4 w-4" />
+                )}
+                Set Up MFA
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-2 border-red-300 dark:border-red-800">
+        <CardHeader>
+          <CardTitle className="flex items-center text-red-700 dark:text-red-400">
+            <AlertTriangle className="mr-2 h-5 w-5" />
+            Danger Zone
+          </CardTitle>
+          <CardDescription>
+            Destructive actions that cannot be undone. These require MFA verification for security.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="p-4 border-2 border-red-200 dark:border-red-800 rounded-lg space-y-3">
+            <div className="flex items-start justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Trash2 className="h-4 w-4 text-red-600" />
+                  <span className="font-medium text-red-900 dark:text-red-100">Clear All Tasks</span>
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  Permanently delete all {tasks.length.toLocaleString()} tasks from your account. This action cannot be undone.
+                </p>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  if (!mfaStatus?.mfaEnabled) {
+                    toast({
+                      title: "MFA required",
+                      description: "You must enable two-factor authentication before performing destructive actions.",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  setShowClearAllDialog(true);
+                  setClearAllMfaCode("");
+                }}
+                disabled={tasks.length === 0}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Clear All Tasks
+              </Button>
+            </div>
+          </div>
+          {!mfaStatus?.mfaEnabled && (
+            <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+              <Lock className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+              <span className="text-xs text-amber-900 dark:text-amber-100">
+                Danger zone actions are locked. Enable MFA (above) to unlock them.
+              </span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showClearAllDialog} onOpenChange={setShowClearAllDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700 dark:text-red-400">
+              <AlertTriangle className="h-5 w-5" />
+              Confirm: Clear All Tasks
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete all {tasks.length.toLocaleString()} tasks from your account. This action cannot be undone. Enter your MFA code to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="p-3 bg-red-50 dark:bg-red-900/30 rounded-lg">
+              <p className="text-sm text-red-900 dark:text-red-100 font-medium">
+                You are about to delete {tasks.length.toLocaleString()} tasks permanently.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Enter your 6-digit authenticator code:</Label>
+              <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                placeholder="000000"
+                value={clearAllMfaCode}
+                onChange={(e) => setClearAllMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="w-32 text-center font-mono text-lg tracking-widest"
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowClearAllDialog(false)} disabled={isClearingAll}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleClearAllTasks}
+              disabled={clearAllMfaCode.length !== 6 || isClearingAll}
+            >
+              {isClearingAll ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              {isClearingAll ? "Clearing..." : "Delete All Tasks"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

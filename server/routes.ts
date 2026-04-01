@@ -18,6 +18,7 @@ import {
   addCollaborator, removeCollaborator, getTaskCollaborators, updateCollaboratorRole,
   getSharedTasks, canAccessTask, isTaskOwner,
   resetStreak, useStreakShield, buyStreakShield, giftCoins, setTaskBounty, claimBounty, boostTaskPriority,
+  setMfaSecret, enableMfa, disableMfa, getMfaSecret, isMfaEnabled,
 } from "./storage";
 import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, BADGE_DEFINITIONS } from "./coin-engine";
 import { computeContentHash, computeFileHash } from "./fingerprint";
@@ -28,6 +29,8 @@ import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema,
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
+import * as OTPAuth from "otpauth";
+import QRCode from "qrcode";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
 import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from "./engines/pattern-engine";
 import { getPatterns, getPatternsByType } from "./storage";
@@ -2056,6 +2059,186 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: "Failed to remove collaborator" });
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  MFA (TOTP) routes
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const mfaLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { message: "Too many MFA attempts. Please wait before trying again." },
+    keyGenerator: (req) => `mfa:${(req.user as any)?.id || "anon"}`,
+    validate: { xForwardedForHeader: false },
+  });
+
+  app.get("/api/mfa/status", requireAuth, async (req, res) => {
+    try {
+      const enabled = await isMfaEnabled(req.user!.id);
+      res.json({ mfaEnabled: enabled });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get MFA status" });
+    }
+  });
+
+  app.post("/api/mfa/setup", requireAuth, mfaLimiter, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const userEmail = req.user!.email;
+
+      const alreadyEnabled = await isMfaEnabled(userId);
+      if (alreadyEnabled) {
+        return res.status(400).json({ message: "MFA is already enabled. Disable it first before re-enrolling." });
+      }
+
+      const secret = new OTPAuth.Secret({ size: 20 });
+
+      const totp = new OTPAuth.TOTP({
+        issuer: "AxTask",
+        label: userEmail,
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+        secret,
+      });
+
+      await setMfaSecret(userId, secret.base32);
+
+      const otpauthUrl = totp.toString();
+      const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
+
+      res.json({
+        secret: secret.base32,
+        qrCode: qrCodeDataUrl,
+        otpauthUrl,
+      });
+    } catch (error) {
+      console.error("MFA setup error:", error);
+      res.status(500).json({ message: "Failed to set up MFA" });
+    }
+  });
+
+  app.post("/api/mfa/verify", requireAuth, mfaLimiter, async (req, res) => {
+    try {
+      const { code } = req.body;
+      if (!code || typeof code !== "string") {
+        return res.status(400).json({ message: "Verification code is required" });
+      }
+
+      const userId = req.user!.id;
+      const secretStr = await getMfaSecret(userId);
+      if (!secretStr) {
+        return res.status(400).json({ message: "MFA not set up. Please initiate setup first." });
+      }
+
+      const totp = new OTPAuth.TOTP({
+        issuer: "AxTask",
+        label: req.user!.email,
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+        secret: OTPAuth.Secret.fromBase32(secretStr),
+      });
+
+      const delta = totp.validate({ token: code.trim(), window: 1 });
+      if (delta === null) {
+        return res.status(400).json({ message: "Invalid verification code. Please try again." });
+      }
+
+      await enableMfa(userId);
+      await logSecurityEvent("mfa_enabled", userId, undefined, req.ip, "TOTP MFA enabled");
+
+      res.json({ success: true, message: "MFA has been enabled successfully." });
+    } catch (error) {
+      console.error("MFA verify error:", error);
+      res.status(500).json({ message: "Failed to verify MFA code" });
+    }
+  });
+
+  app.post("/api/mfa/disable", requireAuth, mfaLimiter, async (req, res) => {
+    try {
+      const { code } = req.body;
+      if (!code || typeof code !== "string") {
+        return res.status(400).json({ message: "Verification code is required to disable MFA" });
+      }
+
+      const userId = req.user!.id;
+      const secretStr = await getMfaSecret(userId);
+      if (!secretStr) {
+        return res.status(400).json({ message: "MFA is not set up" });
+      }
+
+      const totp = new OTPAuth.TOTP({
+        issuer: "AxTask",
+        label: req.user!.email,
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+        secret: OTPAuth.Secret.fromBase32(secretStr),
+      });
+
+      const delta = totp.validate({ token: code.trim(), window: 1 });
+      if (delta === null) {
+        return res.status(400).json({ message: "Invalid verification code" });
+      }
+
+      await disableMfa(userId);
+      await logSecurityEvent("mfa_disabled", userId, undefined, req.ip, "TOTP MFA disabled");
+
+      res.json({ success: true, message: "MFA has been disabled." });
+    } catch (error) {
+      console.error("MFA disable error:", error);
+      res.status(500).json({ message: "Failed to disable MFA" });
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  Danger Zone — Clear All Tasks (MFA-gated)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  app.post("/api/tasks/clear-all", requireAuth, mfaLimiter, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const { mfaCode } = req.body;
+
+      const mfaOn = await isMfaEnabled(userId);
+      if (!mfaOn) {
+        return res.status(400).json({ message: "You must enable MFA (two-factor authentication) before performing this action." });
+      }
+
+      if (!mfaCode || typeof mfaCode !== "string") {
+        return res.status(400).json({ message: "MFA verification code is required" });
+      }
+
+      const secretStr = await getMfaSecret(userId);
+      if (!secretStr) {
+        return res.status(400).json({ message: "MFA secret not found" });
+      }
+
+      const totp = new OTPAuth.TOTP({
+        issuer: "AxTask",
+        label: req.user!.email,
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+        secret: OTPAuth.Secret.fromBase32(secretStr),
+      });
+
+      const delta = totp.validate({ token: mfaCode.trim(), window: 1 });
+      if (delta === null) {
+        await logSecurityEvent("danger_zone_mfa_failed", userId, undefined, req.ip, "Failed MFA for clear all tasks");
+        return res.status(403).json({ message: "Invalid MFA code. Action denied." });
+      }
+
+      const deletedCount = await storage.deleteAllTasks(userId);
+      await logSecurityEvent("all_tasks_cleared", userId, undefined, req.ip, `Cleared ${deletedCount} tasks via danger zone`);
+
+      res.json({ success: true, deletedCount });
+    } catch (error) {
+      console.error("Clear all tasks error:", error);
+      res.status(500).json({ message: "Failed to clear tasks" });
     }
   });
 

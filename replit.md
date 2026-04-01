@@ -36,7 +36,7 @@ Key features include:
 -   **Pattern Learning Engine**: RAG-style intelligence that learns from user task history to suggest topics, recurring tasks, and deadlines.
 
 ### Authentication & Security
-The system supports Google OAuth, Replit OIDC, WorkOS AuthKit (enterprise SSO), and a local email/password strategy using bcrypt. Security features include account lockout, user banning, robust password policies, input validation, security questions, hashed password reset tokens, a Security Admin UI, rate limiting, comprehensive security audit logging, request size limits, session security with httpOnly cookies, and enforced HTTPS with HSTS and CSP in production. Authentication middleware is handled by Passport.js.
+The system supports Google OAuth, Replit OIDC, WorkOS AuthKit (enterprise SSO), and a local email/password strategy using bcrypt. Security features include account lockout, user banning, robust password policies, input validation, security questions, hashed password reset tokens, a Security Admin UI, rate limiting, comprehensive security audit logging, request size limits, session security with httpOnly cookies, and enforced HTTPS with HSTS and CSP in production. Authentication middleware is handled by Passport.js. TOTP-based MFA (two-factor authentication) is available via authenticator apps (Google Authenticator, Authy, etc.) and is required for destructive actions in the Danger Zone (e.g., clearing all tasks). MFA secrets are encrypted at rest using AES-256-GCM.
 
 ### System Design Choices
 The application is designed for **Replit Autoscale** (Google Cloud Run), necessitating a stateless architecture. All persistent state (tasks, users, sessions, patterns, coins, collaboration data) resides in PostgreSQL, preventing reliance on in-memory state. File uploads and generated files are processed or streamed immediately without persistent disk storage. The deployment process involves `npm run build` to create `dist/index.js` (backend) and `dist/public/` (frontend), which are then containerized. Critical Autoscale constraints include a single exposed port, Cloud Run controlling the `PORT` environment variable, no persistent server memory or filesystem, and fast startup times. API routes and health checks must be registered before static file serving.
@@ -64,6 +64,10 @@ The application is designed for **Replit Autoscale** (Google Cloud Run), necessi
 -   **Recharts**: Data visualization.
 -   **date-fns**: Date manipulation.
 -   **framer-motion**: Animation library.
+
+### MFA / TOTP
+-   **otpauth**: TOTP code generation and verification.
+-   **qrcode**: QR code generation for MFA setup.
 
 ### File Processing
 -   **Papa Parse**: CSV processing.

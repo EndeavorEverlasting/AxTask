@@ -8,7 +8,7 @@ import bcrypt from "bcrypt";
 // ─── User helpers ────────────────────────────────────────────────────────────
 
 function toSafeUser(user: User): SafeUser {
-  const { passwordHash, securityAnswerHash, failedLoginAttempts, lockedUntil, workosId, googleId, replitId, ...safe } = user;
+  const { passwordHash, securityAnswerHash, failedLoginAttempts, lockedUntil, workosId, googleId, replitId, mfaSecret, ...safe } = user;
   return safe;
 }
 
@@ -414,6 +414,7 @@ export interface IStorage {
   getImportHistory(userId: string): Promise<ImportHistory[]>;
   findImportByFileHash(userId: string, fileHash: string): Promise<ImportHistory | undefined>;
   backfillContentHashes(): Promise<number>;
+  deleteAllTasks(userId: string): Promise<number>;
   getTaskStats(userId: string): Promise<{
     totalTasks: number;
     highPriorityTasks: number;
@@ -661,6 +662,13 @@ export class DatabaseStorage implements IStorage {
     return totalProcessed;
   }
 
+  async deleteAllTasks(userId: string): Promise<number> {
+    const result = await db
+      .delete(tasks)
+      .where(eq(tasks.userId, userId));
+    return (result.rowCount || 0);
+  }
+
   async getTaskStats(userId: string): Promise<{
     totalTasks: number;
     highPriorityTasks: number;
@@ -698,6 +706,68 @@ export class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
+
+// ─── MFA Storage ─────────────────────────────────────────────────────────────
+
+function getMfaEncryptionKey(): Buffer {
+  const key = process.env.MFA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
+  if (!key) {
+    throw new Error("MFA encryption key is not configured. Set MFA_ENCRYPTION_KEY or SESSION_SECRET environment variable.");
+  }
+  return createHash("sha256").update(key).digest();
+}
+
+function encryptMfaSecret(plaintext: string): string {
+  const { createCipheriv } = require("crypto");
+  const key = getMfaEncryptionKey();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return iv.toString("hex") + ":" + tag.toString("hex") + ":" + encrypted.toString("hex");
+}
+
+function decryptMfaSecret(ciphertext: string): string {
+  const { createDecipheriv } = require("crypto");
+  const key = getMfaEncryptionKey();
+  const parts = ciphertext.split(":");
+  if (parts.length !== 3) throw new Error("Invalid encrypted MFA secret format");
+  const iv = Buffer.from(parts[0], "hex");
+  const tag = Buffer.from(parts[1], "hex");
+  const encrypted = Buffer.from(parts[2], "hex");
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
+}
+
+export async function setMfaSecret(userId: string, secret: string): Promise<void> {
+  const encrypted = encryptMfaSecret(secret);
+  await db.update(users).set({ mfaSecret: encrypted }).where(eq(users.id, userId));
+}
+
+export async function enableMfa(userId: string): Promise<void> {
+  await db.update(users).set({ mfaEnabled: true }).where(eq(users.id, userId));
+}
+
+export async function disableMfa(userId: string): Promise<void> {
+  await db.update(users).set({ mfaEnabled: false, mfaSecret: null }).where(eq(users.id, userId));
+}
+
+export async function getMfaSecret(userId: string): Promise<string | null> {
+  const [user] = await db.select({ mfaSecret: users.mfaSecret }).from(users).where(eq(users.id, userId));
+  if (!user?.mfaSecret) return null;
+  try {
+    return decryptMfaSecret(user.mfaSecret);
+  } catch (err) {
+    console.error("Failed to decrypt MFA secret for user", userId, err);
+    return null;
+  }
+}
+
+export async function isMfaEnabled(userId: string): Promise<boolean> {
+  const [user] = await db.select({ mfaEnabled: users.mfaEnabled }).from(users).where(eq(users.id, userId));
+  return user?.mfaEnabled || false;
+}
 
 // ─── Gamification Storage ────────────────────────────────────────────────────
 
