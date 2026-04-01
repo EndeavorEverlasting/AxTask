@@ -6,9 +6,10 @@ import {
   userRewards, taskCollaborators, taskPatterns,
   classificationContributions, classificationConfirmations,
 } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import type { ExportBundle } from "./export";
+import { computeContentHash } from "../fingerprint";
 
 type AnyPgTable = PgTable;
 type AnyPgColumn = typeof users.id;
@@ -700,11 +701,54 @@ export async function importUserBundle(
       let wouldInsert = 0;
       let wouldSkip = 0;
       let wouldConflict = 0;
+
+      const dryExistingTaskHashes = new Map<string, string>();
+      const dryExistingTasks = await db.select({ id: tasks.id, contentHash: tasks.contentHash })
+        .from(tasks).where(eq(tasks.userId, targetUserId));
+      for (const t of dryExistingTasks) {
+        if (t.contentHash) dryExistingTaskHashes.set(t.contentHash, t.id);
+      }
+
+      const dryExistingBadges = new Set<string>();
+      const dryBadges = await db.select({ badgeId: userBadges.badgeId })
+        .from(userBadges).where(eq(userBadges.userId, targetUserId));
+      for (const b of dryBadges) dryExistingBadges.add(b.badgeId);
+
+      const dryExistingTxSigs = new Set<string>();
+      const dryTxs = await db.select({
+        reason: coinTransactions.reason,
+        amount: coinTransactions.amount,
+        createdAt: coinTransactions.createdAt,
+      }).from(coinTransactions).where(eq(coinTransactions.userId, targetUserId));
+      for (const t of dryTxs) dryExistingTxSigs.add(`${t.reason}|${t.amount}|${t.createdAt?.toISOString() || ""}`);
+
+      const dryExistingRewardSigs = new Set<string>();
+      const dryRwds = await db.select({
+        rewardId: userRewards.rewardId,
+        redeemedAt: userRewards.redeemedAt,
+      }).from(userRewards).where(eq(userRewards.userId, targetUserId));
+      for (const r of dryRwds) dryExistingRewardSigs.add(`${r.rewardId}|${r.redeemedAt?.toISOString() || ""}`);
+
       for (const row of rows) {
         if (hasUnresolvableFks(row, tableName)) {
           wouldSkip++;
           continue;
         }
+
+        if (tableName === "tasks") {
+          const hash = computeContentHash(String(row.activity || ""), String(row.date || ""));
+          if (dryExistingTaskHashes.has(hash)) { wouldSkip++; wouldConflict++; continue; }
+        }
+        if (tableName === "userBadges" && dryExistingBadges.has(String(row.badgeId || ""))) { wouldSkip++; wouldConflict++; continue; }
+        if (tableName === "coinTransactions") {
+          const sig = `${row.reason || ""}|${row.amount || ""}|${row.createdAt ? new Date(String(row.createdAt)).toISOString() : ""}`;
+          if (dryExistingTxSigs.has(sig)) { wouldSkip++; wouldConflict++; continue; }
+        }
+        if (tableName === "userRewards") {
+          const sig = `${row.rewardId || ""}|${row.redeemedAt ? new Date(String(row.redeemedAt)).toISOString() : ""}`;
+          if (dryExistingRewardSigs.has(sig)) { wouldSkip++; wouldConflict++; continue; }
+        }
+
         const remapped = remapRow(parseTimestamps(row), tableName, pkField, idMap);
         const pkValue = remapped[pkField];
         if (pkValue) {
@@ -748,6 +792,38 @@ export async function importUserBundle(
     };
   }
 
+  const existingTaskHashMap = new Map<string, string>();
+  const existingTasks = await db.select({ id: tasks.id, contentHash: tasks.contentHash })
+    .from(tasks).where(eq(tasks.userId, targetUserId));
+  for (const t of existingTasks) {
+    if (t.contentHash) existingTaskHashMap.set(t.contentHash, t.id);
+  }
+
+  const existingBadgeSet = new Set<string>();
+  const existingBadges = await db.select({ badgeId: userBadges.badgeId })
+    .from(userBadges).where(eq(userBadges.userId, targetUserId));
+  for (const b of existingBadges) existingBadgeSet.add(b.badgeId);
+
+  const existingTxSigs = new Set<string>();
+  const existingTx = await db.select({
+    reason: coinTransactions.reason,
+    amount: coinTransactions.amount,
+    createdAt: coinTransactions.createdAt,
+  }).from(coinTransactions).where(eq(coinTransactions.userId, targetUserId));
+  for (const tx of existingTx) {
+    const sig = `${tx.reason}|${tx.amount}|${tx.createdAt?.toISOString() || ""}`;
+    existingTxSigs.add(sig);
+  }
+
+  const existingRewardSigs = new Set<string>();
+  const existingRewards = await db.select({
+    rewardId: userRewards.rewardId,
+    redeemedAt: userRewards.redeemedAt,
+  }).from(userRewards).where(eq(userRewards.userId, targetUserId));
+  for (const r of existingRewards) {
+    existingRewardSigs.add(`${r.rewardId}|${r.redeemedAt?.toISOString() || ""}`);
+  }
+
   try {
     await db.transaction(async (tx) => {
       const insertRowTx = async (table: DrizzleTable, row: BundleRow): Promise<number> => {
@@ -775,8 +851,77 @@ export async function importUserBundle(
             continue;
           }
 
+          if (tableName === "tasks") {
+            const activity = String(rawRow.activity || "");
+            const date = String(rawRow.date || "");
+            const hash = computeContentHash(activity, date);
+            if (existingTaskHashMap.has(hash)) {
+              const existingId = existingTaskHashMap.get(hash)!;
+              const oldId = rawRow[pkField];
+              if (oldId) {
+                idMap.set(remapKey("tasks", String(oldId)), existingId);
+              }
+              skipCount++;
+              continue;
+            }
+          }
+
+          if (tableName === "userBadges") {
+            const badgeId = String(rawRow.badgeId || "");
+            if (existingBadgeSet.has(badgeId)) {
+              skipCount++;
+              continue;
+            }
+          }
+
+          if (tableName === "coinTransactions") {
+            const reason = String(rawRow.reason || "");
+            const amount = String(rawRow.amount || "");
+            const createdAt = rawRow.createdAt ? new Date(String(rawRow.createdAt)).toISOString() : "";
+            const sig = `${reason}|${amount}|${createdAt}`;
+            if (existingTxSigs.has(sig)) {
+              skipCount++;
+              continue;
+            }
+          }
+
+          if (tableName === "userRewards") {
+            const rewardId = String(rawRow.rewardId || "");
+            const redeemedAt = rawRow.redeemedAt ? new Date(String(rawRow.redeemedAt)).toISOString() : "";
+            if (existingRewardSigs.has(`${rewardId}|${redeemedAt}`)) {
+              skipCount++;
+              continue;
+            }
+          }
+
           let row = parseTimestamps(rawRow);
           row = remapRow(row, tableName, pkField, idMap);
+
+          if (tableName === "wallets") {
+            const walletUserId = String(row.userId || "");
+            const [existingWallet] = await tx.select().from(wallets)
+              .where(eq(wallets.userId, walletUserId)).limit(1);
+            if (existingWallet) {
+              const bundleBalance = Number(row.balance) || 0;
+              const bundleLifetime = Number(row.lifetimeEarned) || 0;
+              const bundleStreak = Number(row.longestStreak) || 0;
+              const needsUpdate =
+                bundleBalance > existingWallet.balance ||
+                bundleLifetime > existingWallet.lifetimeEarned ||
+                bundleStreak > existingWallet.longestStreak;
+              if (needsUpdate) {
+                await tx.update(wallets).set({
+                  balance: Math.max(existingWallet.balance, bundleBalance),
+                  lifetimeEarned: Math.max(existingWallet.lifetimeEarned, bundleLifetime),
+                  longestStreak: Math.max(existingWallet.longestStreak, bundleStreak),
+                }).where(eq(wallets.userId, walletUserId));
+                insertCount++;
+              } else {
+                skipCount++;
+              }
+              continue;
+            }
+          }
 
           if (tableName === "userRewards" && row.rewardId) {
             const [catalogExists] = await tx.select().from(rewardsCatalog)

@@ -521,10 +521,18 @@ export default function ImportExport() {
                     </div>
                   ))}
               </div>
+              {accountImportResult.skipped && Object.values(accountImportResult.skipped).some(v => (v as number) > 0) && (
+                <div className="text-xs text-gray-600 dark:text-gray-400 flex items-start gap-1">
+                  <SkipForward className="h-3 w-3 mt-0.5 shrink-0" />
+                  <span>
+                    {Object.values(accountImportResult.skipped).reduce((a, b) => (a as number) + (b as number), 0) as number} duplicate records were automatically skipped.
+                  </span>
+                </div>
+              )}
               {accountImportResult.warnings && accountImportResult.warnings.length > 0 && (
                 <div className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1">
                   <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                  {accountImportResult.warnings.length} warning(s) during import — some records may have been skipped.
+                  {accountImportResult.warnings.length} warning(s) during import.
                 </div>
               )}
             </div>
