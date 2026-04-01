@@ -126,10 +126,29 @@ The build command is: `vite build && esbuild server/index.ts --platform=node --p
 | HTTPS redirect | No | Yes — redirects HTTP→HTTPS, skips localhost |
 | Dev accounts | Seeded on every restart | Not seeded |
 
-### Deployment Configuration
+### Autoscale Deployment — How It Works and Why It Matters
 
-**Target:** Replit Autoscale (Cloud Run)
-**`.replit` deployment section:**
+AxTask deploys to **Replit Autoscale**, which runs on Google Cloud Run under the hood. Understanding Autoscale's behavior is essential because it imposes hard constraints that differ significantly from local development. Violating any of them causes silent deployment failures.
+
+#### What Autoscale Does
+
+Autoscale is a **stateless, request-driven** hosting model:
+- **Zero to many instances**: When no traffic arrives, the app scales to zero (no running containers). When requests come in, Cloud Run spins up container instances. Under load, it spins up more.
+- **Cold starts**: Because instances can scale to zero, the app must start quickly. The first request after idle may experience a cold start delay while the container boots, the server starts, and the database connection pool initializes.
+- **Stateless containers**: Each request may be handled by a different container instance. There is no shared in-memory state between instances. This is why AxTask uses PostgreSQL-backed sessions (via `connect-pg-simple`) and a PostgreSQL database for all persistent state — never server memory.
+- **Ephemeral filesystem**: The container filesystem is read-only except for `/tmp`. Uploaded files, generated PDFs, or any temp data must be served immediately or stored externally — they will not persist across requests or instances.
+- **Health checks**: Cloud Run sends periodic `GET` requests to verify the app is alive. AxTask exposes `/healthz` for this. If health checks fail, the deployment is marked unhealthy and rolled back.
+
+#### Why Autoscale Is the Right Choice for AxTask
+
+AxTask is a good fit for Autoscale because:
+- All state lives in PostgreSQL (tasks, users, sessions, patterns, coins, collaboration data)
+- WebSocket collaboration (`server/collaboration.ts`) works within a single instance's lifetime — active collaborators connect to the same instance during their session
+- The app is cost-effective: it only runs (and costs money) when users are active
+- It handles traffic spikes automatically without manual scaling
+
+#### `.replit` Deployment Configuration
+
 ```toml
 [deployment]
 deploymentTarget = "autoscale"
@@ -137,13 +156,62 @@ build = ["npm", "run", "build"]
 run = ["npm", "run", "start"]
 ```
 
-### Port Configuration (CRITICAL)
+**What happens when you publish:**
+1. Replit runs `npm run build` → produces `dist/index.js` (backend) and `dist/public/` (frontend)
+2. Replit packages the app into a container image
+3. Cloud Run deploys the image and runs `npm run start` → `cross-env NODE_ENV=production node dist/index.js`
+4. Cloud Run sets the `PORT` env var and begins sending health check probes to `/healthz`
+5. Once healthy, traffic shifts from the old version to the new one (zero-downtime rollout)
 
-- **Development**: `PORT=5000` is set in `[userenv.development]` in `.replit`. Only applies to dev environment.
-- **Production**: Cloud Run sets its own `PORT` env var (typically 8080). The server reads `process.env.PORT` and falls back to 5000 only if unset.
-- **NEVER set PORT in shared or production env vars.** Cloud Run must control this. A shared `PORT=5000` overrides Cloud Run's port and causes deployment failures.
-- **NEVER add extra `[[ports]]` entries.** Autoscale only supports a single exposed port. Only `localPort = 5000, externalPort = 80` should exist. Extra port entries (e.g., 9876→3000) cause Autoscale to reject the deployment.
-- **NEVER add a `[env]` section with `PORT`.** Use `[userenv.development]` for dev-only PORT. A `[env] PORT = "5000"` applies to all environments including production and overrides Cloud Run's PORT.
+#### Autoscale Constraints (CRITICAL — Violations Cause Silent Failures)
+
+**1. Single port only**
+Autoscale exposes exactly ONE port. The `.replit` file must have exactly ONE `[[ports]]` entry:
+```toml
+[[ports]]
+localPort = 5000
+externalPort = 80
+```
+Extra `[[ports]]` entries (even unused ones) cause Autoscale to reject the deployment with "only support a single exposed port". This has broken our deployment before — do not add port entries for test servers, WebSocket ports, or anything else.
+
+**2. Cloud Run owns the PORT env var**
+Cloud Run sets `PORT` automatically (typically 8080). The server MUST read `process.env.PORT` and bind to whatever value Cloud Run provides. The fallback to 5000 is only for local development.
+
+What this means for `.replit` configuration:
+- `PORT=5000` belongs in `[userenv.development]` ONLY — this scopes it to the dev environment
+- NEVER put PORT in `[env]` (applies to all environments, overrides Cloud Run)
+- NEVER put PORT in `[userenv.shared]` (same problem)
+- NEVER put PORT in `[userenv.production]` (overrides Cloud Run)
+
+This has broken our deployment before — a `[env] PORT = "5000"` entry forced Cloud Run to ignore its own port assignment.
+
+**3. No persistent server memory**
+Instances can be created and destroyed at any time. Do not store state in global variables, module-level caches, or in-memory Maps that need to survive across requests from different instances. All persistent data goes through PostgreSQL.
+
+**4. No persistent filesystem**
+Files written to disk (outside `/tmp`) will not persist. Uploaded files must be processed immediately. Generated files (PDFs, exports) must be streamed back in the response, not saved to disk for later retrieval.
+
+**5. Request timeout**
+Cloud Run has a default request timeout (typically 300 seconds). Long-running operations (large imports, OCR processing) must complete within this window or be broken into smaller chunks.
+
+**6. Startup must be fast and reliable**
+Cloud Run expects the app to start listening within seconds. If the server crashes on startup or takes too long, the deployment fails. Common startup killers:
+- Missing `DATABASE_URL` or other required secrets
+- Database migration errors
+- Port binding failures
+- Unhandled promise rejections during initialization
+
+#### Autoscale Impact on AxTask Features
+
+| Feature | Autoscale Behavior | Design Decision |
+|---------|-------------------|-----------------|
+| Sessions | Cannot use in-memory session store | Uses `connect-pg-simple` (PostgreSQL-backed sessions) |
+| WebSocket collaboration | Works within a single instance | Collaborators on the same task connect to the same instance; if instance recycles, they reconnect |
+| File uploads (import) | Processed immediately in the request | Large imports use streaming; no temp file persistence |
+| PDF generation | Streamed in response | PDFs are generated and piped directly to the HTTP response |
+| Dev accounts | Not seeded in production | `seedDevAccounts()` only runs when `NODE_ENV=development` |
+| CSRF tokens | Cookie-based, not server-memory | Tokens stored in cookies, validated per-request |
+| Pattern Learning | Database-backed | Patterns stored in `task_patterns` table, not in memory |
 
 ### HTTPS Redirect Behavior (CRITICAL for testing)
 
@@ -218,11 +286,13 @@ The smoke test starts the production server on port 9876 (not 5000, to avoid con
 
 ### Known Deployment Pitfalls (MUST READ)
 
-1. **PORT env var conflict**: NEVER set PORT in shared env vars or `[env]` section. Cloud Run sets its own PORT. A hardcoded `PORT=5000` in shared scope overrides Cloud Run and breaks deployment. Only use `[userenv.development]` for dev PORT.
+These pitfalls have each caused real deployment failures. See the Autoscale section above for the underlying reasons.
 
-2. **Multiple port entries break Autoscale**: The `.replit` file must have exactly ONE `[[ports]]` entry (`localPort = 5000, externalPort = 80`). Extra entries (e.g., 9876→3000) cause Autoscale to reject the deployment with "only support a single exposed port" error.
+1. **PORT env var conflict**: NEVER set PORT in shared env vars or `[env]` section. Cloud Run sets its own PORT. A hardcoded `PORT=5000` in shared scope overrides Cloud Run and breaks deployment. Only use `[userenv.development]` for dev PORT. (See Autoscale Constraint #2)
 
-3. **Route registration order**: ALL API routes and `/healthz` MUST be registered BEFORE `serveStatic(app)`. The SPA wildcard fallback in serveStatic catches everything and returns index.html. Routes registered after it are invisible.
+2. **Multiple port entries break Autoscale**: The `.replit` file must have exactly ONE `[[ports]]` entry (`localPort = 5000, externalPort = 80`). Extra entries (e.g., 9876→3000) cause Autoscale to reject the deployment with "only support a single exposed port" error. (See Autoscale Constraint #1)
+
+3. **Route registration order**: ALL API routes and `/healthz` MUST be registered BEFORE `serveStatic(app)`. The SPA wildcard fallback in serveStatic catches everything and returns index.html. Routes registered after it are invisible. This breaks the health check, which causes Autoscale to mark the deployment as unhealthy.
 
 4. **HTTPS redirect breaks local smoke tests**: The production HTTPS redirect (`server/index.ts`) must skip localhost/127.0.0.1 or smoke tests fail with 301 redirects to unreachable production URLs.
 
@@ -236,15 +306,26 @@ The smoke test starts the production server on port 9876 (not 5000, to avoid con
 
 9. **Incremental TypeScript cache**: `tsconfig.json` uses `incremental: true` with cache at `node_modules/typescript/tsbuildinfo`. If you get stale type errors after making changes, delete this file: `rm -f node_modules/typescript/tsbuildinfo`.
 
+10. **In-memory state will not work in production**: Do not rely on module-level variables, global Maps, or in-memory caches for data that must persist across requests. Different requests may hit different container instances. Use PostgreSQL for all persistent state. (See Autoscale Constraint #3)
+
 ### CSRF Protection
 
 All POST/PATCH/DELETE requests require a CSRF token. The frontend gets it from `getCsrfToken()` in `client/src/lib/queryClient.ts` and sends it as `x-csrf-token` header. Smoke tests that POST without CSRF will get 403 — this is expected behavior.
 
 ### Checklist for Agents Before Publishing
 
-1. Run `npx tsc --noEmit --pretty` — must show zero errors
-2. Run `npm run build` — must complete successfully
-3. Verify `dist/index.js`, `dist/public/index.html`, and `dist/public/assets/` exist
-4. Run `bash scripts/pre-publish-check.sh` — must pass all 6 checks
-5. Confirm PORT is NOT set in shared env vars (only in development)
-6. If Google OAuth is needed in production, confirm `https://axtask.replit.app/api/auth/google/callback` is in Google Cloud Console authorized redirect URIs
+**Autoscale-safe configuration (check FIRST — these cause silent deployment failures):**
+1. Confirm `.replit` has exactly ONE `[[ports]]` entry (`localPort = 5000, externalPort = 80`) — no extra ports
+2. Confirm PORT is NOT in `[env]` or `[userenv.shared]` — only in `[userenv.development]`
+3. Confirm `/healthz` route is registered BEFORE `serveStatic(app)` in `server/index.ts`
+4. Confirm no new feature relies on in-memory state that must persist across requests
+
+**Build and validation:**
+5. Run `npx tsc --noEmit --pretty` — must show zero errors
+6. Run `npm run build` — must complete successfully
+7. Verify `dist/index.js`, `dist/public/index.html`, and `dist/public/assets/` exist
+8. Run `bash scripts/pre-publish-check.sh` — must pass all 6 checks
+
+**External dependencies:**
+9. If Google OAuth is needed in production, confirm `https://axtask.replit.app/api/auth/google/callback` is in Google Cloud Console authorized redirect URIs
+10. If new external resources were added (fonts, scripts, CDN), confirm they are listed in the Helmet CSP directives in `server/index.ts`
