@@ -1,7 +1,7 @@
 # AxTask — Priority Engine Task Management System
 
 ## Overview
-AxTask is a full-stack intelligent task management application designed to automate task prioritization. It uses an advanced scoring engine that analyzes task content, keywords, tags, and other factors to assign priorities, thereby reducing manual effort and enhancing task organization. The project aims to provide a professional, secure, and highly functional task management solution with a clean user experience.
+AxTask is a full-stack intelligent task management application that automates task prioritization using an advanced scoring engine. It analyzes task content, keywords, tags, and other factors to assign priorities, reducing manual effort and enhancing task organization. The project aims to deliver a professional, secure, and highly functional task management solution with a clean user experience.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -9,44 +9,37 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### UI/UX Decisions
-The application uses React 18 with TypeScript, `shadcn/ui` (built on Radix UI), and Tailwind CSS for styling. It features a fully mobile-responsive design, adapting layout and components for smaller screens. Advanced accessibility features include a dynamic focus glow system, auto-focus for quick entry, improved button labels, full keyboard navigation, and UI scale control.
+The application leverages React 18 with TypeScript, `shadcn/ui` (built on Radix UI), and Tailwind CSS for a mobile-responsive design. It incorporates advanced accessibility features such as dynamic focus glow, auto-focus for quick entry, enhanced button labels, full keyboard navigation, and UI scale control. `framer-motion` is used for animations, respecting `prefers-reduced-motion`.
 
 ### Technical Implementations
-The frontend utilizes TanStack Query for state management, Wouter for routing, and React Hook Form with Zod for form handling. The backend runs on Node.js with Express.js (TypeScript, ES modules). PostgreSQL with Drizzle ORM is used for the database, and the API is RESTful with JSON responses. Session management is handled by PostgreSQL-backed storage. Both client and server-side validation are enforced with Zod schemas.
+The frontend utilizes TanStack Query for state management, Wouter for routing, and React Hook Form with Zod for form handling. The backend is built with Node.js and Express.js (TypeScript, ES modules). PostgreSQL with Drizzle ORM serves as the database, and the API is RESTful with JSON responses. Both client and server-side validation are enforced with Zod schemas. Session management is handled by PostgreSQL-backed storage.
 
 Key features include:
--   **Priority Engine**: An intelligent algorithm factoring in urgency, impact, effort, keywords, tags, deadlines, and crisis detection.
--   **Calendar Views**: Interactive task management with drag-and-drop rescheduling across multiple time-based views.
+-   **Priority Engine**: An algorithm that considers urgency, impact, effort, keywords, tags, deadlines, and crisis detection.
+-   **Calendar Views**: Interactive task management with drag-and-drop rescheduling.
 -   **Import/Export System**: Bulk Excel/CSV import and export with server-side batch processing.
--   **Print Checklist & OCR**: Generates printable PDF checklists and allows OCR scanning of completed checklists for automated task status updates.
--   **AI Planner Agent**: An intelligent planning panel offering daily briefings, recommended tasks with priority reasoning, weekly mini-calendars, and a conversational Q&A interface.
--   **Analytics Dashboard**: Provides visual insights into task metrics.
+-   **Print Checklist & OCR**: Generates printable PDF checklists and allows OCR scanning for automated status updates.
+-   **AI Planner Agent**: Provides daily briefings, recommended tasks, weekly mini-calendars, and a conversational Q&A interface.
+-   **Analytics Dashboard**: Offers visual insights into task metrics.
 -   **Real-time Updates**: Achieved through optimistic updates and cache invalidation.
--   **Task Search**: Full-text search with debounce.
--   **Performance Optimizations**: Includes `React.memo`, debouncing, SQL aggregate queries, bulk updates, and database indexing.
--   **Animations**: Uses `framer-motion` for various UI animations, respecting `prefers-reduced-motion`.
--   **Voice Input**: Browser-native Web Speech API for dictating task activity and notes, including voice commands for task attributes.
--   **Universal Voice Command System**: A global voice command bar (Ctrl+M) with server-side dispatching to classify intent (task creation, planner query, calendar command, navigation, search, task review) and process commands through dedicated engines.
--   **Immersive Mobile Voice Overlay**: Full-screen mobile voice experience with animated waveform bars, large mic button with ripple effects, intent-branded result cards, swipe-down-to-close gesture, auto-start listening, and full accessibility (dialog role, aria labels, focus management, reduced motion respect). Desktop retains the compact command bar.
--   **Task Review Engine**: Voice/text-driven bulk task management with natural language parsing to process user feedback on recommended tasks and generate structured proposals for approval.
--   **Gamification (AxCoins)**: A currency and rewards system with coin earning (priority-based amounts, on-time bonuses, streak multipliers), achievement badges, a Rewards Shop, and transaction history.
--   **Classification Rewards & Compound Interest**: Users earn AxCoins for classifying tasks, with additional coins earned for confirmations from other users and compound interest.
--   **Data Migration Toolkit**: Full database export/import with referential integrity validation, including an admin UI and user self-service options for GDPR data portability.
--   **Task Recurrence**: Tasks can be configured with various recurrence schedules (daily, weekly, monthly, etc.) plus custom day-of-week (`custom:days:mon,wed,fri`) and day-of-month (`custom:dates:1,15`) patterns via an interactive picker UI.
--   **Cleanup Bonus**: Users earn 4 AxCoins for meaningful updates to pending tasks older than 7 days (once per task). Stats shown on Rewards Profile tab.
--   **Proactive Field Glow Warnings**: Visual cues (yellow glow) for empty required fields in forms, clearing upon input.
--   **Universal Glow System**: Five CSS glow classes (`field-glow-hint`, `field-glow-warning`, `field-glow-success`, `field-glow-tutorial`, `field-glow-tutorial-success`) for various UI feedback and tutorial purposes.
--   **Interactive Tutorial**: A 14-step guided walkthrough covering key application features, utilizing the universal glow system.
--   **Real-time Collaboration**: Google Drive-style collaborative task editing via WebSocket, including task sharing with role-based permissions, live presence indicators, and real-time field edit broadcasting.
--   **Collaboration Rewards**: Users earn AxCoins for sharing tasks and completing collaborative tasks, including collaboration-specific badges.
--   **Coin Economy (Spend & Scarcity)**: Consumable coin sinks such as Streak Shields, Priority Boost, Task Bounties, and Coin Gifting to create ongoing demand for AxCoins.
--   **Pattern Learning Engine**: RAG-style intelligence that learns from user task history to detect topics, recurring tasks, deadline rhythms, and suggest deadlines.
+-   **Voice Input & Universal Voice Command System**: Browser-native Web Speech API for task dictation and global voice commands (Ctrl+M) for intent classification (task creation, planner query, etc.).
+-   **Immersive Mobile Voice Overlay**: Full-screen mobile voice experience with animated waveforms and branded result cards.
+-   **Task Review Engine**: Voice/text-driven bulk task management with natural language parsing.
+-   **Gamification (AxCoins)**: A currency and rewards system for task classification, on-time bonuses, streaks, achievements, and a Rewards Shop.
+-   **Data Migration Toolkit**: Full database export/import with referential integrity validation.
+-   **Task Recurrence**: Configurable recurrence schedules including custom day/date patterns.
+-   **Proactive Field Glow Warnings**: Visual cues for empty required fields.
+-   **Universal Glow System**: CSS glow classes for various UI feedback and tutorial purposes.
+-   **Interactive Tutorial**: A guided walkthrough utilizing the universal glow system.
+-   **Real-time Collaboration**: Google Drive-style collaborative task editing via WebSocket with live presence and role-based permissions.
+-   **Coin Economy (Spend & Scarcity)**: Consumable coin sinks like Streak Shields, Priority Boost, Task Bounties, and Coin Gifting.
+-   **Pattern Learning Engine**: RAG-style intelligence that learns from user task history to suggest topics, recurring tasks, and deadlines.
 
 ### Authentication & Security
-The system features multi-tier authentication supporting Google OAuth, Replit OIDC, WorkOS AuthKit (enterprise SSO), and a hardened local email/password strategy using bcrypt. Security measures include account lockout, user banning, robust password policies, input validation, security questions, hashed password reset tokens, a Security Admin UI, rate limiting, comprehensive security audit logging, request size limits, session security with httpOnly cookies, and enforced HTTPS with HSTS and CSP in production.
+The system supports Google OAuth, Replit OIDC, WorkOS AuthKit (enterprise SSO), and a local email/password strategy using bcrypt. Security features include account lockout, user banning, robust password policies, input validation, security questions, hashed password reset tokens, a Security Admin UI, rate limiting, comprehensive security audit logging, request size limits, session security with httpOnly cookies, and enforced HTTPS with HSTS and CSP in production. Authentication middleware is handled by Passport.js.
 
-### Database Schema
-Key tables include `users`, `password_reset_tokens`, `security_logs`, `tasks`, `task_collaborators`, `task_patterns`, `classification_contributions`, and `classification_confirmations`. Sessions are managed by `connect-pg-simple`.
+### System Design Choices
+The application is designed for **Replit Autoscale** (Google Cloud Run), necessitating a stateless architecture. All persistent state (tasks, users, sessions, patterns, coins, collaboration data) resides in PostgreSQL, preventing reliance on in-memory state. File uploads and generated files are processed or streamed immediately without persistent disk storage. The deployment process involves `npm run build` to create `dist/index.js` (backend) and `dist/public/` (frontend), which are then containerized. Critical Autoscale constraints include a single exposed port, Cloud Run controlling the `PORT` environment variable, no persistent server memory or filesystem, and fast startup times. API routes and health checks must be registered before static file serving.
 
 ## External Dependencies
 
@@ -70,6 +63,7 @@ Key tables include `users`, `password_reset_tokens`, `security_logs`, `tasks`, `
 -   **Lucide React**: Icons.
 -   **Recharts**: Data visualization.
 -   **date-fns**: Date manipulation.
+-   **framer-motion**: Animation library.
 
 ### File Processing
 -   **Papa Parse**: CSV processing.
@@ -78,254 +72,8 @@ Key tables include `users`, `password_reset_tokens`, `security_logs`, `tasks`, `
 -   **multer**: File uploads.
 -   **Tesseract.js**: OCR engine.
 
-### Development
+### Development Utilities
 -   **Vite**: Frontend build tool.
 -   **esbuild**: Backend bundling.
 -   **TypeScript**: Language.
 -   **Tailwind CSS**: Styling framework.
--   **Vitest**: Testing framework.
--   **cross-env**: Cross-platform environment variables.
-
----
-
-## Build, Deploy & Publish Reference
-
-This section is the authoritative reference for building, deploying, and publishing AxTask. Any AI agent working on this project MUST read this section before making changes that affect the build or deployment pipeline.
-
-### Build Pipeline (What Happens When You Run `npm run build`)
-
-The build command is: `vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist`
-
-**Step 1: Vite builds the frontend**
-- Source: `client/` directory (root set in `vite.config.ts`)
-- Output: `dist/public/` (index.html, CSS bundle, JS bundle)
-- Aliases resolved: `@/` → `client/src/`, `@shared/` → `shared/`, `@assets/` → `attached_assets/`
-- React plugin handles JSX transform (no explicit React import needed)
-
-**Step 2: esbuild bundles the backend**
-- Source: `server/index.ts` (single entry point)
-- Output: `dist/index.js` (ESM format, ~262KB)
-- `--packages=external` means node_modules are NOT bundled — they're imported at runtime from `node_modules/`
-- `--platform=node` targets Node.js
-
-**Build outputs that MUST exist after successful build:**
-- `dist/index.js` — Backend entry point (should be >100KB)
-- `dist/public/index.html` — SPA entry point
-- `dist/public/assets/index-*.css` — CSS bundle
-- `dist/public/assets/index-*.js` — JS bundle (~1.4MB)
-
-### Development vs Production Server
-
-| Aspect | Development (`npm run dev`) | Production (`npm run start`) |
-|--------|---------------------------|------------------------------|
-| Command | `cross-env NODE_ENV=development tsx server/index.ts` | `cross-env NODE_ENV=production node dist/index.js` |
-| Frontend | Vite dev server (HMR, no build needed) | Static files from `dist/public/` |
-| Backend | `tsx` runs TypeScript directly | `node` runs bundled `dist/index.js` |
-| Port | `PORT` env var or 5000 | `PORT` env var (Cloud Run sets this) or 5000 |
-| Helmet/CSP | Disabled (`isDev = true`) | Full CSP, HSTS, HTTPS enforcement |
-| HTTPS redirect | No | Yes — redirects HTTP→HTTPS, skips localhost |
-| Dev accounts | Seeded on every restart | Not seeded |
-
-### Autoscale Deployment — How It Works and Why It Matters
-
-AxTask deploys to **Replit Autoscale**, which runs on Google Cloud Run under the hood. Understanding Autoscale's behavior is essential because it imposes hard constraints that differ significantly from local development. Violating any of them causes silent deployment failures.
-
-#### What Autoscale Does
-
-Autoscale is a **stateless, request-driven** hosting model:
-- **Zero to many instances**: When no traffic arrives, the app scales to zero (no running containers). When requests come in, Cloud Run spins up container instances. Under load, it spins up more.
-- **Cold starts**: Because instances can scale to zero, the app must start quickly. The first request after idle may experience a cold start delay while the container boots, the server starts, and the database connection pool initializes.
-- **Stateless containers**: Each request may be handled by a different container instance. There is no shared in-memory state between instances. This is why AxTask uses PostgreSQL-backed sessions (via `connect-pg-simple`) and a PostgreSQL database for all persistent state — never server memory.
-- **Ephemeral filesystem**: The container filesystem is read-only except for `/tmp`. Uploaded files, generated PDFs, or any temp data must be served immediately or stored externally — they will not persist across requests or instances.
-- **Health checks**: Cloud Run sends periodic `GET` requests to verify the app is alive. AxTask exposes `/healthz` for this. If health checks fail, the deployment is marked unhealthy and rolled back.
-
-#### Why Autoscale Is the Right Choice for AxTask
-
-AxTask is a good fit for Autoscale because:
-- All state lives in PostgreSQL (tasks, users, sessions, patterns, coins, collaboration data)
-- WebSocket collaboration (`server/collaboration.ts`) works within a single instance's lifetime — active collaborators connect to the same instance during their session
-- The app is cost-effective: it only runs (and costs money) when users are active
-- It handles traffic spikes automatically without manual scaling
-
-#### `.replit` Deployment Configuration
-
-```toml
-[deployment]
-deploymentTarget = "autoscale"
-build = ["npm", "run", "build"]
-run = ["npm", "run", "start"]
-```
-
-**What happens when you publish:**
-1. Replit runs `npm run build` → produces `dist/index.js` (backend) and `dist/public/` (frontend)
-2. Replit packages the app into a container image
-3. Cloud Run deploys the image and runs `npm run start` → `cross-env NODE_ENV=production node dist/index.js`
-4. Cloud Run sets the `PORT` env var and begins sending health check probes to `/healthz`
-5. Once healthy, traffic shifts from the old version to the new one (zero-downtime rollout)
-
-#### Autoscale Constraints (CRITICAL — Violations Cause Silent Failures)
-
-**1. Single port only**
-Autoscale exposes exactly ONE port. The `.replit` file must have exactly ONE `[[ports]]` entry:
-```toml
-[[ports]]
-localPort = 5000
-externalPort = 80
-```
-Extra `[[ports]]` entries (even unused ones) cause Autoscale to reject the deployment with "only support a single exposed port". This has broken our deployment before — do not add port entries for test servers, WebSocket ports, or anything else.
-
-**2. Cloud Run owns the PORT env var**
-Cloud Run sets `PORT` automatically (typically 8080). The server MUST read `process.env.PORT` and bind to whatever value Cloud Run provides. The fallback to 5000 is only for local development.
-
-What this means for `.replit` configuration:
-- `PORT=5000` belongs in `[userenv.development]` ONLY — this scopes it to the dev environment
-- NEVER put PORT in `[env]` (applies to all environments, overrides Cloud Run)
-- NEVER put PORT in `[userenv.shared]` (same problem)
-- NEVER put PORT in `[userenv.production]` (overrides Cloud Run)
-
-This has broken our deployment before — a `[env] PORT = "5000"` entry forced Cloud Run to ignore its own port assignment.
-
-**3. No persistent server memory**
-Instances can be created and destroyed at any time. Do not store state in global variables, module-level caches, or in-memory Maps that need to survive across requests from different instances. All persistent data goes through PostgreSQL.
-
-**4. No persistent filesystem**
-Files written to disk (outside `/tmp`) will not persist. Uploaded files must be processed immediately. Generated files (PDFs, exports) must be streamed back in the response, not saved to disk for later retrieval.
-
-**5. Request timeout**
-Cloud Run has a default request timeout (typically 300 seconds). Long-running operations (large imports, OCR processing) must complete within this window or be broken into smaller chunks.
-
-**6. Startup must be fast and reliable**
-Cloud Run expects the app to start listening within seconds. If the server crashes on startup or takes too long, the deployment fails. Common startup killers:
-- Missing `DATABASE_URL` or other required secrets
-- Database migration errors
-- Port binding failures
-- Unhandled promise rejections during initialization
-
-#### Autoscale Impact on AxTask Features
-
-| Feature | Autoscale Behavior | Design Decision |
-|---------|-------------------|-----------------|
-| Sessions | Cannot use in-memory session store | Uses `connect-pg-simple` (PostgreSQL-backed sessions) |
-| WebSocket collaboration | Works within a single instance | Collaborators on the same task connect to the same instance; if instance recycles, they reconnect |
-| File uploads (import) | Processed immediately in the request | Large imports use streaming; no temp file persistence |
-| PDF generation | Streamed in response | PDFs are generated and piped directly to the HTTP response |
-| Dev accounts | Not seeded in production | `seedDevAccounts()` only runs when `NODE_ENV=development` |
-| CSRF tokens | Cookie-based, not server-memory | Tokens stored in cookies, validated per-request |
-| Pattern Learning | Database-backed | Patterns stored in `task_patterns` table, not in memory |
-
-### HTTPS Redirect Behavior (CRITICAL for testing)
-
-In production (`NODE_ENV=production`), the server (`server/index.ts` lines 50-67):
-1. Skips redirect for `localhost` and `127.0.0.1` — allows local smoke testing
-2. Checks `x-forwarded-proto` header first (Cloud Run terminates TLS at load balancer and sends this header)
-3. Falls back to `req.protocol` check
-4. Redirects non-canonical hostnames to `axtask.replit.app`
-
-**Why this matters:** When smoke-testing the production build locally (`PORT=9876 NODE_ENV=production node dist/index.js`), requests to `http://localhost:9876/...` would get 301-redirected to `https://axtask.replit.app/...` without the localhost bypass. The smoke test would then fail because it can't reach the production domain from the test environment.
-
-### Health Check Endpoint
-
-Route: `GET /healthz` → responds `200 "ok"`
-Registered in `server/index.ts` BEFORE `serveStatic(app)`. This is critical — if registered after, the SPA fallback in `serveStatic()` catches `/healthz` first and returns `index.html` instead of "ok".
-
-### Static File Serving (SPA Fallback)
-
-`server/vite.ts` → `serveStatic()`:
-- Serves files from `dist/public/` using `express.static()`
-- Wildcard fallback: any request that doesn't match a static file gets `index.html` (SPA routing)
-- This means ANY route registered AFTER `serveStatic()` will be invisible — the wildcard catches it first
-
-**Rule: All API routes and healthz MUST be registered BEFORE `serveStatic(app)` is called.**
-
-### Google OAuth in Production
-
-The OAuth redirect URI is auto-detected from request headers (`x-forwarded-host`, `x-forwarded-proto`) in `server/auth-providers.ts`. This means:
-- Dev: auto-detects `https://<dev-domain>.spock.replit.dev/api/auth/google/callback`
-- Production: auto-detects `https://axtask.replit.app/api/auth/google/callback`
-- The `GOOGLE_REDIRECT_URI` env var is no longer used.
-
-**Google Cloud Console requirement:** The production callback URI `https://axtask.replit.app/api/auth/google/callback` MUST be registered as an authorized redirect URI in Google Cloud Console → Credentials → OAuth 2.0 Client → Authorized redirect URIs. Without this, Google returns a 403 error.
-
-### TypeScript Configuration
-
-`tsconfig.json` key settings:
-- `target: "ES2020"` and `downlevelIteration: true` — required for Map/Set iteration (`for...of` on Maps, spreading Sets)
-- `strict: true` — full type checking enforced
-- `skipLibCheck: true` — skips type-checking `.d.ts` files from node_modules
-- `moduleResolution: "bundler"` — required for Vite/esbuild resolution
-- Includes: `client/src/**/*`, `shared/**/*`, `server/**/*`
-
-### Environment Variables
-
-| Variable | Scope | Purpose |
-|----------|-------|---------|
-| `PORT` | development only | Server port (5000 in dev, Cloud Run sets in prod) |
-| `REGISTRATION_MODE` | shared | "open" allows self-registration |
-| `DATABASE_URL` | secret (runtime) | PostgreSQL connection string (Replit managed) |
-| `SESSION_SECRET` | secret | Express session encryption key |
-| `GOOGLE_CLIENT_ID` | secret | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | secret | Google OAuth client secret |
-| `GOOGLE_REDIRECT_URI` | secret (LEGACY) | No longer used — auto-detected from headers |
-
-### Pre-Publish Validation
-
-Run: `bash scripts/pre-publish-check.sh`
-
-The script performs 6 checks in order. If any critical check fails, it exits with code 1 (blocking publish). Warnings are informational.
-
-| Step | What it checks | Failure means |
-|------|---------------|---------------|
-| 1. TypeScript | `tsc --noEmit` zero errors | Type errors will likely cause runtime crashes |
-| 2. Build | `npm run build` succeeds | Frontend or backend bundling is broken |
-| 3. Artifacts | `dist/index.js` >1KB, `dist/public/` ≥2 files, `index.html` exists | Build produced incomplete output |
-| 4. Smoke test | Starts server on port 9876, `/healthz` → 200 | Server crashes on startup or healthz is unreachable |
-| 5. Auth | `/api/auth/config` has providers, `/api/auth/me` → 401, login rejects bad creds, Google login → 302 | Auth system is broken |
-| 6. Static | `/` → 200, index.html has CSS+JS refs | Frontend isn't being served |
-
-The smoke test starts the production server on port 9876 (not 5000, to avoid conflicting with the dev server). It retries up to 5 times with 1-second delays before declaring failure.
-
-### Known Deployment Pitfalls (MUST READ)
-
-These pitfalls have each caused real deployment failures. See the Autoscale section above for the underlying reasons.
-
-1. **PORT env var conflict**: NEVER set PORT in shared env vars or `[env]` section. Cloud Run sets its own PORT. A hardcoded `PORT=5000` in shared scope overrides Cloud Run and breaks deployment. Only use `[userenv.development]` for dev PORT. (See Autoscale Constraint #2)
-
-2. **Multiple port entries break Autoscale**: The `.replit` file must have exactly ONE `[[ports]]` entry (`localPort = 5000, externalPort = 80`). Extra entries (e.g., 9876→3000) cause Autoscale to reject the deployment with "only support a single exposed port" error. (See Autoscale Constraint #1)
-
-3. **Route registration order**: ALL API routes and `/healthz` MUST be registered BEFORE `serveStatic(app)`. The SPA wildcard fallback in serveStatic catches everything and returns index.html. Routes registered after it are invisible. This breaks the health check, which causes Autoscale to mark the deployment as unhealthy.
-
-4. **HTTPS redirect breaks local smoke tests**: The production HTTPS redirect (`server/index.ts`) must skip localhost/127.0.0.1 or smoke tests fail with 301 redirects to unreachable production URLs.
-
-5. **HTTPS detection uses x-forwarded-proto**: Cloud Run terminates TLS at the load balancer. The actual request to the app is HTTP. Check `req.get("x-forwarded-proto")` NOT `req.protocol` to determine if the original request was HTTPS.
-
-6. **Google OAuth 403**: Production domain must be in Google Cloud Console authorized redirect URIs. The redirect URI is auto-detected from request headers — do not hardcode it.
-
-7. **Helmet CSP blocks resources**: In production, Helmet enforces Content-Security-Policy. If you add new external resources (fonts, scripts, images, APIs), you must update the CSP directives in `server/index.ts`.
-
-8. **esbuild uses external packages**: The backend bundle does NOT include node_modules. The production server needs `node_modules/` present. This is handled by Replit's deployment — it runs `npm install` during the build step.
-
-9. **Incremental TypeScript cache**: `tsconfig.json` uses `incremental: true` with cache at `node_modules/typescript/tsbuildinfo`. If you get stale type errors after making changes, delete this file: `rm -f node_modules/typescript/tsbuildinfo`.
-
-10. **In-memory state will not work in production**: Do not rely on module-level variables, global Maps, or in-memory caches for data that must persist across requests. Different requests may hit different container instances. Use PostgreSQL for all persistent state. (See Autoscale Constraint #3)
-
-### CSRF Protection
-
-All POST/PATCH/DELETE requests require a CSRF token. The frontend gets it from `getCsrfToken()` in `client/src/lib/queryClient.ts` and sends it as `x-csrf-token` header. Smoke tests that POST without CSRF will get 403 — this is expected behavior.
-
-### Checklist for Agents Before Publishing
-
-**Autoscale-safe configuration (check FIRST — these cause silent deployment failures):**
-1. Confirm `.replit` has exactly ONE `[[ports]]` entry (`localPort = 5000, externalPort = 80`) — no extra ports
-2. Confirm PORT is NOT in `[env]` or `[userenv.shared]` — only in `[userenv.development]`
-3. Confirm `/healthz` route is registered BEFORE `serveStatic(app)` in `server/index.ts`
-4. Confirm no new feature relies on in-memory state that must persist across requests
-
-**Build and validation:**
-5. Run `npx tsc --noEmit --pretty` — must show zero errors
-6. Run `npm run build` — must complete successfully
-7. Verify `dist/index.js`, `dist/public/index.html`, and `dist/public/assets/` exist
-8. Run `bash scripts/pre-publish-check.sh` — must pass all 6 checks
-
-**External dependencies:**
-9. If Google OAuth is needed in production, confirm `https://axtask.replit.app/api/auth/google/callback` is in Google Cloud Console authorized redirect URIs
-10. If new external resources were added (fonts, scripts, CDN), confirm they are listed in the Helmet CSP directives in `server/index.ts`

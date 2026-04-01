@@ -12,7 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
-import { Upload, Download, FileText, AlertCircle, AlertTriangle, CheckCircle2, Loader2, History, ShieldAlert, SkipForward } from "lucide-react";
+import { Upload, Download, FileText, AlertCircle, AlertTriangle, CheckCircle2, Loader2, History, ShieldAlert, SkipForward, DatabaseBackup, PackageOpen } from "lucide-react";
 
 interface SheetInfo {
   sheetName: string;
@@ -44,6 +44,17 @@ export default function ImportExport() {
   const [fileContent, setFileContent] = useState<string>("");
   const [fileName, setFileName] = useState<string>("");
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+
+  const [isExportingAccount, setIsExportingAccount] = useState(false);
+  const [isImportingAccount, setIsImportingAccount] = useState(false);
+  const [accountImportResult, setAccountImportResult] = useState<{
+    success: boolean;
+    inserted: Record<string, number>;
+    skipped: Record<string, number>;
+    errors: any[];
+    warnings: any[];
+  } | null>(null);
+  const accountFileRef = useRef<HTMLInputElement>(null);
 
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -280,6 +291,127 @@ export default function ImportExport() {
     });
   };
 
+  const handleAccountExport = async () => {
+    setIsExportingAccount(true);
+    try {
+      const response = await fetch("/api/account/export", { credentials: "include" });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ message: "Export failed" }));
+        throw new Error(err.message);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `my-axtask-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Account backup downloaded",
+        description: "Your full account data has been exported including tasks, coins, badges, and patterns.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Account export failed",
+        description: error.message || "Could not export account data.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExportingAccount(false);
+    }
+  };
+
+  const handleAccountImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith(".json")) {
+      toast({
+        title: "Invalid file",
+        description: "Please select a .json backup file exported from AxTask.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsImportingAccount(true);
+    setAccountImportResult(null);
+
+    try {
+      const text = await file.text();
+      const bundle = JSON.parse(text);
+
+      if (!bundle.metadata || !bundle.data) {
+        throw new Error("This doesn't look like an AxTask backup file. It should have metadata and data sections.");
+      }
+
+      const dryRunResponse = await apiRequest("POST", "/api/account/import", { bundle, dryRun: true });
+      const dryResult = await dryRunResponse.json();
+
+      if (dryResult.errors && dryResult.errors.length > 0) {
+        const errorMsgs = dryResult.errors.slice(0, 5).map((e: any) => `${e.table}: ${e.message}`).join("; ");
+        throw new Error(`Validation issues: ${errorMsgs}`);
+      }
+
+      const response = await apiRequest("POST", "/api/account/import", { bundle, dryRun: false });
+      const result = await response.json();
+
+      setAccountImportResult(result);
+
+      if (!result.success || (result.errors && result.errors.length > 0)) {
+        const errorCount = result.errors?.length || 0;
+        toast({
+          title: "Account restore had issues",
+          description: `Import completed with ${errorCount} error(s). Some data may not have been restored.`,
+          variant: "destructive",
+        });
+      } else {
+        const totalInserted = Object.values(result.inserted as Record<string, number>).reduce((a, b) => a + b, 0);
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/rewards"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/cleanup-stats"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/patterns/insights"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/import-history"] });
+
+        toast({
+          title: "Account restore complete",
+          description: `${totalInserted} records imported across all tables.`,
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Account import failed",
+        description: error.message || "Could not import account data.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsImportingAccount(false);
+      if (accountFileRef.current) accountFileRef.current.value = "";
+    }
+  };
+
+  const ACCOUNT_TABLE_LABELS: Record<string, string> = {
+    tasks: "Tasks",
+    wallets: "Wallet",
+    coinTransactions: "Coin Transactions",
+    userBadges: "Badges",
+    userRewards: "Rewards",
+    taskPatterns: "Learned Patterns",
+    taskCollaborators: "Collaborators",
+    classificationContributions: "Classifications",
+    classificationConfirmations: "Confirmations",
+    users: "User Profile",
+    rewardsCatalog: "Reward Catalog",
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div>
@@ -287,15 +419,140 @@ export default function ImportExport() {
         <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">Sync your tasks with Google Sheets or other tools</p>
       </div>
 
+      <Card className="border-2 border-blue-200 dark:border-blue-800">
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <DatabaseBackup className="mr-2 h-5 w-5 text-blue-600" />
+            Full Account Backup & Restore
+          </CardTitle>
+          <CardDescription>
+            Export or restore your complete account — tasks, AxCoins, wallet, badges, patterns, and all associated data. Use this to migrate between environments or create a full backup.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div className="text-sm font-medium">Export Everything</div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Downloads a single .json file containing all your tasks, coin balance, transaction history, badges, learned patterns, and collaborator data.
+              </p>
+              <Button
+                onClick={handleAccountExport}
+                disabled={isExportingAccount}
+                className="w-full"
+                variant="default"
+              >
+                {isExportingAccount ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                {isExportingAccount ? "Exporting..." : "Download Full Backup"}
+              </Button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="text-sm font-medium">Restore from Backup</div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Upload a previously exported .json backup to restore your data. A validation check runs first to catch any issues before importing.
+              </p>
+              <div className="space-y-2">
+                <Input
+                  ref={accountFileRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleAccountImport}
+                  disabled={isImportingAccount}
+                />
+              </div>
+              {isImportingAccount && (
+                <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                  <span className="text-sm text-blue-900 dark:text-blue-100">Validating and importing...</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {accountImportResult && (
+            <div className={`mt-4 p-4 rounded-lg space-y-3 ${
+              accountImportResult.success
+                ? "bg-green-50 dark:bg-green-900/30"
+                : "bg-red-50 dark:bg-red-900/30"
+            }`}>
+              <div className="flex items-center gap-2">
+                {accountImportResult.success ? (
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5 text-red-600" />
+                )}
+                <span className={`text-sm font-medium ${
+                  accountImportResult.success
+                    ? "text-green-900 dark:text-green-100"
+                    : "text-red-900 dark:text-red-100"
+                }`}>
+                  {accountImportResult.success ? "Account Restore Complete" : "Account Restore Had Issues"}
+                </span>
+              </div>
+              {accountImportResult.errors && accountImportResult.errors.length > 0 && (
+                <div className="text-xs text-red-700 dark:text-red-300 space-y-1">
+                  {accountImportResult.errors.slice(0, 5).map((err: any, i: number) => (
+                    <div key={i} className="flex items-start gap-1">
+                      <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                      <span>{err.table}: {err.message}</span>
+                    </div>
+                  ))}
+                  {accountImportResult.errors.length > 5 && (
+                    <div className="text-red-600">...and {accountImportResult.errors.length - 5} more errors</div>
+                  )}
+                </div>
+              )}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-center text-xs">
+                {Object.entries(accountImportResult.inserted)
+                  .filter(([, count]) => (count as number) > 0)
+                  .map(([table, count]) => (
+                    <div key={table} className="p-2 bg-white dark:bg-gray-800 rounded">
+                      <div className="font-bold text-lg text-green-700 dark:text-green-300">
+                        {(count as number).toLocaleString()}
+                      </div>
+                      <div className="text-gray-600 dark:text-gray-400">
+                        {ACCOUNT_TABLE_LABELS[table] || table}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              {accountImportResult.warnings && accountImportResult.warnings.length > 0 && (
+                <div className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1">
+                  <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                  {accountImportResult.warnings.length} warning(s) during import — some records may have been skipped.
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
+            <div className="flex items-start gap-2">
+              <PackageOpen className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+              <div className="text-xs text-blue-900 dark:text-blue-100">
+                <p className="font-medium mb-1">What's included in a full backup:</p>
+                <span className="text-blue-700 dark:text-blue-300">
+                  Tasks, AxCoin wallet & balance, transaction history, earned badges, purchased rewards, learned patterns, collaborator links, and classification data.
+                </span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center">
               <Download className="mr-2 h-5 w-5" />
-              Export Tasks
+              Export Tasks (CSV)
             </CardTitle>
             <CardDescription>
-              Download your tasks as a CSV file for use in Google Sheets or other applications.
+              Download your tasks as a CSV file for use in Google Sheets or other applications. For a full backup including coins and badges, use the backup tool above.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
