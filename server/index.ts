@@ -198,7 +198,7 @@ app.use((req, res, next) => {
   }
 
   const port = parseInt(process.env.PORT || '5000', 10);
-  console.log(`[startup] NODE_ENV=${process.env.NODE_ENV}, binding to port ${port}`);
+  console.log(`[startup] NODE_ENV=${process.env.NODE_ENV}, PORT env=${process.env.PORT || '(not set, defaulting to 5000)'}, binding to port ${port}`);
 
   const killPortAndListen = async (targetPort: number, retries = 2): Promise<void> => {
     return new Promise((resolve, reject) => {
@@ -236,6 +236,7 @@ app.use((req, res, next) => {
         () => {
           server.removeListener("error", onError);
           log(`serving on port ${targetPort}`);
+          console.log(`[startup] Server is listening on 0.0.0.0:${targetPort} — ready for traffic`);
           resolve();
         },
       );
