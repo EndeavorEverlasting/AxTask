@@ -142,7 +142,8 @@ run = ["npm", "run", "start"]
 - **Development**: `PORT=5000` is set in `[userenv.development]` in `.replit`. Only applies to dev environment.
 - **Production**: Cloud Run sets its own `PORT` env var (typically 8080). The server reads `process.env.PORT` and falls back to 5000 only if unset.
 - **NEVER set PORT in shared or production env vars.** Cloud Run must control this. A shared `PORT=5000` overrides Cloud Run's port and causes deployment failures.
-- The `.replit` `[env]` section may show `PORT = "5000"` — this is a legacy entry. The actual env var management is in `[userenv.development]`.
+- **NEVER add extra `[[ports]]` entries.** Autoscale only supports a single exposed port. Only `localPort = 5000, externalPort = 80` should exist. Extra port entries (e.g., 9876→3000) cause Autoscale to reject the deployment.
+- **NEVER add a `[env]` section with `PORT`.** Use `[userenv.development]` for dev-only PORT. A `[env] PORT = "5000"` applies to all environments including production and overrides Cloud Run's PORT.
 
 ### HTTPS Redirect Behavior (CRITICAL for testing)
 
@@ -217,21 +218,23 @@ The smoke test starts the production server on port 9876 (not 5000, to avoid con
 
 ### Known Deployment Pitfalls (MUST READ)
 
-1. **PORT env var conflict**: NEVER set PORT in shared env vars. Cloud Run sets its own PORT. A hardcoded `PORT=5000` in shared scope overrides Cloud Run and breaks deployment.
+1. **PORT env var conflict**: NEVER set PORT in shared env vars or `[env]` section. Cloud Run sets its own PORT. A hardcoded `PORT=5000` in shared scope overrides Cloud Run and breaks deployment. Only use `[userenv.development]` for dev PORT.
 
-2. **Route registration order**: ALL API routes and `/healthz` MUST be registered BEFORE `serveStatic(app)`. The SPA wildcard fallback in serveStatic catches everything and returns index.html. Routes registered after it are invisible.
+2. **Multiple port entries break Autoscale**: The `.replit` file must have exactly ONE `[[ports]]` entry (`localPort = 5000, externalPort = 80`). Extra entries (e.g., 9876→3000) cause Autoscale to reject the deployment with "only support a single exposed port" error.
 
-3. **HTTPS redirect breaks local smoke tests**: The production HTTPS redirect (`server/index.ts`) must skip localhost/127.0.0.1 or smoke tests fail with 301 redirects to unreachable production URLs.
+3. **Route registration order**: ALL API routes and `/healthz` MUST be registered BEFORE `serveStatic(app)`. The SPA wildcard fallback in serveStatic catches everything and returns index.html. Routes registered after it are invisible.
 
-4. **HTTPS detection uses x-forwarded-proto**: Cloud Run terminates TLS at the load balancer. The actual request to the app is HTTP. Check `req.get("x-forwarded-proto")` NOT `req.protocol` to determine if the original request was HTTPS.
+4. **HTTPS redirect breaks local smoke tests**: The production HTTPS redirect (`server/index.ts`) must skip localhost/127.0.0.1 or smoke tests fail with 301 redirects to unreachable production URLs.
 
-5. **Google OAuth 403**: Production domain must be in Google Cloud Console authorized redirect URIs. The redirect URI is auto-detected from request headers — do not hardcode it.
+5. **HTTPS detection uses x-forwarded-proto**: Cloud Run terminates TLS at the load balancer. The actual request to the app is HTTP. Check `req.get("x-forwarded-proto")` NOT `req.protocol` to determine if the original request was HTTPS.
 
-6. **Helmet CSP blocks resources**: In production, Helmet enforces Content-Security-Policy. If you add new external resources (fonts, scripts, images, APIs), you must update the CSP directives in `server/index.ts`.
+6. **Google OAuth 403**: Production domain must be in Google Cloud Console authorized redirect URIs. The redirect URI is auto-detected from request headers — do not hardcode it.
 
-7. **esbuild uses external packages**: The backend bundle does NOT include node_modules. The production server needs `node_modules/` present. This is handled by Replit's deployment — it runs `npm install` during the build step.
+7. **Helmet CSP blocks resources**: In production, Helmet enforces Content-Security-Policy. If you add new external resources (fonts, scripts, images, APIs), you must update the CSP directives in `server/index.ts`.
 
-8. **Incremental TypeScript cache**: `tsconfig.json` uses `incremental: true` with cache at `node_modules/typescript/tsbuildinfo`. If you get stale type errors after making changes, delete this file: `rm -f node_modules/typescript/tsbuildinfo`.
+8. **esbuild uses external packages**: The backend bundle does NOT include node_modules. The production server needs `node_modules/` present. This is handled by Replit's deployment — it runs `npm install` during the build step.
+
+9. **Incremental TypeScript cache**: `tsconfig.json` uses `incremental: true` with cache at `node_modules/typescript/tsbuildinfo`. If you get stale type errors after making changes, delete this file: `rm -f node_modules/typescript/tsbuildinfo`.
 
 ### CSRF Protection
 
