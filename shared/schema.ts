@@ -470,3 +470,128 @@ export const categoryReviewTriggers = pgTable("category_review_triggers", {
 ]);
 
 export type CategoryReviewTrigger = typeof categoryReviewTriggers.$inferSelect;
+
+// ─── Forum: Posts ────────────────────────────────────────────────────────────
+export const forumPosts = pgTable("forum_posts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  category: text("category").notNull().default("General"),
+  upvotes: integer("upvotes").notNull().default(0),
+  downvotes: integer("downvotes").notNull().default(0),
+  commentCount: integer("comment_count").notNull().default(0),
+  pinned: boolean("pinned").notNull().default(false),
+  hidden: boolean("hidden").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_forum_posts_user").on(table.userId),
+  index("idx_forum_posts_category").on(table.category),
+  index("idx_forum_posts_created").on(table.createdAt),
+  index("idx_forum_posts_pinned").on(table.pinned),
+]);
+
+export const insertForumPostSchema = createInsertSchema(forumPosts).omit({
+  id: true,
+  userId: true,
+  upvotes: true,
+  downvotes: true,
+  commentCount: true,
+  pinned: true,
+  hidden: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  title: z.string().min(1, "Title is required").max(200, "Title must be under 200 characters"),
+  body: z.string().min(1, "Body is required").max(10000, "Body must be under 10000 characters"),
+  category: z.enum(["Tips", "Questions", "Feedback", "Facts", "Productivity", "General"]).default("General"),
+});
+
+export type ForumPost = typeof forumPosts.$inferSelect;
+export type InsertForumPost = z.infer<typeof insertForumPostSchema>;
+
+// ─── Forum: Comments ─────────────────────────────────────────────────────────
+export const forumComments = pgTable("forum_comments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  postId: varchar("post_id").notNull().references(() => forumPosts.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  upvotes: integer("upvotes").notNull().default(0),
+  downvotes: integer("downvotes").notNull().default(0),
+  hidden: boolean("hidden").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_forum_comments_post").on(table.postId),
+  index("idx_forum_comments_user").on(table.userId),
+]);
+
+export const insertForumCommentSchema = createInsertSchema(forumComments).omit({
+  id: true,
+  userId: true,
+  upvotes: true,
+  downvotes: true,
+  hidden: true,
+  createdAt: true,
+}).extend({
+  postId: z.string().min(1),
+  body: z.string().min(1, "Comment is required").max(5000, "Comment must be under 5000 characters"),
+});
+
+export type ForumComment = typeof forumComments.$inferSelect;
+export type InsertForumComment = z.infer<typeof insertForumCommentSchema>;
+
+// ─── Forum: Votes ────────────────────────────────────────────────────────────
+export const forumVotes = pgTable("forum_votes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  postId: varchar("post_id").references(() => forumPosts.id, { onDelete: "cascade" }),
+  commentId: varchar("comment_id").references(() => forumComments.id, { onDelete: "cascade" }),
+  voteType: text("vote_type").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_forum_votes_user").on(table.userId),
+  index("idx_forum_votes_post").on(table.postId),
+  index("idx_forum_votes_comment").on(table.commentId),
+  uniqueIndex("idx_forum_votes_user_post").on(table.userId, table.postId),
+  uniqueIndex("idx_forum_votes_user_comment").on(table.userId, table.commentId),
+]);
+
+// ─── Forum: Upvote Reward Ledger (persistent, survives vote toggle) ─────────
+export const forumUpvoteRewards = pgTable("forum_upvote_rewards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  voterId: varchar("voter_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  postId: varchar("post_id").notNull().references(() => forumPosts.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_forum_upvote_rewards_voter_post").on(table.voterId, table.postId),
+]);
+
+export type ForumVote = typeof forumVotes.$inferSelect;
+export const insertForumVoteSchema = createInsertSchema(forumVotes).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertForumVote = z.infer<typeof insertForumVoteSchema>;
+
+// ─── Forum: Reports ──────────────────────────────────────────────────────────
+export const forumReports = pgTable("forum_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reporterId: varchar("reporter_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  postId: varchar("post_id").references(() => forumPosts.id, { onDelete: "cascade" }),
+  commentId: varchar("comment_id").references(() => forumComments.id, { onDelete: "cascade" }),
+  reason: text("reason").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_forum_reports_status").on(table.status),
+  index("idx_forum_reports_post").on(table.postId),
+]);
+
+export type ForumReport = typeof forumReports.$inferSelect;
+export const insertForumReportSchema = createInsertSchema(forumReports).omit({
+  id: true,
+  status: true,
+  createdAt: true,
+});
+export type InsertForumReport = z.infer<typeof insertForumReportSchema>;

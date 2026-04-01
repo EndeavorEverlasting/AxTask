@@ -17,7 +17,7 @@ import BulkActionDialog from "@/components/bulk-action-dialog";
 import { GlobalSearch } from "@/components/global-search";
 import { setPendingEditTask } from "@/lib/pending-edit";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { LayoutDashboard, List, CalendarDays, Brain } from "lucide-react";
+import { LayoutDashboard, List, CalendarDays, Brain, Users } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
 import Analytics from "@/pages/analytics";
@@ -28,6 +28,8 @@ import ChecklistPage from "@/pages/checklist";
 import PlannerPage from "@/pages/planner";
 import AdminPage from "@/pages/admin";
 import RewardsPage from "@/pages/rewards";
+import CommunityPage from "@/pages/community";
+import CommunityPostPage from "@/pages/community-post";
 import LoginPage from "@/pages/login";
 import PrivacyPolicy from "@/pages/privacy";
 import TermsOfService from "@/pages/terms";
@@ -48,6 +50,8 @@ function Router() {
       <Route path="/planner" component={PlannerPage} />
       <Route path="/admin" component={AdminPage} />
       <Route path="/rewards" component={RewardsPage} />
+      <Route path="/community" component={CommunityPage} />
+      <Route path="/community/:id" component={CommunityPostPage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -70,6 +74,7 @@ function ReviewDialogBridge() {
 const BOTTOM_NAV_ITEMS = [
   { path: "/", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/tasks", icon: List, label: "Tasks" },
+  { path: "/community", icon: Users, label: "Community" },
   { path: "/calendar", icon: CalendarDays, label: "Calendar" },
   { path: "/planner", icon: Brain, label: "Planner" },
 ];
@@ -107,7 +112,7 @@ function MobileBottomNav() {
 
 
 const ROUTE_STORAGE_KEY = "axtask_last_route";
-const VALID_ROUTES = ["/", "/tasks", "/calendar", "/analytics", "/import-export", "/google-sheets", "/checklist", "/planner", "/admin", "/rewards"];
+const VALID_ROUTES = ["/", "/tasks", "/calendar", "/analytics", "/import-export", "/google-sheets", "/checklist", "/planner", "/admin", "/rewards", "/community"];
 
 function useRoutePersistence() {
   const [location, setLocation] = useLocation();

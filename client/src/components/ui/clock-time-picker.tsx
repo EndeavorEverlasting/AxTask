@@ -107,6 +107,7 @@ export function ClockTimePicker({
   const [period, setPeriod] = React.useState<Period>(parsed.period);
   const [mode, setMode] = React.useState<Mode>("hour");
   const [open, setOpen] = React.useState(false);
+  const [periodConfirmed, setPeriodConfirmed] = React.useState(false);
 
   // sync when value changes externally
   React.useEffect(() => {
@@ -126,8 +127,8 @@ export function ClockTimePicker({
   const handleMinuteSelect = (m: number) => {
     setMinute(m);
     emit(hour, m, period);
-    setOpen(false);             // close popover after full selection
-    setMode("hour");            // reset for next open
+    setOpen(false);
+    setMode("hour");
   };
 
   const togglePeriod = () => {
@@ -141,7 +142,7 @@ export function ClockTimePicker({
     : undefined;
 
   return (
-    <Popover modal open={open} onOpenChange={(o) => { setOpen(o); if (o) setMode("hour"); }}>
+    <Popover modal open={open} onOpenChange={(o) => { setOpen(o); if (o) { setMode("hour"); setPeriodConfirmed(false); } }}>
       <PopoverTrigger asChild disabled={disabled}>
         <Button variant="outline"
           className={cn("w-full pl-3 text-left font-normal justify-start", !value && "text-muted-foreground", className)}>
@@ -168,9 +169,19 @@ export function ClockTimePicker({
           {/* AM / PM */}
           <div className="flex flex-col gap-0.5 ml-3">
             <Button type="button" size="sm" variant={period === "AM" ? "default" : "outline"}
-              className="h-6 text-[10px] px-2" onClick={() => { if (period !== "AM") togglePeriod(); }}>AM</Button>
+              className={cn("h-6 text-[10px] px-2", period === "AM" && (
+                periodConfirmed
+                  ? "bg-green-500 hover:bg-green-600 text-white ring-2 ring-green-300 shadow-[0_0_8px_rgba(34,197,94,0.5)]"
+                  : "bg-yellow-500 hover:bg-yellow-600 text-white ring-2 ring-yellow-300 shadow-[0_0_8px_rgba(234,179,8,0.5)]"
+              ))}
+              onClick={() => { setPeriodConfirmed(true); if (period !== "AM") togglePeriod(); }}>AM</Button>
             <Button type="button" size="sm" variant={period === "PM" ? "default" : "outline"}
-              className="h-6 text-[10px] px-2" onClick={() => { if (period !== "PM") togglePeriod(); }}>PM</Button>
+              className={cn("h-6 text-[10px] px-2", period === "PM" && (
+                periodConfirmed
+                  ? "bg-green-500 hover:bg-green-600 text-white ring-2 ring-green-300 shadow-[0_0_8px_rgba(34,197,94,0.5)]"
+                  : "bg-yellow-500 hover:bg-yellow-600 text-white ring-2 ring-yellow-300 shadow-[0_0_8px_rgba(234,179,8,0.5)]"
+              ))}
+              onClick={() => { setPeriodConfirmed(true); if (period !== "PM") togglePeriod(); }}>PM</Button>
           </div>
         </div>
         {/* clock face */}
@@ -181,6 +192,17 @@ export function ClockTimePicker({
         <p className="text-[11px] text-muted-foreground text-center mt-1">
           {mode === "hour" ? "Select hour" : "Select minutes"}
         </p>
+        {/* OK button */}
+        <div className="flex justify-end mt-3 pt-2 border-t border-border">
+          <Button type="button" size="sm" className="h-8 px-6"
+            onClick={() => {
+              emit(hour, minute, period);
+              setOpen(false);
+              setMode("hour");
+            }}>
+            OK
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   );

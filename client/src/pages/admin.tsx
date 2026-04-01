@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
-import type { SafeUser, SecurityLog } from "@shared/schema";
+import type { SafeUser, SecurityLog, ForumReport } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Shield, ShieldOff, Users, ScrollText, AlertTriangle, Search, Download, Upload, Database, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Shield, ShieldOff, Users, ScrollText, AlertTriangle, Search, Download, Upload, Database, CheckCircle, XCircle, Loader2, Flag, Eye, Trash2 } from "lucide-react";
 
 export default function AdminPage() {
   const { user } = useAuth();
@@ -39,6 +39,41 @@ export default function AdminPage() {
   const { data: logs = [], isLoading: logsLoading } = useQuery<SecurityLog[]>({
     queryKey: ["/api/admin/security-logs"],
     enabled: user?.role === "admin",
+  });
+
+  const { data: reports = [], isLoading: reportsLoading } = useQuery<ForumReport[]>({
+    queryKey: ["/api/forum/reports"],
+    enabled: user?.role === "admin",
+  });
+
+  const resolveReportMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      apiRequest("PATCH", `/api/forum/admin/reports/${id}`, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
+      toast({ title: "Report updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update report", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteForumPostMutation = useMutation({
+    mutationFn: (postId: string) => apiRequest("DELETE", `/api/forum/admin/posts/${postId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/forum/posts"] });
+      toast({ title: "Post deleted" });
+    },
+  });
+
+  const hideForumContentMutation = useMutation({
+    mutationFn: ({ type, id }: { type: "posts" | "comments"; id: string }) =>
+      apiRequest("PATCH", `/api/forum/admin/${type}/${id}`, { hidden: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
+      toast({ title: "Content hidden" });
+    },
   });
 
   const banMutation = useMutation({
@@ -204,6 +239,7 @@ export default function AdminPage() {
         <TabsList>
           <TabsTrigger value="users">User Management</TabsTrigger>
           <TabsTrigger value="logs">Security Logs</TabsTrigger>
+          <TabsTrigger value="reports">Forum Reports</TabsTrigger>
           <TabsTrigger value="migration">Data Migration</TabsTrigger>
         </TabsList>
 
@@ -316,6 +352,82 @@ export default function AdminPage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="reports" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Flag className="h-5 w-5 text-orange-500" />
+                Forum Reports
+                {reports.filter(r => r.status === "pending").length > 0 && (
+                  <Badge variant="destructive" className="ml-2">{reports.filter(r => r.status === "pending").length} pending</Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {reportsLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
+              ) : reports.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">No reports yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {reports.map((report) => (
+                    <div key={report.id} className="flex items-start justify-between gap-4 p-3 border rounded-lg bg-gray-50 dark:bg-gray-900">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge variant={report.status === "pending" ? "destructive" : report.status === "resolved" ? "default" : "secondary"}>
+                            {report.status}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {report.postId ? `Post: ${report.postId.slice(0, 8)}...` : ""}
+                            {report.commentId ? `Comment: ${report.commentId.slice(0, 8)}...` : ""}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {report.createdAt ? new Date(report.createdAt).toLocaleDateString() : ""}
+                          </span>
+                        </div>
+                        <p className="text-sm">{report.reason}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Reporter: {report.reporterId.slice(0, 8)}...</p>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        {report.status === "pending" && (
+                          <>
+                            {report.postId && (
+                              <>
+                                <Button variant="outline" size="sm" className="h-7 text-xs gap-1"
+                                  onClick={() => hideForumContentMutation.mutate({ type: "posts", id: report.postId! })}>
+                                  <Eye className="h-3 w-3" /> Hide
+                                </Button>
+                                <Button variant="destructive" size="sm" className="h-7 text-xs gap-1"
+                                  onClick={() => deleteForumPostMutation.mutate(report.postId!)}>
+                                  <Trash2 className="h-3 w-3" /> Delete
+                                </Button>
+                              </>
+                            )}
+                            {report.commentId && (
+                              <Button variant="outline" size="sm" className="h-7 text-xs gap-1"
+                                onClick={() => hideForumContentMutation.mutate({ type: "comments", id: report.commentId! })}>
+                                <Eye className="h-3 w-3" /> Hide
+                              </Button>
+                            )}
+                            <Button variant="default" size="sm" className="h-7 text-xs"
+                              onClick={() => resolveReportMutation.mutate({ id: report.id, status: "resolved" })}>
+                              Resolve
+                            </Button>
+                            <Button variant="secondary" size="sm" className="h-7 text-xs"
+                              onClick={() => resolveReportMutation.mutate({ id: report.id, status: "dismissed" })}>
+                              Dismiss
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="migration" className="space-y-6">

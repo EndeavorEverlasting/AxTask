@@ -36,13 +36,18 @@ import {
   getDisputeVotes,
   getCategoryReviewTriggers,
   resolveCategoryReview,
+  createForumPost, getForumPosts, getForumPostById, deleteForumPost, updateForumPost,
+  createForumComment, getForumComments, updateForumComment, deleteForumComment,
+  castForumVote, getUserForumVotes, hasUpvoteRewardBeenGiven, recordUpvoteReward,
+  createForumReport, getForumReports, updateForumReportStatus,
+  getUserById,
 } from "./storage";
 import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, BADGE_DEFINITIONS } from "./coin-engine";
 import { computeContentHash, computeFileHash } from "./fingerprint";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
 import { getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution } from "./storage";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, internalUpdateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask, type InternalUpdateTask, type TaskAttachment } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, internalUpdateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, insertForumPostSchema, insertForumCommentSchema, type UpdateTask, type InternalUpdateTask, type TaskAttachment } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
@@ -2822,6 +2827,199 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(insights || { message: "Dispute insights not yet implemented — wire NodeWeaver getDisputeInsights()" });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch dispute insights" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Forum routes (protected)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/forum/posts", requireAuth, async (req, res) => {
+    try {
+      const category = typeof req.query.category === "string" ? req.query.category : undefined;
+      const sort = req.query.sort === "popular" ? "popular" : "newest";
+      const limit = Math.min(Number(req.query.limit) || 20, 50);
+      const offset = Math.max(Number(req.query.offset) || 0, 0);
+      const isAdmin = req.user!.role === "admin";
+      const { posts, total } = await getForumPosts({ category, sort, limit, offset, includeHidden: isAdmin });
+
+      const userIds = [...new Set(posts.map(p => p.userId))];
+      const authors: Record<string, { displayName: string | null; profileImageUrl: string | null }> = {};
+      for (const uid of userIds) {
+        const u = await getUserById(uid);
+        if (u) authors[uid] = { displayName: u.displayName, profileImageUrl: u.profileImageUrl };
+      }
+
+      res.json({ posts, total, authors });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch forum posts" });
+    }
+  });
+
+  app.get("/api/forum/posts/:id", requireAuth, async (req, res) => {
+    try {
+      const post = await getForumPostById(req.params.id);
+      if (!post) return res.status(404).json({ message: "Post not found" });
+
+      const isAdmin = req.user!.role === "admin";
+      if (post.hidden && !isAdmin && post.userId !== req.user!.id) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+
+      const comments = await getForumComments(post.id, isAdmin);
+      const votes = await getUserForumVotes(req.user!.id, post.id);
+
+      const userIds = [...new Set([post.userId, ...comments.map(c => c.userId)])];
+      const authors: Record<string, { displayName: string | null; profileImageUrl: string | null }> = {};
+      for (const uid of userIds) {
+        const u = await getUserById(uid);
+        if (u) authors[uid] = { displayName: u.displayName, profileImageUrl: u.profileImageUrl };
+      }
+
+      res.json({ post, comments, votes, authors });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch post" });
+    }
+  });
+
+  app.post("/api/forum/posts", requireAuth, async (req, res) => {
+    try {
+      const data = insertForumPostSchema.parse(req.body);
+      const post = await createForumPost(req.user!.id, data);
+      await addCoins(req.user!.id, 5, "forum_post", `Created forum post: ${post.title}`);
+      res.status(201).json(post);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.errors[0]?.message || "Invalid post data" });
+      }
+      res.status(500).json({ message: "Failed to create post" });
+    }
+  });
+
+  app.post("/api/forum/posts/:id/comments", requireAuth, async (req, res) => {
+    try {
+      const post = await getForumPostById(req.params.id);
+      if (!post) return res.status(404).json({ message: "Post not found" });
+      if (post.hidden) return res.status(400).json({ message: "Cannot comment on a hidden post" });
+
+      const data = insertForumCommentSchema.parse({ ...req.body, postId: req.params.id });
+      const comment = await createForumComment(req.user!.id, data);
+      await addCoins(req.user!.id, 2, "forum_comment", "Commented on a forum post");
+      res.status(201).json(comment);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.errors[0]?.message || "Invalid comment data" });
+      }
+      res.status(500).json({ message: "Failed to create comment" });
+    }
+  });
+
+  app.post("/api/forum/vote", requireAuth, async (req, res) => {
+    try {
+      const { postId, commentId, voteType } = req.body;
+      if (!postId && !commentId) return res.status(400).json({ message: "postId or commentId required" });
+      if (!["up", "down"].includes(voteType)) return res.status(400).json({ message: "voteType must be 'up' or 'down'" });
+
+      const result = await castForumVote(req.user!.id, { postId, commentId, voteType });
+
+      if (result.action === "added" && voteType === "up" && postId) {
+        const alreadyRewarded = await hasUpvoteRewardBeenGiven(req.user!.id, postId);
+        if (!alreadyRewarded) {
+          const post = await getForumPostById(postId);
+          if (post && post.userId !== req.user!.id) {
+            await addCoins(post.userId, 1, "forum_upvote", "Your post received an upvote");
+            await recordUpvoteReward(req.user!.id, postId);
+          }
+        }
+      }
+
+      res.json({ action: result.action });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to cast vote" });
+    }
+  });
+
+  app.post("/api/forum/report", requireAuth, async (req, res) => {
+    try {
+      const { postId, commentId, reason } = req.body;
+      if (!postId && !commentId) return res.status(400).json({ message: "postId or commentId required" });
+      if (!reason || typeof reason !== "string" || reason.trim().length < 3) {
+        return res.status(400).json({ message: "A reason is required (at least 3 characters)" });
+      }
+      await createForumReport(req.user!.id, { postId, commentId, reason: reason.trim() });
+      res.json({ message: "Report submitted" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to submit report" });
+    }
+  });
+
+  app.get("/api/forum/reports", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const reports = await getForumReports(status);
+      res.json(reports);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch reports" });
+    }
+  });
+
+  app.patch("/api/forum/admin/posts/:id", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      const { pinned, hidden } = req.body;
+      const updates: { pinned?: boolean; hidden?: boolean } = {};
+      if (typeof pinned === "boolean") updates.pinned = pinned;
+      if (typeof hidden === "boolean") updates.hidden = hidden;
+      const post = await updateForumPost(req.params.id, updates);
+      if (!post) return res.status(404).json({ message: "Post not found" });
+      res.json(post);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update post" });
+    }
+  });
+
+  app.delete("/api/forum/admin/posts/:id", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      await deleteForumPost(req.params.id);
+      res.json({ message: "Post deleted" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete post" });
+    }
+  });
+
+  app.patch("/api/forum/admin/comments/:id", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      const { hidden } = req.body;
+      const comment = await updateForumComment(req.params.id, { hidden: !!hidden });
+      if (!comment) return res.status(404).json({ message: "Comment not found" });
+      res.json(comment);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update comment" });
+    }
+  });
+
+  app.delete("/api/forum/admin/comments/:id", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      await deleteForumComment(req.params.id);
+      res.json({ message: "Comment deleted" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete comment" });
+    }
+  });
+
+  app.patch("/api/forum/admin/reports/:id", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      const { status } = req.body;
+      if (!["resolved", "dismissed"].includes(status)) return res.status(400).json({ message: "Invalid status" });
+      await updateForumReportStatus(req.params.id, status);
+      res.json({ message: "Report updated" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update report" });
     }
   });
 

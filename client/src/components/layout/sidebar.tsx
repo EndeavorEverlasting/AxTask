@@ -22,6 +22,7 @@ import {
   Coins,
   ShoppingBag,
   Menu,
+  Users,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -70,6 +71,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     { path: "/tasks", icon: List, label: "All Tasks" },
     { path: "/calendar", icon: CalendarDays, label: "Calendar" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
+    { path: "/community", icon: Users, label: "Community" },
     { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
     { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },

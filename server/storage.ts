@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, forumPosts, forumComments, forumVotes, forumUpvoteRewards, forumReports, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger, type ForumPost, type InsertForumPost, type ForumComment, type InsertForumComment, type ForumVote, type ForumReport } from "@shared/schema";
 import { computeContentHash } from "./fingerprint";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
@@ -1945,4 +1945,211 @@ export async function resolveCategoryReview(
     .where(eq(categoryReviewTriggers.id, id))
     .returning();
   return row;
+}
+
+// ─── Forum Storage ──────────────────────────────────────────────────────────
+
+export async function createForumPost(userId: string, post: InsertForumPost): Promise<ForumPost> {
+  const [row] = await db.insert(forumPosts).values({
+    id: randomUUID(),
+    userId,
+    title: post.title,
+    body: post.body,
+    category: post.category || "General",
+  }).returning();
+  return row;
+}
+
+export async function getForumPosts(opts: {
+  category?: string;
+  sort?: "newest" | "popular";
+  limit?: number;
+  offset?: number;
+  includeHidden?: boolean;
+}): Promise<{ posts: ForumPost[]; total: number }> {
+  const conditions = [];
+  if (!opts.includeHidden) {
+    conditions.push(eq(forumPosts.hidden, false));
+  }
+  if (opts.category && opts.category !== "All") {
+    conditions.push(eq(forumPosts.category, opts.category));
+  }
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [totalRow] = await db.select({ value: count() }).from(forumPosts).where(whereClause);
+  const total = Number(totalRow?.value) || 0;
+
+  const orderBy = opts.sort === "popular"
+    ? [desc(forumPosts.pinned), desc(sql`${forumPosts.upvotes} - ${forumPosts.downvotes}`), desc(forumPosts.createdAt)]
+    : [desc(forumPosts.pinned), desc(forumPosts.createdAt)];
+
+  const posts = await db
+    .select()
+    .from(forumPosts)
+    .where(whereClause)
+    .orderBy(...orderBy)
+    .limit(opts.limit || 20)
+    .offset(opts.offset || 0);
+
+  return { posts, total };
+}
+
+export async function getForumPostById(id: string): Promise<ForumPost | undefined> {
+  const [row] = await db.select().from(forumPosts).where(eq(forumPosts.id, id));
+  return row || undefined;
+}
+
+export async function deleteForumPost(id: string): Promise<boolean> {
+  const result = await db.delete(forumPosts).where(eq(forumPosts.id, id));
+  return true;
+}
+
+export async function updateForumPost(id: string, updates: { pinned?: boolean; hidden?: boolean }): Promise<ForumPost | undefined> {
+  const [row] = await db.update(forumPosts).set({ ...updates, updatedAt: new Date() }).where(eq(forumPosts.id, id)).returning();
+  return row;
+}
+
+export async function createForumComment(userId: string, comment: InsertForumComment): Promise<ForumComment> {
+  const [row] = await db.insert(forumComments).values({
+    id: randomUUID(),
+    postId: comment.postId,
+    userId,
+    body: comment.body,
+  }).returning();
+
+  await db.update(forumPosts).set({
+    commentCount: sql`${forumPosts.commentCount} + 1`,
+    updatedAt: new Date(),
+  }).where(eq(forumPosts.id, comment.postId));
+
+  return row;
+}
+
+export async function getForumComments(postId: string, includeHidden = false): Promise<ForumComment[]> {
+  const conditions = [eq(forumComments.postId, postId)];
+  if (!includeHidden) {
+    conditions.push(eq(forumComments.hidden, false));
+  }
+  return db.select().from(forumComments).where(and(...conditions)).orderBy(asc(forumComments.createdAt));
+}
+
+export async function updateForumComment(id: string, updates: { hidden?: boolean }): Promise<ForumComment | undefined> {
+  const [row] = await db.update(forumComments).set(updates).where(eq(forumComments.id, id)).returning();
+  return row;
+}
+
+export async function deleteForumComment(id: string): Promise<boolean> {
+  const [comment] = await db.select().from(forumComments).where(eq(forumComments.id, id));
+  if (comment) {
+    await db.delete(forumComments).where(eq(forumComments.id, id));
+    await db.update(forumPosts).set({
+      commentCount: sql`GREATEST(${forumPosts.commentCount} - 1, 0)`,
+    }).where(eq(forumPosts.id, comment.postId));
+  }
+  return true;
+}
+
+export async function castForumVote(userId: string, opts: { postId?: string; commentId?: string; voteType: "up" | "down" }): Promise<{ action: "added" | "removed" | "changed" }> {
+  const targetField = opts.postId ? forumVotes.postId : forumVotes.commentId;
+  const targetId = opts.postId || opts.commentId;
+  if (!targetId) throw new Error("postId or commentId required");
+
+  const [existing] = await db.select().from(forumVotes).where(
+    and(eq(forumVotes.userId, userId), eq(targetField, targetId))
+  );
+
+  if (existing) {
+    if (existing.voteType === opts.voteType) {
+      await db.delete(forumVotes).where(eq(forumVotes.id, existing.id));
+      if (opts.postId) {
+        const col = opts.voteType === "up" ? forumPosts.upvotes : forumPosts.downvotes;
+        await db.update(forumPosts).set({ [opts.voteType === "up" ? "upvotes" : "downvotes"]: sql`GREATEST(${col} - 1, 0)` }).where(eq(forumPosts.id, opts.postId));
+      } else {
+        const col = opts.voteType === "up" ? forumComments.upvotes : forumComments.downvotes;
+        await db.update(forumComments).set({ [opts.voteType === "up" ? "upvotes" : "downvotes"]: sql`GREATEST(${col} - 1, 0)` }).where(eq(forumComments.id, opts.commentId!));
+      }
+      return { action: "removed" };
+    } else {
+      await db.update(forumVotes).set({ voteType: opts.voteType }).where(eq(forumVotes.id, existing.id));
+      if (opts.postId) {
+        const incCol = opts.voteType === "up" ? "upvotes" : "downvotes";
+        const decCol = opts.voteType === "up" ? "downvotes" : "upvotes";
+        const incRef = opts.voteType === "up" ? forumPosts.upvotes : forumPosts.downvotes;
+        const decRef = opts.voteType === "up" ? forumPosts.downvotes : forumPosts.upvotes;
+        await db.update(forumPosts).set({
+          [incCol]: sql`${incRef} + 1`,
+          [decCol]: sql`GREATEST(${decRef} - 1, 0)`,
+        }).where(eq(forumPosts.id, opts.postId));
+      } else {
+        const incCol = opts.voteType === "up" ? "upvotes" : "downvotes";
+        const decCol = opts.voteType === "up" ? "downvotes" : "upvotes";
+        const incRef = opts.voteType === "up" ? forumComments.upvotes : forumComments.downvotes;
+        const decRef = opts.voteType === "up" ? forumComments.downvotes : forumComments.upvotes;
+        await db.update(forumComments).set({
+          [incCol]: sql`${incRef} + 1`,
+          [decCol]: sql`GREATEST(${decRef} - 1, 0)`,
+        }).where(eq(forumComments.id, opts.commentId!));
+      }
+      return { action: "changed" };
+    }
+  }
+
+  await db.insert(forumVotes).values({
+    id: randomUUID(),
+    userId,
+    postId: opts.postId || null,
+    commentId: opts.commentId || null,
+    voteType: opts.voteType,
+  });
+
+  if (opts.postId) {
+    const col = opts.voteType === "up" ? "upvotes" : "downvotes";
+    const ref = opts.voteType === "up" ? forumPosts.upvotes : forumPosts.downvotes;
+    await db.update(forumPosts).set({ [col]: sql`${ref} + 1` }).where(eq(forumPosts.id, opts.postId));
+  } else {
+    const col = opts.voteType === "up" ? "upvotes" : "downvotes";
+    const ref = opts.voteType === "up" ? forumComments.upvotes : forumComments.downvotes;
+    await db.update(forumComments).set({ [col]: sql`${ref} + 1` }).where(eq(forumComments.id, opts.commentId!));
+  }
+  return { action: "added" };
+}
+
+export async function hasUpvoteRewardBeenGiven(voterId: string, postId: string): Promise<boolean> {
+  const [existing] = await db.select().from(forumUpvoteRewards).where(
+    and(eq(forumUpvoteRewards.voterId, voterId), eq(forumUpvoteRewards.postId, postId))
+  );
+  return !!existing;
+}
+
+export async function recordUpvoteReward(voterId: string, postId: string): Promise<void> {
+  await db.insert(forumUpvoteRewards).values({
+    id: randomUUID(),
+    voterId,
+    postId,
+  }).onConflictDoNothing();
+}
+
+export async function getUserForumVotes(userId: string, postId: string): Promise<ForumVote[]> {
+  return db.select().from(forumVotes).where(
+    and(eq(forumVotes.userId, userId), or(eq(forumVotes.postId, postId), sql`${forumVotes.commentId} IN (SELECT id FROM forum_comments WHERE post_id = ${postId})`))
+  );
+}
+
+export async function createForumReport(reporterId: string, opts: { postId?: string; commentId?: string; reason: string }): Promise<void> {
+  await db.insert(forumReports).values({
+    id: randomUUID(),
+    reporterId,
+    postId: opts.postId || null,
+    commentId: opts.commentId || null,
+    reason: opts.reason,
+  });
+}
+
+export async function getForumReports(status?: string): Promise<ForumReport[]> {
+  const conditions = status ? [eq(forumReports.status, status)] : [];
+  return db.select().from(forumReports).where(conditions.length > 0 ? and(...conditions) : undefined).orderBy(desc(forumReports.createdAt));
+}
+
+export async function updateForumReportStatus(id: string, status: string): Promise<void> {
+  await db.update(forumReports).set({ status }).where(eq(forumReports.id, id));
 }
