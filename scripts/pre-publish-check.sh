@@ -10,6 +10,16 @@ FAIL=0
 WARN=0
 TEST_PORT=9876
 BASE="http://localhost:$TEST_PORT"
+SERVER_PID=""
+
+cleanup() {
+  if [ -n "$SERVER_PID" ]; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+    SERVER_PID=""
+  fi
+}
+trap cleanup EXIT INT TERM
 
 echo "▶ [1/6] TypeScript compilation check..."
 if npx tsc --noEmit --pretty 2>&1; then
@@ -164,8 +174,7 @@ else
   WARN=$((WARN + 1))
 fi
 
-kill $SERVER_PID 2>/dev/null || true
-wait $SERVER_PID 2>/dev/null || true
+cleanup
 echo ""
 
 echo "═══════════════════════════════════════════════════"

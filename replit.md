@@ -86,37 +86,162 @@ Key tables include `users`, `password_reset_tokens`, `security_logs`, `tasks`, `
 -   **Vitest**: Testing framework.
 -   **cross-env**: Cross-platform environment variables.
 
-## Deployment & Production
+---
 
-### Deployment Target
-The app deploys to **Replit Autoscale** (Cloud Run). The production run command is `npm run start` which executes `node dist/index.js`.
+## Build, Deploy & Publish Reference
 
-### Port Configuration
-- **Development**: `PORT=5000` is set as a dev-only env var. The dev server runs on port 5000.
-- **Production**: Cloud Run sets its own `PORT` env var automatically. The server reads `process.env.PORT` and falls back to 5000 only if unset. **Never** set `PORT` in shared or production env vars — Cloud Run manages this.
+This section is the authoritative reference for building, deploying, and publishing AxTask. Any AI agent working on this project MUST read this section before making changes that affect the build or deployment pipeline.
+
+### Build Pipeline (What Happens When You Run `npm run build`)
+
+The build command is: `vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist`
+
+**Step 1: Vite builds the frontend**
+- Source: `client/` directory (root set in `vite.config.ts`)
+- Output: `dist/public/` (index.html, CSS bundle, JS bundle)
+- Aliases resolved: `@/` → `client/src/`, `@shared/` → `shared/`, `@assets/` → `attached_assets/`
+- React plugin handles JSX transform (no explicit React import needed)
+
+**Step 2: esbuild bundles the backend**
+- Source: `server/index.ts` (single entry point)
+- Output: `dist/index.js` (ESM format, ~262KB)
+- `--packages=external` means node_modules are NOT bundled — they're imported at runtime from `node_modules/`
+- `--platform=node` targets Node.js
+
+**Build outputs that MUST exist after successful build:**
+- `dist/index.js` — Backend entry point (should be >100KB)
+- `dist/public/index.html` — SPA entry point
+- `dist/public/assets/index-*.css` — CSS bundle
+- `dist/public/assets/index-*.js` — JS bundle (~1.4MB)
+
+### Development vs Production Server
+
+| Aspect | Development (`npm run dev`) | Production (`npm run start`) |
+|--------|---------------------------|------------------------------|
+| Command | `cross-env NODE_ENV=development tsx server/index.ts` | `cross-env NODE_ENV=production node dist/index.js` |
+| Frontend | Vite dev server (HMR, no build needed) | Static files from `dist/public/` |
+| Backend | `tsx` runs TypeScript directly | `node` runs bundled `dist/index.js` |
+| Port | `PORT` env var or 5000 | `PORT` env var (Cloud Run sets this) or 5000 |
+| Helmet/CSP | Disabled (`isDev = true`) | Full CSP, HSTS, HTTPS enforcement |
+| HTTPS redirect | No | Yes — redirects HTTP→HTTPS, skips localhost |
+| Dev accounts | Seeded on every restart | Not seeded |
+
+### Deployment Configuration
+
+**Target:** Replit Autoscale (Cloud Run)
+**`.replit` deployment section:**
+```toml
+[deployment]
+deploymentTarget = "autoscale"
+build = ["npm", "run", "build"]
+run = ["npm", "run", "start"]
+```
+
+### Port Configuration (CRITICAL)
+
+- **Development**: `PORT=5000` is set in `[userenv.development]` in `.replit`. Only applies to dev environment.
+- **Production**: Cloud Run sets its own `PORT` env var (typically 8080). The server reads `process.env.PORT` and falls back to 5000 only if unset.
+- **NEVER set PORT in shared or production env vars.** Cloud Run must control this. A shared `PORT=5000` overrides Cloud Run's port and causes deployment failures.
+- The `.replit` `[env]` section may show `PORT = "5000"` — this is a legacy entry. The actual env var management is in `[userenv.development]`.
+
+### HTTPS Redirect Behavior (CRITICAL for testing)
+
+In production (`NODE_ENV=production`), the server (`server/index.ts` lines 50-67):
+1. Skips redirect for `localhost` and `127.0.0.1` — allows local smoke testing
+2. Checks `x-forwarded-proto` header first (Cloud Run terminates TLS at load balancer and sends this header)
+3. Falls back to `req.protocol` check
+4. Redirects non-canonical hostnames to `axtask.replit.app`
+
+**Why this matters:** When smoke-testing the production build locally (`PORT=9876 NODE_ENV=production node dist/index.js`), requests to `http://localhost:9876/...` would get 301-redirected to `https://axtask.replit.app/...` without the localhost bypass. The smoke test would then fail because it can't reach the production domain from the test environment.
+
+### Health Check Endpoint
+
+Route: `GET /healthz` → responds `200 "ok"`
+Registered in `server/index.ts` BEFORE `serveStatic(app)`. This is critical — if registered after, the SPA fallback in `serveStatic()` catches `/healthz` first and returns `index.html` instead of "ok".
+
+### Static File Serving (SPA Fallback)
+
+`server/vite.ts` → `serveStatic()`:
+- Serves files from `dist/public/` using `express.static()`
+- Wildcard fallback: any request that doesn't match a static file gets `index.html` (SPA routing)
+- This means ANY route registered AFTER `serveStatic()` will be invisible — the wildcard catches it first
+
+**Rule: All API routes and healthz MUST be registered BEFORE `serveStatic(app)` is called.**
 
 ### Google OAuth in Production
-Google OAuth redirect URIs are auto-detected from request headers (`x-forwarded-host`, `x-forwarded-proto`) so the same code works in both dev and production without hardcoding domains. The `GOOGLE_REDIRECT_URI` env var is no longer needed.
 
-**Important**: The production domain (`axtask.replit.app`) must be registered as an authorized redirect URI in Google Cloud Console:
-- Authorized redirect URI: `https://axtask.replit.app/api/auth/google/callback`
-- The Google 403 error occurs when this URI is missing from the OAuth consent screen configuration.
+The OAuth redirect URI is auto-detected from request headers (`x-forwarded-host`, `x-forwarded-proto`) in `server/auth-providers.ts`. This means:
+- Dev: auto-detects `https://<dev-domain>.spock.replit.dev/api/auth/google/callback`
+- Production: auto-detects `https://axtask.replit.app/api/auth/google/callback`
+- The `GOOGLE_REDIRECT_URI` env var is no longer used.
 
-### Health Check
-The server exposes `/healthz` endpoint returning 200 "ok" for deployment health monitoring.
+**Google Cloud Console requirement:** The production callback URI `https://axtask.replit.app/api/auth/google/callback` MUST be registered as an authorized redirect URI in Google Cloud Console → Credentials → OAuth 2.0 Client → Authorized redirect URIs. Without this, Google returns a 403 error.
 
-### Known Deployment Issues & Fixes
-1. **PORT env var conflict**: Cloud Run sets its own PORT. A shared `PORT=5000` env var overrides it and breaks deployment. Fixed by scoping PORT to development only.
-2. **Google OAuth 403**: Production domain must be in Google Cloud Console authorized redirect URIs. The app now auto-detects the domain from request headers instead of using a hardcoded `GOOGLE_REDIRECT_URI`.
-3. **Port forwarding**: Cloud Run handles port routing automatically. No manual port forwarding rules are needed.
+### TypeScript Configuration
 
-## Pre-Publish Validation
-The project includes automated pre-publish checks (`scripts/pre-publish-check.sh`) with 6 verification steps:
-1. **TypeScript compilation** — Verifies zero type errors with `tsc --noEmit`
-2. **Production build** — Runs `npm run build` and checks for success
-3. **Build output verification** — Confirms `dist/index.js` (with min size check), `dist/public/` (min file count), and `dist/public/index.html` exist
-4. **Server smoke test** — Starts the production server on a test port with retry loop, verifies `/healthz` responds 200
-5. **Auth endpoint checks** — Verifies `/api/auth/config` returns providers, `/api/auth/me` returns 401 for unauthenticated requests, `/api/auth/login` rejects bad credentials, `/api/auth/google/login` redirects properly
-6. **Static asset serving** — Confirms `/` serves index.html with CSS and JS asset references
+`tsconfig.json` key settings:
+- `target: "ES2020"` and `downlevelIteration: true` — required for Map/Set iteration (`for...of` on Maps, spreading Sets)
+- `strict: true` — full type checking enforced
+- `skipLibCheck: true` — skips type-checking `.d.ts` files from node_modules
+- `moduleResolution: "bundler"` — required for Vite/esbuild resolution
+- Includes: `client/src/**/*`, `shared/**/*`, `server/**/*`
 
-These checks are registered as validation commands (`typecheck`, `build`, `pre-publish`) for automated CI-style verification.
+### Environment Variables
+
+| Variable | Scope | Purpose |
+|----------|-------|---------|
+| `PORT` | development only | Server port (5000 in dev, Cloud Run sets in prod) |
+| `REGISTRATION_MODE` | shared | "open" allows self-registration |
+| `DATABASE_URL` | secret (runtime) | PostgreSQL connection string (Replit managed) |
+| `SESSION_SECRET` | secret | Express session encryption key |
+| `GOOGLE_CLIENT_ID` | secret | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | secret | Google OAuth client secret |
+| `GOOGLE_REDIRECT_URI` | secret (LEGACY) | No longer used — auto-detected from headers |
+
+### Pre-Publish Validation
+
+Run: `bash scripts/pre-publish-check.sh`
+
+The script performs 6 checks in order. If any critical check fails, it exits with code 1 (blocking publish). Warnings are informational.
+
+| Step | What it checks | Failure means |
+|------|---------------|---------------|
+| 1. TypeScript | `tsc --noEmit` zero errors | Type errors will likely cause runtime crashes |
+| 2. Build | `npm run build` succeeds | Frontend or backend bundling is broken |
+| 3. Artifacts | `dist/index.js` >1KB, `dist/public/` ≥2 files, `index.html` exists | Build produced incomplete output |
+| 4. Smoke test | Starts server on port 9876, `/healthz` → 200 | Server crashes on startup or healthz is unreachable |
+| 5. Auth | `/api/auth/config` has providers, `/api/auth/me` → 401, login rejects bad creds, Google login → 302 | Auth system is broken |
+| 6. Static | `/` → 200, index.html has CSS+JS refs | Frontend isn't being served |
+
+The smoke test starts the production server on port 9876 (not 5000, to avoid conflicting with the dev server). It retries up to 5 times with 1-second delays before declaring failure.
+
+### Known Deployment Pitfalls (MUST READ)
+
+1. **PORT env var conflict**: NEVER set PORT in shared env vars. Cloud Run sets its own PORT. A hardcoded `PORT=5000` in shared scope overrides Cloud Run and breaks deployment.
+
+2. **Route registration order**: ALL API routes and `/healthz` MUST be registered BEFORE `serveStatic(app)`. The SPA wildcard fallback in serveStatic catches everything and returns index.html. Routes registered after it are invisible.
+
+3. **HTTPS redirect breaks local smoke tests**: The production HTTPS redirect (`server/index.ts`) must skip localhost/127.0.0.1 or smoke tests fail with 301 redirects to unreachable production URLs.
+
+4. **HTTPS detection uses x-forwarded-proto**: Cloud Run terminates TLS at the load balancer. The actual request to the app is HTTP. Check `req.get("x-forwarded-proto")` NOT `req.protocol` to determine if the original request was HTTPS.
+
+5. **Google OAuth 403**: Production domain must be in Google Cloud Console authorized redirect URIs. The redirect URI is auto-detected from request headers — do not hardcode it.
+
+6. **Helmet CSP blocks resources**: In production, Helmet enforces Content-Security-Policy. If you add new external resources (fonts, scripts, images, APIs), you must update the CSP directives in `server/index.ts`.
+
+7. **esbuild uses external packages**: The backend bundle does NOT include node_modules. The production server needs `node_modules/` present. This is handled by Replit's deployment — it runs `npm install` during the build step.
+
+8. **Incremental TypeScript cache**: `tsconfig.json` uses `incremental: true` with cache at `node_modules/typescript/tsbuildinfo`. If you get stale type errors after making changes, delete this file: `rm -f node_modules/typescript/tsbuildinfo`.
+
+### CSRF Protection
+
+All POST/PATCH/DELETE requests require a CSRF token. The frontend gets it from `getCsrfToken()` in `client/src/lib/queryClient.ts` and sends it as `x-csrf-token` header. Smoke tests that POST without CSRF will get 403 — this is expected behavior.
+
+### Checklist for Agents Before Publishing
+
+1. Run `npx tsc --noEmit --pretty` — must show zero errors
+2. Run `npm run build` — must complete successfully
+3. Verify `dist/index.js`, `dist/public/index.html`, and `dist/public/assets/` exist
+4. Run `bash scripts/pre-publish-check.sh` — must pass all 6 checks
+5. Confirm PORT is NOT set in shared env vars (only in development)
+6. If Google OAuth is needed in production, confirm `https://axtask.replit.app/api/auth/google/callback` is in Google Cloud Console authorized redirect URIs
