@@ -146,6 +146,24 @@ function extractSearchQuery(text: string): string {
   return query.trim();
 }
 
+const TRANSCRIPT_CORRECTIONS: [RegExp, string][] = [
+  [/\baccess\b/gi, "AxTask"],
+  [/\baxis\b/gi, "AxTask"],
+  [/\bax task\b/gi, "AxTask"],
+  [/\backs? task\b/gi, "AxTask"],
+  [/\bacts? task\b/gi, "AxTask"],
+  [/\bacts ask\b/gi, "AxTask"],
+  [/\bx task\b/gi, "AxTask"],
+];
+
+export function normalizeTranscript(text: string): string {
+  let result = text;
+  for (const [pattern, replacement] of TRANSCRIPT_CORRECTIONS) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+}
+
 export function classifyIntent(text: string): IntentType {
   const lower = text.toLowerCase().trim();
 
@@ -168,12 +186,13 @@ export function classifyIntent(text: string): IntentType {
 }
 
 export async function dispatchVoiceCommand(
-  transcript: string,
+  rawTranscript: string,
   tasks: Task[],
   userId: string,
   todayStr: string,
   now: Date
 ): Promise<EngineResponse> {
+  const transcript = normalizeTranscript(rawTranscript);
   const intent = classifyIntent(transcript);
 
   switch (intent) {

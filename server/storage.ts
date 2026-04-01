@@ -2153,3 +2153,53 @@ export async function getForumReports(status?: string): Promise<ForumReport[]> {
 export async function updateForumReportStatus(id: string, status: string): Promise<void> {
   await db.update(forumReports).set({ status }).where(eq(forumReports.id, id));
 }
+
+const VALID_REACTIONS = ["thumbsUp", "heart", "party", "laugh", "fire"];
+
+export async function toggleForumReaction(
+  userId: string,
+  opts: { postId?: string; commentId?: string; reaction: string }
+): Promise<{ action: "added" | "removed"; reactions: Record<string, string[]> }> {
+  if (!VALID_REACTIONS.includes(opts.reaction)) {
+    throw new Error("Invalid reaction type");
+  }
+
+  if (opts.postId) {
+    const [post] = await db.select({ reactions: forumPosts.reactions }).from(forumPosts).where(eq(forumPosts.id, opts.postId));
+    if (!post) throw new Error("Post not found");
+
+    const reactions = (post.reactions || {}) as Record<string, string[]>;
+    const list = reactions[opts.reaction] || [];
+    const idx = list.indexOf(userId);
+    let action: "added" | "removed";
+    if (idx >= 0) {
+      list.splice(idx, 1);
+      action = "removed";
+    } else {
+      list.push(userId);
+      action = "added";
+    }
+    reactions[opts.reaction] = list;
+    await db.update(forumPosts).set({ reactions }).where(eq(forumPosts.id, opts.postId));
+    return { action, reactions };
+  } else if (opts.commentId) {
+    const [comment] = await db.select({ reactions: forumComments.reactions }).from(forumComments).where(eq(forumComments.id, opts.commentId));
+    if (!comment) throw new Error("Comment not found");
+
+    const reactions = (comment.reactions || {}) as Record<string, string[]>;
+    const list = reactions[opts.reaction] || [];
+    const idx = list.indexOf(userId);
+    let action: "added" | "removed";
+    if (idx >= 0) {
+      list.splice(idx, 1);
+      action = "removed";
+    } else {
+      list.push(userId);
+      action = "added";
+    }
+    reactions[opts.reaction] = list;
+    await db.update(forumComments).set({ reactions }).where(eq(forumComments.id, opts.commentId));
+    return { action, reactions };
+  }
+  throw new Error("postId or commentId required");
+}

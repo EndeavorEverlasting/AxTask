@@ -99,6 +99,19 @@ function PostCard({ post, authors, isAdmin, onNavigate }: {
             </span>
             <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{timeAgo(post.createdAt!)}</span>
             <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" />{post.commentCount}</span>
+            {(() => {
+              const r = (post.reactions || {}) as Record<string, string[]>;
+              const entries = Object.entries(r).filter(([, v]) => v.length > 0);
+              if (entries.length === 0) return null;
+              return (
+                <span className="flex items-center gap-0.5">
+                  {entries.map(([key, users]) => {
+                    const em = key === "thumbsUp" ? "\u{1F44D}" : key === "heart" ? "\u2764\uFE0F" : key === "party" ? "\u{1F389}" : key === "laugh" ? "\u{1F602}" : "\u{1F525}";
+                    return <span key={key} className="text-xs">{em}{users.length > 1 ? users.length : ""}</span>;
+                  })}
+                </span>
+              );
+            })()}
           </div>
         </div>
       </div>

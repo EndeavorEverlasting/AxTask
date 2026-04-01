@@ -14,7 +14,7 @@ function highlightMatch(text: string, query: string): JSX.Element {
     <>
       {parts.map((part, i) =>
         i % 2 === 1 ? (
-          <mark key={i} className="bg-yellow-200 dark:bg-yellow-800 text-inherit rounded px-0.5">{part}</mark>
+          <mark key={i} className="bg-amber-300/40 dark:bg-amber-500/30 text-inherit rounded-sm px-0.5 ring-1 ring-amber-400/50 dark:ring-amber-500/40">{part}</mark>
         ) : (
           <span key={i}>{part}</span>
         )

@@ -46,6 +46,87 @@ function renderMarkdown(text: string): string {
     .replace(/\n/g, "<br />");
 }
 
+const REACTION_EMOJIS: { key: string; emoji: string; label: string }[] = [
+  { key: "thumbsUp", emoji: "\u{1F44D}", label: "Like" },
+  { key: "heart", emoji: "\u2764\uFE0F", label: "Love" },
+  { key: "party", emoji: "\u{1F389}", label: "Celebrate" },
+  { key: "laugh", emoji: "\u{1F602}", label: "Funny" },
+  { key: "fire", emoji: "\u{1F525}", label: "Fire" },
+];
+
+function EmojiReactions({ postId, commentId, reactions, userId }: {
+  postId?: string;
+  commentId?: string;
+  reactions: Record<string, string[]>;
+  userId?: string;
+}) {
+  const [showPicker, setShowPicker] = useState(false);
+
+  const reactMutation = useMutation({
+    mutationFn: (reaction: string) =>
+      apiRequest("POST", "/api/forum/react", { postId, commentId, reaction }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/forum/posts"] });
+    },
+  });
+
+  const reactionData = reactions || {};
+  const activeReactions = REACTION_EMOJIS.filter(r => (reactionData[r.key]?.length || 0) > 0);
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {activeReactions.map(r => {
+        const users = reactionData[r.key] || [];
+        const hasReacted = userId ? users.includes(userId) : false;
+        return (
+          <button
+            key={r.key}
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs border transition-colors ${
+              hasReacted
+                ? "border-blue-400 bg-blue-50 dark:bg-blue-900/30 dark:border-blue-600"
+                : "border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500"
+            }`}
+            onClick={(e) => { e.stopPropagation(); reactMutation.mutate(r.key); }}
+            disabled={reactMutation.isPending}
+            title={r.label}
+          >
+            <span>{r.emoji}</span>
+            <span className="tabular-nums text-gray-600 dark:text-gray-400">{users.length}</span>
+          </button>
+        );
+      })}
+
+      <div className="relative">
+        <button
+          className="inline-flex items-center justify-center h-6 w-6 rounded-full border border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors text-xs"
+          onClick={(e) => { e.stopPropagation(); setShowPicker(!showPicker); }}
+          title="Add reaction"
+        >
+          +
+        </button>
+        {showPicker && (
+          <div className="absolute bottom-full left-0 mb-1 flex gap-0.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg p-1 z-10">
+            {REACTION_EMOJIS.map(r => (
+              <button
+                key={r.key}
+                className="hover:bg-gray-100 dark:hover:bg-gray-700 rounded p-1 text-base transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  reactMutation.mutate(r.key);
+                  setShowPicker(false);
+                }}
+                title={r.label}
+              >
+                {r.emoji}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ReportDialog({ postId, commentId }: { postId?: string; commentId?: string }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -138,12 +219,13 @@ function VoteButtons({ postId, commentId, upvotes, downvotes, userVote }: {
   );
 }
 
-function CommentItem({ comment, authors, votes, isAdmin, postId }: {
+function CommentItem({ comment, authors, votes, isAdmin, postId, userId }: {
   comment: ForumComment;
   authors: Record<string, { displayName: string | null; profileImageUrl: string | null }>;
   votes: ForumVote[];
   isAdmin: boolean;
   postId: string;
+  userId?: string;
 }) {
   const { toast } = useToast();
   const author = authors[comment.userId];
@@ -186,6 +268,11 @@ function CommentItem({ comment, authors, votes, isAdmin, postId }: {
             upvotes={comment.upvotes}
             downvotes={comment.downvotes}
             userVote={userVote?.voteType as "up" | "down" | undefined}
+          />
+          <EmojiReactions
+            commentId={comment.id}
+            reactions={(comment.reactions || {}) as Record<string, string[]>}
+            userId={userId}
           />
           <ReportDialog commentId={comment.id} />
           {isAdmin && (
@@ -289,12 +376,17 @@ export default function CommunityPostPage() {
           dangerouslySetInnerHTML={{ __html: renderMarkdown(post.body) }}
         />
 
-        <div className="flex items-center gap-3 pt-4 border-t border-gray-100 dark:border-gray-700">
+        <div className="flex items-center gap-3 pt-4 border-t border-gray-100 dark:border-gray-700 flex-wrap">
           <VoteButtons
             postId={post.id}
             upvotes={post.upvotes}
             downvotes={post.downvotes}
             userVote={postVote?.voteType as "up" | "down" | undefined}
+          />
+          <EmojiReactions
+            postId={post.id}
+            reactions={(post.reactions || {}) as Record<string, string[]>}
+            userId={user?.id}
           />
           <span className="text-sm text-gray-500 flex items-center gap-1"><MessageSquare className="h-3.5 w-3.5" />{comments.length} comments</span>
           <ReportDialog postId={post.id} />
@@ -339,6 +431,7 @@ export default function CommunityPostPage() {
                 votes={votes}
                 isAdmin={isAdmin}
                 postId={post.id}
+                userId={user?.id}
               />
             ))}
           </div>

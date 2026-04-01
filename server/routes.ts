@@ -39,7 +39,7 @@ import {
   createForumPost, getForumPosts, getForumPostById, deleteForumPost, updateForumPost,
   createForumComment, getForumComments, updateForumComment, deleteForumComment,
   castForumVote, getUserForumVotes, hasUpvoteRewardBeenGiven, recordUpvoteReward,
-  createForumReport, getForumReports, updateForumReportStatus,
+  createForumReport, getForumReports, updateForumReportStatus, toggleForumReaction,
   getUserById,
 } from "./storage";
 import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, BADGE_DEFINITIONS } from "./coin-engine";
@@ -2936,6 +2936,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ action: result.action });
     } catch (error) {
       res.status(500).json({ message: "Failed to cast vote" });
+    }
+  });
+
+  app.post("/api/forum/react", requireAuth, async (req, res) => {
+    try {
+      const { postId, commentId, reaction } = req.body;
+      if ((!postId && !commentId) || (postId && commentId)) return res.status(400).json({ message: "Provide exactly one of postId or commentId" });
+      if (!reaction || typeof reaction !== "string") return res.status(400).json({ message: "reaction is required" });
+
+      if (postId) {
+        const post = await getForumPostById(postId);
+        if (!post) return res.status(404).json({ message: "Post not found" });
+        if (post.hidden && post.userId !== req.user!.id && req.user!.role !== "admin") {
+          return res.status(403).json({ message: "Cannot react to hidden content" });
+        }
+      }
+
+      const result = await toggleForumReaction(req.user!.id, { postId, commentId, reaction });
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to react" });
     }
   });
 

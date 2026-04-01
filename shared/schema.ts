@@ -483,6 +483,7 @@ export const forumPosts = pgTable("forum_posts", {
   commentCount: integer("comment_count").notNull().default(0),
   pinned: boolean("pinned").notNull().default(false),
   hidden: boolean("hidden").notNull().default(false),
+  reactions: jsonb("reactions").default({}),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -520,6 +521,7 @@ export const forumComments = pgTable("forum_comments", {
   upvotes: integer("upvotes").notNull().default(0),
   downvotes: integer("downvotes").notNull().default(0),
   hidden: boolean("hidden").notNull().default(false),
+  reactions: jsonb("reactions").default({}),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_forum_comments_post").on(table.postId),
