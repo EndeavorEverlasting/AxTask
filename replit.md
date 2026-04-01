@@ -34,6 +34,9 @@ Key features include:
 -   **Real-time Collaboration**: Google Drive-style collaborative task editing via WebSocket with live presence and role-based permissions.
 -   **Coin Economy (Spend & Scarcity)**: Consumable coin sinks like Streak Shields, Priority Boost, Task Bounties, and Coin Gifting.
 -   **Pattern Learning Engine**: RAG-style intelligence that learns from user task history to suggest topics, recurring tasks, and deadlines.
+-   **Task Attachments**: Image uploads (JPEG/PNG/GIF/WebP, 5MB limit, 3 max per task) with drag-drop zone, thumbnail previews, lightbox display, and markdown content editor.
+-   **Interactive Feedback System**: Micro-surveys (thumbs/radio/text types) with contextual triggers, server-side cooldown enforcement, thumbs up/down reactions on completed tasks, all tied to the AxCoin economy.
+-   **NodeWeaver Integration (Scaffolded)**: Feedback classification pipeline that ingests survey responses and task reactions, classifying them as bugs, user errors, feature requests, praise, complaints, or noise. Engine at `server/engines/nodeweaver-engine.ts` with `@nodeweaver-hook` placeholders for: classification logic, enrichment, batch reprocessing, digest generation, trend detection, and resolution suggestions. DB table `feedback_classifications` stores results. API at `/api/feedback/*`. Includes a **classification dispute system** where users can challenge auto-classifications by suggesting an alternative category, other users vote agree/disagree, and AxTask tracks consensus per category pair. When enough disputes accumulate (≥5) with sufficient agreement (≥70%), the system escalates to `review_needed` status for NodeWeaver to evaluate and potentially redefine category rules. DB tables: `classification_disputes`, `classification_dispute_votes`, `category_review_triggers`.
 
 ### Authentication & Security
 The system supports Google OAuth, Replit OIDC, WorkOS AuthKit (enterprise SSO), and a local email/password strategy using bcrypt. Security features include account lockout, user banning, robust password policies, input validation, security questions, hashed password reset tokens, a Security Admin UI, rate limiting, comprehensive security audit logging, request size limits, session security with httpOnly cookies, and enforced HTTPS with HSTS and CSP in production. Authentication middleware is handled by Passport.js. TOTP-based MFA (two-factor authentication) is available via authenticator apps (Google Authenticator, Authy, etc.) and is required for destructive actions in the Danger Zone (e.g., clearing all tasks). MFA secrets are encrypted at rest using AES-256-GCM.
@@ -74,6 +77,7 @@ The application is designed for **Replit Autoscale** (Google Cloud Run), necessi
 -   **xlsx**: Excel file processing.
 -   **pdfkit**: PDF generation.
 -   **multer**: File uploads.
+-   **sharp**: Image thumbnail generation.
 -   **Tesseract.js**: OCR engine.
 
 ### Development Utilities

@@ -25,7 +25,10 @@ import { Calendar } from "@/components/ui/calendar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PriorityBadge } from "./priority-badge";
 import { ClockTimePicker } from "@/components/ui/clock-time-picker";
-import { Plus, CalendarIcon, Lightbulb, Save } from "lucide-react";
+import { Plus, CalendarIcon, Lightbulb, Save, Paperclip } from "lucide-react";
+import { AttachmentUpload, AttachmentList } from "@/components/task-attachments";
+import { MarkdownEditor } from "@/components/markdown-editor";
+import type { TaskAttachment } from "@shared/schema";
 import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
 import { useFieldFlow } from "@/hooks/use-field-flow";
@@ -1075,6 +1078,34 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                 )}
               />
             </div>
+
+            {task && (
+              <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Paperclip className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Attachments</span>
+                  </div>
+                  <AttachmentList
+                    attachments={(task.attachments as TaskAttachment[] || [])}
+                    taskId={task.id}
+                    editable={true}
+                  />
+                  <AttachmentUpload
+                    taskId={task.id}
+                    attachments={(task.attachments as TaskAttachment[] || [])}
+                  />
+                </div>
+                <MarkdownEditor
+                  value={task.markdownContent || ""}
+                  onChange={(val) => {
+                    apiRequest("PUT", `/api/tasks/${task.id}`, { markdownContent: val })
+                      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/tasks"] }));
+                  }}
+                  placeholder="Add rich markdown content to this task..."
+                />
+              </div>
+            )}
 
             <div className="flex items-center justify-between pt-6 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center space-x-4">

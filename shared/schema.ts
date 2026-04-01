@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, timestamp, boolean, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -103,6 +103,9 @@ export const tasks = pgTable("tasks", {
   sortOrder: integer("sort_order").default(0),
   contentHash: varchar("content_hash", { length: 64 }),
   forceImported: boolean("force_imported").default(false),
+  attachments: jsonb("attachments").default([]),
+  markdownContent: text("markdown_content"),
+  reactions: jsonb("reactions").default({}),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -111,6 +114,19 @@ export const tasks = pgTable("tasks", {
   index("idx_tasks_user_sort_order").on(table.userId, table.sortOrder),
   index("idx_tasks_user_content_hash").on(table.userId, table.contentHash),
 ]);
+
+export const attachmentSchema = z.object({
+  id: z.string(),
+  type: z.enum(["image", "markdown"]),
+  filename: z.string(),
+  path: z.string(),
+  thumbnailPath: z.string().optional(),
+  size: z.number(),
+  mimeType: z.string().optional(),
+  createdAt: z.string(),
+});
+
+export type TaskAttachment = z.infer<typeof attachmentSchema>;
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({
   id: true,
@@ -122,6 +138,8 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   sortOrder: true,
   contentHash: true,
   forceImported: true,
+  attachments: true,
+  reactions: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
@@ -150,6 +168,7 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
     { message: "Invalid recurrence pattern" }
   ).default("none"),
   status: z.enum(["pending", "in-progress", "completed"]).default("pending"),
+  markdownContent: z.string().max(10000, "Markdown content must be under 10000 characters").optional(),
 });
 
 export const updateTaskSchema = insertTaskSchema.partial().extend({
@@ -160,6 +179,13 @@ export const updateTaskSchema = insertTaskSchema.partial().extend({
   isRepeated: z.boolean().optional(),
   sortOrder: z.number().optional(),
 });
+
+export const internalUpdateTaskSchema = updateTaskSchema.extend({
+  attachments: z.array(attachmentSchema).optional(),
+  reactions: z.record(z.string(), z.array(z.string())).optional(),
+});
+
+export type InternalUpdateTask = z.infer<typeof internalUpdateTaskSchema>;
 
 export const reorderTasksSchema = z.object({
   taskIds: z.array(z.string()).min(1, "At least one task ID is required"),
@@ -328,3 +354,119 @@ export const classificationConfirmations = pgTable("classification_confirmations
 ]);
 
 export type ClassificationConfirmation = typeof classificationConfirmations.$inferSelect;
+
+// ─── Surveys & Feedback ─────────────────────────────────────────────────────
+export const surveys = pgTable("surveys", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  promptType: text("prompt_type").notNull(),
+  question: text("question").notNull(),
+  options: jsonb("options").default([]),
+  targetModule: text("target_module"),
+  cooldownHours: integer("cooldown_hours").notNull().default(24),
+  coinReward: integer("coin_reward").notNull().default(2),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type Survey = typeof surveys.$inferSelect;
+
+export const surveyResponses = pgTable("survey_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  surveyId: varchar("survey_id").notNull().references(() => surveys.id, { onDelete: "cascade" }),
+  response: text("response").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_survey_resp_user").on(table.userId),
+  index("idx_survey_resp_survey").on(table.surveyId),
+  index("idx_survey_resp_user_survey").on(table.userId, table.surveyId),
+]);
+
+export type SurveyResponse = typeof surveyResponses.$inferSelect;
+
+// ─── NodeWeaver Feedback Classifications ────────────────────────────────────
+export const feedbackClassifications = pgTable("feedback_classifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourceType: text("source_type").notNull(),
+  sourceId: varchar("source_id").notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  category: text("category").notNull(),
+  severity: text("severity").notNull().default("low"),
+  confidence: real("confidence").notNull().default(0),
+  rawContent: text("raw_content").notNull(),
+  normalizedContent: text("normalized_content"),
+  tags: jsonb("tags").default([]),
+  actionable: boolean("actionable").notNull().default(false),
+  resolved: boolean("resolved").notNull().default(false),
+  resolvedAt: timestamp("resolved_at"),
+  metadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_fc_source").on(table.sourceType, table.sourceId),
+  index("idx_fc_category").on(table.category),
+  index("idx_fc_severity").on(table.severity),
+  index("idx_fc_actionable").on(table.actionable),
+  index("idx_fc_user").on(table.userId),
+]);
+
+export type FeedbackClassification = typeof feedbackClassifications.$inferSelect;
+
+export const feedbackClassificationSchema = createInsertSchema(feedbackClassifications).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// ─── Classification Disputes ────────────────────────────────────────────────
+
+export const classificationDisputes = pgTable("classification_disputes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  classificationId: varchar("classification_id").notNull().references(() => feedbackClassifications.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  originalCategory: text("original_category").notNull(),
+  suggestedCategory: text("suggested_category").notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_cd_classification").on(table.classificationId),
+  index("idx_cd_user").on(table.userId),
+  uniqueIndex("idx_cd_user_classification").on(table.userId, table.classificationId),
+]);
+
+export type ClassificationDispute = typeof classificationDisputes.$inferSelect;
+
+export const classificationDisputeVotes = pgTable("classification_dispute_votes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  disputeId: varchar("dispute_id").notNull().references(() => classificationDisputes.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  agree: boolean("agree").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_cdv_dispute").on(table.disputeId),
+  uniqueIndex("idx_cdv_user_dispute").on(table.userId, table.disputeId),
+]);
+
+export type DisputeVote = typeof classificationDisputeVotes.$inferSelect;
+
+export const categoryReviewTriggers = pgTable("category_review_triggers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  category: text("category").notNull(),
+  suggestedCategory: text("suggested_category").notNull(),
+  disputeCount: integer("dispute_count").notNull().default(0),
+  agreeCount: integer("agree_count").notNull().default(0),
+  disagreeCount: integer("disagree_count").notNull().default(0),
+  consensusRatio: real("consensus_ratio").notNull().default(0),
+  status: text("status").notNull().default("monitoring"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewOutcome: text("review_outcome"),
+  metadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_crt_category").on(table.category),
+  index("idx_crt_status").on(table.status),
+  uniqueIndex("idx_crt_category_pair").on(table.category, table.suggestedCategory),
+]);
+
+export type CategoryReviewTrigger = typeof categoryReviewTriggers.$inferSelect;

@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { SurveyPrompt } from "@/components/survey-prompt";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Task, type ImportHistory } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -658,6 +659,8 @@ export default function ImportExport() {
         <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Import/Export</h2>
         <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">Sync your tasks with Google Sheets or other tools</p>
       </div>
+
+      <SurveyPrompt targetModule="import" trigger="page_visit" />
 
       <Card className="border-2 border-blue-200 dark:border-blue-800">
         <CardHeader>

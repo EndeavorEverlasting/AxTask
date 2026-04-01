@@ -1,10 +1,13 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, randomUUID } from "crypto";
 import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
+import sharp from "sharp";
 import express from "express";
+import path from "path";
+import fs from "fs";
 import { exportFullDatabase, exportUserData } from "./migration/export";
 import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
 import {
@@ -19,13 +22,27 @@ import {
   getSharedTasks, canAccessTask, isTaskOwner,
   resetStreak, useStreakShield, buyStreakShield, giftCoins, setTaskBounty, claimBounty, boostTaskPriority,
   setMfaSecret, enableMfa, disableMfa, getMfaSecret, isMfaEnabled,
+  getApplicableSurveys, getSurveyById, submitSurveyResponse, addTaskReaction, seedSurveys,
+  addCoins,
+  getFeedbackClassifications as getFeedbackClassificationsFromStorage,
+  getFeedbackClassificationById as getFeedbackClassificationByIdFromStorage,
+  updateFeedbackClassification as updateFeedbackClassificationInStorage,
+  getFeedbackStats as getFeedbackStatsFromStorage,
+  createDispute,
+  getDisputesForClassification,
+  getDisputesByCategory,
+  getUserDispute,
+  voteOnDispute,
+  getDisputeVotes,
+  getCategoryReviewTriggers,
+  resolveCategoryReview,
 } from "./storage";
 import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, BADGE_DEFINITIONS } from "./coin-engine";
 import { computeContentHash, computeFileHash } from "./fingerprint";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
 import { getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution } from "./storage";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, internalUpdateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask, type InternalUpdateTask, type TaskAttachment } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
@@ -2248,6 +2265,563 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Clear all tasks error:", error);
       res.status(500).json({ message: "Failed to clear tasks" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Task Attachments (image upload / delete)
+  // ════════════════════════════════════════════════════════════════════════
+
+  const UPLOADS_DIR = path.join(process.cwd(), "server", "uploads");
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+
+  app.use("/uploads", express.static(UPLOADS_DIR));
+
+  const attachmentStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `${randomUUID()}${ext}`);
+    },
+  });
+
+  const attachmentUpload = multer({
+    storage: attachmentStorage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+      if (allowed.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error("Only JPEG, PNG, GIF, and WebP images are allowed"));
+      }
+    },
+  });
+
+  app.post("/api/tasks/:id/attachments", requireAuth, attachmentUpload.array("files", 3), async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const taskId = req.params.id;
+      const task = await storage.getTask(userId, taskId);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      const existingAttachments: TaskAttachment[] = Array.isArray(task.attachments) ? task.attachments as TaskAttachment[] : [];
+
+      if (existingAttachments.length >= 3) {
+        const files = req.files as Express.Multer.File[];
+        if (files) files.forEach(f => fs.unlinkSync(f.path));
+        return res.status(400).json({ message: "Maximum 3 attachments per task" });
+      }
+
+      const files = req.files as Express.Multer.File[];
+      if (!files || files.length === 0) {
+        return res.status(400).json({ message: "No files uploaded" });
+      }
+
+      const remaining = 3 - existingAttachments.length;
+      const filesToKeep = files.slice(0, remaining);
+      const filesToRemove = files.slice(remaining);
+      filesToRemove.forEach(f => fs.unlinkSync(f.path));
+
+      const newAttachments: TaskAttachment[] = [];
+      for (const f of filesToKeep) {
+        const thumbFilename = `thumb_${f.filename}`;
+        const thumbPath = path.join(UPLOADS_DIR, thumbFilename);
+        try {
+          await sharp(f.path)
+            .resize(200, 200, { fit: "cover" })
+            .toFile(thumbPath);
+        } catch {
+        }
+
+        newAttachments.push({
+          id: randomUUID(),
+          type: "image" as const,
+          filename: f.originalname,
+          path: `/uploads/${f.filename}`,
+          thumbnailPath: fs.existsSync(thumbPath) ? `/uploads/${thumbFilename}` : undefined,
+          size: f.size,
+          mimeType: f.mimetype,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      const allAttachments = [...existingAttachments, ...newAttachments];
+
+      const internalUpdate = internalUpdateTaskSchema.parse({ id: taskId, attachments: allAttachments });
+      await storage.updateTask(userId, internalUpdate as UpdateTask);
+
+      res.status(201).json({ attachments: allAttachments });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Only")) {
+        return res.status(400).json({ message: error.message });
+      }
+      res.status(500).json({ message: "Failed to upload attachments" });
+    }
+  });
+
+  app.delete("/api/tasks/:id/attachments/:attachmentId", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const taskId = req.params.id;
+      const attachmentId = req.params.attachmentId;
+
+      const task = await storage.getTask(userId, taskId);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      const existingAttachments: TaskAttachment[] = Array.isArray(task.attachments) ? task.attachments as TaskAttachment[] : [];
+      const attachment = existingAttachments.find(a => a.id === attachmentId);
+
+      if (!attachment) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+
+      if (attachment.type === "image" && attachment.path) {
+        const filename = path.basename(attachment.path);
+        const filePath = path.join(UPLOADS_DIR, filename);
+        const resolvedPath = path.resolve(filePath);
+        if (resolvedPath.startsWith(path.resolve(UPLOADS_DIR)) && fs.existsSync(resolvedPath)) {
+          fs.unlinkSync(resolvedPath);
+        }
+        if (attachment.thumbnailPath) {
+          const thumbName = path.basename(attachment.thumbnailPath);
+          const thumbFull = path.resolve(path.join(UPLOADS_DIR, thumbName));
+          if (thumbFull.startsWith(path.resolve(UPLOADS_DIR)) && fs.existsSync(thumbFull)) {
+            fs.unlinkSync(thumbFull);
+          }
+        }
+      }
+
+      const filteredAttachments = existingAttachments.filter(a => a.id !== attachmentId);
+      const internalDel = internalUpdateTaskSchema.parse({ id: taskId, attachments: filteredAttachments });
+      await storage.updateTask(userId, internalDel as UpdateTask);
+
+      res.json({ attachments: filteredAttachments });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete attachment" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Survey & Feedback routes
+  // ════════════════════════════════════════════════════════════════════════
+
+  seedSurveys().catch(err => console.error("[Surveys] Failed to seed:", err));
+
+  app.get("/api/surveys", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const targetModule = typeof req.query.module === "string" ? req.query.module : undefined;
+      const applicable = await getApplicableSurveys(userId, targetModule);
+      res.json(applicable);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch surveys" });
+    }
+  });
+
+  app.post("/api/surveys/:id/respond", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const surveyId = req.params.id;
+      const { response } = req.body;
+
+      if (!response || typeof response !== "string") {
+        return res.status(400).json({ message: "Response is required" });
+      }
+
+      const survey = await getSurveyById(surveyId);
+      if (!survey) {
+        return res.status(404).json({ message: "Survey not found" });
+      }
+
+      if (survey.promptType === "thumbs" && !["thumbsUp", "thumbsDown"].includes(response)) {
+        return res.status(400).json({ message: "Invalid response for thumbs survey" });
+      }
+      if (survey.promptType === "radio") {
+        const validOptions = Array.isArray(survey.options) ? survey.options as string[] : [];
+        if (validOptions.length > 0 && !validOptions.includes(response)) {
+          return res.status(400).json({ message: "Invalid option selected" });
+        }
+      }
+
+      const applicable = await getApplicableSurveys(userId, survey.targetModule || undefined);
+      const isApplicable = applicable.some(s => s.id === surveyId);
+      if (!isApplicable) {
+        return res.status(429).json({ message: "Survey cooldown not met. Please try again later." });
+      }
+
+      const surveyResponse = await submitSurveyResponse(userId, surveyId, response);
+
+      const coinReward = survey.coinReward || 2;
+      const { wallet } = await addCoins(userId, coinReward, "survey_response", `Survey: ${survey.question.substring(0, 80)}`);
+
+      // @nodeweaver-hook: Queue survey response for feedback classification
+      try {
+        const { normalizeSurveyResponse, processFeedbackItem } = await import("./engines/nodeweaver-engine");
+        const feedbackItem = normalizeSurveyResponse(surveyResponse, survey);
+        processFeedbackItem(feedbackItem).catch(() => {});
+      } catch {}
+
+      res.json({
+        response: surveyResponse,
+        coinsEarned: coinReward,
+        newBalance: wallet.balance,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to submit survey response" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Task Reactions (thumbs up/down)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.post("/api/tasks/:id/react", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const taskId = req.params.id;
+      const { reaction } = req.body;
+
+      if (!reaction || !["thumbsUp", "thumbsDown"].includes(reaction)) {
+        return res.status(400).json({ message: "Invalid reaction type" });
+      }
+
+      let resolvedTask = await storage.getTask(userId, taskId);
+      if (!resolvedTask) {
+        const sharedTasks = await getSharedTasks(userId);
+        resolvedTask = sharedTasks.find(t => t.id === taskId) || undefined;
+      }
+      if (!resolvedTask) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      if (resolvedTask.status !== "completed") {
+        return res.status(400).json({ message: "Reactions are only allowed on completed tasks" });
+      }
+
+      const existingReactions: Record<string, string[]> = (resolvedTask.reactions as Record<string, string[]>) || {};
+      const hadAnyReaction = existingReactions.thumbsUp?.includes(userId) || existingReactions.thumbsDown?.includes(userId);
+
+      const reactions = await addTaskReaction(taskId, userId, reaction);
+
+      let coinsEarned = 0;
+      if (!hadAnyReaction && (reactions.thumbsUp?.includes(userId) || reactions.thumbsDown?.includes(userId))) {
+        coinsEarned = 1;
+        await addCoins(userId, 1, "task_reaction", `Reacted to task`);
+      }
+
+      // @nodeweaver-hook: Queue reaction for feedback classification
+      try {
+        const { normalizeTaskReaction, processFeedbackItem } = await import("./engines/nodeweaver-engine");
+        const feedbackItem = normalizeTaskReaction(
+          taskId,
+          userId,
+          reaction,
+          resolvedTask.activity,
+          resolvedTask.classification,
+          resolvedTask.status
+        );
+        processFeedbackItem(feedbackItem).catch(() => {});
+      } catch {}
+
+      res.json({ reactions, coinsEarned });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to add reaction" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  NodeWeaver — Feedback Classification API
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/feedback/classifications", requireAuth, async (req, res) => {
+    try {
+      const { category, severity, actionable, resolved, sourceType, limit, offset } = req.query;
+      const items = await getFeedbackClassificationsFromStorage({
+        category: category as string | undefined,
+        severity: severity as string | undefined,
+        actionable: actionable === "true" ? true : actionable === "false" ? false : undefined,
+        resolved: resolved === "true" ? true : resolved === "false" ? false : undefined,
+        sourceType: sourceType as string | undefined,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined,
+      });
+      res.json(items);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch feedback classifications" });
+    }
+  });
+
+  app.get("/api/feedback/classifications/:id", requireAuth, async (req, res) => {
+    try {
+      const item = await getFeedbackClassificationByIdFromStorage(req.params.id);
+      if (!item) return res.status(404).json({ message: "Classification not found" });
+      res.json(item);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch classification" });
+    }
+  });
+
+  app.patch("/api/feedback/classifications/:id", requireAuth, async (req, res) => {
+    try {
+      const { resolved, category, severity, actionable } = req.body;
+      const updates: Record<string, unknown> = {};
+      if (resolved !== undefined) {
+        updates.resolved = resolved;
+        if (resolved) updates.resolvedAt = new Date();
+      }
+      if (category) updates.category = category;
+      if (severity) updates.severity = severity;
+      if (actionable !== undefined) updates.actionable = actionable;
+
+      const item = await updateFeedbackClassificationInStorage(req.params.id, updates as Parameters<typeof updateFeedbackClassificationInStorage>[1]);
+      if (!item) return res.status(404).json({ message: "Classification not found" });
+      res.json(item);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update classification" });
+    }
+  });
+
+  app.get("/api/feedback/stats", requireAuth, async (req, res) => {
+    try {
+      const since = req.query.since ? new Date(req.query.since as string) : undefined;
+      const stats = await getFeedbackStatsFromStorage(since);
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch feedback stats" });
+    }
+  });
+
+  app.post("/api/feedback/batch-classify", requireAuth, async (req, res) => {
+    try {
+      const { batchClassifyResponses } = await import("./engines/nodeweaver-engine");
+      const { limit, since, reprocess } = req.body;
+      const result = await batchClassifyResponses({
+        limit,
+        since: since ? new Date(since) : undefined,
+        reprocess,
+      });
+      res.json(result || { message: "Batch classification not yet implemented — wire NodeWeaver logic in nodeweaver-engine.ts" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to run batch classification" });
+    }
+  });
+
+  app.get("/api/feedback/digest", requireAuth, async (req, res) => {
+    try {
+      const { generateFeedbackDigest } = await import("./engines/nodeweaver-engine");
+      const days = parseInt(req.query.days as string) || 7;
+      const endDate = new Date();
+      const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const digest = await generateFeedbackDigest(startDate, endDate);
+      res.json(digest || { message: "Digest generation not yet implemented — wire NodeWeaver logic in nodeweaver-engine.ts" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate feedback digest" });
+    }
+  });
+
+  app.get("/api/feedback/trends", requireAuth, async (req, res) => {
+    try {
+      const { detectFeedbackTrends } = await import("./engines/nodeweaver-engine");
+      const windowHours = parseInt(req.query.windowHours as string) || 24;
+      const threshold = parseFloat(req.query.threshold as string) || 2.0;
+      const trends = await detectFeedbackTrends(windowHours, threshold);
+      res.json(trends || { message: "Trend detection not yet implemented — wire NodeWeaver logic in nodeweaver-engine.ts" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to detect trends" });
+    }
+  });
+
+  app.get("/api/feedback/classifications/:id/suggestions", requireAuth, async (req, res) => {
+    try {
+      const { suggestResolution } = await import("./engines/nodeweaver-engine");
+      const item = await getFeedbackClassificationByIdFromStorage(req.params.id);
+      if (!item) return res.status(404).json({ message: "Classification not found" });
+      const suggestions = await suggestResolution(item);
+      res.json(suggestions || { message: "Resolution suggestions not yet implemented — wire NodeWeaver logic in nodeweaver-engine.ts" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate suggestions" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Classification Disputes — User challenge system
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.post("/api/feedback/classifications/:id/dispute", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const classificationId = req.params.id;
+      const { suggestedCategory, reason } = req.body;
+
+      if (!suggestedCategory || typeof suggestedCategory !== "string") {
+        return res.status(400).json({ message: "suggestedCategory is required" });
+      }
+
+      const validCategories = ["bug_report", "user_error", "feature_request", "praise", "complaint", "question", "noise"];
+      if (!validCategories.includes(suggestedCategory)) {
+        return res.status(400).json({ message: `suggestedCategory must be one of: ${validCategories.join(", ")}` });
+      }
+
+      const classification = await getFeedbackClassificationByIdFromStorage(classificationId);
+      if (!classification) {
+        return res.status(404).json({ message: "Classification not found" });
+      }
+
+      if (suggestedCategory === classification.category) {
+        return res.status(400).json({ message: "Suggested category must differ from current category" });
+      }
+
+      const existingDispute = await getUserDispute(userId, classificationId);
+      if (existingDispute) {
+        return res.status(409).json({ message: "You have already disputed this classification", dispute: existingDispute });
+      }
+
+      const dispute = await createDispute({
+        classificationId,
+        userId,
+        originalCategory: classification.category,
+        suggestedCategory,
+        reason: reason || undefined,
+      });
+
+      res.status(201).json(dispute);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create dispute" });
+    }
+  });
+
+  app.get("/api/feedback/classifications/:id/disputes", requireAuth, async (req, res) => {
+    try {
+      const disputes = await getDisputesForClassification(req.params.id);
+      const enriched = await Promise.all(disputes.map(async (d) => {
+        const { agreeCount, disagreeCount, consensusRatio } = await getDisputeVotes(d.id);
+        return { ...d, agreeCount, disagreeCount, consensusRatio };
+      }));
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch disputes" });
+    }
+  });
+
+  app.post("/api/feedback/disputes/:id/vote", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const disputeId = req.params.id;
+      const { agree } = req.body;
+
+      if (typeof agree !== "boolean") {
+        return res.status(400).json({ message: "agree must be a boolean" });
+      }
+
+      const result = await voteOnDispute({ disputeId, userId, agree });
+
+      if (result.consensusReached) {
+        try {
+          const { evaluateReviewTrigger } = await import("./engines/nodeweaver-engine");
+          const triggers = await getCategoryReviewTriggers({ status: "review_needed" });
+          for (const trigger of triggers) {
+            const disputes = await getDisputesByCategory(trigger.category, trigger.suggestedCategory);
+            const samples = await getFeedbackClassificationsFromStorage({ category: trigger.category, limit: 20 });
+            evaluateReviewTrigger(trigger, disputes, samples).catch(() => {});
+          }
+        } catch {}
+      }
+
+      res.json({
+        vote: result.vote,
+        consensusReached: result.consensusReached,
+        consensusRatio: result.consensusRatio,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to record vote" });
+    }
+  });
+
+  app.get("/api/feedback/disputes/:id/votes", requireAuth, async (req, res) => {
+    try {
+      const result = await getDisputeVotes(req.params.id);
+      res.json({
+        agreeCount: result.agreeCount,
+        disagreeCount: result.disagreeCount,
+        consensusRatio: result.consensusRatio,
+        totalVotes: result.votes.length,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch votes" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Category Review Triggers — Consensus escalation
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/feedback/review-triggers", requireAuth, async (req, res) => {
+    try {
+      const { status, category } = req.query;
+      const triggers = await getCategoryReviewTriggers({
+        status: status as string | undefined,
+        category: category as string | undefined,
+      });
+      res.json(triggers);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch review triggers" });
+    }
+  });
+
+  app.post("/api/feedback/review-triggers/:id/resolve", requireAuth, async (req, res) => {
+    try {
+      const { outcome } = req.body;
+      if (!outcome || typeof outcome !== "string") {
+        return res.status(400).json({ message: "outcome is required" });
+      }
+
+      const validOutcomes = ["accepted", "rejected", "merged", "split", "deferred"];
+      if (!validOutcomes.includes(outcome)) {
+        return res.status(400).json({ message: `outcome must be one of: ${validOutcomes.join(", ")}` });
+      }
+
+      const trigger = await resolveCategoryReview(req.params.id, outcome);
+      if (!trigger) {
+        return res.status(404).json({ message: "Review trigger not found" });
+      }
+
+      if (outcome === "accepted") {
+        try {
+          const { applyRedefinition } = await import("./engines/nodeweaver-engine");
+          const result = await applyRedefinition({
+            originalCategory: trigger.category,
+            newCategory: trigger.suggestedCategory,
+            mergeInto: null,
+            splitFrom: null,
+            affectedClassificationCount: 0,
+            reclassifyExisting: true,
+            rationale: `User consensus: ${trigger.disputeCount} disputes, ${(trigger.consensusRatio * 100).toFixed(0)}% agreement`,
+            confidence: trigger.consensusRatio,
+          });
+          return res.json({ trigger, redefinitionResult: result || { message: "Redefinition logic not yet implemented — wire NodeWeaver applyRedefinition()" } });
+        } catch {}
+      }
+
+      res.json({ trigger });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to resolve review trigger" });
+    }
+  });
+
+  app.get("/api/feedback/dispute-insights", requireAuth, async (req, res) => {
+    try {
+      const { getDisputeInsights } = await import("./engines/nodeweaver-engine");
+      const insights = await getDisputeInsights();
+      res.json(insights || { message: "Dispute insights not yet implemented — wire NodeWeaver getDisputeInsights()" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch dispute insights" });
     }
   });
 

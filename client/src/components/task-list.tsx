@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo, type TouchEvent as ReactTouchEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { type Task } from "@shared/schema";
+import { type Task, type TaskAttachment } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useVoice } from "@/hooks/use-voice";
@@ -15,7 +15,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
-import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw, Loader2 as RefreshLoader, Repeat, Paintbrush, Zap, Coins } from "lucide-react";
+import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw, Loader2 as RefreshLoader, Repeat, Paintbrush, Zap, Coins, Paperclip } from "lucide-react";
+import { AttachmentIndicator } from "@/components/task-attachments";
+import { TaskReaction, SurveyPrompt } from "@/components/survey-prompt";
+import { useAuth } from "@/lib/auth-context";
 import {
   DndContext,
   closestCenter,
@@ -176,6 +179,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
   highlightMode?: HighlightMode;
   isNew?: boolean;
 }) {
+  const { user: authUser } = useAuth();
   const {
     attributes,
     listeners,
@@ -272,7 +276,12 @@ const SortableTaskRow = memo(function SortableTaskRow({
         <PriorityBadge priority={task.priority} />
       </TableCell>
       <TableCell className="max-w-md">
-        <div className="truncate">{task.activity}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="truncate">{task.activity}</span>
+          {Array.isArray(task.attachments) && (task.attachments as TaskAttachment[]).length > 0 && (
+            <AttachmentIndicator attachments={task.attachments as TaskAttachment[]} />
+          )}
+        </div>
         {task.notes && (
           <div className="text-xs text-gray-500 dark:text-gray-400 truncate mt-1">
             {task.notes}
@@ -332,6 +341,14 @@ const SortableTaskRow = memo(function SortableTaskRow({
           >
             <Trash2 className="h-4 w-4" />
           </Button>
+          {task.status === "completed" && authUser && (
+            <TaskReaction
+              taskId={task.id}
+              reactions={(task.reactions as Record<string, string[]>) || {}}
+              userId={String(authUser.id)}
+              compact
+            />
+          )}
         </div>
       </TableCell>
     </MotionTableRow>
@@ -491,6 +508,7 @@ function MobileTaskCard({
   isBoosting: boolean;
   highlightMode?: HighlightMode;
 }) {
+  const { user: authUser } = useAuth();
   const [swipeX, setSwipeX] = useState(0);
   const [swiping, setSwiping] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
@@ -573,6 +591,9 @@ function MobileTaskCard({
         <div className="flex items-center gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
           <ClassificationBadge classification={task.classification} taskId={task.id} editable />
           <ClassificationConfirm taskId={task.id} classification={task.classification} compact />
+          {Array.isArray(task.attachments) && (task.attachments as TaskAttachment[]).length > 0 && (
+            <AttachmentIndicator attachments={task.attachments as TaskAttachment[]} />
+          )}
         </div>
         <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
           <Button
@@ -606,6 +627,16 @@ function MobileTaskCard({
             <Trash2 className="h-4 w-4" />
           </Button>
         </div>
+        {task.status === "completed" && authUser && (
+          <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+            <TaskReaction
+              taskId={task.id}
+              reactions={(task.reactions as Record<string, string[]>) || {}}
+              userId={String(authUser.id)}
+              compact
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -667,6 +698,8 @@ export function TaskList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
+  const { user } = useAuth();
+  const [showCompletionSurvey, setShowCompletionSurvey] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 200);
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -781,11 +814,15 @@ export function TaskList() {
       const response = await apiRequest("PUT", `/api/tasks/${id}`, { status });
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/cleanup-stats"] });
+      if (variables.status === "completed") {
+        setShowCompletionSurvey(true);
+        setTimeout(() => setShowCompletionSurvey(false), 30000);
+      }
       if (data?.coinReward) {
         const cr = data.coinReward;
         const badgeText = cr.badgesEarned?.length > 0 ? ` 🏅 New badge${cr.badgesEarned.length > 1 ? "s" : ""}!` : "";
@@ -1118,6 +1155,15 @@ export function TaskList() {
         </div>
       </CardHeader>
       <CardContent className="px-4 md:px-6">
+        {showCompletionSurvey && (
+          <div className="mb-4">
+            <SurveyPrompt
+              targetModule="task_completion"
+              trigger="task_completion"
+              active={showCompletionSurvey}
+            />
+          </div>
+        )}
         {filteredAndSortedTasks.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             {tasks.length === 0 ? "No tasks found. Create your first task!" : "No tasks match your filters."}

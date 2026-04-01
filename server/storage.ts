@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger } from "@shared/schema";
 import { computeContentHash } from "./fingerprint";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
@@ -1371,4 +1371,578 @@ export async function getUserClassificationStats(userId: string): Promise<{
     totalConfirmationsReceived: Number(classRow?.totalConfirmations) || 0,
     totalClassificationCoins: Number(classRow?.totalCoins) || 0,
   };
+}
+
+// ─── Survey & Feedback Storage ──────────────────────────────────────────────
+
+export async function getSurveys(targetModule?: string): Promise<Survey[]> {
+  if (targetModule) {
+    return db
+      .select()
+      .from(surveys)
+      .where(and(eq(surveys.active, true), eq(surveys.targetModule, targetModule)));
+  }
+  return db.select().from(surveys).where(eq(surveys.active, true));
+}
+
+export async function getSurveyById(id: string): Promise<Survey | undefined> {
+  const [row] = await db.select().from(surveys).where(eq(surveys.id, id));
+  return row || undefined;
+}
+
+export async function getApplicableSurveys(userId: string, targetModule?: string): Promise<Survey[]> {
+  let allSurveys = await getSurveys(targetModule);
+  if (targetModule && targetModule !== "general") {
+    const generalSurveys = await getSurveys("general");
+    const ids = new Set(allSurveys.map(s => s.id));
+    for (const s of generalSurveys) {
+      if (!ids.has(s.id)) allSurveys.push(s);
+    }
+  }
+  const applicable: Survey[] = [];
+
+  for (const survey of allSurveys) {
+    const [lastResponse] = await db
+      .select({ createdAt: surveyResponses.createdAt })
+      .from(surveyResponses)
+      .where(and(
+        eq(surveyResponses.userId, userId),
+        eq(surveyResponses.surveyId, survey.id)
+      ))
+      .orderBy(desc(surveyResponses.createdAt))
+      .limit(1);
+
+    if (!lastResponse) {
+      applicable.push(survey);
+      continue;
+    }
+
+    const cooldownMs = survey.cooldownHours * 60 * 60 * 1000;
+    const lastResponseTime = new Date(lastResponse.createdAt!).getTime();
+    if (Date.now() - lastResponseTime > cooldownMs) {
+      applicable.push(survey);
+    }
+  }
+
+  return applicable;
+}
+
+export async function submitSurveyResponse(
+  userId: string,
+  surveyId: string,
+  response: string
+): Promise<SurveyResponse> {
+  const [row] = await db
+    .insert(surveyResponses)
+    .values({ id: randomUUID(), userId, surveyId, response })
+    .returning();
+  return row;
+}
+
+export async function addTaskReaction(
+  taskId: string,
+  userId: string,
+  reaction: "thumbsUp" | "thumbsDown"
+): Promise<Record<string, string[]>> {
+  const [task] = await db.select({ reactions: tasks.reactions }).from(tasks).where(eq(tasks.id, taskId));
+  const reactions: Record<string, string[]> = (task?.reactions as Record<string, string[]>) || {};
+
+  if (!reactions.thumbsUp) reactions.thumbsUp = [];
+  if (!reactions.thumbsDown) reactions.thumbsDown = [];
+
+  const opposite = reaction === "thumbsUp" ? "thumbsDown" : "thumbsUp";
+  reactions[opposite] = reactions[opposite].filter((id: string) => id !== userId);
+
+  if (reactions[reaction].includes(userId)) {
+    reactions[reaction] = reactions[reaction].filter((id: string) => id !== userId);
+  } else {
+    reactions[reaction].push(userId);
+  }
+
+  await db.update(tasks).set({ reactions }).where(eq(tasks.id, taskId));
+  return reactions;
+}
+
+export async function seedSurveys(): Promise<void> {
+  const existing = await db.select().from(surveys);
+  if (existing.length > 0) return;
+
+  await db.insert(surveys).values([
+    {
+      id: randomUUID(),
+      promptType: "thumbs",
+      question: "How satisfied are you with the task management experience?",
+      options: [],
+      targetModule: "task_completion",
+      cooldownHours: 72,
+      coinReward: 2,
+      active: true,
+    },
+    {
+      id: randomUUID(),
+      promptType: "radio",
+      question: "Which feature do you use the most?",
+      options: ["Task List", "AI Planner", "Calendar", "Analytics", "Import/Export"],
+      targetModule: "general",
+      cooldownHours: 168,
+      coinReward: 3,
+      active: true,
+    },
+    {
+      id: randomUUID(),
+      promptType: "text",
+      question: "What feature would you most like to see added to AxTask?",
+      options: [],
+      targetModule: "general",
+      cooldownHours: 336,
+      coinReward: 3,
+      active: true,
+    },
+    {
+      id: randomUUID(),
+      promptType: "radio",
+      question: "How would you rate the AI Planner's recommendations?",
+      options: ["Very Helpful", "Somewhat Helpful", "Neutral", "Not Helpful"],
+      targetModule: "planner",
+      cooldownHours: 168,
+      coinReward: 2,
+      active: true,
+    },
+    {
+      id: randomUUID(),
+      promptType: "thumbs",
+      question: "Was the import process smooth and easy?",
+      options: [],
+      targetModule: "import",
+      cooldownHours: 168,
+      coinReward: 2,
+      active: true,
+    },
+  ]);
+}
+
+// ─── NodeWeaver Feedback Classification Storage ─────────────────────────────
+
+export async function storeFeedbackClassification(data: {
+  sourceType: string;
+  sourceId: string;
+  userId: string | null;
+  category: string;
+  severity: string;
+  confidence: number;
+  rawContent: string;
+  normalizedContent: string | null;
+  tags: string[];
+  actionable: boolean;
+  resolved: boolean;
+  metadata: Record<string, unknown>;
+}): Promise<FeedbackClassification> {
+  const [row] = await db
+    .insert(feedbackClassifications)
+    .values({
+      id: randomUUID(),
+      ...data,
+    })
+    .returning();
+  return row;
+}
+
+export async function getFeedbackClassifications(filters?: {
+  category?: string;
+  severity?: string;
+  actionable?: boolean;
+  resolved?: boolean;
+  userId?: string;
+  sourceType?: string;
+  since?: Date;
+  until?: Date;
+  limit?: number;
+  offset?: number;
+}): Promise<FeedbackClassification[]> {
+  const conditions = [];
+
+  if (filters?.category) {
+    conditions.push(eq(feedbackClassifications.category, filters.category));
+  }
+  if (filters?.severity) {
+    conditions.push(eq(feedbackClassifications.severity, filters.severity));
+  }
+  if (filters?.actionable !== undefined) {
+    conditions.push(eq(feedbackClassifications.actionable, filters.actionable));
+  }
+  if (filters?.resolved !== undefined) {
+    conditions.push(eq(feedbackClassifications.resolved, filters.resolved));
+  }
+  if (filters?.userId) {
+    conditions.push(eq(feedbackClassifications.userId, filters.userId));
+  }
+  if (filters?.sourceType) {
+    conditions.push(eq(feedbackClassifications.sourceType, filters.sourceType));
+  }
+  if (filters?.since) {
+    conditions.push(sql`${feedbackClassifications.createdAt} >= ${filters.since}`);
+  }
+  if (filters?.until) {
+    conditions.push(sql`${feedbackClassifications.createdAt} <= ${filters.until}`);
+  }
+
+  const query = db
+    .select()
+    .from(feedbackClassifications)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(feedbackClassifications.createdAt))
+    .limit(filters?.limit || 100)
+    .offset(filters?.offset || 0);
+
+  return query;
+}
+
+export async function getFeedbackClassificationById(
+  id: string
+): Promise<FeedbackClassification | undefined> {
+  const [row] = await db
+    .select()
+    .from(feedbackClassifications)
+    .where(eq(feedbackClassifications.id, id))
+    .limit(1);
+  return row;
+}
+
+export async function updateFeedbackClassification(
+  id: string,
+  data: Partial<{ resolved: boolean; resolvedAt: Date; category: string; severity: string; tags: string[]; actionable: boolean }>
+): Promise<FeedbackClassification | undefined> {
+  const [row] = await db
+    .update(feedbackClassifications)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(feedbackClassifications.id, id))
+    .returning();
+  return row;
+}
+
+export async function getFeedbackStats(since?: Date): Promise<{
+  total: number;
+  byCategory: Record<string, number>;
+  bySeverity: Record<string, number>;
+  actionableCount: number;
+  unresolvedCount: number;
+}> {
+  const conditions = [];
+  if (since) {
+    conditions.push(sql`${feedbackClassifications.createdAt} >= ${since}`);
+  }
+
+  const items = await db
+    .select()
+    .from(feedbackClassifications)
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
+
+  const byCategory: Record<string, number> = {};
+  const bySeverity: Record<string, number> = {};
+  let actionableCount = 0;
+  let unresolvedCount = 0;
+
+  for (const item of items) {
+    byCategory[item.category] = (byCategory[item.category] || 0) + 1;
+    bySeverity[item.severity] = (bySeverity[item.severity] || 0) + 1;
+    if (item.actionable) actionableCount++;
+    if (!item.resolved) unresolvedCount++;
+  }
+
+  return {
+    total: items.length,
+    byCategory,
+    bySeverity,
+    actionableCount,
+    unresolvedCount,
+  };
+}
+
+export async function getUnclassifiedResponses(options?: {
+  limit?: number;
+  since?: Date;
+}): Promise<Array<SurveyResponse & { survey: Survey }>> {
+  const conditions = [];
+  if (options?.since) {
+    conditions.push(sql`${surveyResponses.createdAt} >= ${options.since}`);
+  }
+
+  const responses = await db
+    .select()
+    .from(surveyResponses)
+    .leftJoin(
+      feedbackClassifications,
+      and(
+        eq(feedbackClassifications.sourceType, "survey_response"),
+        eq(feedbackClassifications.sourceId, surveyResponses.id)
+      )
+    )
+    .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
+    .where(
+      and(
+        sql`${feedbackClassifications.id} IS NULL`,
+        ...(conditions.length > 0 ? conditions : [])
+      )
+    )
+    .limit(options?.limit || 100);
+
+  return responses.map((r) => ({
+    ...r.survey_responses,
+    survey: r.surveys,
+  }));
+}
+
+// ─── Classification Dispute Storage ─────────────────────────────────────────
+
+const DISPUTE_CONSENSUS_THRESHOLD = 0.7;
+const DISPUTE_MIN_VOTES = 3;
+const REVIEW_TRIGGER_MIN_DISPUTES = 5;
+
+export async function createDispute(data: {
+  classificationId: string;
+  userId: string;
+  originalCategory: string;
+  suggestedCategory: string;
+  reason?: string;
+}): Promise<ClassificationDispute> {
+  const [row] = await db
+    .insert(classificationDisputes)
+    .values({ id: randomUUID(), ...data })
+    .returning();
+
+  await updateCategoryReviewTracker(data.originalCategory, data.suggestedCategory);
+
+  return row;
+}
+
+export async function getDisputesForClassification(
+  classificationId: string
+): Promise<ClassificationDispute[]> {
+  return db
+    .select()
+    .from(classificationDisputes)
+    .where(eq(classificationDisputes.classificationId, classificationId))
+    .orderBy(desc(classificationDisputes.createdAt));
+}
+
+export async function getUserDispute(
+  userId: string,
+  classificationId: string
+): Promise<ClassificationDispute | undefined> {
+  const [row] = await db
+    .select()
+    .from(classificationDisputes)
+    .where(
+      and(
+        eq(classificationDisputes.userId, userId),
+        eq(classificationDisputes.classificationId, classificationId)
+      )
+    )
+    .limit(1);
+  return row;
+}
+
+export async function voteOnDispute(data: {
+  disputeId: string;
+  userId: string;
+  agree: boolean;
+}): Promise<{ vote: DisputeVote; consensusReached: boolean; consensusRatio: number }> {
+  const existing = await db
+    .select()
+    .from(classificationDisputeVotes)
+    .where(
+      and(
+        eq(classificationDisputeVotes.disputeId, data.disputeId),
+        eq(classificationDisputeVotes.userId, data.userId)
+      )
+    )
+    .limit(1);
+
+  let vote: DisputeVote;
+  if (existing.length > 0) {
+    const [updated] = await db
+      .update(classificationDisputeVotes)
+      .set({ agree: data.agree })
+      .where(eq(classificationDisputeVotes.id, existing[0].id))
+      .returning();
+    vote = updated;
+  } else {
+    const [created] = await db
+      .insert(classificationDisputeVotes)
+      .values({ id: randomUUID(), ...data })
+      .returning();
+    vote = created;
+  }
+
+  const allVotes = await db
+    .select()
+    .from(classificationDisputeVotes)
+    .where(eq(classificationDisputeVotes.disputeId, data.disputeId));
+
+  const agreeCount = allVotes.filter(v => v.agree).length;
+  const totalVotes = allVotes.length;
+  const consensusRatio = totalVotes > 0 ? agreeCount / totalVotes : 0;
+  const consensusReached = totalVotes >= DISPUTE_MIN_VOTES && consensusRatio >= DISPUTE_CONSENSUS_THRESHOLD;
+
+  const [dispute] = await db
+    .select()
+    .from(classificationDisputes)
+    .where(eq(classificationDisputes.id, data.disputeId))
+    .limit(1);
+
+  if (dispute) {
+    await updateCategoryReviewTracker(
+      dispute.originalCategory,
+      dispute.suggestedCategory
+    );
+  }
+
+  return { vote, consensusReached, consensusRatio };
+}
+
+export async function getDisputeVotes(
+  disputeId: string
+): Promise<{ votes: DisputeVote[]; agreeCount: number; disagreeCount: number; consensusRatio: number }> {
+  const votes = await db
+    .select()
+    .from(classificationDisputeVotes)
+    .where(eq(classificationDisputeVotes.disputeId, disputeId));
+
+  const agreeCount = votes.filter(v => v.agree).length;
+  const disagreeCount = votes.filter(v => !v.agree).length;
+  const total = votes.length;
+
+  return {
+    votes,
+    agreeCount,
+    disagreeCount,
+    consensusRatio: total > 0 ? agreeCount / total : 0,
+  };
+}
+
+async function updateCategoryReviewTracker(
+  originalCategory: string,
+  suggestedCategory: string
+): Promise<void> {
+  const disputes = await db
+    .select()
+    .from(classificationDisputes)
+    .where(
+      and(
+        eq(classificationDisputes.originalCategory, originalCategory),
+        eq(classificationDisputes.suggestedCategory, suggestedCategory)
+      )
+    );
+
+  let totalAgree = 0;
+  let totalDisagree = 0;
+
+  for (const dispute of disputes) {
+    const votes = await db
+      .select()
+      .from(classificationDisputeVotes)
+      .where(eq(classificationDisputeVotes.disputeId, dispute.id));
+    totalAgree += votes.filter(v => v.agree).length;
+    totalDisagree += votes.filter(v => !v.agree).length;
+  }
+
+  const totalVotes = totalAgree + totalDisagree;
+  const consensusRatio = totalVotes > 0 ? totalAgree / totalVotes : 0;
+
+  let status = "monitoring";
+  if (disputes.length >= REVIEW_TRIGGER_MIN_DISPUTES && consensusRatio >= DISPUTE_CONSENSUS_THRESHOLD) {
+    status = "review_needed";
+  } else if (disputes.length >= REVIEW_TRIGGER_MIN_DISPUTES) {
+    status = "contested";
+  }
+
+  const existing = await db
+    .select()
+    .from(categoryReviewTriggers)
+    .where(
+      and(
+        eq(categoryReviewTriggers.category, originalCategory),
+        eq(categoryReviewTriggers.suggestedCategory, suggestedCategory)
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    await db
+      .update(categoryReviewTriggers)
+      .set({
+        disputeCount: disputes.length,
+        agreeCount: totalAgree,
+        disagreeCount: totalDisagree,
+        consensusRatio,
+        status,
+        updatedAt: new Date(),
+      })
+      .where(eq(categoryReviewTriggers.id, existing[0].id));
+  } else {
+    await db
+      .insert(categoryReviewTriggers)
+      .values({
+        id: randomUUID(),
+        category: originalCategory,
+        suggestedCategory,
+        disputeCount: disputes.length,
+        agreeCount: totalAgree,
+        disagreeCount: totalDisagree,
+        consensusRatio,
+        status,
+      });
+  }
+}
+
+export async function getDisputesByCategory(
+  originalCategory: string,
+  suggestedCategory: string
+): Promise<ClassificationDispute[]> {
+  return db
+    .select()
+    .from(classificationDisputes)
+    .where(
+      and(
+        eq(classificationDisputes.originalCategory, originalCategory),
+        eq(classificationDisputes.suggestedCategory, suggestedCategory)
+      )
+    )
+    .orderBy(desc(classificationDisputes.createdAt));
+}
+
+export async function getCategoryReviewTriggers(filters?: {
+  status?: string;
+  category?: string;
+}): Promise<CategoryReviewTrigger[]> {
+  const conditions = [];
+  if (filters?.status) {
+    conditions.push(eq(categoryReviewTriggers.status, filters.status));
+  }
+  if (filters?.category) {
+    conditions.push(eq(categoryReviewTriggers.category, filters.category));
+  }
+
+  return db
+    .select()
+    .from(categoryReviewTriggers)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(categoryReviewTriggers.consensusRatio));
+}
+
+export async function resolveCategoryReview(
+  id: string,
+  outcome: string
+): Promise<CategoryReviewTrigger | undefined> {
+  const [row] = await db
+    .update(categoryReviewTriggers)
+    .set({
+      status: "resolved",
+      reviewedAt: new Date(),
+      reviewOutcome: outcome,
+      updatedAt: new Date(),
+    })
+    .where(eq(categoryReviewTriggers.id, id))
+    .returning();
+  return row;
 }

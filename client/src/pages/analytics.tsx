@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SurveyPrompt } from "@/components/survey-prompt";
 import { type Task } from "@shared/schema";
 
 export default function Analytics() {
@@ -54,6 +55,8 @@ export default function Analytics() {
         <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
         <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">Task distribution and performance metrics</p>
       </div>
+
+      <SurveyPrompt targetModule="analytics" trigger="page_visit" />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Priority Distribution */}

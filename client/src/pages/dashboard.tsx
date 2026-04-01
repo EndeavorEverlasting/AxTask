@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { TaskForm } from "@/components/task-form";
 import { TaskList } from "@/components/task-list";
+import { SurveyPrompt } from "@/components/survey-prompt";
 import { BarChart3, CheckCircle, AlertTriangle, ListTodo } from "lucide-react";
 import { motion } from "framer-motion";
 import { useCountUp, useCountUpDecimal } from "@/hooks/use-count-up";
@@ -116,6 +117,8 @@ export default function Dashboard() {
           reducedMotion={reducedMotion}
         />
       </div>
+
+      <SurveyPrompt targetModule="dashboard" trigger="page_visit" />
 
       <TaskForm />
 

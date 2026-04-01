@@ -1,4 +1,5 @@
 import { TaskList } from "@/components/task-list";
+import { SurveyPrompt } from "@/components/survey-prompt";
 
 export default function Tasks() {
   return (
@@ -7,6 +8,8 @@ export default function Tasks() {
         <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">All Tasks</h2>
         <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">View and manage all your tasks</p>
       </div>
+
+      <SurveyPrompt targetModule="tasks" trigger="page_visit" />
 
       <TaskList />
     </div>

@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { SurveyPrompt } from "@/components/survey-prompt";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -218,6 +219,8 @@ export default function PlannerPage() {
           <p className="text-sm md:text-base text-gray-500 dark:text-gray-400">{todayFormatted}</p>
         </div>
       </div>
+
+      <SurveyPrompt targetModule="planner" trigger="page_visit" />
 
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
