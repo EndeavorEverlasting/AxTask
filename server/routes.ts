@@ -1,4 +1,4 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { timingSafeEqual, createHash } from "crypto";
 import rateLimit from "express-rate-limit";
@@ -12,7 +12,7 @@ import {
   banUser, unbanUser, getAllUsers, isUserBanned,
   logSecurityEvent, getSecurityLogs,
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
-  assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getStoragePolicy, getStorageUsage,
+  assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, ensureIdempotencyKey,
   appendSecurityEvent, getSecurityEvents, getSecurityAlerts, analyzeAndCreateSecurityAlerts,
@@ -29,6 +29,9 @@ import { processChecklistImage } from "./ocr-processor";
 import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
 import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./services/usage-service";
+import { createUploadToken, verifyUploadToken } from "./services/upload-token";
+import { writeAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
+import { scanAttachmentBuffer } from "./services/attachment-scan";
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
 function safeEqual(a: string, b: string): boolean {
@@ -58,6 +61,16 @@ function computeTaskFingerprint(task: {
     normalizeForFingerprint(task.notes || ""),
   ].join("|");
   return createHash("sha256").update(base).digest("hex");
+}
+
+function getUploadSigningSecret(): string {
+  return process.env.ATTACHMENT_UPLOAD_SECRET || process.env.SESSION_SECRET || "dev-upload-secret";
+}
+
+function buildAttachmentStorageKey(userId: string, assetId: string, fileName?: string): string {
+  const safeName = (fileName || "upload.bin").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const datePart = new Date().toISOString().slice(0, 10);
+  return `${userId}/${datePart}/${assetId}-${safeName}`;
 }
 
 // ── Rate limiters ───────────────────────────────────────────────────────────
@@ -1371,6 +1384,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Feedback + attachments ────────────────────────────────────────────────
   const feedbackSchema = z.object({
     message: z.string().min(5).max(5000),
+    attachmentAssetIds: z.array(z.string().min(1)).max(10).default([]),
     screenshotMeta: z.array(z.object({
       fileName: z.string().optional(),
       mimeType: z.string().min(3),
@@ -1378,10 +1392,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })).max(10).default([]),
   });
 
+  const uploadUrlSchema = z.object({
+    fileName: z.string().min(1).max(255),
+    mimeType: z.string().min(3).max(128),
+    byteSize: z.number().int().positive().max(10 * 1024 * 1024),
+    kind: z.string().min(2).max(40).default("feedback"),
+  });
+
+  app.post("/api/attachments/upload-url", requireAuth, async (req, res) => {
+    try {
+      const payload = uploadUrlSchema.parse(req.body);
+      const canStore = await assertCanStoreAttachment(req.user!.id, payload.byteSize);
+      if (!canStore.ok) {
+        return res.status(413).json({ message: canStore.message });
+      }
+
+      const tempAsset = await createAttachmentAsset({
+        userId: req.user!.id,
+        kind: payload.kind,
+        fileName: payload.fileName,
+        mimeType: payload.mimeType,
+        byteSize: payload.byteSize,
+        metadataJson: JSON.stringify({ status: "pending_upload", source: "signed_url" }),
+      });
+
+      const storageKey = buildAttachmentStorageKey(req.user!.id, tempAsset.id, payload.fileName);
+      await markAttachmentAssetUploaded(req.user!.id, tempAsset.id, {
+        status: "pending_upload",
+        storageKey,
+      });
+
+      const token = createUploadToken({
+        userId: req.user!.id,
+        assetId: tempAsset.id,
+        storageKey,
+        mimeType: payload.mimeType,
+        byteSize: payload.byteSize,
+        exp: Date.now() + 15 * 60 * 1000,
+      }, getUploadSigningSecret());
+
+      res.status(201).json({
+        assetId: tempAsset.id,
+        uploadUrl: `/api/attachments/upload/${encodeURIComponent(token)}`,
+        expiresInSeconds: 900,
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to generate upload URL" });
+    }
+  });
+
+  app.put("/api/attachments/upload/:token", requireAuth, express.raw({ type: "*/*", limit: "12mb" }), async (req, res) => {
+    try {
+      const parsed = verifyUploadToken(req.params.token, getUploadSigningSecret());
+      if (!parsed) {
+        return res.status(403).json({ message: "Invalid or expired upload token" });
+      }
+      if (parsed.userId !== req.user!.id) {
+        return res.status(403).json({ message: "Upload token user mismatch" });
+      }
+
+      const asset = await getAttachmentAssetById(req.user!.id, parsed.assetId);
+      if (!asset) {
+        return res.status(404).json({ message: "Attachment asset not found" });
+      }
+      const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || "");
+      if (body.length !== parsed.byteSize) {
+        return res.status(400).json({ message: "Uploaded bytes do not match declared file size" });
+      }
+      const scan = scanAttachmentBuffer(body, parsed.mimeType);
+      if (!scan.clean) {
+        await softDeleteAttachmentAsset(req.user!.id, parsed.assetId);
+        return res.status(400).json({ message: `Attachment scan failed: ${scan.reason}` });
+      }
+
+      await writeAttachmentObject(parsed.storageKey, body);
+      await markAttachmentAssetUploaded(req.user!.id, parsed.assetId, {
+        status: "uploaded",
+        uploadedAt: new Date().toISOString(),
+        storageKey: parsed.storageKey,
+      });
+
+      await appendSecurityEvent({
+        eventType: "attachment_uploaded",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: { assetId: parsed.assetId, byteSize: body.length },
+      });
+      res.json({ message: "Attachment uploaded", assetId: parsed.assetId });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Upload failed" });
+    }
+  });
+
   app.post("/api/feedback", requireAuth, async (req, res) => {
     try {
       const parsed = feedbackSchema.parse(req.body);
       const createdAssets = [];
+      let linkedAssets = 0;
+
+      if (parsed.attachmentAssetIds.length > 0) {
+        for (const assetId of parsed.attachmentAssetIds) {
+          const existing = await getAttachmentAssetById(req.user!.id, assetId);
+          if (!existing || existing.deletedAt) continue;
+          linkedAssets += 1;
+        }
+      }
+
       for (const file of parsed.screenshotMeta) {
         const canStore = await assertCanStoreAttachment(req.user!.id, file.byteSize);
         if (!canStore.ok) {
@@ -1403,15 +1525,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.user!.id,
         undefined,
         req.ip,
-        `Feedback submitted (${parsed.message.length} chars, ${createdAssets.length} attachments)`,
+        `Feedback submitted (${parsed.message.length} chars, ${createdAssets.length + linkedAssets} attachments)`,
       );
       res.status(201).json({
         message: "Feedback submitted",
-        attachments: createdAssets.length,
+        attachments: createdAssets.length + linkedAssets,
       });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to submit feedback" });
+    }
+  });
+
+  app.delete("/api/attachments/:assetId", requireAuth, async (req, res) => {
+    try {
+      const asset = await getAttachmentAssetById(req.user!.id, req.params.assetId);
+      if (!asset) return res.status(404).json({ message: "Attachment not found" });
+      const metadata = asset.metadataJson ? JSON.parse(asset.metadataJson) : {};
+      if (metadata?.storageKey) {
+        await deleteAttachmentObject(String(metadata.storageKey));
+      }
+      await softDeleteAttachmentAsset(req.user!.id, asset.id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete attachment" });
     }
   });
 
@@ -1763,6 +1900,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(result);
     } catch (error) {
       res.status(500).json({ message: "Failed to run retention dry-run" });
+    }
+  });
+
+  app.post("/api/admin/storage/attachment-retention-run", requireAdmin, async (req, res) => {
+    try {
+      const retentionDays = Number(req.body?.retentionDays || 90);
+      const execute = Boolean(req.body?.execute);
+      const result = await retentionSweepAttachments(req.user!.id, retentionDays, !execute);
+      if (execute) {
+        for (const candidate of result.candidates) {
+          try {
+            const metadata = candidate.metadataJson ? JSON.parse(candidate.metadataJson) : {};
+            if (metadata?.storageKey) {
+              await deleteAttachmentObject(String(metadata.storageKey));
+            }
+          } catch {
+            // Continue sweep even if one object delete fails.
+          }
+        }
+      }
+      res.json({
+        candidateCount: result.candidateCount,
+        mode: execute ? "execute" : "dry-run",
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to run attachment retention" });
     }
   });
 

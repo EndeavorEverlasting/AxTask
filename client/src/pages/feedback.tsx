@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,24 +8,30 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Camera, Inbox, Send, Trash2 } from "lucide-react";
 
-type ScreenshotMeta = {
-  fileName: string;
-  mimeType: string;
-  byteSize: number;
+type ScreenshotItem = {
+  file: File;
+};
+
+type UploadUrlResponse = {
+  assetId: string;
+  uploadUrl: string;
 };
 
 export default function FeedbackPage() {
   const { toast } = useToast();
   const [message, setMessage] = useState("");
-  const [screenshots, setScreenshots] = useState<ScreenshotMeta[]>([]);
+  const [screenshots, setScreenshots] = useState<ScreenshotItem[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
 
-  const totalBytes = useMemo(() => screenshots.reduce((acc, cur) => acc + cur.byteSize, 0), [screenshots]);
+  const totalBytes = useMemo(
+    () => screenshots.reduce((acc, cur) => acc + cur.file.size, 0),
+    [screenshots],
+  );
 
   const pushFiles = useCallback((files: FileList | File[]) => {
     const incoming = Array.from(files)
       .filter((f) => f.type.startsWith("image/"))
-      .map((f) => ({ fileName: f.name, mimeType: f.type, byteSize: f.size }));
+      .map((file) => ({ file }));
     if (incoming.length === 0) {
       toast({
         title: "No images detected",
@@ -39,9 +45,39 @@ export default function FeedbackPage() {
 
   const submitMutation = useMutation({
     mutationFn: async () => {
+      const assetIds: string[] = [];
+      for (const shot of screenshots) {
+        const file = shot.file;
+        const uploadUrlRes = await apiRequest("POST", "/api/attachments/upload-url", {
+          fileName: file.name,
+          mimeType: file.type,
+          byteSize: file.size,
+          kind: "feedback",
+        });
+        const uploadInfo = await uploadUrlRes.json() as UploadUrlResponse;
+        assetIds.push(uploadInfo.assetId);
+
+        const headers: Record<string, string> = {
+          "Content-Type": file.type,
+        };
+        const csrf = getCsrfToken();
+        if (csrf) headers["x-csrf-token"] = csrf;
+
+        const putRes = await fetch(uploadInfo.uploadUrl, {
+          method: "PUT",
+          headers,
+          body: file,
+          credentials: "include",
+        });
+        if (!putRes.ok) {
+          const text = await putRes.text();
+          throw new Error(`Attachment upload failed: ${text || putRes.statusText}`);
+        }
+      }
+
       await apiRequest("POST", "/api/feedback", {
         message,
-        screenshotMeta: screenshots,
+        attachmentAssetIds: assetIds,
       });
     },
     onSuccess: () => {
@@ -120,10 +156,10 @@ export default function FeedbackPage() {
           {screenshots.length > 0 && (
             <div className="space-y-2">
               {screenshots.map((shot, idx) => (
-                <div key={`${shot.fileName}-${idx}`} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+                <div key={`${shot.file.name}-${idx}`} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
                   <div className="truncate">
-                    <span className="font-medium">{shot.fileName}</span>
-                    <span className="ml-2 text-gray-500">{(shot.byteSize / 1024).toFixed(1)} KB</span>
+                    <span className="font-medium">{shot.file.name}</span>
+                    <span className="ml-2 text-gray-500">{(shot.file.size / 1024).toFixed(1)} KB</span>
                   </div>
                   <Button
                     size="sm"

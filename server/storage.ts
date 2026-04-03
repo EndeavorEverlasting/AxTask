@@ -1,6 +1,6 @@
 import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, idempotencyKeys, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
+import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
@@ -1005,6 +1005,53 @@ export async function getAttachmentAssets(userId: string, kind?: string): Promis
     eq(attachmentAssets.userId, userId),
     sql`${attachmentAssets.deletedAt} IS NULL`,
   )).orderBy(desc(attachmentAssets.createdAt));
+}
+
+export async function getAttachmentAssetById(userId: string, assetId: string): Promise<AttachmentAsset | undefined> {
+  const [asset] = await db.select().from(attachmentAssets).where(and(
+    eq(attachmentAssets.id, assetId),
+    eq(attachmentAssets.userId, userId),
+  ));
+  return asset;
+}
+
+export async function markAttachmentAssetUploaded(userId: string, assetId: string, metadata?: Record<string, unknown>): Promise<AttachmentAsset | undefined> {
+  const [asset] = await db
+    .update(attachmentAssets)
+    .set({
+      metadataJson: metadata ? JSON.stringify(metadata) : null,
+    })
+    .where(and(eq(attachmentAssets.id, assetId), eq(attachmentAssets.userId, userId)))
+    .returning();
+  return asset;
+}
+
+export async function softDeleteAttachmentAsset(userId: string, assetId: string): Promise<AttachmentAsset | undefined> {
+  const [asset] = await db
+    .update(attachmentAssets)
+    .set({ deletedAt: new Date() })
+    .where(and(eq(attachmentAssets.id, assetId), eq(attachmentAssets.userId, userId)))
+    .returning();
+  return asset;
+}
+
+export async function retentionSweepAttachments(userId: string, retentionDays: number, dryRun = true): Promise<{
+  candidateCount: number;
+  candidates: AttachmentAsset[];
+}> {
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const candidates = await db.select().from(attachmentAssets).where(and(
+    eq(attachmentAssets.userId, userId),
+    sql`${attachmentAssets.deletedAt} IS NULL`,
+    lt(attachmentAssets.createdAt, cutoff),
+  ));
+  if (!dryRun && candidates.length > 0) {
+    const ids = candidates.map((a) => a.id);
+    await db.update(attachmentAssets)
+      .set({ deletedAt: new Date() })
+      .where(inArray(attachmentAssets.id, ids));
+  }
+  return { candidateCount: candidates.length, candidates };
 }
 
 export async function saveUsageSnapshot(input: {
