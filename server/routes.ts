@@ -15,6 +15,7 @@ import {
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getStoragePolicy, getStorageUsage,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, ensureIdempotencyKey,
+  appendSecurityEvent, getSecurityEvents, getSecurityAlerts, analyzeAndCreateSecurityAlerts,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
@@ -111,6 +112,31 @@ const REGISTRATION_MODE = process.env.REGISTRATION_MODE || (process.env.NODE_ENV
 const INVITE_CODE = process.env.INVITE_CODE || "";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  app.use("/api", (req, res, next) => {
+    const startedAt = Date.now();
+    const actorUserId = req.user?.id;
+    const ipAddress = req.ip;
+    const userAgent = req.get("user-agent") || undefined;
+    res.on("finish", async () => {
+      try {
+        await appendSecurityEvent({
+          eventType: "api_request",
+          actorUserId,
+          route: req.path,
+          method: req.method,
+          statusCode: res.statusCode,
+          ipAddress,
+          userAgent,
+          payload: {
+            durationMs: Date.now() - startedAt,
+          },
+        });
+      } catch {
+        // Avoid breaking request lifecycle because of audit sink failures.
+      }
+    });
+    next();
+  });
 
   // ════════════════════════════════════════════════════════════════════════
   //  Auth routes (public, rate-limited)
@@ -138,6 +164,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: "An account with this email already exists" });
       }
       const user = await createUser(email, password, displayName);
+      await appendSecurityEvent({
+        eventType: "auth_register_success",
+        actorUserId: user.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 201,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
       // Auto-login after registration
       req.login(user, (err) => {
         if (err) return res.status(500).json({ message: "Registration succeeded but login failed" });
@@ -179,11 +214,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (email) {
             await recordFailedLogin(email, req.ip);
             await logSecurityEvent("login_failed", undefined, undefined, req.ip, `Failed login for: ${email}`);
+            await appendSecurityEvent({
+              eventType: "auth_login_failed",
+              route: req.path,
+              method: req.method,
+              statusCode: 401,
+              ipAddress: req.ip,
+              userAgent: req.get("user-agent") || undefined,
+              payload: { email },
+            });
           }
           return res.status(401).json({ message: info?.message || "Invalid credentials" });
         }
         await resetFailedLogins(user.email);
         await logSecurityEvent("login_success", user.id, undefined, req.ip);
+        await appendSecurityEvent({
+          eventType: "auth_login_success",
+          actorUserId: user.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 200,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
         req.login(user, (err) => {
           if (err) return next(err);
           res.json(user);
@@ -195,12 +248,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/auth/logout", (req: Request, res: Response) => {
+    const actorUserId = req.user?.id;
     req.logout((err) => {
       if (err) return res.status(500).json({ message: "Logout failed" });
       // Destroy the session entirely so back-button can't restore it
       req.session.destroy((destroyErr) => {
         if (destroyErr) console.error("[auth] Session destroy error:", destroyErr);
         res.clearCookie("axtask.sid");
+        void appendSecurityEvent({
+          eventType: "auth_logout",
+          actorUserId,
+          route: req.path,
+          method: req.method,
+          statusCode: 200,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
         res.json({ message: "Logged out" });
       });
     });
@@ -569,6 +632,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         errors: errors.slice(0, 50),
         skipped: skippedDuplicates.slice(0, 50),
       });
+      await appendSecurityEvent({
+        eventType: "import_batch_processed",
+        actorUserId: userId,
+        route: req.path,
+        method: req.method,
+        statusCode: 201,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {
+          imported: inserted.length,
+          skippedAsDuplicate: skippedDuplicates.length,
+          failed: errors.length,
+          total: taskList.length,
+        },
+      });
     } catch (error) {
       console.error("Bulk import error:", error);
       res.status(500).json({ message: "Failed to import tasks" });
@@ -904,6 +982,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imported: processedTasks.length,
         skippedAsDuplicate,
         total: importedTasks.length
+      });
+      await appendSecurityEvent({
+        eventType: "google_import_processed",
+        actorUserId: userId,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {
+          imported: processedTasks.length,
+          skippedAsDuplicate,
+          total: importedTasks.length,
+        },
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to import tasks from Google Sheets" });
@@ -1345,6 +1437,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { purpose } = z.object({ purpose: z.string().min(3).max(120) }).parse(req.body);
       const challenge = await createMfaChallenge(req.user!.id, purpose);
+      await appendSecurityEvent({
+        eventType: "mfa_challenge_created",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 201,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: { purpose },
+      });
       // In production this code should be delivered through secure channel.
       res.status(201).json({
         challengeId: challenge.challengeId,
@@ -1391,10 +1493,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).parse(req.body);
 
       const validMfa = await verifyMfaChallenge(req.user!.id, challengeId, code);
-      if (!validMfa) return res.status(403).json({ message: "Invalid MFA challenge or code" });
+      if (!validMfa) {
+        await appendSecurityEvent({
+          eventType: "mfa_verify_failed",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 403,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        return res.status(403).json({ message: "Invalid MFA challenge or code" });
+      }
 
       const invoice = await issueInvoice(req.params.id, req.user!.id);
       if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+      await appendSecurityEvent({
+        eventType: "invoice_issued",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: { invoiceId: req.params.id },
+      });
       res.json(invoice);
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
@@ -1412,10 +1535,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).parse(req.body);
 
       const validMfa = await verifyMfaChallenge(req.user!.id, challengeId, code);
-      if (!validMfa) return res.status(403).json({ message: "Invalid MFA challenge or code" });
+      if (!validMfa) {
+        await appendSecurityEvent({
+          eventType: "mfa_verify_failed",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 403,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        return res.status(403).json({ message: "Invalid MFA challenge or code" });
+      }
 
       const invoice = await confirmInvoicePayment(req.params.id, req.user!.id, confirmationNumber, externalReference);
       if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+      await appendSecurityEvent({
+        eventType: "invoice_payment_confirmed",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: { invoiceId: req.params.id, confirmationNumber },
+      });
       res.json(invoice);
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
@@ -1536,6 +1680,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(logs);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch security logs" });
+    }
+  });
+
+  app.get("/api/admin/security-events", requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 200, 1000);
+      const events = await getSecurityEvents(limit);
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch security events" });
+    }
+  });
+
+  app.post("/api/admin/security-alerts/analyze", requireAdmin, async (_req, res) => {
+    try {
+      const result = await analyzeAndCreateSecurityAlerts();
+      res.status(201).json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to analyze security alerts" });
+    }
+  });
+
+  app.get("/api/admin/security-alerts", requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 200, 1000);
+      const alerts = await getSecurityAlerts(limit);
+      res.json(alerts);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch security alerts" });
     }
   });
 

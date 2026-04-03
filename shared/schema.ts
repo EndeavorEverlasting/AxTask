@@ -52,6 +52,47 @@ export const securityLogs = pgTable("security_logs", {
   index("idx_security_logs_created_at").on(table.createdAt),
 ]);
 
+// ─── Security Event Ledger (tamper-evident) ─────────────────────────────────
+export const securityEvents = pgTable("security_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventType: text("event_type").notNull(),
+  actorUserId: varchar("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  targetUserId: varchar("target_user_id"),
+  route: text("route"),
+  method: text("method"),
+  statusCode: integer("status_code"),
+  ipAddress: text("ip_address"),
+  userAgentHash: text("user_agent_hash"),
+  payloadJson: text("payload_json"),
+  prevHash: text("prev_hash"),
+  eventHash: text("event_hash").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_security_events_type").on(table.eventType),
+  index("idx_security_events_actor").on(table.actorUserId),
+  index("idx_security_events_created_at").on(table.createdAt),
+  uniqueIndex("ux_security_events_event_hash").on(table.eventHash),
+]);
+
+export type SecurityEvent = typeof securityEvents.$inferSelect;
+
+export const securityAlerts = pgTable("security_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ruleId: text("rule_id").notNull(),
+  severity: text("severity").notNull().default("medium"),
+  message: text("message").notNull(),
+  actorUserId: varchar("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  detailsJson: text("details_json"),
+  status: text("status").notNull().default("open"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_security_alerts_rule").on(table.ruleId),
+  index("idx_security_alerts_status").on(table.status),
+  index("idx_security_alerts_created_at").on(table.createdAt),
+]);
+
+export type SecurityAlert = typeof securityAlerts.$inferSelect;
+
 // Strong password: ≥8 chars, uppercase, lowercase, digit, special character
 const strongPassword = z
   .string()

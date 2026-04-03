@@ -61,6 +61,27 @@ type Invoice = {
   createdAt?: string | null;
 };
 
+type SecurityEventRow = {
+  id: string;
+  eventType: string;
+  actorUserId?: string | null;
+  route?: string | null;
+  method?: string | null;
+  statusCode?: number | null;
+  ipAddress?: string | null;
+  createdAt?: string | null;
+  payloadJson?: string | null;
+};
+
+type SecurityAlertRow = {
+  id: string;
+  ruleId: string;
+  severity: string;
+  message: string;
+  status: string;
+  createdAt?: string | null;
+};
+
 function formatCurrency(cents: number, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -100,6 +121,25 @@ export default function AdminPage() {
   const { data: invoices = [] } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices"],
     enabled: user?.role === "admin",
+  });
+
+  const { data: securityEvents = [] } = useQuery<SecurityEventRow[]>({
+    queryKey: ["/api/admin/security-events"],
+    enabled: user?.role === "admin",
+  });
+
+  const { data: securityAlerts = [] } = useQuery<SecurityAlertRow[]>({
+    queryKey: ["/api/admin/security-alerts"],
+    enabled: user?.role === "admin",
+  });
+
+  const analyzeAlertsMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/admin/security-alerts/analyze", {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/security-alerts"] });
+      toast({ title: "Security analysis complete", description: "Latest anomaly rules were evaluated." });
+    },
+    onError: (err: Error) => toast({ title: "Analysis failed", description: err.message, variant: "destructive" }),
   });
 
   const captureMutation = useMutation({
@@ -230,6 +270,7 @@ export default function AdminPage() {
       <Tabs defaultValue="usage">
         <TabsList className="flex flex-wrap">
           <TabsTrigger value="usage">Usage & Storage</TabsTrigger>
+          <TabsTrigger value="intel">Security Intelligence</TabsTrigger>
           <TabsTrigger value="invoices">Invoicing</TabsTrigger>
           <TabsTrigger value="users">User Management</TabsTrigger>
           <TabsTrigger value="logs">Security Logs</TabsTrigger>
@@ -281,6 +322,48 @@ export default function AdminPage() {
                 </div>
               ))}
               {invoices.length === 0 && <p className="text-sm text-muted-foreground">No invoices yet.</p>}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="intel" className="space-y-4">
+          <div className="flex justify-end">
+            <Button onClick={() => analyzeAlertsMutation.mutate()} disabled={analyzeAlertsMutation.isPending}>
+              {analyzeAlertsMutation.isPending ? "Analyzing..." : "Run anomaly analysis"}
+            </Button>
+          </div>
+          <Card>
+            <CardHeader><CardTitle>Open security alerts</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              {securityAlerts.map((alert) => (
+                <div key={alert.id} className="rounded border px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{alert.message}</span>
+                    <Badge variant={alert.severity === "high" || alert.severity === "critical" ? "destructive" : "secondary"}>
+                      {alert.severity}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{alert.ruleId} · {alert.status} · {alert.createdAt ? new Date(alert.createdAt).toLocaleString() : "n/a"}</p>
+                </div>
+              ))}
+              {securityAlerts.length === 0 && <p className="text-sm text-muted-foreground">No active alerts.</p>}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Security event stream</CardTitle></CardHeader>
+            <CardContent className="space-y-2 max-h-[360px] overflow-auto">
+              {securityEvents.slice(0, 120).map((event) => (
+                <div key={event.id} className="rounded border px-3 py-2 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{event.eventType}</span>
+                    <Badge variant="outline">{event.statusCode ?? "n/a"}</Badge>
+                  </div>
+                  <p className="text-muted-foreground mt-1">
+                    {(event.method || "N/A")} {event.route || "-"} · {event.ipAddress || "unknown ip"} · {event.createdAt ? new Date(event.createdAt).toLocaleString() : "n/a"}
+                  </p>
+                </div>
+              ))}
+              {securityEvents.length === 0 && <p className="text-sm text-muted-foreground">No events yet.</p>}
             </CardContent>
           </Card>
         </TabsContent>

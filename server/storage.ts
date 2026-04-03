@@ -1,8 +1,9 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, idempotencyKeys, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, idempotencyKeys, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
+import { buildSecurityEventHash } from "./security/event-hash";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
 
@@ -392,6 +393,149 @@ export async function getSecurityLogs(limit = 100): Promise<SecurityLog[]> {
     .from(securityLogs)
     .orderBy(desc(securityLogs.createdAt))
     .limit(limit);
+}
+
+function hashUserAgent(userAgent?: string): string | null {
+  if (!userAgent) return null;
+  return createHash("sha256").update(userAgent).digest("hex");
+}
+
+export async function appendSecurityEvent(input: {
+  eventType: string;
+  actorUserId?: string;
+  targetUserId?: string;
+  route?: string;
+  method?: string;
+  statusCode?: number;
+  ipAddress?: string;
+  userAgent?: string;
+  payload?: Record<string, unknown>;
+}): Promise<SecurityEvent> {
+  const [prev] = await db
+    .select({ eventHash: securityEvents.eventHash })
+    .from(securityEvents)
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(1);
+
+  const createdAt = new Date();
+  const payloadJson = input.payload ? JSON.stringify(input.payload) : null;
+  const userAgentHash = hashUserAgent(input.userAgent);
+  const prevHash = prev?.eventHash || null;
+  const eventHash = buildSecurityEventHash({
+    eventType: input.eventType,
+    actorUserId: input.actorUserId || null,
+    targetUserId: input.targetUserId || null,
+    route: input.route || null,
+    method: input.method || null,
+    statusCode: input.statusCode ?? null,
+    ipAddress: input.ipAddress || null,
+    userAgentHash,
+    payloadJson,
+    prevHash,
+    createdAtIso: createdAt.toISOString(),
+  });
+
+  const [inserted] = await db.insert(securityEvents).values({
+    id: randomUUID(),
+    eventType: input.eventType,
+    actorUserId: input.actorUserId || null,
+    targetUserId: input.targetUserId || null,
+    route: input.route || null,
+    method: input.method || null,
+    statusCode: input.statusCode ?? null,
+    ipAddress: input.ipAddress || null,
+    userAgentHash,
+    payloadJson,
+    prevHash,
+    eventHash,
+    createdAt,
+  }).returning();
+  return inserted;
+}
+
+export async function getSecurityEvents(limit = 200): Promise<SecurityEvent[]> {
+  return db
+    .select()
+    .from(securityEvents)
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(limit);
+}
+
+export async function getSecurityAlerts(limit = 200): Promise<SecurityAlert[]> {
+  return db
+    .select()
+    .from(securityAlerts)
+    .orderBy(desc(securityAlerts.createdAt))
+    .limit(limit);
+}
+
+async function createSecurityAlertIfMissing(ruleId: string, severity: "low" | "medium" | "high" | "critical", message: string, actorUserId?: string, details?: Record<string, unknown>) {
+  const [existing] = await db
+    .select()
+    .from(securityAlerts)
+    .where(and(
+      eq(securityAlerts.ruleId, ruleId),
+      eq(securityAlerts.status, "open"),
+      actorUserId ? eq(securityAlerts.actorUserId, actorUserId) : sql`TRUE`,
+    ))
+    .orderBy(desc(securityAlerts.createdAt))
+    .limit(1);
+
+  if (existing) return;
+  await db.insert(securityAlerts).values({
+    id: randomUUID(),
+    ruleId,
+    severity,
+    message,
+    actorUserId: actorUserId || null,
+    detailsJson: details ? JSON.stringify(details) : null,
+    status: "open",
+  });
+}
+
+export async function analyzeAndCreateSecurityAlerts(): Promise<{ created: number }> {
+  let created = 0;
+  const now = new Date();
+  const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
+  const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+
+  const failedLoginsByIp = await db.execute(sql`
+    SELECT ip_address, COUNT(*)::int AS attempts
+    FROM security_logs
+    WHERE event_type = 'login_failed' AND created_at >= ${tenMinutesAgo}
+    GROUP BY ip_address
+    HAVING COUNT(*) >= 6
+  `);
+  for (const row of failedLoginsByIp.rows as any[]) {
+    await createSecurityAlertIfMissing(
+      "login_failed_burst_ip",
+      "high",
+      `High failed-login volume from IP ${row.ip_address}`,
+      undefined,
+      { attempts: Number(row.attempts) || 0, ipAddress: row.ip_address },
+    );
+    created += 1;
+  }
+
+  const highFailureRoutes = await db.execute(sql`
+    SELECT route, method, COUNT(*)::int AS failures
+    FROM security_events
+    WHERE created_at >= ${fifteenMinutesAgo} AND status_code >= 400
+    GROUP BY route, method
+    HAVING COUNT(*) >= 30
+  `);
+  for (const row of highFailureRoutes.rows as any[]) {
+    await createSecurityAlertIfMissing(
+      "route_failure_burst",
+      "medium",
+      `Route failure burst detected on ${row.method} ${row.route}`,
+      undefined,
+      { failures: Number(row.failures) || 0, route: row.route, method: row.method },
+    );
+    created += 1;
+  }
+
+  return { created };
 }
 
 // ─── Task storage ────────────────────────────────────────────────────────────
