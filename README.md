@@ -20,6 +20,29 @@ npm run dev
 
 Visit `http://localhost:5000` to access the application.
 
+## Docker Quick Start (Recommended for Workstations)
+
+Prerequisite on each machine:
+- Docker Desktop (Windows/macOS), or Docker Engine + Docker Compose plugin (Linux/server)
+
+First run:
+
+```bash
+cp .env.docker.example .env.docker
+# Set strong values for POSTGRES_PASSWORD and SESSION_SECRET
+npm run docker:start
+```
+
+Then open `http://localhost:5000`.
+
+### One-click Docker startup
+
+- Windows: double-click `start-docker.cmd`
+- macOS/Linux: run `bash ./start-docker.sh`
+- Stop: `stop-docker.cmd` or `bash ./stop-docker.sh`
+- Status: `status-docker.cmd` or `bash ./status-docker.sh`
+- Logs: `npm run docker:logs`
+
 ### One-click local/offline startup
 
 - Windows: double-click `start-offline.cmd`
@@ -110,6 +133,10 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 ### Scripts
 - `npm run dev` - Start development server
 - `npm run deps:sync` - Sync dependencies from lockfile (`npm ci` fallback to `npm install`)
+- `npm run docker:start` - Build/start Docker app + Postgres stack
+- `npm run docker:stop` - Stop Docker stack (preserves named-volume data)
+- `npm run docker:status` - Show container status
+- `npm run docker:logs` - Show recent Docker logs
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run db:push` - Sync database schema
@@ -160,6 +187,7 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
 - **[Morning Migration Checklist](docs/MORNING_NEW_BOX_MIGRATION_CHECKLIST.md)** - Execution-only checklist for fast cutover
 - **[Branding and Fallback Modularity](docs/BRANDING.md)** - Logo paths and host-pivot guardrails
 - **[Per-Time Activity Association Test Plan](docs/PER_TIME_ACTIVITY_ASSOCIATION_TEST_PLAN.md)** - Active-user gating metrics and premium-affinity validation fixtures
+- **[Docker-First Accessibility Path](docs/DOCKER_ACCESSIBILITY_PATH.md)** - Step-by-step path to make startup and updates easy for non-technical users
 
 ## Features in Detail
 
@@ -266,6 +294,11 @@ Docker assets included:
 - `.dockerignore`
 - `.env.docker.example`
 - `docs/DOCKER_FOUNDATION.md`
+
+Important:
+- Dockerizing on your machine does not automatically Dockerize other machines.
+- Every workstation/server that will run AxTask must have Docker runtime installed and configured.
+- If deploying to a server, install Docker Engine + Docker Compose plugin there, copy project/env, then run `npm run docker:start` (or `docker compose up -d --build`).
 
 For a migration path away from Replit with cost-control guardrails, see [`docs/DEPLOYMENT_MIGRATION_PLAN.md`](docs/DEPLOYMENT_MIGRATION_PLAN.md).
 For a step-by-step zero-downtime procedure, use [`docs/CUTOVER_RUNBOOK.md`](docs/CUTOVER_RUNBOOK.md).

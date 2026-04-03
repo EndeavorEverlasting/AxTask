@@ -1,7 +1,7 @@
 FROM node:20-bookworm-slim AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
 FROM deps AS build
 WORKDIR /app
@@ -20,6 +20,7 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/client ./client
 COPY --from=build /app/shared ./shared
 COPY --from=build /app/package*.json ./
+COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
 
 USER axtask
 EXPOSE 5000
