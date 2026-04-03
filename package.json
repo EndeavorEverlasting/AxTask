@@ -7,6 +7,7 @@
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
     "offline:start": "node tools/local/offline-start.mjs",
     "offline:shortcut": "powershell -ExecutionPolicy Bypass -File tools/local/create-desktop-shortcut.ps1",
+    "deps:sync": "node tools/local/sync-deps.mjs",
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "cross-env NODE_ENV=production node dist/index.js",
     "check": "tsc",

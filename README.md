@@ -109,11 +109,34 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 
 ### Scripts
 - `npm run dev` - Start development server
+- `npm run deps:sync` - Sync dependencies from lockfile (`npm ci` fallback to `npm install`)
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run db:push` - Sync database schema
 - `npm run test` - Run unit/integration tests
 - `npm run check` - Run TypeScript checks
+
+### Auto-sync dependencies after pull
+
+To keep dependencies aligned automatically after `git pull` on each workstation:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+When `package.json` or `package-lock.json` changes, the repo `post-merge` hook runs:
+
+```bash
+node tools/local/sync-deps.mjs
+```
+
+Manual fallback:
+
+```bash
+npm run deps:sync
+```
+
+For full cross-product consistency, enable hooks in `NodeWeaver` too (`git config core.hooksPath .githooks`) so both systems auto-sync dependencies after pull.
 
 ### File Structure
 ```
