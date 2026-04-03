@@ -2,6 +2,7 @@
 set -eu
 
 if command -v node >/dev/null 2>&1; then
+  node tools/security/check_node_provenance.mjs
   node tools/security/check_node_runtime.mjs
   node tools/security/check_no_axios.mjs
 else

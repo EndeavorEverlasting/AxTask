@@ -10,4 +10,7 @@ git config core.hooksPath .githooks
 echo "[AxTask] Syncing dependencies..."
 npm run deps:sync
 
+echo "[AxTask] Approving this workstation Node fingerprint..."
+npm run security:node-provenance:approve-local
+
 echo "[AxTask] Hook setup complete."

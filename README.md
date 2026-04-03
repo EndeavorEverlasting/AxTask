@@ -118,30 +118,25 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 
 ### Auto-sync dependencies after pull
 
-To keep dependencies aligned automatically after `git pull` on each workstation:
+Think of this like buckling a seatbelt for the app.
 
-```bash
-git config core.hooksPath .githooks
-```
+1. Click one file one time:
+   - Windows: double-click [`setup-hooks.cmd`](setup-hooks.cmd)
+   - macOS/Linux: run [`setup-hooks.sh`](setup-hooks.sh)
+2. That setup automatically does:
+   - `git config core.hooksPath .githooks`
+   - dependency sync
+   - local trusted Node fingerprint registration for this machine
 
-Non-technical users can run one-click setup from the repo root:
+After that, when someone runs `git pull`, AxTask auto-checks for dependency changes and installs them.
 
-- Windows: double-click [`setup-hooks.cmd`](setup-hooks.cmd)
-- macOS/Linux: run [`setup-hooks.sh`](setup-hooks.sh)
-
-When `package.json` or `package-lock.json` changes, the repo `post-merge` hook runs:
-
-```bash
-node tools/local/sync-deps.mjs
-```
-
-Manual fallback:
+If something ever gets out of sync, run:
 
 ```bash
 npm run deps:sync
 ```
 
-For full cross-product consistency, enable hooks in `NodeWeaver` too (`git config core.hooksPath .githooks`) so both systems auto-sync dependencies after pull.
+For matching behavior in `NodeWeaver`, run that repo's setup script once too.
 
 ### File Structure
 ```
@@ -246,9 +241,13 @@ For full cross-product consistency, enable hooks in `NodeWeaver` too (`git confi
 - Environment-based configuration
 - Session management with PostgreSQL storage
 - Node runtime policy: only approved LTS baselines are allowed (20.16+ or 22.x) via `npm run security:node-runtime-guard`
+- Node provenance policy: Node binary fingerprint must be trusted first via:
+  - `npm run security:node-provenance:approve-local` (one-time per machine)
+  - validated by `npm run security:node-provenance-guard`
 - Dependency safety policy: do not add or invoke `axios`; use platform-native `fetch` for HTTP calls
-- Local enforcement: enable hooks with `git config core.hooksPath .githooks` and run:
+- Local enforcement (automatic after setup script):
   - `npm run security:node-runtime-guard`
+  - `npm run security:node-provenance-guard`
   - `npm run security:axios-guard`
 
 ## Deployment

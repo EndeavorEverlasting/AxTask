@@ -16,5 +16,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo [AxTask] Approving this workstation Node fingerprint...
+call npm run security:node-provenance:approve-local
+if errorlevel 1 (
+  echo [AxTask] Node provenance approval failed.
+  exit /b 1
+)
+
 echo [AxTask] Hook setup complete.
 exit /b 0
