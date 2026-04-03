@@ -42,6 +42,7 @@ Then open `http://localhost:5000`.
 - Stop: `stop-docker.cmd` or `bash ./stop-docker.sh`
 - Status: `status-docker.cmd` or `bash ./status-docker.sh`
 - Logs: `npm run docker:logs`
+- New machine walkthrough (Docker Desktop): see `docs/DOCKER_FOUNDATION.md` -> "Docker Desktop setup (Windows/macOS)"
 
 ### One-click local/offline startup
 

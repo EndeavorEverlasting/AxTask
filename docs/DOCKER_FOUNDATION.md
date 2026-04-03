@@ -9,6 +9,49 @@ You must install Docker on every machine where AxTask will run.
 
 Dockerizing AxTask on one machine does **not** automatically make another machine runnable without Docker.
 
+## Docker Desktop setup (Windows/macOS)
+
+Use this when onboarding a fresh workstation ("next box").
+
+1. Install Docker Desktop from [docker.com](https://www.docker.com/products/docker-desktop/).
+2. Start Docker Desktop and wait until it reports that Docker is running.
+3. In Docker Desktop Settings:
+   - Enable Docker Compose V2 (usually enabled by default).
+   - Allocate enough resources (recommended minimum: 4 GB RAM).
+   - Keep WSL2 backend enabled on Windows (default recommended).
+4. Open a terminal and verify:
+
+```bash
+docker --version
+docker compose version
+docker info
+```
+
+5. Clone/copy `AxTask` to the workstation.
+6. From the `AxTask` folder:
+
+```bash
+cp .env.docker.example .env.docker
+```
+
+7. Edit `.env.docker` and set:
+   - `POSTGRES_PASSWORD` (non-placeholder)
+   - `SESSION_SECRET` (strong 32+ character value)
+   - `DATABASE_URL` password segment to match `POSTGRES_PASSWORD`
+8. Start with one command:
+
+```bash
+npm run docker:start
+```
+
+9. Verify:
+
+```bash
+npm run docker:status
+```
+
+10. Open `http://localhost:5000`.
+
 ## Local stack (one command)
 
 First run:
