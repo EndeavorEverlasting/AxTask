@@ -5,6 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
+    "dev:smart": "node tools/local/offline-start.mjs",
     "offline:start": "node tools/local/offline-start.mjs",
     "offline:shortcut": "powershell -ExecutionPolicy Bypass -File tools/local/create-desktop-shortcut.ps1",
     "docker:start": "docker compose --env-file .env.docker up -d --build",

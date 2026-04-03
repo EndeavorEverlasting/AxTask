@@ -47,7 +47,7 @@ Then open `http://localhost:5000`.
 ### One-click local/offline startup
 
 - Windows: double-click `start-offline.cmd`
-- Any OS with Node/npm: run `npm run offline:start`
+- Any OS with Node/npm: run `npm run offline:start` (same as `npm run dev:smart`)
 - Optional (Windows): run `npm run offline:shortcut` once to create a Desktop shortcut named `Start AxTask Offline`
 - In-app: use `Install App Shortcut` in the left sidebar to install on desktop/mobile home screen (or show setup steps if browser prompt is unavailable)
 - First-login CTA: users also see a top install banner with `Dismiss` and `Don't show again` controls
@@ -133,6 +133,7 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 
 ### Scripts
 - `npm run dev` - Start development server
+- `npm run dev:smart` - Smart local startup: sync deps only if lockfile changed, run `db:push` only if schema changed, then start dev server
 - `npm run deps:sync` - Sync dependencies from lockfile (`npm ci` fallback to `npm install`)
 - `npm run docker:start` - Build/start Docker app + Postgres stack
 - `npm run docker:stop` - Stop Docker stack (preserves named-volume data)
