@@ -12,6 +12,7 @@ import {
   banUser, unbanUser, getAllUsers, isUserBanned,
   logSecurityEvent, getSecurityLogs,
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
+  getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, ensureIdempotencyKey,
@@ -1509,6 +1510,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/gamification", apiLimiter);
 
   await seedRewardsCatalog();
+  await seedOfflineSkillTree();
 
   app.get("/api/gamification/wallet", requireAuth, async (req, res) => {
     try {
@@ -1595,6 +1597,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ wallet, badges, rewards, transactions: txs, definitions: BADGE_DEFINITIONS });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch profile" });
+    }
+  });
+
+  const offlineSkillUnlockSchema = z.object({
+    skillKey: z.string().min(2).max(80),
+  });
+
+  app.get("/api/gamification/offline-generator", requireAuth, async (req, res) => {
+    try {
+      const status = await getOfflineGeneratorStatus(req.user!.id);
+      res.json(status);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch offline generator status" });
+    }
+  });
+
+  app.post("/api/gamification/offline-generator/buy", requireAuth, async (req, res) => {
+    try {
+      const result = await buyOfflineGenerator(req.user!.id);
+      if (!result.ok) {
+        return res.status(400).json(result);
+      }
+      const status = await getOfflineGeneratorStatus(req.user!.id);
+      res.status(201).json({ ...result, status });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to buy offline generator" });
+    }
+  });
+
+  app.post("/api/gamification/offline-generator/upgrade", requireAuth, async (req, res) => {
+    try {
+      const result = await upgradeOfflineGenerator(req.user!.id);
+      if (!result.ok) {
+        return res.status(400).json(result);
+      }
+      const status = await getOfflineGeneratorStatus(req.user!.id);
+      res.json({ ...result, status });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to upgrade offline generator" });
+    }
+  });
+
+  app.post("/api/gamification/offline-generator/claim", requireAuth, async (req, res) => {
+    try {
+      const result = await claimOfflineGeneratorCoins(req.user!.id);
+      if (!result.ok) {
+        return res.status(400).json(result);
+      }
+      const status = await getOfflineGeneratorStatus(req.user!.id);
+      res.json({ ...result, status });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to claim offline coins" });
+    }
+  });
+
+  app.get("/api/gamification/offline-skills", requireAuth, async (req, res) => {
+    try {
+      const skills = await getOfflineSkillTree(req.user!.id);
+      res.json(skills);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch offline skills" });
+    }
+  });
+
+  app.post("/api/gamification/offline-skills/unlock", requireAuth, async (req, res) => {
+    try {
+      const { skillKey } = offlineSkillUnlockSchema.parse(req.body);
+      const result = await unlockOfflineSkill(req.user!.id, skillKey);
+      if (!result.ok) {
+        return res.status(400).json(result);
+      }
+      const skills = await getOfflineSkillTree(req.user!.id);
+      const status = await getOfflineGeneratorStatus(req.user!.id);
+      res.json({ ...result, skills, status });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to unlock offline skill" });
     }
   });
 

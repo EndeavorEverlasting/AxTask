@@ -135,6 +135,7 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - **[Morning New-Box Migration Guide](docs/MORNING_NEW_BOX_MIGRATION_GUIDE.md)** - Fresh-machine checklist with vendor/domain decisions
 - **[Morning Migration Checklist](docs/MORNING_NEW_BOX_MIGRATION_CHECKLIST.md)** - Execution-only checklist for fast cutover
 - **[Branding and Fallback Modularity](docs/BRANDING.md)** - Logo paths and host-pivot guardrails
+- **[Per-Time Activity Association Test Plan](docs/PER_TIME_ACTIVITY_ASSOCIATION_TEST_PLAN.md)** - Active-user gating metrics and premium-affinity validation fixtures
 
 ## Features in Detail
 

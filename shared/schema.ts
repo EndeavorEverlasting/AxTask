@@ -251,6 +251,55 @@ export const userRewards = pgTable("user_rewards", {
 
 export type UserReward = typeof userRewards.$inferSelect;
 
+// ─── Gamification: Offline Generator ─────────────────────────────────────────
+export const offlineGenerators = pgTable("offline_generators", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  isOwned: boolean("is_owned").notNull().default(false),
+  level: integer("level").notNull().default(0),
+  baseRatePerHour: integer("base_rate_per_hour").notNull().default(0),
+  baseCapacityHours: integer("base_capacity_hours").notNull().default(12),
+  lastClaimAt: timestamp("last_claim_at"),
+  totalGenerated: integer("total_generated").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type OfflineGenerator = typeof offlineGenerators.$inferSelect;
+
+export const offlineSkillNodes = pgTable("offline_skill_nodes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  skillKey: text("skill_key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  branch: text("branch").notNull(),
+  maxLevel: integer("max_level").notNull().default(1),
+  baseCost: integer("base_cost").notNull().default(100),
+  effectType: text("effect_type").notNull(),
+  effectPerLevel: integer("effect_per_level").notNull().default(0),
+  prerequisiteSkillKey: text("prerequisite_skill_key"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_offline_skill_nodes_branch").on(table.branch),
+  index("idx_offline_skill_nodes_sort").on(table.sortOrder),
+]);
+
+export type OfflineSkillNode = typeof offlineSkillNodes.$inferSelect;
+
+export const userOfflineSkills = pgTable("user_offline_skills", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  skillNodeId: varchar("skill_node_id").notNull().references(() => offlineSkillNodes.id, { onDelete: "cascade" }),
+  level: integer("level").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_user_offline_skills_user_node").on(table.userId, table.skillNodeId),
+  index("idx_user_offline_skills_user").on(table.userId),
+]);
+
+export type UserOfflineSkill = typeof userOfflineSkills.$inferSelect;
+
 // ─── Storage, Usage, and Attachments ────────────────────────────────────────
 export const usageSnapshots = pgTable("usage_snapshots", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

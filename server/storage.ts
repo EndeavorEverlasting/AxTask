@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, idempotencyKeys, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, idempotencyKeys, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -1051,6 +1051,309 @@ export async function seedRewardsCatalog(): Promise<void> {
     { id: randomUUID(), name: "Productivity Guru Title", description: "Display 'Productivity Guru' on your profile", cost: 250, type: "title", icon: "🧠", data: "Productivity Guru" },
     { id: randomUUID(), name: "Legend Title", description: "Display 'Legend' on your profile", cost: 500, type: "title", icon: "🏆", data: "Legend" },
   ]);
+}
+
+const OFFLINE_GENERATOR_BASE_COST = 500;
+const OFFLINE_GENERATOR_UPGRADE_BASE_COST = 250;
+const OFFLINE_GENERATOR_BASE_RATE_PER_HOUR = 6;
+const OFFLINE_GENERATOR_BASE_CAPACITY_HOURS = 12;
+const OFFLINE_GENERATOR_MAX_LEVEL = 25;
+
+type OfflineSkillEffects = {
+  rateBonusPct: number;
+  capacityBonusHours: number;
+};
+
+function computeSkillUpgradeCost(baseCost: number, currentLevel: number): number {
+  // Linear growth is easy to reason about for players and balancing.
+  return baseCost * (currentLevel + 1);
+}
+
+async function getOrCreateOfflineGenerator(userId: string): Promise<OfflineGenerator> {
+  const [existing] = await db.select().from(offlineGenerators).where(eq(offlineGenerators.userId, userId));
+  if (existing) return existing;
+  const [created] = await db.insert(offlineGenerators).values({
+    userId,
+    isOwned: false,
+    level: 0,
+    baseRatePerHour: 0,
+    baseCapacityHours: OFFLINE_GENERATOR_BASE_CAPACITY_HOURS,
+    totalGenerated: 0,
+  }).returning();
+  return created;
+}
+
+async function getUserSkillLevels(userId: string): Promise<Array<UserOfflineSkill & { skillNode: OfflineSkillNode }>> {
+  const rows = await db.select().from(userOfflineSkills).where(eq(userOfflineSkills.userId, userId));
+  if (rows.length === 0) return [];
+  const nodeIds = rows.map((row) => row.skillNodeId);
+  const nodes = await db.select().from(offlineSkillNodes).where(inArray(offlineSkillNodes.id, nodeIds));
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  return rows
+    .map((row) => {
+      const skillNode = nodeById.get(row.skillNodeId);
+      if (!skillNode) return null;
+      return { ...row, skillNode };
+    })
+    .filter((row): row is UserOfflineSkill & { skillNode: OfflineSkillNode } => Boolean(row));
+}
+
+async function computeOfflineSkillEffects(userId: string): Promise<OfflineSkillEffects> {
+  const skillLevels = await getUserSkillLevels(userId);
+  return skillLevels.reduce<OfflineSkillEffects>((acc, row) => {
+    const delta = row.level * row.skillNode.effectPerLevel;
+    if (row.skillNode.effectType === "rate_pct") {
+      acc.rateBonusPct += delta;
+    } else if (row.skillNode.effectType === "capacity_hours") {
+      acc.capacityBonusHours += delta;
+    }
+    return acc;
+  }, { rateBonusPct: 0, capacityBonusHours: 0 });
+}
+
+export async function seedOfflineSkillTree(): Promise<void> {
+  const existing = await db.select().from(offlineSkillNodes);
+  if (existing.length > 0) return;
+  await db.insert(offlineSkillNodes).values([
+    {
+      id: randomUUID(),
+      skillKey: "dynamos",
+      name: "Dynamos",
+      description: "Increase generator coin output by 10% per level.",
+      branch: "output",
+      maxLevel: 5,
+      baseCost: 120,
+      effectType: "rate_pct",
+      effectPerLevel: 10,
+      prerequisiteSkillKey: null,
+      sortOrder: 1,
+    },
+    {
+      id: randomUUID(),
+      skillKey: "stabilized-coils",
+      name: "Stabilized Coils",
+      description: "Further increase output by 12% per level.",
+      branch: "output",
+      maxLevel: 4,
+      baseCost: 220,
+      effectType: "rate_pct",
+      effectPerLevel: 12,
+      prerequisiteSkillKey: "dynamos",
+      sortOrder: 2,
+    },
+    {
+      id: randomUUID(),
+      skillKey: "battery-bank",
+      name: "Battery Bank",
+      description: "Increase offline capacity by 4 hours per level.",
+      branch: "capacity",
+      maxLevel: 4,
+      baseCost: 160,
+      effectType: "capacity_hours",
+      effectPerLevel: 4,
+      prerequisiteSkillKey: null,
+      sortOrder: 3,
+    },
+    {
+      id: randomUUID(),
+      skillKey: "deep-storage",
+      name: "Deep Storage",
+      description: "Increase offline capacity by 6 hours per level.",
+      branch: "capacity",
+      maxLevel: 3,
+      baseCost: 260,
+      effectType: "capacity_hours",
+      effectPerLevel: 6,
+      prerequisiteSkillKey: "battery-bank",
+      sortOrder: 4,
+    },
+  ]);
+}
+
+export async function getOfflineGeneratorStatus(userId: string): Promise<{
+  generator: OfflineGenerator;
+  effectiveRatePerHour: number;
+  effectiveCapacityHours: number;
+  pendingCoins: number;
+  skillEffects: OfflineSkillEffects;
+}> {
+  const generator = await getOrCreateOfflineGenerator(userId);
+  const skillEffects = await computeOfflineSkillEffects(userId);
+  const effectiveRatePerHour = Math.max(
+    0,
+    Math.floor(generator.baseRatePerHour * (1 + (skillEffects.rateBonusPct / 100))),
+  );
+  const effectiveCapacityHours = Math.max(1, generator.baseCapacityHours + skillEffects.capacityBonusHours);
+
+  if (!generator.isOwned || !generator.lastClaimAt) {
+    return { generator, effectiveRatePerHour, effectiveCapacityHours, pendingCoins: 0, skillEffects };
+  }
+
+  const elapsedHoursRaw = (Date.now() - new Date(generator.lastClaimAt).getTime()) / (1000 * 60 * 60);
+  const elapsedHours = Math.max(0, Math.min(effectiveCapacityHours, elapsedHoursRaw));
+  const pendingCoins = Math.floor(elapsedHours * effectiveRatePerHour);
+
+  return { generator, effectiveRatePerHour, effectiveCapacityHours, pendingCoins, skillEffects };
+}
+
+export async function buyOfflineGenerator(userId: string): Promise<{ ok: boolean; message: string }> {
+  const generator = await getOrCreateOfflineGenerator(userId);
+  if (generator.isOwned) {
+    return { ok: false, message: "Offline generator already owned." };
+  }
+  const wallet = await spendCoins(userId, OFFLINE_GENERATOR_BASE_COST, "offline_generator_purchase");
+  if (!wallet) {
+    return { ok: false, message: `Need ${OFFLINE_GENERATOR_BASE_COST} coins to buy the offline generator.` };
+  }
+  await db.update(offlineGenerators).set({
+    isOwned: true,
+    level: 1,
+    baseRatePerHour: OFFLINE_GENERATOR_BASE_RATE_PER_HOUR,
+    baseCapacityHours: OFFLINE_GENERATOR_BASE_CAPACITY_HOURS,
+    lastClaimAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(offlineGenerators.userId, userId));
+  return { ok: true, message: "Offline generator purchased." };
+}
+
+export async function upgradeOfflineGenerator(userId: string): Promise<{ ok: boolean; message: string }> {
+  const generator = await getOrCreateOfflineGenerator(userId);
+  if (!generator.isOwned) {
+    return { ok: false, message: "Buy the offline generator first." };
+  }
+  if (generator.level >= OFFLINE_GENERATOR_MAX_LEVEL) {
+    return { ok: false, message: "Offline generator is at max level." };
+  }
+  const upgradeCost = computeSkillUpgradeCost(OFFLINE_GENERATOR_UPGRADE_BASE_COST, generator.level - 1);
+  const wallet = await spendCoins(userId, upgradeCost, "offline_generator_upgrade");
+  if (!wallet) {
+    return { ok: false, message: `Need ${upgradeCost} coins to upgrade.` };
+  }
+  await db.update(offlineGenerators).set({
+    level: generator.level + 1,
+    baseRatePerHour: generator.baseRatePerHour + 3,
+    baseCapacityHours: generator.baseCapacityHours + ((generator.level + 1) % 3 === 0 ? 2 : 1),
+    updatedAt: new Date(),
+  }).where(eq(offlineGenerators.userId, userId));
+  return { ok: true, message: "Offline generator upgraded." };
+}
+
+export async function getOfflineSkillTree(userId: string): Promise<Array<{
+  id: string;
+  skillKey: string;
+  name: string;
+  description: string;
+  branch: string;
+  maxLevel: number;
+  currentLevel: number;
+  nextCost: number | null;
+  prerequisiteSkillKey: string | null;
+  isUnlocked: boolean;
+  isAvailable: boolean;
+}>> {
+  const [nodes, userSkills] = await Promise.all([
+    db.select().from(offlineSkillNodes).orderBy(asc(offlineSkillNodes.sortOrder), asc(offlineSkillNodes.name)),
+    getUserSkillLevels(userId),
+  ]);
+
+  const byNodeId = new Map(userSkills.map((row) => [row.skillNode.id, row]));
+  const bySkillKey = new Map(userSkills.map((row) => [row.skillNode.skillKey, row]));
+
+  return nodes.map((node) => {
+    const unlocked = byNodeId.get(node.id);
+    const currentLevel = unlocked?.level ?? 0;
+    const hasPrereq = !node.prerequisiteSkillKey || (bySkillKey.get(node.prerequisiteSkillKey)?.level ?? 0) > 0;
+    const atMax = currentLevel >= node.maxLevel;
+    return {
+      id: node.id,
+      skillKey: node.skillKey,
+      name: node.name,
+      description: node.description,
+      branch: node.branch,
+      maxLevel: node.maxLevel,
+      currentLevel,
+      nextCost: atMax ? null : computeSkillUpgradeCost(node.baseCost, currentLevel),
+      prerequisiteSkillKey: node.prerequisiteSkillKey,
+      isUnlocked: currentLevel > 0,
+      isAvailable: hasPrereq && !atMax,
+    };
+  });
+}
+
+export async function unlockOfflineSkill(userId: string, skillKey: string): Promise<{ ok: boolean; message: string }> {
+  const [node] = await db.select().from(offlineSkillNodes).where(eq(offlineSkillNodes.skillKey, skillKey));
+  if (!node) {
+    return { ok: false, message: "Skill not found." };
+  }
+
+  const generator = await getOrCreateOfflineGenerator(userId);
+  if (!generator.isOwned) {
+    return { ok: false, message: "Buy the offline generator before unlocking skills." };
+  }
+
+  const unlockedSkills = await getUserSkillLevels(userId);
+  const existing = unlockedSkills.find((row) => row.skillNode.id === node.id);
+  const currentLevel = existing?.level ?? 0;
+  if (currentLevel >= node.maxLevel) {
+    return { ok: false, message: "Skill is already maxed." };
+  }
+  if (node.prerequisiteSkillKey) {
+    const prereqLevel = unlockedSkills.find((row) => row.skillNode.skillKey === node.prerequisiteSkillKey)?.level ?? 0;
+    if (prereqLevel <= 0) {
+      return { ok: false, message: `Unlock prerequisite skill '${node.prerequisiteSkillKey}' first.` };
+    }
+  }
+
+  const cost = computeSkillUpgradeCost(node.baseCost, currentLevel);
+  const wallet = await spendCoins(userId, cost, `offline_skill_upgrade:${skillKey}`);
+  if (!wallet) {
+    return { ok: false, message: `Need ${cost} coins to unlock or upgrade this skill.` };
+  }
+
+  if (existing) {
+    await db.update(userOfflineSkills).set({
+      level: existing.level + 1,
+      updatedAt: new Date(),
+    }).where(eq(userOfflineSkills.id, existing.id));
+  } else {
+    await db.insert(userOfflineSkills).values({
+      id: randomUUID(),
+      userId,
+      skillNodeId: node.id,
+      level: 1,
+      updatedAt: new Date(),
+    });
+  }
+
+  return { ok: true, message: "Skill upgraded successfully." };
+}
+
+export async function claimOfflineGeneratorCoins(userId: string): Promise<{ ok: boolean; message: string; claimedCoins: number }> {
+  const status = await getOfflineGeneratorStatus(userId);
+  if (!status.generator.isOwned) {
+    return { ok: false, message: "Offline generator not owned.", claimedCoins: 0 };
+  }
+  if (status.pendingCoins <= 0) {
+    await db.update(offlineGenerators).set({
+      lastClaimAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(offlineGenerators.userId, userId));
+    return { ok: true, message: "No offline coins to claim yet.", claimedCoins: 0 };
+  }
+
+  await addCoins(
+    userId,
+    status.pendingCoins,
+    "offline_generator_claim",
+    `Claimed from offline generator (lvl ${status.generator.level})`,
+  );
+  await db.update(offlineGenerators).set({
+    lastClaimAt: new Date(),
+    totalGenerated: status.generator.totalGenerated + status.pendingCoins,
+    updatedAt: new Date(),
+  }).where(eq(offlineGenerators.userId, userId));
+
+  return { ok: true, message: "Offline coins claimed.", claimedCoins: status.pendingCoins };
 }
 
 export async function getCompletedTaskCount(userId: string): Promise<number> {
