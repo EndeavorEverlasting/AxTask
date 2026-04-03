@@ -8,3 +8,4 @@ server/public
 vite.config.ts.*
 .env
 e
+pics/

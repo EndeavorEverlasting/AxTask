@@ -9,7 +9,6 @@ import {
   Settings,
   Moon,
   Sun,
-  CheckSquare,
   FileSpreadsheet,
   CalendarDays,
   LogOut,
@@ -87,7 +86,11 @@ export function Sidebar() {
       <div className="p-6 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-primary flex items-center">
-            <CheckSquare className="mr-2 h-6 w-6" />
+            <img
+              src="/branding/axtask-logo.png"
+              alt="AxTask logo"
+              className="mr-2 h-6 w-6 rounded-sm object-cover"
+            />
             AxTask
           </h1>
           <VoiceBarTrigger />
