@@ -308,6 +308,17 @@ For a step-by-step zero-downtime procedure, use [`docs/CUTOVER_RUNBOOK.md`](docs
 
 The following roadmap items are intentionally still open:
 
+- Immersive reminder mode with native OS notifications and user-controlled intensity:
+  - Toggle on/off (`Reminders Enabled`) and optional first-run consent prompt
+  - Delivery adapters by platform:
+    - Windows: Notification Center toast + optional Task Scheduler fallback
+    - macOS: Notification Center + optional Calendar/Reminder bridge
+    - Linux: Desktop notifications (`notify-send`/DBus) + optional cron/systemd timers
+    - Mobile/PWA: browser push/local notifications where supported
+  - Frequency continuum (`Quiet`, `Balanced`, `Focused`, `Coach`) controlling reminder cadence and escalation
+  - Per-task reminder controls (single nudge, recurring, deadline-proximity boosts)
+  - User safeguards: snooze, mute window, do-not-disturb sync, and easy global disable
+  - Engine/agent reminder generation based on task priority, due dates, and inactivity signals
 - Full cloud object storage integration (S3/R2 direct signed upload) instead of filesystem-backed object storage
 - Production malware/AV scanning integration (current scan is signature/content guard, not external AV)
 - Billing provider integration for live invoice payments/webhooks (foundation routes exist)
