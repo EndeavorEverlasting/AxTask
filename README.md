@@ -98,6 +98,7 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - **[Cutover Runbook](docs/CUTOVER_RUNBOOK.md)** - Zero-downtime DNS cutover with Replit fallback
 - **[Morning New-Box Migration Guide](docs/MORNING_NEW_BOX_MIGRATION_GUIDE.md)** - Fresh-machine checklist with vendor/domain decisions
 - **[Morning Migration Checklist](docs/MORNING_NEW_BOX_MIGRATION_CHECKLIST.md)** - Execution-only checklist for fast cutover
+- **[Branding and Fallback Modularity](docs/BRANDING.md)** - Logo paths and host-pivot guardrails
 
 ## Features in Detail
 
