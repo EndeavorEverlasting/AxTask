@@ -186,6 +186,20 @@ Example: 100 tasks × 150ms = 15 seconds = $0.0001
 2. Verify PostgreSQL connection
 3. Run `npm run db:push` to sync schema
 
+#### Local Setup / `db:push` Failures
+**Symptom:** `npm error Missing script: "db:push"`  
+**Cause:** Command was run outside the AxTask project directory.  
+**Solution:**
+1. `cd` into the AxTask folder first
+2. Run `npm run db:push` again
+
+**Symptom:** `DATABASE_URL, ensure the database is provisioned`  
+**Cause:** `DATABASE_URL` is not set for local tooling.  
+**Solution:**
+1. Create `.env` from `.env.example`
+2. Set `DATABASE_URL` to a reachable PostgreSQL instance
+3. Re-run `npm run db:push`
+
 ### Performance Optimization
 
 #### Large Imports
@@ -207,6 +221,36 @@ npm install           # Install dependencies
 npm run db:push      # Sync database schema
 npm run dev          # Start development server
 ```
+
+### One-Click Startup (Recommended for non-technical users)
+- Windows users: double-click `start-offline.cmd`
+- CLI users: run `npm run offline:start`
+- Optional setup for Windows users: `npm run offline:shortcut` (creates a Desktop icon)
+- In-app option: click `Install App Shortcut` in the sidebar to add AxTask to desktop/mobile home screen
+- First-login users also get a top install CTA banner with dismiss + "don't show again"
+- Auto-steps performed:
+  - Install dependencies if missing
+  - Create `.env` from `.env.example` if needed
+  - Validate `DATABASE_URL`
+  - Run `npm run db:push`
+  - Start dev server
+
+### Offline Development (Commit Later)
+- Use a local PostgreSQL instance so the app can run without internet
+- Keep `.env` with local values (`DATABASE_URL`, `SESSION_SECRET`, `NODE_ENV=development`)
+- Make app/code changes offline
+- Commit locally, then push when you are back online
+
+### Engine APIs
+- `POST /api/feedback/process` — process message text through feedback engines (classification, sentiment, priority, tags, actions)
+- `POST /api/classification/classify` — universal classifier API with external + local fallback layers
+
+### Admin Feedback Inbox Triage
+- Supports advanced filtering (priority/review state/reviewer/tags)
+- Supports sort modes (newest/oldest/critical-first)
+- Includes bulk review-state updates for filtered rows
+- Exports filtered results to CSV for external workflow/reporting
+- Allows saving/loading local filter presets
 
 ### Environment Variables
 ```bash

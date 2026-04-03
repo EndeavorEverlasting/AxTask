@@ -33,6 +33,7 @@ import { useState, useEffect, useRef } from "react";
 import { useCountUp } from "@/hooks/use-count-up";
 import { Button } from "@/components/ui/button";
 import { VoiceBarTrigger } from "@/components/voice-command-bar";
+import { InstallShortcutButton } from "@/components/install-shortcut-button";
 
 export function Sidebar() {
   const [location] = useLocation();
@@ -230,6 +231,7 @@ export function Sidebar() {
             </>
           )}
         </Button>
+        <InstallShortcutButton />
         <Button
           variant="ghost"
           size="sm"

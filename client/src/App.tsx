@@ -12,6 +12,7 @@ import { VoiceProvider } from "@/hooks/use-voice";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TutorialOverlay } from "@/components/tutorial-overlay";
 import { VoiceCommandBar } from "@/components/voice-command-bar";
+import { InstallCtaBanner } from "@/components/install-cta-banner";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
 import Analytics from "@/pages/analytics";
@@ -84,6 +85,7 @@ function AuthenticatedApp() {
       <div className="h-screen flex bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <Sidebar />
         <main className="flex-1 overflow-hidden">
+          <InstallCtaBanner userId={user.id} />
           <div
             className="h-full overflow-auto"
             style={{

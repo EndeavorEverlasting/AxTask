@@ -18,6 +18,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AlertTriangle, Search, ScrollText, Shield, ShieldOff, Users, Wallet } from "lucide-react";
+import {
+  applyFeedbackFilters,
+  buildFeedbackCsv,
+  type FeedbackInboxItem,
+  type FeedbackPriorityFilter,
+  type FeedbackReviewedFilter,
+  type FeedbackReviewerFilter,
+  type FeedbackSort,
+} from "@/lib/feedback-inbox-utils";
 
 type UsageOverview = {
   latest: {
@@ -97,6 +106,17 @@ export default function AdminPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceAmount, setInvoiceAmount] = useState("0");
+  const [feedbackPriorityFilter, setFeedbackPriorityFilter] =
+    useState<FeedbackPriorityFilter>("all");
+  const [feedbackTagFilter, setFeedbackTagFilter] = useState("");
+  const [feedbackReviewedFilter, setFeedbackReviewedFilter] =
+    useState<FeedbackReviewedFilter>("all");
+  const [feedbackSort, setFeedbackSort] = useState<FeedbackSort>("newest");
+  const [feedbackReviewerFilter, setFeedbackReviewerFilter] =
+    useState<FeedbackReviewerFilter>("all");
+  const [feedbackPresetName, setFeedbackPresetName] = useState("");
+
+  const FEEDBACK_PRESETS_KEY = "axtask.feedbackInbox.presets";
 
   const { data: users = [], isLoading: usersLoading } = useQuery<SafeUser[]>({
     queryKey: ["/api/admin/users"],
@@ -131,6 +151,38 @@ export default function AdminPage() {
   const { data: securityAlerts = [] } = useQuery<SecurityAlertRow[]>({
     queryKey: ["/api/admin/security-alerts"],
     enabled: user?.role === "admin",
+  });
+
+  const { data: feedbackInbox = [] } = useQuery<FeedbackInboxItem[]>({
+    queryKey: ["/api/admin/feedback-inbox"],
+    enabled: user?.role === "admin",
+  });
+
+  const feedbackReviewMutation = useMutation({
+    mutationFn: async ({ feedbackEventId, reviewed }: { feedbackEventId: string; reviewed: boolean }) => {
+      await apiRequest("POST", `/api/admin/feedback-inbox/${feedbackEventId}/review`, { reviewed });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/feedback-inbox"] });
+      toast({ title: "Feedback updated", description: "Review state has been saved." });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Update failed", description: err.message, variant: "destructive" }),
+  });
+
+  const feedbackBulkReviewMutation = useMutation({
+    mutationFn: async ({ feedbackEventIds, reviewed }: { feedbackEventIds: string[]; reviewed: boolean }) => {
+      await apiRequest("POST", "/api/admin/feedback-inbox/review-bulk", {
+        feedbackEventIds,
+        reviewed,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/feedback-inbox"] });
+      toast({ title: "Feedback updated", description: "Bulk review state has been saved." });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Bulk update failed", description: err.message, variant: "destructive" }),
   });
 
   const analyzeAlertsMutation = useMutation({
@@ -224,6 +276,77 @@ export default function AdminPage() {
       (u.displayName || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
   const bannedCount = users.filter((u) => u.isBanned).length;
+  const sortedFeedback = applyFeedbackFilters(
+    feedbackInbox,
+    {
+      priority: feedbackPriorityFilter,
+      reviewed: feedbackReviewedFilter,
+      reviewer: feedbackReviewerFilter,
+      tagQuery: feedbackTagFilter,
+      sort: feedbackSort,
+    },
+    user?.id,
+  );
+
+  const exportFilteredFeedbackCsv = () => {
+    const csv = buildFeedbackCsv(sortedFeedback);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `feedback-inbox-${Date.now()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const getFeedbackPresets = (): Array<{ name: string; filters: {
+    priority: FeedbackPriorityFilter;
+    reviewed: FeedbackReviewedFilter;
+    reviewer: FeedbackReviewerFilter;
+    tagQuery: string;
+    sort: FeedbackSort;
+  } }> => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(FEEDBACK_PRESETS_KEY) || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const [feedbackPresets, setFeedbackPresets] = useState(getFeedbackPresets);
+
+  const saveFeedbackPreset = () => {
+    const trimmed = feedbackPresetName.trim();
+    if (!trimmed) return;
+    const next = [
+      {
+        name: trimmed,
+        filters: {
+          priority: feedbackPriorityFilter,
+          reviewed: feedbackReviewedFilter,
+          reviewer: feedbackReviewerFilter,
+          tagQuery: feedbackTagFilter,
+          sort: feedbackSort,
+        },
+      },
+      ...feedbackPresets.filter((preset) => preset.name !== trimmed),
+    ].slice(0, 10);
+    localStorage.setItem(FEEDBACK_PRESETS_KEY, JSON.stringify(next));
+    setFeedbackPresets(next);
+    setFeedbackPresetName("");
+    toast({ title: "Preset saved", description: `Saved "${trimmed}" filter preset.` });
+  };
+
+  const applyFeedbackPreset = (name: string) => {
+    const preset = feedbackPresets.find((p) => p.name === name);
+    if (!preset) return;
+    setFeedbackPriorityFilter(preset.filters.priority);
+    setFeedbackReviewedFilter(preset.filters.reviewed);
+    setFeedbackReviewerFilter(preset.filters.reviewer);
+    setFeedbackTagFilter(preset.filters.tagQuery);
+    setFeedbackSort(preset.filters.sort);
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
@@ -271,6 +394,7 @@ export default function AdminPage() {
         <TabsList className="flex flex-wrap">
           <TabsTrigger value="usage">Usage & Storage</TabsTrigger>
           <TabsTrigger value="intel">Security Intelligence</TabsTrigger>
+          <TabsTrigger value="feedback">Feedback Inbox</TabsTrigger>
           <TabsTrigger value="invoices">Invoicing</TabsTrigger>
           <TabsTrigger value="users">User Management</TabsTrigger>
           <TabsTrigger value="logs">Security Logs</TabsTrigger>
@@ -364,6 +488,190 @@ export default function AdminPage() {
                 </div>
               ))}
               {securityEvents.length === 0 && <p className="text-sm text-muted-foreground">No events yet.</p>}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="feedback" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Filters</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value={feedbackPriorityFilter}
+                onChange={(e) =>
+                  setFeedbackPriorityFilter(e.target.value as FeedbackPriorityFilter)
+                }
+              >
+                <option value="all">All priorities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value={feedbackReviewedFilter}
+                onChange={(e) =>
+                  setFeedbackReviewedFilter(e.target.value as FeedbackReviewedFilter)
+                }
+              >
+                <option value="all">All review states</option>
+                <option value="reviewed">Reviewed</option>
+                <option value="unreviewed">Unreviewed</option>
+              </select>
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value={feedbackReviewerFilter}
+                onChange={(e) =>
+                  setFeedbackReviewerFilter(e.target.value as FeedbackReviewerFilter)
+                }
+              >
+                <option value="all">All reviewers</option>
+                <option value="me">Reviewed by me</option>
+                <option value="others">Reviewed by others</option>
+              </select>
+              <Input
+                placeholder="Filter by tag (e.g. bug)"
+                value={feedbackTagFilter}
+                onChange={(e) => setFeedbackTagFilter(e.target.value)}
+              />
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value={feedbackSort}
+                onChange={(e) => setFeedbackSort(e.target.value as FeedbackSort)}
+              >
+                <option value="newest">Sort: Newest</option>
+                <option value="oldest">Sort: Oldest</option>
+                <option value="critical-first">Sort: Critical First</option>
+              </select>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Preset name"
+                  value={feedbackPresetName}
+                  onChange={(e) => setFeedbackPresetName(e.target.value)}
+                />
+                <Button size="sm" variant="outline" onClick={saveFeedbackPreset}>
+                  Save Preset
+                </Button>
+              </div>
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value=""
+                onChange={(e) => applyFeedbackPreset(e.target.value)}
+              >
+                <option value="" disabled>Load preset...</option>
+                {feedbackPresets.map((preset) => (
+                  <option key={preset.name} value={preset.name}>{preset.name}</option>
+                ))}
+              </select>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Processed feedback triage inbox ({sortedFeedback.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 max-h-[560px] overflow-auto">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={sortedFeedback.length === 0 || feedbackBulkReviewMutation.isPending}
+                  onClick={() =>
+                    feedbackBulkReviewMutation.mutate({
+                      feedbackEventIds: sortedFeedback.map((item) => item.id),
+                      reviewed: true,
+                    })
+                  }
+                >
+                  Mark All Filtered Reviewed
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={sortedFeedback.length === 0 || feedbackBulkReviewMutation.isPending}
+                  onClick={() =>
+                    feedbackBulkReviewMutation.mutate({
+                      feedbackEventIds: sortedFeedback.map((item) => item.id),
+                      reviewed: false,
+                    })
+                  }
+                >
+                  Mark All Filtered Unreviewed
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={sortedFeedback.length === 0}
+                  onClick={exportFilteredFeedbackCsv}
+                >
+                  Export Filtered CSV
+                </Button>
+              </div>
+              {sortedFeedback.map((item) => (
+                <div key={item.id} className="rounded border px-3 py-3 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={item.priority === "critical" || item.priority === "high" ? "destructive" : "secondary"}>
+                      {item.priority}
+                    </Badge>
+                    <Badge variant="outline">{item.classification}</Badge>
+                    <Badge variant="outline">{item.sentiment}</Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {item.createdAt ? new Date(item.createdAt).toLocaleString() : "n/a"}
+                    </span>
+                    {item.reviewed ? (
+                      <Badge variant="secondary">Reviewed</Badge>
+                    ) : (
+                      <Badge variant="outline">Unreviewed</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    user: {item.actorUserId || "unknown"} · message chars: {item.messageLength} · attachments: {item.attachments}
+                  </p>
+                  {item.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {item.tags.map((tag) => (
+                        <Badge key={`${item.id}-${tag}`} variant="secondary" className="text-xs">{tag}</Badge>
+                      ))}
+                    </div>
+                  )}
+                  {item.recommendedActions.length > 0 && (
+                    <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
+                      {item.recommendedActions.map((action) => (
+                        <li key={`${item.id}-${action}`}>{action}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    classifier: {item.classifierSource} · fallback layer {item.classifierFallbackLayer} · confidence {(item.classifierConfidence * 100).toFixed(0)}%
+                  </p>
+                  {item.reviewed && (
+                    <p className="text-xs text-muted-foreground">
+                      reviewed by: {item.reviewedBy || "unknown"} · {item.reviewedAt ? new Date(item.reviewedAt).toLocaleString() : "n/a"}
+                    </p>
+                  )}
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      variant={item.reviewed ? "outline" : "default"}
+                      disabled={feedbackReviewMutation.isPending}
+                      onClick={() =>
+                        feedbackReviewMutation.mutate({
+                          feedbackEventId: item.id,
+                          reviewed: !item.reviewed,
+                        })
+                      }
+                    >
+                      {item.reviewed ? "Mark Unreviewed" : "Mark Reviewed"}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {sortedFeedback.length === 0 && (
+                <p className="text-sm text-muted-foreground">No processed feedback events yet.</p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

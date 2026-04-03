@@ -13,11 +13,43 @@ A full-stack task management application with an intelligent priority scoring en
 
 ```bash
 npm install
+cp .env.example .env
 npm run db:push
 npm run dev
 ```
 
 Visit `http://localhost:5000` to access the application.
+
+### One-click local/offline startup
+
+- Windows: double-click `start-offline.cmd`
+- Any OS with Node/npm: run `npm run offline:start`
+- Optional (Windows): run `npm run offline:shortcut` once to create a Desktop shortcut named `Start AxTask Offline`
+- In-app: use `Install App Shortcut` in the left sidebar to install on desktop/mobile home screen (or show setup steps if browser prompt is unavailable)
+- First-login CTA: users also see a top install banner with `Dismiss` and `Don't show again` controls
+
+This flow automatically installs dependencies (first run), creates `.env` from `.env.example` if missing, runs `db:push`, and starts the app.
+
+## Local + Offline Workflow
+
+You can run AxTask fully local (including when offline) as long as your PostgreSQL database is also local.
+
+1. Create your local env file:
+   - macOS/Linux: `cp .env.example .env`
+   - Windows PowerShell: `Copy-Item .env.example .env`
+2. Ensure `.env` has a local `DATABASE_URL` (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
+3. Run from the AxTask project directory:
+   - `npm install`
+   - `npm run db:push`
+   - `npm run dev`
+4. Work offline as needed, then commit and push changes later when back online.
+
+### Why local runs fail most often
+
+- `npm error Missing script: "db:push"`  
+  You ran the command outside the AxTask folder. Run it from `AxTask`.
+- `DATABASE_URL, ensure the database is provisioned`  
+  `DATABASE_URL` is missing or invalid. Create `.env` from `.env.example` and update the DB URL.
 
 ## Key Features
 
@@ -134,6 +166,23 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - Chained `security_events` ledger (`prevHash` + `eventHash`) for tamper-evident auditing
 - Security alert rules for failed-login bursts and route-failure anomalies
 - Admin UI tab for event stream and alert review
+
+### Feedback + Classifier Engines
+- Feedback submissions are processed through a feedback engine (priority, sentiment, tags, actions)
+- Universal classifier API supports modular fallback layers:
+  - External classifier (`UNIVERSAL_CLASSIFIER_API_URL` + optional API key)
+  - Priority engine local classifier fallback
+  - Keyword fallback layer
+- API endpoints:
+  - `POST /api/feedback/process`
+  - `POST /api/classification/classify`
+
+### Admin Feedback Inbox
+- Filter by priority, review state, reviewer, and tags
+- Sort by newest, oldest, or critical-first
+- Bulk mark filtered rows reviewed/unreviewed
+- Export currently filtered rows as CSV
+- Save/load feedback filter presets for repeat triage views
 
 ## Security
 

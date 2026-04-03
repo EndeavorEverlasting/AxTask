@@ -16,6 +16,7 @@ import {
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, ensureIdempotencyKey,
   appendSecurityEvent, getSecurityEvents, getSecurityAlerts, analyzeAndCreateSecurityAlerts,
+  listFeedbackInbox,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
@@ -23,6 +24,7 @@ import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema,
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
+import { processFeedbackWithEngines } from "./engines/feedback-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { generateChecklistPDF } from "./checklist-pdf";
 import { processChecklistImage } from "./ocr-processor";
@@ -32,6 +34,7 @@ import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./se
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
+import { classifyWithFallback } from "./services/classification/universal-classifier";
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
 function safeEqual(a: string, b: string): boolean {
@@ -71,6 +74,11 @@ function buildAttachmentStorageKey(userId: string, assetId: string, fileName?: s
   const safeName = (fileName || "upload.bin").replace(/[^a-zA-Z0-9._-]/g, "_");
   const datePart = new Date().toISOString().slice(0, 10);
   return `${userId}/${datePart}/${assetId}-${safeName}`;
+}
+
+async function classifyTaskWithFallback(activity: string, notes: string, preferExternal = true): Promise<string> {
+  const result = await classifyWithFallback(activity, notes, { preferExternal });
+  return result.classification;
 }
 
 // ── Rate limiters ───────────────────────────────────────────────────────────
@@ -613,7 +621,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 task.activity, task.notes || "", task.urgency, task.impact, task.effort,
                 contextTasks
               );
-              const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
+              const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
               updates.push({
                 id: task.id,
                 priority: priorityResult.priority,
@@ -622,7 +630,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 isRepeated: priorityResult.isRepeated,
               });
             } catch (e) {
-              const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
+              const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
               updates.push({
                 id: task.id,
                 priority: "Low",
@@ -693,7 +701,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allTasks.filter(t => t.id !== task.id)
       );
 
-      const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
+      const classification = await classifyTaskWithFallback(task.activity, task.notes || "", true);
 
       task = await storage.updateTask(userId, {
         id: task.id,
@@ -741,7 +749,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           allTasks.filter(t => t.id !== task!.id)
         );
 
-        const classification = PriorityEngine.classifyTask(task!.activity, task!.notes || "");
+        const classification = await classifyTaskWithFallback(task!.activity, task!.notes || "", true);
 
         task = await storage.updateTask(userId, {
           id: task!.id,
@@ -811,7 +819,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           allTasks.filter(t => t.id !== task.id)
         );
 
-        const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
+        const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
 
         await storage.updateTask(userId, {
           id: task.id,
@@ -973,7 +981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             allTasks.filter(t => t.id !== task.id)
           );
 
-          const classification = PriorityEngine.classifyTask(task.activity, task.notes || "");
+          const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
 
           const updatedTask = await storage.updateTask(userId, {
             id: task.id,
@@ -1381,6 +1389,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Universal classifier API (protected) ───────────────────────────────────
+  const classifySchema = z.object({
+    activity: z.string().min(1).max(500),
+    notes: z.string().max(5000).optional().default(""),
+    preferExternal: z.boolean().optional().default(true),
+  });
+
+  app.post("/api/classification/classify", requireAuth, async (req, res) => {
+    try {
+      const payload = classifySchema.parse(req.body);
+      const result = await classifyWithFallback(payload.activity, payload.notes, {
+        preferExternal: payload.preferExternal,
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Classification failed" });
+    }
+  });
+
   // ── Feedback + attachments ────────────────────────────────────────────────
   const feedbackSchema = z.object({
     message: z.string().min(5).max(5000),
@@ -1397,6 +1425,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     mimeType: z.string().min(3).max(128),
     byteSize: z.number().int().positive().max(10 * 1024 * 1024),
     kind: z.string().min(2).max(40).default("feedback"),
+  });
+
+  const feedbackProcessSchema = z.object({
+    message: z.string().min(5).max(5000),
+    attachmentCount: z.number().int().min(0).max(10).default(0),
   });
 
   app.post("/api/attachments/upload-url", requireAuth, async (req, res) => {
@@ -1520,20 +1553,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdAssets.push(asset);
       }
 
+      const totalAttachments = createdAssets.length + linkedAssets;
+      const analysis = await processFeedbackWithEngines(parsed.message, totalAttachments);
+
       await logSecurityEvent(
         "feedback_submitted",
         req.user!.id,
         undefined,
         req.ip,
-        `Feedback submitted (${parsed.message.length} chars, ${createdAssets.length + linkedAssets} attachments)`,
+        `Feedback submitted (${parsed.message.length} chars, ${totalAttachments} attachments, ${analysis.classification}/${analysis.priority})`,
       );
+      await appendSecurityEvent({
+        eventType: "feedback_processed",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 201,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {
+          messageLength: parsed.message.length,
+          attachments: totalAttachments,
+          analysis,
+        },
+      });
       res.status(201).json({
         message: "Feedback submitted",
-        attachments: createdAssets.length + linkedAssets,
+        attachments: totalAttachments,
+        analysis,
       });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to submit feedback" });
+    }
+  });
+
+  app.post("/api/feedback/process", requireAuth, async (req, res) => {
+    try {
+      const payload = feedbackProcessSchema.parse(req.body);
+      const analysis = await processFeedbackWithEngines(payload.message, payload.attachmentCount);
+      res.json(analysis);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to process feedback" });
     }
   });
 
@@ -1846,6 +1908,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(alerts);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch security alerts" });
+    }
+  });
+
+  app.get("/api/admin/feedback-inbox", requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
+      const items = await listFeedbackInbox(limit);
+      res.json(items);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch feedback inbox" });
+    }
+  });
+
+  app.post("/api/admin/feedback-inbox/:feedbackEventId/review", requireAdmin, async (req, res) => {
+    try {
+      const payload = z.object({ reviewed: z.boolean().default(true) }).parse(req.body || {});
+      await appendSecurityEvent({
+        eventType: "feedback_review_state_changed",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {
+          feedbackEventId: req.params.feedbackEventId,
+          reviewed: payload.reviewed,
+        },
+      });
+      res.json({ message: payload.reviewed ? "Feedback marked reviewed" : "Feedback marked unreviewed" });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to update review state" });
+    }
+  });
+
+  app.post("/api/admin/feedback-inbox/review-bulk", requireAdmin, async (req, res) => {
+    try {
+      const payload = z.object({
+        feedbackEventIds: z.array(z.string().min(1)).min(1).max(500),
+        reviewed: z.boolean().default(true),
+      }).parse(req.body || {});
+
+      for (const feedbackEventId of payload.feedbackEventIds) {
+        await appendSecurityEvent({
+          eventType: "feedback_review_state_changed",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 200,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: {
+            feedbackEventId,
+            reviewed: payload.reviewed,
+          },
+        });
+      }
+
+      res.json({
+        message: payload.reviewed
+          ? "Feedback items marked reviewed"
+          : "Feedback items marked unreviewed",
+        updated: payload.feedbackEventIds.length,
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to update bulk review state" });
     }
   });
 

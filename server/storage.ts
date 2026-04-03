@@ -4,6 +4,7 @@ import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray } from "dri
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
+import { parseFeedbackPayload, parseFeedbackReviewPayload } from "./services/feedback-inbox-parser";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
 
@@ -459,6 +460,71 @@ export async function getSecurityEvents(limit = 200): Promise<SecurityEvent[]> {
     .from(securityEvents)
     .orderBy(desc(securityEvents.createdAt))
     .limit(limit);
+}
+
+export type FeedbackInboxItem = {
+  id: string;
+  createdAt: Date | null;
+  actorUserId: string | null;
+  messageLength: number;
+  attachments: number;
+  classification: string;
+  priority: string;
+  sentiment: string;
+  tags: string[];
+  recommendedActions: string[];
+  classifierSource: string;
+  classifierFallbackLayer: number;
+  classifierConfidence: number;
+  reviewed: boolean;
+  reviewedAt: Date | null;
+  reviewedBy: string | null;
+};
+
+export async function listFeedbackInbox(limit = 100): Promise<FeedbackInboxItem[]> {
+  const rows = await db
+    .select()
+    .from(securityEvents)
+    .where(eq(securityEvents.eventType, "feedback_processed"))
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(Math.min(limit, 500));
+
+  const reviewRows = await db
+    .select()
+    .from(securityEvents)
+    .where(eq(securityEvents.eventType, "feedback_review_state_changed"))
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(2000);
+
+  const reviewMap = new Map<string, { reviewed: boolean; reviewedAt: Date | null; reviewedBy: string | null }>();
+  for (const row of reviewRows) {
+    const parsed = parseFeedbackReviewPayload(row.payloadJson);
+    if (!parsed) continue;
+    if (!reviewMap.has(parsed.feedbackEventId)) {
+      reviewMap.set(parsed.feedbackEventId, {
+        reviewed: parsed.reviewed,
+        reviewedAt: row.createdAt || null,
+        reviewedBy: row.actorUserId || null,
+      });
+    }
+  }
+
+  return rows
+    .map((row) => {
+      const payload = parseFeedbackPayload(row.payloadJson);
+      if (!payload) return null;
+      const review = reviewMap.get(row.id);
+      return {
+        id: row.id,
+        createdAt: row.createdAt || null,
+        actorUserId: row.actorUserId || null,
+        ...payload,
+        reviewed: review?.reviewed || false,
+        reviewedAt: review?.reviewedAt || null,
+        reviewedBy: review?.reviewedBy || null,
+      };
+    })
+    .filter((row): row is FeedbackInboxItem => Boolean(row));
 }
 
 export async function getSecurityAlerts(limit = 200): Promise<SecurityAlert[]> {

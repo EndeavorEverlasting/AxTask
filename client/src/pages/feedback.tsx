@@ -17,6 +17,16 @@ type UploadUrlResponse = {
   uploadUrl: string;
 };
 
+type FeedbackSubmitResponse = {
+  message: string;
+  attachments: number;
+  analysis?: {
+    classification: string;
+    priority: string;
+    sentiment: string;
+  };
+};
+
 export default function FeedbackPage() {
   const { toast } = useToast();
   const [message, setMessage] = useState("");
@@ -75,13 +85,17 @@ export default function FeedbackPage() {
         }
       }
 
-      await apiRequest("POST", "/api/feedback", {
+      const response = await apiRequest("POST", "/api/feedback", {
         message,
         attachmentAssetIds: assetIds,
       });
+      return response.json() as Promise<FeedbackSubmitResponse>;
     },
-    onSuccess: () => {
-      toast({ title: "Feedback sent", description: "Thanks — your feedback has been recorded." });
+    onSuccess: (payload) => {
+      const details = payload.analysis
+        ? `${payload.analysis.classification} • ${payload.analysis.priority} • ${payload.analysis.sentiment}`
+        : "Thanks — your feedback has been recorded.";
+      toast({ title: "Feedback sent", description: details });
       setMessage("");
       setScreenshots([]);
     },
