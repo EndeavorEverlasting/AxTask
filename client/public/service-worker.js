@@ -43,3 +43,44 @@ self.addEventListener("fetch", (event) => {
       }),
   );
 });
+
+self.addEventListener("push", (event) => {
+  const payload = (() => {
+    try {
+      return event.data ? event.data.json() : {};
+    } catch {
+      return {
+        title: "AxTask reminder",
+        body: event.data?.text() || "You have a new notification.",
+      };
+    }
+  })();
+
+  const title = payload.title || "AxTask";
+  const options = {
+    body: payload.body || "You have a new notification.",
+    icon: payload.icon || "/branding/axtask-logo.png",
+    badge: payload.badge || "/branding/axtask-logo.png",
+    data: {
+      url: payload.url || "/planner",
+    },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification?.data?.url || "/planner";
+
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const existingClient = clients.find((client) => client.url.includes(self.location.origin));
+    if (existingClient) {
+      existingClient.focus();
+      existingClient.navigate(targetUrl);
+      return;
+    }
+    await self.clients.openWindow(targetUrl);
+  })());
+});

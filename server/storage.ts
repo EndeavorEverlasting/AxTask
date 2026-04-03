@@ -1,10 +1,11 @@
-import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, idempotencyKeys, premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent, type PremiumSubscription, type PremiumSavedView, type PremiumReviewWorkflow, type PremiumInsight, type PremiumEvent } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, idempotencyKeys, premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents, userNotificationPreferences, userPushSubscriptions, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent, type PremiumSubscription, type PremiumSavedView, type PremiumReviewWorkflow, type PremiumInsight, type PremiumEvent, type UserNotificationPreference, type UserPushSubscription } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
 import { parseFeedbackPayload, parseFeedbackReviewPayload } from "./services/feedback-inbox-parser";
+import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
 
@@ -129,6 +130,172 @@ export async function getUserByEmail(email: string): Promise<User | undefined> {
 export async function getUserById(id: string): Promise<SafeUser | undefined> {
   const [user] = await db.select().from(users).where(eq(users.id, id));
   return user ? toSafeUser(user) : undefined;
+}
+
+const DEFAULT_NOTIFICATION_INTENSITY = 50;
+
+function clampNotificationIntensity(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function normalizeNotificationPreference(
+  userId: string,
+  row?: UserNotificationPreference,
+): UserNotificationPreference {
+  const now = new Date();
+  return {
+    userId,
+    enabled: row?.enabled ?? false,
+    intensity: clampNotificationIntensity(row?.intensity ?? DEFAULT_NOTIFICATION_INTENSITY),
+    quietHoursStart: row?.quietHoursStart ?? null,
+    quietHoursEnd: row?.quietHoursEnd ?? null,
+    createdAt: row?.createdAt ?? now,
+    updatedAt: row?.updatedAt ?? now,
+  };
+}
+
+export async function getUserNotificationPreference(userId: string): Promise<UserNotificationPreference> {
+  const [row] = await db
+    .select()
+    .from(userNotificationPreferences)
+    .where(eq(userNotificationPreferences.userId, userId));
+  return normalizeNotificationPreference(userId, row);
+}
+
+export async function upsertUserNotificationPreference(input: {
+  userId: string;
+  enabled?: boolean;
+  intensity?: number;
+  quietHoursStart?: number | null;
+  quietHoursEnd?: number | null;
+}): Promise<UserNotificationPreference> {
+  const existing = await getUserNotificationPreference(input.userId);
+  const [updated] = await db
+    .insert(userNotificationPreferences)
+    .values({
+      userId: input.userId,
+      enabled: input.enabled ?? existing.enabled,
+      intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
+      quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
+      quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
+      createdAt: existing.createdAt,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: userNotificationPreferences.userId,
+      set: {
+        enabled: input.enabled ?? existing.enabled,
+        intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
+        quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
+        quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return normalizeNotificationPreference(input.userId, updated);
+}
+
+export async function listUserPushSubscriptions(userId: string): Promise<UserPushSubscription[]> {
+  return db
+    .select()
+    .from(userPushSubscriptions)
+    .where(eq(userPushSubscriptions.userId, userId))
+    .orderBy(desc(userPushSubscriptions.updatedAt));
+}
+
+export async function upsertUserPushSubscription(input: {
+  userId: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  expirationTime?: number | null;
+  userAgent?: string;
+}): Promise<UserPushSubscription> {
+  const [updated] = await db
+    .insert(userPushSubscriptions)
+    .values({
+      userId: input.userId,
+      endpoint: input.endpoint,
+      p256dh: input.p256dh,
+      auth: input.auth,
+      expirationTime: input.expirationTime ?? null,
+      userAgent: input.userAgent ?? null,
+      updatedAt: new Date(),
+      lastSeenAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: userPushSubscriptions.endpoint,
+      set: {
+        userId: input.userId,
+        p256dh: input.p256dh,
+        auth: input.auth,
+        expirationTime: input.expirationTime ?? null,
+        userAgent: input.userAgent ?? null,
+        updatedAt: new Date(),
+        lastSeenAt: new Date(),
+      },
+    })
+    .returning();
+  return updated;
+}
+
+export async function deleteUserPushSubscription(userId: string, endpoint: string): Promise<boolean> {
+  const result = await db
+    .delete(userPushSubscriptions)
+    .where(and(
+      eq(userPushSubscriptions.userId, userId),
+      eq(userPushSubscriptions.endpoint, endpoint),
+    ));
+  return (result.rowCount || 0) > 0;
+}
+
+export type PushDispatchCandidate = {
+  userId: string;
+  subscription: UserPushSubscription;
+  preference: UserNotificationPreference;
+  dispatchProfile: NotificationDispatchProfile;
+};
+
+export async function listPushDispatchCandidates(limit = 200): Promise<PushDispatchCandidate[]> {
+  const preferences = await db
+    .select()
+    .from(userNotificationPreferences)
+    .where(eq(userNotificationPreferences.enabled, true))
+    .limit(Math.max(limit, 1));
+  if (preferences.length === 0) return [];
+
+  const prefByUserId = new Map(preferences.map((pref) => [pref.userId, pref]));
+  const userIds = preferences.map((pref) => pref.userId);
+  const subscriptions = await db
+    .select()
+    .from(userPushSubscriptions)
+    .where(inArray(userPushSubscriptions.userId, userIds))
+    .orderBy(desc(userPushSubscriptions.updatedAt));
+
+  const candidates: PushDispatchCandidate[] = [];
+  for (const subscription of subscriptions) {
+    const pref = prefByUserId.get(subscription.userId);
+    if (!pref) continue;
+    if (!shouldDispatchByIntensity({ intensity: pref.intensity, lastSentAt: subscription.lastSentAt })) continue;
+    candidates.push({
+      userId: subscription.userId,
+      subscription,
+      preference: pref,
+      dispatchProfile: getNotificationDispatchProfile(pref.intensity),
+    });
+    if (candidates.length >= limit) break;
+  }
+  return candidates;
+}
+
+export async function markPushSubscriptionDispatched(endpoint: string): Promise<void> {
+  await db
+    .update(userPushSubscriptions)
+    .set({
+      lastSentAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(userPushSubscriptions.endpoint, endpoint));
 }
 
 export async function verifyPassword(

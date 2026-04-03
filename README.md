@@ -260,6 +260,31 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
   - `POST /api/premium/subscriptions/downgrade`
   - `POST /api/premium/subscriptions/reactivate`
   - `GET /api/premium/reactivation-prompts`
+
+### Notification Mode (Push + Intensity)
+- Toggleable notification mode in the sidebar with a `0-100` intensity slider.
+- Browser push permission is requested when enabling notifications.
+- Preferences persist per account via server-backed APIs:
+  - `GET /api/notifications/preferences`
+  - `PATCH /api/notifications/preferences`
+  - `GET /api/notifications/subscriptions`
+  - `POST /api/notifications/subscriptions`
+  - `DELETE /api/notifications/subscriptions`
+- Intensity mapping for dispatch cadence:
+  - `0`: Off
+  - `1-30`: Low
+  - `31-70`: Balanced
+  - `71-100`: Frequent
+
+Required env for browser push subscription:
+```env
+VITE_VAPID_PUBLIC_KEY=...
+```
+
+After pulling these changes, run:
+```bash
+npm run db:push
+```
 - Admin retention metrics:
   - `GET /api/admin/premium/retention?days=30`
 

@@ -119,6 +119,58 @@ export type SafeUser = Omit<User, "passwordHash" | "securityAnswerHash" | "faile
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type SecurityLog = typeof securityLogs.$inferSelect;
 
+// ─── Notification Preferences + Push Subscriptions ──────────────────────────
+export const userNotificationPreferences = pgTable("user_notification_preferences", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  intensity: integer("intensity").notNull().default(50),
+  quietHoursStart: integer("quiet_hours_start"),
+  quietHoursEnd: integer("quiet_hours_end"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const userPushSubscriptions = pgTable("user_push_subscriptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  expirationTime: integer("expiration_time"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").defaultNow(),
+  lastSentAt: timestamp("last_sent_at"),
+}, (table) => [
+  uniqueIndex("ux_user_push_subscriptions_endpoint").on(table.endpoint),
+  index("idx_user_push_subscriptions_user").on(table.userId),
+]);
+
+export const updateNotificationPreferenceSchema = z.object({
+  enabled: z.boolean().optional(),
+  intensity: z.number().int().min(0).max(100).optional(),
+  quietHoursStart: z.number().int().min(0).max(23).nullable().optional(),
+  quietHoursEnd: z.number().int().min(0).max(23).nullable().optional(),
+});
+
+export const createPushSubscriptionSchema = z.object({
+  endpoint: z.string().url("Subscription endpoint must be a valid URL"),
+  expirationTime: z.number().int().nullable().optional(),
+  keys: z.object({
+    p256dh: z.string().min(1, "Subscription key p256dh is required"),
+    auth: z.string().min(1, "Subscription key auth is required"),
+  }),
+  userAgent: z.string().max(512).optional(),
+});
+
+export const deletePushSubscriptionSchema = z.object({
+  endpoint: z.string().url("Subscription endpoint must be a valid URL"),
+});
+
+export type UserNotificationPreference = typeof userNotificationPreferences.$inferSelect;
+export type UserPushSubscription = typeof userPushSubscriptions.$inferSelect;
+
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

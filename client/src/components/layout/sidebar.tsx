@@ -25,14 +25,17 @@ import {
   MessageSquare,
   PlusCircle,
   Crown,
+  BellRing,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
 import { useZoom } from "@/hooks/use-zoom";
 import { useTutorial } from "@/hooks/use-tutorial";
+import { useNotificationMode } from "@/hooks/use-notification-mode";
 import { useState, useEffect, useRef } from "react";
 import { useCountUp } from "@/hooks/use-count-up";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { VoiceBarTrigger } from "@/components/voice-command-bar";
 import { InstallShortcutButton } from "@/components/install-shortcut-button";
 
@@ -42,6 +45,15 @@ export function Sidebar() {
   const { user, logout } = useAuth();
   const { zoom, zoomIn, zoomOut, resetZoom, ZOOM_MIN, ZOOM_MAX } = useZoom();
   const { isActive: tutorialActive, startTutorial, stopTutorial, hasCompleted } = useTutorial();
+  const {
+    isLoading: notificationLoading,
+    enabled: notificationEnabled,
+    intensity: notificationIntensity,
+    pushStatus,
+    toggleNotificationMode,
+    setLocalIntensity,
+    saveIntensity,
+  } = useNotificationMode();
 
   const { data: briefing } = useQuery<{ overdue: { count: number }; dueWithinHour: { count: number } }>({
     queryKey: ["/api/planner/briefing"],
@@ -86,6 +98,13 @@ export function Sidebar() {
     if (path !== "/" && location.startsWith(path)) return true;
     return false;
   };
+
+  const notificationStatusLabel = (() => {
+    if (pushStatus === "unsupported") return "Not supported";
+    if (pushStatus === "denied") return "Permission denied";
+    if (!notificationEnabled) return "Off";
+    return `On (${notificationIntensity}%)`;
+  })();
 
   return (
     <aside className="w-64 bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex flex-col">
@@ -174,6 +193,41 @@ export function Sidebar() {
           </span>
           <kbd className="ml-2 text-[10px] font-mono opacity-60 bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">⌃T</kbd>
         </Button>
+
+        <div className="rounded-lg border border-sky-300/40 bg-sky-50/60 p-3 dark:border-sky-700/40 dark:bg-sky-900/15">
+          <Button
+            variant={notificationEnabled ? "default" : "outline"}
+            size="sm"
+            onClick={() => void toggleNotificationMode()}
+            disabled={notificationLoading}
+            className={`w-full justify-between ring-1 ring-sky-400/40 ${
+              notificationEnabled ? "bg-sky-600 hover:bg-sky-700 text-white shadow-md shadow-sky-500/30" : "bg-sky-50/70 dark:bg-sky-900/20"
+            }`}
+            title="Toggle push notifications"
+          >
+            <span className="flex items-center">
+              <BellRing className="mr-2 h-4 w-4" />
+              {notificationEnabled ? "Disable Notifications" : "Enable Notifications"}
+            </span>
+          </Button>
+          <div className="mt-2 space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-gray-600 dark:text-gray-300">Intensity</span>
+              <span className="font-semibold text-sky-700 dark:text-sky-300">{notificationIntensity}%</span>
+            </div>
+            <Slider
+              min={0}
+              max={100}
+              step={1}
+              value={[notificationIntensity]}
+              onValueChange={(value) => setLocalIntensity(value[0] ?? 0)}
+              onValueCommit={(value) => void saveIntensity(value[0] ?? 0)}
+              disabled={notificationLoading}
+              aria-label="Notification intensity"
+            />
+            <p className="text-[11px] text-gray-600 dark:text-gray-400">Status: {notificationStatusLabel}</p>
+          </div>
+        </div>
 
         <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700/50">
           <Button

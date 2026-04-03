@@ -42,10 +42,15 @@ import {
   buildWeeklyPremiumDigest,
   trackPremiumEvent,
   getPremiumRetentionMetrics,
+  getUserNotificationPreference,
+  upsertUserNotificationPreference,
+  listUserPushSubscriptions,
+  upsertUserPushSubscription,
+  deleteUserPushSubscription,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, type UpdateTask, type Task } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, type UpdateTask, type Task } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
@@ -60,6 +65,7 @@ import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
 import { classifyWithFallback } from "./services/classification/universal-classifier";
+import { getNotificationDispatchProfile } from "./services/notification-intensity";
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
 function safeEqual(a: string, b: string): boolean {
@@ -1112,6 +1118,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
         threshold: body.lowConfidenceThreshold,
       });
     }, "bundle_auto_reprioritize", true);
+  });
+
+  app.get("/api/notifications/preferences", requireAuth, async (req, res) => {
+    try {
+      const preference = await getUserNotificationPreference(req.user!.id);
+      res.json({
+        ...preference,
+        dispatchProfile: getNotificationDispatchProfile(preference.intensity),
+      });
+    } catch {
+      res.status(500).json({ message: "Failed to fetch notification preferences" });
+    }
+  });
+
+  app.patch("/api/notifications/preferences", requireAuth, async (req, res) => {
+    try {
+      const payload = updateNotificationPreferenceSchema.parse(req.body || {});
+      if (Object.keys(payload).length === 0) {
+        return res.status(400).json({ message: "At least one preference field is required" });
+      }
+
+      const preference = await upsertUserNotificationPreference({
+        userId: req.user!.id,
+        enabled: payload.enabled,
+        intensity: payload.intensity,
+        quietHoursStart: payload.quietHoursStart,
+        quietHoursEnd: payload.quietHoursEnd,
+      });
+      return res.json({
+        ...preference,
+        dispatchProfile: getNotificationDispatchProfile(preference.intensity),
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      return res.status(500).json({ message: "Failed to update notification preferences" });
+    }
+  });
+
+  app.get("/api/notifications/subscriptions", requireAuth, async (req, res) => {
+    try {
+      const subscriptions = await listUserPushSubscriptions(req.user!.id);
+      res.json(subscriptions);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch push subscriptions" });
+    }
+  });
+
+  app.post("/api/notifications/subscriptions", requireAuth, async (req, res) => {
+    try {
+      const payload = createPushSubscriptionSchema.parse(req.body || {});
+      const subscription = await upsertUserPushSubscription({
+        userId: req.user!.id,
+        endpoint: payload.endpoint,
+        p256dh: payload.keys.p256dh,
+        auth: payload.keys.auth,
+        expirationTime: payload.expirationTime,
+        userAgent: payload.userAgent || req.get("user-agent") || undefined,
+      });
+      res.status(201).json(subscription);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to save push subscription" });
+    }
+  });
+
+  app.delete("/api/notifications/subscriptions", requireAuth, async (req, res) => {
+    try {
+      const payload = deletePushSubscriptionSchema.parse(req.body || {});
+      const deleted = await deleteUserPushSubscription(req.user!.id, payload.endpoint);
+      if (!deleted) return res.status(404).json({ message: "Push subscription not found" });
+      res.status(204).send();
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to remove push subscription" });
+    }
   });
 
   // ════════════════════════════════════════════════════════════════════════

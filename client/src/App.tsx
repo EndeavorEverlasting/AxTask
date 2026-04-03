@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { useZoom, ZoomProvider } from "@/hooks/use-zoom";
 import { TutorialProvider } from "@/hooks/use-tutorial";
+import { NotificationModeProvider } from "@/hooks/use-notification-mode";
 import { VoiceProvider } from "@/hooks/use-voice";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TutorialOverlay } from "@/components/tutorial-overlay";
@@ -117,7 +118,9 @@ function App() {
           <AuthProvider>
             <ZoomProvider>
               <TutorialProvider>
-                <AuthenticatedApp />
+                <NotificationModeProvider>
+                  <AuthenticatedApp />
+                </NotificationModeProvider>
               </TutorialProvider>
             </ZoomProvider>
           </AuthProvider>

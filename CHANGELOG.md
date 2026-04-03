@@ -1,5 +1,19 @@
 # AxTask Changelog
 
+## Version 1.3.0 - April 3, 2026
+
+### Notification Mode With Push + Intensity
+- Added a toggleable notification mode in the sidebar with a `0-100` intensity slider.
+- Added account-level notification preferences and push subscription storage.
+- Added authenticated notification APIs for preferences and push subscription lifecycle.
+- Added browser push handling in the service worker (`push` and `notificationclick` events).
+- Added server-side intensity-to-frequency mapping helpers to gate notification cadence.
+- Added tests for notification schema validation and intensity dispatch profiles.
+
+### Migration Notes
+- Run `npm run db:push` to apply new notification tables/columns.
+- Set `VITE_VAPID_PUBLIC_KEY` for push subscription enablement in the browser.
+
 ## Version 1.2.0 - November 2, 2025
 
 ### 🎨 User Interface Improvements
