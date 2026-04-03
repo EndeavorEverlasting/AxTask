@@ -527,6 +527,92 @@ export async function listFeedbackInbox(limit = 100): Promise<FeedbackInboxItem[
     .filter((row): row is FeedbackInboxItem => Boolean(row));
 }
 
+export type FeedbackInsightsSummary = {
+  total: number;
+  byPriority: Record<string, number>;
+  byClassification: Record<string, number>;
+  bySentiment: Record<string, number>;
+  urgentCount: number;
+};
+
+export async function getFeedbackInsightsForUser(
+  userId: string,
+  limit = 500,
+): Promise<FeedbackInsightsSummary> {
+  const rows = await db
+    .select()
+    .from(securityEvents)
+    .where(and(
+      eq(securityEvents.eventType, "feedback_processed"),
+      eq(securityEvents.actorUserId, userId),
+    ))
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(Math.min(limit, 1000));
+
+  const byPriority: Record<string, number> = {};
+  const byClassification: Record<string, number> = {};
+  const bySentiment: Record<string, number> = {};
+  let urgentCount = 0;
+
+  for (const row of rows) {
+    const payload = parseFeedbackPayload(row.payloadJson);
+    if (!payload) continue;
+
+    byPriority[payload.priority] = (byPriority[payload.priority] || 0) + 1;
+    byClassification[payload.classification] = (byClassification[payload.classification] || 0) + 1;
+    bySentiment[payload.sentiment] = (bySentiment[payload.sentiment] || 0) + 1;
+
+    if (payload.priority === "high" || payload.priority === "critical") {
+      urgentCount += 1;
+    }
+  }
+
+  return {
+    total: rows.length,
+    byPriority,
+    byClassification,
+    bySentiment,
+    urgentCount,
+  };
+}
+
+export async function getFeedbackInsightsGlobal(
+  limit = 1000,
+): Promise<FeedbackInsightsSummary> {
+  const rows = await db
+    .select()
+    .from(securityEvents)
+    .where(eq(securityEvents.eventType, "feedback_processed"))
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(Math.min(limit, 5000));
+
+  const byPriority: Record<string, number> = {};
+  const byClassification: Record<string, number> = {};
+  const bySentiment: Record<string, number> = {};
+  let urgentCount = 0;
+
+  for (const row of rows) {
+    const payload = parseFeedbackPayload(row.payloadJson);
+    if (!payload) continue;
+
+    byPriority[payload.priority] = (byPriority[payload.priority] || 0) + 1;
+    byClassification[payload.classification] = (byClassification[payload.classification] || 0) + 1;
+    bySentiment[payload.sentiment] = (bySentiment[payload.sentiment] || 0) + 1;
+
+    if (payload.priority === "high" || payload.priority === "critical") {
+      urgentCount += 1;
+    }
+  }
+
+  return {
+    total: rows.length,
+    byPriority,
+    byClassification,
+    bySentiment,
+    urgentCount,
+  };
+}
+
 export async function getSecurityAlerts(limit = 200): Promise<SecurityAlert[]> {
   return db
     .select()

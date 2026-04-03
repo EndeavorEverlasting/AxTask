@@ -15,13 +15,19 @@ export interface FeedbackAnalysis {
   };
 }
 
-function derivePriority(text: string): FeedbackPriority {
+function derivePriority(text: string, classification: string, attachmentCount: number): FeedbackPriority {
   const lower = text.toLowerCase();
+  const cls = classification.toLowerCase();
+  const hasEvidence = attachmentCount > 0;
+
   if (/\b(crash|data loss|security|breach|blocked|cannot login|payment failed)\b/.test(lower)) {
     return "critical";
   }
+  if (/\b(security|auth|payment|billing)\b/.test(cls) && /\b(failed|broken|cannot|blocked)\b/.test(lower)) {
+    return "critical";
+  }
   if (/\b(error|broken|urgent|failed|cannot|can't|won't)\b/.test(lower)) {
-    return "high";
+    return hasEvidence ? "critical" : "high";
   }
   if (/\b(slow|confusing|improve|request|idea)\b/.test(lower)) {
     return "medium";
@@ -68,7 +74,7 @@ export async function processFeedbackWithEngines(
 ): Promise<FeedbackAnalysis> {
   const text = message.trim();
   const classifier = await classifyWithFallback(text, "", { preferExternal: true });
-  const priority = derivePriority(text);
+  const priority = derivePriority(text, classifier.classification, attachmentCount);
   const sentiment = deriveSentiment(text);
   const tags = deriveTags(text, attachmentCount);
 

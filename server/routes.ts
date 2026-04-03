@@ -17,10 +17,12 @@ import {
   createMfaChallenge, verifyMfaChallenge, ensureIdempotencyKey,
   appendSecurityEvent, getSecurityEvents, getSecurityAlerts, analyzeAndCreateSecurityAlerts,
   listFeedbackInbox,
+  getFeedbackInsightsForUser,
+  getFeedbackInsightsGlobal,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask, type Task } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
@@ -79,6 +81,160 @@ function buildAttachmentStorageKey(userId: string, assetId: string, fileName?: s
 async function classifyTaskWithFallback(activity: string, notes: string, preferExternal = true): Promise<string> {
   const result = await classifyWithFallback(activity, notes, { preferExternal });
   return result.classification;
+}
+
+function toIsoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, Number(value.toFixed(2))));
+}
+
+function toBand(value: number): "low" | "medium" | "high" {
+  if (value >= 70) return "high";
+  if (value >= 40) return "medium";
+  return "low";
+}
+
+function buildAdminPretext(metrics: {
+  completionRate: number;
+  urgentFeedback: number;
+  requestVolumeHour: number;
+  completionDelta: number;
+}): string[] {
+  const lines: string[] = [];
+  lines.push(
+    metrics.requestVolumeHour > 120
+      ? "Live traffic is elevated this hour. Watch incident and feedback queues closely."
+      : "Traffic is stable right now. This is a good window for optimization work.",
+  );
+  lines.push(
+    metrics.completionRate >= 60
+      ? "Team execution is healthy; completion rate remains above the momentum baseline."
+      : "Completion momentum dipped below target; nudge planners toward high-value backlog items.",
+  );
+  lines.push(
+    metrics.urgentFeedback > 0
+      ? `There are ${metrics.urgentFeedback} urgent feedback items. Route critical reports first.`
+      : "No urgent feedback is currently detected by classification agents.",
+  );
+  lines.push(
+    metrics.completionDelta >= 0
+      ? "Completion trend is improving versus last week."
+      : "Completion trend is down week-over-week; investigate blockers and repeated task load.",
+  );
+  return lines;
+}
+
+function buildAdminSignals(metrics: {
+  completionRate: number;
+  completionDelta: number;
+  requestVolumeHour: number;
+  urgentFeedback: number;
+  feedbackProcessed: number;
+}) {
+  const urgentRatio = metrics.feedbackProcessed > 0
+    ? Number(((metrics.urgentFeedback / metrics.feedbackProcessed) * 100).toFixed(1))
+    : 0;
+
+  return [
+    {
+      key: "completion_delta",
+      label: "Completion delta (WoW)",
+      value: metrics.completionDelta,
+      unit: "tasks",
+      tone: metrics.completionDelta >= 0 ? "positive" : "warning",
+    },
+    {
+      key: "request_volume_hour",
+      label: "Current request volume",
+      value: metrics.requestVolumeHour,
+      unit: "req/h",
+      tone: metrics.requestVolumeHour > 120 ? "warning" : "neutral",
+    },
+    {
+      key: "urgent_feedback_ratio",
+      label: "Urgent feedback ratio",
+      value: urgentRatio,
+      unit: "%",
+      tone: urgentRatio >= 25 ? "warning" : "neutral",
+    },
+    {
+      key: "completion_rate",
+      label: "Completion rate",
+      value: metrics.completionRate,
+      unit: "%",
+      tone: metrics.completionRate >= 60 ? "positive" : "warning",
+    },
+  ];
+}
+
+async function populateAnalyticsGraphParametersWithAgent(tasks: Task[]) {
+  const completed = tasks.filter((t) => t.status === "completed");
+  const pending = tasks.filter((t) => t.status !== "completed");
+
+  const today = new Date();
+  const trailing14 = Array.from({ length: 14 }, (_, idx) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - (13 - idx));
+    const day = toIsoDate(d);
+    const completedCount = completed.filter((t) => toIsoDate(new Date(t.updatedAt || t.createdAt || new Date())) === day).length;
+    return { day, completed: completedCount };
+  });
+
+  const activeDays = trailing14.filter((d) => d.completed > 0).length;
+  const weeklyCompletions = trailing14.slice(-7).reduce((sum, d) => sum + d.completed, 0);
+  const highValueCompleted = completed.filter((t) => t.priority === "Highest" || t.priority === "High").length;
+  const repeatCompleted = completed.filter((t) => Boolean(t.isRepeated)).length;
+  const uniqueClasses = new Set(completed.map((t) => (t.classification || "General").trim()).filter(Boolean)).size;
+  const overdueBacklog = pending.filter((t) => t.date < toIsoDate(today)).length;
+
+  const values = [
+    {
+      key: "completionMomentum",
+      label: "Completion Momentum",
+      value: clampPercent((weeklyCompletions / 14) * 100),
+      rationale: "Agent weights recent completions to reflect execution momentum.",
+    },
+    {
+      key: "focusOnHighValue",
+      label: "High-Value Focus",
+      value: completed.length > 0 ? clampPercent((highValueCompleted / completed.length) * 100) : 0,
+      rationale: "Agent tracks how many completed tasks are High/Highest priority.",
+    },
+    {
+      key: "categoryCoverage",
+      label: "Category Coverage",
+      value: clampPercent((uniqueClasses / 8) * 100),
+      rationale: "Agent evaluates diversity of completed task classifications.",
+    },
+    {
+      key: "consistency",
+      label: "Consistency",
+      value: clampPercent((activeDays / 14) * 100),
+      rationale: "Agent scores consistency by days with at least one completed task.",
+    },
+    {
+      key: "repeatTaskControl",
+      label: "Repeat Task Control",
+      value: completed.length > 0 ? clampPercent((repeatCompleted / completed.length) * 100) : 0,
+      rationale: "Agent identifies operational load from repeated completed work.",
+    },
+    {
+      key: "backlogRelief",
+      label: "Backlog Relief",
+      value: tasks.length > 0 ? clampPercent((completed.length / tasks.length) * 100) : 0,
+      rationale: overdueBacklog > 0
+        ? "Agent lowers confidence while overdue backlog remains."
+        : "Agent confirms healthy completion ratio against current backlog.",
+    },
+  ];
+
+  return values.map((item) => ({
+    ...item,
+    band: toBand(item.value),
+  }));
 }
 
 // ── Rate limiters ───────────────────────────────────────────────────────────
@@ -502,6 +658,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch task stats" });
+    }
+  });
+
+  app.get("/api/analytics/overview", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+
+      const byPriority = allTasks.reduce((acc, task) => {
+        acc[task.priority] = (acc[task.priority] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const byClassification = allTasks.reduce((acc, task) => {
+        acc[task.classification] = (acc[task.classification] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const byStatus = allTasks.reduce((acc, task) => {
+        acc[task.status] = (acc[task.status] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const today = new Date();
+      const completionTrend = Array.from({ length: 14 }, (_, idx) => {
+        const day = new Date(today);
+        day.setDate(today.getDate() - (13 - idx));
+        const key = toIsoDate(day);
+        const completed = allTasks.filter(
+          (t) => t.status === "completed" && toIsoDate(new Date(t.updatedAt || t.createdAt || new Date())) === key,
+        ).length;
+        return { date: key, completed };
+      });
+
+      const graphParameters = await populateAnalyticsGraphParametersWithAgent(allTasks);
+      const feedbackInsights = await getFeedbackInsightsForUser(userId, 500);
+      const completionCount = byStatus.completed || 0;
+
+      res.json({
+        taskMetrics: {
+          total: allTasks.length,
+          completionCount,
+          completionRate: allTasks.length > 0 ? Math.round((completionCount / allTasks.length) * 100) : 0,
+          byPriority,
+          byClassification,
+          byStatus,
+        },
+        completionTrend,
+        graphParameters,
+        feedbackInsights,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch analytics overview" });
     }
   });
 
@@ -1918,6 +2127,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(items);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch feedback inbox" });
+    }
+  });
+
+  app.get("/api/admin/analytics/overview", requireAdmin, async (_req, res) => {
+    try {
+      const users = await getAllUsers();
+      const tasksByUser = await Promise.all(users.map((u) => storage.getTasks(u.id)));
+      const allTasks = tasksByUser.flat();
+      const completedTasks = allTasks.filter((t) => t.status === "completed");
+
+      const feedback = await getFeedbackInsightsGlobal(2000);
+      const recentEvents = await getSecurityEvents(3000);
+      const now = new Date();
+
+      const completionTrend = Array.from({ length: 14 }, (_, idx) => {
+        const d = new Date(now);
+        d.setDate(now.getDate() - (13 - idx));
+        const key = toIsoDate(d);
+        const completed = completedTasks.filter(
+          (t) => toIsoDate(new Date(t.updatedAt || t.createdAt || new Date())) === key,
+        ).length;
+        return { date: key, completed };
+      });
+
+      const currentWeek = completionTrend.slice(-7).reduce((sum, d) => sum + d.completed, 0);
+      const previousWeek = completionTrend.slice(0, 7).reduce((sum, d) => sum + d.completed, 0);
+      const completionDelta = currentWeek - previousWeek;
+
+      const pulseByHour = Array.from({ length: 24 }, (_, idx) => {
+        const slot = new Date(now);
+        slot.setMinutes(0, 0, 0);
+        slot.setHours(now.getHours() - (23 - idx));
+        const key = `${slot.toISOString().slice(0, 13)}:00:00.000Z`;
+        const requests = recentEvents.filter((event) => {
+          if (!event.createdAt) return false;
+          const eventHour = new Date(event.createdAt);
+          eventHour.setMinutes(0, 0, 0);
+          return eventHour.toISOString() === key && event.eventType === "api_request";
+        }).length;
+        return { hour: key, requests };
+      });
+
+      const requestVolumeHour = pulseByHour[pulseByHour.length - 1]?.requests || 0;
+
+      const classificationCounts = allTasks.reduce((acc, task) => {
+        const key = task.classification || "General";
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const topClassifications = Object.entries(classificationCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(([classification, count]) => ({ classification, count }));
+
+      const completionRate = allTasks.length > 0
+        ? Math.round((completedTasks.length / allTasks.length) * 100)
+        : 0;
+
+      res.json({
+        generatedAt: now.toISOString(),
+        totals: {
+          users: users.length,
+          tasks: allTasks.length,
+          completedTasks: completedTasks.length,
+          completionRate,
+          feedbackProcessed: feedback.total,
+          urgentFeedback: feedback.urgentCount,
+        },
+        completionTrend,
+        pulseByHour,
+        feedbackPriorityDistribution: Object.entries(feedback.byPriority).map(([priority, count]) => ({
+          priority,
+          count,
+        })),
+        topClassifications,
+        signals: buildAdminSignals({
+          completionRate,
+          completionDelta,
+          requestVolumeHour,
+          urgentFeedback: feedback.urgentCount,
+          feedbackProcessed: feedback.total,
+        }),
+        pretext: buildAdminPretext({
+          completionRate,
+          urgentFeedback: feedback.urgentCount,
+          requestVolumeHour,
+          completionDelta,
+        }),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch admin analytics overview" });
     }
   });
 

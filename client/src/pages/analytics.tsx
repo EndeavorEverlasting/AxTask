@@ -1,45 +1,69 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { type Task } from "@shared/schema";
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+type AnalyticsOverview = {
+  taskMetrics: {
+    total: number;
+    completionCount: number;
+    completionRate: number;
+    byPriority: Record<string, number>;
+    byClassification: Record<string, number>;
+    byStatus: Record<string, number>;
+  };
+  completionTrend: Array<{ date: string; completed: number }>;
+  graphParameters: Array<{
+    key: string;
+    label: string;
+    value: number;
+    rationale: string;
+    band: "low" | "medium" | "high";
+  }>;
+  feedbackInsights: {
+    total: number;
+    byPriority: Record<string, number>;
+    byClassification: Record<string, number>;
+    bySentiment: Record<string, number>;
+    urgentCount: number;
+  };
+};
 
 export default function Analytics() {
-  const { data: tasks = [], isLoading } = useQuery<Task[]>({
-    queryKey: ["/api/tasks"],
+  const { data, isLoading } = useQuery<AnalyticsOverview>({
+    queryKey: ["/api/analytics/overview"],
   });
 
-  const analytics = {
-    byPriority: tasks.reduce((acc, task) => {
-      acc[task.priority] = (acc[task.priority] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>),
-    
-    byClassification: tasks.reduce((acc, task) => {
-      acc[task.classification] = (acc[task.classification] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>),
-    
-    byStatus: tasks.reduce((acc, task) => {
-      acc[task.status] = (acc[task.status] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>),
-    
-    completionRate: tasks.length > 0 
-      ? Math.round((tasks.filter(t => t.status === "completed").length / tasks.length) * 100)
-      : 0,
-  };
-
-  if (isLoading) {
+  if (isLoading || !data) {
     return (
       <div className="p-6 space-y-6">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
-          <p className="text-gray-600 dark:text-gray-400">Task distribution and performance metrics</p>
+          <p className="text-gray-600 dark:text-gray-400">Agent-driven productivity and feedback insights</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {[1, 2, 3, 4].map(i => (
+          {[1, 2, 3, 4].map((i) => (
             <Card key={i}>
               <CardContent className="p-6">
-                <div className="h-32 bg-gray-200 dark:bg-gray-700 animate-pulse rounded"></div>
+                <div className="h-40 bg-gray-200 dark:bg-gray-700 animate-pulse rounded" />
               </CardContent>
             </Card>
           ))}
@@ -48,151 +72,146 @@ export default function Analytics() {
     );
   }
 
+  const priorityData = Object.entries(data.taskMetrics.byPriority).map(([name, value]) => ({ name, value }));
+  const feedbackPriorityData = Object.entries(data.feedbackInsights.byPriority).map(([name, value]) => ({ name, value }));
+
   return (
     <div className="p-6 space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
-        <p className="text-gray-600 dark:text-gray-400">Task distribution and performance metrics</p>
+        <p className="text-gray-600 dark:text-gray-400">
+          Completed tasks flow into a web graph, with agent-classified graph parameters and feedback prioritization.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Priority Distribution */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
-          <CardHeader>
-            <CardTitle>Priority Distribution</CardTitle>
-            <CardDescription>Tasks by priority level</CardDescription>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Completion Rate</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {Object.entries(analytics.byPriority).map(([priority, count]) => (
-                <div key={priority} className="flex items-center justify-between">
-                  <span className="text-sm font-medium">{priority}</span>
-                  <div className="flex items-center space-x-2">
-                    <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2 w-16">
-                      <div
-                        className="bg-primary h-2 rounded-full"
-                        style={{ width: `${(count / tasks.length) * 100}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-sm text-gray-600 dark:text-gray-400 w-8">{count}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <div className="text-3xl font-bold text-green-600">{data.taskMetrics.completionRate}%</div>
+            <p className="text-sm text-muted-foreground">
+              {data.taskMetrics.completionCount} of {data.taskMetrics.total} tasks completed
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Feedback Volume</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-blue-600">{data.feedbackInsights.total}</div>
+            <p className="text-sm text-muted-foreground">Processed feedback submissions</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Urgent Feedback</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-red-600">{data.feedbackInsights.urgentCount}</div>
+            <p className="text-sm text-muted-foreground">High + critical items requiring attention</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Completed Tasks Trend</CardTitle>
+            <CardDescription>Daily completion totals for the last 14 days</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer
+              className="h-[280px] w-full"
+              config={{ completed: { label: "Completed", color: "#22c55e" } }}
+            >
+              <LineChart data={data.completionTrend}>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="date" tickFormatter={(value) => value.slice(5)} />
+                <YAxis allowDecimals={false} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Line type="monotone" dataKey="completed" stroke="var(--color-completed)" strokeWidth={2} />
+              </LineChart>
+            </ChartContainer>
           </CardContent>
         </Card>
 
-        {/* Classification Distribution */}
         <Card>
           <CardHeader>
-            <CardTitle>Task Classification</CardTitle>
-            <CardDescription>Tasks by category</CardDescription>
+            <CardTitle>Agent Web Graph</CardTitle>
+            <CardDescription>Agent-classified performance dimensions from completed task behavior</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {Object.entries(analytics.byClassification).map(([classification, count]) => (
-                <div key={classification} className="flex items-center justify-between">
-                  <span className="text-sm font-medium">{classification}</span>
-                  <div className="flex items-center space-x-2">
-                    <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2 w-16">
-                      <div
-                        className="bg-green-500 h-2 rounded-full"
-                        style={{ width: `${(count / tasks.length) * 100}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-sm text-gray-600 dark:text-gray-400 w-8">{count}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ChartContainer
+              className="h-[280px] w-full"
+              config={{ value: { label: "Score", color: "#14b8a6" } }}
+            >
+              <RadarChart data={data.graphParameters}>
+                <PolarGrid />
+                <PolarAngleAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      formatter={(_, __, item) => {
+                        const payload = item?.payload as { label: string; value: number; rationale: string; band: string };
+                        return (
+                          <div className="space-y-1">
+                            <div className="font-medium">{payload.label}: {payload.value}% ({payload.band})</div>
+                            <div className="text-xs text-muted-foreground">{payload.rationale}</div>
+                          </div>
+                        );
+                      }}
+                    />
+                  }
+                />
+                <Radar dataKey="value" stroke="var(--color-value)" fill="var(--color-value)" fillOpacity={0.35} />
+              </RadarChart>
+            </ChartContainer>
           </CardContent>
         </Card>
 
-        {/* Status Distribution */}
         <Card>
           <CardHeader>
-            <CardTitle>Task Status</CardTitle>
-            <CardDescription>Current task states</CardDescription>
+            <CardTitle>Task Priority Distribution</CardTitle>
+            <CardDescription>How work is classified by priority levels</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {Object.entries(analytics.byStatus).map(([status, count]) => (
-                <div key={status} className="flex items-center justify-between">
-                  <span className="text-sm font-medium capitalize">{status.replace("-", " ")}</span>
-                  <div className="flex items-center space-x-2">
-                    <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2 w-16">
-                      <div
-                        className="bg-blue-500 h-2 rounded-full"
-                        style={{ width: `${(count / tasks.length) * 100}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-sm text-gray-600 dark:text-gray-400 w-8">{count}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ChartContainer
+              className="h-[280px] w-full"
+              config={{ value: { label: "Tasks", color: "#3b82f6" } }}
+            >
+              <BarChart data={priorityData}>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="name" />
+                <YAxis allowDecimals={false} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="value" fill="var(--color-value)" radius={4} />
+              </BarChart>
+            </ChartContainer>
           </CardContent>
         </Card>
 
-        {/* Completion Rate */}
         <Card>
           <CardHeader>
-            <CardTitle>Completion Rate</CardTitle>
-            <CardDescription>Overall task completion</CardDescription>
+            <CardTitle>Feedback Prioritization</CardTitle>
+            <CardDescription>Agent-prioritized feedback queue by severity</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-center">
-              <div className="text-4xl font-bold text-green-600 mb-2">
-                {analytics.completionRate}%
-              </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {tasks.filter(t => t.status === "completed").length} of {tasks.length} tasks completed
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Average Priority Score */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Average Priority Score</CardTitle>
-            <CardDescription>Mean priority across all tasks</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-center">
-              <div className="text-4xl font-bold text-orange-600 mb-2">
-                {tasks.length > 0 
-                  ? (tasks.reduce((sum, task) => sum + task.priorityScore, 0) / tasks.length / 10).toFixed(3)
-                  : "0.0"
-                }
-              </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Priority score range: 0.0 - 10.0
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Task Volume Trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>Tasks created in the last 7 days</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-center">
-              <div className="text-4xl font-bold text-primary mb-2">
-                {tasks.filter(task => {
-                  const taskDate = new Date(task.createdAt!);
-                  const weekAgo = new Date();
-                  weekAgo.setDate(weekAgo.getDate() - 7);
-                  return taskDate >= weekAgo;
-                }).length}
-              </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                New tasks this week
-              </p>
-            </div>
+            <ChartContainer
+              className="h-[280px] w-full"
+              config={{ value: { label: "Feedback", color: "#f97316" } }}
+            >
+              <BarChart data={feedbackPriorityData}>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="name" />
+                <YAxis allowDecimals={false} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <ChartLegend content={<ChartLegendContent />} />
+                <Bar dataKey="value" fill="var(--color-value)" radius={4} />
+              </BarChart>
+            </ChartContainer>
           </CardContent>
         </Card>
       </div>

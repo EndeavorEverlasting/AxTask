@@ -1,14 +1,20 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { useCountUp } from "@/hooks/use-count-up";
 import type { SafeUser, SecurityLog } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +23,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AlertTriangle, Search, ScrollText, Shield, ShieldOff, Users, Wallet } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  Radio,
+  Search,
+  ScrollText,
+  Shield,
+  ShieldOff,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+  Users,
+  Wallet,
+  X,
+} from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import {
   applyFeedbackFilters,
   buildFeedbackCsv,
@@ -91,6 +112,30 @@ type SecurityAlertRow = {
   createdAt?: string | null;
 };
 
+type AdminAnalyticsOverview = {
+  generatedAt: string;
+  totals: {
+    users: number;
+    tasks: number;
+    completedTasks: number;
+    completionRate: number;
+    feedbackProcessed: number;
+    urgentFeedback: number;
+  };
+  completionTrend: Array<{ date: string; completed: number }>;
+  pulseByHour: Array<{ hour: string; requests: number }>;
+  feedbackPriorityDistribution: Array<{ priority: string; count: number }>;
+  topClassifications: Array<{ classification: string; count: number }>;
+  signals: Array<{
+    key: string;
+    label: string;
+    value: number;
+    unit: string;
+    tone: "positive" | "warning" | "neutral";
+  }>;
+  pretext: string[];
+};
+
 function formatCurrency(cents: number, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -115,6 +160,8 @@ export default function AdminPage() {
   const [feedbackReviewerFilter, setFeedbackReviewerFilter] =
     useState<FeedbackReviewerFilter>("all");
   const [feedbackPresetName, setFeedbackPresetName] = useState("");
+  const [commandCenterMode, setCommandCenterMode] = useState(false);
+  const [incidentTickerIndex, setIncidentTickerIndex] = useState(0);
 
   const FEEDBACK_PRESETS_KEY = "axtask.feedbackInbox.presets";
 
@@ -146,6 +193,7 @@ export default function AdminPage() {
   const { data: securityEvents = [] } = useQuery<SecurityEventRow[]>({
     queryKey: ["/api/admin/security-events"],
     enabled: user?.role === "admin",
+    refetchInterval: 15000,
   });
 
   const { data: securityAlerts = [] } = useQuery<SecurityAlertRow[]>({
@@ -157,6 +205,83 @@ export default function AdminPage() {
     queryKey: ["/api/admin/feedback-inbox"],
     enabled: user?.role === "admin",
   });
+
+  const { data: liveAnalytics } = useQuery<AdminAnalyticsOverview>({
+    queryKey: ["/api/admin/analytics/overview"],
+    enabled: user?.role === "admin",
+    refetchInterval: 15000,
+  });
+
+  const previousTotalsRef = useRef<AdminAnalyticsOverview["totals"] | null>(null);
+  const [liveDelta, setLiveDelta] = useState({
+    tasks: 0,
+    completionRate: 0,
+    urgentFeedback: 0,
+    feedbackProcessed: 0,
+  });
+
+  useEffect(() => {
+    if (!liveAnalytics?.totals) return;
+    const prev = previousTotalsRef.current;
+    if (prev) {
+      setLiveDelta({
+        tasks: liveAnalytics.totals.tasks - prev.tasks,
+        completionRate: liveAnalytics.totals.completionRate - prev.completionRate,
+        urgentFeedback: liveAnalytics.totals.urgentFeedback - prev.urgentFeedback,
+        feedbackProcessed: liveAnalytics.totals.feedbackProcessed - prev.feedbackProcessed,
+      });
+    }
+    previousTotalsRef.current = liveAnalytics.totals;
+  }, [liveAnalytics]);
+
+  const requestPulseDelta = useMemo(() => {
+    if (!liveAnalytics || liveAnalytics.pulseByHour.length < 2) return 0;
+    const points = liveAnalytics.pulseByHour;
+    return points[points.length - 1].requests - points[points.length - 2].requests;
+  }, [liveAnalytics]);
+
+  const liveRequestNow = useMemo(() => {
+    if (!liveAnalytics || liveAnalytics.pulseByHour.length === 0) return 0;
+    return liveAnalytics.pulseByHour[liveAnalytics.pulseByHour.length - 1].requests;
+  }, [liveAnalytics]);
+
+  const incidentTickerItems = useMemo(() => {
+    return securityEvents
+      .filter((event) =>
+        event.eventType.includes("failed") ||
+        event.eventType.includes("alert") ||
+        event.eventType.includes("security") ||
+        (event.statusCode || 0) >= 400,
+      )
+      .slice(0, 50)
+      .map((event) => {
+        const at = event.createdAt ? new Date(event.createdAt).toLocaleTimeString() : "n/a";
+        const where = `${event.method || "N/A"} ${event.route || "-"}`;
+        return `${at} · ${event.eventType} · ${where} · status ${event.statusCode ?? "n/a"}`;
+      });
+  }, [securityEvents]);
+
+  useEffect(() => {
+    if (incidentTickerItems.length === 0) return;
+    const timer = setInterval(() => {
+      setIncidentTickerIndex((idx) => (idx + 1) % incidentTickerItems.length);
+    }, 2800);
+    return () => clearInterval(timer);
+  }, [incidentTickerItems]);
+
+  useEffect(() => {
+    if (!commandCenterMode) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCommandCenterMode(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [commandCenterMode]);
+
+  const animatedTasks = useCountUp(liveAnalytics?.totals.tasks ?? 0, 700);
+  const animatedCompletionRate = useCountUp(liveAnalytics?.totals.completionRate ?? 0, 700);
+  const animatedUrgentFeedback = useCountUp(liveAnalytics?.totals.urgentFeedback ?? 0, 700);
+  const animatedLiveRequests = useCountUp(liveRequestNow, 700);
 
   const feedbackReviewMutation = useMutation({
     mutationFn: async ({ feedbackEventId, reviewed }: { feedbackEventId: string; reviewed: boolean }) => {
@@ -348,6 +473,18 @@ export default function AdminPage() {
     setFeedbackSort(preset.filters.sort);
   };
 
+  const renderDeltaBadge = (delta: number, inverse = false) => {
+    if (delta === 0) {
+      return <Badge variant="outline">stable</Badge>;
+    }
+    const improved = inverse ? delta < 0 : delta > 0;
+    return (
+      <Badge variant={improved ? "secondary" : "destructive"}>
+        {improved ? "+" : ""}{delta}
+      </Badge>
+    );
+  };
+
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       <div className="flex items-center gap-3">
@@ -390,8 +527,9 @@ export default function AdminPage() {
         </Card>
       </div>
 
-      <Tabs defaultValue="usage">
+      <Tabs defaultValue="live">
         <TabsList className="flex flex-wrap">
+          <TabsTrigger value="live">Live Analytics</TabsTrigger>
           <TabsTrigger value="usage">Usage & Storage</TabsTrigger>
           <TabsTrigger value="intel">Security Intelligence</TabsTrigger>
           <TabsTrigger value="feedback">Feedback Inbox</TabsTrigger>
@@ -399,6 +537,202 @@ export default function AdminPage() {
           <TabsTrigger value="users">User Management</TabsTrigger>
           <TabsTrigger value="logs">Security Logs</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="live" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Radio className="h-4 w-4 text-emerald-500 animate-pulse" />
+              Live mode refreshes every 15 seconds
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline">
+                {liveAnalytics?.generatedAt ? `Updated ${new Date(liveAnalytics.generatedAt).toLocaleTimeString()}` : "Waiting for data"}
+              </Badge>
+              <Button size="sm" onClick={() => setCommandCenterMode(true)} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+                Command Center Mode
+              </Button>
+            </div>
+          </div>
+
+          <Card className="border-blue-300/50 bg-gradient-to-r from-blue-50/70 to-purple-50/50 dark:from-blue-950/20 dark:to-purple-950/20">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Incident Timeline Ticker</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border bg-background/70 px-3 py-2 font-mono text-xs transition-all duration-500">
+                {incidentTickerItems.length > 0 ? incidentTickerItems[incidentTickerIndex] : "No active incident timeline events."}
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="ring-1 ring-blue-400/20 shadow-md shadow-blue-400/10">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <Activity className="h-5 w-5 text-blue-500" />
+                  <div>
+                    <p className="text-2xl font-bold">{animatedTasks}</p>
+                    <p className="text-sm text-muted-foreground">Total tasks (global)</p>
+                    <div className="mt-1">{renderDeltaBadge(liveDelta.tasks)}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="ring-1 ring-emerald-400/20 shadow-md shadow-emerald-400/10">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <Sparkles className="h-5 w-5 text-green-500" />
+                  <div>
+                    <p className="text-2xl font-bold">{animatedCompletionRate}%</p>
+                    <p className="text-sm text-muted-foreground">Completion rate</p>
+                    <div className="mt-1">{renderDeltaBadge(liveDelta.completionRate)}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="ring-1 ring-rose-400/20 shadow-md shadow-rose-400/10">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="h-5 w-5 text-red-500" />
+                  <div>
+                    <p className="text-2xl font-bold">{animatedUrgentFeedback}</p>
+                    <p className="text-sm text-muted-foreground">Urgent feedback items</p>
+                    <div className="mt-1">{renderDeltaBadge(liveDelta.urgentFeedback, true)}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="ring-1 ring-amber-400/20 shadow-md shadow-amber-400/10">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  {requestPulseDelta >= 0 ? (
+                    <TrendingUp className="h-5 w-5 text-amber-500" />
+                  ) : (
+                    <TrendingDown className="h-5 w-5 text-emerald-500" />
+                  )}
+                  <div>
+                    <p className="text-2xl font-bold">{animatedLiveRequests}</p>
+                    <p className="text-sm text-muted-foreground">Requests this hour</p>
+                    <div className="mt-1">{renderDeltaBadge(requestPulseDelta)}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Pretext Live Briefing</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {(liveAnalytics?.pretext ?? []).map((line) => (
+                <div key={line} className="rounded border bg-muted/30 px-3 py-2 text-sm">
+                  {line}
+                </div>
+              ))}
+              {!liveAnalytics && <p className="text-sm text-muted-foreground">Building live briefing...</p>}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Operational Signals</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              {(liveAnalytics?.signals ?? []).map((signal) => (
+                <div key={signal.key} className="rounded border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">{signal.label}</p>
+                  <p className="text-xl font-semibold mt-1">
+                    {signal.value}
+                    <span className="text-xs font-normal ml-1 text-muted-foreground">{signal.unit}</span>
+                  </p>
+                  <Badge
+                    variant={
+                      signal.tone === "positive"
+                        ? "secondary"
+                        : signal.tone === "warning"
+                        ? "destructive"
+                        : "outline"
+                    }
+                    className="mt-2"
+                  >
+                    {signal.tone}
+                  </Badge>
+                </div>
+              ))}
+              {!liveAnalytics && <p className="text-sm text-muted-foreground">Calculating signals...</p>}
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader><CardTitle>Completed Tasks Trend</CardTitle></CardHeader>
+              <CardContent>
+                <ChartContainer
+                  className="h-[260px] w-full"
+                  config={{ completed: { label: "Completed", color: "#22c55e" } }}
+                >
+                  <LineChart data={liveAnalytics?.completionTrend ?? []}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} />
+                    <YAxis allowDecimals={false} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Line type="monotone" dataKey="completed" stroke="var(--color-completed)" strokeWidth={2} />
+                  </LineChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>API Request Pulse (24h)</CardTitle></CardHeader>
+              <CardContent>
+                <ChartContainer
+                  className="h-[260px] w-full"
+                  config={{ requests: { label: "Requests", color: "#3b82f6" } }}
+                >
+                  <BarChart data={liveAnalytics?.pulseByHour ?? []}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="hour" tickFormatter={(v) => String(v).slice(11, 16)} />
+                    <YAxis allowDecimals={false} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="requests" fill="var(--color-requests)" radius={4} />
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Feedback Priority Mix</CardTitle></CardHeader>
+              <CardContent>
+                <ChartContainer
+                  className="h-[260px] w-full"
+                  config={{ count: { label: "Feedback", color: "#f97316" } }}
+                >
+                  <BarChart data={liveAnalytics?.feedbackPriorityDistribution ?? []}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="priority" />
+                    <YAxis allowDecimals={false} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="count" fill="var(--color-count)" radius={4} />
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Top Task Classifications</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                {(liveAnalytics?.topClassifications ?? []).map((item) => (
+                  <div key={item.classification} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+                    <span>{item.classification}</span>
+                    <Badge variant="secondary">{item.count}</Badge>
+                  </div>
+                ))}
+                {!liveAnalytics && <p className="text-sm text-muted-foreground">Loading classifications...</p>}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
         <TabsContent value="usage" className="space-y-4">
           <div className="flex justify-end">
@@ -738,6 +1072,98 @@ export default function AdminPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {commandCenterMode && (
+        <div className="fixed inset-0 z-[80] bg-background/95 backdrop-blur-sm">
+          <div className="h-full w-full overflow-auto p-6">
+            <div className="mx-auto max-w-[1700px] space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold">Command Center</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Full-screen live operations view with continuous telemetry.
+                  </p>
+                </div>
+                <Button variant="outline" onClick={() => setCommandCenterMode(false)}>
+                  <X className="h-4 w-4 mr-1" />
+                  Exit (Esc)
+                </Button>
+              </div>
+
+              <Card className="border-blue-300/50 bg-gradient-to-r from-blue-50/70 to-purple-50/50 dark:from-blue-950/20 dark:to-purple-950/20">
+                <CardContent className="py-3 font-mono text-sm">
+                  {incidentTickerItems.length > 0 ? incidentTickerItems[incidentTickerIndex] : "No active incident timeline events."}
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Card className="ring-1 ring-blue-400/20 shadow-md shadow-blue-400/10">
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-muted-foreground">Total tasks (global)</p>
+                    <p className="text-3xl font-bold">{animatedTasks}</p>
+                  </CardContent>
+                </Card>
+                <Card className="ring-1 ring-emerald-400/20 shadow-md shadow-emerald-400/10">
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-muted-foreground">Completion rate</p>
+                    <p className="text-3xl font-bold">{animatedCompletionRate}%</p>
+                  </CardContent>
+                </Card>
+                <Card className="ring-1 ring-rose-400/20 shadow-md shadow-rose-400/10">
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-muted-foreground">Urgent feedback</p>
+                    <p className="text-3xl font-bold">{animatedUrgentFeedback}</p>
+                  </CardContent>
+                </Card>
+                <Card className="ring-1 ring-amber-400/20 shadow-md shadow-amber-400/10">
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-muted-foreground">Requests this hour</p>
+                    <p className="text-3xl font-bold">{animatedLiveRequests}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader><CardTitle>Completed Tasks Trend</CardTitle></CardHeader>
+                  <CardContent>
+                    <ChartContainer
+                      className="h-[320px] w-full"
+                      config={{ completed: { label: "Completed", color: "#22c55e" } }}
+                    >
+                      <LineChart data={liveAnalytics?.completionTrend ?? []}>
+                        <CartesianGrid vertical={false} />
+                        <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} />
+                        <YAxis allowDecimals={false} />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Line type="monotone" dataKey="completed" stroke="var(--color-completed)" strokeWidth={2} />
+                      </LineChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle>API Request Pulse (24h)</CardTitle></CardHeader>
+                  <CardContent>
+                    <ChartContainer
+                      className="h-[320px] w-full"
+                      config={{ requests: { label: "Requests", color: "#3b82f6" } }}
+                    >
+                      <BarChart data={liveAnalytics?.pulseByHour ?? []}>
+                        <CartesianGrid vertical={false} />
+                        <XAxis dataKey="hour" tickFormatter={(v) => String(v).slice(11, 16)} />
+                        <YAxis allowDecimals={false} />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Bar dataKey="requests" fill="var(--color-requests)" radius={4} />
+                      </BarChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Dialog open={!!banTarget} onOpenChange={(open) => !open && setBanTarget(null)}>
         <DialogContent>

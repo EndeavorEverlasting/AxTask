@@ -11,6 +11,7 @@ import { TutorialProvider } from "@/hooks/use-tutorial";
 import { VoiceProvider } from "@/hooks/use-voice";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TutorialOverlay } from "@/components/tutorial-overlay";
+import { TutorialInteractionGuide } from "@/components/tutorial-interaction-guide";
 import { VoiceCommandBar } from "@/components/voice-command-bar";
 import { InstallCtaBanner } from "@/components/install-cta-banner";
 import Dashboard from "@/pages/dashboard";
@@ -99,6 +100,7 @@ function AuthenticatedApp() {
           </div>
         </main>
         <TutorialOverlay />
+        <TutorialInteractionGuide />
         <VoiceCommandBar />
       </div>
     </VoiceProvider>
