@@ -6,3 +6,5 @@ node_modules
 server/public
 *.tar.gzattached_assets/
 vite.config.ts.*
+.env
+e

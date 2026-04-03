@@ -7,13 +7,51 @@ import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
 import { registerOAuthRoutes } from "./auth-providers";
 import { seedDevAccounts } from "./seed-dev";
+import { pool } from "./db";
 
 const app = express();
 
 app.set("trust proxy", 1);
 
 const isDev = process.env.NODE_ENV !== "production";
-const productionDomain = "axtask.replit.app";
+const canonicalHost = (process.env.CANONICAL_HOST || "").trim().toLowerCase();
+const replitFallbackHost = (process.env.REPLIT_FALLBACK_HOST || "axtask.replit.app").trim().toLowerCase();
+const forceHttps = process.env.FORCE_HTTPS !== "false";
+
+function parseCsvEnv(value?: string): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function normalizeHost(hostHeader: string): string {
+  return hostHeader.split(":")[0].trim().toLowerCase();
+}
+
+function isLocalHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1";
+}
+
+const extraAllowedHosts = parseCsvEnv(process.env.ADDITIONAL_ALLOWED_HOSTS);
+const allowedHosts = new Set<string>(
+  [canonicalHost, replitFallbackHost, ...extraAllowedHosts].filter(Boolean),
+);
+
+function isAllowedHost(hostHeader: string): boolean {
+  const host = normalizeHost(hostHeader);
+  if (isLocalHost(host)) return true;
+  if (host.endsWith(".replit.dev")) return true;
+  return allowedHosts.has(host);
+}
+
+const allowedOrigins = new Set<string>(
+  [...allowedHosts].map((host) => `https://${host}`),
+);
+for (const origin of parseCsvEnv(process.env.ADDITIONAL_ALLOWED_ORIGINS)) {
+  allowedOrigins.add(origin.startsWith("http") ? origin : `https://${origin}`);
+}
 
 app.use(
   helmet({
@@ -48,13 +86,21 @@ app.use(
 
 if (!isDev) {
   app.use((req, res, next) => {
-    if (req.protocol !== "https") {
-      return res.redirect(301, `https://${productionDomain}${req.originalUrl}`);
+    const hostHeader = req.get("host") || "";
+    const host = normalizeHost(hostHeader);
+
+    if (forceHttps && req.protocol !== "https" && !isLocalHost(host)) {
+      const httpsHost = hostHeader || canonicalHost || replitFallbackHost;
+      return res.redirect(301, `https://${httpsHost}${req.originalUrl}`);
     }
-    const host = req.get("host") || "";
-    if (host && host !== productionDomain && !host.endsWith(".replit.dev")) {
-      return res.redirect(301, `https://${productionDomain}${req.originalUrl}`);
+
+    if (hostHeader && !isAllowedHost(hostHeader)) {
+      if (canonicalHost) {
+        return res.redirect(301, `https://${canonicalHost}${req.originalUrl}`);
+      }
+      return res.status(403).json({ message: "Forbidden host" });
     }
+
     next();
   });
 }
@@ -70,12 +116,18 @@ if (!isDev) {
     }
     const origin = req.get("origin");
     const referer = req.get("referer");
-    const allowed = [`https://${productionDomain}`];
-    if (origin && !allowed.some((a) => origin.startsWith(a))) {
+    if (origin && !allowedOrigins.has(origin.toLowerCase())) {
       return res.status(403).json({ message: "Forbidden — invalid origin" });
     }
-    if (!origin && referer && !allowed.some((a) => referer.startsWith(a))) {
-      return res.status(403).json({ message: "Forbidden — invalid referer" });
+    if (!origin && referer) {
+      try {
+        const refererOrigin = new URL(referer).origin.toLowerCase();
+        if (!allowedOrigins.has(refererOrigin)) {
+          return res.status(403).json({ message: "Forbidden — invalid referer" });
+        }
+      } catch {
+        return res.status(403).json({ message: "Forbidden — invalid referer" });
+      }
     }
     next();
   });
@@ -119,6 +171,32 @@ app.use("/api", (req, res, next) => {
     return res.status(403).json({ message: "Invalid CSRF token" });
   }
   next();
+});
+
+app.get("/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    service: "axtask",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get("/ready", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.json({
+      status: "ready",
+      service: "axtask",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: "not_ready",
+      service: "axtask",
+      timestamp: new Date().toISOString(),
+      message: "Database not reachable",
+    });
+  }
 });
 
 setupAuth(app);

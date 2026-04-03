@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: axtask-prod
+    env: node
+    plan: starter
+    rootDir: .
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /ready
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: FORCE_HTTPS
+        value: "true"
+      # Set CANONICAL_HOST to your primary domain (for unknown host redirects).
+      # Keep REPLIT_FALLBACK_HOST set so rollback is instant.
+      - key: CANONICAL_HOST
+        sync: false
+      - key: REPLIT_FALLBACK_HOST
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_SHEETS_API_KEY
+        sync: false
+      - key: WORKOS_API_KEY
+        sync: false
+      - key: WORKOS_CLIENT_ID
+        sync: false
+      - key: WORKOS_REDIRECT_URI
+        sync: false
+      - key: AUTH_PROVIDER
+        sync: false

@@ -50,6 +50,22 @@ const TaskSchema = z.object({
 
 ## Security Vulnerabilities & Mitigations
 
+### Dependency Supply Chain Policy (Axios Prohibition)
+
+#### Risk Level: HIGH
+**Policy**: `axios` is prohibited in this codebase and must not be introduced or invoked.
+
+**Required Action**:
+- Use native `fetch` (Node.js/Browser) for outbound HTTP requests.
+- Reject pull requests that add `axios` to dependencies or callsites.
+- Treat any attempted `axios` introduction as a security review trigger.
+
+**Verification**:
+```bash
+# Must return no results in app source files
+rg -n "axios|from 'axios'|from \"axios\"" client server shared
+```
+
 ### Environment Variable Exposure
 
 #### Risk Level: MEDIUM

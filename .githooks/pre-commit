@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+set -eu
+
+if command -v node >/dev/null 2>&1; then
+  node tools/security/check_no_axios.mjs
+else
+  echo "Node.js is required to run Axios security guard." >&2
+  exit 1
+fi

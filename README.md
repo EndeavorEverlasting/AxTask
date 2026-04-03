@@ -93,6 +93,11 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
 - **[Security Guidelines](docs/SECURITY.md)** - Security best practices
 - **[Version History](VERSION.md)** - Release notes and changelog
+- **[Deployment Migration Plan](docs/DEPLOYMENT_MIGRATION_PLAN.md)** - 48-hour cutover and rollback guardrails
+- **[Next Setup Blueprint](docs/NEXT_SETUP_BLUEPRINT.md)** - Host/DB/domain and integration groundwork
+- **[Cutover Runbook](docs/CUTOVER_RUNBOOK.md)** - Zero-downtime DNS cutover with Replit fallback
+- **[Morning New-Box Migration Guide](docs/MORNING_NEW_BOX_MIGRATION_GUIDE.md)** - Fresh-machine checklist with vendor/domain decisions
+- **[Morning Migration Checklist](docs/MORNING_NEW_BOX_MIGRATION_CHECKLIST.md)** - Execution-only checklist for fast cutover
 
 ## Features in Detail
 
@@ -120,14 +125,21 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - SQL injection protection via parameterized queries
 - Environment-based configuration
 - Session management with PostgreSQL storage
+- Dependency safety policy: do not add or invoke `axios`; use platform-native `fetch` for HTTP calls
+- Local enforcement: enable hooks with `git config core.hooksPath .githooks` and run `npm run security:axios-guard`
 
 ## Deployment
 
-Built for Replit deployment with:
+Supports Replit and self-managed deployments with:
 - Single port configuration (5000)
 - Static file serving via Express
 - Environment variable management
+- Environment variable/secrets management
 - PostgreSQL database integration
+- Usage/billing monitoring and alerting recommended for production cutover
+
+For a migration path away from Replit with cost-control guardrails, see [`docs/DEPLOYMENT_MIGRATION_PLAN.md`](docs/DEPLOYMENT_MIGRATION_PLAN.md).
+For a step-by-step zero-downtime procedure, use [`docs/CUTOVER_RUNBOOK.md`](docs/CUTOVER_RUNBOOK.md).
 
 ## License
 
