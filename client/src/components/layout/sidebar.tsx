@@ -22,6 +22,8 @@ import {
   Shield,
   Coins,
   ShoppingBag,
+  MessageSquare,
+  PlusCircle,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -69,6 +71,7 @@ export function Sidebar() {
     { path: "/calendar", icon: CalendarDays, label: "Calendar" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
     { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
+    { path: "/feedback", icon: MessageSquare, label: "Feedback" },
     { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },
     { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
@@ -125,6 +128,20 @@ export function Sidebar() {
       </nav>
 
       <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+        <Link href="/tasks?new=1">
+          <Button
+            size="sm"
+            className="w-full justify-between bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg"
+            title="Create task (Ctrl+N)"
+          >
+            <span className="flex items-center">
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add Task
+            </span>
+            <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">⌃N</kbd>
+          </Button>
+        </Link>
+
         {wallet && (
           <Link href="/rewards">
             <div className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 cursor-pointer hover:shadow-md transition-all duration-300 ${sparkle ? "ring-2 ring-yellow-400 shadow-lg shadow-yellow-400/30 scale-105" : ""}`}>
@@ -144,7 +161,9 @@ export function Sidebar() {
           size="sm"
           onClick={tutorialActive ? stopTutorial : startTutorial}
           title="Toggle tutorial (Ctrl+T)"
-          className={`w-full justify-between ${tutorialActive ? "bg-purple-600 hover:bg-purple-700 text-white" : ""}`}
+          className={`w-full justify-between ring-1 ring-purple-400/40 ${
+            tutorialActive ? "bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-500/30" : "bg-purple-50/60 dark:bg-purple-900/20"
+          }`}
         >
           <span className="flex items-center">
             <GraduationCap className="mr-2 h-4 w-4" />

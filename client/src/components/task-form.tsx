@@ -93,7 +93,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     impact: task.impact || undefined,
     effort: task.effort || undefined,
     prerequisites: task.prerequisites || "",
-    status: task.status,
+    status: (task.status as "pending" | "in-progress" | "completed"),
   } : {
     date: defaultDate || new Date().toISOString().split('T')[0],
     time: "",
@@ -152,7 +152,9 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       if (cmd.type === "urgency" && typeof cmd.value === "number") {
         form.setValue("urgency", cmd.value);
       } else if (cmd.type === "status" && typeof cmd.value === "string") {
-        form.setValue("status", cmd.value);
+        if (cmd.value === "pending" || cmd.value === "in-progress" || cmd.value === "completed") {
+          form.setValue("status", cmd.value);
+        }
       } else if (cmd.type === "date" && typeof cmd.value === "string") {
         form.setValue("date", cmd.value);
       } else if (cmd.type === "tag" && typeof cmd.value === "string") {

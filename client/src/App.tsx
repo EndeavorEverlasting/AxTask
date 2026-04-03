@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -22,6 +22,7 @@ import ChecklistPage from "@/pages/checklist";
 import PlannerPage from "@/pages/planner";
 import AdminPage from "@/pages/admin";
 import RewardsPage from "@/pages/rewards";
+import FeedbackPage from "@/pages/feedback";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
@@ -37,6 +38,7 @@ function Router() {
       <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
       <Route path="/checklist" component={ChecklistPage} />
       <Route path="/planner" component={PlannerPage} />
+      <Route path="/feedback" component={FeedbackPage} />
       <Route path="/admin" component={AdminPage} />
       <Route path="/rewards" component={RewardsPage} />
       <Route component={NotFound} />
@@ -52,6 +54,17 @@ function AuthenticatedApp() {
 
   const handleNavigate = useCallback((path: string) => {
     setLocation(path);
+  }, [setLocation]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        setLocation("/tasks?new=1");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [setLocation]);
 
   if (loading) {

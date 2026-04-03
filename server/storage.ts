@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, idempotencyKeys, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -760,4 +760,291 @@ export async function seedRewardsCatalog(): Promise<void> {
 export async function getCompletedTaskCount(userId: string): Promise<number> {
   const [row] = await db.select({ value: count() }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.status, "completed")));
   return Number(row?.value) || 0;
+}
+
+// ─── Usage + Storage Controls ────────────────────────────────────────────────
+const DEFAULT_STORAGE_POLICY = {
+  maxTasks: Number(process.env.STORAGE_MAX_TASKS || 100000),
+  maxAttachmentBytes: Number(process.env.STORAGE_MAX_ATTACHMENT_BYTES || 50 * 1024 * 1024),
+  maxAttachmentCount: Number(process.env.STORAGE_MAX_ATTACHMENT_COUNT || 500),
+  maxTaskRetentionDays: Number(process.env.STORAGE_MAX_TASK_RETENTION_DAYS || 3650),
+  softWarningPercent: Number(process.env.STORAGE_SOFT_WARNING_PERCENT || 80),
+};
+
+export async function getStoragePolicy(userId: string): Promise<StoragePolicy | (typeof DEFAULT_STORAGE_POLICY & { id: string; userId: string | null })> {
+  const [row] = await db.select().from(storagePolicies).where(eq(storagePolicies.userId, userId));
+  if (row) return row;
+  return {
+    id: "default",
+    userId: null,
+    ...DEFAULT_STORAGE_POLICY,
+  };
+}
+
+export async function getStorageUsage(userId: string): Promise<{
+  taskCount: number;
+  attachmentCount: number;
+  attachmentBytes: number;
+}> {
+  const [[taskCountRow], [attachmentRows]] = await Promise.all([
+    db.select({ value: count() }).from(tasks).where(eq(tasks.userId, userId)),
+    db.select({
+      value: count(),
+      bytes: sql<number>`COALESCE(SUM(${attachmentAssets.byteSize}), 0)`,
+    }).from(attachmentAssets).where(and(eq(attachmentAssets.userId, userId), sql`${attachmentAssets.deletedAt} IS NULL`)),
+  ]);
+
+  return {
+    taskCount: Number(taskCountRow?.value) || 0,
+    attachmentCount: Number(attachmentRows?.value) || 0,
+    attachmentBytes: Number(attachmentRows?.bytes) || 0,
+  };
+}
+
+export async function assertCanCreateTasks(userId: string, incomingTasks: number): Promise<{ ok: boolean; message?: string }> {
+  const [policy, usage] = await Promise.all([getStoragePolicy(userId), getStorageUsage(userId)]);
+  if (usage.taskCount + incomingTasks > policy.maxTasks) {
+    return {
+      ok: false,
+      message: `Task limit reached (${policy.maxTasks}). Remove older tasks or request a higher limit.`,
+    };
+  }
+  return { ok: true };
+}
+
+export async function assertCanStoreAttachment(userId: string, byteSize: number): Promise<{ ok: boolean; message?: string }> {
+  const [policy, usage] = await Promise.all([getStoragePolicy(userId), getStorageUsage(userId)]);
+  if (usage.attachmentCount + 1 > policy.maxAttachmentCount) {
+    return {
+      ok: false,
+      message: `Attachment count limit reached (${policy.maxAttachmentCount}).`,
+    };
+  }
+  if (usage.attachmentBytes + byteSize > policy.maxAttachmentBytes) {
+    return {
+      ok: false,
+      message: `Attachment storage limit reached (${policy.maxAttachmentBytes} bytes).`,
+    };
+  }
+  return { ok: true };
+}
+
+export async function createAttachmentAsset(input: {
+  userId: string;
+  kind?: string;
+  fileName?: string;
+  mimeType: string;
+  byteSize: number;
+  metadataJson?: string;
+}): Promise<AttachmentAsset> {
+  const [asset] = await db.insert(attachmentAssets).values({
+    id: randomUUID(),
+    userId: input.userId,
+    kind: input.kind || "feedback",
+    fileName: input.fileName || null,
+    mimeType: input.mimeType,
+    byteSize: input.byteSize,
+    metadataJson: input.metadataJson || null,
+  }).returning();
+  return asset;
+}
+
+export async function getAttachmentAssets(userId: string, kind?: string): Promise<AttachmentAsset[]> {
+  if (kind) {
+    return db.select().from(attachmentAssets).where(and(
+      eq(attachmentAssets.userId, userId),
+      eq(attachmentAssets.kind, kind),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    )).orderBy(desc(attachmentAssets.createdAt));
+  }
+  return db.select().from(attachmentAssets).where(and(
+    eq(attachmentAssets.userId, userId),
+    sql`${attachmentAssets.deletedAt} IS NULL`,
+  )).orderBy(desc(attachmentAssets.createdAt));
+}
+
+export async function saveUsageSnapshot(input: {
+  snapshotDate: string;
+  source?: string;
+  requests: number;
+  errors: number;
+  p95Ms: number;
+  dbStorageMb: number;
+  taskCount: number;
+  attachmentBytes: number;
+  spendMtdCents: number;
+}): Promise<UsageSnapshot> {
+  const [existing] = await db.select().from(usageSnapshots).where(eq(usageSnapshots.snapshotDate, input.snapshotDate));
+  if (existing) {
+    const [updated] = await db.update(usageSnapshots).set({
+      source: input.source || existing.source,
+      requests: input.requests,
+      errors: input.errors,
+      p95Ms: input.p95Ms,
+      dbStorageMb: input.dbStorageMb,
+      taskCount: input.taskCount,
+      attachmentBytes: input.attachmentBytes,
+      spendMtdCents: input.spendMtdCents,
+    }).where(eq(usageSnapshots.id, existing.id)).returning();
+    return updated;
+  }
+
+  const [created] = await db.insert(usageSnapshots).values({
+    id: randomUUID(),
+    snapshotDate: input.snapshotDate,
+    source: input.source || "internal",
+    requests: input.requests,
+    errors: input.errors,
+    p95Ms: input.p95Ms,
+    dbStorageMb: input.dbStorageMb,
+    taskCount: input.taskCount,
+    attachmentBytes: input.attachmentBytes,
+    spendMtdCents: input.spendMtdCents,
+  }).returning();
+  return created;
+}
+
+export async function getUsageSnapshots(limit = 30): Promise<UsageSnapshot[]> {
+  return db.select().from(usageSnapshots).orderBy(desc(usageSnapshots.snapshotDate)).limit(limit);
+}
+
+export async function hasImportFingerprint(userId: string, fingerprint: string): Promise<boolean> {
+  const [row] = await db.select({ value: count() })
+    .from(taskImportFingerprints)
+    .where(and(eq(taskImportFingerprints.userId, userId), eq(taskImportFingerprints.fingerprint, fingerprint)));
+  return (Number(row?.value) || 0) > 0;
+}
+
+export async function recordImportFingerprint(userId: string, fingerprint: string, source: string, firstTaskId?: string): Promise<void> {
+  await db.insert(taskImportFingerprints).values({
+    id: randomUUID(),
+    userId,
+    fingerprint,
+    source,
+    firstTaskId: firstTaskId || null,
+  }).onConflictDoNothing();
+}
+
+// ─── Invoicing, MFA, Idempotency ────────────────────────────────────────────
+function hashMfaCode(code: string): string {
+  return createHash("sha256").update(code).digest("hex");
+}
+
+export async function createMfaChallenge(userId: string, purpose: string, ttlMinutes = 10): Promise<{ challengeId: string; code: string; expiresAt: Date }> {
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const challengeId = randomUUID();
+  const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
+  await db.insert(mfaChallenges).values({
+    id: challengeId,
+    userId,
+    purpose,
+    codeHash: hashMfaCode(code),
+    expiresAt,
+  });
+  return { challengeId, code, expiresAt };
+}
+
+export async function verifyMfaChallenge(userId: string, challengeId: string, code: string): Promise<boolean> {
+  const [challenge] = await db.select().from(mfaChallenges).where(and(
+    eq(mfaChallenges.id, challengeId),
+    eq(mfaChallenges.userId, userId),
+  ));
+  if (!challenge || challenge.consumedAt || challenge.expiresAt < new Date()) return false;
+  if (challenge.attempts >= 5) return false;
+
+  const valid = challenge.codeHash === hashMfaCode(code);
+  if (!valid) {
+    await db.update(mfaChallenges)
+      .set({ attempts: challenge.attempts + 1 })
+      .where(eq(mfaChallenges.id, challenge.id));
+    return false;
+  }
+
+  await db.update(mfaChallenges).set({ consumedAt: new Date() }).where(eq(mfaChallenges.id, challenge.id));
+  return true;
+}
+
+export async function createInvoice(input: {
+  userId: string;
+  invoiceNumber: string;
+  amountCents: number;
+  currency?: string;
+  dueDate?: string;
+  metadataJson?: string;
+}): Promise<Invoice> {
+  const [invoice] = await db.insert(invoices).values({
+    id: randomUUID(),
+    userId: input.userId,
+    invoiceNumber: input.invoiceNumber,
+    amountCents: input.amountCents,
+    currency: (input.currency || "USD").toUpperCase(),
+    status: "draft",
+    dueDate: input.dueDate || null,
+    metadataJson: input.metadataJson || null,
+  }).returning();
+  await db.insert(invoiceEvents).values({
+    id: randomUUID(),
+    invoiceId: invoice.id,
+    actorUserId: input.userId,
+    eventType: "created",
+    details: "Invoice created",
+  });
+  return invoice;
+}
+
+export async function issueInvoice(invoiceId: string, actorUserId: string): Promise<Invoice | undefined> {
+  const [invoice] = await db.update(invoices).set({ status: "issued", issuedAt: new Date(), updatedAt: new Date() })
+    .where(eq(invoices.id, invoiceId))
+    .returning();
+  if (!invoice) return undefined;
+  await db.insert(invoiceEvents).values({
+    id: randomUUID(),
+    invoiceId,
+    actorUserId,
+    eventType: "issued",
+    details: "Invoice issued",
+  });
+  return invoice;
+}
+
+export async function confirmInvoicePayment(invoiceId: string, actorUserId: string, confirmationNumber: string, externalReference?: string): Promise<Invoice | undefined> {
+  const [invoice] = await db.update(invoices).set({
+    status: "paid",
+    confirmationNumber,
+    externalReference: externalReference || null,
+    paidAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(invoices.id, invoiceId)).returning();
+  if (!invoice) return undefined;
+  await db.insert(invoiceEvents).values({
+    id: randomUUID(),
+    invoiceId,
+    actorUserId,
+    eventType: "paid",
+    details: `Payment confirmed: ${confirmationNumber}`,
+  });
+  return invoice;
+}
+
+export async function listInvoices(limit = 100): Promise<Invoice[]> {
+  return db.select().from(invoices).orderBy(desc(invoices.createdAt)).limit(limit);
+}
+
+export async function listInvoiceEvents(invoiceId: string): Promise<InvoiceEvent[]> {
+  return db.select().from(invoiceEvents).where(eq(invoiceEvents.invoiceId, invoiceId)).orderBy(desc(invoiceEvents.createdAt));
+}
+
+export async function ensureIdempotencyKey(key: string, route: string, userId?: string): Promise<{ fresh: boolean }> {
+  const [existing] = await db.select().from(idempotencyKeys).where(and(
+    eq(idempotencyKeys.key, key),
+    eq(idempotencyKeys.route, route),
+  ));
+  if (existing) return { fresh: false };
+  await db.insert(idempotencyKeys).values({
+    id: randomUUID(),
+    key,
+    route,
+    userId: userId || null,
+  });
+  return { fresh: true };
 }

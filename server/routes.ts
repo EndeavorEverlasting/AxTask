@@ -1,6 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, createHash } from "crypto";
 import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
@@ -12,6 +12,9 @@ import {
   banUser, unbanUser, getAllUsers, isUserBanned,
   logSecurityEvent, getSecurityLogs,
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
+  assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getStoragePolicy, getStorageUsage,
+  hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
+  createMfaChallenge, verifyMfaChallenge, ensureIdempotencyKey,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
@@ -24,6 +27,7 @@ import { generateChecklistPDF } from "./checklist-pdf";
 import { processChecklistImage } from "./ocr-processor";
 import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
+import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./services/usage-service";
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
 function safeEqual(a: string, b: string): boolean {
@@ -34,6 +38,25 @@ function safeEqual(a: string, b: string): boolean {
     return false;
   }
   return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+}
+
+function normalizeForFingerprint(value?: string | null): string {
+  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function computeTaskFingerprint(task: {
+  date?: string;
+  time?: string | null;
+  activity?: string | null;
+  notes?: string | null;
+}): string {
+  const base = [
+    normalizeForFingerprint(task.date || ""),
+    normalizeForFingerprint(task.time || ""),
+    normalizeForFingerprint(task.activity || ""),
+    normalizeForFingerprint(task.notes || ""),
+  ].join("|");
+  return createHash("sha256").update(base).digest("hex");
 }
 
 // ── Rate limiters ───────────────────────────────────────────────────────────
@@ -398,6 +421,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/storage/me", requireAuth, async (req, res) => {
+    try {
+      const [policy, usage] = await Promise.all([
+        getStoragePolicy(req.user!.id),
+        getStorageUsage(req.user!.id),
+      ]);
+      res.json({ policy, usage });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch storage profile" });
+    }
+  });
+
   // Search tasks
   app.get("/api/tasks/search/:query", requireAuth, async (req, res) => {
     try {
@@ -454,14 +489,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const userId = req.user!.id;
+      const quota = await assertCanCreateTasks(userId, taskList.length);
+      if (!quota.ok) {
+        return res.status(413).json({ message: quota.message });
+      }
 
       const validTasks: any[] = [];
       const errors: { index: number; error: string }[] = [];
+      const skippedDuplicates: { index: number; reason: string }[] = [];
 
       for (let i = 0; i < taskList.length; i++) {
         try {
           const validated = insertTaskSchema.parse(taskList[i]);
-          validTasks.push(validated);
+          const fingerprint = computeTaskFingerprint(validated);
+          const seen = await hasImportFingerprint(userId, fingerprint);
+          if (seen) {
+            skippedDuplicates.push({ index: i, reason: "Duplicate task fingerprint" });
+            continue;
+          }
+          validTasks.push({ ...validated, __fingerprint: fingerprint });
         } catch (err: any) {
           errors.push({ index: i, error: err.message || "Validation failed" });
         }
@@ -469,7 +515,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let inserted: any[] = [];
       if (validTasks.length > 0) {
-        inserted = await storage.createTasksBulk(userId, validTasks);
+        inserted = await storage.createTasksBulk(userId, validTasks.map(({ __fingerprint, ...task }) => task));
+        for (let i = 0; i < inserted.length; i++) {
+          const fingerprint = validTasks[i]?.__fingerprint;
+          if (fingerprint) {
+            await recordImportFingerprint(userId, fingerprint, "bulk_import", inserted[i]?.id);
+          }
+        }
 
         const existingTasks = await storage.getTasks(userId);
 
@@ -511,9 +563,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.status(201).json({
         imported: inserted.length,
+        skippedAsDuplicate: skippedDuplicates.length,
         failed: errors.length,
         total: taskList.length,
         errors: errors.slice(0, 50),
+        skipped: skippedDuplicates.slice(0, 50),
       });
     } catch (error) {
       console.error("Bulk import error:", error);
@@ -526,8 +580,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertTaskSchema.parse(req.body);
       const userId = req.user!.id;
+      const quota = await assertCanCreateTasks(userId, 1);
+      if (!quota.ok) {
+        return res.status(413).json({ message: quota.message });
+      }
+      const fingerprint = computeTaskFingerprint(validatedData);
+      if (await hasImportFingerprint(userId, fingerprint)) {
+        return res.status(409).json({ message: "A matching task already exists." });
+      }
 
       let task = await storage.createTask(userId, validatedData);
+      await recordImportFingerprint(userId, fingerprint, "manual_create", task.id);
 
       const allTasks = await storage.getTasks(userId);
       const priorityResult = await PriorityEngine.calculatePriority(
@@ -795,12 +858,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const importedTasks = await googleSheets.importTasks(spreadsheetId, sheetName);
 
       const processedTasks = [];
+      let skippedAsDuplicate = 0;
       for (const taskData of importedTasks) {
         try {
           const { id, ...taskWithoutId } = taskData;
           const validatedData = insertTaskSchema.parse(taskWithoutId);
+          const fingerprint = computeTaskFingerprint(validatedData);
+          if (await hasImportFingerprint(userId, fingerprint)) {
+            skippedAsDuplicate += 1;
+            continue;
+          }
 
           let task = await storage.createTask(userId, validatedData);
+          await recordImportFingerprint(userId, fingerprint, "google_sheets_import", task.id);
 
           const allTasks = await storage.getTasks(userId);
           const priorityResult = await PriorityEngine.calculatePriority(
@@ -832,6 +902,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         message: "Import completed",
         imported: processedTasks.length,
+        skippedAsDuplicate,
         total: importedTasks.length
       });
     } catch (error) {
@@ -1205,6 +1276,171 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Feedback + attachments ────────────────────────────────────────────────
+  const feedbackSchema = z.object({
+    message: z.string().min(5).max(5000),
+    screenshotMeta: z.array(z.object({
+      fileName: z.string().optional(),
+      mimeType: z.string().min(3),
+      byteSize: z.number().int().nonnegative().max(10 * 1024 * 1024),
+    })).max(10).default([]),
+  });
+
+  app.post("/api/feedback", requireAuth, async (req, res) => {
+    try {
+      const parsed = feedbackSchema.parse(req.body);
+      const createdAssets = [];
+      for (const file of parsed.screenshotMeta) {
+        const canStore = await assertCanStoreAttachment(req.user!.id, file.byteSize);
+        if (!canStore.ok) {
+          return res.status(413).json({ message: canStore.message });
+        }
+        const asset = await createAttachmentAsset({
+          userId: req.user!.id,
+          kind: "feedback",
+          fileName: file.fileName,
+          mimeType: file.mimeType,
+          byteSize: file.byteSize,
+          metadataJson: JSON.stringify({ source: "feedback_form" }),
+        });
+        createdAssets.push(asset);
+      }
+
+      await logSecurityEvent(
+        "feedback_submitted",
+        req.user!.id,
+        undefined,
+        req.ip,
+        `Feedback submitted (${parsed.message.length} chars, ${createdAssets.length} attachments)`,
+      );
+      res.status(201).json({
+        message: "Feedback submitted",
+        attachments: createdAssets.length,
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to submit feedback" });
+    }
+  });
+
+  app.get("/api/attachments", requireAuth, async (req, res) => {
+    try {
+      const kind = req.query.kind && typeof req.query.kind === "string" ? req.query.kind : undefined;
+      const assets = await getAttachmentAssets(req.user!.id, kind);
+      res.json(assets);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch attachments" });
+    }
+  });
+
+  // ── Invoicing foundation routes ───────────────────────────────────────────
+  const invoiceCreateSchema = z.object({
+    invoiceNumber: z.string().min(3).max(64),
+    amountCents: z.number().int().positive(),
+    currency: z.string().length(3).default("USD"),
+    dueDate: z.string().optional(),
+  });
+
+  app.post("/api/invoices/mfa/challenge", requireAuth, async (req, res) => {
+    try {
+      const { purpose } = z.object({ purpose: z.string().min(3).max(120) }).parse(req.body);
+      const challenge = await createMfaChallenge(req.user!.id, purpose);
+      // In production this code should be delivered through secure channel.
+      res.status(201).json({
+        challengeId: challenge.challengeId,
+        expiresAt: challenge.expiresAt,
+        devCode: process.env.NODE_ENV === "production" ? undefined : challenge.code,
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to create MFA challenge" });
+    }
+  });
+
+  app.post("/api/invoices", requireAuth, async (req, res) => {
+    try {
+      const idemKey = req.get("x-idempotency-key");
+      if (!idemKey) {
+        return res.status(400).json({ message: "x-idempotency-key header is required" });
+      }
+      const idem = await ensureIdempotencyKey(idemKey, "/api/invoices", req.user!.id);
+      if (!idem.fresh) {
+        return res.status(409).json({ message: "Duplicate invoice request" });
+      }
+
+      const payload = invoiceCreateSchema.parse(req.body);
+      const invoice = await createInvoice({
+        userId: req.user!.id,
+        invoiceNumber: payload.invoiceNumber,
+        amountCents: payload.amountCents,
+        currency: payload.currency,
+        dueDate: payload.dueDate,
+      });
+      res.status(201).json(invoice);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to create invoice" });
+    }
+  });
+
+  app.post("/api/invoices/:id/issue", requireAuth, async (req, res) => {
+    try {
+      const { challengeId, code } = z.object({
+        challengeId: z.string().min(1),
+        code: z.string().length(6),
+      }).parse(req.body);
+
+      const validMfa = await verifyMfaChallenge(req.user!.id, challengeId, code);
+      if (!validMfa) return res.status(403).json({ message: "Invalid MFA challenge or code" });
+
+      const invoice = await issueInvoice(req.params.id, req.user!.id);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+      res.json(invoice);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to issue invoice" });
+    }
+  });
+
+  app.post("/api/invoices/:id/confirm-payment", requireAuth, async (req, res) => {
+    try {
+      const { challengeId, code, confirmationNumber, externalReference } = z.object({
+        challengeId: z.string().min(1),
+        code: z.string().length(6),
+        confirmationNumber: z.string().min(3).max(128),
+        externalReference: z.string().max(255).optional(),
+      }).parse(req.body);
+
+      const validMfa = await verifyMfaChallenge(req.user!.id, challengeId, code);
+      if (!validMfa) return res.status(403).json({ message: "Invalid MFA challenge or code" });
+
+      const invoice = await confirmInvoicePayment(req.params.id, req.user!.id, confirmationNumber, externalReference);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+      res.json(invoice);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to confirm payment" });
+    }
+  });
+
+  app.get("/api/invoices", requireAuth, async (_req, res) => {
+    try {
+      const invoices = await listInvoices(200);
+      res.json(invoices);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch invoices" });
+    }
+  });
+
+  app.get("/api/invoices/:id/events", requireAuth, async (req, res) => {
+    try {
+      const events = await listInvoiceEvents(req.params.id);
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch invoice events" });
+    }
+  });
+
   // ════════════════════════════════════════════════════════════════════════
   //  Admin routes (protected — require admin role)
   // ════════════════════════════════════════════════════════════════════════
@@ -1300,6 +1536,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(logs);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch security logs" });
+    }
+  });
+
+  app.get("/api/admin/storage", requireAdmin, async (req, res) => {
+    try {
+      const userId = typeof req.query.userId === "string" ? req.query.userId : req.user!.id;
+      const [policy, usage] = await Promise.all([
+        getStoragePolicy(userId),
+        getStorageUsage(userId),
+      ]);
+
+      const toPercent = (value: number, max: number) => max > 0 ? Math.min(100, Number(((value / max) * 100).toFixed(2))) : 0;
+      const warnings = {
+        task: toPercent(usage.taskCount, policy.maxTasks),
+        attachmentCount: toPercent(usage.attachmentCount, policy.maxAttachmentCount),
+        attachmentBytes: toPercent(usage.attachmentBytes, policy.maxAttachmentBytes),
+      };
+      res.json({
+        userId,
+        policy,
+        usage,
+        warnings,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch storage usage" });
+    }
+  });
+
+  app.post("/api/admin/usage/capture", requireAdmin, async (req, res) => {
+    try {
+      const userId = typeof req.body?.userId === "string" ? req.body.userId : req.user!.id;
+      await captureUsageSnapshot(userId);
+      res.status(201).json({ message: "Usage snapshot captured" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to capture usage snapshot" });
+    }
+  });
+
+  app.get("/api/admin/usage", requireAdmin, async (_req, res) => {
+    try {
+      const usage = await getUsageOverview();
+      res.json(usage);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch usage overview" });
+    }
+  });
+
+  app.post("/api/admin/storage/retention-dry-run", requireAdmin, async (req, res) => {
+    try {
+      const retentionDays = Number(req.body?.retentionDays || 90);
+      const result = await runRetentionDryRun(req.user!.id, retentionDays);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to run retention dry-run" });
     }
   });
 

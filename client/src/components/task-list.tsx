@@ -35,6 +35,7 @@ import { TaskAIEngine } from "@/lib/ai-modules";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, AnimatePresence } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { benchmarkPretext, estimateTextLayout } from "@/lib/pretext-layout";
 
 type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'manual';
 type SortDirection = 'asc' | 'desc';
@@ -192,6 +193,9 @@ const SortableTaskRow = memo(function SortableTaskRow({
             {task.notes}
           </div>
         )}
+        <div className="mt-1 text-[10px] text-gray-400">
+          Pretext est: {estimateTextLayout(`${task.activity} ${task.notes || ""}`, 320).lines} line(s)
+        </div>
       </TableCell>
       <TableCell>
         <ClassificationBadge classification={task.classification} />
@@ -366,6 +370,7 @@ export function TaskList() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isDragMode, setIsDragMode] = useState(false);
+  const [pretextStats, setPretextStats] = useState<{ sampleCount: number; totalLines: number; elapsedMs: number } | null>(null);
   const reducedMotion = useReducedMotion();
   const { consumeVoiceSearch } = useVoice();
 
@@ -378,6 +383,12 @@ export function TaskList() {
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
+  });
+  const { data: storageProfile } = useQuery<{
+    policy: { maxTasks: number; maxAttachmentBytes: number };
+    usage: { taskCount: number; attachmentBytes: number };
+  }>({
+    queryKey: ["/api/storage/me"],
   });
 
   const deleteTaskMutation = useMutation({
@@ -503,6 +514,15 @@ export function TaskList() {
       description: "Tasks reordered by AI based on priority, urgency, and deadlines.",
     });
   };
+
+  const runPretextBenchmark = useCallback(() => {
+    const samples = tasks.map((t) => `${t.activity} ${t.notes || ""}`);
+    setPretextStats(benchmarkPretext(samples, 320));
+    toast({
+      title: "Pretext benchmark complete",
+      description: `Processed ${samples.length} samples.`,
+    });
+  }, [tasks, toast]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -648,8 +668,28 @@ export function TaskList() {
               <RotateCcw className="h-4 w-4 mr-2" />
               {recalculatePrioritiesMutation.isPending ? "Recalculating..." : "Recalculate"}
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={runPretextBenchmark}
+            >
+              Pretext Probe
+            </Button>
           </div>
         </div>
+        {pretextStats && (
+          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            Pretext benchmark: {pretextStats.sampleCount} samples, {pretextStats.totalLines} lines, {pretextStats.elapsedMs}ms.
+          </div>
+        )}
+        {storageProfile && (
+          <div className="mt-2 text-xs">
+            <span className="text-gray-500 dark:text-gray-400">
+              Storage usage: {storageProfile.usage.taskCount}/{storageProfile.policy.maxTasks} tasks,{" "}
+              {Math.round((storageProfile.usage.attachmentBytes / Math.max(1, storageProfile.policy.maxAttachmentBytes)) * 100)}% attachment quota
+            </span>
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         {filteredAndSortedTasks.length === 0 ? (

@@ -47,7 +47,7 @@ function isAllowedHost(hostHeader: string): boolean {
 }
 
 const allowedOrigins = new Set<string>(
-  [...allowedHosts].map((host) => `https://${host}`),
+  Array.from(allowedHosts).map((host) => `https://${host}`),
 );
 for (const origin of parseCsvEnv(process.env.ADDITIONAL_ALLOWED_ORIGINS)) {
   allowedOrigins.add(origin.startsWith("http") ? origin : `https://${origin}`);

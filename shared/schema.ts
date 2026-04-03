@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -207,3 +207,160 @@ export const userRewards = pgTable("user_rewards", {
 }, (table) => [
   index("idx_user_rewards_user").on(table.userId),
 ]);
+
+export type UserReward = typeof userRewards.$inferSelect;
+
+// ─── Storage, Usage, and Attachments ────────────────────────────────────────
+export const usageSnapshots = pgTable("usage_snapshots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  snapshotDate: text("snapshot_date").notNull(),
+  source: text("source").notNull().default("internal"),
+  requests: integer("requests").notNull().default(0),
+  errors: integer("errors").notNull().default(0),
+  p95Ms: integer("p95_ms").notNull().default(0),
+  dbStorageMb: integer("db_storage_mb").notNull().default(0),
+  taskCount: integer("task_count").notNull().default(0),
+  attachmentBytes: integer("attachment_bytes").notNull().default(0),
+  spendMtdCents: integer("spend_mtd_cents").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_usage_snapshots_date").on(table.snapshotDate),
+]);
+
+export type UsageSnapshot = typeof usageSnapshots.$inferSelect;
+
+export const storagePolicies = pgTable("storage_policies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }),
+  maxTasks: integer("max_tasks").notNull().default(100000),
+  maxAttachmentBytes: integer("max_attachment_bytes").notNull().default(50 * 1024 * 1024),
+  maxAttachmentCount: integer("max_attachment_count").notNull().default(500),
+  maxTaskRetentionDays: integer("max_task_retention_days").notNull().default(3650),
+  softWarningPercent: integer("soft_warning_percent").notNull().default(80),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_storage_policies_user").on(table.userId),
+]);
+
+export type StoragePolicy = typeof storagePolicies.$inferSelect;
+
+export const attachmentAssets = pgTable("attachment_assets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull().default("feedback"),
+  fileName: text("file_name"),
+  mimeType: text("mime_type").notNull(),
+  byteSize: integer("byte_size").notNull().default(0),
+  storageKey: text("storage_key"),
+  metadataJson: text("metadata_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+  deletedAt: timestamp("deleted_at"),
+}, (table) => [
+  index("idx_attachment_assets_user").on(table.userId),
+  index("idx_attachment_assets_kind").on(table.kind),
+]);
+
+export type AttachmentAsset = typeof attachmentAssets.$inferSelect;
+
+export const taskImportFingerprints = pgTable("task_import_fingerprints", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  fingerprint: text("fingerprint").notNull(),
+  source: text("source").notNull().default("import"),
+  firstTaskId: varchar("first_task_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_task_import_fingerprints_user_fingerprint").on(table.userId, table.fingerprint),
+  index("idx_task_import_fingerprints_source").on(table.source),
+]);
+
+export type TaskImportFingerprint = typeof taskImportFingerprints.$inferSelect;
+
+// ─── Invoicing and Security Foundations ─────────────────────────────────────
+export const invoices = pgTable("invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  invoiceNumber: text("invoice_number").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  status: text("status").notNull().default("draft"),
+  confirmationNumber: text("confirmation_number"),
+  externalReference: text("external_reference"),
+  dueDate: text("due_date"),
+  issuedAt: timestamp("issued_at"),
+  paidAt: timestamp("paid_at"),
+  metadataJson: text("metadata_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_invoices_invoice_number").on(table.invoiceNumber),
+  index("idx_invoices_user").on(table.userId),
+  index("idx_invoices_status").on(table.status),
+]);
+
+export type Invoice = typeof invoices.$inferSelect;
+
+export const invoiceEvents = pgTable("invoice_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceId: varchar("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  actorUserId: varchar("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  eventType: text("event_type").notNull(),
+  details: text("details"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_invoice_events_invoice").on(table.invoiceId),
+]);
+
+export type InvoiceEvent = typeof invoiceEvents.$inferSelect;
+
+export const mfaChallenges = pgTable("mfa_challenges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  purpose: text("purpose").notNull(),
+  codeHash: text("code_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  attempts: integer("attempts").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_mfa_challenges_user").on(table.userId),
+  index("idx_mfa_challenges_expires").on(table.expiresAt),
+]);
+
+export type MfaChallenge = typeof mfaChallenges.$inferSelect;
+
+export const idempotencyKeys = pgTable("idempotency_keys", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull(),
+  route: text("route").notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  responseHash: text("response_hash"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_idempotency_keys_key_route").on(table.key, table.route),
+]);
+
+export type IdempotencyKey = typeof idempotencyKeys.$inferSelect;
+
+export const createInvoiceSchema = createInsertSchema(invoices).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  amountCents: z.number().int().positive("Amount must be positive"),
+  currency: z.string().length(3, "Currency must be a 3-letter code").default("USD"),
+  status: z.enum(["draft", "issued", "paid", "void"]).default("draft"),
+});
+
+export const createAttachmentAssetSchema = createInsertSchema(attachmentAssets).omit({
+  id: true,
+  createdAt: true,
+  deletedAt: true,
+}).extend({
+  mimeType: z.string().min(3).max(128),
+  byteSize: z.number().int().nonnegative(),
+});
+
+export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
+export type CreateAttachmentAssetInput = z.infer<typeof createAttachmentAssetSchema>;

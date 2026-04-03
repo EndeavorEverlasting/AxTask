@@ -32,6 +32,7 @@ export default function ImportExport() {
   const [importResult, setImportResult] = useState<{
     imported: number;
     failed: number;
+    skippedAsDuplicate?: number;
     total: number;
   } | null>(null);
 
@@ -149,6 +150,7 @@ export default function ImportExport() {
       const CHUNK_SIZE = 2000;
       let totalImported = 0;
       let totalFailed = 0;
+      let totalSkipped = 0;
 
       for (let i = 0; i < allTasks.length; i += CHUNK_SIZE) {
         const chunk = allTasks.slice(i, i + CHUNK_SIZE);
@@ -162,12 +164,13 @@ export default function ImportExport() {
 
         totalImported += result.imported;
         totalFailed += result.failed;
+        totalSkipped += result.skippedAsDuplicate || 0;
 
         const progress = Math.round(((i + chunk.length) / allTasks.length) * 100);
         setImportProgress(progress);
       }
 
-      setImportResult({ imported: totalImported, failed: totalFailed, total: allTasks.length });
+      setImportResult({ imported: totalImported, failed: totalFailed, skippedAsDuplicate: totalSkipped, total: allTasks.length });
       setImportMessage(`Done! ${totalImported} tasks imported successfully.`);
 
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
@@ -175,7 +178,7 @@ export default function ImportExport() {
 
       toast({
         title: "Import complete",
-        description: `${totalImported} tasks imported${totalFailed > 0 ? `, ${totalFailed} failed` : ''}.`,
+        description: `${totalImported} imported${totalSkipped > 0 ? `, ${totalSkipped} skipped as duplicates` : ""}${totalFailed > 0 ? `, ${totalFailed} failed` : ''}.`,
       });
     } catch (error) {
       console.error("Import error:", error);
@@ -333,7 +336,7 @@ export default function ImportExport() {
                     Import Complete
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="grid grid-cols-4 gap-2 text-center text-xs">
                   <div>
                     <div className="font-bold text-lg text-green-700 dark:text-green-300">
                       {importResult.imported.toLocaleString()}
@@ -345,6 +348,12 @@ export default function ImportExport() {
                       {importResult.failed.toLocaleString()}
                     </div>
                     <div className="text-gray-600 dark:text-gray-400">Failed</div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-lg text-amber-600">
+                      {(importResult.skippedAsDuplicate || 0).toLocaleString()}
+                    </div>
+                    <div className="text-gray-600 dark:text-gray-400">Skipped</div>
                   </div>
                   <div>
                     <div className="font-bold text-lg text-gray-700 dark:text-gray-300">

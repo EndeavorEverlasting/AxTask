@@ -78,6 +78,9 @@ export function setupAuth(app: Express) {
           if (!user) {
             return done(null, false, { message: "Invalid email or password" });
           }
+          if (!user.passwordHash) {
+            return done(null, false, { message: "Use your OAuth provider to sign in" });
+          }
           const valid = await verifyPassword(password, user.passwordHash);
           if (!valid) {
             return done(null, false, { message: "Invalid email or password" });
