@@ -1,13 +1,13 @@
 
 # Priority Engine Task Management System
 
-**Version:** 1.1.0 (Google Sheets Integration)  
+**Version:** 1.2.0 (Robustness + Security Hardening)  
 **Status:** Production Ready  
-**Last Updated:** July 30, 2025
+**Last Updated:** April 3rd, 2026
 
 ## Overview
 
-A full-stack task management application with an intelligent priority scoring engine that automatically calculates task priorities based on content analysis. Features seamless Google Sheets integration for import/export workflows.
+A full-stack task management application with an intelligent priority scoring engine that automatically calculates task priorities based on content analysis. Includes hardened import deduplication, usage/storage observability, attachment upload controls, and security event monitoring.
 
 ## Quick Start
 
@@ -23,9 +23,11 @@ Visit `http://localhost:5000` to access the application.
 
 - **🎯 Intelligent Priority Engine**: Automatic priority scoring based on keywords, tags, and content analysis
 - **📊 Google Sheets Integration**: Real-time API sync with comprehensive setup guide
-- **📈 Analytics Dashboard**: Visual insights and task metrics
-- **📁 Import/Export**: CSV and Excel file support with format conversion
-- **💰 Cost Monitoring**: Real-time processing cost and time estimation
+- **📈 Usage & Storage Stats**: Admin usage snapshots and storage policy visibility
+- **📁 Import/Export + Dedupe**: CSV/Excel imports with duplicate fingerprint prevention
+- **🖼️ Feedback Attachments**: Signed upload flow, scan checks, and retention controls
+- **🔐 Security Intelligence**: Tamper-evident security event ledger and anomaly alerts
+- **🐳 Docker Foundation**: Dockerfile, compose stack, and deployment baseline docs
 - **📱 Mobile Responsive**: Full mobile device compatibility
 
 ## Technology Stack
@@ -77,6 +79,8 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run db:push` - Sync database schema
+- `npm run test` - Run unit/integration tests
+- `npm run check` - Run TypeScript checks
 
 ### File Structure
 ```
@@ -118,7 +122,18 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - CSV and Excel file support (.csv, .xlsx, .xls)
 - Google Sheets format compatibility
 - Batch processing with progress tracking
-- Cost estimation for large imports
+- Duplicate prevention using deterministic task fingerprints
+
+### Usage, Storage, and Attachments
+- `usage_snapshots` table for request/error/p95/storage/task trends
+- `storage_policies` and `attachment_assets` for quota and retention enforcement
+- Signed upload tokens for attachments and image-scan gate before persistence
+- Admin endpoints for usage capture, storage visibility, and retention dry-run/execute
+
+### Security Intelligence
+- Chained `security_events` ledger (`prevHash` + `eventHash`) for tamper-evident auditing
+- Security alert rules for failed-login bursts and route-failure anomalies
+- Admin UI tab for event stream and alert review
 
 ## Security
 
@@ -139,8 +154,25 @@ Supports Replit and self-managed deployments with:
 - PostgreSQL database integration
 - Usage/billing monitoring and alerting recommended for production cutover
 
+Docker assets included:
+- `Dockerfile`
+- `docker-compose.yml`
+- `.dockerignore`
+- `.env.docker.example`
+- `docs/DOCKER_FOUNDATION.md`
+
 For a migration path away from Replit with cost-control guardrails, see [`docs/DEPLOYMENT_MIGRATION_PLAN.md`](docs/DEPLOYMENT_MIGRATION_PLAN.md).
 For a step-by-step zero-downtime procedure, use [`docs/CUTOVER_RUNBOOK.md`](docs/CUTOVER_RUNBOOK.md).
+
+## Pending / Not Yet Implemented
+
+The following roadmap items are intentionally still open:
+
+- Full cloud object storage integration (S3/R2 direct signed upload) instead of filesystem-backed object storage
+- Production malware/AV scanning integration (current scan is signature/content guard, not external AV)
+- Billing provider integration for live invoice payments/webhooks (foundation routes exist)
+- Wider in-app analytics/event visualization beyond admin security and usage/storage surfaces
+- Additional high-signal anomaly rules and automated alert delivery channels (email/Slack/Pager)
 
 ## License
 
