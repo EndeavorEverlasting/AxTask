@@ -59,6 +59,7 @@ You can run AxTask fully local (including when offline) as long as your PostgreS
 - **📁 Import/Export + Dedupe**: CSV/Excel imports with duplicate fingerprint prevention
 - **🖼️ Feedback Attachments**: Signed upload flow, scan checks, and retention controls
 - **🔐 Security Intelligence**: Tamper-evident security event ledger and anomaly alerts
+- **💎 Premium Retention Layer**: Pro plans, feature flags, smart views, review workflows, digests, and grace-mode lifecycle flows
 - **🐳 Docker Foundation**: Dockerfile, compose stack, and deployment baseline docs
 - **📱 Mobile Responsive**: Full mobile device compatibility
 
@@ -184,6 +185,31 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - Bulk mark filtered rows reviewed/unreviewed
 - Export currently filtered rows as CSV
 - Save/load feedback filter presets for repeat triage views
+
+### Premium Features (30-day retention rollout)
+- Hybrid catalog (`AxTask Pro`, `NodeWeaver Pro`, `Power Bundle`) via `GET /api/premium/catalog`
+- Entitlements + subscriptions via `GET /api/premium/entitlements` and activation/lifecycle routes
+- Smart saved views with default landing and auto-refresh controls:
+  - `GET/POST /api/premium/saved-views`
+  - `PUT/DELETE /api/premium/saved-views/:id`
+  - `POST /api/premium/saved-views/:id/default`
+- Recurring review workflows:
+  - `GET/POST /api/premium/review-workflows`
+  - `PUT/DELETE /api/premium/review-workflows/:id`
+  - `POST /api/premium/review-workflows/:id/run`
+- Cross-product bundle automation:
+  - `POST /api/premium/bundle/reclassify-backlog`
+  - `POST /api/premium/bundle/auto-reprioritize`
+- Weekly digest and insight loops:
+  - `POST /api/premium/digests/weekly`
+  - `GET/POST /api/premium/insights`
+  - `POST /api/premium/insights/:id/resolve`
+- Grace-mode anti-churn flow:
+  - `POST /api/premium/subscriptions/downgrade`
+  - `POST /api/premium/subscriptions/reactivate`
+  - `GET /api/premium/reactivation-prompts`
+- Admin retention metrics:
+  - `GET /api/admin/premium/retention?days=30`
 
 ## Security
 

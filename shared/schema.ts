@@ -454,3 +454,124 @@ export const createAttachmentAssetSchema = createInsertSchema(attachmentAssets).
 
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export type CreateAttachmentAssetInput = z.infer<typeof createAttachmentAssetSchema>;
+
+// ─── Premium Retention Foundations ───────────────────────────────────────────
+export const premiumSubscriptions = pgTable("premium_subscriptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  product: text("product").notNull(), // axtask | nodeweaver | bundle
+  planKey: text("plan_key").notNull(), // pro_monthly | pro_yearly | bundle_monthly
+  status: text("status").notNull().default("active"), // active | grace | inactive
+  startsAt: timestamp("starts_at").defaultNow(),
+  endsAt: timestamp("ends_at"),
+  graceUntil: timestamp("grace_until"),
+  downgradedAt: timestamp("downgraded_at"),
+  reactivatedAt: timestamp("reactivated_at"),
+  metadataJson: text("metadata_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_premium_subscriptions_user").on(table.userId),
+  index("idx_premium_subscriptions_product").on(table.product),
+  index("idx_premium_subscriptions_status").on(table.status),
+]);
+
+export type PremiumSubscription = typeof premiumSubscriptions.$inferSelect;
+
+export const premiumSavedViews = pgTable("premium_saved_views", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  filtersJson: text("filters_json").notNull(),
+  autoRefreshMinutes: integer("auto_refresh_minutes").notNull().default(15),
+  isDefault: boolean("is_default").notNull().default(false),
+  lastOpenedAt: timestamp("last_opened_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_premium_saved_views_user").on(table.userId),
+  index("idx_premium_saved_views_default").on(table.userId, table.isDefault),
+]);
+
+export type PremiumSavedView = typeof premiumSavedViews.$inferSelect;
+
+export const premiumReviewWorkflows = pgTable("premium_review_workflows", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  cadence: text("cadence").notNull().default("weekly"), // daily | weekly | monthly
+  criteriaJson: text("criteria_json").notNull(),
+  templateJson: text("template_json").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  lastRunAt: timestamp("last_run_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_premium_review_workflows_user").on(table.userId),
+  index("idx_premium_review_workflows_active").on(table.userId, table.isActive),
+]);
+
+export type PremiumReviewWorkflow = typeof premiumReviewWorkflows.$inferSelect;
+
+export const premiumInsights = pgTable("premium_insights", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  source: text("source").notNull(), // axtask | nodeweaver | bundle
+  insightType: text("insight_type").notNull(), // confidence_drift | overdue_cluster | digest
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  status: text("status").notNull().default("open"), // open | resolved
+  severity: text("severity").notNull().default("medium"),
+  metadataJson: text("metadata_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+}, (table) => [
+  index("idx_premium_insights_user").on(table.userId),
+  index("idx_premium_insights_status").on(table.userId, table.status),
+  index("idx_premium_insights_source").on(table.source),
+]);
+
+export type PremiumInsight = typeof premiumInsights.$inferSelect;
+
+export const premiumEvents = pgTable("premium_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  eventName: text("event_name").notNull(),
+  product: text("product").notNull(),
+  planKey: text("plan_key"),
+  metadataJson: text("metadata_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_premium_events_name").on(table.eventName),
+  index("idx_premium_events_user").on(table.userId),
+  index("idx_premium_events_created").on(table.createdAt),
+]);
+
+export type PremiumEvent = typeof premiumEvents.$inferSelect;
+
+export const createPremiumSavedViewSchema = createInsertSchema(premiumSavedViews).omit({
+  id: true,
+  userId: true,
+  isDefault: true,
+  lastOpenedAt: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: z.string().min(2).max(120),
+  filtersJson: z.string().min(2).max(4000),
+  autoRefreshMinutes: z.number().int().min(1).max(1440).default(15),
+});
+
+export const createPremiumReviewWorkflowSchema = createInsertSchema(premiumReviewWorkflows).omit({
+  id: true,
+  userId: true,
+  lastRunAt: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: z.string().min(2).max(120),
+  cadence: z.enum(["daily", "weekly", "monthly"]).default("weekly"),
+  criteriaJson: z.string().min(2).max(4000),
+  templateJson: z.string().min(2).max(4000),
+  isActive: z.boolean().default(true),
+});

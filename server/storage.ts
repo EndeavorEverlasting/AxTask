@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, idempotencyKeys, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, idempotencyKeys, premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent, type PremiumSubscription, type PremiumSavedView, type PremiumReviewWorkflow, type PremiumInsight, type PremiumEvent } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -1693,4 +1693,472 @@ export async function ensureIdempotencyKey(key: string, route: string, userId?: 
     userId: userId || null,
   });
   return { fresh: true };
+}
+
+// ─── Premium + Retention Layer ───────────────────────────────────────────────
+export const PREMIUM_CATALOG = {
+  assumptions: {
+    currency: "USD",
+    billingCadence: ["monthly", "yearly"],
+    defaultGraceDays: 14,
+    objective: "retention",
+  },
+  plans: [
+    {
+      product: "axtask",
+      planKey: "axtask_pro_monthly",
+      monthlyPriceUsd: 12,
+      features: ["saved_smart_views", "review_workflows", "weekly_digest"],
+    },
+    {
+      product: "nodeweaver",
+      planKey: "nodeweaver_pro_monthly",
+      monthlyPriceUsd: 19,
+      features: ["classification_history_replay", "confidence_drift_alerts", "weekly_digest"],
+    },
+    {
+      product: "bundle",
+      planKey: "power_bundle_monthly",
+      monthlyPriceUsd: 25,
+      features: [
+        "saved_smart_views",
+        "review_workflows",
+        "classification_history_replay",
+        "confidence_drift_alerts",
+        "bundle_auto_reprioritize",
+        "cross_product_digest",
+      ],
+      discountPercentVsSeparate: 19,
+    },
+  ],
+} as const;
+
+export type PremiumEntitlements = {
+  userId: string;
+  planKeys: string[];
+  products: string[];
+  inGracePeriod: boolean;
+  graceUntil: Date | null;
+  features: string[];
+};
+
+const PREMIUM_FEATURE_MATRIX: Record<string, string[]> = {
+  axtask_pro_monthly: ["saved_smart_views", "review_workflows", "weekly_digest"],
+  axtask_pro_yearly: ["saved_smart_views", "review_workflows", "weekly_digest"],
+  nodeweaver_pro_monthly: ["classification_history_replay", "confidence_drift_alerts", "weekly_digest"],
+  nodeweaver_pro_yearly: ["classification_history_replay", "confidence_drift_alerts", "weekly_digest"],
+  power_bundle_monthly: [
+    "saved_smart_views",
+    "review_workflows",
+    "weekly_digest",
+    "classification_history_replay",
+    "confidence_drift_alerts",
+    "bundle_auto_reprioritize",
+    "cross_product_digest",
+  ],
+  power_bundle_yearly: [
+    "saved_smart_views",
+    "review_workflows",
+    "weekly_digest",
+    "classification_history_replay",
+    "confidence_drift_alerts",
+    "bundle_auto_reprioritize",
+    "cross_product_digest",
+  ],
+};
+
+export async function trackPremiumEvent(input: {
+  userId?: string;
+  eventName: string;
+  product: string;
+  planKey?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<PremiumEvent> {
+  const [event] = await db.insert(premiumEvents).values({
+    id: randomUUID(),
+    userId: input.userId || null,
+    eventName: input.eventName,
+    product: input.product,
+    planKey: input.planKey || null,
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
+  }).returning();
+  return event;
+}
+
+export async function listPremiumSubscriptions(userId: string): Promise<PremiumSubscription[]> {
+  return db.select()
+    .from(premiumSubscriptions)
+    .where(eq(premiumSubscriptions.userId, userId))
+    .orderBy(desc(premiumSubscriptions.updatedAt));
+}
+
+export async function getPremiumEntitlements(userId: string): Promise<PremiumEntitlements> {
+  const subs = await listPremiumSubscriptions(userId);
+  const now = new Date();
+  const activeOrGrace = subs.filter((sub) => {
+    if (sub.status === "active") return true;
+    if (sub.status === "grace" && sub.graceUntil && new Date(sub.graceUntil) > now) return true;
+    return false;
+  });
+
+  const planKeys = activeOrGrace.map((s) => s.planKey);
+  const products = Array.from(new Set(activeOrGrace.map((s) => s.product)));
+  const features = Array.from(new Set(planKeys.flatMap((k) => PREMIUM_FEATURE_MATRIX[k] || [])));
+  const graceRows = activeOrGrace.filter((s) => s.status === "grace" && s.graceUntil).sort((a, b) => {
+    const aTime = a.graceUntil ? new Date(a.graceUntil).getTime() : 0;
+    const bTime = b.graceUntil ? new Date(b.graceUntil).getTime() : 0;
+    return bTime - aTime;
+  });
+
+  return {
+    userId,
+    planKeys,
+    products,
+    features,
+    inGracePeriod: graceRows.length > 0,
+    graceUntil: graceRows[0]?.graceUntil || null,
+  };
+}
+
+export async function upsertPremiumSubscription(input: {
+  userId: string;
+  product: "axtask" | "nodeweaver" | "bundle";
+  planKey: string;
+  status: "active" | "grace" | "inactive";
+  graceUntil?: Date | null;
+  metadata?: Record<string, unknown>;
+}): Promise<PremiumSubscription> {
+  const [existing] = await db.select().from(premiumSubscriptions).where(and(
+    eq(premiumSubscriptions.userId, input.userId),
+    eq(premiumSubscriptions.product, input.product),
+    eq(premiumSubscriptions.planKey, input.planKey),
+  ));
+  if (existing) {
+    const [updated] = await db.update(premiumSubscriptions).set({
+      status: input.status,
+      graceUntil: input.graceUntil || null,
+      reactivatedAt: input.status === "active" ? new Date() : existing.reactivatedAt,
+      metadataJson: input.metadata ? JSON.stringify(input.metadata) : existing.metadataJson,
+      updatedAt: new Date(),
+    }).where(eq(premiumSubscriptions.id, existing.id)).returning();
+    return updated;
+  }
+  const [created] = await db.insert(premiumSubscriptions).values({
+    id: randomUUID(),
+    userId: input.userId,
+    product: input.product,
+    planKey: input.planKey,
+    status: input.status,
+    graceUntil: input.graceUntil || null,
+    downgradedAt: input.status === "grace" ? new Date() : null,
+    reactivatedAt: input.status === "active" ? new Date() : null,
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
+  }).returning();
+  return created;
+}
+
+export async function downgradePremiumToGrace(userId: string, product: "axtask" | "nodeweaver" | "bundle", days = 14): Promise<PremiumSubscription | null> {
+  const [existing] = await db.select().from(premiumSubscriptions).where(and(
+    eq(premiumSubscriptions.userId, userId),
+    eq(premiumSubscriptions.product, product),
+    or(eq(premiumSubscriptions.status, "active"), eq(premiumSubscriptions.status, "grace")),
+  )).orderBy(desc(premiumSubscriptions.updatedAt)).limit(1);
+
+  if (!existing) return null;
+  const graceUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  const [updated] = await db.update(premiumSubscriptions).set({
+    status: "grace",
+    graceUntil,
+    downgradedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(premiumSubscriptions.id, existing.id)).returning();
+  await trackPremiumEvent({
+    userId,
+    eventName: "premium_downgrade_grace_started",
+    product,
+    planKey: updated.planKey,
+    metadata: { graceDays: days, graceUntil: graceUntil.toISOString() },
+  });
+  return updated;
+}
+
+export async function reactivatePremium(userId: string, product: "axtask" | "nodeweaver" | "bundle"): Promise<PremiumSubscription | null> {
+  const [existing] = await db.select().from(premiumSubscriptions).where(and(
+    eq(premiumSubscriptions.userId, userId),
+    eq(premiumSubscriptions.product, product),
+  )).orderBy(desc(premiumSubscriptions.updatedAt)).limit(1);
+  if (!existing) return null;
+  const [updated] = await db.update(premiumSubscriptions).set({
+    status: "active",
+    graceUntil: null,
+    reactivatedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(premiumSubscriptions.id, existing.id)).returning();
+  await trackPremiumEvent({
+    userId,
+    eventName: "premium_reactivated",
+    product,
+    planKey: updated.planKey,
+  });
+  return updated;
+}
+
+export async function listPremiumSavedViews(userId: string): Promise<PremiumSavedView[]> {
+  return db.select().from(premiumSavedViews).where(eq(premiumSavedViews.userId, userId)).orderBy(desc(premiumSavedViews.updatedAt));
+}
+
+export async function createPremiumSavedView(input: {
+  userId: string;
+  name: string;
+  filtersJson: string;
+  autoRefreshMinutes?: number;
+}): Promise<PremiumSavedView> {
+  const [view] = await db.insert(premiumSavedViews).values({
+    id: randomUUID(),
+    userId: input.userId,
+    name: input.name,
+    filtersJson: input.filtersJson,
+    autoRefreshMinutes: input.autoRefreshMinutes ?? 15,
+  }).returning();
+  await trackPremiumEvent({
+    userId: input.userId,
+    eventName: "premium_saved_view_created",
+    product: "axtask",
+    metadata: { savedViewId: view.id },
+  });
+  return view;
+}
+
+export async function updatePremiumSavedView(input: {
+  userId: string;
+  id: string;
+  name?: string;
+  filtersJson?: string;
+  autoRefreshMinutes?: number;
+  lastOpenedAt?: Date;
+}): Promise<PremiumSavedView | undefined> {
+  const [view] = await db.update(premiumSavedViews).set({
+    name: input.name,
+    filtersJson: input.filtersJson,
+    autoRefreshMinutes: input.autoRefreshMinutes,
+    lastOpenedAt: input.lastOpenedAt,
+    updatedAt: new Date(),
+  }).where(and(eq(premiumSavedViews.id, input.id), eq(premiumSavedViews.userId, input.userId))).returning();
+  return view;
+}
+
+export async function deletePremiumSavedView(userId: string, id: string): Promise<boolean> {
+  const result = await db.delete(premiumSavedViews).where(and(
+    eq(premiumSavedViews.id, id),
+    eq(premiumSavedViews.userId, userId),
+  ));
+  return (result.rowCount || 0) > 0;
+}
+
+export async function setDefaultPremiumSavedView(userId: string, id: string): Promise<void> {
+  await db.update(premiumSavedViews).set({ isDefault: false, updatedAt: new Date() }).where(eq(premiumSavedViews.userId, userId));
+  await db.update(premiumSavedViews).set({ isDefault: true, updatedAt: new Date() }).where(and(
+    eq(premiumSavedViews.userId, userId),
+    eq(premiumSavedViews.id, id),
+  ));
+  await trackPremiumEvent({
+    userId,
+    eventName: "premium_saved_view_default_set",
+    product: "axtask",
+    metadata: { savedViewId: id },
+  });
+}
+
+export async function listPremiumReviewWorkflows(userId: string): Promise<PremiumReviewWorkflow[]> {
+  return db.select().from(premiumReviewWorkflows).where(eq(premiumReviewWorkflows.userId, userId)).orderBy(desc(premiumReviewWorkflows.updatedAt));
+}
+
+export async function createPremiumReviewWorkflow(input: {
+  userId: string;
+  name: string;
+  cadence: "daily" | "weekly" | "monthly";
+  criteriaJson: string;
+  templateJson: string;
+  isActive?: boolean;
+}): Promise<PremiumReviewWorkflow> {
+  const [workflow] = await db.insert(premiumReviewWorkflows).values({
+    id: randomUUID(),
+    userId: input.userId,
+    name: input.name,
+    cadence: input.cadence,
+    criteriaJson: input.criteriaJson,
+    templateJson: input.templateJson,
+    isActive: input.isActive ?? true,
+  }).returning();
+  await trackPremiumEvent({
+    userId: input.userId,
+    eventName: "premium_review_workflow_created",
+    product: "axtask",
+    metadata: { workflowId: workflow.id, cadence: workflow.cadence },
+  });
+  return workflow;
+}
+
+export async function updatePremiumReviewWorkflow(input: {
+  userId: string;
+  id: string;
+  name?: string;
+  cadence?: "daily" | "weekly" | "monthly";
+  criteriaJson?: string;
+  templateJson?: string;
+  isActive?: boolean;
+}): Promise<PremiumReviewWorkflow | undefined> {
+  const [workflow] = await db.update(premiumReviewWorkflows).set({
+    name: input.name,
+    cadence: input.cadence,
+    criteriaJson: input.criteriaJson,
+    templateJson: input.templateJson,
+    isActive: input.isActive,
+    updatedAt: new Date(),
+  }).where(and(eq(premiumReviewWorkflows.id, input.id), eq(premiumReviewWorkflows.userId, input.userId))).returning();
+  return workflow;
+}
+
+export async function deletePremiumReviewWorkflow(userId: string, id: string): Promise<boolean> {
+  const result = await db.delete(premiumReviewWorkflows).where(and(
+    eq(premiumReviewWorkflows.id, id),
+    eq(premiumReviewWorkflows.userId, userId),
+  ));
+  return (result.rowCount || 0) > 0;
+}
+
+export async function markPremiumReviewWorkflowRun(userId: string, id: string): Promise<PremiumReviewWorkflow | undefined> {
+  const [workflow] = await db.update(premiumReviewWorkflows).set({
+    lastRunAt: new Date(),
+    updatedAt: new Date(),
+  }).where(and(eq(premiumReviewWorkflows.id, id), eq(premiumReviewWorkflows.userId, userId))).returning();
+  if (workflow) {
+    await trackPremiumEvent({
+      userId,
+      eventName: "premium_review_workflow_run",
+      product: "axtask",
+      metadata: { workflowId: id },
+    });
+  }
+  return workflow;
+}
+
+export async function createPremiumInsight(input: {
+  userId: string;
+  source: "axtask" | "nodeweaver" | "bundle";
+  insightType: string;
+  title: string;
+  body: string;
+  severity?: "low" | "medium" | "high" | "critical";
+  metadata?: Record<string, unknown>;
+}): Promise<PremiumInsight> {
+  const [insight] = await db.insert(premiumInsights).values({
+    id: randomUUID(),
+    userId: input.userId,
+    source: input.source,
+    insightType: input.insightType,
+    title: input.title,
+    body: input.body,
+    severity: input.severity || "medium",
+    status: "open",
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
+  }).returning();
+  return insight;
+}
+
+export async function listPremiumInsights(userId: string, status?: "open" | "resolved"): Promise<PremiumInsight[]> {
+  if (status) {
+    return db.select().from(premiumInsights).where(and(
+      eq(premiumInsights.userId, userId),
+      eq(premiumInsights.status, status),
+    )).orderBy(desc(premiumInsights.createdAt));
+  }
+  return db.select().from(premiumInsights).where(eq(premiumInsights.userId, userId)).orderBy(desc(premiumInsights.createdAt));
+}
+
+export async function resolvePremiumInsight(userId: string, insightId: string): Promise<PremiumInsight | undefined> {
+  const [insight] = await db.update(premiumInsights).set({
+    status: "resolved",
+    resolvedAt: new Date(),
+  }).where(and(eq(premiumInsights.id, insightId), eq(premiumInsights.userId, userId))).returning();
+  return insight;
+}
+
+export async function buildWeeklyPremiumDigest(userId: string): Promise<{
+  generatedAt: string;
+  taskSummary: {
+    total: number;
+    completed: number;
+    overdue: number;
+    highPriorityOpen: number;
+  };
+  insightsOpen: number;
+  recommendations: string[];
+}> {
+  const allTasks = await storage.getTasks(userId);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const completed = allTasks.filter((task) => task.status === "completed").length;
+  const overdue = allTasks.filter((task) => task.status !== "completed" && task.date < today).length;
+  const highPriorityOpen = allTasks.filter((task) =>
+    task.status !== "completed" && (task.priority === "High" || task.priority === "Highest"),
+  ).length;
+  const openInsights = await listPremiumInsights(userId, "open");
+
+  const recommendations: string[] = [];
+  if (overdue > 0) recommendations.push(`Clear ${overdue} overdue tasks using a weekly review workflow.`);
+  if (highPriorityOpen > 0) recommendations.push(`Focus top ${Math.min(highPriorityOpen, 5)} high-priority tasks first.`);
+  if (openInsights.length > 0) recommendations.push(`Resolve ${openInsights.length} premium insights to improve consistency.`);
+  if (recommendations.length === 0) recommendations.push("Momentum is healthy. Keep the current execution cadence.");
+
+  return {
+    generatedAt: now.toISOString(),
+    taskSummary: {
+      total: allTasks.length,
+      completed,
+      overdue,
+      highPriorityOpen,
+    },
+    insightsOpen: openInsights.length,
+    recommendations,
+  };
+}
+
+export async function getPremiumRetentionMetrics(days = 30): Promise<{
+  windowDays: number;
+  totals: {
+    activePremiumUsers: number;
+    graceUsers: number;
+    weeklyDigestRuns: number;
+    savedViewEvents: number;
+    workflowRunEvents: number;
+  };
+}> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const [activeRows, graceRows, digestRows, savedViewRows, workflowRows] = await Promise.all([
+    db.select({ value: count() }).from(premiumSubscriptions).where(eq(premiumSubscriptions.status, "active")),
+    db.select({ value: count() }).from(premiumSubscriptions).where(eq(premiumSubscriptions.status, "grace")),
+    db.select({ value: count() }).from(premiumEvents).where(and(
+      eq(premiumEvents.eventName, "premium_weekly_digest_generated"),
+      sql`${premiumEvents.createdAt} >= ${since}`,
+    )),
+    db.select({ value: count() }).from(premiumEvents).where(and(
+      eq(premiumEvents.eventName, "premium_saved_view_created"),
+      sql`${premiumEvents.createdAt} >= ${since}`,
+    )),
+    db.select({ value: count() }).from(premiumEvents).where(and(
+      eq(premiumEvents.eventName, "premium_review_workflow_run"),
+      sql`${premiumEvents.createdAt} >= ${since}`,
+    )),
+  ]);
+  return {
+    windowDays: days,
+    totals: {
+      activePremiumUsers: Number(activeRows[0]?.value) || 0,
+      graceUsers: Number(graceRows[0]?.value) || 0,
+      weeklyDigestRuns: Number(digestRows[0]?.value) || 0,
+      savedViewEvents: Number(savedViewRows[0]?.value) || 0,
+      workflowRunEvents: Number(workflowRows[0]?.value) || 0,
+    },
+  };
 }

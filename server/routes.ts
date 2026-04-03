@@ -20,10 +20,32 @@ import {
   listFeedbackInbox,
   getFeedbackInsightsForUser,
   getFeedbackInsightsGlobal,
+  PREMIUM_CATALOG,
+  getPremiumEntitlements,
+  listPremiumSubscriptions,
+  upsertPremiumSubscription,
+  downgradePremiumToGrace,
+  reactivatePremium,
+  listPremiumSavedViews,
+  createPremiumSavedView,
+  updatePremiumSavedView,
+  deletePremiumSavedView,
+  setDefaultPremiumSavedView,
+  listPremiumReviewWorkflows,
+  createPremiumReviewWorkflow,
+  updatePremiumReviewWorkflow,
+  deletePremiumReviewWorkflow,
+  markPremiumReviewWorkflowRun,
+  createPremiumInsight,
+  listPremiumInsights,
+  resolvePremiumInsight,
+  buildWeeklyPremiumDigest,
+  trackPremiumEvent,
+  getPremiumRetentionMetrics,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, type UpdateTask, type Task } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, type UpdateTask, type Task } from "@shared/schema";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
@@ -82,6 +104,33 @@ function buildAttachmentStorageKey(userId: string, assetId: string, fileName?: s
 async function classifyTaskWithFallback(activity: string, notes: string, preferExternal = true): Promise<string> {
   const result = await classifyWithFallback(activity, notes, { preferExternal });
   return result.classification;
+}
+
+function hasFeature(entitlements: { features: string[] }, feature: string): boolean {
+  return entitlements.features.includes(feature);
+}
+
+async function callNodeWeaverBatchClassify(items: Array<{ id: string; activity: string; notes?: string }>) {
+  const baseUrl = process.env.NODEWEAVER_URL;
+  if (!baseUrl) {
+    throw new Error("NODEWEAVER_URL is not configured");
+  }
+  const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/v1/classify/batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tasks: items.map((item) => ({
+        activity: item.activity,
+        notes: item.notes || "",
+        metadata: { classification_profile: "axtask" },
+      })),
+      metadata: { classification_profile: "axtask" },
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`NodeWeaver classify failed with status ${response.status}`);
+  }
+  return response.json();
 }
 
 function toIsoDate(date: Date): string {
@@ -635,6 +684,434 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       res.status(500).json({ message: "Failed to check security question status" });
     }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Premium routes (protected)
+  // ════════════════════════════════════════════════════════════════════════
+  const premiumApiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: userOrIpKey,
+    message: { message: "Too many premium requests — slow down" },
+  });
+  app.use("/api/premium", premiumApiLimiter);
+  const premiumFeatureFlags: Record<string, boolean> = {
+    saved_smart_views: process.env.PREMIUM_FLAG_SAVED_VIEWS !== "false",
+    review_workflows: process.env.PREMIUM_FLAG_REVIEW_WORKFLOWS !== "false",
+    weekly_digest: process.env.PREMIUM_FLAG_WEEKLY_DIGEST !== "false",
+    classification_history_replay: process.env.PREMIUM_FLAG_CLASSIFICATION_REPLAY !== "false",
+    confidence_drift_alerts: process.env.PREMIUM_FLAG_CONFIDENCE_DRIFT !== "false",
+    bundle_auto_reprioritize: process.env.PREMIUM_FLAG_BUNDLE_AUTOMATION !== "false",
+    cross_product_digest: process.env.PREMIUM_FLAG_CROSS_PRODUCT_DIGEST !== "false",
+  };
+
+  async function requirePremiumFeature(
+    req: Request,
+    res: Response,
+    next: () => any,
+    feature: string,
+    writeOperation = false,
+  ) {
+    try {
+      const entitlements = await getPremiumEntitlements(req.user!.id);
+      if (premiumFeatureFlags[feature] === false) {
+        return res.status(503).json({
+          message: "Premium feature is currently disabled by feature flag",
+          feature,
+        });
+      }
+      if (!hasFeature(entitlements, feature)) {
+        return res.status(402).json({
+          message: "Premium feature required",
+          requiredFeature: feature,
+          entitlements,
+        });
+      }
+      if (writeOperation && entitlements.inGracePeriod) {
+        return res.status(409).json({
+          message: "Premium plan is in grace mode. This feature is read-only until reactivated.",
+          graceUntil: entitlements.graceUntil,
+        });
+      }
+      (req as any).premiumEntitlements = entitlements;
+      return next();
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to resolve premium entitlements" });
+    }
+  }
+
+  app.get("/api/premium/catalog", requireAuth, async (_req, res) => {
+    res.json(PREMIUM_CATALOG);
+  });
+
+  app.get("/api/premium/entitlements", requireAuth, async (req, res) => {
+    try {
+      const [entitlements, subscriptions] = await Promise.all([
+        getPremiumEntitlements(req.user!.id),
+        listPremiumSubscriptions(req.user!.id),
+      ]);
+      res.json({ entitlements, subscriptions });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch premium entitlements" });
+    }
+  });
+
+  app.post("/api/premium/subscriptions/activate", requireAuth, async (req, res) => {
+    try {
+      const payload = z.object({
+        product: z.enum(["axtask", "nodeweaver", "bundle"]),
+        planKey: z.string().min(3).max(120),
+      }).parse(req.body || {});
+      const subscription = await upsertPremiumSubscription({
+        userId: req.user!.id,
+        product: payload.product,
+        planKey: payload.planKey,
+        status: "active",
+      });
+      await trackPremiumEvent({
+        userId: req.user!.id,
+        eventName: "premium_subscription_activated",
+        product: payload.product,
+        planKey: payload.planKey,
+      });
+      res.status(201).json(subscription);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to activate premium subscription" });
+    }
+  });
+
+  app.post("/api/premium/subscriptions/downgrade", requireAuth, async (req, res) => {
+    try {
+      const payload = z.object({
+        product: z.enum(["axtask", "nodeweaver", "bundle"]),
+        graceDays: z.number().int().min(1).max(30).default(14),
+      }).parse(req.body || {});
+      const updated = await downgradePremiumToGrace(req.user!.id, payload.product, payload.graceDays);
+      if (!updated) return res.status(404).json({ message: "No active subscription found for this product" });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to start grace mode" });
+    }
+  });
+
+  app.post("/api/premium/subscriptions/reactivate", requireAuth, async (req, res) => {
+    try {
+      const payload = z.object({
+        product: z.enum(["axtask", "nodeweaver", "bundle"]),
+      }).parse(req.body || {});
+      const updated = await reactivatePremium(req.user!.id, payload.product);
+      if (!updated) return res.status(404).json({ message: "Subscription not found" });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to reactivate subscription" });
+    }
+  });
+
+  app.get("/api/premium/saved-views", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const views = await listPremiumSavedViews(req.user!.id);
+      res.json(views);
+    }, "saved_smart_views", true);
+  });
+
+  app.post("/api/premium/saved-views", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const payload = createPremiumSavedViewSchema.parse(req.body || {});
+      const view = await createPremiumSavedView({
+        userId: req.user!.id,
+        name: payload.name,
+        filtersJson: payload.filtersJson,
+        autoRefreshMinutes: payload.autoRefreshMinutes,
+      });
+      res.status(201).json(view);
+    }, "saved_smart_views", true);
+  });
+
+  app.put("/api/premium/saved-views/:id", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const payload = z.object({
+        name: z.string().min(2).max(120).optional(),
+        filtersJson: z.string().min(2).max(4000).optional(),
+        autoRefreshMinutes: z.number().int().min(1).max(1440).optional(),
+        lastOpenedAt: z.string().datetime().optional(),
+      }).parse(req.body || {});
+      const view = await updatePremiumSavedView({
+        userId: req.user!.id,
+        id: req.params.id,
+        name: payload.name,
+        filtersJson: payload.filtersJson,
+        autoRefreshMinutes: payload.autoRefreshMinutes,
+        lastOpenedAt: payload.lastOpenedAt ? new Date(payload.lastOpenedAt) : undefined,
+      });
+      if (!view) return res.status(404).json({ message: "Saved view not found" });
+      res.json(view);
+    }, "saved_smart_views", true);
+  });
+
+  app.delete("/api/premium/saved-views/:id", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const deleted = await deletePremiumSavedView(req.user!.id, req.params.id);
+      if (!deleted) return res.status(404).json({ message: "Saved view not found" });
+      res.status(204).send();
+    }, "saved_smart_views", true);
+  });
+
+  app.post("/api/premium/saved-views/:id/default", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      await setDefaultPremiumSavedView(req.user!.id, req.params.id);
+      res.json({ message: "Default saved view updated" });
+    }, "saved_smart_views");
+  });
+
+  app.get("/api/premium/review-workflows", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const workflows = await listPremiumReviewWorkflows(req.user!.id);
+      res.json(workflows);
+    }, "review_workflows", true);
+  });
+
+  app.post("/api/premium/review-workflows", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const payload = createPremiumReviewWorkflowSchema.parse(req.body || {});
+      const workflow = await createPremiumReviewWorkflow({
+        userId: req.user!.id,
+        name: payload.name,
+        cadence: payload.cadence as "daily" | "weekly" | "monthly",
+        criteriaJson: payload.criteriaJson,
+        templateJson: payload.templateJson,
+        isActive: payload.isActive,
+      });
+      res.status(201).json(workflow);
+    }, "review_workflows", true);
+  });
+
+  app.put("/api/premium/review-workflows/:id", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const payload = z.object({
+        name: z.string().min(2).max(120).optional(),
+        cadence: z.enum(["daily", "weekly", "monthly"]).optional(),
+        criteriaJson: z.string().min(2).max(4000).optional(),
+        templateJson: z.string().min(2).max(4000).optional(),
+        isActive: z.boolean().optional(),
+      }).parse(req.body || {});
+      const workflow = await updatePremiumReviewWorkflow({
+        userId: req.user!.id,
+        id: req.params.id,
+        name: payload.name,
+        cadence: payload.cadence,
+        criteriaJson: payload.criteriaJson,
+        templateJson: payload.templateJson,
+        isActive: payload.isActive,
+      });
+      if (!workflow) return res.status(404).json({ message: "Workflow not found" });
+      res.json(workflow);
+    }, "review_workflows", true);
+  });
+
+  app.delete("/api/premium/review-workflows/:id", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const deleted = await deletePremiumReviewWorkflow(req.user!.id, req.params.id);
+      if (!deleted) return res.status(404).json({ message: "Workflow not found" });
+      res.status(204).send();
+    }, "review_workflows", true);
+  });
+
+  app.post("/api/premium/review-workflows/:id/run", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const workflow = await markPremiumReviewWorkflowRun(req.user!.id, req.params.id);
+      if (!workflow) return res.status(404).json({ message: "Workflow not found" });
+      const allTasks = await storage.getTasks(req.user!.id);
+      const pending = allTasks.filter((task) => task.status !== "completed");
+      const overdue = pending.filter((task) => task.date < new Date().toISOString().slice(0, 10));
+      const highest = pending.filter((task) => task.priority === "Highest" || task.priority === "High");
+      res.json({
+        workflow,
+        summary: {
+          pending: pending.length,
+          overdue: overdue.length,
+          highPriorityOpen: highest.length,
+        },
+      });
+    }, "review_workflows");
+  });
+
+  app.get("/api/premium/insights", requireAuth, async (req, res) => {
+    try {
+      const status = req.query.status === "resolved" ? "resolved" : req.query.status === "open" ? "open" : undefined;
+      const insights = await listPremiumInsights(req.user!.id, status);
+      res.json(insights);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch premium insights" });
+    }
+  });
+
+  app.post("/api/premium/insights", requireAuth, async (req, res) => {
+    try {
+      const payload = z.object({
+        source: z.enum(["axtask", "nodeweaver", "bundle"]),
+        insightType: z.string().min(2).max(120),
+        title: z.string().min(2).max(200),
+        body: z.string().min(2).max(5000),
+        severity: z.enum(["low", "medium", "high", "critical"]).default("medium"),
+        metadata: z.record(z.unknown()).optional(),
+      }).parse(req.body || {});
+      const insight = await createPremiumInsight({
+        userId: req.user!.id,
+        source: payload.source,
+        insightType: payload.insightType,
+        title: payload.title,
+        body: payload.body,
+        severity: payload.severity,
+        metadata: payload.metadata,
+      });
+      res.status(201).json(insight);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to create premium insight" });
+    }
+  });
+
+  app.post("/api/premium/insights/:id/resolve", requireAuth, async (req, res) => {
+    try {
+      const insight = await resolvePremiumInsight(req.user!.id, req.params.id);
+      if (!insight) return res.status(404).json({ message: "Insight not found" });
+      res.json(insight);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to resolve insight" });
+    }
+  });
+
+  app.get("/api/premium/reactivation-prompts", requireAuth, async (req, res) => {
+    try {
+      const [entitlements, openInsights] = await Promise.all([
+        getPremiumEntitlements(req.user!.id),
+        listPremiumInsights(req.user!.id, "open"),
+      ]);
+      if (!entitlements.inGracePeriod) {
+        return res.json({ inGracePeriod: false, prompts: [] });
+      }
+      const prompts = [
+        openInsights.length > 0 ? `You still have ${openInsights.length} unresolved premium insights.` : null,
+        entitlements.graceUntil ? `Grace access ends on ${new Date(entitlements.graceUntil).toISOString().slice(0, 10)}.` : null,
+        "Reactivate now to keep write access to premium workflows and automations.",
+      ].filter(Boolean);
+      res.json({
+        inGracePeriod: true,
+        graceUntil: entitlements.graceUntil,
+        prompts,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to build reactivation prompts" });
+    }
+  });
+
+  app.post("/api/premium/digests/weekly", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const digest = await buildWeeklyPremiumDigest(req.user!.id);
+      await trackPremiumEvent({
+        userId: req.user!.id,
+        eventName: "premium_weekly_digest_generated",
+        product: "axtask",
+        metadata: { generatedAt: digest.generatedAt },
+      });
+      res.json(digest);
+    }, "weekly_digest");
+  });
+
+  app.post("/api/premium/bundle/reclassify-backlog", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const allTasks = await storage.getTasks(req.user!.id);
+      const pending = allTasks.filter((task) => task.status !== "completed").slice(0, 100);
+      if (pending.length === 0) {
+        return res.json({ message: "No pending tasks to reclassify", updated: 0 });
+      }
+      const batchResponse = await callNodeWeaverBatchClassify(
+        pending.map((task) => ({ id: task.id, activity: task.activity, notes: task.notes || "" })),
+      );
+      const results = Array.isArray(batchResponse?.results) ? batchResponse.results : [];
+      const updates: UpdateTask[] = [];
+      for (let i = 0; i < pending.length; i++) {
+        const result = results[i];
+        const category = typeof result?.predicted_category === "string" ? result.predicted_category : undefined;
+        const confidence = typeof result?.confidence_score === "number" ? result.confidence_score : undefined;
+        if (!category) continue;
+        updates.push({
+          id: pending[i].id,
+          classification: category,
+          priority: confidence !== undefined && confidence < 0.45 ? "High" : pending[i].priority,
+          priorityScore: confidence !== undefined && confidence < 0.45
+            ? Math.max(pending[i].priorityScore || 0, 70)
+            : pending[i].priorityScore || 0,
+        });
+        if (confidence !== undefined && confidence < 0.45) {
+          await createPremiumInsight({
+            userId: req.user!.id,
+            source: "bundle",
+            insightType: "confidence_drift",
+            title: "Low confidence classification detected",
+            body: `Task "${pending[i].activity}" dropped below confidence threshold (${confidence.toFixed(2)}).`,
+            severity: "high",
+            metadata: { taskId: pending[i].id, confidence },
+          });
+        }
+      }
+      await storage.bulkUpdateTasks(req.user!.id, updates);
+      await trackPremiumEvent({
+        userId: req.user!.id,
+        eventName: "bundle_backlog_reclassified",
+        product: "bundle",
+        planKey: "power_bundle_monthly",
+        metadata: { scanned: pending.length, updated: updates.length },
+      });
+      res.json({ scanned: pending.length, updated: updates.length });
+    }, "bundle_auto_reprioritize", true);
+  });
+
+  app.post("/api/premium/bundle/auto-reprioritize", requireAuth, async (req, res) => {
+    await requirePremiumFeature(req, res, async () => {
+      const body = z.object({
+        lowConfidenceThreshold: z.number().min(0.1).max(0.9).default(0.45),
+      }).parse(req.body || {});
+      const allTasks = await storage.getTasks(req.user!.id);
+      const pending = allTasks.filter((task) => task.status !== "completed").slice(0, 100);
+      const batchResponse = await callNodeWeaverBatchClassify(
+        pending.map((task) => ({ id: task.id, activity: task.activity, notes: task.notes || "" })),
+      );
+      const results = Array.isArray(batchResponse?.results) ? batchResponse.results : [];
+      const updates: UpdateTask[] = [];
+
+      for (let i = 0; i < pending.length; i++) {
+        const confidence = Number(results[i]?.confidence_score);
+        if (!Number.isFinite(confidence) || confidence >= body.lowConfidenceThreshold) continue;
+        updates.push({
+          id: pending[i].id,
+          priority: "High",
+          priorityScore: Math.max(pending[i].priorityScore || 0, 75),
+        });
+      }
+      await storage.bulkUpdateTasks(req.user!.id, updates);
+      await trackPremiumEvent({
+        userId: req.user!.id,
+        eventName: "bundle_auto_reprioritize_run",
+        product: "bundle",
+        metadata: {
+          scanned: pending.length,
+          reprioritized: updates.length,
+          threshold: body.lowConfidenceThreshold,
+        },
+      });
+      res.json({
+        scanned: pending.length,
+        reprioritized: updates.length,
+        threshold: body.lowConfidenceThreshold,
+      });
+    }, "bundle_auto_reprioritize", true);
   });
 
   // ════════════════════════════════════════════════════════════════════════
@@ -2400,6 +2877,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(usage);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch usage overview" });
+    }
+  });
+
+  app.get("/api/admin/premium/retention", requireAdmin, async (req, res) => {
+    try {
+      const days = Math.min(Math.max(Number(req.query.days || 30), 7), 180);
+      const metrics = await getPremiumRetentionMetrics(days);
+      res.json(metrics);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch premium retention metrics" });
     }
   });
 

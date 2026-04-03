@@ -24,6 +24,7 @@ import ChecklistPage from "@/pages/checklist";
 import PlannerPage from "@/pages/planner";
 import AdminPage from "@/pages/admin";
 import RewardsPage from "@/pages/rewards";
+import PremiumPage from "@/pages/premium";
 import FeedbackPage from "@/pages/feedback";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
@@ -43,6 +44,7 @@ function Router() {
       <Route path="/feedback" component={FeedbackPage} />
       <Route path="/admin" component={AdminPage} />
       <Route path="/rewards" component={RewardsPage} />
+      <Route path="/premium" component={PremiumPage} />
       <Route component={NotFound} />
     </Switch>
   );

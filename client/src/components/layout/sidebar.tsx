@@ -24,6 +24,7 @@ import {
   ShoppingBag,
   MessageSquare,
   PlusCircle,
+  Crown,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -72,6 +73,7 @@ export function Sidebar() {
     { path: "/calendar", icon: CalendarDays, label: "Calendar" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
     { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
+    { path: "/premium", icon: Crown, label: "Premium" },
     { path: "/feedback", icon: MessageSquare, label: "Feedback" },
     { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },
