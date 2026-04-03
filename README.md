@@ -141,7 +141,7 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run db:push` - Sync database schema
-- `npm run test` - Run unit/integration tests
+- `npm run test` - Run the full compendium of unit/integration/sweep tests (includes local login and Docker workflow guardrails)
 - `npm run check` - Run TypeScript checks
 
 ### Auto-sync dependencies after pull
