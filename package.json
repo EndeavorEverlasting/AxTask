@@ -11,6 +11,7 @@
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "cross-env NODE_ENV=production node dist/index.js",
     "check": "tsc",
+    "security:node-runtime-guard": "node tools/security/check_node_runtime.mjs",
     "security:axios-guard": "node tools/security/check_no_axios.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -141,5 +142,9 @@
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"
+  },
+  "engines": {
+    "node": ">=20.16 <23",
+    "npm": ">=10"
   }
 }

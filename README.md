@@ -124,6 +124,11 @@ To keep dependencies aligned automatically after `git pull` on each workstation:
 git config core.hooksPath .githooks
 ```
 
+Non-technical users can run one-click setup from the repo root:
+
+- Windows: double-click [`setup-hooks.cmd`](setup-hooks.cmd)
+- macOS/Linux: run [`setup-hooks.sh`](setup-hooks.sh)
+
 When `package.json` or `package-lock.json` changes, the repo `post-merge` hook runs:
 
 ```bash
@@ -240,8 +245,11 @@ For full cross-product consistency, enable hooks in `NodeWeaver` too (`git confi
 - SQL injection protection via parameterized queries
 - Environment-based configuration
 - Session management with PostgreSQL storage
+- Node runtime policy: only approved LTS baselines are allowed (20.16+ or 22.x) via `npm run security:node-runtime-guard`
 - Dependency safety policy: do not add or invoke `axios`; use platform-native `fetch` for HTTP calls
-- Local enforcement: enable hooks with `git config core.hooksPath .githooks` and run `npm run security:axios-guard`
+- Local enforcement: enable hooks with `git config core.hooksPath .githooks` and run:
+  - `npm run security:node-runtime-guard`
+  - `npm run security:axios-guard`
 
 ## Deployment
 
