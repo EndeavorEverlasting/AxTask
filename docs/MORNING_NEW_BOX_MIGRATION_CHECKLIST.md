@@ -60,8 +60,9 @@ Use this on a fresh machine to execute quickly and safely.
 
 ## 6) DNS cutover
 
-- [ ] Lower TTL to 300
-- [ ] Point domain to new host
+- [ ] Lower TTL to 300 at the registrar while testing
+- [ ] **Render + Porkbun:** In Render → Web Service → **Settings → Custom Domains**, add the apex and/or `www`; copy the DNS targets Render shows. In Porkbun → DNS, create CNAME / ALIAS (ANAME) / A records exactly as Render specifies (no guessing).
+- [ ] After TLS is issued, confirm `GET https://<your-domain>/health` and `/ready` return 200 (from AxTask: `BASE_URL=https://<your-domain> npm run migration:smoke-api`; see [MIGRATION_AUTOMATION.md](MIGRATION_AUTOMATION.md))
 - [ ] Monitor auth, 5xx, p95, DB connections
 - [ ] Keep Replit fallback for 7 days
 

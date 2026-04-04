@@ -41,6 +41,7 @@ If `unknown revision`, push the Replit branch to `origin` first, then re-fetch.
 | Field | Value |
 |-------|--------|
 | Branch name | `integration/migration-unified` |
+| GitHub PR (feature / Coderabbit) | https://github.com/EndeavorEverlasting/AxTask/pull/1 |
 | Tip SHA after merge (local) | Run `git rev-parse HEAD` on `integration/migration-unified` |
 | Tag (optional) | `migration-unified-YYYY-MM-DD` |
 
