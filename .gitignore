@@ -4,16 +4,18 @@ dist
 .local/
 node_modules
 server/public
-*.tar.gzattached_assets/
+*.tar.gz
 vite.config.ts.*
 .env
 .env.docker
-e
 pics/
 
 # Never commit credential-bearing plan copies
 *.secrets.md
 .cursor/plans/**/*.secrets.md
+
+# Cursor IDE plan drafts (local / personal; keep out of shared branches)
+.cursor/plans/
 
 # Local planning artifacts
 docs/AxTask_Migration_Master_Plan.md
