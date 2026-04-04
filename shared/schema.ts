@@ -23,6 +23,9 @@ export const users = pgTable("users", {
   banReason: text("ban_reason"),
   bannedAt: timestamp("banned_at"),
   bannedBy: varchar("banned_by"),
+  /** E.164 (+15551234567). Omitted from SafeUser; use phoneMasked in API responses. */
+  phoneE164: text("phone_e164"),
+  phoneVerifiedAt: timestamp("phone_verified_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -115,7 +118,20 @@ export const loginSchema = z.object({
 });
 
 export type User = typeof users.$inferSelect;
-export type SafeUser = Omit<User, "passwordHash" | "securityAnswerHash" | "failedLoginAttempts" | "lockedUntil" | "workosId" | "googleId" | "replitId">;
+export type SafeUser = Omit<
+  User,
+  | "passwordHash"
+  | "securityAnswerHash"
+  | "failedLoginAttempts"
+  | "lockedUntil"
+  | "workosId"
+  | "googleId"
+  | "replitId"
+  | "phoneE164"
+> & {
+  phoneMasked: string | null;
+  phoneVerified: boolean;
+};
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type SecurityLog = typeof securityLogs.$inferSelect;
 
@@ -464,6 +480,10 @@ export const mfaChallenges = pgTable("mfa_challenges", {
   expiresAt: timestamp("expires_at").notNull(),
   consumedAt: timestamp("consumed_at"),
   attempts: integer("attempts").notNull().default(0),
+  /** How the OTP was delivered: email | sms */
+  deliveryChannel: text("delivery_channel").notNull().default("email"),
+  /** SMS destination for this challenge; null when channel is email or when using profile phone (still resolved at send time). */
+  smsDestinationE164: text("sms_destination_e164"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_mfa_challenges_user").on(table.userId),
@@ -471,6 +491,24 @@ export const mfaChallenges = pgTable("mfa_challenges", {
 ]);
 
 export type MfaChallenge = typeof mfaChallenges.$inferSelect;
+
+/** Non-PCI payment method fingerprints only — full PAN must never be sent or stored. */
+export const billingPaymentMethods = pgTable("billing_payment_methods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  brand: text("brand").notNull(),
+  last4: text("last4").notNull(),
+  expMonth: integer("exp_month").notNull(),
+  expYear: integer("exp_year").notNull(),
+  country: text("country"),
+  postalCode: text("postal_code"),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_billing_pm_user").on(table.userId),
+]);
+
+export type BillingPaymentMethod = typeof billingPaymentMethods.$inferSelect;
 
 export const idempotencyKeys = pgTable("idempotency_keys", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

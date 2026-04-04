@@ -13,6 +13,8 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName?: string, inviteCode?: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Reload session user from GET /api/auth/me (e.g. after phone verification). */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -110,8 +112,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const res = await fetch("/api/auth/me", { credentials: "include" });
+    if (res.ok) {
+      setUser(await res.json());
+    } else if (res.status === 401) {
+      setUser(null);
+    }
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

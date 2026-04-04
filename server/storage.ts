@@ -1,17 +1,32 @@
-import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, idempotencyKeys, premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents, userNotificationPreferences, userPushSubscriptions, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent, type PremiumSubscription, type PremiumSavedView, type PremiumReviewWorkflow, type PremiumInsight, type PremiumEvent, type UserNotificationPreference, type UserPushSubscription } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, billingPaymentMethods, idempotencyKeys, premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents, userNotificationPreferences, userPushSubscriptions, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent, type BillingPaymentMethod, type PremiumSubscription, type PremiumSavedView, type PremiumReviewWorkflow, type PremiumInsight, type PremiumEvent, type UserNotificationPreference, type UserPushSubscription } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
 import { parseFeedbackPayload, parseFeedbackReviewPayload } from "./services/feedback-inbox-parser";
+import { maskE164ForDisplay } from "@shared/phone";
 import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
 
 function toSafeUser(user: User): SafeUser {
-  const { passwordHash, securityAnswerHash, failedLoginAttempts, lockedUntil, workosId, googleId, replitId, ...safe } = user;
-  return safe;
+  const {
+    passwordHash,
+    securityAnswerHash,
+    failedLoginAttempts,
+    lockedUntil,
+    workosId,
+    googleId,
+    replitId,
+    phoneE164,
+    ...rest
+  } = user;
+  return {
+    ...rest,
+    phoneMasked: maskE164ForDisplay(phoneE164),
+    phoneVerified: !!user.phoneVerifiedAt,
+  };
 }
 
 export async function createUser(
@@ -1743,7 +1758,27 @@ function hashMfaCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
 }
 
-export async function createMfaChallenge(userId: string, purpose: string, ttlMinutes = 10): Promise<{ challengeId: string; code: string; expiresAt: Date }> {
+export type MfaDeliveryOptions = {
+  ttlMinutes?: number;
+  deliveryChannel?: "email" | "sms";
+  /** Required when deliveryChannel is sms */
+  smsDestinationE164?: string | null;
+};
+
+export async function createMfaChallenge(
+  userId: string,
+  purpose: string,
+  options?: MfaDeliveryOptions,
+): Promise<{ challengeId: string; code: string; expiresAt: Date }> {
+  const ttlMinutes = options?.ttlMinutes ?? 10;
+  const deliveryChannel = options?.deliveryChannel ?? "email";
+  let smsDestinationE164 = options?.smsDestinationE164 ?? null;
+  if (deliveryChannel === "email") {
+    smsDestinationE164 = null;
+  } else if (!smsDestinationE164?.trim()) {
+    throw new Error("SMS challenges require smsDestinationE164");
+  }
+
   const code = String(Math.floor(100000 + Math.random() * 900000));
   const challengeId = randomUUID();
   const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
@@ -1753,17 +1788,86 @@ export async function createMfaChallenge(userId: string, purpose: string, ttlMin
     purpose,
     codeHash: hashMfaCode(code),
     expiresAt,
+    deliveryChannel,
+    smsDestinationE164: smsDestinationE164?.trim() || null,
   });
   return { challengeId, code, expiresAt };
 }
 
-export async function verifyMfaChallenge(userId: string, challengeId: string, code: string): Promise<boolean> {
+export async function deleteMfaChallengeById(challengeId: string, userId: string): Promise<void> {
+  await db.delete(mfaChallenges).where(and(eq(mfaChallenges.id, challengeId), eq(mfaChallenges.userId, userId)));
+}
+
+export async function getUserContactForMfa(userId: string): Promise<{
+  email: string;
+  phoneE164: string | null;
+  phoneVerifiedAt: Date | null;
+} | undefined> {
+  const [row] = await db.select({
+    email: users.email,
+    phoneE164: users.phoneE164,
+    phoneVerifiedAt: users.phoneVerifiedAt,
+  }).from(users).where(eq(users.id, userId));
+  return row ?? undefined;
+}
+
+export async function setUserVerifiedPhone(userId: string, phoneE164: string): Promise<void> {
+  await db.update(users).set({
+    phoneE164,
+    phoneVerifiedAt: new Date(),
+  }).where(eq(users.id, userId));
+}
+
+export async function verifyMfaChallengeWithMetadata(
+  userId: string,
+  challengeId: string,
+  code: string,
+  expectedPurpose?: string,
+): Promise<
+  | { ok: false }
+  | { ok: true; smsDestinationE164: string | null; deliveryChannel: string }
+> {
+  const [challenge] = await db.select().from(mfaChallenges).where(and(
+    eq(mfaChallenges.id, challengeId),
+    eq(mfaChallenges.userId, userId),
+  ));
+  if (!challenge || challenge.consumedAt || challenge.expiresAt < new Date()) return { ok: false };
+  if (challenge.attempts >= 5) return { ok: false };
+  if (expectedPurpose !== undefined && challenge.purpose !== expectedPurpose) return { ok: false };
+
+  const valid = challenge.codeHash === hashMfaCode(code);
+  if (!valid) {
+    await db.update(mfaChallenges)
+      .set({ attempts: challenge.attempts + 1 })
+      .where(eq(mfaChallenges.id, challenge.id));
+    return { ok: false };
+  }
+
+  const smsDestinationE164 = challenge.smsDestinationE164;
+  const deliveryChannel = challenge.deliveryChannel;
+
+  await db.update(mfaChallenges).set({ consumedAt: new Date() }).where(eq(mfaChallenges.id, challenge.id));
+
+  return {
+    ok: true,
+    smsDestinationE164,
+    deliveryChannel,
+  };
+}
+
+export async function verifyMfaChallenge(
+  userId: string,
+  challengeId: string,
+  code: string,
+  expectedPurpose?: string,
+): Promise<boolean> {
   const [challenge] = await db.select().from(mfaChallenges).where(and(
     eq(mfaChallenges.id, challengeId),
     eq(mfaChallenges.userId, userId),
   ));
   if (!challenge || challenge.consumedAt || challenge.expiresAt < new Date()) return false;
   if (challenge.attempts >= 5) return false;
+  if (expectedPurpose !== undefined && challenge.purpose !== expectedPurpose) return false;
 
   const valid = challenge.codeHash === hashMfaCode(code);
   if (!valid) {
@@ -1775,6 +1879,41 @@ export async function verifyMfaChallenge(userId: string, challengeId: string, co
 
   await db.update(mfaChallenges).set({ consumedAt: new Date() }).where(eq(mfaChallenges.id, challenge.id));
   return true;
+}
+
+export async function listBillingPaymentMethodsForUser(userId: string): Promise<BillingPaymentMethod[]> {
+  return db.select().from(billingPaymentMethods)
+    .where(eq(billingPaymentMethods.userId, userId))
+    .orderBy(desc(billingPaymentMethods.createdAt));
+}
+
+export async function createBillingPaymentMethod(input: {
+  userId: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  country?: string;
+  postalCode?: string;
+  isDefault: boolean;
+}): Promise<BillingPaymentMethod> {
+  if (input.isDefault) {
+    await db.update(billingPaymentMethods)
+      .set({ isDefault: false })
+      .where(eq(billingPaymentMethods.userId, input.userId));
+  }
+  const [row] = await db.insert(billingPaymentMethods).values({
+    id: randomUUID(),
+    userId: input.userId,
+    brand: input.brand,
+    last4: input.last4,
+    expMonth: input.expMonth,
+    expYear: input.expYear,
+    country: input.country || null,
+    postalCode: input.postalCode || null,
+    isDefault: input.isDefault,
+  }).returning();
+  return row;
 }
 
 export async function createInvoice(input: {

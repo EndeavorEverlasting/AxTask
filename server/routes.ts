@@ -15,7 +15,9 @@ import {
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
-  createMfaChallenge, verifyMfaChallenge, ensureIdempotencyKey,
+  createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
+  listBillingPaymentMethodsForUser, createBillingPaymentMethod,
+  deleteMfaChallengeById, getUserContactForMfa, setUserVerifiedPhone, getUserById,
   appendSecurityEvent, getSecurityEvents, getSecurityAlerts, analyzeAndCreateSecurityAlerts,
   listFeedbackInbox,
   getFeedbackInsightsForUser,
@@ -51,6 +53,9 @@ import {
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, type UpdateTask, type Task } from "@shared/schema";
+import { MFA_PURPOSES } from "@shared/mfa-purposes";
+import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
+import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
@@ -344,6 +349,12 @@ const voiceLimiter = rateLimit({
 const REGISTRATION_MODE = process.env.REGISTRATION_MODE || (process.env.NODE_ENV === "production" ? "invite" : "open");
 const INVITE_CODE = process.env.INVITE_CODE || "";
 
+function maskEmailForOtp(email: string): string {
+  const [u, dom] = email.split("@");
+  if (!u || !dom) return email;
+  return `${u.slice(0, 2)}•••@${dom}`;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api", (req, res, next) => {
     const startedAt = Date.now();
@@ -502,7 +513,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  app.get("/api/auth/me", (req: Request, res: Response) => {
+  app.get("/api/auth/me", async (req: Request, res: Response) => {
     res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
     res.set("Pragma", "no-cache");
     if (!req.isAuthenticated()) {
@@ -512,7 +523,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.logout(() => {});
       return res.status(403).json({ message: "This account has been suspended." });
     }
-    res.json(req.user);
+    const fresh = await getUserById(req.user!.id);
+    if (!fresh) {
+      req.logout(() => {});
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    res.json(fresh);
   });
 
   // Return registration mode + auth provider so the UI can adapt
@@ -2066,6 +2082,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ════════════════════════════════════════════════════════════════════════
 
   app.use("/api/gamification", apiLimiter);
+  app.use("/api/mfa", apiLimiter);
+  app.use("/api/account", apiLimiter);
+  app.use("/api/billing", apiLimiter);
 
   await seedRewardsCatalog();
   await seedOfflineSkillTree();
@@ -2478,10 +2497,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     dueDate: z.string().optional(),
   });
 
-  app.post("/api/invoices/mfa/challenge", requireAuth, async (req, res) => {
+  const mfaChallengeBodySchema = z.object({
+    purpose: z.string().min(3).max(120),
+    channel: z.enum(["email", "sms"]).optional().default("email"),
+    phoneE164: z.string().optional(),
+  });
+
+  const postMfaChallenge = async (req: Request, res: Response) => {
     try {
-      const { purpose } = z.object({ purpose: z.string().min(3).max(120) }).parse(req.body);
-      const challenge = await createMfaChallenge(req.user!.id, purpose);
+      const body = mfaChallengeBodySchema.parse(req.body);
+      const channel = body.channel;
+
+      if (!canDeliverMfaInProduction(channel)) {
+        return res.status(503).json({
+          message:
+            channel === "email"
+              ? "Email OTP is not configured. Set RESEND_API_KEY (and optional RESEND_FROM) for production."
+              : "SMS OTP is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_MESSAGING_SERVICE_SID or TWILIO_FROM_NUMBER for production.",
+        });
+      }
+
+      const contact = await getUserContactForMfa(req.user!.id);
+      if (!contact) return res.status(404).json({ message: "User not found" });
+
+      let smsDestinationE164: string | null = null;
+
+      if (channel === "sms") {
+        if (body.purpose === MFA_PURPOSES.ACCOUNT_VERIFY_PHONE) {
+          if (!body.phoneE164?.trim()) {
+            return res.status(400).json({ message: "phoneE164 is required to verify a new phone number" });
+          }
+          const normalized = normalizeToE164(body.phoneE164);
+          if (!normalized) {
+            return res.status(400).json({ message: "Invalid phone number" });
+          }
+          smsDestinationE164 = normalized;
+        } else {
+          if (!contact.phoneVerifiedAt || !contact.phoneE164) {
+            return res.status(400).json({
+              message: "Verify a phone number in Account settings before using SMS codes for billing and other steps.",
+            });
+          }
+          smsDestinationE164 = contact.phoneE164;
+        }
+      }
+
+      const challenge = await createMfaChallenge(req.user!.id, body.purpose, {
+        deliveryChannel: channel,
+        smsDestinationE164,
+      });
+
+      const deliver = await deliverMfaOtp({
+        channel,
+        code: challenge.code,
+        purpose: body.purpose,
+        email: contact.email,
+        phoneE164: channel === "sms" ? smsDestinationE164 : null,
+      });
+
+      if (!deliver.ok) {
+        await deleteMfaChallengeById(challenge.challengeId, req.user!.id);
+        return res.status(502).json({ message: deliver.error });
+      }
+
+      const maskedDestination =
+        channel === "email"
+          ? maskEmailForOtp(contact.email)
+          : maskE164ForDisplay(smsDestinationE164);
+
       await appendSecurityEvent({
         eventType: "mfa_challenge_created",
         actorUserId: req.user!.id,
@@ -2490,19 +2573,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         statusCode: 201,
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
-        payload: { purpose },
+        payload: { purpose: body.purpose, channel },
       });
-      // In production this code should be delivered through secure channel.
+
       res.status(201).json({
         challengeId: challenge.challengeId,
         expiresAt: challenge.expiresAt,
+        deliveredVia: channel,
+        maskedDestination,
         devCode: process.env.NODE_ENV === "production" ? undefined : challenge.code,
       });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to create MFA challenge" });
     }
-  });
+  };
+
+  app.post("/api/mfa/challenge", requireAuth, postMfaChallenge);
+  app.post("/api/invoices/mfa/challenge", requireAuth, postMfaChallenge);
 
   app.post("/api/invoices", requireAuth, async (req, res) => {
     try {
@@ -2537,7 +2625,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         code: z.string().length(6),
       }).parse(req.body);
 
-      const validMfa = await verifyMfaChallenge(req.user!.id, challengeId, code);
+      const validMfa = await verifyMfaChallenge(req.user!.id, challengeId, code, MFA_PURPOSES.INVOICE_ISSUE);
       if (!validMfa) {
         await appendSecurityEvent({
           eventType: "mfa_verify_failed",
@@ -2579,7 +2667,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         externalReference: z.string().max(255).optional(),
       }).parse(req.body);
 
-      const validMfa = await verifyMfaChallenge(req.user!.id, challengeId, code);
+      const validMfa = await verifyMfaChallenge(req.user!.id, challengeId, code, MFA_PURPOSES.INVOICE_CONFIRM_PAYMENT);
       if (!validMfa) {
         await appendSecurityEvent({
           eventType: "mfa_verify_failed",
@@ -2627,6 +2715,129 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(events);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch invoice events" });
+    }
+  });
+
+  app.get("/api/billing/payment-methods", requireAuth, async (req, res) => {
+    try {
+      const rows = await listBillingPaymentMethodsForUser(req.user!.id);
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load payment methods" });
+    }
+  });
+
+  app.post("/api/billing/payment-methods", requireAuth, async (req, res) => {
+    try {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      const parsed = z.object({
+        challengeId: z.string().min(1),
+        code: z.string().length(6).regex(/^\d{6}$/),
+        brand: z.enum(["visa", "mastercard", "amex", "discover", "unknown"]),
+        last4: z.string().length(4).regex(/^\d{4}$/),
+        expMonth: z.number().int().min(1).max(12),
+        expYear: z.number().int().min(currentYear).max(currentYear + 25),
+        country: z.string().min(2).max(64).optional(),
+        postalCode: z.string().min(3).max(16).optional(),
+        isDefault: z.boolean().optional().default(true),
+      }).parse(req.body);
+
+      if (parsed.expYear === currentYear && parsed.expMonth < currentMonth) {
+        return res.status(400).json({ message: "Card appears expired" });
+      }
+
+      const validMfa = await verifyMfaChallenge(
+        req.user!.id,
+        parsed.challengeId,
+        parsed.code,
+        MFA_PURPOSES.BILLING_ADD_PAYMENT_METHOD,
+      );
+      if (!validMfa) {
+        await appendSecurityEvent({
+          eventType: "mfa_verify_failed",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 403,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: { context: "billing_add_payment_method" },
+        });
+        return res.status(403).json({ message: "Invalid or expired verification code" });
+      }
+
+      const pm = await createBillingPaymentMethod({
+        userId: req.user!.id,
+        brand: parsed.brand,
+        last4: parsed.last4,
+        expMonth: parsed.expMonth,
+        expYear: parsed.expYear,
+        country: parsed.country,
+        postalCode: parsed.postalCode,
+        isDefault: parsed.isDefault ?? true,
+      });
+      await appendSecurityEvent({
+        eventType: "billing_payment_method_added",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 201,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: { paymentMethodId: pm.id, brand: pm.brand, last4: pm.last4 },
+      });
+      res.status(201).json(pm);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to save payment method" });
+    }
+  });
+
+  app.post("/api/account/phone/verify/confirm", requireAuth, async (req, res) => {
+    try {
+      const { challengeId, code } = z.object({
+        challengeId: z.string().min(1),
+        code: z.string().length(6).regex(/^\d{6}$/),
+      }).parse(req.body);
+
+      const result = await verifyMfaChallengeWithMetadata(
+        req.user!.id,
+        challengeId,
+        code,
+        MFA_PURPOSES.ACCOUNT_VERIFY_PHONE,
+      );
+      if (!result.ok || !result.smsDestinationE164?.trim()) {
+        await appendSecurityEvent({
+          eventType: "mfa_verify_failed",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 403,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: { context: "account_verify_phone" },
+        });
+        return res.status(403).json({ message: "Invalid or expired verification code" });
+      }
+
+      await setUserVerifiedPhone(req.user!.id, result.smsDestinationE164);
+      const fresh = await getUserById(req.user!.id);
+      await appendSecurityEvent({
+        eventType: "phone_verified",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {},
+      });
+      res.json({ message: "Phone verified", user: fresh });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to verify phone" });
     }
   });
 

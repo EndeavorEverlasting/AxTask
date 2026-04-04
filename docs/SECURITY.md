@@ -25,6 +25,10 @@ This document outlines security considerations, vulnerabilities, and best practi
 - **Lifecycle**: Automatic expiration and cleanup
 - **Security**: Session tokens not exposed to client-side JavaScript
 
+#### Step-up MFA (OTP)
+- **Channels**: Email (Resend) and SMS (Twilio) for production; console logging in development.
+- **Purposes**: Billing, invoicing, and phone verification use scoped challenge purposes; see [`docs/OTP_DELIVERY.md`](./OTP_DELIVERY.md).
+
 ### API Security
 
 #### Input Validation

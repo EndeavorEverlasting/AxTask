@@ -26,6 +26,8 @@ import {
   PlusCircle,
   Crown,
   BellRing,
+  CreditCard,
+  UserRoundCog,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -86,6 +88,8 @@ export function Sidebar() {
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
     { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
     { path: "/premium", icon: Crown, label: "Premium" },
+    { path: "/billing", icon: CreditCard, label: "Billing" },
+    { path: "/account", icon: UserRoundCog, label: "Account" },
     { path: "/feedback", icon: MessageSquare, label: "Feedback" },
     { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },

@@ -26,6 +26,8 @@ import PlannerPage from "@/pages/planner";
 import AdminPage from "@/pages/admin";
 import RewardsPage from "@/pages/rewards";
 import PremiumPage from "@/pages/premium";
+import BillingPage from "@/pages/billing";
+import AccountPage from "@/pages/account";
 import FeedbackPage from "@/pages/feedback";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
@@ -46,6 +48,8 @@ function Router() {
       <Route path="/admin" component={AdminPage} />
       <Route path="/rewards" component={RewardsPage} />
       <Route path="/premium" component={PremiumPage} />
+      <Route path="/billing" component={BillingPage} />
+      <Route path="/account" component={AccountPage} />
       <Route component={NotFound} />
     </Switch>
   );

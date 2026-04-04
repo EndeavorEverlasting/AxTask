@@ -85,9 +85,8 @@ export function setupAuth(app: Express) {
           if (!valid) {
             return done(null, false, { message: "Invalid email or password" });
           }
-          // Strip sensitive fields before serializing
-          const { passwordHash, failedLoginAttempts, lockedUntil, ...safeUser } = user;
-          return done(null, safeUser);
+          const safe = await getUserById(user.id);
+          return done(null, safe || false);
         } catch (err) {
           return done(err);
         }
