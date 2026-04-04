@@ -10,6 +10,12 @@ describe("docker workflow assets", () => {
     const packageJsonPath = path.join(projectRoot, "package.json");
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 
+    expect(packageJson.scripts["docker:up"]).toContain(
+      "node tools/local/docker-start.mjs",
+    );
+    expect(
+      fs.existsSync(path.join(projectRoot, "tools", "local", "docker-start-lib.mjs")),
+    ).toBe(true);
     expect(packageJson.scripts["docker:start"]).toContain(
       "docker compose --env-file .env.docker up -d --build",
     );
@@ -38,13 +44,21 @@ describe("docker workflow assets", () => {
     expect(compose).toContain('"5000:5000"');
   });
 
-  it("ships one-click docker helpers with daemon and placeholder guards", () => {
+  it("ships one-click docker helpers backed by smart docker-start", () => {
     const windowsStart = fs.readFileSync(
       path.join(projectRoot, "start-docker.cmd"),
       "utf8",
     );
     const unixStart = fs.readFileSync(
       path.join(projectRoot, "start-docker.sh"),
+      "utf8",
+    );
+    const smartStart = fs.readFileSync(
+      path.join(projectRoot, "tools", "local", "docker-start.mjs"),
+      "utf8",
+    );
+    const smartLib = fs.readFileSync(
+      path.join(projectRoot, "tools", "local", "docker-start-lib.mjs"),
       "utf8",
     );
     const windowsStatus = fs.readFileSync(
@@ -56,14 +70,12 @@ describe("docker workflow assets", () => {
       "utf8",
     );
 
-    expect(windowsStart).toContain("docker info >nul 2>&1");
-    expect(windowsStart).toContain(
-      "replace-with-32-plus-char-secret",
-    );
-    expect(windowsStart).toContain("docker compose --env-file .env.docker up -d --build");
-    expect(unixStart).toContain("docker info >/dev/null 2>&1");
-    expect(unixStart).toContain("replace-with-32-plus-char-secret|replace-me");
-    expect(unixStart).toContain("docker compose --env-file .env.docker up -d --build");
+    expect(windowsStart).toContain("npm run docker:up");
+    expect(unixStart).toMatch(/npm run docker:up|docker-start\.mjs/);
+    expect(smartStart).toContain("docker-start-lib.mjs");
+    expect(smartLib).toContain("replace-with-32-plus-char-secret");
+    expect(smartLib).toContain("replace-me");
+    expect(smartStart).toContain("waitForEngine");
     expect(windowsStatus).toContain("docker compose --env-file .env.docker ps");
     expect(windowsStop).toContain("docker compose --env-file .env.docker down");
   });

@@ -9,7 +9,46 @@
 
 A full-stack task management application with an intelligent priority scoring engine that automatically calculates task priorities based on content analysis. Includes hardened import deduplication, usage/storage observability, attachment upload controls, and security event monitoring.
 
-## Quick Start
+## Run locally after cloning with Docker
+
+This is the fastest way to get a full stack (app + PostgreSQL) on your machine after you clone the repo.
+
+1. **Install Docker** on the machine that will run AxTask:
+   - **Windows / macOS:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   - **Linux / server:** Docker Engine + Docker Compose v2 plugin  
+   Step-by-step: [`docs/DOCKER_FOUNDATION.md`](docs/DOCKER_FOUNDATION.md)
+
+2. **Clone** the repository and open a terminal in the **project root** (the folder that contains `package.json`).
+
+3. **Create and edit `.env.docker`**
+
+   ```bash
+   cp .env.docker.example .env.docker
+   ```
+
+   Open `.env.docker` and replace every placeholder:
+   - **`POSTGRES_PASSWORD`** — strong password for the local database user
+   - **`SESSION_SECRET`** — long random secret (32+ characters)
+   - **`DATABASE_URL`** — keep host `database` and user/db names as in the example; **set the password in the URL to match `POSTGRES_PASSWORD`**
+
+4. **Start the stack**
+
+   - **Any OS (from project root):** `npm run docker:up`
+   - **Windows:** double-click **`start-docker.cmd`** (runs `npm run docker:up` when Node.js / npm are installed)
+
+   `npm run docker:up` creates `.env.docker` from `.env.docker.example` if the file is missing, refuses to start if secrets are still placeholders, waits for the Docker engine, and on **Windows** / **macOS** tries to start **Docker Desktop** when it is installed but not running. If Docker is already up and you only want Compose without that logic, use `npm run docker:start`.
+
+5. **Open the app:** [http://localhost:5000](http://localhost:5000)  
+   Check containers: `npm run docker:status` · Stop: `npm run docker:stop` · Logs: `npm run docker:logs`
+
+### One-click Docker scripts
+
+- **Windows:** `start-docker.cmd` · **macOS/Linux:** `bash ./start-docker.sh` (both use `npm run docker:up`)
+- **Stop / status:** `stop-docker.cmd` or `bash ./stop-docker.sh` · `status-docker.cmd` or `bash ./status-docker.sh`
+
+## Quick Start (Node.js + local PostgreSQL)
+
+Use this when you prefer to run the app with `tsx` against your own Postgres (not the Docker Compose stack).
 
 ```bash
 npm install
@@ -19,30 +58,6 @@ npm run dev
 ```
 
 Visit `http://localhost:5000` to access the application.
-
-## Docker Quick Start (Recommended for Workstations)
-
-Prerequisite on each machine:
-- Docker Desktop (Windows/macOS), or Docker Engine + Docker Compose plugin (Linux/server)
-
-First run:
-
-```bash
-cp .env.docker.example .env.docker
-# Set strong values for POSTGRES_PASSWORD and SESSION_SECRET
-npm run docker:start
-```
-
-Then open `http://localhost:5000`.
-
-### One-click Docker startup
-
-- Windows: double-click `start-docker.cmd`
-- macOS/Linux: run `bash ./start-docker.sh`
-- Stop: `stop-docker.cmd` or `bash ./stop-docker.sh`
-- Status: `status-docker.cmd` or `bash ./status-docker.sh`
-- Logs: `npm run docker:logs`
-- New machine walkthrough (Docker Desktop): see `docs/DOCKER_FOUNDATION.md` -> "Docker Desktop setup (Windows/macOS)"
 
 ### One-click local/offline startup
 
@@ -135,7 +150,8 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - `npm run dev` - Start development server
 - `npm run dev:smart` - Smart local startup: sync deps only if lockfile changed, run `db:push` only if schema changed, then start dev server
 - `npm run deps:sync` - Sync dependencies from lockfile (`npm ci` fallback to `npm install`)
-- `npm run docker:start` - Build/start Docker app + Postgres stack
+- `npm run docker:up` - Smart Docker startup: `.env.docker` bootstrap, placeholder checks, wait for engine (optionally start Docker Desktop on Windows/macOS), then compose up
+- `npm run docker:start` - Direct `docker compose up -d --build` (engine must already be running)
 - `npm run docker:stop` - Stop Docker stack (preserves named-volume data)
 - `npm run docker:status` - Show container status
 - `npm run docker:logs` - Show recent Docker logs
@@ -178,6 +194,7 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
 
 ## Documentation
 
+- **[Docker foundation](docs/DOCKER_FOUNDATION.md)** - Install Docker, env file, compose stack (companion to **Run locally after cloning** above)
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - Technical architecture details
 - **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
 - **[Security Guidelines](docs/SECURITY.md)** - Security best practices
@@ -329,7 +346,7 @@ Docker assets included:
 Important:
 - Dockerizing on your machine does not automatically Dockerize other machines.
 - Every workstation/server that will run AxTask must have Docker runtime installed and configured.
-- If deploying to a server, install Docker Engine + Docker Compose plugin there, copy project/env, then run `npm run docker:start` (or `docker compose up -d --build`).
+- If deploying to a server, install Docker Engine + Compose plugin there, copy project/env, then run `npm run docker:up` or `npm run docker:start` (or `docker compose up -d --build`).
 
 For a migration path away from Replit with cost-control guardrails, see [`docs/DEPLOYMENT_MIGRATION_PLAN.md`](docs/DEPLOYMENT_MIGRATION_PLAN.md).
 For a step-by-step zero-downtime procedure, use [`docs/CUTOVER_RUNBOOK.md`](docs/CUTOVER_RUNBOOK.md).

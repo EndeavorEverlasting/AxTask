@@ -8,6 +8,7 @@
     "dev:smart": "node tools/local/offline-start.mjs",
     "offline:start": "node tools/local/offline-start.mjs",
     "offline:shortcut": "powershell -ExecutionPolicy Bypass -File tools/local/create-desktop-shortcut.ps1",
+    "docker:up": "node tools/local/docker-start.mjs",
     "docker:start": "docker compose --env-file .env.docker up -d --build",
     "docker:stop": "docker compose --env-file .env.docker down",
     "docker:status": "docker compose --env-file .env.docker ps",

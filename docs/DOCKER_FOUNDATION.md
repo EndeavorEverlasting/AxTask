@@ -1,5 +1,7 @@
 # AxTask Docker Foundation
 
+**Clone → configure → run:** After cloning the repo, copy `.env.docker.example` to `.env.docker`, set `POSTGRES_PASSWORD` and `SESSION_SECRET` (and align `DATABASE_URL`), then from the project root run **`npm run docker:up`** or double-click **`start-docker.cmd`** on Windows. Full narrative: [README.md](../README.md#run-locally-after-cloning-with-docker).
+
 ## Prerequisites (all target machines)
 
 You must install Docker on every machine where AxTask will run.
@@ -41,8 +43,10 @@ cp .env.docker.example .env.docker
 8. Start with one command:
 
 ```bash
-npm run docker:start
+npm run docker:up
 ```
+
+(`docker:up` waits for the engine and, on Windows/macOS, can start Docker Desktop if it is installed but not running. Use `npm run docker:start` for a direct compose up when the daemon is already up.)
 
 9. Verify:
 
@@ -68,7 +72,7 @@ Set strong values in `.env.docker`:
 Start:
 
 ```bash
-npm run docker:start
+npm run docker:up
 ```
 
 Stop/status:
@@ -96,7 +100,7 @@ Health endpoints:
 2. Clone/copy AxTask project.
 3. Create `.env.docker` from `.env.docker.example`.
 4. Set `POSTGRES_PASSWORD` and `SESSION_SECRET` in `.env.docker`.
-5. Run `npm run docker:start`.
+5. Run `npm run docker:up` (or `npm run docker:start` if Docker is already running).
 6. Verify `npm run docker:status` shows healthy services.
 7. Open `http://localhost:5000`.
 
@@ -107,5 +111,5 @@ If you deploy on a server, the server must also have Docker installed/configured
 Minimum server flow:
 1. Install Docker Engine + Compose plugin.
 2. Copy project and `.env.docker` to server.
-3. Run `npm run docker:start` (or `docker compose up -d --build`).
+3. Run `npm run docker:up` or `npm run docker:start` (or `docker compose up -d --build`).
 4. Configure firewall/reverse proxy/TLS as appropriate.
