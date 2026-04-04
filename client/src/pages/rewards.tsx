@@ -1,0 +1,577 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp, Shield, Zap, Gift, Wrench } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useCountUp } from "@/hooks/use-count-up";
+
+interface Wallet {
+  userId: string;
+  balance: number;
+  lifetimeEarned: number;
+  currentStreak: number;
+  longestStreak: number;
+  lastCompletionDate: string | null;
+  streakShields: number;
+  streakShieldUsed?: boolean;
+}
+
+interface RewardItem {
+  id: string;
+  name: string;
+  description: string;
+  cost: number;
+  type: string;
+  icon: string | null;
+  data: string | null;
+}
+
+interface Transaction {
+  id: string;
+  userId: string;
+  amount: number;
+  reason: string;
+  details: string | null;
+  createdAt: string;
+}
+
+interface BadgeDefinition {
+  name: string;
+  description: string;
+  icon: string;
+}
+
+interface UserBadge {
+  id: string;
+  userId: string;
+  badgeId: string;
+  earnedAt: string;
+}
+
+export default function RewardsPage() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("profile");
+
+  const { data: wallet } = useQuery<Wallet>({ queryKey: ["/api/gamification/wallet"] });
+  const { data: rewards = [] } = useQuery<RewardItem[]>({ queryKey: ["/api/gamification/rewards"] });
+  const { data: myRewards = [] } = useQuery<{ id: string; rewardId: string; redeemedAt: string }[]>({ queryKey: ["/api/gamification/my-rewards"] });
+  const { data: transactions = [] } = useQuery<Transaction[]>({ queryKey: ["/api/gamification/transactions"] });
+  const { data: badgeData } = useQuery<{ earned: UserBadge[]; definitions: Record<string, BadgeDefinition> }>({
+    queryKey: ["/api/gamification/badges"],
+  });
+  const { data: classificationStats } = useQuery<{
+    totalClassifications: number;
+    totalConfirmationsReceived: number;
+    totalClassificationCoins: number;
+  }>({ queryKey: ["/api/gamification/classification-stats"] });
+  const { data: cleanupStats } = useQuery<{
+    totalCleanups: number;
+    totalCleanupCoins: number;
+  }>({ queryKey: ["/api/gamification/cleanup-stats"] });
+
+  const animatedBalance = useCountUp(wallet?.balance ?? 0);
+
+  const redeemMutation = useMutation({
+    mutationFn: async (rewardId: string) => {
+      const res = await apiRequest("POST", "/api/gamification/redeem", { rewardId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      toast({ title: "Reward redeemed!", description: "Check your profile for your new reward." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Redemption failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const shieldMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/gamification/streak-shield", {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      toast({ title: "Streak Shield purchased!", description: "Your streak is now protected for one missed day." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Purchase failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const ownedRewardIds = new Set(myRewards.map(r => r.rewardId));
+
+  const groupedRewards = {
+    theme: rewards.filter(r => r.type === "theme"),
+    badge: rewards.filter(r => r.type === "badge"),
+    title: rewards.filter(r => r.type === "title"),
+  };
+
+  return (
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <ShoppingBag className="h-6 w-6 md:h-7 md:w-7 text-amber-500" />
+            Rewards Shop
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400">Spend your AxCoins on themes, badges, and titles</p>
+        </div>
+        <motion.div
+          className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-yellow-400 text-white px-5 py-3 rounded-xl shadow-lg"
+          whileHover={{ scale: 1.05 }}
+        >
+          <Coins className="h-6 w-6" />
+          <span className="text-2xl font-bold tabular-nums">{animatedBalance}</span>
+          <span className="text-sm opacity-80">AxCoins</span>
+        </motion.div>
+      </div>
+
+      {wallet && (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="bg-amber-100 dark:bg-amber-900/30 p-2 rounded-lg">
+                <Coins className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Balance</p>
+                <p className="text-xl font-bold tabular-nums">{wallet.balance}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="bg-green-100 dark:bg-green-900/30 p-2 rounded-lg">
+                <Trophy className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Lifetime Earned</p>
+                <p className="text-xl font-bold tabular-nums">{wallet.lifetimeEarned}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="bg-orange-100 dark:bg-orange-900/30 p-2 rounded-lg">
+                <Flame className="h-5 w-5 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Current Streak</p>
+                <p className="text-xl font-bold tabular-nums">{wallet.currentStreak} day{wallet.currentStreak !== 1 ? "s" : ""}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="bg-purple-100 dark:bg-purple-900/30 p-2 rounded-lg">
+                <Award className="h-5 w-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Best Streak</p>
+                <p className="text-xl font-bold tabular-nums">{wallet.longestStreak} day{wallet.longestStreak !== 1 ? "s" : ""}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="bg-cyan-100 dark:bg-cyan-900/30 p-2 rounded-lg">
+                <Shield className="h-5 w-5 text-cyan-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Streak Shields</p>
+                <p className="text-xl font-bold tabular-nums">{wallet.streakShields}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="power-ups">Power-Ups</TabsTrigger>
+          <TabsTrigger value="investments">Investments</TabsTrigger>
+          <TabsTrigger value="shop">Shop</TabsTrigger>
+          <TabsTrigger value="badges">Badges</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="profile" className="mt-4 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                Your Rewards Profile
+              </CardTitle>
+              <CardDescription>Your achievements, active rewards, and stats at a glance</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="text-center p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20">
+                  <p className="text-2xl font-bold text-amber-600">{wallet?.balance ?? 0}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Current Balance</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-green-50 dark:bg-green-900/20">
+                  <p className="text-2xl font-bold text-green-600">{wallet?.lifetimeEarned ?? 0}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Total Earned</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-orange-50 dark:bg-orange-900/20">
+                  <p className="text-2xl font-bold text-orange-600">{wallet?.currentStreak ?? 0}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Day Streak</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-purple-50 dark:bg-purple-900/20">
+                  <p className="text-2xl font-bold text-purple-600">{badgeData?.earned?.length ?? 0}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Badges Earned</p>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Award className="h-4 w-4 text-amber-500" />
+                  Earned Badges
+                </h4>
+                {(badgeData?.earned?.length ?? 0) === 0 ? (
+                  <p className="text-sm text-muted-foreground">No badges earned yet. Complete tasks to unlock achievements!</p>
+                ) : (
+                  <div className="flex flex-wrap gap-3">
+                    {badgeData!.earned.map(b => {
+                      const def = badgeData!.definitions[b.badgeId];
+                      return (
+                        <motion.div
+                          key={b.id}
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          className="flex items-center gap-2 px-3 py-2 rounded-full bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700"
+                        >
+                          <span className="text-lg">{def?.icon}</span>
+                          <span className="text-sm font-medium">{def?.name}</span>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-purple-500" />
+                  Active Rewards
+                </h4>
+                {myRewards.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No rewards redeemed yet. Visit the Shop to spend your AxCoins!</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {myRewards.map(mr => {
+                      const reward = rewards.find(r => r.id === mr.rewardId);
+                      return (
+                        <div key={mr.id} className="flex items-center gap-3 p-3 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20">
+                          <span className="text-2xl">{reward?.icon}</span>
+                          <div>
+                            <p className="text-sm font-medium">{reward?.name}</p>
+                            <p className="text-xs text-muted-foreground">Redeemed {new Date(mr.redeemedAt).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Wrench className="h-4 w-4 text-teal-500" />
+                  Maintenance Activity
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-4 rounded-lg bg-teal-50 dark:bg-teal-900/20">
+                    <p className="text-2xl font-bold text-teal-600">{cleanupStats?.totalCleanups ?? 0}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Tasks Cleaned Up</p>
+                  </div>
+                  <div className="text-center p-4 rounded-lg bg-teal-50 dark:bg-teal-900/20">
+                    <p className="text-2xl font-bold text-teal-600">{cleanupStats?.totalCleanupCoins ?? 0}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Cleanup Coins Earned</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Earn 4 AxCoins when you update tasks that have been pending for more than 7 days — by completing, rescheduling, or adding details.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="power-ups" className="mt-4 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card className="border-cyan-200 dark:border-cyan-800">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Shield className="h-5 w-5 text-cyan-500" />
+                  Streak Shield
+                </CardTitle>
+                <CardDescription>
+                  Protects your streak when you miss a day. Consumed automatically.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-cyan-50 dark:bg-cyan-900/20">
+                  <div>
+                    <p className="text-sm font-medium">You have</p>
+                    <p className="text-2xl font-bold text-cyan-600">{wallet?.streakShields ?? 0} / 3</p>
+                  </div>
+                  <div className="flex gap-1">
+                    {[0, 1, 2].map(i => (
+                      <Shield key={i} className={`h-6 w-6 ${i < (wallet?.streakShields ?? 0) ? "text-cyan-500" : "text-gray-300 dark:text-gray-600"}`} />
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1 text-amber-600 font-bold">
+                    <Coins className="h-4 w-4" /> 25 each
+                  </span>
+                  <Button
+                    size="sm"
+                    disabled={(wallet?.streakShields ?? 0) >= 3 || (wallet?.balance ?? 0) < 25 || shieldMutation.isPending}
+                    onClick={() => shieldMutation.mutate()}
+                  >
+                    {shieldMutation.isPending ? "..." : "Buy Shield"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-violet-200 dark:border-violet-800">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Zap className="h-5 w-5 text-violet-500" />
+                  Priority Boost
+                </CardTitle>
+                <CardDescription>
+                  Instantly boost any task to Highest priority.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-3 rounded-lg bg-violet-50 dark:bg-violet-900/20">
+                  <p className="text-sm text-violet-700 dark:text-violet-300">
+                    Use the <strong>Boost</strong> button on any task in your task list to instantly elevate it to Highest priority.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 text-amber-600 font-bold">
+                  <Coins className="h-4 w-4" /> 20 per boost
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-pink-200 dark:border-pink-800">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Gift className="h-5 w-5 text-pink-500" />
+                  Task Bounties
+                </CardTitle>
+                <CardDescription>
+                  Attach coins to shared tasks as a reward for the collaborator who completes them.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-3 rounded-lg bg-pink-50 dark:bg-pink-900/20">
+                  <p className="text-sm text-pink-700 dark:text-pink-300">
+                    Set a bounty (5-200 coins) on any shared task. When a collaborator completes it, they automatically receive the bounty.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 text-amber-600 font-bold">
+                  <Coins className="h-4 w-4" /> 5-200 per bounty
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Gift className="h-5 w-5 text-green-500" />
+                Coin Gifting
+              </CardTitle>
+              <CardDescription>
+                Send AxCoins to collaborators on your shared tasks as a thank-you or incentive.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="p-4 rounded-xl bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/10 dark:to-emerald-900/10 border border-green-200 dark:border-green-800">
+                <div className="text-sm text-green-700 dark:text-green-400 space-y-1">
+                  <p>Send 1-500 coins to any collaborator directly from the sharing dialog.</p>
+                  <p>Coins are deducted from your balance and added to theirs instantly.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="investments" className="mt-4 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-amber-500" />
+                Classification Investments
+              </CardTitle>
+              <CardDescription>
+                Earn coins by classifying tasks. When others confirm your classifications,
+                you earn compounding interest — like an investment that grows with each confirmation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 mb-1">
+                    <Sparkles className="h-4 w-4" />
+                    <span className="text-sm font-medium">Classifications Made</span>
+                  </div>
+                  <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
+                    {classificationStats?.totalClassifications ?? 0}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400 mb-1">
+                    <ThumbsUp className="h-4 w-4" />
+                    <span className="text-sm font-medium">Confirmations Received</span>
+                  </div>
+                  <p className="text-3xl font-bold text-green-900 dark:text-green-100">
+                    {classificationStats?.totalConfirmationsReceived ?? 0}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 mb-1">
+                    <Coins className="h-4 w-4" />
+                    <span className="text-sm font-medium">Total Classification Coins</span>
+                  </div>
+                  <p className="text-3xl font-bold text-amber-900 dark:text-amber-100">
+                    {classificationStats?.totalClassificationCoins ?? 0}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 p-4 rounded-xl bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/10 dark:to-yellow-900/10 border border-amber-200 dark:border-amber-800">
+                <h4 className="font-semibold text-amber-800 dark:text-amber-300 mb-2">How Compound Interest Works</h4>
+                <div className="text-sm text-amber-700 dark:text-amber-400 space-y-1">
+                  <p>1. Classify a task to earn base coins (5-15 depending on category)</p>
+                  <p>2. Each time someone confirms your classification, you earn compound interest at 8% per confirmation</p>
+                  <p>3. The formula: <code className="bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-xs">base × (1.08)^n</code> where n = number of confirmations</p>
+                  <p>4. Confirmers also earn 3 coins for each confirmation they give</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="shop" className="space-y-6 mt-4">
+          {(["theme", "badge", "title"] as const).map(type => (
+            <div key={type}>
+              <h3 className="text-lg font-semibold capitalize mb-3">{type}s</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {groupedRewards[type].map(reward => {
+                  const owned = ownedRewardIds.has(reward.id);
+                  return (
+                    <motion.div key={reward.id} whileHover={{ y: -2 }} transition={{ duration: 0.15 }}>
+                      <Card className={owned ? "border-green-400 dark:border-green-600" : ""}>
+                        <CardContent className="p-5">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="text-3xl">{reward.icon}</div>
+                            {owned && <Badge className="bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Owned</Badge>}
+                          </div>
+                          <h4 className="font-semibold text-base">{reward.name}</h4>
+                          <p className="text-sm text-muted-foreground mt-1">{reward.description}</p>
+                          <div className="flex items-center justify-between mt-4">
+                            <span className="flex items-center gap-1 text-amber-600 font-bold">
+                              <Coins className="h-4 w-4" /> {reward.cost}
+                            </span>
+                            <Button
+                              size="sm"
+                              disabled={owned || (wallet?.balance ?? 0) < reward.cost || redeemMutation.isPending}
+                              onClick={() => redeemMutation.mutate(reward.id)}
+                            >
+                              {owned ? "Owned" : redeemMutation.isPending ? "..." : "Redeem"}
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </TabsContent>
+
+        <TabsContent value="badges" className="mt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {badgeData && Object.entries(badgeData.definitions).map(([id, def]) => {
+              const earned = badgeData.earned.find(b => b.badgeId === id);
+              return (
+                <motion.div key={id} whileHover={{ scale: 1.02 }} transition={{ duration: 0.15 }}>
+                  <Card className={earned ? "border-amber-400 dark:border-amber-600" : "opacity-60"}>
+                    <CardContent className="p-5">
+                      <div className="flex items-center gap-3">
+                        <span className={`text-3xl ${!earned ? "grayscale" : ""}`}>{def.icon}</span>
+                        <div>
+                          <h4 className="font-semibold">{def.name}</h4>
+                          <p className="text-xs text-muted-foreground">{def.description}</p>
+                          {earned && (
+                            <p className="text-xs text-amber-600 mt-1">
+                              Earned {new Date(earned.earnedAt).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="history" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                Coin History
+              </CardTitle>
+              <CardDescription>Your recent AxCoin transactions</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {transactions.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No transactions yet. Complete tasks to earn AxCoins!</p>
+              ) : (
+                <div className="space-y-2">
+                  {transactions.map(tx => (
+                    <div key={tx.id} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                      <div>
+                        <p className="text-sm font-medium capitalize">{tx.reason.replace(/_/g, " ")}</p>
+                        {tx.details && <p className="text-xs text-muted-foreground">{tx.details}</p>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold tabular-nums ${tx.amount > 0 ? "text-green-600" : "text-red-500"}`}>
+                          {tx.amount > 0 ? `+${tx.amount}` : tx.amount}
+                        </span>
+                        <Coins className="h-4 w-4 text-amber-500" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
