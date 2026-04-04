@@ -185,6 +185,7 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
 - **[Production migration branch report](docs/PRODUCTION_MIGRATION_BRANCH_REPORT.md)** - Compare `main` / `experimental/next` vs Replit publish lines and `baseline/published` before DB cutover
 - **[Unified migration log](docs/MIGRATION_UNIFIED_LOG.md)** - Replit SHAs `008a8b0` / `afe5210`, deploy **D**, and integration tip **U**
 - **[Staging and cutover runbook](docs/STAGING_CUTOVER_RUNBOOK.md)** - Restore staging DB, `db:push`, attachments, production cutover
+- **[Migration automation](docs/MIGRATION_AUTOMATION.md)** - `migration:verify-schema`, smoke API, pg backup/restore scripts
 - **[Deployment Migration Plan](docs/DEPLOYMENT_MIGRATION_PLAN.md)** - 48-hour cutover and rollback guardrails
 - **[Next Setup Blueprint](docs/NEXT_SETUP_BLUEPRINT.md)** - Host/DB/domain and integration groundwork
 - **[Cutover Runbook](docs/CUTOVER_RUNBOOK.md)** - Zero-downtime DNS cutover with Replit fallback

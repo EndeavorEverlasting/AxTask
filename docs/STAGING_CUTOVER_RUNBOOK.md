@@ -2,6 +2,16 @@
 
 Use this after `integration/migration-unified` builds cleanly. **Do not commit secrets.**
 
+## Automated checks (run early and after every restore + `db:push`)
+
+See [MIGRATION_AUTOMATION.md](MIGRATION_AUTOMATION.md).
+
+1. `npm run migration:verify-schema` — required tables present.
+2. `npm run build` and `npm test` — full compile + unit/integration coverage.
+3. With app running: `npm run migration:smoke-api` (override `BASE_URL` for Render preview/production).
+
+Backup/restore helpers: [scripts/migration/pg-backup.ps1](../scripts/migration/pg-backup.ps1), [scripts/migration/pg-restore.ps1](../scripts/migration/pg-restore.ps1).
+
 ## Prerequisites
 
 - Production `DATABASE_URL` (or provider backup download) for the **current** live Postgres.
