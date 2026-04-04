@@ -10,3 +10,5 @@ export const AUTH_ME_PATH = "/api/auth/me";
 export const AUTH_LOGIN_PATH = "/api/auth/login";
 export const AUTH_REGISTER_PATH = "/api/auth/register";
 export const AUTH_LOGOUT_PATH = "/api/auth/logout";
+/** Phase B: re-establish Passport session using httpOnly device refresh cookie. */
+export const AUTH_REFRESH_PATH = "/api/auth/refresh";

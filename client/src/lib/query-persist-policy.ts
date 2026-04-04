@@ -15,6 +15,7 @@ export const QUERY_PERSIST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const STALE_DATA_WARNING_AFTER_MS = 10 * 60 * 1000;
 
 const SENSITIVE_ROOT_PREFIXES = ["/api/auth", "/api/admin", "/api/billing"] as const;
+// Note: /api/auth/* includes refresh (POST-only); no query key expected but stays excluded if added.
 
 export function queryKeyRootString(queryKey: readonly unknown[]): string | null {
   const first = queryKey[0];

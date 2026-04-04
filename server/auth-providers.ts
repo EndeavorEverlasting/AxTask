@@ -13,6 +13,7 @@ import { WorkOS } from "@workos-inc/node";
 import * as oidcClient from "openid-client";
 import type { Express, Request, Response } from "express";
 import { findOrCreateOAuthUser, isUserBanned, logSecurityEvent } from "./storage";
+import { grantDeviceRefreshForUser } from "./device-refresh";
 import { randomBytes } from "crypto";
 import memoize from "memoizee";
 
@@ -135,6 +136,11 @@ export function registerOAuthRoutes(app: Express) {
           console.error("[auth] Session creation error:", err);
           return res.redirect("/?error=session_failed");
         }
+        try {
+          await grantDeviceRefreshForUser(req, res, user.id);
+        } catch (e) {
+          console.error("[auth] device token after WorkOS:", e);
+        }
         await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "WorkOS OAuth login");
         res.redirect("/");
       });
@@ -222,6 +228,11 @@ export function registerOAuthRoutes(app: Express) {
 
       req.login(user, async (err) => {
         if (err) return res.redirect("/?error=session_failed");
+        try {
+          await grantDeviceRefreshForUser(req, res, user.id);
+        } catch (e) {
+          console.error("[auth] device token after Google:", e);
+        }
         await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "Google OAuth login");
         res.redirect("/");
       });
@@ -318,6 +329,11 @@ export function registerOAuthRoutes(app: Express) {
         if (err) {
           console.error("[auth] Replit session error:", err);
           return res.redirect("/?error=session_failed");
+        }
+        try {
+          await grantDeviceRefreshForUser(req, res, user.id);
+        } catch (e) {
+          console.error("[auth] device token after Replit:", e);
         }
         await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "Replit OAuth login");
         res.redirect("/");

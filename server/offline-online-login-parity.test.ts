@@ -6,6 +6,7 @@ import {
   AUTH_LOGIN_PATH,
   AUTH_LOGOUT_PATH,
   AUTH_ME_PATH,
+  AUTH_REFRESH_PATH,
   AUTH_REGISTER_PATH,
 } from "../shared/http-auth";
 
@@ -24,6 +25,7 @@ describe("offline ↔ online local login parity (env + contracts)", () => {
     );
     expect(authCtx).toContain("AUTH_ME_PATH");
     expect(authCtx).toContain("AUTH_LOGIN_PATH");
+    expect(authCtx).toContain("AUTH_REFRESH_PATH");
     expect(authCtx).toContain(AUTH_ME_PATH);
     expect(authCtx).toContain("credentials: \"include\"");
 
@@ -39,6 +41,7 @@ describe("offline ↔ online local login parity (env + contracts)", () => {
     expect(routes).toContain(`app.post("${AUTH_LOGIN_PATH}"`);
     expect(routes).toContain(`app.post("${AUTH_REGISTER_PATH}"`);
     expect(routes).toContain(`app.post("${AUTH_LOGOUT_PATH}"`);
+    expect(routes).toContain(`app.post("${AUTH_REFRESH_PATH}"`);
   });
 
   it("documents offline local stack: dev NODE_ENV + local Postgres URL", () => {

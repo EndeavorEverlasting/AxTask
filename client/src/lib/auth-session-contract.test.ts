@@ -3,6 +3,7 @@ import {
   AUTH_LOGIN_PATH,
   AUTH_LOGOUT_PATH,
   AUTH_ME_PATH,
+  AUTH_REFRESH_PATH,
   AUTH_REGISTER_PATH,
   AXTASK_CSRF_COOKIE,
   AXTASK_CSRF_HEADER,
@@ -23,6 +24,7 @@ describe("auth session contract (same-origin offline + online)", () => {
     expect(AUTH_LOGIN_PATH).toBe("/api/auth/login");
     expect(AUTH_REGISTER_PATH).toBe("/api/auth/register");
     expect(AUTH_LOGOUT_PATH).toBe("/api/auth/logout");
+    expect(AUTH_REFRESH_PATH).toBe("/api/auth/refresh");
   });
 
   it("reads the CSRF cookie name aligned with the server", () => {

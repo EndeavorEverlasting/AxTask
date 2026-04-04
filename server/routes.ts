@@ -57,6 +57,12 @@ import {
   getPatterns, getPatternsByType,
   getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution,
 } from "./storage";
+import {
+  grantDeviceRefreshForUser,
+  performAuthRefresh,
+  revokeDeviceRefreshFromRequest,
+  clearDeviceRefreshCookie,
+} from "./device-refresh";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
 import { z } from "zod";
@@ -437,8 +443,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userAgent: req.get("user-agent") || undefined,
       });
       // Auto-login after registration
-      req.login(user, (err) => {
+      req.login(user, async (err) => {
         if (err) return res.status(500).json({ message: "Registration succeeded but login failed" });
+        try {
+          await grantDeviceRefreshForUser(req, res, user.id);
+        } catch (e) {
+          console.error("[auth] device token after register:", e);
+        }
         res.status(201).json(user);
       });
     } catch (error) {
@@ -500,8 +511,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ipAddress: req.ip,
           userAgent: req.get("user-agent") || undefined,
         });
-        req.login(user, (err) => {
+        req.login(user, async (err) => {
           if (err) return next(err);
+          try {
+            await grantDeviceRefreshForUser(req, res, user.id);
+          } catch (e) {
+            console.error("[auth] device token after login:", e);
+          }
           res.json(user);
         });
       })(req, res, next);
@@ -510,8 +526,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/logout", (req: Request, res: Response) => {
+  app.post("/api/auth/refresh", authLimiter, async (req: Request, res: Response) => {
+    await performAuthRefresh(req, res);
+  });
+
+  app.post("/api/auth/logout", async (req: Request, res: Response) => {
     const actorUserId = req.user?.id;
+    try {
+      await revokeDeviceRefreshFromRequest(req);
+    } catch (e) {
+      console.error("[auth] revoke device refresh:", e);
+    }
+    clearDeviceRefreshCookie(res);
     req.logout((err) => {
       if (err) return res.status(500).json({ message: "Logout failed" });
       // Destroy the session entirely so back-button can't restore it

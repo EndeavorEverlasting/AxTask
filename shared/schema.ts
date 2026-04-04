@@ -40,6 +40,28 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+/** Phase B: long-lived opaque refresh tokens (hashed); httpOnly cookie holds plaintext. */
+export const deviceRefreshTokens = pgTable(
+  "device_refresh_tokens",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at").notNull(),
+    lastUsedAt: timestamp("last_used_at"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_device_refresh_tokens_user").on(table.userId),
+    index("idx_device_refresh_tokens_expires").on(table.expiresAt),
+  ],
+);
+
+export type DeviceRefreshToken = typeof deviceRefreshTokens.$inferSelect;
+
 // ─── Security Audit Logs ─────────────────────────────────────────────────────
 export const securityLogs = pgTable("security_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

@@ -110,6 +110,8 @@ You can run AxTask fully local (including when offline) as long as your PostgreS
 
 The SPA **persists TanStack Query read caches** to `localStorage` (except auth, admin, and billing API keys) so the last successful data can appear when the network drops. An **offline / stale banner** explains when you are viewing cached data. Logout clears the persisted cache. Details, security notes, and the **task conflict policy** for future sync work: [`docs/OFFLINE_PHASE_A.md`](docs/OFFLINE_PHASE_A.md).
 
+**Phase B (device refresh):** httpOnly device cookie + `POST /api/auth/refresh` can restore a Passport session when the session cookie expired but the device token is still valid. See [`docs/OFFLINE_PHASE_B.md`](docs/OFFLINE_PHASE_B.md) and run `npm run db:push` after pulling.
+
 ### Why local runs fail most often
 
 - **`'cp' is not recognized`** (Windows **cmd**)  

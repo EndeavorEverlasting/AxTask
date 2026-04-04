@@ -32,6 +32,10 @@ This document describes **Phase A** of AxTask’s offline-capable roadmap: **rea
 - Local stack: `npm run offline:start` (see root `README.md`).
 - Tests: `npm run test` (includes persist policy, network hook, and banner tests).
 
+## Next: Phase B
+
+Device refresh tokens and `POST /api/auth/refresh` restore Passport when the session cookie is missing — see **[OFFLINE_PHASE_B.md](./OFFLINE_PHASE_B.md)**.
+
 ## Security note
 
 Persisted cache holds **application JSON** for allowed query keys on **this device**. Use **Log out** on shared machines. Phase A intentionally skips persisting auth and admin/billing routes.

@@ -246,6 +246,9 @@ Create `.env` first: **`npm run local:env-init`** (any OS), or copy from `.env.e
 ### Offline Phase A (read cache + UI)
 - Persisted TanStack Query reads to `localStorage`, with auth/admin/billing keys excluded; logout clears storage. See **[OFFLINE_PHASE_A.md](./OFFLINE_PHASE_A.md)** for behavior, `VITE_QUERY_PERSIST_BUSTER`, and the short **task conflict policy** for future sync phases.
 
+### Offline Phase B (device refresh session)
+- HttpOnly `axtask.drefresh` + `POST /api/auth/refresh` restores Passport when the session cookie is gone but the device token is valid. Requires `device_refresh_tokens` table (`npm run db:push`). See **[OFFLINE_PHASE_B.md](./OFFLINE_PHASE_B.md)**.
+
 ### Engine APIs
 - `POST /api/feedback/process` — process message text through feedback engines (classification, sentiment, priority, tags, actions)
 - `POST /api/classification/classify` — universal classifier API with external + local fallback layers

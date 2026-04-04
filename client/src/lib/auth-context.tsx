@@ -4,6 +4,7 @@ import {
   AUTH_LOGIN_PATH,
   AUTH_LOGOUT_PATH,
   AUTH_ME_PATH,
+  AUTH_REFRESH_PATH,
   AUTH_REGISTER_PATH,
   AXTASK_CSRF_HEADER,
 } from "@shared/http-auth";
@@ -15,6 +16,46 @@ function csrfHeaders(): Record<string, string> {
   return token
     ? { "Content-Type": "application/json", [AXTASK_CSRF_HEADER]: token }
     : { "Content-Type": "application/json" };
+}
+
+/** Phase B: session cookie missing/expired but device refresh cookie may still work. */
+async function fetchSessionUser(): Promise<SafeUser | null> {
+  let res = await fetch(AUTH_ME_PATH, { credentials: "include" });
+  if (res.ok) return res.json();
+  if (res.status === 401) {
+    const r2 = await fetch(AUTH_REFRESH_PATH, {
+      method: "POST",
+      headers: csrfHeaders(),
+      credentials: "include",
+    });
+    if (r2.ok) return r2.json();
+  }
+  return null;
+}
+
+function rememberKnownAccount(data: SafeUser): void {
+  try {
+    const ACCOUNTS_KEY = "axtask_known_accounts";
+    const LAST_KEY = "axtask_last_email";
+    const LAST_PROVIDER_KEY = "axtask_last_provider";
+    const REMEMBER_PREF_KEY = "axtask_remember_provider";
+    const provider = data.authProvider || "local";
+    const existing = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]")
+      .filter((a: { email: string }) => a.email !== data.email);
+    existing.unshift({
+      email: data.email,
+      displayName: data.displayName || data.email.split("@")[0],
+      provider,
+      lastUsed: Date.now(),
+    });
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(existing.slice(0, 5)));
+    localStorage.setItem(LAST_KEY, data.email);
+    if (localStorage.getItem(REMEMBER_PREF_KEY) !== "false") {
+      localStorage.setItem(LAST_PROVIDER_KEY, provider);
+    }
+  } catch {
+    /* localStorage may be unavailable */
+  }
 }
 
 interface AuthContextType {
@@ -33,38 +74,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SafeUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Check if already logged in on mount (also handles OAuth redirect)
   useEffect(() => {
-    fetch(AUTH_ME_PATH, { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchSessionUser();
+        if (cancelled) return;
         setUser(data);
-        // If we have a user (e.g. from OAuth redirect), remember the account
-        if (data?.email) {
-          try {
-            const ACCOUNTS_KEY = "axtask_known_accounts";
-            const LAST_KEY = "axtask_last_email";
-            const LAST_PROVIDER_KEY = "axtask_last_provider";
-            const REMEMBER_PREF_KEY = "axtask_remember_provider";
-            const provider = data.authProvider || data.provider || "local";
-            const existing = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]")
-              .filter((a: any) => a.email !== data.email);
-            existing.unshift({
-              email: data.email,
-              displayName: data.displayName || data.email.split("@")[0],
-              provider,
-              lastUsed: Date.now(),
-            });
-            localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(existing.slice(0, 5)));
-            localStorage.setItem(LAST_KEY, data.email);
-            if (localStorage.getItem(REMEMBER_PREF_KEY) !== "false") {
-              localStorage.setItem(LAST_PROVIDER_KEY, provider);
-            }
-          } catch { /* localStorage may be unavailable */ }
-        }
-      })
-      .catch(() => setUser(null))
-      .finally(() => setLoading(false));
+        if (data?.email) rememberKnownAccount(data);
+      } catch {
+        if (!cancelled) setUser(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -80,20 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const data = await res.json();
     setUser(data);
-    try {
-      const ACCOUNTS_KEY = "axtask_known_accounts";
-      const LAST_KEY = "axtask_last_email";
-      const LAST_PROVIDER_KEY = "axtask_last_provider";
-      const REMEMBER_PREF_KEY = "axtask_remember_provider";
-      const existing = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]")
-        .filter((a: any) => a.email !== email);
-      existing.unshift({ email, displayName: data.displayName || email.split("@")[0], provider: "local", lastUsed: Date.now() });
-      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(existing.slice(0, 5)));
-      localStorage.setItem(LAST_KEY, email);
-      if (localStorage.getItem(REMEMBER_PREF_KEY) !== "false") {
-        localStorage.setItem(LAST_PROVIDER_KEY, "local");
-      }
-    } catch { /* localStorage may be unavailable */ }
+    rememberKnownAccount(data);
   }, []);
 
   const register = useCallback(async (email: string, password: string, displayName?: string, inviteCode?: string) => {
@@ -109,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const data = await res.json();
     setUser(data);
+    rememberKnownAccount(data);
   }, []);
 
   const logout = useCallback(async () => {
@@ -119,17 +133,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     setUser(null);
     clearQueryPersistStorage();
-    // Clear all cached queries so back-button can't show stale authenticated data
     queryClient.clear();
   }, []);
 
   const refreshUser = useCallback(async () => {
-    const res = await fetch(AUTH_ME_PATH, { credentials: "include" });
-    if (res.ok) {
-      setUser(await res.json());
-    } else if (res.status === 401) {
-      setUser(null);
-    }
+    const data = await fetchSessionUser();
+    setUser(data);
+    if (data?.email) rememberKnownAccount(data);
   }, []);
 
   return (
@@ -144,4 +154,3 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
   return ctx;
 }
-
