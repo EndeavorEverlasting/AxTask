@@ -41,7 +41,7 @@ If `unknown revision`, push the Replit branch to `origin` first, then re-fetch.
 | Field | Value |
 |-------|--------|
 | Branch name | `integration/migration-unified` |
-| Tip SHA after merge | _paste after merge_ |
+| Tip SHA after merge (local) | Run `git rev-parse HEAD` on `integration/migration-unified` |
 | Tag (optional) | `migration-unified-YYYY-MM-DD` |
 
 ## Branch tips at last doc update
