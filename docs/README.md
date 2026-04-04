@@ -249,6 +249,9 @@ Create `.env` first: **`npm run local:env-init`** (any OS), or copy from `.env.e
 ### Offline Phase B (device refresh session)
 - HttpOnly `axtask.drefresh` + `POST /api/auth/refresh` restores Passport when the session cookie is gone but the device token is valid. Requires `device_refresh_tokens` table (`npm run db:push`). See **[OFFLINE_PHASE_B.md](./OFFLINE_PHASE_B.md)**.
 
+### Local secrets and account transition
+- **`npm run local:env-init`** / **`npm run local:secrets-bootstrap`**: auto-fill `SESSION_SECRET` in `.env` without printing it. See **[LOCAL_ACCOUNT_TRANSITION.md](./LOCAL_ACCOUNT_TRANSITION.md)** for moving from seed dev users to a real email on local Postgres.
+
 ### Engine APIs
 - `POST /api/feedback/process` — process message text through feedback engines (classification, sentiment, priority, tags, actions)
 - `POST /api/classification/classify` — universal classifier API with external + local fallback layers

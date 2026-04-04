@@ -64,6 +64,22 @@ export async function seedDevAccounts(): Promise<void> {
   for (const r of rows) {
     console.log(`│ ${r.email.padEnd(maxEmail)} │ ${r.password.padEnd(maxPass)} │ ${r.status.padEnd(8)} │`);
   }
-  console.log(`└${"─".repeat(maxEmail + 2)}┴${"─".repeat(maxPass + 2)}┴──────────┘\n`);
+  console.log(`└${"─".repeat(maxEmail + 2)}┴${"─".repeat(maxPass + 2)}┴──────────┘`);
+
+  const sec = process.env.SESSION_SECRET?.trim() ?? "";
+  const secretOk =
+    sec.length >= 32 && !sec.toLowerCase().includes("replace-with");
+  if (secretOk) {
+    console.log(
+      "[seed-dev] Session signing: SESSION_SECRET is set in .env (value not shown).\n",
+    );
+  } else {
+    console.log(
+      "[seed-dev] If login fails: run `npm run local:secrets-bootstrap` (or `npm run local:env-init`).",
+    );
+    console.log(
+      "[seed-dev] A strong SESSION_SECRET is written to .env only — it is not printed here.\n",
+    );
+  }
 }
 

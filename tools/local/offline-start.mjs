@@ -13,6 +13,7 @@ const isWin = process.platform === "win32";
 
 const envExamplePath = path.join(projectRoot, ".env.example");
 const envPath = path.join(projectRoot, ".env");
+const bootstrapSecretsScript = path.join(__dirname, "bootstrap-local-secrets.mjs");
 const localStateDir = path.join(projectRoot, ".local");
 const stateFilePath = path.join(localStateDir, "smart-start-state.json");
 const packageLockPath = path.join(projectRoot, "package-lock.json");
@@ -110,6 +111,18 @@ function ensureDependenciesSynced(state) {
   return dependencyFingerprint;
 }
 
+function ensureLocalSessionSecret() {
+  if (!fs.existsSync(envPath)) return;
+  console.log("\n[offline:start] Ensuring local SESSION_SECRET in .env (value not printed)");
+  const r = spawnSync(process.execPath, [bootstrapSecretsScript], {
+    cwd: projectRoot,
+    stdio: "inherit",
+  });
+  if (r.status !== 0) {
+    process.exit(r.status ?? 1);
+  }
+}
+
 function validateLocalEnv() {
   dotenv.config({ path: envPath, override: false });
 
@@ -169,6 +182,7 @@ console.log("[offline:start] Bootstrapping local offline workflow");
 const previousState = readState();
 ensureNodeModules();
 ensureEnvFile();
+ensureLocalSessionSecret();
 validateLocalEnv();
 const dependencyFingerprint = ensureDependenciesSynced(previousState);
 const schemaFingerprint = ensureSchemaApplied(previousState);

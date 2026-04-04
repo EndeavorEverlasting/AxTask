@@ -9,6 +9,7 @@
     "offline:start": "node tools/local/offline-start.mjs",
     "offline:shortcut": "powershell -ExecutionPolicy Bypass -File tools/local/create-desktop-shortcut.ps1",
     "local:env-init": "node tools/local/copy-env-local.mjs",
+    "local:secrets-bootstrap": "node tools/local/bootstrap-local-secrets.mjs",
     "docker:env-init": "node tools/local/copy-env-docker.mjs",
     "docker:up": "node tools/local/docker-start.mjs",
     "docker:start": "docker compose --env-file .env.docker up -d --build",

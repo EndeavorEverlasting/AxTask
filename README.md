@@ -70,11 +70,11 @@ From the **project root**:
 
 1. **`npm install`**
 2. **Create `.env`** (only if you do not already have one):
-   - **Any OS (recommended):** `npm run local:env-init`
-   - **macOS / Linux / Git Bash / WSL:** `cp .env.example .env`
-   - **Windows Command Prompt:** `copy .env.example .env`
-   - **Windows PowerShell:** `Copy-Item .env.example .env`  
-   Or run **`npm run offline:start`** once — it creates `.env` from `.env.example` automatically if missing (then installs deps, runs `db:push`, and starts the app).
+   - **Any OS (recommended):** `npm run local:env-init` — copies `.env.example` when needed and **writes a strong `SESSION_SECRET` into `.env` without printing it**. If `.env` already exists, it only fixes `SESSION_SECRET` when it is missing or still a placeholder.
+   - **macOS / Linux / Git Bash / WSL:** `cp .env.example .env` (then run **`npm run local:secrets-bootstrap`** so session signing works)
+   - **Windows Command Prompt:** `copy .env.example .env` (then **`npm run local:secrets-bootstrap`**)
+   - **Windows PowerShell:** `Copy-Item .env.example .env` (then **`npm run local:secrets-bootstrap`**)  
+   Or run **`npm run offline:start`** once — it creates `.env` from `.env.example` automatically if missing, bootstraps `SESSION_SECRET`, installs deps, runs `db:push`, and starts the app.
 3. Edit **`.env`**: set **`DATABASE_URL`** to a reachable PostgreSQL instance (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
 4. **`npm run db:push`** then **`npm run dev`**
 
@@ -88,14 +88,14 @@ Visit `http://localhost:5000` to access the application.
 - In-app: use `Install App Shortcut` in the left sidebar to install on desktop/mobile home screen (or show setup steps if browser prompt is unavailable)
 - First-login CTA: users also see a top install banner with `Dismiss` and `Don't show again` controls
 
-This flow automatically installs dependencies (first run), creates `.env` from `.env.example` if missing, runs `db:push`, and starts the app.
+This flow automatically installs dependencies (first run), creates `.env` from `.env.example` if missing, ensures **`SESSION_SECRET`** in `.env` (not printed), runs `db:push`, and starts the app.
 
 ## Local + Offline Workflow
 
 You can run AxTask fully local (including when offline) as long as your PostgreSQL database is also local.
 
-1. Create your local env file:
-   - **Any OS (recommended):** `npm run local:env-init`
+1. Create your local env file (and session secret):
+   - **Any OS (recommended):** `npm run local:env-init` (also run it again if `SESSION_SECRET` was left as the example placeholder)
    - macOS / Linux / Git Bash / WSL: `cp .env.example .env`
    - Windows Command Prompt: `copy .env.example .env`
    - Windows PowerShell: `Copy-Item .env.example .env`
@@ -111,6 +111,8 @@ You can run AxTask fully local (including when offline) as long as your PostgreS
 The SPA **persists TanStack Query read caches** to `localStorage` (except auth, admin, and billing API keys) so the last successful data can appear when the network drops. An **offline / stale banner** explains when you are viewing cached data. Logout clears the persisted cache. Details, security notes, and the **task conflict policy** for future sync work: [`docs/OFFLINE_PHASE_A.md`](docs/OFFLINE_PHASE_A.md).
 
 **Phase B (device refresh):** httpOnly device cookie + `POST /api/auth/refresh` can restore a Passport session when the session cookie expired but the device token is still valid. See [`docs/OFFLINE_PHASE_B.md`](docs/OFFLINE_PHASE_B.md) and run `npm run db:push` after pulling.
+
+**Local accounts:** Seeded dev users (`*@axtask.local`) and passwords appear in the **dev server terminal** only. To use a **real email** on the same local database, register through the UI; task merge from seed users is not automatic — see [`docs/LOCAL_ACCOUNT_TRANSITION.md`](docs/LOCAL_ACCOUNT_TRANSITION.md).
 
 ### Why local runs fail most often
 
