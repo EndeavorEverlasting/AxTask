@@ -2,12 +2,14 @@ import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useVoice } from "@/hooks/use-voice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PriorityBadge } from "@/components/priority-badge";
 import { motion, AnimatePresence } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import BulkActionDialog, { type ProposedAction } from "@/components/bulk-action-dialog";
 import {
   AlertTriangle,
   CalendarDays,
@@ -23,6 +25,12 @@ import {
   CheckSquare,
   CalendarClock,
   Users,
+  Mic,
+  ClipboardCheck,
+  Repeat,
+  BarChart3,
+  Lightbulb,
+  RefreshCw,
 } from "lucide-react";
 import type { Task } from "@shared/schema";
 
@@ -66,13 +74,51 @@ export default function PlannerPage() {
   const reducedMotion = useReducedMotion();
   const [question, setQuestion] = useState("");
   const [chatHistory, setChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [reviewInput, setReviewInput] = useState("");
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [reviewActions, setReviewActions] = useState<ProposedAction[]>([]);
+  const [reviewMessage, setReviewMessage] = useState("");
+  const [reviewUnmatched, setReviewUnmatched] = useState<string[]>([]);
+  const voice = useVoice();
+  const { toast } = useToast();
 
   const { data: briefing, isLoading } = useQuery<BriefingData>({
     queryKey: ["/api/planner/briefing"],
     refetchInterval: 60000,
   });
 
-  const { toast } = useToast();
+  interface PatternInsight {
+    type: "topic" | "recurrence" | "deadline_rhythm" | "similarity_cluster";
+    title: string;
+    description: string;
+    confidence: number;
+    data: Record<string, unknown>;
+  }
+
+  const { data: patternData, isLoading: patternsLoading } = useQuery<{
+    insights: PatternInsight[];
+    patternCount: number;
+  }>({
+    queryKey: ["/api/patterns/insights"],
+    refetchInterval: 120000,
+  });
+
+  const learnMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/patterns/learn", {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/patterns/insights"] });
+      toast({
+        title: "Patterns updated",
+        description: `Analyzed your tasks and found ${data.learned} patterns.`,
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to analyze patterns.", variant: "destructive" });
+    },
+  });
 
   const markCompleteMutation = useMutation({
     mutationFn: async (taskId: string) => {
@@ -101,6 +147,37 @@ export default function PlannerPage() {
       toast({ title: "Task rescheduled", description: "Task moved to tomorrow." });
     },
   });
+
+  const reviewMutation = useMutation({
+    mutationFn: async (transcript: string) => {
+      const res = await apiRequest("POST", "/api/tasks/review", { transcript });
+      return res.json() as Promise<{ actions: ProposedAction[]; unmatched: string[]; message: string }>;
+    },
+    onSuccess: (data) => {
+      if (data.actions.length > 0) {
+        setReviewActions(data.actions);
+        setReviewMessage(data.message);
+        setReviewUnmatched(data.unmatched);
+        setReviewDialogOpen(true);
+        setReviewInput("");
+      } else {
+        toast({
+          title: "No matches",
+          description: data.message,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to process review. Try again.", variant: "destructive" });
+    },
+  });
+
+  const handleReview = useCallback(() => {
+    const text = reviewInput.trim();
+    if (!text) return;
+    reviewMutation.mutate(text);
+  }, [reviewInput, reviewMutation]);
 
   const askMutation = useMutation({
     mutationFn: async (q: string) => {
@@ -131,14 +208,14 @@ export default function PlannerPage() {
   });
 
   return (
-    <div className="p-6 space-y-8 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 space-y-6 md:space-y-8 max-w-5xl mx-auto">
       <div className="flex items-center gap-3">
-        <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
-          <Brain className="h-6 w-6" />
+        <div className="p-2 md:p-2.5 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
+          <Brain className="h-5 w-5 md:h-6 md:w-6" />
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">AI Planner</h2>
-          <p className="text-gray-500 dark:text-gray-400">{todayFormatted}</p>
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">AI Planner</h2>
+          <p className="text-sm md:text-base text-gray-500 dark:text-gray-400">{todayFormatted}</p>
         </div>
       </div>
 
@@ -396,6 +473,185 @@ export default function PlannerPage() {
           <motion.div
             initial={reducedMotion ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.35 }}
+          >
+            <Card className="border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50/50 to-purple-50/50 dark:from-indigo-900/10 dark:to-purple-900/10">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ClipboardCheck className="h-4 w-4 text-indigo-500" />
+                  Quick Review
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Tell us which tasks you've completed, need rescheduling, or priority changes. Type or use voice.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    "I finished the ",
+                    "I already did the ",
+                    "Move the report to tomorrow",
+                  ].map(hint => (
+                    <Button
+                      key={hint}
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-7 border-indigo-200 dark:border-indigo-800"
+                      onClick={() => setReviewInput(hint)}
+                    >
+                      {hint}
+                    </Button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder='e.g. "I finished the dentist and groceries, move report to Friday"'
+                    value={reviewInput}
+                    onChange={e => setReviewInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleReview();
+                      }
+                    }}
+                    disabled={reviewMutation.isPending}
+                    className="flex-1"
+                  />
+                  {voice.isSupported && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => {
+                        voice.openBar();
+                        setTimeout(() => voice.toggleListening(), 100);
+                      }}
+                      className="shrink-0 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+                      title="Use voice to review tasks"
+                    >
+                      <Mic className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button
+                    onClick={handleReview}
+                    disabled={!reviewInput.trim() || reviewMutation.isPending}
+                    className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white"
+                  >
+                    {reviewMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ClipboardCheck className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          <motion.div
+            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.38 }}
+          >
+            <Card className="border-emerald-200 dark:border-emerald-800 bg-gradient-to-r from-emerald-50/50 to-teal-50/50 dark:from-emerald-900/10 dark:to-teal-900/10">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Lightbulb className="h-4 w-4 text-emerald-500" />
+                  Patterns & Insights
+                  <div className="ml-auto flex items-center gap-2">
+                    {patternData && patternData.patternCount > 0 && (
+                      <span className="text-xs text-emerald-600 dark:text-emerald-400 font-normal">
+                        {patternData.patternCount} patterns learned
+                      </span>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
+                      onClick={() => learnMutation.mutate()}
+                      disabled={learnMutation.isPending}
+                    >
+                      {learnMutation.isPending ? (
+                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                      )}
+                      Analyze
+                    </Button>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {patternsLoading ? (
+                  <div className="flex items-center justify-center py-6">
+                    <Loader2 className="h-5 w-5 animate-spin text-emerald-500" />
+                  </div>
+                ) : patternData && patternData.insights.length > 0 ? (
+                  <div className="space-y-3">
+                    {patternData.insights.slice(0, 6).map((insight, idx) => {
+                      const iconMap: Record<string, typeof Repeat> = {
+                        topic: BarChart3,
+                        recurrence: Repeat,
+                        deadline_rhythm: CalendarClock,
+                        similarity_cluster: Users,
+                      };
+                      const colorMap: Record<string, string> = {
+                        topic: "text-blue-500 bg-blue-50 dark:bg-blue-900/20",
+                        recurrence: "text-amber-500 bg-amber-50 dark:bg-amber-900/20",
+                        deadline_rhythm: "text-purple-500 bg-purple-50 dark:bg-purple-900/20",
+                        similarity_cluster: "text-teal-500 bg-teal-50 dark:bg-teal-900/20",
+                      };
+                      const InsightIcon = iconMap[insight.type] || Lightbulb;
+                      const colorClass = colorMap[insight.type] || "text-gray-500 bg-gray-50 dark:bg-gray-900/20";
+
+                      return (
+                        <motion.div
+                          key={idx}
+                          initial={reducedMotion ? false : { opacity: 0, x: -8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: idx * 0.05 }}
+                          className="flex items-start gap-3 p-3 rounded-lg bg-white/60 dark:bg-gray-800/40 border border-emerald-100 dark:border-emerald-900/30"
+                        >
+                          <div className={`p-1.5 rounded-md shrink-0 ${colorClass}`}>
+                            <InsightIcon className="h-3.5 w-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                              {insight.title}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+                              {insight.description}
+                            </p>
+                          </div>
+                          <div className="shrink-0">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                              insight.confidence >= 70
+                                ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                                : insight.confidence >= 40
+                                  ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400"
+                                  : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+                            }`}>
+                              {insight.confidence}%
+                            </span>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <Lightbulb className="h-8 w-8 text-emerald-300 dark:text-emerald-700 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      No patterns detected yet. Click "Analyze" to learn from your task history, or keep using AxTask and patterns will build automatically.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          <motion.div
+            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.4 }}
           >
             <Card>
@@ -484,6 +740,14 @@ export default function PlannerPage() {
           <p className="text-gray-600 dark:text-gray-400">Unable to load your daily briefing. Please try refreshing the page.</p>
         </div>
       )}
+
+      <BulkActionDialog
+        open={reviewDialogOpen}
+        onOpenChange={setReviewDialogOpen}
+        actions={reviewActions}
+        message={reviewMessage}
+        unmatched={reviewUnmatched}
+      />
     </div>
   );
 }

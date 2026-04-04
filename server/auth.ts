@@ -46,14 +46,17 @@ export function setupAuth(app: Express) {
   // ── Session store backed by PostgreSQL ──────────────────────────────────
   const PgStore = connectPgSimple(session);
 
+  const sessionStore = new PgStore({
+    pool: pool as any,
+    createTableIfMissing: true,
+  });
+  (global as { __sessionStore?: InstanceType<typeof PgStore> }).__sessionStore = sessionStore;
+
   app.use(
     session({
-      store: new PgStore({
-        pool: pool as any, // Neon Pool is compatible
-        createTableIfMissing: true,
-      }),
+      store: sessionStore,
       secret: sessionSecret,
-      name: "axtask.sid",        // non-default name — hides framework identity
+      name: "axtask.sid",
       resave: false,
       saveUninitialized: false,
       cookie: {

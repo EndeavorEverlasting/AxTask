@@ -29,12 +29,13 @@ export function TutorialOverlay() {
     }
 
     setFadeIn(false);
+    const glowCls = currentStep.glowClass || "field-glow-tutorial";
     const timer = setTimeout(() => {
       const el = findTarget();
       if (el) {
         const rect = el.getBoundingClientRect();
         setTargetRect(rect);
-        el.classList.add("field-glow-tutorial");
+        el.classList.add(glowCls);
       } else {
         setTargetRect(null);
       }
@@ -44,7 +45,13 @@ export function TutorialOverlay() {
     return () => {
       clearTimeout(timer);
       const el = findTarget();
-      if (el) el.classList.remove("field-glow-tutorial");
+      if (el) {
+        el.classList.remove("field-glow-tutorial");
+        el.classList.remove("field-glow-tutorial-success");
+        el.classList.remove("field-glow-success");
+        el.classList.remove("field-glow-hint");
+        el.classList.remove("field-glow-warning");
+      }
     };
   }, [isActive, currentStep, findTarget, navigate]);
 
@@ -107,7 +114,7 @@ export function TutorialOverlay() {
       >
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-2">
-            <GraduationCap className="h-5 w-5 text-purple-500" />
+            <GraduationCap className="h-5 w-5 text-yellow-500" />
             <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100">{currentStep.title}</h3>
           </div>
           <button
@@ -124,7 +131,7 @@ export function TutorialOverlay() {
 
         <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mb-3">
           <div
-            className="bg-purple-500 h-1.5 rounded-full transition-all duration-500"
+            className="bg-yellow-500 h-1.5 rounded-full transition-all duration-500"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -141,7 +148,7 @@ export function TutorialOverlay() {
             <Button
               size="sm"
               onClick={nextStep}
-              className="h-8 px-3 text-xs bg-purple-600 hover:bg-purple-700 text-white"
+              className="h-8 px-3 text-xs bg-green-600 hover:bg-green-700 text-white"
             >
               {currentStepIndex === totalSteps - 1 ? "Finish" : "Next"}
               {currentStepIndex < totalSteps - 1 && <ChevronRight className="h-3 w-3 ml-1" />}

@@ -1,12 +1,11 @@
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard,
-  Plus,
   List,
   BarChart3,
   Upload,
-  Settings,
   Moon,
   Sun,
   FileSpreadsheet,
@@ -15,7 +14,6 @@ import {
   User,
   ZoomIn,
   ZoomOut,
-  RotateCcw,
   ClipboardList,
   GraduationCap,
   Brain,
@@ -28,25 +26,29 @@ import {
   BellRing,
   CreditCard,
   UserRoundCog,
+  Menu,
+  CheckSquare,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
 import { useZoom } from "@/hooks/use-zoom";
 import { useTutorial } from "@/hooks/use-tutorial";
 import { useNotificationMode } from "@/hooks/use-notification-mode";
-import { useState, useEffect, useRef } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useCountUp } from "@/hooks/use-count-up";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { VoiceBarTrigger } from "@/components/voice-command-bar";
 import { InstallShortcutButton } from "@/components/install-shortcut-button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 
-export function Sidebar() {
+function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const { zoom, zoomIn, zoomOut, resetZoom, ZOOM_MIN, ZOOM_MAX } = useZoom();
   const { isActive: tutorialActive, startTutorial, stopTutorial, hasCompleted } = useTutorial();
+  const isMobile = useIsMobile();
   const {
     isLoading: notificationLoading,
     enabled: notificationEnabled,
@@ -110,8 +112,12 @@ export function Sidebar() {
     return `On (${notificationIntensity}%)`;
   })();
 
+  const handleNavClick = () => {
+    onNavigate?.();
+  };
+
   return (
-    <aside className="w-64 bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex flex-col">
+    <div className="flex flex-col h-full outline-none" tabIndex={-1}>
       <div className="p-6 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-primary flex items-center">
@@ -122,24 +128,26 @@ export function Sidebar() {
             />
             AxTask
           </h1>
-          <VoiceBarTrigger />
+          {!isMobile && <VoiceBarTrigger />}
         </div>
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Intelligent Task Management</p>
       </div>
-      
-      <nav className="flex-1 p-4">
-        <ul className="space-y-2">
+
+      <nav className="flex-1 p-4 overflow-y-auto">
+        <ul className="space-y-1">
           {menuItems.map(({ path, icon: Icon, label, badge }) => (
             <li key={path}>
               <Link href={path}>
                 <div
                   id={`sidebar-link-${path}`}
-                  className={`flex items-center p-3 rounded-lg font-medium transition-colors cursor-pointer ${
+                  className={`flex items-center p-3 rounded-lg font-medium transition-colors cursor-pointer min-h-[44px] ${
                   isActiveRoute(path)
                     ? "text-primary bg-blue-50 dark:bg-blue-900/30"
                     : "text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
-                }`}>
-                  <Icon className="mr-3 h-5 w-5" />
+                }`}
+                  onClick={handleNavClick}
+                >
+                  <Icon className="mr-3 h-5 w-5 shrink-0" />
                   {label}
                   {typeof badge === "number" && badge > 0 && (
                     <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
@@ -170,7 +178,10 @@ export function Sidebar() {
 
         {wallet && (
           <Link href="/rewards">
-            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 cursor-pointer hover:shadow-md transition-all duration-300 ${sparkle ? "ring-2 ring-yellow-400 shadow-lg shadow-yellow-400/30 scale-105" : ""}`}>
+            <div
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 cursor-pointer hover:shadow-md transition-all duration-300 ${sparkle ? "ring-2 ring-yellow-400 shadow-lg shadow-yellow-400/30 scale-105" : ""}`}
+              onClick={handleNavClick}
+            >
               <Coins className={`h-4 w-4 text-amber-500 transition-transform ${sparkle ? "animate-spin" : ""}`} />
               <span className="text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300">{animatedBalance}</span>
               <span className="text-xs text-amber-600 dark:text-amber-400">AxCoins</span>
@@ -187,7 +198,7 @@ export function Sidebar() {
           size="sm"
           onClick={tutorialActive ? stopTutorial : startTutorial}
           title="Toggle tutorial (Ctrl+T)"
-          className={`w-full justify-between ring-1 ring-purple-400/40 ${
+          className={`w-full justify-between min-h-[44px] ring-1 ring-purple-400/40 ${
             tutorialActive ? "bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-500/30" : "bg-purple-50/60 dark:bg-purple-900/20"
           }`}
         >
@@ -233,35 +244,37 @@ export function Sidebar() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700/50">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={zoomOut}
-            disabled={zoom <= ZOOM_MIN}
-            title="Zoom out"
-          >
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-          <button
-            onClick={resetZoom}
-            className="text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-primary transition-colors min-w-[3rem] text-center"
-            title="Reset zoom"
-          >
-            {zoom}%
-          </button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={zoomIn}
-            disabled={zoom >= ZOOM_MAX}
-            title="Zoom in"
-          >
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-        </div>
+        {!isMobile && (
+          <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700/50">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={zoomOut}
+              disabled={zoom <= ZOOM_MIN}
+              title="Zoom out"
+            >
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+            <button
+              onClick={resetZoom}
+              className="text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-primary transition-colors min-w-[3rem] text-center"
+              title="Reset zoom"
+            >
+              {zoom}%
+            </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={zoomIn}
+              disabled={zoom >= ZOOM_MAX}
+              title="Zoom in"
+            >
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
 
         {user && (
           <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 truncate">
@@ -277,7 +290,7 @@ export function Sidebar() {
           variant="ghost"
           size="sm"
           onClick={toggleTheme}
-          className="w-full justify-start"
+          className="w-full justify-start min-h-[44px]"
         >
           {theme === "dark" ? (
             <>
@@ -295,13 +308,121 @@ export function Sidebar() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={logout}
-          className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+          onClick={() => { logout(); handleNavClick(); }}
+          className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 min-h-[44px]"
         >
           <LogOut className="mr-2 h-4 w-4" />
           Log out
         </Button>
       </div>
-    </aside>
+    </div>
+  );
+}
+
+export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
+  return (
+    <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shrink-0">
+      <Button variant="ghost" size="icon" className="h-10 w-10" onClick={onMenuOpen}>
+        <Menu className="h-5 w-5" />
+      </Button>
+      <h1 className="text-lg font-bold text-primary flex items-center">
+        <CheckSquare className="mr-2 h-5 w-5" />
+        AxTask
+      </h1>
+      <div className="w-10" />
+    </div>
+  );
+}
+
+export function Sidebar() {
+  const isMobile = useIsMobile();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [showHotkeys, setShowHotkeys] = useState(false);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "B") {
+        e.preventDefault();
+        if (isMobile) {
+          setMobileOpen((v) => !v);
+        } else {
+          setCollapsed((v) => !v);
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "/") {
+        e.preventDefault();
+        setShowHotkeys((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobile]);
+
+  if (isMobile) {
+    return (
+      <>
+        <MobileTopBar onMenuOpen={() => setMobileOpen(true)} />
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetContent side="left" className="w-[280px] p-0 bg-white dark:bg-gray-800">
+            <SheetHeader className="sr-only">
+              <SheetTitle>Navigation</SheetTitle>
+              <SheetDescription>App navigation menu</SheetDescription>
+            </SheetHeader>
+            <SidebarContent onNavigate={() => setMobileOpen(false)} />
+          </SheetContent>
+        </Sheet>
+        <HotkeyDialog open={showHotkeys} onOpenChange={setShowHotkeys} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <aside
+        className={`bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex-col shrink-0 hidden md:flex transition-all duration-200 overflow-hidden outline-none ${
+          collapsed ? "w-0 border-r-0" : "w-64"
+        }`}
+      >
+        {!collapsed && <SidebarContent />}
+      </aside>
+      <HotkeyDialog open={showHotkeys} onOpenChange={setShowHotkeys} />
+    </>
+  );
+}
+
+function HotkeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  if (!open) return null;
+
+  const hotkeys = [
+    { keys: "Ctrl + Shift + B", action: "Toggle sidebar" },
+    { keys: "Ctrl + Shift + /", action: "Show keyboard shortcuts" },
+    { keys: "Ctrl + Enter", action: "Submit task form" },
+    { keys: "Ctrl + M", action: "Voice commands" },
+    { keys: "Ctrl + T", action: "Toggle tutorial" },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => onOpenChange(false)}>
+      <div
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-[400px] max-w-[90vw] border border-gray-200 dark:border-gray-700"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-lg font-bold mb-4 text-gray-900 dark:text-gray-100">Keyboard Shortcuts</h2>
+        <div className="space-y-3">
+          {hotkeys.map(({ keys, action }) => (
+            <div key={keys} className="flex items-center justify-between">
+              <span className="text-sm text-gray-600 dark:text-gray-400">{action}</span>
+              <kbd className="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">
+                {keys}
+              </kbd>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 text-right">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Close</Button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -10,10 +10,10 @@ export default function Tasks() {
   const showFormFirst = useMemo(() => location.includes("new=1"), [location]);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">All Tasks</h2>
-        <p className="text-gray-600 dark:text-gray-400">View and manage all your tasks</p>
+        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">All Tasks</h2>
+        <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">View and manage all your tasks</p>
       </div>
 
       <Card className="border-blue-200 dark:border-blue-800 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20">

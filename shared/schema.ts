@@ -199,6 +199,7 @@ export const tasks = pgTable("tasks", {
   impact: integer("impact"),
   effort: integer("effort"),
   prerequisites: text("prerequisites").default(""),
+  recurrence: text("recurrence").default("none"),
   priority: text("priority").notNull(),
   priorityScore: integer("priority_score").notNull(),
   classification: text("classification").notNull(),
@@ -232,6 +233,7 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   impact: z.number().min(1).max(5).optional(),
   effort: z.number().min(1).max(5).optional(),
   prerequisites: z.string().max(1000, "Prerequisites must be under 1000 characters").optional(),
+  recurrence: z.enum(["none", "daily", "weekly", "biweekly", "monthly", "quarterly", "yearly"]).default("none"),
   status: z.enum(["pending", "in-progress", "completed"]).default("pending"),
 });
 
@@ -251,6 +253,23 @@ export const reorderTasksSchema = z.object({
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type UpdateTask = z.infer<typeof updateTaskSchema>;
 export type Task = typeof tasks.$inferSelect;
+
+// ─── Task Collaborators ─────────────────────────────────────────────────────
+export const taskCollaborators = pgTable("task_collaborators", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("editor"),
+  invitedBy: varchar("invited_by").references(() => users.id),
+  invitedAt: timestamp("invited_at").defaultNow(),
+}, (table) => [
+  index("idx_collab_task").on(table.taskId),
+  index("idx_collab_user").on(table.userId),
+  index("idx_collab_task_user").on(table.taskId, table.userId),
+]);
+
+export type TaskCollaborator = typeof taskCollaborators.$inferSelect;
+export const insertCollaboratorSchema = createInsertSchema(taskCollaborators).omit({ id: true, invitedAt: true });
 
 // ─── Gamification: Wallets ──────────────────────────────────────────────────
 export const wallets = pgTable("wallets", {
@@ -665,3 +684,58 @@ export const createPremiumReviewWorkflowSchema = createInsertSchema(premiumRevie
   templateJson: z.string().min(2).max(4000),
   isActive: z.boolean().default(true),
 });
+
+// ─── Pattern Learning (replit-published line; union with experimental) ───────
+export const taskPatterns = pgTable("task_patterns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  patternType: text("pattern_type").notNull(),
+  patternKey: text("pattern_key").notNull(),
+  data: text("data").notNull().default("{}"),
+  confidence: integer("confidence").notNull().default(0),
+  occurrences: integer("occurrences").notNull().default(1),
+  lastSeen: timestamp("last_seen").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_patterns_user").on(table.userId),
+  index("idx_patterns_user_type").on(table.userId, table.patternType),
+  index("idx_patterns_user_key").on(table.userId, table.patternKey),
+  uniqueIndex("idx_patterns_user_type_key").on(table.userId, table.patternType, table.patternKey),
+]);
+
+export type TaskPattern = typeof taskPatterns.$inferSelect;
+export type InsertTaskPattern = typeof taskPatterns.$inferInsert;
+
+// ─── Classification Contributions ───────────────────────────────────────────
+export const classificationContributions = pgTable("classification_contributions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  classification: text("classification").notNull(),
+  baseCoinsAwarded: integer("base_coins_awarded").notNull().default(0),
+  totalCoinsEarned: integer("total_coins_earned").notNull().default(0),
+  confirmationCount: integer("confirmation_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_class_contrib_task").on(table.taskId),
+  index("idx_class_contrib_user").on(table.userId),
+  uniqueIndex("idx_class_contrib_task_user").on(table.taskId, table.userId),
+]);
+
+export type ClassificationContribution = typeof classificationContributions.$inferSelect;
+
+// ─── Classification Confirmations ───────────────────────────────────────────
+export const classificationConfirmations = pgTable("classification_confirmations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contributionId: varchar("contribution_id").notNull().references(() => classificationContributions.id, { onDelete: "cascade" }),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  coinsAwarded: integer("coins_awarded").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_class_confirm_contrib").on(table.contributionId),
+  index("idx_class_confirm_task").on(table.taskId),
+  uniqueIndex("idx_class_confirm_task_user").on(table.taskId, table.userId),
+]);
+
+export type ClassificationConfirmation = typeof classificationConfirmations.$inferSelect;
