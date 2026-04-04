@@ -1,7 +1,6 @@
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { type Task } from '@shared/schema';
-import { GOOGLE_SHEETS_CONFIG } from './config/google-sheets-config';
 
 export interface GoogleSheetsCredentials {
   apiKey: string;
@@ -43,11 +42,11 @@ export class GoogleSheetsAPI {
       throw new Error('Invalid API key format');
     }
     
-    // Initialize OAuth2 client with auto-configured redirect URI
+    // Initialize OAuth2 client
     this.auth = new OAuth2Client(
       credentials.clientId,
       credentials.clientSecret,
-      GOOGLE_SHEETS_CONFIG.redirectUri
+      `${process.env.BASE_URL || 'http://localhost:5000'}/auth/callback`
     );
 
     // Set credentials if available
@@ -68,9 +67,14 @@ export class GoogleSheetsAPI {
 
   // Generate OAuth URL for user authentication
   generateAuthUrl(): string {
+    const scopes = [
+      'https://www.googleapis.com/auth/spreadsheets',
+      'https://www.googleapis.com/auth/drive.metadata.readonly'
+    ];
+
     return this.auth.generateAuthUrl({
       access_type: 'offline',
-      scope: GOOGLE_SHEETS_CONFIG.scopes,
+      scope: scopes,
       prompt: 'consent'
     });
   }
@@ -450,17 +454,17 @@ export class GoogleSheetsAPI {
 // Factory function for creating GoogleSheetsAPI instance
 export function createGoogleSheetsAPI(credentials?: Partial<GoogleSheetsCredentials>): GoogleSheetsAPI {
   const defaultCredentials: GoogleSheetsCredentials = {
-    apiKey: GOOGLE_SHEETS_CONFIG.apiKey,
-    clientId: GOOGLE_SHEETS_CONFIG.clientId,
-    clientSecret: GOOGLE_SHEETS_CONFIG.clientSecret,
-    accessToken: credentials?.accessToken,
-    refreshToken: credentials?.refreshToken
+    apiKey: process.env.GOOGLE_SHEETS_API_KEY || '',
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    accessToken: process.env.GOOGLE_ACCESS_TOKEN,
+    refreshToken: process.env.GOOGLE_REFRESH_TOKEN
   };
 
   const finalCredentials = { ...defaultCredentials, ...credentials };
 
   if (!finalCredentials.apiKey || !finalCredentials.clientId || !finalCredentials.clientSecret) {
-    throw new Error('Missing required Google API credentials. Please check your Replit Secrets.');
+    throw new Error('Missing required Google API credentials. Please check your environment variables.');
   }
 
   return new GoogleSheetsAPI(finalCredentials);

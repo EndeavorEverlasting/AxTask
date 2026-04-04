@@ -1,99 +1,222 @@
-import { useState, useEffect } from "react";
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { useZoom, ZoomProvider } from "@/hooks/use-zoom";
+import { TutorialProvider } from "@/hooks/use-tutorial";
+import { VoiceProvider, useVoice } from "@/hooks/use-voice";
 import { Sidebar } from "@/components/layout/sidebar";
+import { TutorialOverlay } from "@/components/tutorial-overlay";
+import { VoiceCommandBar } from "@/components/voice-command-bar";
+import { MobileVoiceOverlay } from "@/components/mobile-voice-overlay";
+import BulkActionDialog from "@/components/bulk-action-dialog";
+import { GlobalSearch } from "@/components/global-search";
+import { setPendingEditTask } from "@/lib/pending-edit";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { LayoutDashboard, List, CalendarDays, Brain, Users } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
-import CalendarPage from "@/pages/calendar";
 import Analytics from "@/pages/analytics";
+import CalendarPage from "@/pages/calendar";
 import ImportExport from "@/pages/import-export";
 import GoogleSheetsSyncPage from "@/pages/google-sheets-sync";
-import Landing from "@/pages/landing";
+import ChecklistPage from "@/pages/checklist";
+import PlannerPage from "@/pages/planner";
+import AdminPage from "@/pages/admin";
+import RewardsPage from "@/pages/rewards";
+import CommunityPage from "@/pages/community";
+import CommunityPostPage from "@/pages/community-post";
+import LoginPage from "@/pages/login";
+import PrivacyPolicy from "@/pages/privacy";
+import TermsOfService from "@/pages/terms";
 import NotFound from "@/pages/not-found";
-import { QuickFind } from "./components/quick-find";
-import { type Task } from "@shared/schema";
-import { Dialog, DialogContent } from "./components/ui/dialog";
-import { TaskForm } from "./components/task-form";
-import { useAuth } from "@/hooks/useAuth";
+import { Loader2 } from "lucide-react";
+import { Link } from "wouter";
 
 function Router() {
-  const { isAuthenticated, isLoading } = useAuth();
-  const [quickFindOpen, setQuickFindOpen] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  return (
+    <Switch>
+      <Route path="/" component={Dashboard} />
+      <Route path="/tasks" component={Tasks} />
+      <Route path="/calendar" component={CalendarPage} />
+      <Route path="/analytics" component={Analytics} />
+      <Route path="/import-export" component={ImportExport} />
+      <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
+      <Route path="/checklist" component={ChecklistPage} />
+      <Route path="/planner" component={PlannerPage} />
+      <Route path="/admin" component={AdminPage} />
+      <Route path="/rewards" component={RewardsPage} />
+      <Route path="/community" component={CommunityPage} />
+      <Route path="/community/:id" component={CommunityPostPage} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
+function ReviewDialogBridge() {
+  const { reviewProposal, clearReviewProposal } = useVoice();
+  if (!reviewProposal) return null;
+  return (
+    <BulkActionDialog
+      open={!!reviewProposal}
+      onOpenChange={(open) => { if (!open) clearReviewProposal(); }}
+      actions={reviewProposal.actions}
+      message={reviewProposal.message}
+      unmatched={reviewProposal.unmatched}
+    />
+  );
+}
+
+const BOTTOM_NAV_ITEMS = [
+  { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { path: "/tasks", icon: List, label: "Tasks" },
+  { path: "/community", icon: Users, label: "Community" },
+  { path: "/calendar", icon: CalendarDays, label: "Calendar" },
+  { path: "/planner", icon: Brain, label: "Planner" },
+];
+
+function MobileBottomNav() {
+  const [location] = useLocation();
+
+  const isActive = (path: string) => {
+    if (path === "/" && location === "/") return true;
+    if (path !== "/" && location.startsWith(path)) return true;
+    return false;
+  };
+
+  return (
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 safe-area-bottom">
+      <div className="flex items-center justify-around h-14">
+        {BOTTOM_NAV_ITEMS.map(({ path, icon: Icon, label }) => (
+          <Link
+            key={path}
+            href={path}
+            className={`flex flex-col items-center justify-center flex-1 h-full min-w-[64px] min-h-[44px] transition-colors no-underline ${
+              isActive(path)
+                ? "text-primary"
+                : "text-gray-400 dark:text-gray-500"
+            }`}
+          >
+            <Icon className="h-5 w-5" />
+            <span className="text-[10px] mt-0.5 font-medium">{label}</span>
+          </Link>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+
+const ROUTE_STORAGE_KEY = "axtask_last_route";
+const VALID_ROUTES = ["/", "/tasks", "/calendar", "/analytics", "/import-export", "/google-sheets", "/checklist", "/planner", "/admin", "/rewards", "/community"];
+
+function useRoutePersistence() {
+  const [location, setLocation] = useLocation();
+  const restoredRef = useRef(false);
+
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    try {
+      const pathname = window.location.pathname;
+      if (pathname === "/" || pathname === "") {
+        const saved = localStorage.getItem(ROUTE_STORAGE_KEY);
+        if (saved && saved !== "/" && VALID_ROUTES.includes(saved)) {
+          setLocation(saved);
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (location && location !== "/" && VALID_ROUTES.includes(location)) {
+        localStorage.setItem(ROUTE_STORAGE_KEY, location);
+      }
+    } catch {}
+  }, [location]);
+}
+
+function AuthenticatedApp() {
+  const { user, loading } = useAuth();
+  const { zoom } = useZoom();
+  const isMobile = useIsMobile();
+  const scale = isMobile ? 1 : zoom / 100;
+  const [location, setLocation] = useLocation();
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+
+  useRoutePersistence();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isAuthenticated) return;
-      
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        const isMobile = window.innerWidth < 768;
-        if (!isMobile) {
-          e.preventDefault();
-          setQuickFindOpen(true);
-        }
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        setGlobalSearchOpen(true);
       }
     };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAuthenticated]);
+  const handleNavigate = useCallback((path: string) => {
+    setLocation(path);
+  }, [setLocation]);
 
-  if (isLoading) {
+  if (location === "/privacy") return <PrivacyPolicy />;
+  if (location === "/terms") return <TermsOfService />;
+
+  if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
-  if (!isAuthenticated) {
-    return (
-      <Switch>
-        <Route path="/" component={Landing} />
-        <Route path="*">
-          {() => {
-            window.location.href = '/api/login';
-            return null;
-          }}
-        </Route>
-      </Switch>
-    );
+  if (!user) {
+    return <LoginPage />;
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-      <Sidebar />
-      <main className="flex-1 overflow-auto">
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/tasks" component={Tasks} />
-          <Route path="/calendar" component={CalendarPage} />
-          <Route path="/analytics" component={Analytics} />
-          <Route path="/import-export" component={ImportExport} />
-          <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
-          <Route component={NotFound} />
-        </Switch>
-      </main>
-
-      <QuickFind
-        isOpen={quickFindOpen}
-        onClose={() => setQuickFindOpen(false)}
-        onSelectTask={(task) => setSelectedTask(task)}
-      />
-
-      <Dialog open={!!selectedTask} onOpenChange={() => setSelectedTask(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          {selectedTask && <TaskForm task={selectedTask} onSuccess={() => setSelectedTask(null)} />}
-        </DialogContent>
-      </Dialog>
-    </div>
+    <VoiceProvider onNavigate={handleNavigate}>
+      <div className="h-screen flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
+        <Sidebar />
+        <main className="flex-1 overflow-hidden">
+          <div
+            className="h-full overflow-auto pb-16 md:pb-0"
+            style={
+              scale !== 1
+                ? {
+                    transform: `scale(${scale})`,
+                    transformOrigin: "top left",
+                    width: `${100 / scale}%`,
+                    height: `${100 / scale}%`,
+                  }
+                : undefined
+            }
+          >
+            <Router />
+          </div>
+        </main>
+        <MobileBottomNav />
+        <MobileVoiceOverlay />
+        <TutorialOverlay />
+        <VoiceCommandBar />
+        <ReviewDialogBridge />
+        <GlobalSearch
+          open={globalSearchOpen}
+          onClose={() => setGlobalSearchOpen(false)}
+          onSelectTask={(task) => {
+            setPendingEditTask(task);
+            setLocation("/tasks");
+          }}
+        />
+      </div>
+    </VoiceProvider>
   );
 }
 
@@ -102,7 +225,13 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider>
-          <Router />
+          <AuthProvider>
+            <ZoomProvider>
+              <TutorialProvider>
+                <AuthenticatedApp />
+              </TutorialProvider>
+            </ZoomProvider>
+          </AuthProvider>
           <Toaster />
         </TooltipProvider>
       </ThemeProvider>

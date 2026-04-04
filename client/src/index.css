@@ -58,6 +58,172 @@
   }
 }
 
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Focus flow glow — guides users to the next field */
+@keyframes field-glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsla(207, 90%, 54%, 0);
+  }
+  50% {
+    box-shadow: 0 0 8px 2px hsla(207, 90%, 54%, 0.25);
+  }
+}
+
+.field-glow-hint {
+  animation: field-glow-pulse 2s ease-in-out infinite;
+  border-color: hsla(207, 90%, 54%, 0.4) !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.dark .field-glow-hint {
+  animation: field-glow-pulse 2s ease-in-out infinite;
+  border-color: hsla(207, 90%, 54%, 0.35) !important;
+}
+
+.field-glow-hint:focus,
+.field-glow-hint:focus-within {
+  animation: none;
+}
+
+/* Warning glow — highlights missing required fields */
+@keyframes field-glow-warning-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsla(45, 93%, 47%, 0);
+  }
+  50% {
+    box-shadow: 0 0 8px 2px hsla(45, 93%, 47%, 0.3);
+  }
+}
+
+.field-glow-warning {
+  animation: field-glow-warning-pulse 1.8s ease-in-out infinite;
+  border-color: hsla(45, 93%, 47%, 0.5) !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.dark .field-glow-warning {
+  animation: field-glow-warning-pulse 1.8s ease-in-out infinite;
+  border-color: hsla(45, 93%, 47%, 0.4) !important;
+}
+
+.field-glow-warning:focus,
+.field-glow-warning:focus-within {
+  animation: none;
+}
+
+/* Success glow — universal green highlight for completed actions */
+@keyframes field-glow-success-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsla(142, 71%, 45%, 0);
+  }
+  50% {
+    box-shadow: 0 0 8px 2px hsla(142, 71%, 45%, 0.3);
+  }
+}
+
+.field-glow-success {
+  animation: field-glow-success-pulse 2s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.5) !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.dark .field-glow-success {
+  animation: field-glow-success-pulse 2s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.4) !important;
+}
+
+.field-glow-success:focus,
+.field-glow-success:focus-within {
+  animation: none;
+}
+
+/* Tutorial glow — yellow pulsing highlight to guide users */
+@keyframes field-glow-tutorial-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsla(45, 93%, 47%, 0);
+  }
+  50% {
+    box-shadow: 0 0 14px 4px hsla(45, 93%, 47%, 0.4);
+  }
+}
+
+.field-glow-tutorial {
+  animation: field-glow-tutorial-pulse 1.5s ease-in-out infinite;
+  border-color: hsla(45, 93%, 47%, 0.55) !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
+  z-index: 10;
+}
+
+.dark .field-glow-tutorial {
+  animation: field-glow-tutorial-pulse 1.5s ease-in-out infinite;
+  border-color: hsla(45, 93%, 47%, 0.45) !important;
+}
+
+.field-glow-tutorial:focus,
+.field-glow-tutorial:focus-within {
+  animation: field-glow-tutorial-pulse 1.5s ease-in-out infinite;
+}
+
+/* Tutorial success glow — green pulse for action/completion targets */
+@keyframes field-glow-tutorial-success-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsla(142, 71%, 45%, 0);
+  }
+  50% {
+    box-shadow: 0 0 14px 4px hsla(142, 71%, 45%, 0.4);
+  }
+}
+
+.field-glow-tutorial-success {
+  animation: field-glow-tutorial-success-pulse 1.5s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.55) !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
+  z-index: 10;
+}
+
+.dark .field-glow-tutorial-success {
+  animation: field-glow-tutorial-success-pulse 1.5s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.45) !important;
+}
+
+.field-glow-tutorial-success:focus,
+.field-glow-tutorial-success:focus-within {
+  animation: field-glow-tutorial-success-pulse 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field-glow-hint {
+    animation: none;
+    border-color: hsla(207, 90%, 54%, 0.5) !important;
+    box-shadow: 0 0 0 2px hsla(207, 90%, 54%, 0.25);
+  }
+  .field-glow-warning {
+    animation: none;
+    border-color: hsla(45, 93%, 47%, 0.6) !important;
+    box-shadow: 0 0 0 2px hsla(45, 93%, 47%, 0.3);
+  }
+  .field-glow-tutorial {
+    animation: none;
+    border-color: hsla(45, 93%, 47%, 0.6) !important;
+    box-shadow: 0 0 0 2px hsla(45, 93%, 47%, 0.3);
+  }
+  .field-glow-tutorial-success {
+    animation: none;
+    border-color: hsla(142, 71%, 45%, 0.6) !important;
+    box-shadow: 0 0 0 2px hsla(142, 71%, 45%, 0.3);
+  }
+  .field-glow-success {
+    animation: none;
+    border-color: hsla(142, 71%, 45%, 0.5) !important;
+    box-shadow: 0 0 0 2px hsla(142, 71%, 45%, 0.25);
+  }
+}
+
 /* Custom animations and styles */
 .priority-badge-highest {
   background-color: hsl(0, 84.2%, 95%);
@@ -109,30 +275,76 @@
   color: hsl(220, 10%, 80%);
 }
 
-/* Focus Glow System - Visual feedback for keyboard navigation */
-.task-form-card:has(.btn-submit:focus) {
-  outline: 2px solid rgb(34, 197, 94) !important;
-  box-shadow: 0 10px 15px -3px rgba(34, 197, 94, 0.3), 0 4px 6px -4px rgba(34, 197, 94, 0.3) !important;
+@keyframes task-flash-status {
+  0% { background-color: transparent; }
+  25% { background-color: hsla(142, 76%, 56%, 0.15); }
+  100% { background-color: transparent; }
 }
 
-/* Active state for mobile touch feedback */
-.active\:scale-98:active {
-  transform: scale(0.98);
+@keyframes task-flash-priority {
+  0% { background-color: transparent; }
+  25% { background-color: hsla(38, 92%, 50%, 0.15); }
+  100% { background-color: transparent; }
 }
 
-.task-form-card:has(.btn-delete:focus) {
-  outline: 2px solid rgb(239, 68, 68) !important;
-  box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.3), 0 4px 6px -4px rgba(239, 68, 68, 0.3) !important;
+@keyframes task-new-glow-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+  20% { box-shadow: 0 0 20px 4px rgba(34, 197, 94, 0.4), 0 0 40px 8px rgba(34, 197, 94, 0.15); }
+  50% { box-shadow: 0 0 12px 2px rgba(34, 197, 94, 0.25), 0 0 30px 6px rgba(34, 197, 94, 0.1); }
+  80% { box-shadow: 0 0 20px 4px rgba(34, 197, 94, 0.3), 0 0 40px 8px rgba(34, 197, 94, 0.12); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
 }
 
-.task-form-card:has(.btn-cancel:focus) {
-  outline: 2px solid rgb(156, 163, 175) !important;
-  box-shadow: 0 10px 15px -3px rgba(156, 163, 175, 0.3), 0 4px 6px -4px rgba(156, 163, 175, 0.3) !important;
+.task-new-glow {
+  animation: task-new-glow-pulse 2s ease-in-out;
+  position: relative;
 }
 
-.task-form-card:has(input:focus),
-.task-form-card:has(textarea:focus),
-.task-form-card:has(button[role="combobox"]:focus) {
-  outline: 2px solid rgb(156, 163, 175) !important;
-  box-shadow: 0 10px 15px -3px rgba(156, 163, 175, 0.3), 0 4px 6px -4px rgba(156, 163, 175, 0.3) !important;
+.task-new-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent 0%, rgba(34, 197, 94, 0.08) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: task-shimmer 1.2s ease-in-out;
+  pointer-events: none;
+}
+
+@keyframes task-shimmer {
+  0% { background-position: -200% 0; opacity: 1; }
+  100% { background-position: 200% 0; opacity: 0; }
+}
+
+@keyframes task-pop-in {
+  0% { transform: scale(0.85) translateY(-20px); opacity: 0; }
+  40% { transform: scale(1.06) translateY(0); opacity: 1; }
+  70% { transform: scale(0.98) translateY(0); }
+  100% { transform: scale(1) translateY(0); }
+}
+
+.task-celebration-burst {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at 50% 40%, rgba(34, 197, 94, 0.12) 0%, transparent 60%);
+  animation: celebration-flash 0.8s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes celebration-flash {
+  0% { opacity: 0; }
+  30% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-\\[task-flash-status_0\\.4s_ease-out\\],
+  .animate-\\[task-flash-priority_0\\.4s_ease-out\\] {
+    animation: none !important;
+  }
+  .task-new-glow,
+  .task-new-glow::after,
+  .task-celebration-burst {
+    animation: none !important;
+  }
 }

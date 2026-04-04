@@ -1,0 +1,530 @@
+## Approach
+
+1. **Define the real target.** You are not building “a prettier spreadsheet.” You are building a **task capture and automation system** that happens to sync with Google Sheets for now.
+2. **Split the problem into layers.** If you do not separate sheet logic, Apps Script logic, web UI, and debugging tools, the whole thing turns into swamp water.
+3. **Design for your actual behavior.** You said it plainly: most of the time you only want to enter **Activity** and **Notes**. Good. That should become the main workflow, not an afterthought.
+4. **Treat the spreadsheet as a compatibility layer.** It is useful, but it should not be the throne. The web app should be the throne.
+5. **Build a debug lab first.** A dedicated repo for testing formulas, Apps Script, sync behavior, TaskID assignment, and UI assumptions is exactly the right move.
+
+---
+
+# My recommendation
+
+## Build this as a dedicated repo now
+
+Not inside your bigger app yet.
+
+You want a **sandboxed command center** with four concerns:
+
+* **Sheet Debug Engine**
+* **Apps Script Automation**
+* **Web UI**
+* **Sync + Validation Tools**
+
+That gives you room to:
+
+* break things safely
+* version formulas and scripts cleanly
+* prototype a proper web/mobile workflow
+* later extract shared modules into your broader app ecosystem
+
+---
+
+# The right mental model
+
+## What this project really is
+
+It is a:
+
+* **task operating system**
+* with **sheet compatibility**
+* backed by **Apps Script automations**
+* fronted by a **sleek web app**
+* with a **debug layer** for tracking formula drift, broken validations, TaskID collisions, and sync errors
+
+That is the honest framing.
+
+---
+
+# What I would build
+
+## Repo purpose
+
+A dedicated repo whose job is to do three things well:
+
+1. **Own the task tracker logic**
+2. **Expose a beautiful web UI for data entry and review**
+3. **Continuously test and debug the Google Sheets + Apps Script integration**
+
+---
+
+# Recommended repo shape
+
+## Suggested repo names
+
+Pick one that sounds like a product, not a homework folder:
+
+* **TaskForge**
+* **Tracksmith**
+* **AxTask-Lab**
+* **TaskRail**
+* **TaskGrid**
+* **TaskFlow Debug Studio**
+* **LedgerSprint**
+* **OpsTask Lab**
+
+My vote if you want sharp and expandable:
+
+**TaskForge**
+
+If you want it tied to your existing naming culture:
+
+**AxTask-Lab**
+
+---
+
+## Recommended structure
+
+```text
+taskforge/
+  README.md
+  docs/
+    vision.md
+    requirements.md
+    automation-rules.md
+    ui-wireframes.md
+    formula-registry.md
+    sync-contract.md
+    debugging-playbook.md
+  apps/
+    web/
+      src/
+        components/
+        pages/
+        modules/
+        hooks/
+        styles/
+      public/
+      package.json
+    gas/
+      Code.gs
+      Dates.gs
+      TaskID.gs
+      Validations.gs
+      Config.gs
+      Sync.gs
+  packages/
+    shared/
+      task-model/
+      priority-engine/
+      validation-rules/
+      id-generation/
+  tools/
+    sheet-audit/
+    formula-checker/
+    export-snapshot/
+    seed-test-data/
+  tests/
+    fixtures/
+    rules/
+    sync/
+  .github/
+    workflows/
+```
+
+---
+
+# Stack I would choose
+
+## For the web app
+
+Use:
+
+* **Next.js** or **Vite + React**
+* **TypeScript**
+* **Tailwind**
+* **shadcn/ui**
+* **Framer Motion** for subtle polish
+
+## For integration
+
+Use:
+
+* **Google Apps Script** as the first integration layer
+* **Google Sheets** as temporary operational storage and compatibility layer
+* later, optionally:
+
+  * **PostgreSQL** as the real backend
+  * Sheets becomes export/reporting only
+
+## Why this is the right move
+
+Apps Script is good at:
+
+* talking to Sheets
+* automation
+* triggers
+* fast internal tooling
+
+Apps Script is **not** where elegance lives.
+Its UI layer is serviceable, not noble.
+
+So:
+
+* let Apps Script do **automation and sync**
+* let React do **beauty, speed, mobile friendliness, and dignity**
+
+---
+
+# What the web version should actually do
+
+## Core principle
+
+The default task entry flow should be **minimal-entry-first**.
+
+### Fast entry mode
+
+You type only:
+
+* **Activity**
+* **Notes**
+
+Everything else is inferred or defaulted where possible.
+
+### Assisted mode
+
+Optional fields expand only when needed:
+
+* priority override
+* urgency
+* impact
+* effort
+* domain
+* tags
+* prerequisite
+* sub-priority
+* time window
+* subtype
+
+### Review mode
+
+A polished dashboard shows:
+
+* today’s tasks
+* incomplete tasks
+* highest priority inferred tasks
+* grouped tasks by date/domain/tag
+* archived items
+* debug warnings
+
+### Debug mode
+
+A special admin/debug panel shows:
+
+* rows missing TaskID
+* duplicate TaskIDs
+* rows with invalid dates
+* formulas not present where expected
+* checkbox validation missing
+* score/priority mismatches
+* sync failures
+* Apps Script execution logs surfaced in a sane UI
+
+That last one matters. That is where the pain gets killed.
+
+---
+
+# What should be automated
+
+You already gave the key clue:
+
+> I only populate activity and notes most of the time.
+
+Good. Then the system should automate the rest where sensible.
+
+## Auto-populate candidates
+
+* **Date** from today if missing
+* **TaskID** on first meaningful edit
+* **Priority** from Score unless manually overridden
+* **Score** from Urgency/Impact/Effort when present
+* **Domain** inferred from keywords
+* **Tags** inferred from Notes and Activity
+* **Subtypes** inferred from pattern rules
+* **Result checkbox** default false
+* **Time grouping** inferred from entry time
+* **Auto Override** applied from rule engine for special cases
+
+## Rules engine examples
+
+If Notes contains:
+
+* “call”, “text”, “email” → communication domain
+* “deploy”, “tracker”, “sheet”, “script” → ops/dev domain
+* “buy”, “pay”, “invoice” → finance/admin domain
+* “gym”, “walk”, “meal prep” → personal health domain
+
+That sort of thing.
+
+Not magic. Controlled inference.
+
+---
+
+# The product split I recommend
+
+## Module 1: Capture
+
+Fast, almost frictionless task entry.
+
+## Module 2: Automation
+
+Date, TaskID, scoring, inference, defaults.
+
+## Module 3: Tracker View
+
+Clean list/grid/calendar-style task browsing.
+
+## Module 4: Debug Console
+
+Everything ugly gets dragged into the light.
+
+## Module 5: Sheet Sync
+
+Push/pull from Google Sheets, reconcile conflicts, flag drift.
+
+## Module 6: Admin Rules
+
+Manage keyword maps, defaults, score thresholds, and override logic.
+
+---
+
+# Hard warning
+
+Do **not** let the spreadsheet remain the source of all truth and all behavior forever.
+
+That path leads to:
+
+* formula drift
+* broken validations
+* corrupted ranges
+* mobile misery
+* UI paralysis
+* logic spread across cells, scripts, and human memory
+
+The spreadsheet should become:
+
+* storage/export layer
+* legacy compatibility layer
+* admin inspection layer
+
+The web app should become the real cockpit.
+
+---
+
+# S-class build prompt
+
+Use this in Cursor, GPT, Claude, or whatever coding assistant you want driving the first serious pass.
+
+## Master prompt
+
+```text
+Build a professional-grade task tracking system called TaskForge as a dedicated repository for debugging, automating, and eventually replacing a Google Sheets based personal task tracker.
+
+This project must be designed as a serious internal product, not a toy demo.
+
+Core intent:
+I currently manage tasks in Google Sheets with Google Apps Script, but the spreadsheet UI is clumsy, fragile, ugly across devices, and especially poor for mobile. I want a sleek, sophisticated web version that preserves compatibility with Google Sheets while providing a much better experience for data entry, review, automation, and debugging.
+
+The new system should treat Google Sheets as a compatibility and sync layer, not as the permanent center of the product.
+
+Product goals:
+1. Provide an elegant web UI for entering and managing tasks.
+2. Preserve support for Google Sheets and Apps Script during transition.
+3. Automate most fields so that I usually only need to enter Activity and Notes.
+4. Include a debugging layer specifically for spreadsheet, formula, validation, and Apps Script issues.
+5. Be designed in a modular way so pieces can later be integrated into my other apps.
+
+Technical direction:
+- Frontend: React + TypeScript + Tailwind + shadcn/ui
+- Recommended app shell: Next.js preferred, Vite acceptable if justified
+- Use a modern, dark, polished interface with excellent mobile responsiveness
+- Include subtle motion and strong information hierarchy
+- Design for touch-first and keyboard-first use
+- Use clean card layouts, tables, filters, drawers, modals, and compact entry panels
+- Prioritize speed, clarity, and easy daily use
+
+Architecture requirements:
+Create the repository with clear separation of concerns:
+- apps/web for the web UI
+- apps/gas for Google Apps Script files
+- packages/shared for shared business logic
+- tools for debugging and sheet audit utilities
+- docs for product, rules, formula logic, and sync contracts
+
+The system should include these layers:
+1. Task Entry UI
+2. Task Automation Engine
+3. Task Review Dashboard
+4. Spreadsheet Sync Layer
+5. Debug Console
+6. Admin Rules Panel
+
+Data model:
+Assume current columns include:
+- Date
+- Priority
+- Result
+- Activity
+- Notes
+- Urgency
+- Impact
+- Effort
+- Domain
+- Tags
+- Score
+- Auto Override
+- Manual Override
+- Priority Script
+- Pre-Reqs
+- Sub-Priority
+- Time Start
+- Time End
+- Subtypes
+- TaskID
+
+Behavior requirements:
+- Default task creation flow should allow ultra-fast entry using only Activity and Notes
+- Date should auto-populate if missing
+- TaskID should be assigned once and stored as a static value, never row-dependent
+- Score should be derived from Urgency, Impact, and Effort where applicable
+- Priority should be derived from Score unless manually overridden
+- Domain, tags, subtype, and other metadata should be inferable from keyword or rule-based logic
+- Result should default to unchecked
+- The system should support top-of-list task entry without requiring ugly spreadsheet row insertion behavior
+- The web app should provide a clean “New Task” experience that avoids spreadsheet pain entirely
+
+Debugging requirements:
+Create a dedicated Debug Console that can surface:
+- missing TaskIDs
+- duplicate TaskIDs
+- missing or malformed dates
+- broken checkbox validation
+- formula drift
+- score/priority inconsistencies
+- sync errors between web app and sheet
+- Apps Script execution issues
+- sheet schema mismatches
+- stale config or rule mismatches
+
+The debug console should feel like a proper engineering tool, not an afterthought.
+
+Google Sheets / Apps Script requirements:
+- Include a Google Apps Script module layout with files such as Code.gs, Dates.gs, TaskID.gs, Validations.gs, Config.gs, and Sync.gs
+- The Apps Script side should support menu actions for row insertion, TaskID repair, date filling, validation re-application, and sync testing
+- Keep Apps Script focused on automation and sync, not primary UI
+- Support top-row insertion or an equivalent web-driven insertion model without breaking TaskIDs
+- Include safeguards for shared sheet editing
+
+Web UI requirements:
+Create screens/components for:
+- Quick Add Task panel
+- Full Task Editor
+- Today view
+- Inbox view
+- Priority view
+- Timeline or grouped-by-date view
+- Search and filter controls
+- Debug Console
+- Admin rules/config panel
+
+The UI aesthetic should be:
+- dark, clean, modern, and serious
+- compact without feeling cramped
+- visually elegant on desktop and mobile
+- suitable for daily professional use
+- far superior to raw spreadsheet windows
+
+Workflow requirements:
+- Build for iterative expansion
+- Make all business logic modular and testable
+- Make it easy to swap out Google Sheets later for a real backend such as PostgreSQL
+- Include test fixtures and seed data
+- Include developer documentation and product documentation
+- Include notes on migration path from sheet-centric to app-centric operation
+
+Output requirements:
+1. Generate the full repo structure
+2. Generate the initial README
+3. Generate the docs folder contents
+4. Generate the web app skeleton
+5. Generate the Apps Script skeleton
+6. Generate shared task models and rule modules
+7. Generate a first-pass Debug Console
+8. Generate example inference rules for domain/tags/subtypes
+9. Generate a migration plan from Google Sheets to a more robust backend
+10. Generate a backlog of next implementation steps prioritized by value
+
+Quality bar:
+This must feel like a real product foundation with strong architecture and tasteful UX.
+Do not make it look like a spreadsheet clone.
+Do not produce shallow placeholder garbage.
+Make thoughtful choices, explain tradeoffs, and favor maintainability, polish, and operational realism.
+```
+
+---
+
+# Even better version for phase 1 only
+
+If you want to keep the first pass focused and avoid an AI agent wandering into fantasyland, use this tighter variant.
+
+```text
+Build Phase 1 of TaskForge, a web-based task tracker that sits on top of an existing Google Sheets + Apps Script workflow.
+
+Phase 1 scope only:
+- Quick Add Task UI with Activity and Notes as the primary inputs
+- Auto date assignment
+- Static TaskID assignment
+- Task list view for today and recent tasks
+- Google Sheets sync adapter placeholder
+- Debug Console for missing TaskIDs, duplicate TaskIDs, invalid dates, and validation drift
+- Modular shared business logic for scoring and priority inference
+- Mobile-friendly dark UI
+- Apps Script file structure for Date, TaskID, Validation, and Sync utilities
+- Clear docs and repo layout
+
+Do not build everything at once.
+Focus on a strong, believable foundation.
+Use TypeScript, React, Tailwind, and a clean architecture.
+Generate code, docs, and a prioritized backlog for Phase 2.
+```
+
+---
+
+# My design recommendation, bluntly
+
+## Do not make the first web version a spreadsheet clone
+
+That would be a failure in nicer clothing.
+
+Make it:
+
+* a **task inbox**
+* a **fast capture interface**
+* a **clean review dashboard**
+* a **debugging station**
+
+You can still provide a grid/table view later, but it should not be the soul of the app.
+
+---
+
+# Best immediate next move
+
+Do this in order:
+
+1. create the repo
+2. drop in the **Phase 1 prompt**
+3. generate the initial skeleton
+4. bring me the resulting repo tree and README
+5. then we cut the fluff, harden the architecture, and start shaping the real product
+
+That is how you stop wrestling a miserable sheet and start building the machine that should have existed in the first place.

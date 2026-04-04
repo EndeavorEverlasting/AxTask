@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SurveyPrompt } from "@/components/survey-prompt";
 import { type Task } from "@shared/schema";
 
 export default function Analytics() {
@@ -30,15 +31,15 @@ export default function Analytics() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
-          <p className="text-gray-600 dark:text-gray-400">Task distribution and performance metrics</p>
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
+          <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">Task distribution and performance metrics</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           {[1, 2, 3, 4].map(i => (
             <Card key={i}>
-              <CardContent className="p-6">
+              <CardContent className="p-4 md:p-6">
                 <div className="h-32 bg-gray-200 dark:bg-gray-700 animate-pulse rounded"></div>
               </CardContent>
             </Card>
@@ -49,13 +50,15 @@ export default function Analytics() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
-        <p className="text-gray-600 dark:text-gray-400">Task distribution and performance metrics</p>
+        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
+        <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">Task distribution and performance metrics</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <SurveyPrompt targetModule="analytics" trigger="page_visit" />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Priority Distribution */}
         <Card>
           <CardHeader>
@@ -162,7 +165,7 @@ export default function Analytics() {
             <div className="text-center">
               <div className="text-4xl font-bold text-orange-600 mb-2">
                 {tasks.length > 0 
-                  ? (tasks.reduce((sum, task) => sum + task.priorityScore, 0) / tasks.length / 10).toFixed(1)
+                  ? (tasks.reduce((sum, task) => sum + task.priorityScore, 0) / tasks.length / 10).toFixed(3)
                   : "0.0"
                 }
               </div>

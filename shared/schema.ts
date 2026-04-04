@@ -1,59 +1,132 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, index } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { pgTable, text, varchar, integer, real, timestamp, boolean, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// ─── Users ───────────────────────────────────────────────────────────────────
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
-  firstName: varchar("first_name"),
-  lastName: varchar("last_name"),
-  profileImageUrl: varchar("profile_image_url"),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash"),
+  displayName: text("display_name"),
+  role: text("role").notNull().default("user"),
+  authProvider: text("auth_provider").notNull().default("local"),
+  workosId: text("workos_id"),
+  googleId: text("google_id"),
+  replitId: text("replit_id"),
+  profileImageUrl: text("profile_image_url"),
+  securityQuestion: text("security_question"),
+  securityAnswerHash: text("security_answer_hash"),
+  failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
+  lockedUntil: timestamp("locked_until"),
+  isBanned: boolean("is_banned").notNull().default(false),
+  banReason: text("ban_reason"),
+  bannedAt: timestamp("banned_at"),
+  bannedBy: varchar("banned_by"),
+  mfaSecret: text("mfa_secret"),
+  mfaEnabled: boolean("mfa_enabled").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const sessions = pgTable(
-  "sessions",
-  {
-    sid: varchar("sid").primaryKey(),
-    sess: jsonb("sess").notNull(),
-    expire: timestamp("expire").notNull(),
-  },
-  (table) => [index("IDX_session_expire").on(table.expire)],
-);
+// ─── Password Reset Tokens ───────────────────────────────────────────────────
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  method: text("method").notNull().default("email"),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
 
+// ─── Security Audit Logs ─────────────────────────────────────────────────────
+export const securityLogs = pgTable("security_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventType: text("event_type").notNull(),
+  userId: varchar("user_id"),
+  targetUserId: varchar("target_user_id"),
+  ipAddress: text("ip_address"),
+  details: text("details"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_security_logs_event_type").on(table.eventType),
+  index("idx_security_logs_user_id").on(table.userId),
+  index("idx_security_logs_created_at").on(table.createdAt),
+]);
+
+// Strong password: ≥8 chars, uppercase, lowercase, digit, special character
+const strongPassword = z
+  .string()
+  .min(8, "Password must be at least 8 characters")
+  .regex(/[A-Z]/, "Password must contain an uppercase letter")
+  .regex(/[a-z]/, "Password must contain a lowercase letter")
+  .regex(/[0-9]/, "Password must contain a number")
+  .regex(/[^A-Za-z0-9]/, "Password must contain a special character (!@#$%…)");
+
+export const registerSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: strongPassword,
+  displayName: z.string().optional(),
+  inviteCode: z.string().optional(),
+});
+
+export const loginSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+
+export type User = typeof users.$inferSelect;
+export type SafeUser = Omit<User, "passwordHash" | "securityAnswerHash" | "failedLoginAttempts" | "lockedUntil" | "workosId" | "googleId" | "replitId" | "mfaSecret">;
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type SecurityLog = typeof securityLogs.$inferSelect;
+
+// ─── Tasks ───────────────────────────────────────────────────────────────────
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }),
   date: text("date").notNull(),
-  time: text("time").notNull().default("12:00"), // HH:MM format (24-hour), defaults to current time when task is created
+  time: text("time"),
   activity: text("activity").notNull(),
   notes: text("notes").default(""),
-  urgency: integer("urgency"), // 1-5 or null for auto-calculation
-  impact: integer("impact"), // 1-5 or null for auto-calculation
-  effort: integer("effort"), // 1-5 or null for auto-calculation
+  urgency: integer("urgency"),
+  impact: integer("impact"),
+  effort: integer("effort"),
   prerequisites: text("prerequisites").default(""),
-  priority: text("priority").notNull(), // "Highest", "High", "Medium-High", "Medium", "Low"
+  recurrence: text("recurrence").default("none"),
+  priority: text("priority").notNull(),
   priorityScore: integer("priority_score").notNull(),
-  classification: text("classification").notNull(), // "Development", "Meeting", "Administrative", etc.
-  status: text("status").notNull().default("pending"), // "pending", "in-progress", "completed"
+  classification: text("classification").notNull(),
+  status: text("status").notNull().default("pending"),
   isRepeated: boolean("is_repeated").default(false),
+  bounty: integer("bounty").default(0),
+  bountySetBy: varchar("bounty_set_by").references(() => users.id),
+  sortOrder: integer("sort_order").default(0),
+  contentHash: varchar("content_hash", { length: 64 }),
+  forceImported: boolean("force_imported").default(false),
+  attachments: jsonb("attachments").default([]),
+  markdownContent: text("markdown_content"),
+  reactions: jsonb("reactions").default({}),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_tasks_user_status").on(table.userId, table.status),
+  index("idx_tasks_user_priority").on(table.userId, table.priority),
+  index("idx_tasks_user_sort_order").on(table.userId, table.sortOrder),
+  index("idx_tasks_user_content_hash").on(table.userId, table.contentHash),
+]);
+
+export const attachmentSchema = z.object({
+  id: z.string(),
+  type: z.enum(["image", "markdown"]),
+  filename: z.string(),
+  path: z.string(),
+  thumbnailPath: z.string().optional(),
+  size: z.number(),
+  mimeType: z.string().optional(),
+  createdAt: z.string(),
 });
 
-export const usersRelations = relations(users, ({ many }) => ({
-  tasks: many(tasks),
-}));
-
-export const tasksRelations = relations(tasks, ({ one }) => ({
-  user: one(users, {
-    fields: [tasks.userId],
-    references: [users.id],
-  }),
-}));
+export type TaskAttachment = z.infer<typeof attachmentSchema>;
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({
   id: true,
@@ -62,18 +135,40 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   priorityScore: true,
   classification: true,
   isRepeated: true,
+  sortOrder: true,
+  contentHash: true,
+  forceImported: true,
+  attachments: true,
+  reactions: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
   date: z.string().min(1, "Date is required"),
-  time: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Time must be in HH:MM format"),
-  activity: z.string().min(1, "Activity is required"),
-  notes: z.string().optional(),
+  time: z.string().optional(),
+  activity: z.string().min(1, "Activity is required").max(500, "Activity must be under 500 characters"),
+  notes: z.string().max(2000, "Notes must be under 2000 characters").optional(),
   urgency: z.number().min(1).max(5).optional(),
   impact: z.number().min(1).max(5).optional(),
   effort: z.number().min(1).max(5).optional(),
-  prerequisites: z.string().optional(),
+  prerequisites: z.string().max(1000, "Prerequisites must be under 1000 characters").optional(),
+  recurrence: z.string().refine(
+    (v) => {
+      if (["none", "daily", "weekly", "biweekly", "monthly", "quarterly", "yearly"].includes(v)) return true;
+      if (v.startsWith("custom:days:")) {
+        const days = v.replace("custom:days:", "").split(",");
+        const valid = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+        return days.length > 0 && days.every(d => valid.includes(d));
+      }
+      if (v.startsWith("custom:dates:")) {
+        const dates = v.replace("custom:dates:", "").split(",").map(Number);
+        return dates.length > 0 && dates.every(d => Number.isInteger(d) && d >= 1 && d <= 31);
+      }
+      return false;
+    },
+    { message: "Invalid recurrence pattern" }
+  ).default("none"),
   status: z.enum(["pending", "in-progress", "completed"]).default("pending"),
+  markdownContent: z.string().max(10000, "Markdown content must be under 10000 characters").optional(),
 });
 
 export const updateTaskSchema = insertTaskSchema.partial().extend({
@@ -82,11 +177,423 @@ export const updateTaskSchema = insertTaskSchema.partial().extend({
   priorityScore: z.number().optional(),
   classification: z.string().optional(),
   isRepeated: z.boolean().optional(),
+  sortOrder: z.number().optional(),
+});
+
+export const internalUpdateTaskSchema = updateTaskSchema.extend({
+  attachments: z.array(attachmentSchema).optional(),
+  reactions: z.record(z.string(), z.array(z.string())).optional(),
+});
+
+export type InternalUpdateTask = z.infer<typeof internalUpdateTaskSchema>;
+
+export const reorderTasksSchema = z.object({
+  taskIds: z.array(z.string()).min(1, "At least one task ID is required"),
 });
 
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type UpdateTask = z.infer<typeof updateTaskSchema>;
 export type Task = typeof tasks.$inferSelect;
 
-export type UpsertUser = typeof users.$inferInsert;
-export type User = typeof users.$inferSelect;
+// ─── Import History ─────────────────────────────────────────────────────────
+export const importHistory = pgTable("import_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  fileHash: varchar("file_hash", { length: 64 }).notNull(),
+  totalParsed: integer("total_parsed").notNull().default(0),
+  imported: integer("imported").notNull().default(0),
+  skippedCompleted: integer("skipped_completed").notNull().default(0),
+  skippedDuplicate: integer("skipped_duplicate").notNull().default(0),
+  forceImported: integer("force_imported").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_import_history_user").on(table.userId),
+  index("idx_import_history_file_hash").on(table.userId, table.fileHash),
+]);
+
+export type ImportHistory = typeof importHistory.$inferSelect;
+
+// ─── Task Collaborators ─────────────────────────────────────────────────────
+export const taskCollaborators = pgTable("task_collaborators", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("editor"),
+  invitedBy: varchar("invited_by").references(() => users.id),
+  invitedAt: timestamp("invited_at").defaultNow(),
+}, (table) => [
+  index("idx_collab_task").on(table.taskId),
+  index("idx_collab_user").on(table.userId),
+  index("idx_collab_task_user").on(table.taskId, table.userId),
+]);
+
+export type TaskCollaborator = typeof taskCollaborators.$inferSelect;
+export const insertCollaboratorSchema = createInsertSchema(taskCollaborators).omit({ id: true, invitedAt: true });
+
+// ─── Gamification: Wallets ──────────────────────────────────────────────────
+export const wallets = pgTable("wallets", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  balance: integer("balance").notNull().default(0),
+  lifetimeEarned: integer("lifetime_earned").notNull().default(0),
+  currentStreak: integer("current_streak").notNull().default(0),
+  longestStreak: integer("longest_streak").notNull().default(0),
+  lastCompletionDate: text("last_completion_date"),
+  streakShields: integer("streak_shields").notNull().default(0),
+});
+
+export type Wallet = typeof wallets.$inferSelect;
+
+// ─── Gamification: Coin Transactions ────────────────────────────────────────
+export const coinTransactions = pgTable("coin_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  amount: integer("amount").notNull(),
+  reason: text("reason").notNull(),
+  details: text("details"),
+  taskId: varchar("task_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_coin_tx_user").on(table.userId),
+  index("idx_coin_tx_created").on(table.createdAt),
+  index("idx_coin_tx_task").on(table.taskId),
+]);
+
+export type CoinTransaction = typeof coinTransactions.$inferSelect;
+
+// ─── Gamification: User Badges ──────────────────────────────────────────────
+export const userBadges = pgTable("user_badges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  badgeId: text("badge_id").notNull(),
+  earnedAt: timestamp("earned_at").defaultNow(),
+}, (table) => [
+  index("idx_user_badges_user").on(table.userId),
+]);
+
+export type UserBadge = typeof userBadges.$inferSelect;
+
+// ─── Gamification: Rewards Catalog ──────────────────────────────────────────
+export const rewardsCatalog = pgTable("rewards_catalog", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  cost: integer("cost").notNull(),
+  type: text("type").notNull(),
+  icon: text("icon"),
+  data: text("data"),
+});
+
+export type RewardItem = typeof rewardsCatalog.$inferSelect;
+
+// ─── Gamification: User Redeemed Rewards ────────────────────────────────────
+export const userRewards = pgTable("user_rewards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  rewardId: varchar("reward_id").notNull().references(() => rewardsCatalog.id),
+  redeemedAt: timestamp("redeemed_at").defaultNow(),
+  isActive: boolean("is_active").notNull().default(true),
+}, (table) => [
+  index("idx_user_rewards_user").on(table.userId),
+]);
+
+export type UserReward = typeof userRewards.$inferSelect;
+
+// ─── Pattern Learning ────────────────────────────────────────────────────────
+export const taskPatterns = pgTable("task_patterns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  patternType: text("pattern_type").notNull(),
+  patternKey: text("pattern_key").notNull(),
+  data: text("data").notNull().default("{}"),
+  confidence: integer("confidence").notNull().default(0),
+  occurrences: integer("occurrences").notNull().default(1),
+  lastSeen: timestamp("last_seen").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_patterns_user").on(table.userId),
+  index("idx_patterns_user_type").on(table.userId, table.patternType),
+  index("idx_patterns_user_key").on(table.userId, table.patternKey),
+  uniqueIndex("idx_patterns_user_type_key").on(table.userId, table.patternType, table.patternKey),
+]);
+
+export type TaskPattern = typeof taskPatterns.$inferSelect;
+export type InsertTaskPattern = typeof taskPatterns.$inferInsert;
+
+// ─── Classification Contributions ───────────────────────────────────────────
+export const classificationContributions = pgTable("classification_contributions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  classification: text("classification").notNull(),
+  baseCoinsAwarded: integer("base_coins_awarded").notNull().default(0),
+  totalCoinsEarned: integer("total_coins_earned").notNull().default(0),
+  confirmationCount: integer("confirmation_count").notNull().default(0),
+  cleanupBonuses: integer("cleanup_bonuses").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_class_contrib_task").on(table.taskId),
+  index("idx_class_contrib_user").on(table.userId),
+  uniqueIndex("idx_class_contrib_task_user").on(table.taskId, table.userId),
+]);
+
+export type ClassificationContribution = typeof classificationContributions.$inferSelect;
+
+// ─── Classification Confirmations ───────────────────────────────────────────
+export const classificationConfirmations = pgTable("classification_confirmations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contributionId: varchar("contribution_id").notNull().references(() => classificationContributions.id, { onDelete: "cascade" }),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  coinsAwarded: integer("coins_awarded").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_class_confirm_contrib").on(table.contributionId),
+  index("idx_class_confirm_task").on(table.taskId),
+  uniqueIndex("idx_class_confirm_task_user").on(table.taskId, table.userId),
+]);
+
+export type ClassificationConfirmation = typeof classificationConfirmations.$inferSelect;
+
+// ─── Surveys & Feedback ─────────────────────────────────────────────────────
+export const surveys = pgTable("surveys", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  promptType: text("prompt_type").notNull(),
+  question: text("question").notNull(),
+  options: jsonb("options").default([]),
+  targetModule: text("target_module"),
+  cooldownHours: integer("cooldown_hours").notNull().default(24),
+  coinReward: integer("coin_reward").notNull().default(2),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type Survey = typeof surveys.$inferSelect;
+
+export const surveyResponses = pgTable("survey_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  surveyId: varchar("survey_id").notNull().references(() => surveys.id, { onDelete: "cascade" }),
+  response: text("response").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_survey_resp_user").on(table.userId),
+  index("idx_survey_resp_survey").on(table.surveyId),
+  index("idx_survey_resp_user_survey").on(table.userId, table.surveyId),
+]);
+
+export type SurveyResponse = typeof surveyResponses.$inferSelect;
+
+// ─── NodeWeaver Feedback Classifications ────────────────────────────────────
+export const feedbackClassifications = pgTable("feedback_classifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourceType: text("source_type").notNull(),
+  sourceId: varchar("source_id").notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  category: text("category").notNull(),
+  severity: text("severity").notNull().default("low"),
+  confidence: real("confidence").notNull().default(0),
+  rawContent: text("raw_content").notNull(),
+  normalizedContent: text("normalized_content"),
+  tags: jsonb("tags").default([]),
+  actionable: boolean("actionable").notNull().default(false),
+  resolved: boolean("resolved").notNull().default(false),
+  resolvedAt: timestamp("resolved_at"),
+  metadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_fc_source").on(table.sourceType, table.sourceId),
+  index("idx_fc_category").on(table.category),
+  index("idx_fc_severity").on(table.severity),
+  index("idx_fc_actionable").on(table.actionable),
+  index("idx_fc_user").on(table.userId),
+]);
+
+export type FeedbackClassification = typeof feedbackClassifications.$inferSelect;
+
+export const feedbackClassificationSchema = createInsertSchema(feedbackClassifications).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// ─── Classification Disputes ────────────────────────────────────────────────
+
+export const classificationDisputes = pgTable("classification_disputes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  classificationId: varchar("classification_id").notNull().references(() => feedbackClassifications.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  originalCategory: text("original_category").notNull(),
+  suggestedCategory: text("suggested_category").notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_cd_classification").on(table.classificationId),
+  index("idx_cd_user").on(table.userId),
+  uniqueIndex("idx_cd_user_classification").on(table.userId, table.classificationId),
+]);
+
+export type ClassificationDispute = typeof classificationDisputes.$inferSelect;
+
+export const classificationDisputeVotes = pgTable("classification_dispute_votes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  disputeId: varchar("dispute_id").notNull().references(() => classificationDisputes.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  agree: boolean("agree").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_cdv_dispute").on(table.disputeId),
+  uniqueIndex("idx_cdv_user_dispute").on(table.userId, table.disputeId),
+]);
+
+export type DisputeVote = typeof classificationDisputeVotes.$inferSelect;
+
+export const categoryReviewTriggers = pgTable("category_review_triggers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  category: text("category").notNull(),
+  suggestedCategory: text("suggested_category").notNull(),
+  disputeCount: integer("dispute_count").notNull().default(0),
+  agreeCount: integer("agree_count").notNull().default(0),
+  disagreeCount: integer("disagree_count").notNull().default(0),
+  consensusRatio: real("consensus_ratio").notNull().default(0),
+  status: text("status").notNull().default("monitoring"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewOutcome: text("review_outcome"),
+  metadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_crt_category").on(table.category),
+  index("idx_crt_status").on(table.status),
+  uniqueIndex("idx_crt_category_pair").on(table.category, table.suggestedCategory),
+]);
+
+export type CategoryReviewTrigger = typeof categoryReviewTriggers.$inferSelect;
+
+// ─── Forum: Posts ────────────────────────────────────────────────────────────
+export const forumPosts = pgTable("forum_posts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  category: text("category").notNull().default("General"),
+  upvotes: integer("upvotes").notNull().default(0),
+  downvotes: integer("downvotes").notNull().default(0),
+  commentCount: integer("comment_count").notNull().default(0),
+  pinned: boolean("pinned").notNull().default(false),
+  hidden: boolean("hidden").notNull().default(false),
+  reactions: jsonb("reactions").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_forum_posts_user").on(table.userId),
+  index("idx_forum_posts_category").on(table.category),
+  index("idx_forum_posts_created").on(table.createdAt),
+  index("idx_forum_posts_pinned").on(table.pinned),
+]);
+
+export const insertForumPostSchema = createInsertSchema(forumPosts).omit({
+  id: true,
+  userId: true,
+  upvotes: true,
+  downvotes: true,
+  commentCount: true,
+  pinned: true,
+  hidden: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  title: z.string().min(1, "Title is required").max(200, "Title must be under 200 characters"),
+  body: z.string().min(1, "Body is required").max(10000, "Body must be under 10000 characters"),
+  category: z.enum(["Tips", "Questions", "Feedback", "Facts", "Productivity", "General"]).default("General"),
+});
+
+export type ForumPost = typeof forumPosts.$inferSelect;
+export type InsertForumPost = z.infer<typeof insertForumPostSchema>;
+
+// ─── Forum: Comments ─────────────────────────────────────────────────────────
+export const forumComments = pgTable("forum_comments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  postId: varchar("post_id").notNull().references(() => forumPosts.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  upvotes: integer("upvotes").notNull().default(0),
+  downvotes: integer("downvotes").notNull().default(0),
+  hidden: boolean("hidden").notNull().default(false),
+  reactions: jsonb("reactions").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_forum_comments_post").on(table.postId),
+  index("idx_forum_comments_user").on(table.userId),
+]);
+
+export const insertForumCommentSchema = createInsertSchema(forumComments).omit({
+  id: true,
+  userId: true,
+  upvotes: true,
+  downvotes: true,
+  hidden: true,
+  createdAt: true,
+}).extend({
+  postId: z.string().min(1),
+  body: z.string().min(1, "Comment is required").max(5000, "Comment must be under 5000 characters"),
+});
+
+export type ForumComment = typeof forumComments.$inferSelect;
+export type InsertForumComment = z.infer<typeof insertForumCommentSchema>;
+
+// ─── Forum: Votes ────────────────────────────────────────────────────────────
+export const forumVotes = pgTable("forum_votes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  postId: varchar("post_id").references(() => forumPosts.id, { onDelete: "cascade" }),
+  commentId: varchar("comment_id").references(() => forumComments.id, { onDelete: "cascade" }),
+  voteType: text("vote_type").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_forum_votes_user").on(table.userId),
+  index("idx_forum_votes_post").on(table.postId),
+  index("idx_forum_votes_comment").on(table.commentId),
+  uniqueIndex("idx_forum_votes_user_post").on(table.userId, table.postId),
+  uniqueIndex("idx_forum_votes_user_comment").on(table.userId, table.commentId),
+]);
+
+// ─── Forum: Upvote Reward Ledger (persistent, survives vote toggle) ─────────
+export const forumUpvoteRewards = pgTable("forum_upvote_rewards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  voterId: varchar("voter_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  postId: varchar("post_id").notNull().references(() => forumPosts.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_forum_upvote_rewards_voter_post").on(table.voterId, table.postId),
+]);
+
+export type ForumVote = typeof forumVotes.$inferSelect;
+export const insertForumVoteSchema = createInsertSchema(forumVotes).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertForumVote = z.infer<typeof insertForumVoteSchema>;
+
+// ─── Forum: Reports ──────────────────────────────────────────────────────────
+export const forumReports = pgTable("forum_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reporterId: varchar("reporter_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  postId: varchar("post_id").references(() => forumPosts.id, { onDelete: "cascade" }),
+  commentId: varchar("comment_id").references(() => forumComments.id, { onDelete: "cascade" }),
+  reason: text("reason").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_forum_reports_status").on(table.status),
+  index("idx_forum_reports_post").on(table.postId),
+]);
+
+export type ForumReport = typeof forumReports.$inferSelect;
+export const insertForumReportSchema = createInsertSchema(forumReports).omit({
+  id: true,
+  status: true,
+  createdAt: true,
+});
+export type InsertForumReport = z.infer<typeof insertForumReportSchema>;
