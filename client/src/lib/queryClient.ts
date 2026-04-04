@@ -1,4 +1,9 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { AXTASK_CSRF_COOKIE, AXTASK_CSRF_HEADER } from "@shared/http-auth";
+
+const csrfCookiePattern = new RegExp(
+  `(?:^|;\\s*)${AXTASK_CSRF_COOKIE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^;]*)`,
+);
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -8,7 +13,7 @@ async function throwIfResNotOk(res: Response) {
 }
 
 export function getCsrfToken(): string | null {
-  const match = document.cookie.match(/(?:^|;\s*)axtask\.csrf=([^;]*)/);
+  const match = document.cookie.match(csrfCookiePattern);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
@@ -21,7 +26,7 @@ export async function apiRequest(
   const headers: Record<string, string> = { ...(extraHeaders || {}) };
   if (data) headers["Content-Type"] = "application/json";
   const csrfToken = getCsrfToken();
-  if (csrfToken && method !== "GET") headers["x-csrf-token"] = csrfToken;
+  if (csrfToken && method !== "GET") headers[AXTASK_CSRF_HEADER] = csrfToken;
 
   const res = await fetch(url, {
     method,
@@ -52,13 +57,19 @@ export const getQueryFn: <T>(options: {
     return await res.json();
   };
 
+/** Default stale window before background refetch (Phase A: readable “stale” state). */
+export const DEFAULT_QUERY_STALE_TIME_MS = 5 * 60 * 1000;
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      staleTime: DEFAULT_QUERY_STALE_TIME_MS,
+      gcTime: 24 * 60 * 60 * 1000,
+      networkMode: "offlineFirst",
       retry: false,
     },
     mutations: {

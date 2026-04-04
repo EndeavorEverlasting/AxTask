@@ -15,6 +15,17 @@ describe("offline one-click workflow assets", () => {
     expect(content).toContain("NODE_ENV=development");
   });
 
+  it("exposes local:env-init for cross-platform .env bootstrap", () => {
+    const packageJsonPath = path.join(projectRoot, "package.json");
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    expect(packageJson.scripts["local:env-init"]).toBe(
+      "node tools/local/copy-env-local.mjs",
+    );
+    expect(
+      fs.existsSync(path.join(projectRoot, "tools", "local", "copy-env-local.mjs")),
+    ).toBe(true);
+  });
+
   it("has a Windows one-click launcher", () => {
     const cmdPath = path.join(projectRoot, "start-offline.cmd");
     const content = fs.readFileSync(cmdPath, "utf8");

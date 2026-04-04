@@ -392,6 +392,7 @@ function MobileTaskCard({
   const [swipeX, setSwipeX] = useState(0);
   const [swiping, setSwiping] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const suppressClickUntilRef = useRef(0);
   const SWIPE_THRESHOLD = 80;
 
   const handleTouchStart = (e: ReactTouchEvent) => {
@@ -411,18 +412,29 @@ function MobileTaskCard({
   };
 
   const handleTouchEnd = () => {
+    let triggeredAction = false;
     if (swipeX > SWIPE_THRESHOLD) {
+      suppressClickUntilRef.current = Date.now() + 400;
       onToggleStatus(task.id, task.status === "completed" ? "pending" : "completed");
+      triggeredAction = true;
     } else if (swipeX < -SWIPE_THRESHOLD) {
+      suppressClickUntilRef.current = Date.now() + 400;
       onDelete(task.id);
+      triggeredAction = true;
     }
     setSwipeX(0);
     setSwiping(false);
     touchStartRef.current = null;
+    if (triggeredAction) {
+      window.setTimeout(() => {
+        suppressClickUntilRef.current = 0;
+      }, 450);
+    }
   };
 
   const handleCardClick = () => {
-    if (!swiping) onEdit(task);
+    if (swiping || Date.now() < suppressClickUntilRef.current || isUpdating || isDeleting) return;
+    onEdit(task);
   };
 
   return (

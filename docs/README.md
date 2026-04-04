@@ -222,6 +222,8 @@ npm run db:push      # Sync database schema
 npm run dev          # Start development server
 ```
 
+Create `.env` first: **`npm run local:env-init`** (any OS), or copy from `.env.example` — on **Windows Command Prompt** do not use Unix `cp` (see root [README.md](../README.md#shells-windows-command-prompt-vs-git-bash--macos--linux)).
+
 ### One-Click Startup (Recommended for non-technical users)
 - Windows users: double-click `start-offline.cmd`
 - CLI users: run `npm run offline:start`
@@ -240,6 +242,9 @@ npm run dev          # Start development server
 - Keep `.env` with local values (`DATABASE_URL`, `SESSION_SECRET`, `NODE_ENV=development`)
 - Make app/code changes offline
 - Commit locally, then push when you are back online
+
+### Offline Phase A (read cache + UI)
+- Persisted TanStack Query reads to `localStorage`, with auth/admin/billing keys excluded; logout clears storage. See **[OFFLINE_PHASE_A.md](./OFFLINE_PHASE_A.md)** for behavior, `VITE_QUERY_PERSIST_BUSTER`, and the short **task conflict policy** for future sync phases.
 
 ### Engine APIs
 - `POST /api/feedback/process` — process message text through feedback engines (classification, sentiment, priority, tags, actions)

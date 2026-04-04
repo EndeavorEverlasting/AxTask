@@ -107,6 +107,9 @@ function splitTaskReferences(text: string): string[] {
     .filter(s => s.length > 0);
 }
 
+/** Heuristic: fallback completion detection only when the sentence clearly implies finishing work. */
+const FALLBACK_COMPLETION_VERB_RE = /\b(?:finish|finished|complete|completed|done|did|wrapped up|handled|cleared)\b/i;
+
 export function processTaskReview(
   transcript: string,
   tasks: Task[],
@@ -211,6 +214,9 @@ export function processTaskReview(
     if (handled) continue;
 
     const fallbackRefs = splitTaskReferences(sentence);
+    if (!FALLBACK_COMPLETION_VERB_RE.test(sentence)) {
+      continue;
+    }
     for (const ref of fallbackRefs) {
       const cleaned = ref
         .replace(/\b(?:i\s+)?(?:already\s+)?(?:finished|completed|did|done)\b/gi, "")

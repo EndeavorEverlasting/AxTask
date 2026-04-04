@@ -1,7 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { useCallback, useEffect, useRef } from "react";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { AppQueryProvider } from "./lib/app-query-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -15,6 +14,7 @@ import { TutorialOverlay } from "@/components/tutorial-overlay";
 import { TutorialInteractionGuide } from "@/components/tutorial-interaction-guide";
 import { VoiceCommandBar } from "@/components/voice-command-bar";
 import { InstallCtaBanner } from "@/components/install-cta-banner";
+import { OfflineDataBanner } from "@/components/offline-data-banner";
 import BulkActionDialog from "@/components/bulk-action-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LayoutDashboard, List, CalendarDays, Brain, Mic } from "lucide-react";
@@ -192,6 +192,7 @@ function AuthenticatedApp() {
       <div className="h-screen flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <Sidebar />
         <main className="flex-1 overflow-hidden">
+          <OfflineDataBanner />
           <InstallCtaBanner userId={user.id} />
           <div
             className="h-full overflow-auto pb-16 md:pb-0"
@@ -222,7 +223,7 @@ function AuthenticatedApp() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
+    <AppQueryProvider>
       <ThemeProvider>
         <TooltipProvider>
           <AuthProvider>
@@ -237,7 +238,7 @@ function App() {
           <Toaster />
         </TooltipProvider>
       </ThemeProvider>
-    </QueryClientProvider>
+    </AppQueryProvider>
   );
 }
 

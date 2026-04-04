@@ -1201,14 +1201,16 @@ export async function hasTaskBeenAwarded(userId: string, taskId: string): Promis
 
 export async function spendCoins(userId: string, amount: number, reason: string): Promise<Wallet | null> {
   await getOrCreateWallet(userId);
-  const [updated] = await db
-    .update(wallets)
-    .set({ balance: sql`${wallets.balance} - ${amount}` })
-    .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${amount}`))
-    .returning();
-  if (!updated) return null;
-  await db.insert(coinTransactions).values({ id: randomUUID(), userId, amount: -amount, reason });
-  return updated;
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(wallets)
+      .set({ balance: sql`${wallets.balance} - ${amount}` })
+      .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${amount}`))
+      .returning();
+    if (!updated) return null;
+    await tx.insert(coinTransactions).values({ id: randomUUID(), userId, amount: -amount, reason });
+    return updated;
+  });
 }
 
 export async function getTransactions(userId: string, limit = 50): Promise<CoinTransaction[]> {
@@ -1279,34 +1281,44 @@ export async function getUserRewards(userId: string): Promise<(typeof userReward
   return db.select().from(userRewards).where(eq(userRewards.userId, userId)).orderBy(desc(userRewards.redeemedAt));
 }
 
+function isPgUniqueViolation(err: unknown): boolean {
+  const o = err as { code?: string; cause?: { code?: string } };
+  return o?.code === "23505" || o?.cause?.code === "23505";
+}
+
 export async function redeemReward(userId: string, rewardId: string): Promise<boolean> {
   const reward = await getRewardById(rewardId);
   if (!reward) return false;
 
-  return db.transaction(async (tx) => {
-    const [existing] = await tx
-      .select({ value: count() })
-      .from(userRewards)
-      .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
-    if ((Number(existing?.value) || 0) > 0) return false;
+  try {
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ value: count() })
+        .from(userRewards)
+        .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
+      if ((Number(existing?.value) || 0) > 0) return false;
 
-    const [deducted] = await tx
-      .update(wallets)
-      .set({ balance: sql`${wallets.balance} - ${reward.cost}` })
-      .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${reward.cost}`))
-      .returning();
-    if (!deducted) return false;
+      const [deducted] = await tx
+        .update(wallets)
+        .set({ balance: sql`${wallets.balance} - ${reward.cost}` })
+        .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${reward.cost}`))
+        .returning();
+      if (!deducted) return false;
 
-    await tx.insert(coinTransactions).values({
-      id: randomUUID(),
-      userId,
-      amount: -reward.cost,
-      reason: `Redeemed: ${reward.name}`,
+      await tx.insert(coinTransactions).values({
+        id: randomUUID(),
+        userId,
+        amount: -reward.cost,
+        reason: `Redeemed: ${reward.name}`,
+      });
+
+      await tx.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
+      return true;
     });
-
-    await tx.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
-    return true;
-  });
+  } catch (e) {
+    if (isPgUniqueViolation(e)) return false;
+    throw e;
+  }
 }
 
 export async function seedRewardsCatalog(): Promise<void> {

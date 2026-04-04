@@ -49,6 +49,9 @@ const REQUIRED_TABLES = [
 
 const OPTIONAL_TABLES = ["session"];
 
+/** Unique indexes that must exist after `npm run db:push` (Drizzle names). */
+const REQUIRED_UNIQUE_INDEXES = [{ table: "user_rewards", indexname: "ux_user_rewards_user_reward" }];
+
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url || !String(url).startsWith("postgres")) {
@@ -57,6 +60,7 @@ async function main() {
   }
 
   const pool = new Pool({ connectionString: url });
+  let exitCode = 0;
   try {
     const { rows } = await pool.query(
       `SELECT table_name FROM information_schema.tables
@@ -69,17 +73,38 @@ async function main() {
     if (missing.length > 0) {
       console.error("migration:verify-schema: missing tables:", missing.join(", "));
       console.error("Run npm run db:push against this database from integration/migration-unified.");
-      process.exit(1);
+      exitCode = 1;
+    } else {
+      console.log("migration:verify-schema: OK — all", REQUIRED_TABLES.length, "required tables present.");
+      if (optionalMissing.length > 0) {
+        console.warn("migration:verify-schema: optional missing (sessions may not persist across deploys):", optionalMissing.join(", "));
+      }
     }
 
-    console.log("migration:verify-schema: OK — all", REQUIRED_TABLES.length, "required tables present.");
-    if (optionalMissing.length > 0) {
-      console.warn("migration:verify-schema: optional missing (sessions may not persist across deploys):", optionalMissing.join(", "));
+    if (exitCode === 0) {
+      const { rows: idxRows } = await pool.query(
+        `SELECT tablename, indexname FROM pg_indexes WHERE schemaname = 'public'`,
+      );
+      const indexKey = (t, i) => `${t}\0${i}`;
+      const haveIdx = new Set(idxRows.map((r) => indexKey(r.tablename, r.indexname)));
+      const missingIdx = REQUIRED_UNIQUE_INDEXES.filter(
+        ({ table, indexname }) => !haveIdx.has(indexKey(table, indexname)),
+      );
+      if (missingIdx.length > 0) {
+        console.error(
+          "migration:verify-schema: missing unique index(es):",
+          missingIdx.map((x) => `${x.table}.${x.indexname}`).join(", "),
+        );
+        console.error("Run npm run db:push so (user_id, reward_id) uniqueness is enforced on user_rewards.");
+        exitCode = 1;
+      } else {
+        console.log("migration:verify-schema: OK — required unique indexes present.");
+      }
     }
-    process.exit(0);
   } finally {
     await pool.end();
   }
+  process.exit(exitCode);
 }
 
 main().catch((e) => {

@@ -2,6 +2,7 @@
 import fs from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
+import { AUTH_ME_PATH, AUTH_LOGIN_PATH } from "../shared/http-auth";
 
 const projectRoot = path.resolve(__dirname, "..");
 
@@ -11,9 +12,9 @@ describe("local login workflow contracts", () => {
     const routes = fs.readFileSync(routesPath, "utf8");
 
     expect(routes).toContain('app.post("/api/auth/register"');
-    expect(routes).toContain('app.post("/api/auth/login"');
+    expect(routes).toContain(`app.post("${AUTH_LOGIN_PATH}"`);
     expect(routes).toContain('app.post("/api/auth/logout"');
-    expect(routes).toContain('app.get("/api/auth/me"');
+    expect(routes).toContain(`app.get("${AUTH_ME_PATH}"`);
     expect(routes).toContain('passport.authenticate("local"');
     expect(routes).toContain('return res.status(401).json({ message: info?.message || "Invalid credentials" })');
   });

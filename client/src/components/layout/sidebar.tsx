@@ -322,7 +322,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   return (
     <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shrink-0">
-      <Button variant="ghost" size="icon" className="h-10 w-10" onClick={onMenuOpen}>
+      <Button variant="ghost" size="icon" className="h-10 w-10" onClick={onMenuOpen} aria-label="Open menu">
         <Menu className="h-5 w-5" />
       </Button>
       <h1 className="text-lg font-bold text-primary flex items-center">
@@ -350,7 +350,7 @@ export function Sidebar() {
           setCollapsed((v) => !v);
         }
       }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "/") {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "Slash") {
         e.preventDefault();
         setShowHotkeys((v) => !v);
       }

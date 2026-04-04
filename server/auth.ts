@@ -5,6 +5,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { getUserByEmail, getUserById, verifyPassword } from "./storage";
+import { parseCookieSecureFlag } from "./lib/login-env-policy";
 import type { Express, Request, Response, NextFunction } from "express";
 import type { SafeUser } from "@shared/schema";
 
@@ -42,6 +43,7 @@ function resolveSessionSecret(): string {
 
 export function setupAuth(app: Express) {
   const sessionSecret = resolveSessionSecret();
+  const sessionCookieSecure = parseCookieSecureFlag(process.env);
 
   // ── Session store backed by PostgreSQL ──────────────────────────────────
   const PgStore = connectPgSimple(session);
@@ -62,7 +64,7 @@ export function setupAuth(app: Express) {
       cookie: {
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: sessionCookieSecure,
         sameSite: "lax",
       },
     })

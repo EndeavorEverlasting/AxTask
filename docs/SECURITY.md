@@ -28,6 +28,7 @@ This document outlines security considerations, vulnerabilities, and best practi
 #### Step-up MFA (OTP)
 - **Channels**: Email (Resend) and SMS (Twilio) for production; console logging in development.
 - **Purposes**: Billing, invoicing, and phone verification use scoped challenge purposes; see [`docs/OTP_DELIVERY.md`](./OTP_DELIVERY.md).
+- **Sign-up verification (planned)**: Optional email/SMS OTP **when creating a new account** to limit spam and automated signups; see [`docs/MFA_SIGNUP_VERIFICATION.md`](./MFA_SIGNUP_VERIFICATION.md). This is **not** a mandate for existing users to use MFA on every login — they keep normal sign-in unless they hit a flow that already requires step-up MFA.
 
 ### API Security
 
@@ -502,7 +503,7 @@ function auditLog(event: AuditEvent) {
 ## Future Security Enhancements
 
 ### Planned Improvements
-1. **Multi-Factor Authentication (MFA)**: Add 2FA for enhanced security
+1. **MFA**: Sign-up verification (OTP) for **new** accounts to reduce abuse; optional future **login** 2FA for users who want it — without forcing existing users through MFA on every sign-in (step-up MFA for sensitive actions remains separate)
 2. **API Versioning**: Implement API versioning for secure updates
 3. **Advanced Threat Detection**: ML-based anomaly detection
 4. **Zero-Trust Architecture**: Implement principle of least privilege

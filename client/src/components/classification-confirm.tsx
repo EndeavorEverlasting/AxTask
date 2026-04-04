@@ -49,7 +49,10 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "classifications"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gamification"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
 
       const bonusDetails = result.contributorBonuses
         ?.map((b: { displayName: string; bonus: number }) => `${b.displayName || "User"}: +${b.bonus}`)

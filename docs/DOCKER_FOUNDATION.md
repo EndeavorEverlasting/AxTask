@@ -1,6 +1,6 @@
 # AxTask Docker Foundation
 
-**Clone → configure → run:** After cloning the repo, copy `.env.docker.example` to `.env.docker`, set `POSTGRES_PASSWORD` and `SESSION_SECRET` (and align `DATABASE_URL`), then from the project root run **`npm run docker:up`** or double-click **`start-docker.cmd`** on Windows. Full narrative: [README.md](../README.md#run-locally-after-cloning-with-docker).
+**Clone → configure → run:** After cloning the repo, create `.env.docker` from `.env.docker.example` (**`npm run docker:env-init`** works on every OS; on Windows **cmd** use `copy`, not Unix `cp`), set `POSTGRES_PASSWORD` and `SESSION_SECRET` (and align `DATABASE_URL`), then from the project root run **`npm run docker:up`** or double-click **`start-docker.cmd`** on Windows. Full narrative: [README.md](../README.md#run-locally-after-cloning-with-docker).
 
 ## Prerequisites (all target machines)
 
@@ -30,11 +30,13 @@ docker info
 ```
 
 5. Clone/copy `AxTask` to the workstation.
-6. From the `AxTask` folder:
+6. From the `AxTask` folder, create `.env.docker`:
 
 ```bash
-cp .env.docker.example .env.docker
+npm run docker:env-init
 ```
+
+(Alternatives: macOS/Linux/Git Bash/WSL: `cp .env.docker.example .env.docker` · Windows **cmd**: `copy .env.docker.example .env.docker` · PowerShell: `Copy-Item .env.docker.example .env.docker`)
 
 7. Edit `.env.docker` and set:
    - `POSTGRES_PASSWORD` (non-placeholder)
@@ -58,10 +60,10 @@ npm run docker:status
 
 ## Local stack (one command)
 
-First run:
+First run — create `.env.docker` (see README for Windows **cmd** vs `cp`):
 
 ```bash
-cp .env.docker.example .env.docker
+npm run docker:env-init
 ```
 
 Set strong values in `.env.docker`:

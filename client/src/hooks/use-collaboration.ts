@@ -55,19 +55,32 @@ export function useCollaboration(taskId: string | null) {
     };
 
     ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      switch (msg.type) {
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(event.data as string) as Record<string, unknown>;
+      } catch (parseErr) {
+        console.warn("[collab] Invalid JSON from server:", event.data, parseErr);
+        return;
+      }
+      const type = msg.type;
+      if (typeof type !== "string") return;
+
+      switch (type) {
         case "connected":
-          setState(s => ({ ...s, myColor: msg.color, myUserId: msg.userId }));
+          setState(s => ({ ...s, myColor: String(msg.color), myUserId: String(msg.userId) }));
           break;
         case "joined_task":
-          setState(s => ({ ...s, role: msg.role }));
+          setState(s => ({ ...s, role: String(msg.role) }));
           break;
         case "presence_update":
-          setState(s => ({ ...s, users: msg.users }));
+          setState(s => ({ ...s, users: msg.users as PresenceUser[] }));
           break;
         case "field_edit":
-          setFieldEdits(prev => [...prev.slice(-20), msg]);
+          setFieldEdits(prev => [...prev.slice(-20), {
+            userId: String(msg.userId),
+            field: String(msg.field),
+            value: String(msg.value ?? ""),
+          }]);
           break;
         case "task_updated":
           break;

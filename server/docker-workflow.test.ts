@@ -10,6 +10,9 @@ describe("docker workflow assets", () => {
     const packageJsonPath = path.join(projectRoot, "package.json");
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 
+    expect(packageJson.scripts["docker:env-init"]).toContain(
+      "node tools/local/copy-env-docker.mjs",
+    );
     expect(packageJson.scripts["docker:up"]).toContain(
       "node tools/local/docker-start.mjs",
     );

@@ -168,6 +168,26 @@ export function setupCollaborationWs(server: Server) {
 
     ws.send(JSON.stringify({ type: "connected", userId: user.userId, color: client.color }));
 
+    async function assertCollabEditAccess(): Promise<boolean> {
+      if (!client.taskId) return false;
+      const access = await canAccessTask(client.userId, client.taskId);
+      if (!access.canAccess) {
+        const oldTaskId = client.taskId;
+        client.taskId = null;
+        client.focusedField = null;
+        client.cursorPosition = null;
+        sendPresenceUpdate(oldTaskId);
+        ws.send(JSON.stringify({ type: "error", message: "Access denied" }));
+        return false;
+      }
+      client.role = access.role;
+      if (access.role === "viewer") {
+        ws.send(JSON.stringify({ type: "error", message: "View-only access" }));
+        return false;
+      }
+      return true;
+    }
+
     ws.on("message", async (data) => {
       let msg: CollabMessage;
       try {
@@ -225,25 +245,25 @@ export function setupCollaborationWs(server: Server) {
         }
 
         case "field_edit": {
-          if (client.taskId && client.role !== "viewer") {
-            broadcastToTask(client.taskId, {
-              type: "field_edit",
-              userId: user.userId,
-              field: msg.field,
-              value: msg.value,
-            }, ws);
-          }
+          if (!client.taskId) break;
+          if (!(await assertCollabEditAccess())) break;
+          broadcastToTask(client.taskId, {
+            type: "field_edit",
+            userId: client.userId,
+            field: msg.field,
+            value: msg.value,
+          }, ws);
           break;
         }
 
         case "task_updated": {
-          if (client.taskId && client.role !== "viewer") {
-            broadcastToTask(client.taskId, {
-              type: "task_updated",
-              userId: user.userId,
-              task: msg.task,
-            }, ws);
-          }
+          if (!client.taskId) break;
+          if (!(await assertCollabEditAccess())) break;
+          broadcastToTask(client.taskId, {
+            type: "task_updated",
+            userId: client.userId,
+            task: msg.task,
+          }, ws);
           break;
         }
       }

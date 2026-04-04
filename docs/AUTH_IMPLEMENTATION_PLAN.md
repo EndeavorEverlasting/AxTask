@@ -146,6 +146,7 @@ Everything else (`passport`, `express-session`, `connect-pg-simple`) is already 
 
 ## Future Enhancements (not in scope now)
 
+- **Sign-up verification (OTP)** for **new** registrations to cut spam and scripted signups — see [`MFA_SIGNUP_VERIFICATION.md`](./MFA_SIGNUP_VERIFICATION.md). Existing users are **not** required to use MFA for routine login; step-up MFA stays limited to flows that already need it (billing, etc.).
 - **Row Level Security** in PostgreSQL for defense-in-depth
 - **Password reset** flow with email verification
 - **Team/org accounts** with shared task visibility

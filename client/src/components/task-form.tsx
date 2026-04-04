@@ -921,11 +921,13 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               field.onBlur();
                               onFieldBlur("prerequisites", e.target.value);
                               if (e.target.value.trim()) clearWarning("prerequisites");
+                              collab.sendFieldEdit("prerequisites", e.target.value);
                               collab.blurField();
                             }}
                             onChange={(e) => {
                               field.onChange(e);
                               if (e.target.value.trim()) clearWarning("prerequisites");
+                              collab.sendFieldEdit("prerequisites", e.target.value);
                             }}
                           />
                         </div>

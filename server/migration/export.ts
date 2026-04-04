@@ -5,7 +5,7 @@ import {
   userRewards, taskCollaborators, taskPatterns,
   classificationContributions, classificationConfirmations,
 } from "@shared/schema";
-import { eq, sql, type SQL } from "drizzle-orm";
+import { eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 
 export interface ExportMetadata {
@@ -164,15 +164,9 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
 
   const ownedTaskIdSet = new Set(taskIds);
 
-  const allCollabs = await queryChunked(taskCollaborators);
-  const allContribs = await queryChunked(classificationContributions);
-  const allConfirms = await queryChunked(classificationConfirmations);
-
-  const collabData = allCollabs.filter((c) => (c.userId as string) === userId);
-
-  const contribData = allContribs.filter((c) => (c.userId as string) === userId);
-
-  const confirmData = allConfirms.filter((c) => (c.userId as string) === userId);
+  const collabData = await queryChunked(taskCollaborators, eq(taskCollaborators.userId, userId));
+  const contribData = await queryChunked(classificationContributions, eq(classificationContributions.userId, userId));
+  const confirmData = await queryChunked(classificationConfirmations, eq(classificationConfirmations.userId, userId));
 
   const referencedTaskIds = new Set<string>();
   for (const c of collabData) {
@@ -190,10 +184,8 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
 
   let referencedTasks: Record<string, unknown>[] = [];
   if (referencedTaskIds.size > 0) {
-    const allTasks = await queryChunked(tasks);
-    referencedTasks = allTasks.filter(
-      (t) => referencedTaskIds.has(t.id as string)
-    ) as Record<string, unknown>[];
+    const idList = Array.from(referencedTaskIds);
+    referencedTasks = (await queryChunked(tasks, inArray(tasks.id, idList))) as Record<string, unknown>[];
   }
 
   const allTaskRows = [...userTasks, ...referencedTasks];

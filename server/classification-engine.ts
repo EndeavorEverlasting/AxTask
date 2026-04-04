@@ -9,6 +9,7 @@ import {
   updateContributionEarnings,
   incrementContributionConfirmCount,
 } from "./storage";
+import { computeCompoundContributorBonus, getMaxCompoundPeriods } from "./lib/classification-compound";
 
 const CLASSIFICATION_BASE_COINS: Record<string, number> = {
   Crisis: 15,
@@ -22,7 +23,7 @@ const CLASSIFICATION_BASE_COINS: Record<string, number> = {
 
 const COMPOUND_RATE = 0.08;
 const CONFIRMER_BASE_REWARD = 3;
-const MAX_COMPOUND_PERIODS = 50;
+const MAX_COMPOUND_PERIODS = getMaxCompoundPeriods();
 
 export interface ClassificationAwardResult {
   coinsEarned: number;
@@ -93,11 +94,8 @@ export async function awardCoinsForConfirmation(
   const contributorBonuses: { userId: string; displayName: string | null; bonus: number }[] = [];
 
   for (const contrib of contributions) {
-    const n = Math.min(contrib.confirmationCount + 1, MAX_COMPOUND_PERIODS);
-
-    const compoundedValue = contrib.baseCoinsAwarded * Math.pow(1 + COMPOUND_RATE, n);
-    const previousValue = contrib.baseCoinsAwarded * Math.pow(1 + COMPOUND_RATE, Math.max(n - 1, 0));
-    const bonus = Math.round(compoundedValue - previousValue);
+    const bonus = computeCompoundContributorBonus(contrib.baseCoinsAwarded, contrib.confirmationCount);
+    const compoundPeriod = Math.min(contrib.confirmationCount + 1, getMaxCompoundPeriods());
 
     if (bonus > 0) {
       await incrementContributionConfirmCount(contrib.id);
@@ -106,7 +104,7 @@ export async function awardCoinsForConfirmation(
         contrib.userId,
         bonus,
         "classification_confirmed",
-        `Your classification was confirmed (×${n}): +${bonus} compound interest`,
+        `Your classification was confirmed (×${compoundPeriod}): +${bonus} compound interest`,
         taskId
       );
 

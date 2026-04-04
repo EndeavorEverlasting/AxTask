@@ -1,4 +1,5 @@
 import type { Task, TaskPattern } from "@shared/schema";
+import { daysBetween } from "../lib/days";
 import { upsertPattern, getPatterns, deleteStalePatterns } from "../storage";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -19,12 +20,6 @@ function jaccardSimilarity(a: string[], b: string[]): number {
   for (const w of setA) if (setB.has(w)) intersection++;
   const union = setA.size + setB.size - intersection;
   return union === 0 ? 0 : intersection / union;
-}
-
-function daysBetween(dateA: string, dateB: string): number {
-  const a = new Date(dateA);
-  const b = new Date(dateB);
-  return Math.abs(Math.round((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24)));
 }
 
 function detectCadence(intervals: number[]): { cadence: string; avgDays: number } {
@@ -376,47 +371,33 @@ export function suggestDeadline(activity: string, patterns: TaskPattern[]): Dead
   }
 
   if (bestMatch) {
-    const data = JSON.parse(bestMatch.pattern.data) as RecurrenceData;
-    const nextDate = data.nextExpectedDate;
-    const today = new Date();
-    const suggested = new Date(nextDate);
+    try {
+      const data = JSON.parse(bestMatch.pattern.data) as RecurrenceData;
+      const nextDate = data.nextExpectedDate;
+      const today = new Date();
+      const suggested = new Date(nextDate);
 
-    if (suggested < today) {
-      const typicalDay = data.typicalDayIndex;
-      const daysUntil = ((typicalDay - today.getDay()) + 7) % 7 || 7;
-      suggested.setTime(today.getTime() + daysUntil * 24 * 60 * 60 * 1000);
+      if (suggested < today) {
+        const typicalDay = data.typicalDayIndex;
+        const daysUntil = ((typicalDay - today.getDay()) + 7) % 7 || 7;
+        suggested.setTime(today.getTime() + daysUntil * 24 * 60 * 60 * 1000);
+      }
+
+      return {
+        suggestedDate: suggested.toISOString().split("T")[0],
+        reason: `You usually do "${data.activity}" ${data.cadence.replace("_", " ")} on ${data.typicalDayOfWeek}s`,
+        confidence: bestMatch.pattern.confidence,
+        pattern: bestMatch.pattern.patternKey,
+      };
+    } catch (err) {
+      console.warn("[pattern-engine] Invalid recurrence pattern JSON, skipping:", err);
     }
-
-    return {
-      suggestedDate: suggested.toISOString().split("T")[0],
-      reason: `You usually do "${data.activity}" ${data.cadence.replace("_", " ")} on ${data.typicalDayOfWeek}s`,
-      confidence: bestMatch.pattern.confidence,
-      pattern: bestMatch.pattern.patternKey,
-    };
   }
 
   const rhythmPatterns = patterns.filter(p => p.patternType === "deadline_rhythm");
   for (const pattern of rhythmPatterns) {
-    const data = JSON.parse(pattern.data) as DeadlineRhythmData;
-    const typicalDay = data.typicalDayIndex;
-    const today = new Date();
-    const daysUntil = ((typicalDay - today.getDay()) + 7) % 7 || 7;
-    const suggested = new Date(today.getTime() + daysUntil * 24 * 60 * 60 * 1000);
-
-    return {
-      suggestedDate: suggested.toISOString().split("T")[0],
-      reason: `${data.activity} are typically scheduled on ${data.typicalDayOfWeek}s (${data.cadence.replace("_", " ")})`,
-      confidence: pattern.confidence,
-      pattern: pattern.patternKey,
-    };
-  }
-
-  const clusterPatterns = patterns.filter(p => p.patternType === "similarity_cluster");
-  for (const pattern of clusterPatterns) {
-    const keyTokens = pattern.patternKey.replace("cluster:", "").split("_");
-    const sim = jaccardSimilarity(tokens, keyTokens);
-    if (sim >= 0.3) {
-      const data = JSON.parse(pattern.data);
+    try {
+      const data = JSON.parse(pattern.data) as DeadlineRhythmData;
       const typicalDay = data.typicalDayIndex;
       const today = new Date();
       const daysUntil = ((typicalDay - today.getDay()) + 7) % 7 || 7;
@@ -424,10 +405,36 @@ export function suggestDeadline(activity: string, patterns: TaskPattern[]): Dead
 
       return {
         suggestedDate: suggested.toISOString().split("T")[0],
-        reason: `Similar tasks are usually done on ${data.typicalDayOfWeek}s`,
-        confidence: Math.round(pattern.confidence * 0.7),
+        reason: `${data.activity} are typically scheduled on ${data.typicalDayOfWeek}s (${data.cadence.replace("_", " ")})`,
+        confidence: pattern.confidence,
         pattern: pattern.patternKey,
       };
+    } catch (err) {
+      console.warn("[pattern-engine] Invalid deadline_rhythm pattern JSON, skipping:", err);
+    }
+  }
+
+  const clusterPatterns = patterns.filter(p => p.patternType === "similarity_cluster");
+  for (const pattern of clusterPatterns) {
+    const keyTokens = pattern.patternKey.replace("cluster:", "").split("_");
+    const sim = jaccardSimilarity(tokens, keyTokens);
+    if (sim >= 0.3) {
+      try {
+        const data = JSON.parse(pattern.data) as { typicalDayIndex: number; typicalDayOfWeek: string };
+        const typicalDay = data.typicalDayIndex;
+        const today = new Date();
+        const daysUntil = ((typicalDay - today.getDay()) + 7) % 7 || 7;
+        const suggested = new Date(today.getTime() + daysUntil * 24 * 60 * 60 * 1000);
+
+        return {
+          suggestedDate: suggested.toISOString().split("T")[0],
+          reason: `Similar tasks are usually done on ${data.typicalDayOfWeek}s`,
+          confidence: Math.round(pattern.confidence * 0.7),
+          pattern: pattern.patternKey,
+        };
+      } catch (err) {
+        console.warn("[pattern-engine] Invalid similarity_cluster pattern JSON, skipping:", err);
+      }
     }
   }
 

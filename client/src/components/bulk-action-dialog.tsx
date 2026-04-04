@@ -80,9 +80,7 @@ export default function BulkActionDialog({
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
-    if (actions.length > 0) {
-      setSelected(new Set(actions.map(a => a.taskId)));
-    }
+    setSelected(new Set(actions.map(a => a.taskId)));
   }, [actions]);
 
   const toggleItem = useCallback((taskId: string) => {

@@ -23,7 +23,7 @@ Backup/restore helpers: [scripts/migration/pg-backup.ps1](../scripts/migration/p
 1. **Backup** live: `pg_dump` (custom format) or Neon/Render snapshot — see provider docs.
 2. **Restore** into staging: `pg_restore` or `psql` into an empty DB.
 3. On a checkout of **`integration/migration-unified`**, set `.env` **`DATABASE_URL`** to staging.
-4. Run **`npm run db:push`** so the schema matches [shared/schema.ts](shared/schema.ts) at **U** (adds missing tables/columns; verify in staging before prod).
+4. Run **`npm run db:push`** so the schema matches [shared/schema.ts](../shared/schema.ts) at **U** (adds missing tables/columns; verify in staging before prod).
 5. **Smoke test** both lines: collaborators/shared tasks, migration import/export admin tab, MFA/notifications/premium/admin security surfaces, voice + planner + tasks.
 
 ## Attachments (if prod uses disk storage)

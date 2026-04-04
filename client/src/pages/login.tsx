@@ -1,10 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { getCsrfToken } from "@/lib/queryClient";
+import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 
 function csrfHeaders(): Record<string, string> {
   const token = getCsrfToken();
-  return token ? { "Content-Type": "application/json", "x-csrf-token": token } : { "Content-Type": "application/json" };
+  return token
+    ? { "Content-Type": "application/json", [AXTASK_CSRF_HEADER]: token }
+    : { "Content-Type": "application/json" };
 }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

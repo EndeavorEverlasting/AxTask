@@ -21,6 +21,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { Task } from "@shared/schema";
+import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import { format, addDays, subDays } from "date-fns";
 
 interface ScanResult {
@@ -62,7 +63,7 @@ export default function ChecklistPage() {
 
       const csrfToken = getCsrfToken();
       const headers: Record<string, string> = {};
-      if (csrfToken) headers["x-csrf-token"] = csrfToken;
+      if (csrfToken) headers[AXTASK_CSRF_HEADER] = csrfToken;
 
       const res = await fetch("/api/checklist/scan", {
         method: "POST",

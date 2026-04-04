@@ -31,7 +31,7 @@ async function main() {
   const hasDryRun = args.includes("--dry-run");
 
   const { exportFullDatabase, exportUserData } = await import("../server/migration/export");
-  const { importBundle, validateBundleWithDb } = await import("../server/migration/import");
+  const { importBundle } = await import("../server/migration/import");
 
   if (command === "export") {
     const userId = getArg("user");

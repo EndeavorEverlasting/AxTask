@@ -29,8 +29,8 @@ if ($dir -and -not (Test-Path $dir)) {
 }
 
 # -Fc custom format for pg_restore; --no-owner helps cross-host restore
-& pg_dump --version | Out-Null
-if ($LASTEXITCODE -ne 0) {
+$pgDumpCmd = Get-Command 'pg_dump' -ErrorAction SilentlyContinue
+if (-not $pgDumpCmd) {
   Write-Error "pg_dump not found. Install PostgreSQL client tools and ensure pg_dump is on PATH."
 }
 

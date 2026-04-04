@@ -13,6 +13,17 @@ A full-stack task management application with an intelligent priority scoring en
 
 This is the fastest way to get a full stack (app + PostgreSQL) on your machine after you clone the repo.
 
+### Shells: Windows Command Prompt vs Git Bash / macOS / Linux
+
+Documentation often shows the Unix `cp` command. **Windows Command Prompt (`cmd.exe`) does not include `cp`** — you will see `'cp' is not recognized as an internal or external command`. Use any of these instead:
+
+- **`npm run docker:env-init`** — creates `.env.docker` from the example (same on every OS).
+- **Windows CMD:** `copy .env.docker.example .env.docker`
+- **Windows PowerShell:** `Copy-Item .env.docker.example .env.docker`
+- **Git Bash, WSL, macOS, Linux:** `cp .env.docker.example .env.docker`
+
+The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run local:env-init`** or `copy` / `Copy-Item` / `cp` as appropriate.
+
 1. **Install Docker** on the machine that will run AxTask:
    - **Windows / macOS:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
    - **Linux / server:** Docker Engine + Docker Compose v2 plugin  
@@ -22,9 +33,14 @@ This is the fastest way to get a full stack (app + PostgreSQL) on your machine a
 
 3. **Create and edit `.env.docker`**
 
-   ```bash
-   cp .env.docker.example .env.docker
-   ```
+   From the project root, pick one (all create the file only if it is missing):
+
+   - **Any OS (recommended):** `npm run docker:env-init`
+   - **macOS / Linux:** `cp .env.docker.example .env.docker`
+   - **Windows Command Prompt:** `copy .env.docker.example .env.docker`
+   - **Windows PowerShell:** `Copy-Item .env.docker.example .env.docker`
+
+   You can also run `npm run docker:up` once without a `.env.docker` file: it copies from `.env.docker.example` automatically, then stops with a clear error until you replace the placeholders and run it again.
 
    Open `.env.docker` and replace every placeholder:
    - **`POSTGRES_PASSWORD`** — strong password for the local database user
@@ -50,12 +66,17 @@ This is the fastest way to get a full stack (app + PostgreSQL) on your machine a
 
 Use this when you prefer to run the app with `tsx` against your own Postgres (not the Docker Compose stack).
 
-```bash
-npm install
-cp .env.example .env
-npm run db:push
-npm run dev
-```
+From the **project root**:
+
+1. **`npm install`**
+2. **Create `.env`** (only if you do not already have one):
+   - **Any OS (recommended):** `npm run local:env-init`
+   - **macOS / Linux / Git Bash / WSL:** `cp .env.example .env`
+   - **Windows Command Prompt:** `copy .env.example .env`
+   - **Windows PowerShell:** `Copy-Item .env.example .env`  
+   Or run **`npm run offline:start`** once — it creates `.env` from `.env.example` automatically if missing (then installs deps, runs `db:push`, and starts the app).
+3. Edit **`.env`**: set **`DATABASE_URL`** to a reachable PostgreSQL instance (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
+4. **`npm run db:push`** then **`npm run dev`**
 
 Visit `http://localhost:5000` to access the application.
 
@@ -74,7 +95,9 @@ This flow automatically installs dependencies (first run), creates `.env` from `
 You can run AxTask fully local (including when offline) as long as your PostgreSQL database is also local.
 
 1. Create your local env file:
-   - macOS/Linux: `cp .env.example .env`
+   - **Any OS (recommended):** `npm run local:env-init`
+   - macOS / Linux / Git Bash / WSL: `cp .env.example .env`
+   - Windows Command Prompt: `copy .env.example .env`
    - Windows PowerShell: `Copy-Item .env.example .env`
 2. Ensure `.env` has a local `DATABASE_URL` (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
 3. Run from the AxTask project directory:
@@ -83,8 +106,14 @@ You can run AxTask fully local (including when offline) as long as your PostgreS
    - `npm run dev`
 4. Work offline as needed, then commit and push changes later when back online.
 
+### Cached reads and offline UI (Phase A)
+
+The SPA **persists TanStack Query read caches** to `localStorage` (except auth, admin, and billing API keys) so the last successful data can appear when the network drops. An **offline / stale banner** explains when you are viewing cached data. Logout clears the persisted cache. Details, security notes, and the **task conflict policy** for future sync work: [`docs/OFFLINE_PHASE_A.md`](docs/OFFLINE_PHASE_A.md).
+
 ### Why local runs fail most often
 
+- **`'cp' is not recognized`** (Windows **cmd**)  
+  Use **`npm run local:env-init`** or **`npm run docker:env-init`**, or the **`copy`** / **`Copy-Item`** commands shown above — not Unix `cp`.
 - `npm error Missing script: "db:push"`  
   You ran the command outside the AxTask folder. Run it from `AxTask`.
 - `DATABASE_URL, ensure the database is provisioned`  
@@ -198,6 +227,7 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - Technical architecture details
 - **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
 - **[Security Guidelines](docs/SECURITY.md)** - Security best practices
+- **[Sign-up verification (planned)](docs/MFA_SIGNUP_VERIFICATION.md)** - OTP/MFA at **new** account creation to reduce abuse; existing users keep normal login (step-up MFA only for sensitive actions)
 - **[Version History](VERSION.md)** - Release notes and changelog
 - **[Production migration branch report](docs/PRODUCTION_MIGRATION_BRANCH_REPORT.md)** - Compare `main` / `experimental/next` vs Replit publish lines and `baseline/published` before DB cutover
 - **[Unified migration log](docs/MIGRATION_UNIFIED_LOG.md)** - Replit SHAs `008a8b0` / `afe5210`, deploy **D**, and integration tip **U**

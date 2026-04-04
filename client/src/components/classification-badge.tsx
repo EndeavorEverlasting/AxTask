@@ -52,7 +52,10 @@ export function ClassificationBadge({ classification, taskId, editable = false }
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gamification"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "classifications"] });
 
       if (result.classificationReward) {

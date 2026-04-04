@@ -23,8 +23,8 @@ if (-not (Test-Path $BackupFile)) {
   Write-Error "Backup file not found: $BackupFile"
 }
 
-& pg_restore --version | Out-Null
-if ($LASTEXITCODE -ne 0) {
+$pgRestoreCmd = Get-Command 'pg_restore' -ErrorAction SilentlyContinue
+if (-not $pgRestoreCmd) {
   Write-Error "pg_restore not found. Install PostgreSQL client tools."
 }
 

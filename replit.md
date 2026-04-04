@@ -83,5 +83,5 @@ Key tables include `users` (id, email, passwordHash, role, authProvider details,
 -   **esbuild**: Backend bundling.
 -   **TypeScript**: Language.
 -   **Tailwind CSS**: Styling framework.
--   **Vitest**: Testing framework.
+-   **Vitest**: Testing framework (`npm run test`). Includes **`server/local-setup-tutorial.test.ts`**, which fails if onboarding docs or `package.json` drop cross-platform env bootstrap (`local:env-init`, `docker:env-init`) or the Windows **`cp` / cmd** guidance — so Replit CI and local runs catch tutorial drift before users do.
 -   **cross-env**: Cross-platform environment variables.

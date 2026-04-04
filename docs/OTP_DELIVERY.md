@@ -1,6 +1,8 @@
 # OTP / MFA delivery (email and SMS)
 
-AxTask sends one-time codes for step-up MFA (billing, invoice actions, phone verification). Delivery is **channel-aware**: `email` or `sms` on `POST /api/mfa/challenge`.
+AxTask sends one-time codes for **step-up MFA** after you are logged in (billing, invoice actions, phone verification). Delivery is **channel-aware**: `email` or `sms` on `POST /api/mfa/challenge`.
+
+**Planned (separate from this doc’s API):** verification during **new account registration** to reduce abuse — see [`MFA_SIGNUP_VERIFICATION.md`](./MFA_SIGNUP_VERIFICATION.md). That work targets **sign-up only**; existing users keep normal login and only see OTP when a sensitive flow already requires it.
 
 ## Development
 

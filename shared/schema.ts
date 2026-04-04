@@ -334,6 +334,7 @@ export const userRewards = pgTable("user_rewards", {
   isActive: boolean("is_active").notNull().default(true),
 }, (table) => [
   index("idx_user_rewards_user").on(table.userId),
+  uniqueIndex("ux_user_rewards_user_reward").on(table.userId, table.rewardId),
 ]);
 
 export type UserReward = typeof userRewards.$inferSelect;

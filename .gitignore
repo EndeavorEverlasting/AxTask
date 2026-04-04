@@ -11,6 +11,10 @@ vite.config.ts.*
 e
 pics/
 
+# Never commit credential-bearing plan copies
+*.secrets.md
+.cursor/plans/**/*.secrets.md
+
 # Local planning artifacts
 docs/AxTask_Migration_Master_Plan.md
 docs/AxTask_Robust_Hosting_Migration_Plan_*.docx

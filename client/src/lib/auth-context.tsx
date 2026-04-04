@@ -1,10 +1,20 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import type { SafeUser } from "@shared/schema";
+import {
+  AUTH_LOGIN_PATH,
+  AUTH_LOGOUT_PATH,
+  AUTH_ME_PATH,
+  AUTH_REGISTER_PATH,
+  AXTASK_CSRF_HEADER,
+} from "@shared/http-auth";
 import { queryClient, getCsrfToken } from "./queryClient";
+import { clearQueryPersistStorage } from "./query-persist-policy";
 
 function csrfHeaders(): Record<string, string> {
   const token = getCsrfToken();
-  return token ? { "Content-Type": "application/json", "x-csrf-token": token } : { "Content-Type": "application/json" };
+  return token
+    ? { "Content-Type": "application/json", [AXTASK_CSRF_HEADER]: token }
+    : { "Content-Type": "application/json" };
 }
 
 interface AuthContextType {
@@ -25,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check if already logged in on mount (also handles OAuth redirect)
   useEffect(() => {
-    fetch("/api/auth/me", { credentials: "include" })
+    fetch(AUTH_ME_PATH, { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         setUser(data);
@@ -58,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const res = await fetch("/api/auth/login", {
+    const res = await fetch(AUTH_LOGIN_PATH, {
       method: "POST",
       headers: csrfHeaders(),
       credentials: "include",
@@ -87,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const register = useCallback(async (email: string, password: string, displayName?: string, inviteCode?: string) => {
-    const res = await fetch("/api/auth/register", {
+    const res = await fetch(AUTH_REGISTER_PATH, {
       method: "POST",
       headers: csrfHeaders(),
       credentials: "include",
@@ -102,18 +112,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await fetch("/api/auth/logout", {
+    await fetch(AUTH_LOGOUT_PATH, {
       method: "POST",
       headers: csrfHeaders(),
       credentials: "include",
     });
     setUser(null);
+    clearQueryPersistStorage();
     // Clear all cached queries so back-button can't show stale authenticated data
     queryClient.clear();
   }, []);
 
   const refreshUser = useCallback(async () => {
-    const res = await fetch("/api/auth/me", { credentials: "include" });
+    const res = await fetch(AUTH_ME_PATH, { credentials: "include" });
     if (res.ok) {
       setUser(await res.json());
     } else if (res.status === 401) {

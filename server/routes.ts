@@ -3042,8 +3042,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user!.id;
       const taskId = req.params.id;
 
-      const hasAccess = await canAccessTask(taskId, userId);
-      if (!hasAccess) return res.status(403).json({ message: "Access denied" });
+      const { canAccess } = await canAccessTask(userId, taskId);
+      if (!canAccess) return res.status(403).json({ message: "Access denied" });
 
       const [contributions, hasConfirmed] = await Promise.all([
         getContributionsForTask(taskId),
@@ -3061,8 +3061,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user!.id;
       const taskId = req.params.id;
 
-      const hasAccess = await canAccessTask(taskId, userId);
-      if (!hasAccess) return res.status(403).json({ message: "Access denied" });
+      const { canAccess } = await canAccessTask(userId, taskId);
+      if (!canAccess) return res.status(403).json({ message: "Access denied" });
 
       const result = await awardCoinsForConfirmation(userId, taskId);
       if (!result) {

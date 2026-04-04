@@ -1,3 +1,4 @@
+import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import { apiRequest, getCsrfToken } from "./queryClient";
 
 export interface GoogleAuthTokens {
@@ -55,7 +56,7 @@ export class GoogleSheetsClient {
   private postHeaders(): Record<string, string> {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
     const csrf = getCsrfToken();
-    if (csrf) h['x-csrf-token'] = csrf;
+    if (csrf) h[AXTASK_CSRF_HEADER] = csrf;
     return h;
   }
 
