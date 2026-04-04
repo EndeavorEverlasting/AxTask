@@ -1,6 +1,6 @@
 # Migration automation
 
-Use these after restore + `npm run db:push` on **`integration/migration-unified`** (tip **U**). See also [STAGING_CUTOVER_RUNBOOK.md](STAGING_CUTOVER_RUNBOOK.md).
+Use these after restore + `npm run db:push` on **`integration/migration-unified`** (tip **U**). See also [PRODUCTION_DB_MIGRATION_STRATEGY.md](PRODUCTION_DB_MIGRATION_STRATEGY.md) and [STAGING_CUTOVER_RUNBOOK.md](STAGING_CUTOVER_RUNBOOK.md).
 
 ## npm scripts
 

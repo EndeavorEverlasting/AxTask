@@ -292,6 +292,12 @@ PGPASSWORD=password
 
 ## Deployment
 
+### Database migration (production)
+
+- **[PRODUCTION_DB_MIGRATION_STRATEGY.md](./PRODUCTION_DB_MIGRATION_STRATEGY.md)** — overview and links (branch **U**, backups, verify-schema, cutover).
+- **[MIGRATION_AUTOMATION.md](./MIGRATION_AUTOMATION.md)** — npm scripts and PowerShell backup/restore.
+- **[STAGING_CUTOVER_RUNBOOK.md](./STAGING_CUTOVER_RUNBOOK.md)** — staging validation and production cutover steps.
+
 ### Production Build
 ```bash
 npm run build        # Build client and server
