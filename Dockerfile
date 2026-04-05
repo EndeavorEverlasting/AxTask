@@ -5,6 +5,9 @@ RUN npm install
 
 FROM deps AS build
 WORKDIR /app
+# Vite inlines VITE_* at bundle time; bump via .env.docker + rebuild after breaking API/schema changes.
+ARG VITE_QUERY_PERSIST_BUSTER=v1
+ENV VITE_QUERY_PERSIST_BUSTER=$VITE_QUERY_PERSIST_BUSTER
 COPY . .
 RUN npm run build
 

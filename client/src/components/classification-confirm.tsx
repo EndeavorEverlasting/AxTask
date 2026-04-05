@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -44,22 +44,32 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
 
   const confirmMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/tasks/${taskId}/confirm-classification`);
-      return res.json();
+      return syncRawTaskRequest("POST", `/api/tasks/${taskId}/confirm-classification`, undefined, queryClient);
     },
-    onSuccess: (result) => {
+    onSuccess: (result: unknown) => {
+      if (result && typeof result === "object" && "offlineQueued" in result) {
+        toast({
+          title: "Queued",
+          description: "Confirmation will sync when you're online.",
+        });
+        return;
+      }
+      const r = result as {
+        confirmerCoins?: number;
+        contributorBonuses?: Array<{ displayName: string; bonus: number }>;
+      };
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "classifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
 
-      const bonusDetails = result.contributorBonuses
+      const bonusDetails = r.contributorBonuses
         ?.map((b: { displayName: string; bonus: number }) => `${b.displayName || "User"}: +${b.bonus}`)
         .join(", ");
 
       toast({
-        title: `Classification Confirmed! +${result.confirmerCoins} coins`,
+        title: `Classification Confirmed! +${r.confirmerCoins ?? 0} coins`,
         description: bonusDetails
           ? `Compound interest paid to classifiers: ${bonusDetails}`
           : "Your confirmation has been recorded.",

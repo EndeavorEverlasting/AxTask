@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { syncRawTaskRequest, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ChevronDown, Coins } from "lucide-react";
@@ -47,10 +48,22 @@ export function ClassificationBadge({ classification, taskId, editable = false }
 
   const reclassifyMutation = useMutation({
     mutationFn: async (newClassification: string) => {
-      const res = await apiRequest("POST", `/api/tasks/${taskId}/reclassify`, { classification: newClassification });
-      return res.json();
+      return syncRawTaskRequest(
+        "POST",
+        `/api/tasks/${taskId}/reclassify`,
+        { classification: newClassification },
+        queryClient,
+      );
     },
     onSuccess: (result) => {
+      if (result && typeof result === "object" && "offlineQueued" in result) {
+        toast({
+          title: "Queued",
+          description: "Reclassification will sync when you're online.",
+        });
+        setOpen(false);
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
@@ -58,8 +71,12 @@ export function ClassificationBadge({ classification, taskId, editable = false }
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "classifications"] });
 
-      if (result.classificationReward) {
-        const cr = result.classificationReward;
+      const r = result as {
+        classification: string;
+        classificationReward?: { coinsEarned: number; classification: string; newBalance: number };
+      };
+      if (r.classificationReward) {
+        const cr = r.classificationReward;
         toast({
           title: `Reclassified! +${cr.coinsEarned} coins`,
           description: `Now classified as ${cr.classification}. Balance: ${cr.newBalance}`,
@@ -67,15 +84,17 @@ export function ClassificationBadge({ classification, taskId, editable = false }
       } else {
         toast({
           title: "Reclassified",
-          description: `Task is now classified as ${result.classification}`,
+          description: `Task is now classified as ${r.classification}`,
         });
       }
       setOpen(false);
     },
-    onError: (err: Error) => {
+    onError: (err: unknown) => {
+      if (err instanceof TaskSyncAbortedError) return;
+      const message = err instanceof Error ? err.message : "Could not reclassify this task.";
       toast({
         title: "Reclassification failed",
-        description: err.message || "Could not reclassify this task.",
+        description: message,
         variant: "destructive",
       });
     },

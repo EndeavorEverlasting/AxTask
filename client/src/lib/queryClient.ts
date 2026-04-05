@@ -17,24 +17,33 @@ export function getCsrfToken(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-export async function apiRequest(
+/** Same as {@link apiRequest} but does not throw on non-OK status (for conflict handling). */
+export async function apiFetch(
   method: string,
   url: string,
   data?: unknown | undefined,
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
   const headers: Record<string, string> = { ...(extraHeaders || {}) };
-  if (data) headers["Content-Type"] = "application/json";
+  if (data !== undefined && data !== null) headers["Content-Type"] = "application/json";
   const csrfToken = getCsrfToken();
   if (csrfToken && method !== "GET") headers[AXTASK_CSRF_HEADER] = csrfToken;
 
-  const res = await fetch(url, {
+  return fetch(url, {
     method,
     headers,
-    body: data ? JSON.stringify(data) : undefined,
+    body: data !== undefined && data !== null ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
+}
 
+export async function apiRequest(
+  method: string,
+  url: string,
+  data?: unknown | undefined,
+  extraHeaders?: Record<string, string>,
+): Promise<Response> {
+  const res = await apiFetch(method, url, data, extraHeaders);
   await throwIfResNotOk(res);
   return res;
 }

@@ -5,9 +5,9 @@ This document describes **Phase A** of AxTask’s offline-capable roadmap: **rea
 ## What shipped
 
 1. **TanStack Query persistence** (via `@tanstack/react-query-persist-client` + `localStorage`)
-   - Successful **GET** query data is dehydrated to `localStorage` under the key defined in `QUERY_PERSIST_STORAGE_KEY` (`client/src/lib/query-persist-policy.ts`).
-   - **Excluded from persistence** (not written to disk): any query whose key starts with `/api/auth`, `/api/admin`, or `/api/billing`, so session-adjacent and sensitive admin/billing payloads are not cached locally.
-   - **Logout** clears the persisted blob and the in-memory query client (`auth-context.tsx`).
+   - Successful **GET** query data is dehydrated to `localStorage` under a **per-user** key from `getQueryPersistStorageKeyForUser` (`client/src/lib/query-persist-policy.ts`); see **[OFFLINE_PHASE_D.md](./OFFLINE_PHASE_D.md)** for isolation, denylist expansion, and size limits.
+   - **Excluded from persistence** (not written to disk): sensitive API roots listed in `isPersistableQueryKey` (auth, admin, billing, invoices, premium, notifications, storage, and their subpaths).
+   - **Logout** clears persisted buckets for that session and the in-memory query client (`auth-context.tsx`).
 
 2. **Default query behavior** (`client/src/lib/queryClient.ts`)
    - `networkMode: "offlineFirst"` so the UI can keep showing the last successful data when the network is unavailable.
@@ -22,6 +22,7 @@ This document describes **Phase A** of AxTask’s offline-capable roadmap: **rea
 ## Environment
 
 - Optional **`VITE_QUERY_PERSIST_BUSTER`**: change this build-time value to invalidate all clients’ persisted caches after a breaking API/schema change (see `QUERY_PERSIST_BUSTER` in `query-persist-policy.ts`).
+- **Docker:** Compose passes the same variable from `.env.docker` as an image **build arg**; rebuild after changing it. See **[DOCKER_FOUNDATION.md](./DOCKER_FOUNDATION.md#offline-phase-a-read-cache-and-rebuilds)**.
 
 ## Task conflict policy (future sync phases)
 
@@ -36,6 +37,14 @@ This document describes **Phase A** of AxTask’s offline-capable roadmap: **rea
 
 Device refresh tokens and `POST /api/auth/refresh` restore Passport when the session cookie is missing — see **[OFFLINE_PHASE_B.md](./OFFLINE_PHASE_B.md)**.
 
+## Next: Phase C
+
+Offline task mutation queue, server `baseUpdatedAt` conflicts, and resolution UI — see **[OFFLINE_PHASE_C.md](./OFFLINE_PHASE_C.md)**.
+
+## Next: Phase D
+
+Per-user persist keys, extra API denylist entries, bounded serialization, and legacy key migration — see **[OFFLINE_PHASE_D.md](./OFFLINE_PHASE_D.md)**.
+
 ## Security note
 
-Persisted cache holds **application JSON** for allowed query keys on **this device**. Use **Log out** on shared machines. Phase A intentionally skips persisting auth and admin/billing routes.
+Persisted cache holds **application JSON** for allowed query keys on **this device**. Use **Log out** on shared machines. Sensitive routes are excluded from persistence; Phase D further reduces cross-account cache bleed on the same browser.

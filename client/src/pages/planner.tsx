@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { useVoice } from "@/hooks/use-voice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -122,14 +123,24 @@ export default function PlannerPage() {
 
   const markCompleteMutation = useMutation({
     mutationFn: async (taskId: string) => {
-      const res = await apiRequest("PUT", `/api/tasks/${taskId}`, { id: taskId, status: "completed" });
-      return res.json();
+      const tasks = queryClient.getQueryData<Task[]>(["/api/tasks"]) ?? [];
+      const base = tasks.find((t) => t.id === taskId);
+      return syncUpdateTask(taskId, { id: taskId, status: "completed" }, base, queryClient);
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      const d = data as { offlineQueued?: boolean } | undefined;
+      if (d?.offlineQueued) {
+        toast({ title: "Saved offline", description: "Will sync when you're back online." });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       toast({ title: "Task completed", description: "Task marked as done." });
+    },
+    onError: (e: unknown) => {
+      if (e instanceof TaskSyncAbortedError) return;
+      toast({ title: "Error", description: "Could not update task.", variant: "destructive" });
     },
   });
 
@@ -138,13 +149,23 @@ export default function PlannerPage() {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       const newDate = tomorrow.toISOString().split("T")[0];
-      const res = await apiRequest("PUT", `/api/tasks/${taskId}`, { id: taskId, date: newDate });
-      return res.json();
+      const tasks = queryClient.getQueryData<Task[]>(["/api/tasks"]) ?? [];
+      const base = tasks.find((t) => t.id === taskId);
+      return syncUpdateTask(taskId, { id: taskId, date: newDate }, base, queryClient);
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      const d = data as { offlineQueued?: boolean } | undefined;
+      if (d?.offlineQueued) {
+        toast({ title: "Saved offline", description: "Will sync when you're back online." });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       toast({ title: "Task rescheduled", description: "Task moved to tomorrow." });
+    },
+    onError: (e: unknown) => {
+      if (e instanceof TaskSyncAbortedError) return;
+      toast({ title: "Error", description: "Could not reschedule task.", variant: "destructive" });
     },
   });
 

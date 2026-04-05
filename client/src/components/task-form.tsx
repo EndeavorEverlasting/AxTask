@@ -4,6 +4,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  syncCreateTask,
+  syncUpdateTask,
+  TaskSyncAbortedError,
+} from "@/lib/task-sync-api";
 import { PriorityEngine } from "@/lib/priority-engine";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
@@ -236,20 +241,31 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const createTaskMutation = useMutation({
     mutationFn: async (taskData: InsertTask) => {
       if (task) {
-        const response = await apiRequest("PUT", `/api/tasks/${task.id}`, taskData);
-        return response.json();
-      } else {
-        const response = await apiRequest("POST", "/api/tasks", taskData);
-        return response.json();
+        return syncUpdateTask(task.id, taskData as Record<string, unknown>, task, queryClient);
       }
+      return syncCreateTask(taskData, queryClient, user?.id ?? "");
     },
-    onSuccess: (data) => {
+    onSuccess: (data: unknown) => {
+      const d = data as { offlineQueued?: boolean; classificationReward?: unknown };
+      if (d?.offlineQueued) {
+        toast({
+          title: "Saved offline",
+          description: "Will sync when you're back online.",
+        });
+        if (!task) {
+          form.reset();
+          clearDraft(draftKey);
+        }
+        onSuccess?.();
+        return;
+      }
+
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
 
-      if (data?.classificationReward) {
-        const cr = data.classificationReward;
+      if (d?.classificationReward) {
+        const cr = d.classificationReward as { coinsEarned: number; classification: string; newBalance: number };
         toast({
           title: `${task ? "Task updated" : "Task created"} — +${cr.coinsEarned} AxCoins!`,
           description: `Classified as ${cr.classification}. New balance: ${cr.newBalance}`,
@@ -267,10 +283,12 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       }
       onSuccess?.();
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
+      if (error instanceof TaskSyncAbortedError) return;
+      const message = error instanceof Error ? error.message : "Failed to save task";
       toast({
         title: "Error",
-        description: error.message || "Failed to create task",
+        description: message,
         variant: "destructive",
       });
     },

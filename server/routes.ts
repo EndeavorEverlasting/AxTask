@@ -67,6 +67,7 @@ import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, type UpdateTask, type Task } from "@shared/schema";
+import { TASK_CONFLICT_CODE, taskUpdatedAtMatchesServer } from "@shared/offline-sync";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
@@ -1508,6 +1509,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertTaskSchema.parse(req.body);
       const userId = req.user!.id;
+      if (validatedData.id && (await storage.isTaskIdTaken(validatedData.id))) {
+        return res.status(409).json({ message: "A task with this id already exists" });
+      }
       const quota = await assertCanCreateTasks(userId, 1);
       if (!quota.ok) {
         return res.status(413).json({ message: quota.message });
@@ -1569,9 +1573,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user!.id;
 
       const existingTask = await storage.getTask(userId, req.params.id);
-      const previousStatus = existingTask?.status || "pending";
+      if (!existingTask) {
+        return res.status(404).json({ message: "Task not found" });
+      }
 
-      let task = await storage.updateTask(userId, validatedData);
+      const { baseUpdatedAt, forceOverwrite, ...updates } = validatedData;
+      const expectConflict =
+        !forceOverwrite && typeof baseUpdatedAt === "string" && baseUpdatedAt.length > 0;
+      if (expectConflict && !taskUpdatedAtMatchesServer(existingTask.updatedAt, baseUpdatedAt)) {
+        return res.status(409).json({
+          code: TASK_CONFLICT_CODE,
+          message: "This task was changed on the server or another device.",
+          serverTask: existingTask,
+        });
+      }
+
+      const previousStatus = existingTask.status || "pending";
+
+      let task = await storage.updateTask(userId, updates as UpdateTask);
       if (!task) {
         return res.status(404).json({ message: "Task not found" });
       }
@@ -1622,7 +1641,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete task
   app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
-      const deleted = await storage.deleteTask(req.user!.id, req.params.id);
+      const userId = req.user!.id;
+      const existingTask = await storage.getTask(userId, req.params.id);
+      if (!existingTask) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const baseUpdatedAt = typeof req.query.baseUpdatedAt === "string" ? req.query.baseUpdatedAt : undefined;
+      const forceOverwrite =
+        req.query.overwrite === "1" ||
+        req.query.overwrite === "true" ||
+        req.query.forceOverwrite === "1";
+      const expectConflict =
+        !forceOverwrite && typeof baseUpdatedAt === "string" && baseUpdatedAt.length > 0;
+      if (expectConflict && !taskUpdatedAtMatchesServer(existingTask.updatedAt, baseUpdatedAt)) {
+        return res.status(409).json({
+          code: TASK_CONFLICT_CODE,
+          message: "This task was changed on the server or another device.",
+          serverTask: existingTask,
+        });
+      }
+      const deleted = await storage.deleteTask(userId, req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Task not found" });
       }

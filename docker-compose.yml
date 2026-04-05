@@ -1,3 +1,9 @@
+x-axtask-image-build: &axtask-image-build
+  context: .
+  target: runtime
+  args:
+    VITE_QUERY_PERSIST_BUSTER: ${VITE_QUERY_PERSIST_BUSTER:-v1}
+
 services:
   database:
     image: postgres:16-alpine
@@ -19,8 +25,7 @@ services:
 
   migrate:
     build:
-      context: .
-      target: runtime
+      <<: *axtask-image-build
     container_name: axtask-migrate
     env_file:
       - .env.docker
@@ -32,8 +37,7 @@ services:
 
   app:
     build:
-      context: .
-      target: runtime
+      <<: *axtask-image-build
     container_name: axtask-app
     env_file:
       - .env.docker

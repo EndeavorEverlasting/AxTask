@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useCallback, useRef, useEffect, ty
 import { useSpeechRecognition, type SpeechStatus } from "./use-speech-recognition";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import type { Task } from "@shared/schema";
+import { syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 
 interface EngineResponse {
@@ -100,13 +102,21 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         case "reschedule_task": {
           const taskId = data.payload.taskId as string;
           const newDate = data.payload.newDate as string;
-          apiRequest("PUT", `/api/tasks/${taskId}`, { id: taskId, date: newDate })
-            .then(() => {
+          const tasks = queryClient.getQueryData<Task[]>(["/api/tasks"]) ?? [];
+          const base = tasks.find((t) => t.id === taskId);
+          void syncUpdateTask(taskId, { id: taskId, date: newDate }, base, queryClient)
+            .then((r) => {
+              const d = r as { offlineQueued?: boolean } | undefined;
+              if (d?.offlineQueued) {
+                toast({ title: "Saved offline", description: "Reschedule will sync when you're online." });
+                return;
+              }
               queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
               queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
               toast({ title: "Task rescheduled", description: data.message });
             })
-            .catch(() => {
+            .catch((e: unknown) => {
+              if (e instanceof TaskSyncAbortedError) return;
               toast({ title: "Error", description: "Failed to reschedule task", variant: "destructive" });
             });
           break;

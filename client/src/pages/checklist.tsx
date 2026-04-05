@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, getCsrfToken } from "@/lib/queryClient";
+import { getCsrfToken } from "@/lib/queryClient";
+import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -102,17 +103,24 @@ export default function ChecklistPage() {
 
   const applyMutation = useMutation({
     mutationFn: async (updates: { taskId: string; status: string }[]) => {
-      const res = await apiRequest("POST", "/api/checklist/apply", { updates });
-      return res.json();
+      return syncRawTaskRequest("POST", "/api/checklist/apply", { updates }, queryClient);
     },
     onSuccess: (data) => {
+      if (data && typeof data === "object" && "offlineQueued" in data) {
+        toast({
+          title: "Queued",
+          description: "Checklist updates will apply when you're online.",
+        });
+        return;
+      }
+      const d = data as { updated: number };
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       setScanResult(null);
       setTaskUpdates({});
       toast({
         title: "Tasks updated!",
-        description: `${data.updated} task(s) marked as completed.`,
+        description: `${d.updated} task(s) marked as completed.`,
       });
     },
     onError: () => {

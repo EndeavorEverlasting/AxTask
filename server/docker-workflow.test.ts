@@ -45,6 +45,8 @@ describe("docker workflow assets", () => {
     expect(compose).toContain('test: ["CMD-SHELL", "pg_isready');
     expect(compose).toContain("/ready");
     expect(compose).toContain('"5000:5000"');
+    expect(compose).toContain("VITE_QUERY_PERSIST_BUSTER");
+    expect(compose).toContain("axtask-image-build");
   });
 
   it("ships one-click docker helpers backed by smart docker-start", () => {

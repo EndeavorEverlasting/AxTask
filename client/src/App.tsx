@@ -1,6 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { useCallback, useEffect, useRef } from "react";
-import { AppQueryProvider } from "./lib/app-query-provider";
+import { PersistedQueryLayer } from "./lib/app-query-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -15,6 +15,7 @@ import { TutorialInteractionGuide } from "@/components/tutorial-interaction-guid
 import { VoiceCommandBar } from "@/components/voice-command-bar";
 import { InstallCtaBanner } from "@/components/install-cta-banner";
 import { OfflineDataBanner } from "@/components/offline-data-banner";
+import { TaskOfflineSyncProvider } from "@/components/task-offline-sync-provider";
 import BulkActionDialog from "@/components/bulk-action-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LayoutDashboard, List, CalendarDays, Brain, Mic } from "lucide-react";
@@ -189,6 +190,7 @@ function AuthenticatedApp() {
 
   return (
     <VoiceProvider onNavigate={handleNavigate}>
+      <TaskOfflineSyncProvider>
       <div className="h-screen flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <Sidebar />
         <main className="flex-1 overflow-hidden">
@@ -217,16 +219,17 @@ function AuthenticatedApp() {
         <VoiceCommandBar />
         <ReviewDialogBridge />
       </div>
+      </TaskOfflineSyncProvider>
     </VoiceProvider>
   );
 }
 
 function App() {
   return (
-    <AppQueryProvider>
-      <ThemeProvider>
-        <TooltipProvider>
-          <AuthProvider>
+    <ThemeProvider>
+      <TooltipProvider>
+        <AuthProvider>
+          <PersistedQueryLayer>
             <ZoomProvider>
               <TutorialProvider>
                 <NotificationModeProvider>
@@ -234,11 +237,11 @@ function App() {
                 </NotificationModeProvider>
               </TutorialProvider>
             </ZoomProvider>
-          </AuthProvider>
-          <Toaster />
-        </TooltipProvider>
-      </ThemeProvider>
-    </AppQueryProvider>
+          </PersistedQueryLayer>
+        </AuthProvider>
+        <Toaster />
+      </TooltipProvider>
+    </ThemeProvider>
   );
 }
 

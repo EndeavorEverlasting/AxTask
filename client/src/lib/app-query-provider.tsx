@@ -1,18 +1,23 @@
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { queryClient } from "./queryClient";
+import { useAuth } from "./auth-context";
 import {
   QUERY_PERSIST_BUSTER,
   QUERY_PERSIST_MAX_AGE_MS,
-  QUERY_PERSIST_STORAGE_KEY,
+  clearQueryPersistStorageForUser,
+  getQueryPersistStorageKeyForUser,
+  migrateLegacyQueryPersistStorageOnce,
+  serializePersistedClientWithSizeCap,
   shouldDehydrateQueryForPersist,
 } from "./query-persist-policy";
 
-function buildPersistOptions() {
+function buildPersistOptions(storageKey: string) {
   const persister = createAsyncStoragePersister({
     storage: window.localStorage,
-    key: QUERY_PERSIST_STORAGE_KEY,
+    key: storageKey,
+    serialize: (client) => serializePersistedClientWithSizeCap(client),
   });
 
   return {
@@ -25,11 +30,33 @@ function buildPersistOptions() {
   };
 }
 
-export function AppQueryProvider({ children }: { children: ReactNode }) {
-  const persistOptions = useMemo(() => buildPersistOptions(), []);
+/**
+ * Phase D: per-user `localStorage` keys and bounded serialization.
+ * Must render inside `AuthProvider`.
+ */
+export function PersistedQueryLayer({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+
+  const storageKey = useMemo(
+    () => getQueryPersistStorageKeyForUser(loading ? null : (user?.id ?? null)),
+    [loading, user?.id],
+  );
+
+  const persistOptions = useMemo(() => buildPersistOptions(storageKey), [storageKey]);
+
+  useEffect(() => {
+    migrateLegacyQueryPersistStorageOnce();
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (user?.id) {
+      clearQueryPersistStorageForUser(null);
+    }
+  }, [loading, user?.id]);
 
   return (
-    <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
+    <PersistQueryClientProvider key={storageKey} client={queryClient} persistOptions={persistOptions}>
       {children}
     </PersistQueryClientProvider>
   );

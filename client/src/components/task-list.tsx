@@ -1,7 +1,14 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo, type TouchEvent as ReactTouchEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import {
+  isBrowserOnline,
+  syncDeleteTask,
+  syncRawTaskRequest,
+  syncReorderTasks,
+  syncUpdateTask,
+  TaskSyncAbortedError,
+} from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { useVoice } from "@/hooks/use-voice";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -393,7 +400,7 @@ function MobileTaskCard({
   const [swiping, setSwiping] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const suppressClickUntilRef = useRef(0);
-  const suppressClickTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const suppressClickTimeoutRef = useRef<number | null>(null);
   const SWIPE_THRESHOLD = 80;
 
   useEffect(() => {
@@ -442,7 +449,7 @@ function MobileTaskCard({
       suppressClickTimeoutRef.current = window.setTimeout(() => {
         suppressClickUntilRef.current = 0;
         suppressClickTimeoutRef.current = null;
-      }, 450);
+      }, 450) as unknown as number;
     }
   };
 
@@ -619,18 +626,21 @@ export function TaskList() {
   });
 
   const deleteTaskMutation = useMutation({
-    mutationFn: async (id: string) => {
-      await apiRequest("DELETE", `/api/tasks/${id}`);
+    mutationFn: async ({ id, baseTask }: { id: string; baseTask?: Task }) => {
+      await syncDeleteTask(id, baseTask, queryClient);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      if (isBrowserOnline()) {
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      }
       toast({
         title: "Task deleted",
         description: "The task has been removed successfully.",
       });
     },
-    onError: () => {
+    onError: (e: unknown) => {
+      if (e instanceof TaskSyncAbortedError) return;
       toast({
         title: "Error",
         description: "Failed to delete task",
@@ -640,17 +650,29 @@ export function TaskList() {
   });
 
   const updateTaskStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const response = await apiRequest("PUT", `/api/tasks/${id}`, { status });
-      return response.json();
+    mutationFn: async ({ id, status, baseTask }: { id: string; status: string; baseTask?: Task }) => {
+      return syncUpdateTask(id, { status }, baseTask, queryClient);
     },
     onSuccess: (data) => {
+      const d = data as { offlineQueued?: boolean; coinReward?: unknown } | undefined;
+      if (d?.offlineQueued) {
+        toast({
+          title: "Saved offline",
+          description: "Status will sync when you're back online.",
+        });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
-      if (data?.coinReward) {
-        const cr = data.coinReward;
-        const badgeText = cr.badgesEarned?.length > 0 ? ` 🏅 New badge${cr.badgesEarned.length > 1 ? "s" : ""}!` : "";
+      if (d?.coinReward) {
+        const cr = d.coinReward as {
+          coinsEarned: number;
+          newBalance: number;
+          streak: number;
+          badgesEarned?: unknown[];
+        };
+        const badgeText = cr.badgesEarned?.length ? ` 🏅 New badge${cr.badgesEarned.length > 1 ? "s" : ""}!` : "";
         toast({
           title: `+${cr.coinsEarned} AxCoins earned!`,
           description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${badgeText}`,
@@ -662,7 +684,8 @@ export function TaskList() {
         });
       }
     },
-    onError: () => {
+    onError: (e: unknown) => {
+      if (e instanceof TaskSyncAbortedError) return;
       toast({
         title: "Error",
         description: "Failed to update task status",
@@ -673,10 +696,16 @@ export function TaskList() {
 
   const recalculatePrioritiesMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/tasks/recalculate");
-      return response.json();
+      return syncRawTaskRequest("POST", "/api/tasks/recalculate", {}, queryClient);
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data && typeof data === "object" && "offlineQueued" in data) {
+        toast({
+          title: "Queued",
+          description: "Priority recalculation will run when you're online.",
+        });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       toast({
         title: "Priorities recalculated",
@@ -694,9 +723,16 @@ export function TaskList() {
 
   const reorderMutation = useMutation({
     mutationFn: async (taskIds: string[]) => {
-      await apiRequest("PATCH", "/api/tasks/reorder", { taskIds });
+      await syncReorderTasks(taskIds, queryClient);
     },
     onSuccess: () => {
+      if (!isBrowserOnline()) {
+        toast({
+          title: "Order saved offline",
+          description: "Will sync when you're back online.",
+        });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
     },
     onError: () => {
@@ -804,12 +840,20 @@ export function TaskList() {
   }, [tasks, debouncedSearchQuery, priorityFilter, statusFilter, sortField, sortDirection]);
 
   const handleEdit = useCallback((task: Task) => setEditingTask(task), []);
-  const handleToggleStatus = useCallback((id: string, status: string) => {
-    updateTaskStatusMutation.mutate({ id, status });
-  }, [updateTaskStatusMutation]);
-  const handleDelete = useCallback((id: string) => {
-    deleteTaskMutation.mutate(id);
-  }, [deleteTaskMutation]);
+  const handleToggleStatus = useCallback(
+    (id: string, status: string) => {
+      const baseTask = tasks.find((t) => t.id === id);
+      updateTaskStatusMutation.mutate({ id, status, baseTask });
+    },
+    [updateTaskStatusMutation, tasks],
+  );
+  const handleDelete = useCallback(
+    (id: string) => {
+      const baseTask = tasks.find((t) => t.id === id);
+      deleteTaskMutation.mutate({ id, baseTask });
+    },
+    [deleteTaskMutation, tasks],
+  );
 
   const useVirtualized = filteredAndSortedTasks.length > VIRTUALIZE_THRESHOLD;
 

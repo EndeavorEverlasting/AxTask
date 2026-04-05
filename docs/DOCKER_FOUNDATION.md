@@ -96,6 +96,27 @@ Health endpoints:
 - `GET /health`
 - `GET /ready`
 
+## Offline Phase A: read cache and rebuilds
+
+The browser SPA **persists successful read-query data** in `localStorage` (except `/api/auth`, `/api/admin`, and `/api/billing`) so the UI can still show the last good data when the network drops. That behavior is documented for the app as a whole in **[OFFLINE_PHASE_A.md](./OFFLINE_PHASE_A.md)**.
+
+**Docker-specific notes:**
+
+- The static client is produced during **`docker compose build`** (`vite build` in the image). Runtime variables in `.env.docker` do **not** change an already-built bundle.
+- **`VITE_QUERY_PERSIST_BUSTER`** in `.env.docker` is passed as a **build argument** (default `v1`). When you ship a change that invalidates cached JSON shapes, **bump this value** in `.env.docker` and **rebuild** (`npm run docker:up` or `npm run docker:start`, which use `--build`). Clients with an older buster key will drop the persisted query blob on next load.
+- Logout in the app still clears the persisted cache for that browser profile; use a strong buster when you need **all** Docker users to reset without relying on logout.
+
+## Offline Phase B: device refresh (database)
+
+Phase B lets the SPA **re-establish a Passport session** when the short-lived session cookie (`axtask.sid`) is missing or expired but a valid **httpOnly** device cookie (`axtask.drefresh`) is still present. Full behavior, limits, and security notes: **[OFFLINE_PHASE_B.md](./OFFLINE_PHASE_B.md)**.
+
+**Docker-specific notes:**
+
+- The **`migrate`** service runs **`npm run db:push`**, which creates the **`device_refresh_tokens`** table (and the rest of the schema). No extra env vars are required for Phase B.
+- If you deploy from an **older** image or database snapshot that predates Phase B, ensure **one successful migrate** has run before expecting silent refresh to work; otherwise `POST /api/auth/refresh` cannot persist rotated tokens.
+- **`POST /api/auth/refresh`** is subject to the same **CSRF** rules as other state-changing `/api/*` POSTs (double-submit cookie + header). The SPA already sends the header on refresh.
+- **Log out** revokes the current device token and clears both cookies — important on **shared machines**.
+
 ## Clean-machine checklist
 
 1. Install Docker (Desktop or Engine + Compose plugin).

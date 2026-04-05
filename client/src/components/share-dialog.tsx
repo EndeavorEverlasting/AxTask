@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
@@ -45,10 +45,18 @@ export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
 
   const addMutation = useMutation({
     mutationFn: async ({ email, role }: { email: string; role: string }) => {
-      const res = await apiRequest("POST", `/api/tasks/${taskId}/collaborators`, { email, role });
-      return res.json();
+      return syncRawTaskRequest(
+        "POST",
+        `/api/tasks/${taskId}/collaborators`,
+        { email, role },
+        queryClient,
+      );
     },
-    onSuccess: () => {
+    onSuccess: (data, { email }) => {
+      if (data && typeof data === "object" && "offlineQueued" in data) {
+        toast({ title: "Queued", description: "Invite will sync when you're online." });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
       setEmail("");
       toast({ title: "Collaborator added", description: `${email} has been invited.` });
@@ -60,9 +68,13 @@ export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
 
   const removeMutation = useMutation({
     mutationFn: async (userId: string) => {
-      await apiRequest("DELETE", `/api/tasks/${taskId}/collaborators/${userId}`);
+      return syncRawTaskRequest("DELETE", `/api/tasks/${taskId}/collaborators/${userId}`, undefined, queryClient);
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data && typeof data === "object" && "offlineQueued" in data) {
+        toast({ title: "Queued", description: "Removal will sync when you're online." });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
       toast({ title: "Collaborator removed" });
     },
@@ -70,9 +82,18 @@ export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
 
   const updateRoleMutation = useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
-      await apiRequest("PUT", `/api/tasks/${taskId}/collaborators/${userId}`, { role });
+      return syncRawTaskRequest(
+        "PUT",
+        `/api/tasks/${taskId}/collaborators/${userId}`,
+        { role },
+        queryClient,
+      );
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data && typeof data === "object" && "offlineQueued" in data) {
+        toast({ title: "Queued", description: "Role change will sync when you're online." });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
     },
   });

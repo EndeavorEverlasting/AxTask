@@ -9,7 +9,8 @@ import {
   AXTASK_CSRF_HEADER,
 } from "@shared/http-auth";
 import { queryClient, getCsrfToken } from "./queryClient";
-import { clearQueryPersistStorage } from "./query-persist-policy";
+import { clearPersistOnLogout, clearQueryPersistStorageForUser } from "./query-persist-policy";
+import { clearOfflineTaskQueue } from "./offline-task-queue";
 
 function csrfHeaders(): Record<string, string> {
   const token = getCsrfToken();
@@ -105,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(err.message || "Login failed");
     }
     const data = await res.json();
+    clearQueryPersistStorageForUser(null);
     setUser(data);
     rememberKnownAccount(data);
   }, []);
@@ -121,20 +123,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(err.message || "Registration failed");
     }
     const data = await res.json();
+    clearQueryPersistStorageForUser(null);
     setUser(data);
     rememberKnownAccount(data);
   }, []);
 
   const logout = useCallback(async () => {
+    const uid = user?.id ?? null;
     await fetch(AUTH_LOGOUT_PATH, {
       method: "POST",
       headers: csrfHeaders(),
       credentials: "include",
     });
     setUser(null);
-    clearQueryPersistStorage();
+    clearPersistOnLogout(uid);
+    clearOfflineTaskQueue();
     queryClient.clear();
-  }, []);
+  }, [user?.id]);
 
   const refreshUser = useCallback(async () => {
     const data = await fetchSessionUser();

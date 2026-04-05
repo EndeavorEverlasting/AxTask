@@ -17,6 +17,10 @@ Table: `device_refresh_tokens` (see `shared/schema.ts`). Apply with:
 npm run db:push
 ```
 
+## Docker
+
+Compose runs **`npm run db:push`** in the **`migrate`** service, so a normal **`npm run docker:up`** / **`docker:start`** stack gets this table without manual steps. See **[DOCKER_FOUNDATION.md](./DOCKER_FOUNDATION.md#offline-phase-b-device-refresh-database)** for caveats (old DB snapshots, shared machines, CSRF on refresh).
+
 ## Security
 
 - Plaintext tokens never touch `localStorage` (Phase A cache already excludes `/api/auth/*`).
@@ -26,3 +30,4 @@ npm run db:push
 ## Related docs
 
 - [OFFLINE_PHASE_A.md](./OFFLINE_PHASE_A.md) — persisted read cache and stale/offline UI.
+- [OFFLINE_PHASE_C.md](./OFFLINE_PHASE_C.md) — offline task writes, queue, and conflicts.

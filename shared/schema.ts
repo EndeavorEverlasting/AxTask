@@ -257,6 +257,8 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   prerequisites: z.string().max(1000, "Prerequisites must be under 1000 characters").optional(),
   recurrence: z.enum(["none", "daily", "weekly", "biweekly", "monthly", "quarterly", "yearly"]).default("none"),
   status: z.enum(["pending", "in-progress", "completed"]).default("pending"),
+  /** Phase C: optional client UUID for offline-first create replay (must not collide in DB). */
+  id: z.string().uuid().optional(),
 });
 
 export const updateTaskSchema = insertTaskSchema.partial().extend({
@@ -266,6 +268,10 @@ export const updateTaskSchema = insertTaskSchema.partial().extend({
   classification: z.string().optional(),
   isRepeated: z.boolean().optional(),
   sortOrder: z.number().optional(),
+  /** Phase C: last known server `updatedAt` (ISO) before this edit; mismatch → 409 conflict. */
+  baseUpdatedAt: z.string().optional(),
+  /** Phase C: user chose to overwrite after a conflict. */
+  forceOverwrite: z.boolean().optional(),
 });
 
 export const reorderTasksSchema = z.object({

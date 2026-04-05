@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -102,12 +103,22 @@ export default function BulkActionDialog({
 
   const applyMutation = useMutation({
     mutationFn: async (selectedActions: ProposedAction[]) => {
-      const res = await apiRequest("POST", "/api/tasks/review/apply", {
-        actions: selectedActions,
-      });
-      return res.json() as Promise<{ applied: number; failed: number; results: Array<{ taskId: string; success: boolean; error?: string }> }>;
+      return syncRawTaskRequest(
+        "POST",
+        "/api/tasks/review/apply",
+        { actions: selectedActions },
+        queryClient,
+      ) as Promise<{ applied: number; failed: number; results: Array<{ taskId: string; success: boolean; error?: string }> }>;
     },
     onSuccess: (data) => {
+      if (data && typeof data === "object" && "offlineQueued" in data) {
+        toast({
+          title: "Queued",
+          description: "Bulk changes will apply when you're online.",
+        });
+        onOpenChange(false);
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
@@ -227,11 +238,13 @@ export default function BulkActionDialog({
                         {action.reason}
                       </span>
                     </div>
-                    {action.type === "reschedule" && action.details.fromDate && (
+                    {action.type === "reschedule" &&
+                    typeof action.details.fromDate === "string" &&
+                    typeof action.details.newDate === "string" ? (
                       <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
-                        Currently: {action.details.fromDate as string} → {action.details.newDate as string}
+                        Currently: {action.details.fromDate} → {action.details.newDate}
                       </p>
-                    )}
+                    ) : null}
                     {action.confidence < 0.5 && (
                       <p className="text-[11px] text-yellow-600 dark:text-yellow-400 flex items-center gap-1 mt-1">
                         <AlertTriangle className="h-3 w-3" />

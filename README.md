@@ -46,6 +46,8 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
    - **`POSTGRES_PASSWORD`** — strong password for the local database user
    - **`SESSION_SECRET`** — long random secret (32+ characters)
    - **`DATABASE_URL`** — keep host `database` and user/db names as in the example; **set the password in the URL to match `POSTGRES_PASSWORD`**
+   - Optional — **`VITE_QUERY_PERSIST_BUSTER`** in `.env.docker`: bump and **rebuild** the image after a breaking API change so browsers reset persisted read caches (Phase A). See [Docker foundation — Offline Phase A](docs/DOCKER_FOUNDATION.md#offline-phase-a-read-cache-and-rebuilds).
+   - **Phase B (device refresh)** needs the **`device_refresh_tokens`** table; the stack’s **migrate** step applies it automatically. See [Docker foundation — Offline Phase B](docs/DOCKER_FOUNDATION.md#offline-phase-b-device-refresh-database) and [`docs/OFFLINE_PHASE_B.md`](docs/OFFLINE_PHASE_B.md).
 
 4. **Start the stack**
 
@@ -110,7 +112,9 @@ You can run AxTask fully local (including when offline) as long as your PostgreS
 
 The SPA **persists TanStack Query read caches** to `localStorage` (except auth, admin, and billing API keys) so the last successful data can appear when the network drops. An **offline / stale banner** explains when you are viewing cached data. Logout clears the persisted cache. Details, security notes, and the **task conflict policy** for future sync work: [`docs/OFFLINE_PHASE_A.md`](docs/OFFLINE_PHASE_A.md).
 
-**Phase B (device refresh):** httpOnly device cookie + `POST /api/auth/refresh` can restore a Passport session when the session cookie expired but the device token is still valid. See [`docs/OFFLINE_PHASE_B.md`](docs/OFFLINE_PHASE_B.md) and run `npm run db:push` after pulling.
+**Phase B (device refresh):** httpOnly device cookie + `POST /api/auth/refresh` can restore a Passport session when the session cookie expired but the device token is still valid. See [`docs/OFFLINE_PHASE_B.md`](docs/OFFLINE_PHASE_B.md) and run `npm run db:push` after pulling (Docker Compose runs this via the **migrate** service — [`docs/DOCKER_FOUNDATION.md`](docs/DOCKER_FOUNDATION.md#offline-phase-b-device-refresh-database)).
+
+**Phase C (offline task writes):** queued mutations in the browser, optimistic concurrency on `PUT`/`DELETE` tasks, and a conflict dialog. See [`docs/OFFLINE_PHASE_C.md`](docs/OFFLINE_PHASE_C.md).
 
 **Local accounts:** Seeded dev users (`*@axtask.local`) and passwords appear in the **dev server terminal** only. To use a **real email** on the same local database, register through the UI; task merge from seed users is not automatic — see [`docs/LOCAL_ACCOUNT_TRANSITION.md`](docs/LOCAL_ACCOUNT_TRANSITION.md).
 

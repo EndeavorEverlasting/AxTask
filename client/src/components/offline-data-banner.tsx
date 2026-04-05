@@ -8,6 +8,8 @@ import {
   STALE_DATA_WARNING_AFTER_MS,
 } from "@/lib/query-persist-policy";
 import { Button } from "@/components/ui/button";
+import { getOfflineQueueLength, subscribeOfflineTaskQueue } from "@/lib/offline-task-queue";
+import { CloudUpload } from "lucide-react";
 
 function useStalePersistedDataHint(): boolean {
   const queryClient = useQueryClient();
@@ -30,14 +32,24 @@ function useStalePersistedDataHint(): boolean {
   );
 }
 
+function useOfflineTaskQueueLength(): number {
+  return useSyncExternalStore(
+    subscribeOfflineTaskQueue,
+    getOfflineQueueLength,
+    () => 0,
+  );
+}
+
 /**
  * Phase A: shows when the browser is offline, cache is restoring from storage,
  * or cached data is old while online (subtle nudge to refresh).
+ * Phase C: shows queued task mutations when online.
  */
 export function OfflineDataBanner() {
   const online = useNetworkOnline();
   const isRestoring = useIsRestoring();
   const staleHint = useStalePersistedDataHint();
+  const pendingOps = useOfflineTaskQueueLength();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const prevOnline = useRef(online);
@@ -81,7 +93,8 @@ export function OfflineDataBanner() {
           <div className="flex items-center gap-2 min-w-0">
             <WifiOff className="h-4 w-4 shrink-0" aria-hidden />
             <span>
-              You&apos;re offline - showing cached data from this device. Edits may not save until you reconnect.
+              You&apos;re offline - showing cached data from this device. Task edits are queued on this device and
+              will sync when you reconnect.
             </span>
           </div>
           <Button
@@ -93,6 +106,28 @@ export function OfflineDataBanner() {
           >
             <RefreshCw className="h-3.5 w-3.5 mr-1.5" aria-hidden />
             Retry sync
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (online && pendingOps > 0) {
+    return (
+      <div
+        className="shrink-0 border-b border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-950 dark:border-sky-900/50 dark:bg-sky-950/40 dark:text-sky-100"
+        role="status"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <CloudUpload className="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden />
+            <span>
+              {pendingOps} queued change{pendingOps === 1 ? "" : "s"} — syncing in the background when the server is
+              reachable.
+            </span>
+          </div>
+          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={onRefresh}>
+            Refresh data
           </Button>
         </div>
       </div>

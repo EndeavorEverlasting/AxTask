@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -153,15 +153,20 @@ export function TaskCalendar() {
 
   // Reschedule mutation
   const rescheduleMutation = useMutation({
-    mutationFn: async ({ id, date }: { id: string; date: string }) => {
-      const response = await apiRequest("PUT", `/api/tasks/${id}`, { date });
-      return response.json();
+    mutationFn: async ({ id, date, base }: { id: string; date: string; base?: Task }) => {
+      return syncUpdateTask(id, { date }, base, queryClient);
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      const d = data as { offlineQueued?: boolean } | undefined;
+      if (d?.offlineQueued) {
+        toast({ title: "Saved offline", description: "Reschedule will sync when you're online." });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       toast({ title: "Task rescheduled", description: "Task moved to the new date." });
     },
-    onError: () => {
+    onError: (e: unknown) => {
+      if (e instanceof TaskSyncAbortedError) return;
       toast({ title: "Error", description: "Failed to reschedule task", variant: "destructive" });
     },
   });
@@ -225,7 +230,7 @@ export function TaskCalendar() {
       });
     }
 
-    rescheduleMutation.mutate({ id: taskId, date: targetDate });
+    rescheduleMutation.mutate({ id: taskId, date: targetDate, base: task });
   };
 
   const handleDragStart = (event: any) => {
@@ -249,7 +254,8 @@ export function TaskCalendar() {
     }
     // Apply first few suggestions
     for (const s of suggestions.slice(0, 5)) {
-      rescheduleMutation.mutate({ id: s.taskId, date: s.suggestedDate });
+      const base = tasks.find((t) => t.id === s.taskId);
+      rescheduleMutation.mutate({ id: s.taskId, date: s.suggestedDate, base });
     }
     toast({
       title: "AI Scheduler Applied",

@@ -945,6 +945,8 @@ export async function analyzeAndCreateSecurityAlerts(): Promise<{ created: numbe
 export interface IStorage {
   getTasks(userId: string): Promise<Task[]>;
   getTask(userId: string, id: string): Promise<Task | undefined>;
+  /** True if any row uses this primary key (Phase C client-provisioned ids). */
+  isTaskIdTaken(id: string): Promise<boolean>;
   createTask(userId: string, task: InsertTask): Promise<Task>;
   updateTask(userId: string, task: UpdateTask): Promise<Task | undefined>;
   deleteTask(userId: string, id: string): Promise<boolean>;
@@ -979,12 +981,18 @@ export class DatabaseStorage implements IStorage {
     return task || undefined;
   }
 
+  async isTaskIdTaken(id: string): Promise<boolean> {
+    const [row] = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, id)).limit(1);
+    return !!row;
+  }
+
   async createTask(userId: string, insertTask: InsertTask): Promise<Task> {
-    const id = randomUUID();
+    const { id: clientId, ...rest } = insertTask as InsertTask & { id?: string };
+    const id = clientId && typeof clientId === "string" ? clientId : randomUUID();
     const now = new Date();
 
     const taskData = {
-      ...insertTask,
+      ...rest,
       id,
       userId,
       priority: "Low",
@@ -1025,9 +1033,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateTask(userId: string, updateTask: UpdateTask): Promise<Task | undefined> {
+    const { baseUpdatedAt: _b, forceOverwrite: _f, ...rest } = updateTask as UpdateTask & {
+      baseUpdatedAt?: unknown;
+      forceOverwrite?: unknown;
+    };
     const [task] = await db
       .update(tasks)
-      .set({ ...updateTask, updatedAt: new Date() })
+      .set({ ...rest, updatedAt: new Date() })
       .where(and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId)))
       .returning();
     return task || undefined;

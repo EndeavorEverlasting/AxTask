@@ -1,17 +1,24 @@
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { AppQueryProvider } from "./app-query-provider";
+import { render, screen, waitFor } from "@testing-library/react";
+import { AuthProvider } from "./auth-context";
+import { PersistedQueryLayer } from "./app-query-provider";
 
-describe("AppQueryProvider", () => {
-  it("renders children inside PersistQueryClientProvider", () => {
+describe("PersistedQueryLayer", () => {
+  it("renders children inside PersistQueryClientProvider after auth resolves", async () => {
     render(
       createElement(
-        AppQueryProvider,
+        AuthProvider,
         null,
-        createElement("span", { "data-testid": "child" }, "mounted"),
+        createElement(
+          PersistedQueryLayer,
+          null,
+          createElement("span", { "data-testid": "child" }, "mounted"),
+        ),
       ),
     );
-    expect(screen.getByTestId("child")).toHaveTextContent("mounted");
+    await waitFor(() => {
+      expect(screen.getByTestId("child")).toHaveTextContent("mounted");
+    });
   });
 });
