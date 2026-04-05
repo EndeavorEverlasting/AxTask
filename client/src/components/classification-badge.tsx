@@ -1,20 +1,28 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { syncRawTaskRequest, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ChevronDown, Coins } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ChevronDown, Coins, Plus, Sparkles } from "lucide-react";
+import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
 
-const CATEGORIES = [
-  { label: "Crisis", coins: 15 },
-  { label: "Research", coins: 12 },
-  { label: "Development", coins: 10 },
-  { label: "Meeting", coins: 8 },
-  { label: "Maintenance", coins: 8 },
-  { label: "Administrative", coins: 6 },
-  { label: "General", coins: 0 },
-] as const;
+type CategoriesResponse = {
+  builtIn: { label: string; coins: number }[];
+  custom: { id: string; label: string; coins: number }[];
+};
+
+type SuggestionsResponse = {
+  suggestions: { label: string; confidence: number; source: string }[];
+};
+
+function mergeCategoryRows(resp: CategoriesResponse): { label: string; coins: number }[] {
+  const built = resp.builtIn.map((b) => ({ label: b.label, coins: b.coins }));
+  const custom = resp.custom.map((c) => ({ label: c.label, coins: c.coins }));
+  return [...built, ...custom];
+}
 
 export function getClassificationColor(classification: string) {
   switch (classification) {
@@ -39,12 +47,67 @@ interface ClassificationBadgeProps {
   classification: string;
   taskId?: string;
   editable?: boolean;
+  /** Used with NodeWeaver / AxTask suggestions when the popover opens. */
+  activity?: string;
+  notes?: string;
 }
 
-export function ClassificationBadge({ classification, taskId, editable = false }: ClassificationBadgeProps) {
+export function ClassificationBadge({
+  classification,
+  taskId,
+  editable = false,
+  activity = "",
+  notes = "",
+}: ClassificationBadgeProps) {
   const [open, setOpen] = useState(false);
-  const queryClient = useQueryClient();
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const queryClientHook = useQueryClient();
   const { toast } = useToast();
+
+  const categoriesQuery = useQuery({
+    queryKey: ["/api/classification/categories"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/classification/categories");
+      return res.json() as Promise<CategoriesResponse>;
+    },
+    enabled: Boolean(editable && taskId && open),
+    staleTime: 60_000,
+  });
+
+  const suggestionsQuery = useQuery({
+    queryKey: ["/api/classification/suggestions", taskId, activity, notes],
+    queryFn: async () => {
+      const res = await apiRequest("POST", "/api/classification/suggestions", {
+        activity: activity.trim(),
+        notes: notes || "",
+      });
+      return res.json() as Promise<SuggestionsResponse>;
+    },
+    enabled: Boolean(editable && taskId && open && activity.trim().length > 0),
+    staleTime: 15_000,
+  });
+
+  const categoryRows = useMemo(() => {
+    if (!categoriesQuery.data) {
+      return BUILT_IN_CLASSIFICATIONS.map((c) => ({ label: c.label, coins: c.coins }));
+    }
+    return mergeCategoryRows(categoriesQuery.data);
+  }, [categoriesQuery.data]);
+
+  const coinByLabel = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const row of categoryRows) {
+      m.set(row.label.toLowerCase(), row.coins);
+    }
+    return m;
+  }, [categoryRows]);
+
+  const topSuggestions = useMemo(() => {
+    const list = suggestionsQuery.data?.suggestions ?? [];
+    return list
+      .filter((s) => s.label.toLowerCase() !== classification.toLowerCase())
+      .slice(0, 4);
+  }, [suggestionsQuery.data, classification]);
 
   const reclassifyMutation = useMutation({
     mutationFn: async (newClassification: string) => {
@@ -52,7 +115,7 @@ export function ClassificationBadge({ classification, taskId, editable = false }
         "POST",
         `/api/tasks/${taskId}/reclassify`,
         { classification: newClassification },
-        queryClient,
+        queryClientHook,
       );
     },
     onSuccess: (result) => {
@@ -64,12 +127,12 @@ export function ClassificationBadge({ classification, taskId, editable = false }
         setOpen(false);
         return;
       }
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "classifications"] });
+      queryClientHook.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClientHook.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClientHook.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
+      queryClientHook.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
+      queryClientHook.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      queryClientHook.invalidateQueries({ queryKey: ["/api/tasks", taskId, "classifications"] });
 
       const r = result as {
         classification: string;
@@ -100,9 +163,31 @@ export function ClassificationBadge({ classification, taskId, editable = false }
     },
   });
 
+  const addCategoryMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiRequest("POST", "/api/classification/categories", { name });
+      return res.json();
+    },
+    onSuccess: () => {
+      setNewCategoryName("");
+      queryClientHook.invalidateQueries({ queryKey: ["/api/classification/categories"] });
+      toast({ title: "Category added", description: "It appears in your list for future tasks." });
+    },
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : "Could not add category.";
+      toast({ title: "Add category failed", description: message, variant: "destructive" });
+    },
+  });
+
+  const coinsFor = (label: string) => coinByLabel.get(label.toLowerCase()) ?? 5;
+
+  const isCurrent = (label: string) => label.toLowerCase() === classification.toLowerCase();
+
   if (!editable || !taskId) {
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getClassificationColor(classification)}`}>
+      <span
+        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getClassificationColor(classification)}`}
+      >
         {classification}
       </span>
     );
@@ -120,7 +205,7 @@ export function ClassificationBadge({ classification, taskId, editable = false }
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-56 p-2"
+        className="w-72 p-2"
         align="start"
         side="bottom"
         onClick={(e) => e.stopPropagation()}
@@ -128,30 +213,106 @@ export function ClassificationBadge({ classification, taskId, editable = false }
         <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
           Classify to earn coins
         </div>
-        <div className="space-y-0.5">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.label}
-              disabled={cat.label === classification || reclassifyMutation.isPending}
-              className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-sm min-h-[36px] transition-colors ${
-                cat.label === classification
-                  ? "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-default"
-                  : "hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300 cursor-pointer"
-              }`}
-              onClick={() => reclassifyMutation.mutate(cat.label)}
-            >
-              <span className="flex items-center gap-2">
-                <span className={`inline-block w-2.5 h-2.5 rounded-full ${getClassificationColor(cat.label).split(" ")[0]}`} />
-                {cat.label}
-              </span>
-              {cat.coins > 0 && cat.label !== classification && (
-                <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                  <Coins className="h-3 w-3" />
-                  +{cat.coins}
+
+        {activity.trim().length > 0 && (
+          <div className="px-2 pb-2 border-b border-gray-200/80 dark:border-gray-700/80 mb-2">
+            <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700/90 dark:text-amber-400/90 mb-1.5">
+              <Sparkles className="h-3 w-3" />
+              Suggested
+            </div>
+            {suggestionsQuery.isLoading && (
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">Loading suggestions…</p>
+            )}
+            {suggestionsQuery.isError && (
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">Suggestions unavailable offline.</p>
+            )}
+            {!suggestionsQuery.isLoading && topSuggestions.length === 0 && (
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">No alternate suggestions.</p>
+            )}
+            <div className="flex flex-wrap gap-1">
+              {topSuggestions.map((s) => (
+                <Button
+                  key={`${s.label}-${s.source}`}
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-7 text-[11px] px-2"
+                  disabled={reclassifyMutation.isPending}
+                  title={s.source === "nodeweaver" ? "Suggested by NodeWeaver" : "Suggested by AxTask classifier"}
+                  onClick={() => reclassifyMutation.mutate(s.label)}
+                >
+                  {s.label}
+                  <span className="ml-1 text-[9px] opacity-70 tabular-nums">
+                    {Math.round(s.confidence * 100)}%
+                  </span>
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="max-h-56 overflow-y-auto space-y-0.5 pr-0.5">
+          {categoriesQuery.isLoading && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 px-2 py-2">Loading categories…</p>
+          )}
+          {!categoriesQuery.isLoading &&
+            categoryRows.map((cat) => (
+              <button
+                key={cat.label}
+                type="button"
+                disabled={isCurrent(cat.label) || reclassifyMutation.isPending}
+                className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-sm min-h-[36px] transition-colors ${
+                  isCurrent(cat.label)
+                    ? "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-default"
+                    : "hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300 cursor-pointer"
+                }`}
+                onClick={() => reclassifyMutation.mutate(cat.label)}
+              >
+                <span className="flex items-center gap-2">
+                  <span
+                    className={`inline-block w-2.5 h-2.5 rounded-full ${getClassificationColor(cat.label).split(" ")[0]}`}
+                  />
+                  {cat.label}
                 </span>
-              )}
-            </button>
-          ))}
+                {coinsFor(cat.label) > 0 && !isCurrent(cat.label) && (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                    <Coins className="h-3 w-3" />+{coinsFor(cat.label)}
+                  </span>
+                )}
+              </button>
+            ))}
+        </div>
+
+        <div className="mt-2 pt-2 border-t border-gray-200/80 dark:border-gray-700/80 px-1">
+          <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">
+            <Plus className="h-3 w-3" />
+            New category
+          </div>
+          <div className="flex gap-1.5">
+            <Input
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              placeholder="Name"
+              className="h-8 text-xs"
+              maxLength={48}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const n = newCategoryName.trim();
+                  if (n.length >= 2) addCategoryMutation.mutate(n);
+                }
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 px-2 shrink-0"
+              disabled={newCategoryName.trim().length < 2 || addCategoryMutation.isPending}
+              onClick={() => addCategoryMutation.mutate(newCategoryName.trim())}
+            >
+              Add
+            </Button>
+          </div>
         </div>
       </PopoverContent>
     </Popover>

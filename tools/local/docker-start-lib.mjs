@@ -12,6 +12,7 @@ export function parseDockerUpArgv(argv) {
   return {
     noLaunch: argv.includes("--no-launch"),
     noBuild: argv.includes("--no-build"),
+    withNodeweaver: argv.includes("--with-nodeweaver"),
   };
 }
 

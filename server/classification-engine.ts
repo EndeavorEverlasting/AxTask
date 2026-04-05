@@ -1,9 +1,11 @@
 import { type Task } from "@shared/schema";
+import { builtInCoinReward, isGeneralClassification } from "@shared/classification-catalog";
 import {
   addCoins,
   getOrCreateWallet,
   createClassificationContribution,
   getContributionsForTask,
+  getCustomClassificationCoinReward,
   hasUserConfirmedTask,
   recordConfirmation,
   updateContributionEarnings,
@@ -11,15 +13,13 @@ import {
 } from "./storage";
 import { computeCompoundContributorBonus, getMaxCompoundPeriods } from "./lib/classification-compound";
 
-const CLASSIFICATION_BASE_COINS: Record<string, number> = {
-  Crisis: 15,
-  Development: 10,
-  Meeting: 8,
-  Research: 12,
-  Maintenance: 8,
-  Administrative: 6,
-  General: 5,
-};
+async function resolveBaseCoinsForClassification(userId: string, classification: string): Promise<number> {
+  const builtin = builtInCoinReward(classification);
+  if (builtin !== undefined) return builtin;
+  const custom = await getCustomClassificationCoinReward(userId, classification);
+  if (custom !== null) return custom;
+  return 5;
+}
 
 const COMPOUND_RATE = 0.08;
 const CONFIRMER_BASE_REWARD = 3;
@@ -42,11 +42,11 @@ export async function awardCoinsForClassification(
   userId: string,
   task: Task
 ): Promise<ClassificationAwardResult | null> {
-  if (!task.classification || task.classification === "General") return null;
+  if (!task.classification || isGeneralClassification(task.classification)) return null;
 
   await getOrCreateWallet(userId);
 
-  const base = CLASSIFICATION_BASE_COINS[task.classification] || 5;
+  const base = await resolveBaseCoinsForClassification(userId, task.classification);
 
   await createClassificationContribution(task.id, userId, task.classification, base);
 

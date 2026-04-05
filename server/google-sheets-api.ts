@@ -30,6 +30,17 @@ export interface SpreadsheetInfo {
   }>;
 }
 
+/** RowData for spreadsheets.batchUpdate updateCells from a string matrix (e.g. axTaskAboutSheetRows). */
+function sheetRowsFromStringMatrix(
+  matrix: string[][],
+): Array<{ values: Array<{ userEnteredValue: { stringValue: string } }> }> {
+  return matrix.map((row) => ({
+    values: row.map((cell) => ({
+      userEnteredValue: { stringValue: cell },
+    })),
+  }));
+}
+
 export class GoogleSheetsAPI {
   private sheets: any;
   private auth: OAuth2Client;
@@ -125,52 +136,90 @@ export class GoogleSheetsAPI {
    * Planned: frozen top “entry band” + formula-driven IDs/dates per docs/SPREADSHEET_TEMPLATE_UX.md (requires import/export range updates).
    */
   async createTaskSpreadsheet(title: string): Promise<string> {
+    const aboutSheetTitle = "About AxTask";
     try {
       const response = await this.sheets.spreadsheets.create({
         requestBody: {
           properties: {
             title: `${title} · AxTask`,
           },
-          sheets: [{
-            properties: {
-              title: 'Tasks',
-              gridProperties: {
-                rowCount: 1000,
-                columnCount: 12
-              }
-            }
-          }]
-        }
+          sheets: [
+            {
+              properties: {
+                title: "Tasks",
+                gridProperties: {
+                  rowCount: 1000,
+                  columnCount: 12,
+                },
+              },
+            },
+            {
+              properties: {
+                title: aboutSheetTitle,
+                gridProperties: { rowCount: 20, columnCount: 6 },
+              },
+            },
+          ],
+        },
       });
 
       const spreadsheetId = response.data.spreadsheetId!;
+      const sheets = response.data.sheets ?? [];
+      const tasksMeta = sheets.find((s) => s.properties?.title === "Tasks");
+      const aboutMeta = sheets.find((s) => s.properties?.title === aboutSheetTitle);
+      const tasksSheetId = tasksMeta?.properties?.sheetId;
+      const aboutSheetId = aboutMeta?.properties?.sheetId;
+      if (tasksSheetId === undefined || tasksSheetId === null) {
+        throw new Error("Create spreadsheet: Tasks sheet id missing from API response");
+      }
+      if (aboutSheetId === undefined || aboutSheetId === null) {
+        throw new Error(
+          `Create spreadsheet: "${aboutSheetTitle}" sheet id missing from API response`,
+        );
+      }
 
-      // Add headers
       const headers = [
-        'Date', 'Activity', 'Notes', 'Priority', 'Classification', 
-        'Score', 'Urgency', 'Impact', 'Effort', 'Prerequisites', 
-        'Status', 'Last Updated'
+        "Date",
+        "Activity",
+        "Notes",
+        "Priority",
+        "Classification",
+        "Score",
+        "Urgency",
+        "Impact",
+        "Effort",
+        "Prerequisites",
+        "Status",
+        "Last Updated",
       ];
 
-      await this.sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: 'Tasks!A1:L1',
-        valueInputOption: 'RAW',
-        requestBody: {
-          values: [headers]
-        }
-      });
-
-      const aboutSheetTitle = "About AxTask";
+      const aboutRows = sheetRowsFromStringMatrix(axTaskAboutSheetRows());
 
       await this.sheets.spreadsheets.batchUpdate({
         spreadsheetId,
         requestBody: {
           requests: [
             {
+              updateCells: {
+                start: {
+                  sheetId: tasksSheetId,
+                  rowIndex: 0,
+                  columnIndex: 0,
+                },
+                rows: [
+                  {
+                    values: headers.map((h) => ({
+                      userEnteredValue: { stringValue: h },
+                    })),
+                  },
+                ],
+                fields: "userEnteredValue",
+              },
+            },
+            {
               repeatCell: {
                 range: {
-                  sheetId: 0,
+                  sheetId: tasksSheetId,
                   startRowIndex: 0,
                   endRowIndex: 1,
                 },
@@ -187,24 +236,17 @@ export class GoogleSheetsAPI {
               },
             },
             {
-              addSheet: {
-                properties: {
-                  title: aboutSheetTitle,
-                  index: 1,
-                  gridProperties: { rowCount: 20, columnCount: 6 },
+              updateCells: {
+                start: {
+                  sheetId: aboutSheetId,
+                  rowIndex: 0,
+                  columnIndex: 0,
                 },
+                rows: aboutRows,
+                fields: "userEnteredValue",
               },
             },
           ],
-        },
-      });
-
-      await this.sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `'${aboutSheetTitle}'!A1:A5`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: axTaskAboutSheetRows(),
         },
       });
 

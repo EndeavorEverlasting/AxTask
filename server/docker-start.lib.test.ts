@@ -13,13 +13,22 @@ describe("docker-start-lib (local stack bootstrap)", () => {
     it("parses --no-launch and --no-build", () => {
       expect(
         parseDockerUpArgv(["--no-launch", "--no-build", "extra"]),
-      ).toEqual({ noLaunch: true, noBuild: true });
+      ).toEqual({ noLaunch: true, noBuild: true, withNodeweaver: false });
+    });
+
+    it("parses --with-nodeweaver", () => {
+      expect(parseDockerUpArgv(["--with-nodeweaver"])).toEqual({
+        noLaunch: false,
+        noBuild: false,
+        withNodeweaver: true,
+      });
     });
 
     it("defaults flags to false", () => {
       expect(parseDockerUpArgv([])).toEqual({
         noLaunch: false,
         noBuild: false,
+        withNodeweaver: false,
       });
     });
   });

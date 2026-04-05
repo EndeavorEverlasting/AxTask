@@ -45,6 +45,7 @@ const REQUIRED_TABLES = [
   "task_patterns",
   "classification_contributions",
   "classification_confirmations",
+  "user_classification_categories",
 ];
 
 const OPTIONAL_TABLES = ["session"];

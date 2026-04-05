@@ -63,6 +63,10 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
 5. **Open the app:** [http://localhost:5000](http://localhost:5000)  
    Check containers: `npm run docker:status` · Stop: `npm run docker:stop` · Logs: `npm run docker:logs`
 
+### Optional: NodeWeaver in the same Compose stack
+
+Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run it **next to AxTask** in Docker: add the git submodule under `services/nodeweaver/upstream`, set `NODEWEAVER_URL=http://nodeweaver:5000` in `.env.docker`, then start with **`npm run docker:up:nodeweaver`** (or `node tools/local/docker-start.mjs --with-nodeweaver`). The default `npm run docker:up` does **not** start NodeWeaver. Full steps: [`services/nodeweaver/README.md`](services/nodeweaver/README.md).
+
 ### One-click Docker scripts
 
 - **Windows:** `start-docker.cmd` · **macOS/Linux:** `bash ./start-docker.sh` (both use `npm run docker:up`)

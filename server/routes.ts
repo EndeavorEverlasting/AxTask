@@ -57,6 +57,7 @@ import {
   resetStreak,
   getPatterns, getPatternsByType,
   getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution,
+  listUserClassificationCategories, createUserClassificationCategory,
 } from "./storage";
 import {
   grantDeviceRefreshForUser,
@@ -89,6 +90,9 @@ import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
 import { classifyWithFallback } from "./services/classification/universal-classifier";
+import { buildCategorySuggestions } from "./services/classification/category-suggestions";
+import { callNodeWeaverBatchClassify } from "./services/classification/nodeweaver-client";
+import { BUILT_IN_CLASSIFICATIONS, isGeneralClassification } from "@shared/classification-catalog";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
@@ -138,29 +142,6 @@ async function classifyTaskWithFallback(activity: string, notes: string, preferE
 
 function hasFeature(entitlements: { features: string[] }, feature: string): boolean {
   return entitlements.features.includes(feature);
-}
-
-async function callNodeWeaverBatchClassify(items: Array<{ id: string; activity: string; notes?: string }>) {
-  const baseUrl = process.env.NODEWEAVER_URL;
-  if (!baseUrl) {
-    throw new Error("NODEWEAVER_URL is not configured");
-  }
-  const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/v1/classify/batch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tasks: items.map((item) => ({
-        activity: item.activity,
-        notes: item.notes || "",
-        metadata: { classification_profile: "axtask" },
-      })),
-      metadata: { classification_profile: "axtask" },
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`NodeWeaver classify failed with status ${response.status}`);
-  }
-  return response.json();
 }
 
 function toIsoDate(date: Date): string {
@@ -1103,11 +1084,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const batchResponse = await callNodeWeaverBatchClassify(
         pending.map((task) => ({ id: task.id, activity: task.activity, notes: task.notes || "" })),
-      );
-      const results = Array.isArray(batchResponse?.results) ? batchResponse.results : [];
+      ) as { results?: unknown[] };
+      const results = Array.isArray(batchResponse.results) ? batchResponse.results : [];
       const updates: UpdateTask[] = [];
       for (let i = 0; i < pending.length; i++) {
-        const result = results[i];
+        const result = results[i] as { predicted_category?: unknown; confidence_score?: unknown } | undefined;
         const category = typeof result?.predicted_category === "string" ? result.predicted_category : undefined;
         const confidence = typeof result?.confidence_score === "number" ? result.confidence_score : undefined;
         if (!category) continue;
@@ -1152,12 +1133,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pending = allTasks.filter((task) => task.status !== "completed").slice(0, 100);
       const batchResponse = await callNodeWeaverBatchClassify(
         pending.map((task) => ({ id: task.id, activity: task.activity, notes: task.notes || "" })),
-      );
-      const results = Array.isArray(batchResponse?.results) ? batchResponse.results : [];
+      ) as { results?: unknown[] };
+      const results = Array.isArray(batchResponse.results) ? batchResponse.results : [];
       const updates: UpdateTask[] = [];
 
       for (let i = 0; i < pending.length; i++) {
-        const confidence = Number(results[i]?.confidence_score);
+        const row = results[i] as { confidence_score?: unknown } | undefined;
+        const confidence = Number(row?.confidence_score);
         if (!Number.isFinite(confidence) || confidence >= body.lowConfidenceThreshold) continue;
         updates.push({
           id: pending[i].id,
@@ -1559,7 +1541,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       let classificationReward = null;
-      if (task.classification && task.classification !== "General") {
+      if (task.classification && !isGeneralClassification(task.classification)) {
         classificationReward = await awardCoinsForClassification(userId, task);
       }
 
@@ -1634,7 +1616,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let classificationReward = null;
       const previousClassification = existingTask?.classification;
-      if (task!.classification && task!.classification !== "General" && task!.classification !== previousClassification) {
+      if (
+        task!.classification &&
+        !isGeneralClassification(task!.classification) &&
+        task!.classification !== previousClassification
+      ) {
         classificationReward = await awardCoinsForClassification(userId, task!);
       }
 
@@ -2540,6 +2526,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/classification/categories", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const custom = await listUserClassificationCategories(userId);
+      res.json({
+        builtIn: BUILT_IN_CLASSIFICATIONS.map((c) => ({ label: c.label, coins: c.coins })),
+        custom: custom.map((r) => ({ id: r.id, label: r.name, coins: r.coinReward })),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load categories" });
+    }
+  });
+
+  const createUserCategorySchema = z.object({
+    name: z.string().trim().min(2).max(48),
+    coinReward: z.number().int().min(1).max(20).optional(),
+  });
+
+  app.post("/api/classification/categories", requireAuth, async (req, res) => {
+    try {
+      const body = createUserCategorySchema.parse(req.body);
+      const result = await createUserClassificationCategory(req.user!.id, body);
+      if (!result.ok) {
+        return res.status(400).json({ message: result.message });
+      }
+      res.status(201).json(result.row);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to create category" });
+    }
+  });
+
+  app.post("/api/classification/suggestions", requireAuth, async (req, res) => {
+    try {
+      const payload = classifySchema.parse(req.body);
+      const suggestions = await buildCategorySuggestions(payload.activity, payload.notes || "");
+      res.json({ suggestions });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to build suggestions" });
+    }
+  });
+
   // ── Feedback + attachments ────────────────────────────────────────────────
   const feedbackSchema = z.object({
     message: z.string().min(5).max(5000),
@@ -3221,16 +3250,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const reclassifyBodySchema = z.object({
+    classification: z.string().trim().min(2).max(60),
+  });
+
   app.post("/api/tasks/:id/reclassify", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
       const taskId = req.params.id;
-      const { classification } = req.body;
-
-      const validCategories = ["Crisis", "Development", "Meeting", "Research", "Maintenance", "Administrative", "General"];
-      if (!classification || !validCategories.includes(classification)) {
-        return res.status(400).json({ message: "Invalid classification category" });
+      const parsed = reclassifyBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid classification (2–60 characters)." });
       }
+      const classification = parsed.data.classification;
 
       const accessCheck = await canAccessTask(userId, taskId);
       if (!accessCheck.canAccess) return res.status(403).json({ message: "Access denied" });
@@ -3250,7 +3282,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       let classificationReward = null;
-      if (classification !== "General") {
+      if (!isGeneralClassification(classification)) {
         classificationReward = await awardCoinsForClassification(userId, task!);
       }
 

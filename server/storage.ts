@@ -14,6 +14,7 @@ import {
   taskPatterns,
   classificationContributions,
   classificationConfirmations,
+  userClassificationCategories,
   offlineGenerators,
   offlineSkillNodes,
   userOfflineSkills,
@@ -51,6 +52,7 @@ import {
   type InsertTaskPattern,
   type ClassificationContribution,
   type ClassificationConfirmation,
+  type UserClassificationCategory,
   type OfflineGenerator,
   type OfflineSkillNode,
   type UserOfflineSkill,
@@ -76,6 +78,7 @@ import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
 import { parseFeedbackPayload, parseFeedbackReviewPayload } from "./services/feedback-inbox-parser";
 import { maskE164ForDisplay } from "@shared/phone";
+import { isBuiltInClassification, normalizeCategoryName } from "@shared/classification-catalog";
 import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
@@ -2844,6 +2847,80 @@ export async function deleteStalePatterns(userId: string, olderThanDays: number 
 
 export async function clearPatterns(userId: string): Promise<void> {
   await db.delete(taskPatterns).where(eq(taskPatterns.userId, userId));
+}
+
+// ─── User classification categories ────────────────────────────────────────
+
+const MAX_USER_CLASSIFICATION_CATEGORIES = 40;
+
+export async function listUserClassificationCategories(userId: string): Promise<UserClassificationCategory[]> {
+  return db
+    .select()
+    .from(userClassificationCategories)
+    .where(eq(userClassificationCategories.userId, userId))
+    .orderBy(asc(userClassificationCategories.name));
+}
+
+export async function getCustomClassificationCoinReward(userId: string, label: string): Promise<number | null> {
+  const norm = normalizeCategoryName(label);
+  if (norm.length === 0) return null;
+  const [row] = await db
+    .select({ coinReward: userClassificationCategories.coinReward })
+    .from(userClassificationCategories)
+    .where(
+      and(
+        eq(userClassificationCategories.userId, userId),
+        sql`lower(${userClassificationCategories.name}) = lower(${norm})`,
+      ),
+    )
+    .limit(1);
+  return row ? row.coinReward : null;
+}
+
+export async function createUserClassificationCategory(
+  userId: string,
+  input: { name: string; coinReward?: number },
+): Promise<{ ok: true; row: UserClassificationCategory } | { ok: false; message: string }> {
+  const name = normalizeCategoryName(input.name);
+  if (name.length < 2 || name.length > 48) {
+    return { ok: false, message: "Category name must be between 2 and 48 characters." };
+  }
+  if (isBuiltInClassification(name)) {
+    return { ok: false, message: "That label is reserved for a built-in category." };
+  }
+  const [dup] = await db
+    .select({ id: userClassificationCategories.id })
+    .from(userClassificationCategories)
+    .where(
+      and(
+        eq(userClassificationCategories.userId, userId),
+        sql`lower(${userClassificationCategories.name}) = lower(${name})`,
+      ),
+    )
+    .limit(1);
+  if (dup) {
+    return { ok: false, message: "You already have a category with this name." };
+  }
+  const [cnt] = await db
+    .select({ n: count() })
+    .from(userClassificationCategories)
+    .where(eq(userClassificationCategories.userId, userId));
+  if (Number(cnt?.n) >= MAX_USER_CLASSIFICATION_CATEGORIES) {
+    return { ok: false, message: "Maximum custom categories reached." };
+  }
+  const coinReward = Math.min(20, Math.max(1, input.coinReward ?? 5));
+  try {
+    const [row] = await db
+      .insert(userClassificationCategories)
+      .values({ id: randomUUID(), userId, name, coinReward })
+      .returning();
+    return { ok: true, row };
+  } catch (e) {
+    if (isPgUniqueViolation(e)) {
+      return { ok: false, message: "You already have a category with this name." };
+    }
+    throw e;
+  }
 }
 
 // ─── Classification Contributions ──────────────────────────────────────────

@@ -24,7 +24,7 @@ const isMac = process.platform === "darwin";
 const envDockerPath = path.join(projectRoot, ".env.docker");
 const envDockerExamplePath = path.join(projectRoot, ".env.docker.example");
 
-const { noLaunch, noBuild } = parseDockerUpArgv(process.argv.slice(2));
+const { noLaunch, noBuild, withNodeweaver } = parseDockerUpArgv(process.argv.slice(2));
 
 const WAIT_ENGINE_MS = 120_000;
 const WAIT_ENGINE_INTERVAL_MS = 3000;
@@ -193,6 +193,10 @@ async function main() {
   }
 
   const composeArgs = ["compose", "--env-file", ".env.docker", "up", "-d"];
+  if (withNodeweaver) {
+    composeArgs.push("--profile", "nodeweaver");
+    console.log("[docker:up] Enabling Compose profile: nodeweaver (see services/nodeweaver/README.md)");
+  }
   if (!noBuild) {
     composeArgs.push("--build");
   }

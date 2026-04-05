@@ -343,10 +343,9 @@ export function tasksToCSV(tasks: any[]): string {
     'Effort',
     'Pre-Reqs',
     'Sub-Priority',
-    'Impact',
     'Time Start',
     'Time End',
-    'Subtypes'
+    'Subtypes',
   ];
 
   const rows = tasks.map(task => [
@@ -363,7 +362,6 @@ export function tasksToCSV(tasks: any[]): string {
     '',
     '',
     '',
-    ''
   ]);
 
   const body = Papa.unparse({

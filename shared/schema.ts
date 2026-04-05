@@ -785,3 +785,24 @@ export const classificationConfirmations = pgTable("classification_confirmations
 ]);
 
 export type ClassificationConfirmation = typeof classificationConfirmations.$inferSelect;
+
+// ─── User-defined classification categories (NodeWeaver / gamification) ─────
+export const userClassificationCategories = pgTable(
+  "user_classification_categories",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    coinReward: integer("coin_reward").notNull().default(5),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_user_classification_categories_user").on(table.userId),
+    uniqueIndex("idx_user_classification_categories_user_name").on(table.userId, table.name),
+  ],
+);
+
+export type UserClassificationCategory = typeof userClassificationCategories.$inferSelect;
+export type InsertUserClassificationCategory = typeof userClassificationCategories.$inferInsert;

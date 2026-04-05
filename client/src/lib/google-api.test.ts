@@ -67,6 +67,7 @@ describe("googleAuthUtils", () => {
 
 describe("GoogleSheetsClient (fetch)", () => {
   beforeEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 

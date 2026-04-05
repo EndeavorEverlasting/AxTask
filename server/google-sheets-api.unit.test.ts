@@ -75,17 +75,16 @@ describe("GoogleSheetsAPI sheet row parsing (private via cast)", () => {
 describe("GoogleSheetsAPI mergeTaskLists (private via cast)", () => {
   const base = (partial: Partial<Task> & Pick<Task, "id" | "date" | "activity">): Task =>
     ({
-      notes: null,
+      notes: "",
       priority: "Medium",
       classification: "General",
       priorityScore: 50,
       urgency: 3,
       impact: 3,
       effort: 3,
-      prerequisites: null,
+      prerequisites: "",
       status: "pending",
       isRepeated: false,
-      time: null,
       sortOrder: 0,
       userId: null,
       ...partial,
