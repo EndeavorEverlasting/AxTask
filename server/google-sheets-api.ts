@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { type Task } from '@shared/schema';
+import { axTaskAboutSheetRows } from '@shared/attribution';
 
 export interface GoogleSheetsCredentials {
   apiKey: string;
@@ -120,6 +121,7 @@ export class GoogleSheetsAPI {
 
   /**
    * Creates a minimal task sheet: headers in row 1, data from row 2.
+   * Adds document title suffix “· AxTask”, a second tab “About AxTask” with branding, and a generation timestamp.
    * Planned: frozen top “entry band” + formula-driven IDs/dates per docs/SPREADSHEET_TEMPLATE_UX.md (requires import/export range updates).
    */
   async createTaskSpreadsheet(title: string): Promise<string> {
@@ -127,7 +129,7 @@ export class GoogleSheetsAPI {
       const response = await this.sheets.spreadsheets.create({
         requestBody: {
           properties: {
-            title: title
+            title: `${title} · AxTask`,
           },
           sheets: [{
             properties: {
@@ -159,30 +161,51 @@ export class GoogleSheetsAPI {
         }
       });
 
-      // Format header row
+      const aboutSheetTitle = "About AxTask";
+
       await this.sheets.spreadsheets.batchUpdate({
         spreadsheetId,
         requestBody: {
-          requests: [{
-            repeatCell: {
-              range: {
-                sheetId: 0,
-                startRowIndex: 0,
-                endRowIndex: 1
+          requests: [
+            {
+              repeatCell: {
+                range: {
+                  sheetId: 0,
+                  startRowIndex: 0,
+                  endRowIndex: 1,
+                },
+                cell: {
+                  userEnteredFormat: {
+                    backgroundColor: { red: 0.2, green: 0.4, blue: 0.8 },
+                    textFormat: {
+                      bold: true,
+                      foregroundColor: { red: 1, green: 1, blue: 1 },
+                    },
+                  },
+                },
+                fields: "userEnteredFormat(backgroundColor,textFormat)",
               },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.2, green: 0.4, blue: 0.8 },
-                  textFormat: { 
-                    bold: true, 
-                    foregroundColor: { red: 1, green: 1, blue: 1 }
-                  }
-                }
+            },
+            {
+              addSheet: {
+                properties: {
+                  title: aboutSheetTitle,
+                  index: 1,
+                  gridProperties: { rowCount: 20, columnCount: 6 },
+                },
               },
-              fields: 'userEnteredFormat(backgroundColor,textFormat)'
-            }
-          }]
-        }
+            },
+          ],
+        },
+      });
+
+      await this.sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${aboutSheetTitle}'!A1:A5`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: axTaskAboutSheetRows(),
+        },
       });
 
       return spreadsheetId;

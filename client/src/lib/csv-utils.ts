@@ -1,5 +1,6 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
+import { formatAxTaskCsvAttribution } from '@shared/attribution';
 
 function excelDateToString(serial: number): string {
   if (!serial || typeof serial !== 'number' || serial < 1) return '';
@@ -245,9 +246,17 @@ function parseVaultRows(rows: any[][], headers: string[]): any[] {
   return tasks;
 }
 
+/** Removes leading # comment lines so CSV re-import after export stays clean. */
+export function stripCsvAttributionLines(csvText: string): string {
+  return csvText
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+}
+
 export function parseTasksFromCSV(csvText: string): any[] {
   try {
-    const result = Papa.parse(csvText, {
+    const result = Papa.parse(stripCsvAttributionLines(csvText), {
       header: true,
       skipEmptyLines: true,
       transformHeader: (header: string) => header.trim().toLowerCase()
@@ -357,10 +366,11 @@ export function tasksToCSV(tasks: any[]): string {
     ''
   ]);
 
-  return Papa.unparse({
+  const body = Papa.unparse({
     fields: headers,
-    data: rows
+    data: rows,
   });
+  return `${formatAxTaskCsvAttribution()}\n${body}`;
 }
 
 export function downloadCSV(csvContent: string, filename: string) {

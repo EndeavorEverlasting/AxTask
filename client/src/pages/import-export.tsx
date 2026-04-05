@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Task, type InsertTask } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
+import { formatAxTaskCsvAttribution } from "@shared/attribution";
 import { tasksToCSV, parseTasksFromCSV, downloadCSV, parseExcelSheetInfo } from "@/lib/csv-utils";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -197,7 +198,8 @@ export default function ImportExport() {
 
   const totalSelected = sheets.filter(s => s.selected).reduce((sum, s) => sum + s.rowCount, 0);
 
-  const csvTemplate = `Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
+  const csvTemplate = `${formatAxTaskCsvAttribution()}
+Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
 2025-07-30,"Deploy new version","@urgent deployment needed",4,5,3,"Testing completed",pending
 2025-07-30,"Team meeting","Weekly standup #meeting",,,,,"pending"
 2025-07-29,"Fix bug in authentication","Error in login flow #blocker",5,4,2,"Bug report received",in-progress`;
