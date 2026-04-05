@@ -74,11 +74,16 @@ export class GoogleSheetsClient {
     };
   }
 
-  // Get spreadsheet information
+  // Get spreadsheet information (POST so tokens are not in the URL)
   async getSpreadsheetInfo(spreadsheetId: string, tokens: GoogleAuthTokens) {
-    const response = await fetch(
-      `/api/google-sheets/spreadsheet/${spreadsheetId}?accessToken=${tokens.accessToken}&refreshToken=${tokens.refreshToken}`
-    );
+    const response = await fetch(`/api/google-sheets/spreadsheet/${spreadsheetId}`, {
+      method: "POST",
+      headers: this.postHeaders(),
+      body: JSON.stringify({
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      }),
+    });
     return await response.json();
   }
 
@@ -192,8 +197,25 @@ export const googleAuthUtils = {
 
   // Retrieve stored tokens
   getStoredTokens: (): GoogleAuthTokens | null => {
-    const stored = localStorage.getItem('google_auth_tokens');
-    return stored ? JSON.parse(stored) : null;
+    const stored = localStorage.getItem("google_auth_tokens");
+    if (!stored) return null;
+    try {
+      const parsed = JSON.parse(stored) as unknown;
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        typeof (parsed as GoogleAuthTokens).accessToken === "string" &&
+        typeof (parsed as GoogleAuthTokens).refreshToken === "string"
+      ) {
+        return parsed as GoogleAuthTokens;
+      }
+      localStorage.removeItem("google_auth_tokens");
+      return null;
+    } catch {
+      console.warn("[google-api] Removing corrupt google_auth_tokens from localStorage");
+      localStorage.removeItem("google_auth_tokens");
+      return null;
+    }
   },
 
   // Clear stored tokens

@@ -393,7 +393,17 @@ function MobileTaskCard({
   const [swiping, setSwiping] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const suppressClickUntilRef = useRef(0);
+  const suppressClickTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const SWIPE_THRESHOLD = 80;
+
+  useEffect(() => {
+    return () => {
+      if (suppressClickTimeoutRef.current != null) {
+        clearTimeout(suppressClickTimeoutRef.current);
+        suppressClickTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const handleTouchStart = (e: ReactTouchEvent) => {
     touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
@@ -426,8 +436,12 @@ function MobileTaskCard({
     setSwiping(false);
     touchStartRef.current = null;
     if (triggeredAction) {
-      window.setTimeout(() => {
+      if (suppressClickTimeoutRef.current != null) {
+        clearTimeout(suppressClickTimeoutRef.current);
+      }
+      suppressClickTimeoutRef.current = window.setTimeout(() => {
         suppressClickUntilRef.current = 0;
+        suppressClickTimeoutRef.current = null;
       }, 450);
     }
   };

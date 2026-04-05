@@ -23,6 +23,32 @@ interface FieldEdit {
   value: string;
 }
 
+function parseUserId(value: unknown): string | null {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+function coercePresenceUser(raw: unknown): PresenceUser | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const userId = parseUserId(o.userId);
+  if (!userId) return null;
+  const email = typeof o.email === "string" ? o.email : "";
+  const displayName =
+    o.displayName === null ? null : typeof o.displayName === "string" ? o.displayName : null;
+  const color = typeof o.color === "string" && o.color.length > 0 ? o.color : "#64748B";
+  const focusedField =
+    o.focusedField === null ? null : typeof o.focusedField === "string" ? o.focusedField : null;
+  const cursorPosition =
+    o.cursorPosition === null
+      ? null
+      : typeof o.cursorPosition === "number" && Number.isFinite(o.cursorPosition)
+        ? o.cursorPosition
+        : null;
+  return { userId, email, displayName, color, focusedField, cursorPosition };
+}
+
 export function useCollaboration(taskId: string | null) {
   const [state, setState] = useState<CollabState>({
     connected: false,
@@ -67,14 +93,29 @@ export function useCollaboration(taskId: string | null) {
 
       switch (type) {
         case "connected":
-          setState(s => ({ ...s, myColor: String(msg.color), myUserId: String(msg.userId) }));
+          setState(s => ({
+            ...s,
+            myColor:
+              typeof msg.color === "string" && msg.color.length > 0 ? msg.color : s.myColor,
+            myUserId: parseUserId(msg.userId),
+          }));
           break;
         case "joined_task":
-          setState(s => ({ ...s, role: String(msg.role) }));
+          setState(s => ({ ...s, role: typeof msg.role === "string" ? msg.role : s.role }));
           break;
-        case "presence_update":
-          setState(s => ({ ...s, users: msg.users as PresenceUser[] }));
+        case "presence_update": {
+          const rawUsers = msg.users;
+          if (!Array.isArray(rawUsers)) {
+            console.warn("[collab] presence_update: users is not an array");
+            break;
+          }
+          const users = rawUsers.map(coercePresenceUser).filter((u): u is PresenceUser => u !== null);
+          if (users.length !== rawUsers.length) {
+            console.warn("[collab] presence_update: dropped invalid user entries");
+          }
+          setState(s => ({ ...s, users }));
           break;
+        }
         case "field_edit":
           setFieldEdits(prev => [...prev.slice(-20), {
             userId: String(msg.userId),

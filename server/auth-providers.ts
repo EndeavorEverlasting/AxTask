@@ -111,6 +111,21 @@ export function registerOAuthRoutes(app: Express) {
     if (!code) {
       return res.redirect("/?error=missing_code");
     }
+    const state = req.query.state as string | undefined;
+    const session = (req as any).session as Record<string, unknown> | undefined;
+    const storedState = session?.oauthState;
+    if (!state || typeof storedState !== "string" || state !== storedState) {
+      await logSecurityEvent(
+        "oauth_state_mismatch",
+        undefined,
+        undefined,
+        req.ip,
+        "WorkOS OAuth callback state missing or mismatch",
+      );
+      return res.redirect("/?error=invalid_state");
+    }
+    delete (session as any).oauthState;
+
     try {
       const workos = getWorkOS();
       const { user: workosUser } = await workos.userManagement.authenticateWithCode({
@@ -179,6 +194,21 @@ export function registerOAuthRoutes(app: Express) {
   app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
     const code = req.query.code as string | undefined;
     if (!code) return res.redirect("/?error=missing_code");
+
+    const state = req.query.state as string | undefined;
+    const session = (req as any).session as Record<string, unknown> | undefined;
+    const storedState = session?.oauthState;
+    if (!state || typeof storedState !== "string" || state !== storedState) {
+      await logSecurityEvent(
+        "oauth_state_mismatch",
+        undefined,
+        undefined,
+        req.ip,
+        "Google OAuth callback state missing or mismatch",
+      );
+      return res.redirect("/?error=invalid_state");
+    }
+    delete (session as any).oauthState;
 
     try {
       const clientId = process.env.GOOGLE_CLIENT_ID!;

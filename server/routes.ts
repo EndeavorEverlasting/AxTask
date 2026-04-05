@@ -1718,18 +1718,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/google-sheets/spreadsheet/:id", requireAuth, async (req, res) => {
+  app.post("/api/google-sheets/spreadsheet/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { accessToken, refreshToken } = req.query;
+      const { accessToken, refreshToken } = req.body ?? {};
 
-      if (!accessToken) {
+      if (!accessToken || typeof accessToken !== "string") {
         return res.status(400).json({ message: "Access token required" });
       }
 
       const googleSheets = createGoogleSheetsAPI({
-        accessToken: accessToken as string,
-        refreshToken: refreshToken as string
+        accessToken,
+        refreshToken: typeof refreshToken === "string" ? refreshToken : undefined,
       });
 
       const info = await googleSheets.getSpreadsheetInfo(id);

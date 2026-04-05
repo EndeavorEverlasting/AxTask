@@ -108,7 +108,8 @@ function splitTaskReferences(text: string): string[] {
 }
 
 /** Heuristic: fallback completion detection only when the sentence clearly implies finishing work. */
-const FALLBACK_COMPLETION_VERB_RE = /\b(?:finish|finished|complete|completed|done|did|wrapped up|handled|cleared)\b/i;
+const FALLBACK_COMPLETION_VERB_RE =
+  /\b(?:took care of|finish|finished|complete|completed|done|did|wrapped up|handled|cleared)\b/i;
 
 export function processTaskReview(
   transcript: string,

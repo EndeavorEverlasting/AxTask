@@ -39,4 +39,10 @@ describe("processTaskReview fallback completion", () => {
     const result = processTaskReview("I finished groceries", tasks, now);
     expect(result.actions.some((a) => a.type === "complete" && a.taskId === "t1")).toBe(true);
   });
+
+  it("matches fallback completion for took care of (aligned with isTaskReviewIntent)", () => {
+    const tasks = [makeTask({ id: "t1", activity: "Buy groceries" })];
+    const result = processTaskReview("I took care of groceries", tasks, now);
+    expect(result.actions.some((a) => a.type === "complete" && a.taskId === "t1")).toBe(true);
+  });
 });
