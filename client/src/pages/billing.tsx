@@ -215,7 +215,8 @@ export default function BillingPage() {
   }, [user?.phoneVerified]);
 
   useEffect(() => {
-    if (billingProfile && profileOpen) {
+    if (!profileOpen) return;
+    if (billingProfile) {
       setProfileForm({
         legalName: billingProfile.legalName ?? "",
         line1: billingProfile.line1 ?? "",
@@ -224,6 +225,16 @@ export default function BillingPage() {
         region: billingProfile.region ?? "",
         postalCode: billingProfile.postalCode ?? "",
         country: billingProfile.country ?? "US",
+      });
+    } else {
+      setProfileForm({
+        legalName: "",
+        line1: "",
+        line2: "",
+        city: "",
+        region: "",
+        postalCode: "",
+        country: "US",
       });
     }
   }, [billingProfile, profileOpen]);

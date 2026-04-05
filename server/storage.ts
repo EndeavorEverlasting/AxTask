@@ -2070,45 +2070,57 @@ export async function getUserBillingProfile(userId: string): Promise<UserBilling
   return row;
 }
 
+const BILLING_PROFILE_PATCH_KEYS = [
+  "legalName",
+  "line1",
+  "line2",
+  "city",
+  "region",
+  "postalCode",
+  "country",
+] as const;
+
+export type BillingProfilePatchInput = Partial<
+  Record<(typeof BILLING_PROFILE_PATCH_KEYS)[number], string | null>
+>;
+
+/**
+ * Atomic upsert: only keys present on `input` (including explicit `null`) are written on conflict;
+ * omitted keys are left unchanged on update. On first insert, unspecified columns are null.
+ */
 export async function upsertUserBillingProfile(
   userId: string,
-  input: {
-    legalName?: string | null;
-    line1?: string | null;
-    line2?: string | null;
-    city?: string | null;
-    region?: string | null;
-    postalCode?: string | null;
-    country?: string | null;
-  },
+  input: BillingProfilePatchInput,
 ): Promise<UserBillingProfile> {
-  const existing = await getUserBillingProfile(userId);
-  const payload = {
-    legalName: input.legalName ?? existing?.legalName ?? null,
-    line1: input.line1 ?? existing?.line1 ?? null,
-    line2: input.line2 ?? existing?.line2 ?? null,
-    city: input.city ?? existing?.city ?? null,
-    region: input.region ?? existing?.region ?? null,
-    postalCode: input.postalCode ?? existing?.postalCode ?? null,
-    country: input.country ?? existing?.country ?? null,
-    updatedAt: new Date(),
+  const now = new Date();
+  const insertRow = {
+    userId,
+    legalName: null as string | null,
+    line1: null as string | null,
+    line2: null as string | null,
+    city: null as string | null,
+    region: null as string | null,
+    postalCode: null as string | null,
+    country: null as string | null,
+    updatedAt: now,
   };
-  if (existing) {
-    const [updated] = await db
-      .update(userBillingProfiles)
-      .set(payload)
-      .where(eq(userBillingProfiles.userId, userId))
-      .returning();
-    return updated;
+  const updateSet: Record<string, string | null | Date> = { updatedAt: now };
+  for (const key of BILLING_PROFILE_PATCH_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(input, key)) {
+      const v = input[key];
+      insertRow[key] = v ?? null;
+      updateSet[key] = v ?? null;
+    }
   }
-  const [created] = await db
+  const [row] = await db
     .insert(userBillingProfiles)
-    .values({
-      userId,
-      ...payload,
+    .values(insertRow)
+    .onConflictDoUpdate({
+      target: userBillingProfiles.userId,
+      set: updateSet,
     })
     .returning();
-  return created;
+  return row;
 }
 
 export async function createInvoice(input: {
@@ -2139,9 +2151,22 @@ export async function createInvoice(input: {
   return invoice;
 }
 
+export async function getInvoiceForUser(
+  invoiceId: string,
+  userId: string,
+): Promise<Invoice | undefined> {
+  const [row] = await db
+    .select()
+    .from(invoices)
+    .where(and(eq(invoices.id, invoiceId), eq(invoices.userId, userId)));
+  return row;
+}
+
 export async function issueInvoice(invoiceId: string, actorUserId: string): Promise<Invoice | undefined> {
-  const [invoice] = await db.update(invoices).set({ status: "issued", issuedAt: new Date(), updatedAt: new Date() })
-    .where(eq(invoices.id, invoiceId))
+  const [invoice] = await db
+    .update(invoices)
+    .set({ status: "issued", issuedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(invoices.id, invoiceId), eq(invoices.userId, actorUserId)))
     .returning();
   if (!invoice) return undefined;
   await db.insert(invoiceEvents).values({
@@ -2155,13 +2180,17 @@ export async function issueInvoice(invoiceId: string, actorUserId: string): Prom
 }
 
 export async function confirmInvoicePayment(invoiceId: string, actorUserId: string, confirmationNumber: string, externalReference?: string): Promise<Invoice | undefined> {
-  const [invoice] = await db.update(invoices).set({
-    status: "paid",
-    confirmationNumber,
-    externalReference: externalReference || null,
-    paidAt: new Date(),
-    updatedAt: new Date(),
-  }).where(eq(invoices.id, invoiceId)).returning();
+  const [invoice] = await db
+    .update(invoices)
+    .set({
+      status: "paid",
+      confirmationNumber,
+      externalReference: externalReference || null,
+      paidAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(invoices.id, invoiceId), eq(invoices.userId, actorUserId)))
+    .returning();
   if (!invoice) return undefined;
   await db.insert(invoiceEvents).values({
     id: randomUUID(),

@@ -19,7 +19,7 @@ import {
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoicesForUser, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
   listBillingPaymentMethodsForUser, createBillingPaymentMethod, deleteBillingPaymentMethodForUser,
-  getUserBillingProfile, upsertUserBillingProfile,
+  getUserBillingProfile, upsertUserBillingProfile, getInvoiceForUser,
   deleteMfaChallengeById, getUserContactForMfa, setUserVerifiedPhone, getUserById,
   appendSecurityEvent, getSecurityEvents, getSecurityAlerts, analyzeAndCreateSecurityAlerts,
   listFeedbackInbox,
@@ -66,7 +66,7 @@ import {
 } from "./device-refresh";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, type UpdateTask, type Task } from "@shared/schema";
 import { TASK_CONFLICT_CODE, taskUpdatedAtMatchesServer } from "@shared/offline-sync";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
@@ -2977,7 +2977,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/invoices/:id/events", requireAuth, async (req, res) => {
     try {
-      const events = await listInvoiceEvents(req.params.id);
+      const invoice = await getInvoiceForUser(req.params.id, req.user!.id);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+      const events = await listInvoiceEvents(invoice.id);
       res.json(events);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch invoice events" });
@@ -3016,7 +3018,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })
         .parse(req.body ?? {});
       const updated = await upsertUserBillingProfile(req.user!.id, body);
-      await appendSecurityEvent({
+      res.json(updated);
+      void appendSecurityEvent({
         eventType: "billing_profile_updated",
         actorUserId: req.user!.id,
         route: req.path,
@@ -3024,10 +3027,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         statusCode: 200,
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
-      });
-      res.json(updated);
+      }).catch((err) => console.error("appendSecurityEvent billing_profile_updated", err));
     } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Validation failed", issues: error.issues });
+      }
       res.status(500).json({ message: "Failed to update billing profile" });
     }
   });
@@ -3045,17 +3049,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const ok = await deleteBillingPaymentMethodForUser(req.user!.id, req.params.id);
       if (!ok) return res.status(404).json({ message: "Payment method not found" });
-      await appendSecurityEvent({
+      res.status(204).end();
+      void appendSecurityEvent({
         eventType: "billing_payment_method_removed",
         actorUserId: req.user!.id,
         route: req.path,
         method: req.method,
-        statusCode: 200,
+        statusCode: 204,
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
         payload: { paymentMethodId: req.params.id },
-      });
-      res.status(204).end();
+      }).catch((err) => console.error("appendSecurityEvent billing_payment_method_removed", err));
     } catch {
       res.status(500).json({ message: "Failed to remove payment method" });
     }

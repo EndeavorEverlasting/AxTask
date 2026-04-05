@@ -103,10 +103,23 @@ function invoiceDescription(inv: Invoice): string {
   return "AxTask subscription";
 }
 
+/** End of the due date's calendar day in UTC (23:59:59.999); invoice is overdue only after this instant. */
+function dueDateEndOfDayUtcMs(dueDateStr: string): number | null {
+  const trimmed = dueDateStr.trim();
+  const d = new Date(trimmed);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const day = d.getUTCDate();
+  return Date.UTC(y, m, day, 23, 59, 59, 999);
+}
+
 function issuedOverdue(inv: Invoice): boolean {
   if (inv.status !== "issued") return false;
   if (!inv.dueDate) return false;
-  return new Date(inv.dueDate).getTime() < Date.now();
+  const endMs = dueDateEndOfDayUtcMs(inv.dueDate);
+  if (endMs === null) return false;
+  return Date.now() > endMs;
 }
 
 export async function buildBillingSummary(userId: string): Promise<BillingSummaryDto> {
