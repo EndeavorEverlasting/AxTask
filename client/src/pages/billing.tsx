@@ -862,8 +862,8 @@ export default function BillingPage() {
             <div className="rounded-lg border border-border px-4 py-4 space-y-2">
               <p className="text-sm font-semibold tracking-wide uppercase">{billingDisplayName}</p>
               {billingAddressLines.length > 0 ? (
-                billingAddressLines.map((line) => (
-                  <p key={line} className="text-sm text-muted-foreground">
+                billingAddressLines.map((line, i) => (
+                  <p key={`${i}-${line}`} className="text-sm text-muted-foreground">
                     {line}
                   </p>
                 ))
