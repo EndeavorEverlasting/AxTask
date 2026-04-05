@@ -2,6 +2,10 @@
 
 **Clone → configure → run:** After cloning the repo, create `.env.docker` from `.env.docker.example` (**`npm run docker:env-init`** works on every OS; on Windows **cmd** use `copy`, not Unix `cp`), set `POSTGRES_PASSWORD` and `SESSION_SECRET` (and align `DATABASE_URL`), then from the project root run **`npm run docker:up`** or double-click **`start-docker.cmd`** on Windows. Full narrative: [README.md](../README.md#run-locally-after-cloning-with-docker).
 
+Safe-by-default cleanup commands:
+- **`npm run docker:cleanup`** — non-destructive cleanup (containers/networks/orphans + dangling images; keeps volumes/data)
+- **`npm run docker:reset`** — destructive reset (includes volume wipe)
+
 ## Prerequisites (all target machines)
 
 You must install Docker on every machine where AxTask will run.
@@ -77,11 +81,18 @@ Start:
 npm run docker:up
 ```
 
-Stop/status:
+Stop/status/cleanup:
 
 ```bash
 npm run docker:stop
 npm run docker:status
+npm run docker:cleanup
+```
+
+Only when you explicitly want to delete local Docker DB/storage volumes:
+
+```bash
+npm run docker:reset
 ```
 
 ## What compose now does

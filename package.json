@@ -17,6 +17,8 @@
     "docker:up:nodeweaver": "node tools/local/docker-start.mjs --with-nodeweaver",
     "docker:start": "docker compose --env-file .env.docker up -d --build",
     "docker:stop": "docker compose --env-file .env.docker down",
+    "docker:cleanup": "node tools/local/docker-cleanup.mjs",
+    "docker:reset": "node tools/local/docker-cleanup.mjs --wipe-data --yes",
     "docker:status": "docker compose --env-file .env.docker ps",
     "docker:logs": "docker compose --env-file .env.docker logs --tail 100",
     "deps:sync": "node tools/local/sync-deps.mjs",

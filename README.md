@@ -102,6 +102,10 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
    **Sign in:** use the **demo email/password** echoed by `docker:up` (from `.env.docker`) or click **Register** if demo seed is off.  
    Check containers: `npm run docker:status` · Stop: `npm run docker:stop` · Logs: `npm run docker:logs`
 
+Cleanup modes (clear separation):
+- **Safe cleanup (default, preserves DB/storage data):** `npm run docker:cleanup`
+- **Destructive reset (deletes Docker volumes/data):** `npm run docker:reset`
+
 If `migrate` fails with `password authentication failed for user "axtask"`:
 - Confirm `.env.docker` has matching values for `POSTGRES_PASSWORD` and the password inside `DATABASE_URL`.
 - If they already match, reset stale local DB state (this deletes local Docker Postgres data):  
@@ -245,6 +249,8 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - `npm run docker:up` - Smart Docker startup: `.env.docker` bootstrap, placeholder checks, wait for engine (optionally start Docker Desktop on Windows/macOS), then compose up
 - `npm run docker:start` - Direct `docker compose up -d --build` (engine must already be running)
 - `npm run docker:stop` - Stop Docker stack (preserves named-volume data)
+- `npm run docker:cleanup` - Safe cleanup: remove containers/networks/orphans + dangling images (preserves named-volume data)
+- `npm run docker:reset` - Destructive cleanup: `docker:cleanup` + volume wipe (deletes local Docker DB/storage data)
 - `npm run docker:status` - Show container status
 - `npm run docker:logs` - Show recent Docker logs
 - `npm run build` - Build for production
