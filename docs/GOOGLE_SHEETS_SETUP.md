@@ -320,6 +320,10 @@ const response = await sheets.spreadsheets.values.batchGet({
 - [ ] Regular security reviews scheduled
 - [ ] Backup authentication method available
 
+## Spreadsheet layout and embedded automation (roadmap)
+
+AxTask can evolve beyond the current **single header row + data from row 2** layout (`createTaskSpreadsheet` / `exportTasks` in `server/google-sheets-api.ts`). For the **top-fixed entry zone** (always work at the top while history grows downward) and **embedding dates, task IDs, and validation** so users do not rely on separate Apps Script projects, see **[SPREADSHEET_TEMPLATE_UX.md](./SPREADSHEET_TEMPLATE_UX.md)**.
+
 ## Support Resources
 
 - **Google Sheets API Documentation**: https://developers.google.com/sheets/api

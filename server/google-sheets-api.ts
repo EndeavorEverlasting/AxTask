@@ -118,7 +118,10 @@ export class GoogleSheetsAPI {
     }
   }
 
-  // Create a new spreadsheet with task template
+  /**
+   * Creates a minimal task sheet: headers in row 1, data from row 2.
+   * Planned: frozen top “entry band” + formula-driven IDs/dates per docs/SPREADSHEET_TEMPLATE_UX.md (requires import/export range updates).
+   */
   async createTaskSpreadsheet(title: string): Promise<string> {
     try {
       const response = await this.sheets.spreadsheets.create({

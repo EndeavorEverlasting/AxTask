@@ -10,6 +10,7 @@
 | [ENGINES.md](./ENGINES.md) | Dispatcher + engines; account vs core |
 | [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md) | Admin boundaries, aggregates, ID tension |
 | [TYPESCRIPT_BASELINE.md](./TYPESCRIPT_BASELINE.md) | `npm run check` server debt |
+| [SPREADSHEET_TEMPLATE_UX.md](./SPREADSHEET_TEMPLATE_UX.md) | Top entry zone, embedded formulas vs Apps Script, sync phases |
 | [CALENDAR_SYNC.md](./CALENDAR_SYNC.md) | External calendar sync (planned) |
 | [COMMUNITY_MODERATION.md](./COMMUNITY_MODERATION.md) | Community moderation (planned) |
 | [FLOWCHARTS.md](./FLOWCHARTS.md) | User flowcharts (planned) |
@@ -29,6 +30,7 @@
 | 5 | **Billing page** | Screenshot-style `/billing`; MFA; non-PCI fingerprints. | [BILLING_UI.md](./BILLING_UI.md) |
 | 6 | **Flowcharts** for users | Task dependency / workflow diagrams, export. | [FLOWCHARTS.md](./FLOWCHARTS.md) |
 | 7 | **Google / Windows (Microsoft) calendar sync** | OAuth, sync engine, notifications. | [CALENDAR_SYNC.md](./CALENDAR_SYNC.md) |
+| 7b | **Spreadsheet templates** (top entry UI, embedded IDs/dates, less Apps Script) | Generated Sheets/Excel with **frozen entry band** at top, **log below**; formulas for dates/IDs; optional clasp script. | [SPREADSHEET_TEMPLATE_UX.md](./SPREADSHEET_TEMPLATE_UX.md), [`server/google-sheets-api.ts`](../server/google-sheets-api.ts) |
 | 8 | **Favicon / logo** | `client/index.html`, `docs/BRANDING.md` paths. | BRANDING |
 | 9 | **Location** + repeated places | Geolocation consent, place keys, privacy. | ZERO_TRUST_AND_PRIVACY, Tasks track |
 | 10a | **Community** deletes, abuse, **rate limits** | Soft delete / tombstone; moderation engine. | COMMUNITY_MODERATION |
