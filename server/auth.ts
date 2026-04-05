@@ -16,6 +16,13 @@ declare global {
   }
 }
 
+declare module "express-session" {
+  interface SessionData {
+    /** Unix ms; admin API access allowed until this time (production MFA step-up). */
+    adminStepUpExpiresAt?: number;
+  }
+}
+
 // ── Session secret management ───────────────────────────────────────────────
 function resolveSessionSecret(): string {
   const envSecret = process.env.SESSION_SECRET;

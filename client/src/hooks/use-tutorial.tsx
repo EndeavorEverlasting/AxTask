@@ -1,15 +1,7 @@
 import { useState, useCallback, useEffect, createContext, useContext } from "react";
+import type { TutorialStep } from "@/lib/tutorial-types";
 
-export interface TutorialStep {
-  id: string;
-  title: string;
-  description: string;
-  targetSelector?: string;
-  targetId?: string;
-  page?: string;
-  position?: "top" | "bottom" | "left" | "right";
-  glowClass?: "field-glow-tutorial" | "field-glow-tutorial-success" | "field-glow-success" | "field-glow-hint" | "field-glow-warning";
-}
+export type { TutorialStep };
 
 const TUTORIAL_STEPS: TutorialStep[] = [
   {
@@ -166,21 +158,6 @@ function useTutorialEngine(): TutorialContextValue {
       setHasCompleted(true);
     } catch {}
   }, []);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "t") {
-        e.preventDefault();
-        if (isActive) {
-          stopTutorial();
-        } else {
-          startTutorial();
-        }
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isActive, startTutorial, stopTutorial]);
 
   const nextStep = useCallback(() => {
     if (stepIndex < TUTORIAL_STEPS.length - 1) {

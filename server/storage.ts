@@ -5,6 +5,8 @@ import {
   securityLogs,
   securityEvents,
   securityAlerts,
+  appeals,
+  appealVotes,
   wallets,
   coinTransactions,
   userBadges,
@@ -70,9 +72,11 @@ import {
   type PremiumEvent,
   type UserNotificationPreference,
   type UserPushSubscription,
+  type Appeal,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, or, asc, lt, gt, count, avg, sql, desc, inArray, isNull } from "drizzle-orm";
+import { eq, and, ilike, or, asc, lt, gt, count, avg, sql, desc, inArray, notInArray, isNull } from "drizzle-orm";
+import { computeAppealVoteThreshold, evaluateAppealOutcome } from "./lib/appeal-vote-rules";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
@@ -610,6 +614,245 @@ export async function unbanUser(
 
   await logSecurityEvent("user_unbanned", unbannedByUserId, targetUserId, ipAddress);
   return true;
+}
+
+export type DemoteAdminResult =
+  | "ok"
+  | "not_found"
+  | "not_admin"
+  | "self"
+  | "last_admin";
+
+/** Serialize admin demotions so concurrent last-admin checks stay consistent. */
+const ADVISORY_LOCK_ADMIN_DEMOTE = 928_471;
+
+/**
+ * Remove admin role from another user (decommission admin privileges — account remains).
+ * Cannot demote self; cannot remove the last admin (use DB break-glass to recover).
+ */
+export async function demoteAdminUser(
+  targetUserId: string,
+  demotedByUserId: string,
+  reason: string,
+  ipAddress?: string,
+): Promise<DemoteAdminResult> {
+  if (targetUserId === demotedByUserId) return "self";
+
+  const outcome = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${ADVISORY_LOCK_ADMIN_DEMOTE})`);
+    const [row] = await tx.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, targetUserId));
+    if (!row) return "not_found" as const;
+    if (row.role !== "admin") return "not_admin" as const;
+    const [cnt] = await tx.select({ value: count() }).from(users).where(eq(users.role, "admin"));
+    const adminCount = Number(cnt?.value) || 0;
+    if (adminCount <= 1) return "last_admin" as const;
+    await tx.update(users).set({ role: "user" }).where(eq(users.id, targetUserId));
+    return "ok" as const;
+  });
+
+  if (outcome === "ok") {
+    await logSecurityEvent("admin_demoted", demotedByUserId, targetUserId, ipAddress, reason.trim());
+  }
+  return outcome;
+}
+
+export async function countAdmins(): Promise<number> {
+  const [row] = await db.select({ value: count() }).from(users).where(eq(users.role, "admin"));
+  return Number(row?.value) || 0;
+}
+
+const APPEAL_SUBJECT_TYPES = ["account_ban", "feedback_dispute", "other"] as const;
+export type AppealSubjectType = (typeof APPEAL_SUBJECT_TYPES)[number];
+
+export function isAppealSubjectType(s: string): s is AppealSubjectType {
+  return (APPEAL_SUBJECT_TYPES as readonly string[]).includes(s);
+}
+
+export async function createAppeal(input: {
+  appellantUserId: string;
+  subjectType: AppealSubjectType;
+  subjectRef: string;
+  title: string;
+  body: string;
+}): Promise<Appeal | null> {
+  if (input.subjectType === "account_ban") {
+    if (input.subjectRef !== input.appellantUserId) return null;
+    const [u] = await db.select({ isBanned: users.isBanned }).from(users).where(eq(users.id, input.appellantUserId));
+    if (!u?.isBanned) return null;
+  }
+  if (input.subjectType === "feedback_dispute") {
+    const [ev] = await db
+      .select({ id: securityEvents.id, eventType: securityEvents.eventType, actorUserId: securityEvents.actorUserId })
+      .from(securityEvents)
+      .where(eq(securityEvents.id, input.subjectRef));
+    if (!ev || ev.eventType !== "feedback_processed" || ev.actorUserId !== input.appellantUserId) return null;
+  }
+
+  const adminCountAtOpen = await countAdmins();
+  const [row] = await db
+    .insert(appeals)
+    .values({
+      id: randomUUID(),
+      appellantUserId: input.appellantUserId,
+      subjectType: input.subjectType,
+      subjectRef: input.subjectRef,
+      title: input.title.trim(),
+      body: input.body.trim(),
+      status: "open",
+      adminCountAtOpen,
+    })
+    .returning();
+  await logSecurityEvent("appeal_submitted", input.appellantUserId, undefined, undefined, `appeal ${row.id} · ${input.subjectType}`);
+  return row;
+}
+
+export async function listAppealsForUser(appellantUserId: string, limit = 50): Promise<Appeal[]> {
+  return db
+    .select()
+    .from(appeals)
+    .where(eq(appeals.appellantUserId, appellantUserId))
+    .orderBy(desc(appeals.createdAt))
+    .limit(Math.min(limit, 100));
+}
+
+export type AppealListRow = Appeal & {
+  grantVotes: number;
+  denyVotes: number;
+  threshold: ReturnType<typeof computeAppealVoteThreshold>;
+};
+
+export async function listAppealsForAdmin(limit = 100): Promise<AppealListRow[]> {
+  const rows = await db.select().from(appeals).orderBy(desc(appeals.createdAt)).limit(Math.min(limit, 200));
+  const adminCount = await countAdmins();
+  const threshold = computeAppealVoteThreshold(adminCount);
+  const out: AppealListRow[] = [];
+  for (const a of rows) {
+    const [g] = await db
+      .select({ value: count() })
+      .from(appealVotes)
+      .where(and(eq(appealVotes.appealId, a.id), eq(appealVotes.decision, "grant")));
+    const [d] = await db
+      .select({ value: count() })
+      .from(appealVotes)
+      .where(and(eq(appealVotes.appealId, a.id), eq(appealVotes.decision, "deny")));
+    out.push({
+      ...a,
+      grantVotes: Number(g?.value) || 0,
+      denyVotes: Number(d?.value) || 0,
+      threshold,
+    });
+  }
+  return out;
+}
+
+export async function withdrawAppeal(appealId: string, appellantUserId: string): Promise<boolean> {
+  const [row] = await db.select().from(appeals).where(eq(appeals.id, appealId));
+  if (!row || row.appellantUserId !== appellantUserId || row.status !== "open") return false;
+  await db
+    .update(appeals)
+    .set({ status: "withdrawn", resolvedAt: new Date() })
+    .where(eq(appeals.id, appealId));
+  await logSecurityEvent("appeal_withdrawn", appellantUserId, undefined, undefined, appealId);
+  return true;
+}
+
+export type CastAppealVoteResult =
+  | { status: "not_found" | "not_open" | "not_admin" }
+  | { status: "ok"; appeal: Appeal; outcome: "pending" | "grant" | "deny"; autoUnbanned?: boolean };
+
+export async function castAppealVote(input: {
+  appealId: string;
+  adminUserId: string;
+  decision: "grant" | "deny";
+}): Promise<CastAppealVoteResult> {
+  const [admin] = await db.select({ role: users.role }).from(users).where(eq(users.id, input.adminUserId));
+  if (admin?.role !== "admin") return { status: "not_admin" };
+
+  const result = await db.transaction(async (tx): Promise<CastAppealVoteResult> => {
+    await tx.execute(sql`SELECT 1 FROM appeals WHERE id = ${input.appealId} FOR UPDATE`);
+
+    const [appeal] = await tx.select().from(appeals).where(eq(appeals.id, input.appealId));
+    if (!appeal) return { status: "not_found" };
+    if (appeal.status !== "open") return { status: "not_open" };
+
+    const now = new Date();
+    await tx
+      .insert(appealVotes)
+      .values({
+        id: randomUUID(),
+        appealId: input.appealId,
+        adminUserId: input.adminUserId,
+        decision: input.decision,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [appealVotes.appealId, appealVotes.adminUserId],
+        set: { decision: input.decision, updatedAt: now },
+      });
+
+    const [ac] = await tx.select({ value: count() }).from(users).where(eq(users.role, "admin"));
+    const adminCount = Number(ac?.value) || 0;
+
+    const [g] = await tx
+      .select({ value: count() })
+      .from(appealVotes)
+      .where(and(eq(appealVotes.appealId, input.appealId), eq(appealVotes.decision, "grant")));
+    const [d] = await tx
+      .select({ value: count() })
+      .from(appealVotes)
+      .where(and(eq(appealVotes.appealId, input.appealId), eq(appealVotes.decision, "deny")));
+    const grantVotes = Number(g?.value) || 0;
+    const denyVotes = Number(d?.value) || 0;
+
+    const verdict = evaluateAppealOutcome(adminCount, grantVotes, denyVotes);
+    let autoUnbanned = false;
+
+    if (verdict === "pending") {
+      const [fresh] = await tx.select().from(appeals).where(eq(appeals.id, input.appealId));
+      return { status: "ok", appeal: fresh!, outcome: "pending" };
+    }
+
+    const newStatus = verdict === "grant" ? "granted" : "denied";
+    await tx
+      .update(appeals)
+      .set({
+        status: newStatus,
+        resolvedAt: now,
+        resolvedByUserId: input.adminUserId,
+        resolution: verdict === "grant" ? "Appeal granted by admin vote threshold." : "Appeal denied by admin vote threshold.",
+      })
+      .where(eq(appeals.id, input.appealId));
+
+    if (verdict === "grant" && appeal.subjectType === "account_ban" && appeal.subjectRef === appeal.appellantUserId) {
+      await tx
+        .update(users)
+        .set({
+          isBanned: false,
+          banReason: null,
+          bannedAt: null,
+          bannedBy: null,
+        })
+        .where(eq(users.id, appeal.appellantUserId));
+      autoUnbanned = true;
+    }
+
+    const [updated] = await tx.select().from(appeals).where(eq(appeals.id, input.appealId));
+    return { status: "ok", appeal: updated!, outcome: verdict, autoUnbanned };
+  });
+
+  if (result.status === "ok" && result.outcome !== "pending") {
+    const suffix = result.autoUnbanned ? " · auto-unbanned" : "";
+    await logSecurityEvent(
+      "appeal_resolved",
+      input.adminUserId,
+      result.appeal.appellantUserId,
+      undefined,
+      `${result.appeal.id} · ${result.outcome}${suffix}`,
+    );
+  }
+
+  return result;
 }
 
 export async function getAllUsers(): Promise<SafeUser[]> {
@@ -2549,6 +2792,7 @@ export async function downgradePremiumToGrace(userId: string, product: "axtask" 
   const [existing] = await db.select().from(premiumSubscriptions).where(and(
     eq(premiumSubscriptions.userId, userId),
     eq(premiumSubscriptions.product, product),
+    notInArray(premiumSubscriptions.planKey, LIFETIME_PLAN_KEY_LIST),
     or(eq(premiumSubscriptions.status, "active"), eq(premiumSubscriptions.status, "grace")),
   )).orderBy(desc(premiumSubscriptions.updatedAt)).limit(1);
 
@@ -2574,6 +2818,7 @@ export async function reactivatePremium(userId: string, product: "axtask" | "nod
   const [existing] = await db.select().from(premiumSubscriptions).where(and(
     eq(premiumSubscriptions.userId, userId),
     eq(premiumSubscriptions.product, product),
+    notInArray(premiumSubscriptions.planKey, LIFETIME_PLAN_KEY_LIST),
   )).orderBy(desc(premiumSubscriptions.updatedAt)).limit(1);
   if (!existing) return null;
   const [updated] = await db.update(premiumSubscriptions).set({

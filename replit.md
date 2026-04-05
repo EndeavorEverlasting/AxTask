@@ -85,3 +85,9 @@ Key tables include `users` (id, email, passwordHash, role, authProvider details,
 -   **Tailwind CSS**: Styling framework.
 -   **Vitest**: Testing framework (`npm run test`). Includes **`server/local-setup-tutorial.test.ts`**, which fails if onboarding docs or `package.json` drop cross-platform env bootstrap (`local:env-init`, `docker:env-init`) or the Windows **`cp` / cmd** guidance — so Replit CI and local runs catch tutorial drift before users do.
 -   **cross-env**: Cross-platform environment variables.
+
+## Replit automation and database safety
+
+- **`[postMerge]`** runs [`scripts/post-merge.sh`](scripts/post-merge.sh): `npm install`, then **`npm run db:push` only if** `AXTASK_POST_MERGE_DB_PUSH=1` is set in the environment (e.g. Replit Secrets). If unset, schema sync is skipped and a line is logged. This avoids Drizzle `push` running against production after an unintended merge.
+- To restore the old behavior on a **dev-only** Repl, set `AXTASK_POST_MERGE_DB_PUSH=1` in Secrets.
+- Prefer **GitHub branch protection** on `main` so automated or agent pushes require a PR; keep production `DATABASE_URL` off experimental Repls. See **Replit and GitHub safety** in [`README.md`](README.md) and [`AGENTS.md`](AGENTS.md).

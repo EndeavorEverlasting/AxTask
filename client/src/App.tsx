@@ -1,5 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { useCallback, useEffect, useRef } from "react";
+import { useTutorial } from "@/hooks/use-tutorial";
 import { PersistedQueryLayer } from "./lib/app-query-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -32,6 +33,7 @@ import RewardsPage from "@/pages/rewards";
 import PremiumPage from "@/pages/premium";
 import BillingPage from "@/pages/billing";
 import AccountPage from "@/pages/account";
+import AppealsPage from "@/pages/appeals";
 import FeedbackPage from "@/pages/feedback";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
@@ -55,9 +57,27 @@ function Router() {
       <Route path="/premium" component={PremiumPage} />
       <Route path="/billing" component={BillingPage} />
       <Route path="/account" component={AccountPage} />
+      <Route path="/appeals" component={AppealsPage} />
       <Route component={NotFound} />
     </Switch>
   );
+}
+
+/** Ctrl+T / Cmd+T toggles post-auth tutorial only (avoids hijacking shortcut on login screen). */
+function TutorialHotkeys() {
+  const { isActive, startTutorial, stopTutorial } = useTutorial();
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "t") {
+        e.preventDefault();
+        if (isActive) stopTutorial();
+        else startTutorial();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isActive, startTutorial, stopTutorial]);
+  return null;
 }
 
 function ReviewDialogBridge() {
@@ -113,7 +133,8 @@ function MobileBottomNav() {
 }
 
 function MobileVoiceFAB() {
-  const { openBar } = useVoice();
+  const { openBar, isSupported } = useVoice();
+  if (!isSupported) return null;
 
   return (
     <button
@@ -207,7 +228,7 @@ function AuthenticatedApp() {
   return (
     <VoiceProvider onNavigate={handleNavigate}>
       <TaskOfflineSyncProvider>
-      <div className="h-screen min-h-0 flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
+      <div className="h-dvh min-h-0 flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <Sidebar />
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <OfflineDataBanner />
@@ -230,6 +251,7 @@ function AuthenticatedApp() {
         </main>
         <MobileBottomNav />
         <MobileVoiceFAB />
+        <TutorialHotkeys />
         <TutorialOverlay />
         <TutorialInteractionGuide />
         <VoiceCommandBar />

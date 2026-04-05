@@ -8,6 +8,8 @@ server/public
 vite.config.ts.*
 .env
 .env.docker
+# Local copy of Render env (filled from .env.render.example — contains secrets)
+.env.render
 pics/
 
 # Never commit credential-bearing plan copies

@@ -154,6 +154,23 @@ export default function AccountPage() {
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Appeals</CardTitle>
+          <CardDescription>
+            If your account was suspended or you disagree with moderation on your feedback, you can file an appeal.
+            Admins resolve appeals by vote (two admins must agree; three or more require a two-thirds supermajority).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link href="/appeals">
+            <Button variant="outline" type="button">
+              Open appeals
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
     </div>
   );
 }

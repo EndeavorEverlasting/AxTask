@@ -5,12 +5,32 @@ import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { useCountUp } from "@/hooks/use-count-up";
 import type { SafeUser, SecurityLog } from "@shared/schema";
+import { MFA_PURPOSES } from "@shared/mfa-purposes";
 
 type LifetimePremiumGrant = { userId: string; product: string; planKey: string };
 type AdminUserRow = SafeUser & { lifetimePremiumGrants: LifetimePremiumGrant[] };
+
+type AdminAppealRow = {
+  id: string;
+  appellantUserId: string;
+  subjectType: string;
+  subjectRef: string;
+  title: string;
+  body: string;
+  status: string;
+  resolution: string | null;
+  adminCountAtOpen: number | null;
+  resolvedAt: string | null;
+  resolvedByUserId: string | null;
+  createdAt: string | null;
+  grantVotes: number;
+  denyVotes: number;
+  threshold: { adminCount: number; grantNeeded: number; denyNeeded: number; ruleLabel: string };
+};
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -47,6 +67,7 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
+  Gavel,
 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import {
@@ -188,50 +209,71 @@ export default function AdminPage() {
   const [importMode, setImportMode] = useState<"preserve" | "remap">("preserve");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [adminStepCode, setAdminStepCode] = useState("");
+  const [adminStepChallengeId, setAdminStepChallengeId] = useState<string | null>(null);
+  const [adminStepMasked, setAdminStepMasked] = useState<string | null>(null);
+
+  const { data: stepUpStatus, isLoading: stepUpLoading } = useQuery<{
+    stepUpRequired: boolean;
+    stepUpSatisfied: boolean;
+    expiresAt: number | null;
+  }>({
+    queryKey: ["/api/admin/step-up-status"],
+    enabled: user?.role === "admin",
+  });
+
+  const adminApiEnabled =
+    user?.role === "admin" && !stepUpLoading && Boolean(stepUpStatus?.stepUpSatisfied);
+
   const { data: users = [], isLoading: usersLoading } = useQuery<AdminUserRow[]>({
     queryKey: ["/api/admin/users"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
   const { data: logs = [], isLoading: logsLoading } = useQuery<SecurityLog[]>({
     queryKey: ["/api/admin/security-logs"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
   const { data: usage } = useQuery<UsageOverview>({
     queryKey: ["/api/admin/usage"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
   const { data: storage } = useQuery<StorageOverview>({
     queryKey: ["/api/admin/storage"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
   const { data: invoices = [] } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
   const { data: securityEvents = [] } = useQuery<SecurityEventRow[]>({
     queryKey: ["/api/admin/security-events"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
     refetchInterval: 15000,
   });
 
   const { data: securityAlerts = [] } = useQuery<SecurityAlertRow[]>({
     queryKey: ["/api/admin/security-alerts"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
   const { data: feedbackInbox = [] } = useQuery<FeedbackInboxItem[]>({
     queryKey: ["/api/admin/feedback-inbox"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
+  });
+
+  const { data: adminAppeals = [], isLoading: appealsLoading } = useQuery<AdminAppealRow[]>({
+    queryKey: ["/api/admin/appeals"],
+    enabled: adminApiEnabled,
   });
 
   const { data: liveAnalytics } = useQuery<AdminAnalyticsOverview>({
     queryKey: ["/api/admin/analytics/overview"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
     refetchInterval: 15000,
   });
 
@@ -316,6 +358,30 @@ export default function AdminPage() {
     },
     onError: (err: Error) =>
       toast({ title: "Update failed", description: err.message, variant: "destructive" }),
+  });
+
+  const appealVoteMutation = useMutation({
+    mutationFn: async (payload: { appealId: string; decision: "grant" | "deny" }) => {
+      const res = await apiRequest("POST", `/api/admin/appeals/${payload.appealId}/vote`, {
+        decision: payload.decision,
+      });
+      return res.json() as Promise<{
+        status: string;
+        outcome?: string;
+        autoUnbanned?: boolean;
+      }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/appeals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      const desc =
+        data.outcome && data.outcome !== "pending"
+          ? `Appeal ${data.outcome}${data.autoUnbanned ? " · account unbanned" : ""}`
+          : "Awaiting further admin votes.";
+      toast({ title: "Vote recorded", description: desc });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Vote failed", description: err.message, variant: "destructive" }),
   });
 
   const feedbackBulkReviewMutation = useMutation({
@@ -493,6 +559,53 @@ export default function AdminPage() {
     },
   });
 
+  const adminStepUpSendMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/mfa/challenge", {
+        purpose: MFA_PURPOSES.ADMIN_STEP_UP,
+        channel: "email",
+      });
+      return res.json() as Promise<{
+        challengeId: string;
+        maskedDestination?: string;
+        devCode?: string;
+      }>;
+    },
+    onSuccess: (data) => {
+      setAdminStepChallengeId(data.challengeId);
+      setAdminStepMasked(data.maskedDestination ?? null);
+      setAdminStepCode("");
+      toast({
+        title: "Code sent",
+        description: data.devCode
+          ? `Dev code: ${data.devCode}`
+          : `Check ${data.maskedDestination ?? "your email"} for a 6-digit code.`,
+      });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Could not send code", description: err.message, variant: "destructive" }),
+  });
+
+  const adminStepUpVerifyMutation = useMutation({
+    mutationFn: async () => {
+      if (!adminStepChallengeId) throw new Error("Request a code first");
+      const res = await apiRequest("POST", "/api/admin/step-up", {
+        challengeId: adminStepChallengeId,
+        code: adminStepCode.trim(),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/step-up-status"] });
+      setAdminStepChallengeId(null);
+      setAdminStepCode("");
+      setAdminStepMasked(null);
+      toast({ title: "Verified", description: "Admin session is active for one hour." });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Verification failed", description: err.message, variant: "destructive" }),
+  });
+
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -516,20 +629,6 @@ export default function AdminPage() {
       }
     };
     reader.readAsText(file);
-  }
-
-  if (user?.role !== "admin") {
-    return (
-      <div className="p-6 flex items-center justify-center min-h-[60vh]">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center">
-            <AlertTriangle className="h-12 w-12 mx-auto text-yellow-500 mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
-            <p className="text-muted-foreground">You need administrator privileges to view this page.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
   }
 
   useEffect(() => {
@@ -637,6 +736,98 @@ export default function AdminPage() {
     );
   };
 
+  if (user?.role !== "admin") {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertTriangle className="h-12 w-12 mx-auto text-yellow-500 mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
+            <p className="text-muted-foreground">You need administrator privileges to view this page.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (stepUpLoading) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center min-h-[50vh] gap-3">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Checking admin session…</p>
+      </div>
+    );
+  }
+
+  if (stepUpStatus?.stepUpRequired && !stepUpStatus.stepUpSatisfied) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md w-full border-primary/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Confirm admin access
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Production requires a one-time email code before admin tools load. This expires after one hour.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Button
+              type="button"
+              className="w-full"
+              variant="secondary"
+              disabled={adminStepUpSendMutation.isPending}
+              onClick={() => adminStepUpSendMutation.mutate()}
+            >
+              {adminStepUpSendMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                "Email me a code"
+              )}
+            </Button>
+            {adminStepMasked ? (
+              <p className="text-xs text-muted-foreground text-center">Sent to {adminStepMasked}</p>
+            ) : null}
+            <div>
+              <Label htmlFor="admin-step-code">6-digit code</Label>
+              <Input
+                id="admin-step-code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={adminStepCode}
+                onChange={(e) => setAdminStepCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="mt-1 font-mono tracking-widest"
+                placeholder="000000"
+              />
+            </div>
+            <Button
+              type="button"
+              className="w-full"
+              disabled={
+                adminStepUpVerifyMutation.isPending || adminStepCode.length !== 6 || !adminStepChallengeId
+              }
+              onClick={() => adminStepUpVerifyMutation.mutate()}
+            >
+              {adminStepUpVerifyMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Verifying…
+                </>
+              ) : (
+                "Verify and continue"
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       <div className="flex items-center gap-3">
@@ -685,6 +876,7 @@ export default function AdminPage() {
           <TabsTrigger value="usage">Usage & Storage</TabsTrigger>
           <TabsTrigger value="intel">Security Intelligence</TabsTrigger>
           <TabsTrigger value="feedback">Feedback Inbox</TabsTrigger>
+          <TabsTrigger value="appeals">Appeals</TabsTrigger>
           <TabsTrigger value="invoices">Invoicing</TabsTrigger>
           <TabsTrigger value="users">User Management</TabsTrigger>
           <TabsTrigger value="logs">Security Logs</TabsTrigger>
@@ -1158,6 +1350,71 @@ export default function AdminPage() {
               ))}
               {sortedFeedback.length === 0 && (
                 <p className="text-sm text-muted-foreground">No processed feedback events yet.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="appeals" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Gavel className="h-5 w-5" />
+                Appeals queue
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Voting rules: one admin decides alone; two admins must agree (unanimous); three or more require a
+                two-thirds supermajority to grant or deny. Granting a ban appeal lifts the suspension automatically.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {appealsLoading ? (
+                <p className="text-sm text-muted-foreground">Loading appeals…</p>
+              ) : adminAppeals.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No appeals yet.</p>
+              ) : (
+                adminAppeals.map((a) => (
+                  <div key={a.id} className="rounded-lg border p-4 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{a.title}</span>
+                      <Badge variant="outline">{a.subjectType}</Badge>
+                      <Badge variant={a.status === "open" ? "default" : "secondary"}>{a.status}</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono">{a.id}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Appellant: <span className="font-mono">{a.appellantUserId}</span> · ref:{" "}
+                      <span className="font-mono break-all">{a.subjectRef}</span>
+                    </p>
+                    <p className="text-sm whitespace-pre-wrap">{a.body}</p>
+                    <p className="text-xs text-muted-foreground">{a.threshold.ruleLabel}</p>
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      <Badge variant="secondary">Grant votes: {a.grantVotes} / {a.threshold.grantNeeded}</Badge>
+                      <Badge variant="secondary">Deny votes: {a.denyVotes} / {a.threshold.denyNeeded}</Badge>
+                    </div>
+                    {a.status === "open" ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          disabled={appealVoteMutation.isPending}
+                          onClick={() => appealVoteMutation.mutate({ appealId: a.id, decision: "grant" })}
+                        >
+                          Vote grant
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={appealVoteMutation.isPending}
+                          onClick={() => appealVoteMutation.mutate({ appealId: a.id, decision: "deny" })}
+                        >
+                          Vote deny
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{a.resolution || "Resolved."}</p>
+                    )}
+                  </div>
+                ))
               )}
             </CardContent>
           </Card>

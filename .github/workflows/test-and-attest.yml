@@ -1,0 +1,103 @@
+# Runs the full test suite on PRs and pushes; on main/master after a green run,
+# commits docs/TEST_ATTESTATION.md with [skip ci] so the attestation push does not re-trigger this workflow.
+name: Test and attestation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-attest-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: npm test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test -- --run
+
+  attest:
+    name: Update test attestation
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Skip if already attested for this commit
+        id: check
+        run: |
+          if [ -f docs/TEST_ATTESTATION.md ] && grep -q "${{ github.sha }}" docs/TEST_ATTESTATION.md; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Attestation already contains this SHA."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write attestation document
+        if: steps.check.outputs.skip != 'true'
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GIT_SHA: ${{ github.sha }}
+          GIT_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          mkdir -p docs
+          {
+            echo "# Test attestation (CI)"
+            echo ""
+            echo "<!--"
+            echo "  AUTO-GENERATED FILE — do not edit by hand."
+            echo "  Updated by .github/workflows/test-and-attest.yml when tests pass on main/master."
+            echo "-->"
+            echo ""
+            echo "| Field | Value |"
+            echo "|--------|--------|"
+            echo "| **Status** | PASS |"
+            echo "| **Commit SHA** | ${GIT_SHA} |"
+            echo "| **Ref** | ${GIT_REF} |"
+            echo "| **Verified at (UTC)** | ${TS} |"
+            echo "| **Workflow run** | [View run](${RUN_URL}) |"
+            echo ""
+            echo "When green, this row documents the **latest commit on the default branch** for which \`npm test\` completed successfully in GitHub Actions. It is a **receipt**, not a substitute for running tests locally before you push."
+          } > docs/TEST_ATTESTATION.md
+
+      - name: Commit and push
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/TEST_ATTESTATION.md
+          if git diff --staged --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git commit -m "chore(ci): test attestation for ${{ github.sha }} [skip ci]"
+          git push

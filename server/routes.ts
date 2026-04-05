@@ -11,7 +11,8 @@ import {
   createResetToken, verifyResetToken, consumeResetToken,
   setSecurityQuestion, getSecurityQuestion, verifySecurityAnswer,
   adminResetPassword,
-  banUser, unbanUser, getAllUsers, isUserBanned,
+  banUser, unbanUser, demoteAdminUser, getAllUsers, isUserBanned,
+  createAppeal, listAppealsForUser, listAppealsForAdmin, withdrawAppeal, castAppealVote, isAppealSubjectType,
   logSecurityEvent, getSecurityLogs,
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
@@ -99,15 +100,20 @@ import { callNodeWeaverBatchClassify } from "./services/classification/nodeweave
 import { BUILT_IN_CLASSIFICATIONS, isGeneralClassification } from "@shared/classification-catalog";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
 
-/** Stored `priority_score` is ~10× the priority engine’s 0–10 score (see task create/update routes). */
-/** Midpoints of `PriorityEngine.scoreToPriority` bands × 10, plus `Lowest` for voice-only label. */
+/**
+ * Maps voice review priority labels to stored `priority_score` (~10× the engine’s numeric score; see task routes).
+ *
+ * For labels produced by `PriorityEngine.scoreToPriority` (client `priority-engine.ts`), each band’s **midpoint on the
+ * 0–10 scale × 10**: Low [0,2)→10, Medium [2,4)→30, Medium-High [4,6)→50, High [6,8)→70, Highest [8,10]→90 (9×10).
+ * `Lowest` is **not** returned by `scoreToPriority`; it is voice-only and uses 5 (= 0.5×10), below the Low band.
+ */
 const VOICE_REVIEW_PRIORITY_TO_SCORE: Record<string, number> = {
   Lowest: 5,
   Low: 10,
-  Medium: 25,
-  "Medium-High": 45,
-  High: 65,
-  Highest: 85,
+  Medium: 30,
+  "Medium-High": 50,
+  High: 70,
+  Highest: 90,
 };
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
@@ -494,7 +500,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               statusCode: 401,
               ipAddress: req.ip,
               userAgent: req.get("user-agent") || undefined,
-              payload: { email },
+              payload: {
+                email,
+                xForwardedFor: req.get("x-forwarded-for") || undefined,
+                cfConnectingIp: req.get("cf-connecting-ip") || undefined,
+              },
             });
           }
           return res.status(401).json({ message: info?.message || "Invalid credentials" });
@@ -509,6 +519,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           statusCode: 200,
           ipAddress: req.ip,
           userAgent: req.get("user-agent") || undefined,
+          payload: {
+            xForwardedFor: req.get("x-forwarded-for") || undefined,
+            cfConnectingIp: req.get("cf-connecting-ip") || undefined,
+          },
         });
         req.login(user, async (err) => {
           if (err) return next(err);
@@ -585,12 +599,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       replit: "/api/auth/replit/login",
       local: "",
     };
+    const loginPretext =
+      process.env.NODE_ENV === "development"
+        ? (process.env.AXTASK_LOGIN_PRETEXT || "").trim() || null
+        : null;
+
     res.json({
       registrationMode: REGISTRATION_MODE,
       authProvider,
       loginUrl: loginUrls[authProvider] || "",
       providers,
       donateUrl: (process.env.DONATE_URL || "").trim(),
+      loginPretext,
     });
   });
 
@@ -3228,6 +3248,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const createAppealBodySchema = z.object({
+    subjectType: z.enum(["account_ban", "feedback_dispute", "other"]),
+    subjectRef: z.string().min(1).max(200),
+    title: z.string().trim().min(5).max(200),
+    body: z.string().trim().min(20).max(8000),
+  });
+
+  app.get("/api/appeals", requireAuth, async (req, res) => {
+    try {
+      const rows = await listAppealsForUser(req.user!.id);
+      res.json(rows);
+    } catch {
+      res.status(500).json({ message: "Failed to load appeals" });
+    }
+  });
+
+  app.post("/api/appeals", requireAuth, async (req, res) => {
+    try {
+      const body = createAppealBodySchema.parse(req.body ?? {});
+      if (!isAppealSubjectType(body.subjectType)) {
+        return res.status(400).json({ message: "Invalid subject type" });
+      }
+      let subjectRef = body.subjectRef.trim();
+      if (body.subjectType === "account_ban") {
+        subjectRef = req.user!.id;
+      }
+      const row = await createAppeal({
+        appellantUserId: req.user!.id,
+        subjectType: body.subjectType,
+        subjectRef,
+        title: body.title,
+        body: body.body,
+      });
+      if (!row) {
+        return res.status(400).json({
+          message:
+            "Appeal could not be created. For a ban appeal you must be suspended. For feedback disputes, use your feedback event id.",
+        });
+      }
+      res.status(201).json(row);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Validation failed", issues: error.issues });
+      }
+      res.status(500).json({ message: "Failed to create appeal" });
+    }
+  });
+
+  app.post("/api/appeals/:appealId/withdraw", requireAuth, async (req, res) => {
+    try {
+      const ok = await withdrawAppeal(req.params.appealId, req.user!.id);
+      if (!ok) return res.status(400).json({ message: "Cannot withdraw this appeal" });
+      res.json({ message: "Appeal withdrawn" });
+    } catch {
+      res.status(500).json({ message: "Failed to withdraw appeal" });
+    }
+  });
+
   // ════════════════════════════════════════════════════════════════════════
   //  Classification Contribution & Confirmation routes
   // ════════════════════════════════════════════════════════════════════════
@@ -3328,7 +3406,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.use("/api/admin", apiLimiter);
 
-  function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const ADMIN_STEP_UP_TTL_MS = 60 * 60 * 1000;
+
+  function requireAdminRole(req: Request, res: Response, next: NextFunction) {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Not authenticated" });
     }
@@ -3337,6 +3417,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     next();
   }
+
+  function requireAdmin(req: Request, res: Response, next: NextFunction) {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    if (req.user!.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    if (process.env.NODE_ENV === "production") {
+      const exp = req.session.adminStepUpExpiresAt;
+      if (!exp || Date.now() > exp) {
+        return res.status(403).json({
+          message: "Confirm it is you with a one-time code to use admin tools.",
+          code: "ADMIN_MFA_REQUIRED",
+        });
+      }
+    }
+    next();
+  }
+
+  app.get("/api/admin/step-up-status", requireAdminRole, (req, res) => {
+    const prod = process.env.NODE_ENV === "production";
+    const exp = req.session.adminStepUpExpiresAt;
+    const valid = Boolean(exp && Date.now() < exp);
+    res.json({
+      stepUpRequired: prod,
+      stepUpSatisfied: !prod || valid,
+      expiresAt: valid ? exp : null,
+    });
+  });
+
+  app.post("/api/admin/step-up", requireAdminRole, async (req, res) => {
+    try {
+      if (process.env.NODE_ENV !== "production") {
+        return res.json({ ok: true, skipped: true, message: "Step-up not required outside production." });
+      }
+      const { challengeId, code } = z
+        .object({
+          challengeId: z.string().min(1),
+          code: z.string().length(6).regex(/^\d{6}$/),
+        })
+        .parse(req.body);
+
+      const ok = await verifyMfaChallenge(
+        req.user!.id,
+        challengeId,
+        code,
+        MFA_PURPOSES.ADMIN_STEP_UP,
+      );
+      if (!ok) {
+        await appendSecurityEvent({
+          eventType: "mfa_verify_failed",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 403,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: { context: "admin_step_up" },
+        });
+        return res.status(403).json({ message: "Invalid or expired verification code" });
+      }
+
+      req.session.adminStepUpExpiresAt = Date.now() + ADMIN_STEP_UP_TTL_MS;
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error("[admin] session save after step-up:", saveErr);
+          return res.status(500).json({ message: "Session update failed" });
+        }
+        void appendSecurityEvent({
+          eventType: "admin_step_up_success",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 200,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        res.json({ ok: true, expiresAt: req.session.adminStepUpExpiresAt });
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Admin step-up failed" });
+    }
+  });
 
   app.get("/api/admin/users", requireAdmin, async (req, res) => {
     try {
@@ -3366,6 +3531,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const typeOk = grantType === "beta_tester" || grantType === "patron" || grantType === "manual";
       if (!productOk || !typeOk || typeof reason !== "string") {
         return res.status(400).json({ message: "Invalid product, grantType, or reason" });
+      }
+      const targetUser = await getUserById(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found", userId });
       }
       const row = await grantAdminLifetimePremium({
         targetUserId: userId,
@@ -3469,6 +3638,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/admin/users/:userId/admin-demote", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { reason } = req.body || {};
+      if (typeof reason !== "string" || reason.trim().length < 3) {
+        return res.status(400).json({ message: "Reason is required (min 3 characters)" });
+      }
+      const outcome = await demoteAdminUser(userId, req.user!.id, reason.trim(), req.ip);
+      if (outcome === "not_found") {
+        return res.status(404).json({ message: "User not found", userId });
+      }
+      if (outcome === "not_admin") {
+        return res.status(400).json({ message: "User is not an administrator" });
+      }
+      if (outcome === "self") {
+        return res.status(400).json({ message: "You cannot remove your own admin role here" });
+      }
+      if (outcome === "last_admin") {
+        return res.status(409).json({
+          message: "Cannot remove the last admin. Promote another admin first, or use database break-glass.",
+        });
+      }
+      const updated = await getUserById(userId);
+      res.json({ message: "Administrator privileges removed", user: updated });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update role" });
+    }
+  });
+
   app.post("/api/admin/ban/:userId", requireAdmin, async (req, res) => {
     const { userId } = req.params;
     const { reason } = req.body;
@@ -3534,6 +3732,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(alerts);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch security alerts" });
+    }
+  });
+
+  app.get("/api/admin/appeals", requireAdmin, async (_req, res) => {
+    try {
+      const appeals = await listAppealsForAdmin(150);
+      res.json(appeals);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch appeals" });
+    }
+  });
+
+  app.post("/api/admin/appeals/:appealId/vote", requireAdmin, async (req, res) => {
+    try {
+      const { decision } = z.object({ decision: z.enum(["grant", "deny"]) }).parse(req.body ?? {});
+      const result = await castAppealVote({
+        appealId: req.params.appealId,
+        adminUserId: req.user!.id,
+        decision,
+      });
+      if (result.status === "not_admin") {
+        return res.status(403).json({ message: "Admin role required" });
+      }
+      if (result.status === "not_found") {
+        return res.status(404).json({ message: "Appeal not found" });
+      }
+      if (result.status === "not_open") {
+        return res.status(409).json({ message: "Appeal is no longer open" });
+      }
+      res.json(result);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Validation failed", issues: error.issues });
+      }
+      res.status(500).json({ message: "Failed to record vote" });
     }
   });
 

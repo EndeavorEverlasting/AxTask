@@ -4,7 +4,7 @@ AxTask is **open source (MIT)** and aims for **zero-trust-friendly** operations:
 
 ## Admin and operator boundaries
 
-- Prefer **role-scoped access**, **audit logs**, and **break-glass** procedures documented in [SECURITY.md](./SECURITY.md).
+- Prefer **role-scoped access**, **audit logs**, and **break-glass** procedures documented in [SECURITY_TECHNICAL_REFERENCE.md](./SECURITY_TECHNICAL_REFERENCE.md). Vulnerability reporting: [SECURITY.md](./SECURITY.md).
 - **Aggregation by default:** dashboards and admin tools should emphasize **category-level** or **statistical** views (activity classes, mood buckets, coarse circumstance tags) rather than raw notes or PII.
 - **Engine observability** ([ENGINES.md](./ENGINES.md)): record *which* engine acted and *what class* of event occurred without storing unnecessary plaintext in security tooling.
 

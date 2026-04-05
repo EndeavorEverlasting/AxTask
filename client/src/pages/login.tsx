@@ -1,4 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import {
+  SSO_NOT_CONFIGURED_USER_MESSAGES,
+  isSsoNotConfiguredErrorCode,
+  shouldShowSsoDownBanner,
+} from "@/lib/sso-down-banner";
 import { useAuth } from "@/lib/auth-context";
 import { getCsrfToken } from "@/lib/queryClient";
 import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
@@ -11,6 +16,7 @@ function csrfHeaders(): Record<string, string> {
 }
 import { Button } from "@/components/ui/button";
 import { DonateCta } from "@/components/donate-cta";
+import { LoginHelpOverlay } from "@/components/login-help-overlay";
 import { Input } from "@/components/ui/input";
 import { SecureInput } from "@/components/ui/secure-input";
 import { Label } from "@/components/ui/label";
@@ -166,6 +172,9 @@ export default function LoginPage() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const [knownAccounts, setKnownAccounts] = useState<KnownAccount[]>([]);
+  const [loginHelpOpen, setLoginHelpOpen] = useState(false);
+  const [loginPretext, setLoginPretext] = useState<string | null>(null);
+  const [oauthCallbackErrorCode, setOauthCallbackErrorCode] = useState<string | null>(null);
   const lastEmail = getLastEmail();
   const lastProvider = getLastProvider();
 
@@ -178,10 +187,13 @@ export default function LoginPage() {
         session_failed: "Authentication succeeded but session creation failed.",
         auth_failed: "Authentication failed. Please try again.",
         account_suspended: "This account has been suspended. Contact an administrator for assistance.",
-        google_not_configured: "Google sign-in is not available. Please use another sign-in method.",
-        workos_not_configured: "WorkOS sign-in is not available. Please use another sign-in method.",
-        replit_not_configured: "Replit sign-in is not available. Please use another sign-in method.",
+        ...SSO_NOT_CONFIGURED_USER_MESSAGES,
       };
+      if (isSsoNotConfiguredErrorCode(oauthError)) {
+        setOauthCallbackErrorCode(oauthError);
+      } else {
+        setOauthCallbackErrorCode(null);
+      }
       setError(messages[oauthError] || `Authentication error: ${oauthError}`);
       window.history.replaceState({}, "", "/");
     }
@@ -202,6 +214,9 @@ export default function LoginPage() {
         setAuthProvider(d.authProvider || "local");
         setLoginUrl(d.loginUrl || "");
         if (d.providers) setProviders(d.providers);
+        const pt = d.loginPretext;
+        if (typeof pt === "string" && pt.trim()) setLoginPretext(pt.trim());
+        else setLoginPretext(null);
       })
       .catch(() => {});
   }, []);
@@ -371,6 +386,7 @@ export default function LoginPage() {
     setSecurityQuestion("");
     setSuccessMessage("");
     setError("");
+    setOauthCallbackErrorCode(null);
   };
 
   const newPasswordStrength = useMemo(() => getPasswordStrength(newPassword), [newPassword]);
@@ -380,6 +396,18 @@ export default function LoginPage() {
   const isLastUsedProvider = (providerName: string) => {
     return rememberProvider && lastProvider === providerName;
   };
+
+  const oauthProviderNames = useMemo(() => providers.map((p) => p.name), [providers]);
+
+  const showSsoDownBanner = useMemo(
+    () =>
+      shouldShowSsoDownBanner({
+        oauthProviderCount: oauthProviderNames.length,
+        oauthCallbackErrorCode,
+        errorMessage: error,
+      }),
+    [oauthProviderNames.length, oauthCallbackErrorCode, error],
+  );
 
   const providerButtonClass = (providerName: string, base: string) => {
     if (isLastUsedProvider(providerName)) {
@@ -391,7 +419,7 @@ export default function LoginPage() {
   return (
     <div className="h-full min-h-0 overflow-y-auto flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4 py-8">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8">
+        <div className="text-center mb-8" id="login-help-header">
           <div className="inline-flex items-center gap-2 text-primary mb-2">
             <CheckSquare className="h-8 w-8" />
             <span className="text-3xl font-bold">AxTask</span>
@@ -399,9 +427,36 @@ export default function LoginPage() {
           <p className="text-gray-500 dark:text-gray-400">
             Intelligent Task Management
           </p>
+          {loginPretext ? (
+            <p className="mt-3 text-sm text-gray-600 dark:text-gray-400 max-w-md mx-auto leading-relaxed">
+              {loginPretext}
+            </p>
+          ) : null}
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-8">
+        <div
+          id="login-help-card"
+          className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-8"
+        >
+          {mode === "login" && showSsoDownBanner ? (
+            <div
+              id="login-help-sso-banner"
+              className="mb-5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/90 dark:bg-amber-950/30 px-3 py-3 text-sm text-amber-950 dark:text-amber-100"
+            >
+              <p className="leading-snug">
+                Single sign-on may be turned off or unreachable here. Use{" "}
+                <strong className="font-medium">email and password</strong>, or open{" "}
+                <strong className="font-medium">Help</strong> for a quick walkthrough.
+              </p>
+              <button
+                type="button"
+                className="mt-2 text-xs font-medium text-amber-800 dark:text-amber-200 underline hover:no-underline"
+                onClick={() => setLoginHelpOpen(true)}
+              >
+                Show me how
+              </button>
+            </div>
+          ) : null}
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
             {mode === "forgot"
               ? forgotStep === "done" ? "Success" : "Reset your password"
@@ -545,7 +600,7 @@ export default function LoginPage() {
                 <div className="relative flex justify-center text-xs"><span className="bg-white dark:bg-gray-800 px-2 text-gray-400">or</span></div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div id="login-help-oauth" className="flex flex-wrap gap-2">
                 <a href="/api/auth/google/login"
                   className={providerButtonClass("google", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm text-gray-600 dark:text-gray-300")}>
                   <ProviderIcon provider="google" className="h-4 w-4" />
@@ -565,6 +620,8 @@ export default function LoginPage() {
                   {isLastUsedProvider("workos") && <span className="text-[9px] text-primary font-medium">★</span>}
                 </a>
                 <button
+                  type="button"
+                  id="login-help-password-cta"
                   onClick={() => { setShowForm(true); setEmail(""); setError(""); }}
                   className={providerButtonClass("local", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm text-gray-500 dark:text-gray-400")}
                 >
@@ -604,32 +661,34 @@ export default function LoginPage() {
 
           {mode === "login" && !showForm && knownAccounts.length === 0 && (
             <div className="space-y-3">
-              <a
-                href="/api/auth/google/login"
-                className={providerButtonClass("google", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
-              >
-                <ProviderIcon provider="google" />
-                Continue with Google
-                {isLastUsedProvider("google") && <span className="text-xs text-primary font-medium ml-1">★ Last used</span>}
-              </a>
+              <div id="login-help-oauth" className="space-y-3">
+                <a
+                  href="/api/auth/google/login"
+                  className={providerButtonClass("google", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
+                >
+                  <ProviderIcon provider="google" />
+                  Continue with Google
+                  {isLastUsedProvider("google") && <span className="text-xs text-primary font-medium ml-1">★ Last used</span>}
+                </a>
 
-              <a
-                href="/api/auth/replit/login"
-                className={providerButtonClass("replit", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
-              >
-                <KeyRound className="h-5 w-5" />
-                Sign in with Replit
-                {isLastUsedProvider("replit") && <span className="text-xs text-primary font-medium ml-1">★ Last used</span>}
-              </a>
+                <a
+                  href="/api/auth/replit/login"
+                  className={providerButtonClass("replit", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
+                >
+                  <KeyRound className="h-5 w-5" />
+                  Sign in with Replit
+                  {isLastUsedProvider("replit") && <span className="text-xs text-primary font-medium ml-1">★ Last used</span>}
+                </a>
 
-              <a
-                href="/api/auth/workos/login"
-                className={providerButtonClass("workos", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
-              >
-                <ShieldCheck className="h-5 w-5" />
-                Continue with WorkOS
-                {isLastUsedProvider("workos") && <span className="text-xs text-primary font-medium ml-1">★ Last used</span>}
-              </a>
+                <a
+                  href="/api/auth/workos/login"
+                  className={providerButtonClass("workos", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
+                >
+                  <ShieldCheck className="h-5 w-5" />
+                  Continue with WorkOS
+                  {isLastUsedProvider("workos") && <span className="text-xs text-primary font-medium ml-1">★ Last used</span>}
+                </a>
+              </div>
 
               {error && (
                 <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
@@ -643,6 +702,8 @@ export default function LoginPage() {
               </div>
 
               <button
+                type="button"
+                id="login-help-password-cta"
                 onClick={() => setShowForm(true)}
                 className={providerButtonClass("local", "w-full text-center text-sm text-gray-500 dark:text-gray-400 hover:text-primary py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all")}
               >
@@ -681,7 +742,7 @@ export default function LoginPage() {
           {mode !== "forgot" && (showForm || mode === "register") && (
             <>
               {mode === "login" && (
-                <div className="space-y-2 mb-4">
+                <div id="login-help-oauth" className="space-y-2 mb-4">
                   <a href="/api/auth/google/login"
                     className={providerButtonClass("google", "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm font-medium text-gray-700 dark:text-gray-200")}>
                     <ProviderIcon provider="google" className="h-4 w-4" />
@@ -706,7 +767,11 @@ export default function LoginPage() {
                   </div>
                 </div>
               )}
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form
+              onSubmit={handleSubmit}
+              className="space-y-4"
+              id={mode === "login" ? "login-help-password-cta" : undefined}
+            >
               {mode === "register" && (
                 <div>
                   <Label htmlFor="displayName">Name (optional)</Label>
@@ -786,9 +851,12 @@ export default function LoginPage() {
               </Button>
 
               {mode === "login" && (
-                <button type="button"
+                <button
+                  type="button"
+                  id="login-help-forgot-link"
                   onClick={() => { setMode("forgot"); setForgotStep("email"); setError(""); }}
-                  className="w-full text-center text-xs text-gray-400 hover:text-primary transition-colors">
+                  className="w-full text-center text-xs text-gray-400 hover:text-primary transition-colors"
+                >
                   Forgot your password?
                 </button>
               )}
@@ -920,13 +988,33 @@ export default function LoginPage() {
             </div>
           )}
 
-          <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+          <div className="mt-6 flex flex-col items-center gap-3 text-center text-sm text-gray-500 dark:text-gray-400">
+            <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+              <button
+                type="button"
+                onClick={() => setLoginHelpOpen(true)}
+                className="inline-flex items-center gap-1.5 text-primary hover:underline font-medium"
+              >
+                <HelpCircle className="h-4 w-4 shrink-0" aria-hidden />
+                Help / tutorial
+              </button>
+              <span className="text-gray-300 dark:text-gray-600 hidden sm:inline" aria-hidden>
+                |
+              </span>
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                Shortcut: Ctrl+Shift+H
+              </span>
+            </div>
             {mode === "login" ? (
               canRegister ? (
                 <>
-                  Don't have an account?{" "}
-                  <button onClick={() => { setMode("register"); setShowForm(true); setError(""); }}
-                    className="text-primary hover:underline font-medium">
+                  Don&apos;t have an account?{" "}
+                  <button
+                    type="button"
+                    id="login-help-register"
+                    onClick={() => { setMode("register"); setShowForm(true); setError(""); }}
+                    className="text-primary hover:underline font-medium"
+                  >
                     Get started
                   </button>
                 </>
@@ -946,6 +1034,12 @@ export default function LoginPage() {
         <div className="mt-6 flex justify-center">
           <DonateCta variant="outline" className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700" />
         </div>
+
+        <LoginHelpOverlay
+          oauthProviderNames={oauthProviderNames}
+          isOpen={loginHelpOpen}
+          onOpenChange={setLoginHelpOpen}
+        />
       </div>
     </div>
   );

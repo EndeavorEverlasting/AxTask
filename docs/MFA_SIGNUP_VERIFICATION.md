@@ -1,7 +1,7 @@
 # Sign-up verification and MFA (abuse reduction)
 
 **Status:** Planning / product requirements (not yet implemented as a mandatory registration gate)  
-**Related:** [`OTP_DELIVERY.md`](./OTP_DELIVERY.md), [`AUTH_IMPLEMENTATION_PLAN.md`](./AUTH_IMPLEMENTATION_PLAN.md), [`SECURITY.md`](./SECURITY.md)
+**Related:** [`OTP_DELIVERY.md`](./OTP_DELIVERY.md), [`AUTH_IMPLEMENTATION_PLAN.md`](./AUTH_IMPLEMENTATION_PLAN.md), [`SECURITY.md`](./SECURITY.md) (reporting), [`SECURITY_TECHNICAL_REFERENCE.md`](./SECURITY_TECHNICAL_REFERENCE.md) (architecture notes)
 
 ## Scope: existing users vs new registrations
 

@@ -295,7 +295,8 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
 - **[Docker foundation](docs/DOCKER_FOUNDATION.md)** - Install Docker, env file, compose stack (companion to **Run locally after cloning** above)
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - Technical architecture details
 - **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
-- **[Security Guidelines](docs/SECURITY.md)** - Security best practices
+- **[Security policy](docs/SECURITY.md)** — vulnerability reporting and expectations (start here)
+- **[Security technical reference](docs/SECURITY_TECHNICAL_REFERENCE.md)** — contributor-level architecture notes (**also public** if the repo is public; optional to remove for less exposure)
 - **[Sign-up verification (planned)](docs/MFA_SIGNUP_VERIFICATION.md)** - OTP/MFA at **new** account creation to reduce abuse; existing users keep normal login (step-up MFA only for sensitive actions)
 - **[Version History](VERSION.md)** - Release notes and changelog
 - **[Production migration branch report](docs/PRODUCTION_MIGRATION_BRANCH_REPORT.md)** - Compare `main` / `experimental/next` vs Replit publish lines and `baseline/published` before DB cutover
@@ -412,6 +413,7 @@ npm run db:push
 
 ## Security
 
+- **OPSEC sprint (immersive checklist + CI test receipt):** [docs/OPSEC_IMMERSIVE_SPRINT.md](docs/OPSEC_IMMERSIVE_SPRINT.md) · auto-updated [docs/TEST_ATTESTATION.md](docs/TEST_ATTESTATION.md) when `main` tests pass in GitHub Actions
 - Input validation with Zod schemas
 - SQL injection protection via parameterized queries
 - Environment-based configuration
@@ -450,6 +452,17 @@ Important:
 
 For a migration path away from Replit with cost-control guardrails, see [`docs/DEPLOYMENT_MIGRATION_PLAN.md`](docs/DEPLOYMENT_MIGRATION_PLAN.md).
 For a step-by-step zero-downtime procedure, use [`docs/CUTOVER_RUNBOOK.md`](docs/CUTOVER_RUNBOOK.md).
+
+### Replit and GitHub safety
+
+Replit Agent and hosted workflows can push commits or run hooks without your intent. The repo cannot fully block that; combine **GitHub settings**, **secrets isolation**, and the **`post-merge` script** below.
+
+1. **Branch protection (GitHub)** — On the default branch (e.g. `main`): require pull requests, require approvals (or CODEOWNERS), block force-push, and avoid granting broad write tokens to Replit when a protected branch would reject the push anyway.
+2. **Database isolation** — Do not point a Repl used for experiments at **production** `DATABASE_URL`. Prefer staging-only secrets on Replit; deploy production from a host you control (Render, Docker, etc.).
+3. **Post-merge `db:push` is opt-in** — After a merge, Replit runs [`scripts/post-merge.sh`](scripts/post-merge.sh), which runs `npm install` and only runs **`npm run db:push`** when **`AXTASK_POST_MERGE_DB_PUSH=1`** is set (e.g. in Replit Secrets). Default is **skip**, so schema sync does not run automatically against whatever database the Repl has configured.
+4. **Fork or non-production branch** — Connect Replit to a fork or a branch other than production’s deploy branch; merge to production via PR from your machine or CI.
+
+See also [`AGENTS.md`](AGENTS.md) for assistant/automation guardrails and [`replit.md`](replit.md) for workspace notes.
 
 ## Pending / Not Yet Implemented
 

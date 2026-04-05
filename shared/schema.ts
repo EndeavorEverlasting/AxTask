@@ -118,6 +118,46 @@ export const securityAlerts = pgTable("security_alerts", {
 
 export type SecurityAlert = typeof securityAlerts.$inferSelect;
 
+// ─── Appeals (moderation / account / feedback disputes) ─────────────────────
+/** open → granted | denied | withdrawn */
+export const appeals = pgTable("appeals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  appellantUserId: varchar("appellant_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** account_ban | feedback_dispute | other */
+  subjectType: text("subject_type").notNull(),
+  /** For account_ban: appellant user id; for feedback_dispute: security_events.id of feedback_processed */
+  subjectRef: text("subject_ref").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  status: text("status").notNull().default("open"),
+  resolution: text("resolution"),
+  /** Snapshot when created (informational; votes use live admin count). */
+  adminCountAtOpen: integer("admin_count_at_open"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedByUserId: varchar("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_appeals_status").on(table.status),
+  index("idx_appeals_appellant").on(table.appellantUserId),
+  index("idx_appeals_created_at").on(table.createdAt),
+]);
+
+export const appealVotes = pgTable("appeal_votes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  appealId: varchar("appeal_id").notNull().references(() => appeals.id, { onDelete: "cascade" }),
+  adminUserId: varchar("admin_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** grant = side with appellant; deny = uphold original action */
+  decision: text("decision").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_appeal_votes_appeal_admin").on(table.appealId, table.adminUserId),
+  index("idx_appeal_votes_appeal").on(table.appealId),
+]);
+
+export type Appeal = typeof appeals.$inferSelect;
+export type AppealVote = typeof appealVotes.$inferSelect;
+
 // Strong password: ≥8 chars, uppercase, lowercase, digit, special character
 const strongPassword = z
   .string()

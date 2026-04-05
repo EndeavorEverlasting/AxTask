@@ -17,13 +17,13 @@
 | [BRANDING.md](./BRANDING.md) | Logo / favicon paths |
 | [VERSION_1.3.0_PLAN.md](./VERSION_1.3.0_PLAN.md) | Soft delete, recycle bin, DnD, etc. |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture |
-| [SECURITY.md](./SECURITY.md) | Security practices |
+| [SECURITY.md](./SECURITY.md) · [SECURITY_TECHNICAL_REFERENCE.md](./SECURITY_TECHNICAL_REFERENCE.md) | Public policy vs technical reference |
 
 ## Master traceability (original vision)
 
 | # | Theme | Direction | Docs / code |
 |---|--------|-----------|-------------|
-| 1 | Open source + **zero-trust** | MIT license; threat model, least privilege, audit. | [SECURITY.md](./SECURITY.md), [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md), [ARCHITECTURE.md](./ARCHITECTURE.md) |
+| 1 | Open source + **zero-trust** | MIT license; threat model, least privilege, audit. | [SECURITY.md](./SECURITY.md), [SECURITY_TECHNICAL_REFERENCE.md](./SECURITY_TECHNICAL_REFERENCE.md), [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md), [ARCHITECTURE.md](./ARCHITECTURE.md) |
 | 2 | **Anonymize** operator views; **category** activity / mood / circumstance | Aggregation layer; optional client-side enrichment; admin aggregates. | ZERO_TRUST_AND_PRIVACY, future schema |
 | 3 | **Sophisticated cache** | TanStack persist, offline phases A–C, SW; tiers / invalidation / optional Redis later. | [OFFLINE_PHASE_A.md](./OFFLINE_PHASE_A.md), C, ARCHITECTURE |
 | 4 | **User cache toggle** | Setting gates persisted query cache; clear on off. | `client/src/lib/query-persist-policy.ts` |
