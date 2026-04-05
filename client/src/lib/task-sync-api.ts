@@ -348,19 +348,11 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
             break;
           }
           case "update": {
-            const ur = await processUpdateOp(op, queryClient);
-            if (ur === "aborted") {
-              removeOfflineOp(op.opId);
-              break;
-            }
+            await processUpdateOp(op, queryClient);
             break;
           }
           case "delete": {
-            const dr = await processDeleteOp(op, queryClient);
-            if (dr === "aborted") {
-              removeOfflineOp(op.opId);
-              break;
-            }
+            await processDeleteOp(op, queryClient);
             break;
           }
           case "reorder": {
