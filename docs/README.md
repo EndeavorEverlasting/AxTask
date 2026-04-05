@@ -1,3 +1,9 @@
+# AxTask documentation
+
+**Canonical handoff:** [PRODUCT_ROADMAP.md](./PRODUCT_ROADMAP.md) — vision checklist, doc map, and ship protocol.
+
+---
+
 # AxTask - Intelligent Task Management System
 
 **Version:** 1.0.0  

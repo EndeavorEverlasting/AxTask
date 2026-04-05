@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
+import { format } from "date-fns";
 import {
   ArrowLeft,
   CreditCard,
@@ -10,6 +11,10 @@ import {
   Sparkles,
   Wallet,
   Phone,
+  ChevronDown,
+  Pencil,
+  AlertTriangle,
+  X,
 } from "lucide-react";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { useAuth } from "@/lib/auth-context";
@@ -23,17 +28,71 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-type SavedPm = {
+type BillingSubscriptionRow = {
   id: string;
-  brand: string;
-  last4: string;
-  expMonth: number;
-  expYear: number;
+  product: string;
+  planKey: string;
+  status: string;
+  displayName: string;
+  priceLabel: string | null;
+  paymentHealth: "ok" | "grace" | "failed" | "inactive" | "none";
+  graceUntil: string | null;
+};
+
+type BillingSummary = {
+  primarySubscription: BillingSubscriptionRow | null;
+  subscriptions: BillingSubscriptionRow[];
+  defaultPaymentMethod: {
+    id: string;
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+  } | null;
+  paymentMethods: {
+    id: string;
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+    isDefault: boolean;
+  }[];
+  invoices: {
+    id: string;
+    createdAt: string | null;
+    amountCents: number;
+    currency: string;
+    status: string;
+    description: string;
+  }[];
+  hasOverdueIssuedInvoice: boolean;
+};
+
+type BillingProfile = {
+  userId: string;
+  legalName: string | null;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  region: string | null;
+  postalCode: string | null;
   country: string | null;
-  isDefault: boolean;
-  createdAt: string | null;
+  updatedAt: string | null;
 };
 
 const COUNTRIES = [
@@ -68,11 +127,55 @@ function brandLabel(b: string): string {
   }
 }
 
+function formatMoney(cents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: currency || "USD",
+    }).format(cents / 100);
+  } catch {
+    return `$${(cents / 100).toFixed(2)}`;
+  }
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] font-semibold tracking-[0.2em] text-muted-foreground uppercase mb-4">
+      {children}
+    </p>
+  );
+}
+
+function InvoiceStatusBadge({ status }: { status: string }) {
+  if (status === "paid") {
+    return (
+      <Badge className="shrink-0 border-transparent bg-emerald-600 text-white hover:bg-emerald-600/90">
+        Paid
+      </Badge>
+    );
+  }
+  if (status === "issued") {
+    return <Badge variant="secondary">Issued</Badge>;
+  }
+  if (status === "void") {
+    return <Badge variant="outline">Void</Badge>;
+  }
+  return <Badge variant="outline">Draft</Badge>;
+}
+
 export default function BillingPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { requestChallenge, isRequesting } = useMfaChallenge();
+
+  const { data: summary, isLoading: summaryLoading } = useQuery<BillingSummary>({
+    queryKey: ["/api/billing/summary"],
+  });
+
+  const { data: billingProfile } = useQuery<BillingProfile | null>({
+    queryKey: ["/api/billing/profile"],
+  });
 
   const [tab, setTab] = useState<"card" | "wallet">("card");
   const [panDisplay, setPanDisplay] = useState("");
@@ -93,9 +196,37 @@ export default function BillingPage() {
     maskedDestination?: string;
   } | null>(null);
 
+  const [subDetailsOpen, setSubDetailsOpen] = useState(false);
+  const [addPmOpen, setAddPmOpen] = useState(false);
+  const [invoiceExpanded, setInvoiceExpanded] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    legalName: "",
+    line1: "",
+    line2: "",
+    city: "",
+    region: "",
+    postalCode: "",
+    country: "US",
+  });
+
   useEffect(() => {
     setOtpChannel(user?.phoneVerified ? "sms" : "email");
   }, [user?.phoneVerified]);
+
+  useEffect(() => {
+    if (billingProfile && profileOpen) {
+      setProfileForm({
+        legalName: billingProfile.legalName ?? "",
+        line1: billingProfile.line1 ?? "",
+        line2: billingProfile.line2 ?? "",
+        city: billingProfile.city ?? "",
+        region: billingProfile.region ?? "",
+        postalCode: billingProfile.postalCode ?? "",
+        country: billingProfile.country ?? "US",
+      });
+    }
+  }, [billingProfile, profileOpen]);
 
   const mapChallenge = (c: {
     challengeId: string;
@@ -134,12 +265,45 @@ export default function BillingPage() {
     (yNum > now.getFullYear() ||
       (yNum === now.getFullYear() && mNum >= now.getMonth() + 1));
 
-  const zipOk = country !== "US" || (postalCode.replace(/\D/g, "").length >= 5);
+  const zipOk = country !== "US" || postalCode.replace(/\D/g, "").length >= 5;
 
   const formReady = luhnOk && expOk && zipOk && panDigits.length >= 13;
 
-  const { data: saved = [] } = useQuery<SavedPm[]>({
-    queryKey: ["/api/billing/payment-methods"],
+  const deletePmMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/billing/payment-methods/${id}`);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/billing/payment-methods"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/billing/summary"] });
+      toast({ title: "Payment method removed" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not remove card", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const saveProfileMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", "/api/billing/profile", {
+        legalName: profileForm.legalName.trim() || null,
+        line1: profileForm.line1.trim() || null,
+        line2: profileForm.line2.trim() || null,
+        city: profileForm.city.trim() || null,
+        region: profileForm.region.trim() || null,
+        postalCode: profileForm.postalCode.trim() || null,
+        country: profileForm.country.trim() || null,
+      });
+      return res.json() as Promise<BillingProfile>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/billing/profile"] });
+      setProfileOpen(false);
+      toast({ title: "Billing information updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const saveMutation = useMutation({
@@ -159,14 +323,15 @@ export default function BillingPage() {
         postalCode: postalCode.trim() || undefined,
         isDefault,
       });
-      return res.json() as Promise<SavedPm>;
+      return res.json() as Promise<{ id: string }>;
     },
     onSuccess: () => {
       setMfaOpen(false);
       setChallenge(null);
       setPanDisplay("");
       setCvc("");
-      queryClient.invalidateQueries({ queryKey: ["/api/billing/payment-methods"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/billing/payment-methods"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/billing/summary"] });
       toast({
         title: "Payment method saved",
         description: "Your card is protected with verification and only a secure fingerprint is stored.",
@@ -235,6 +400,26 @@ export default function BillingPage() {
         ? "Enter the code sent to your phone."
         : `Enter the code sent to ${user?.email ? maskEmail(user.email) : "your email"}.`;
 
+  const primary = summary?.primarySubscription;
+  const showPaymentFailed = primary?.paymentHealth === "failed" || primary?.paymentHealth === "grace";
+  const invoiceRows = summary?.invoices ?? [];
+  const visibleInvoices = invoiceExpanded ? invoiceRows : invoiceRows.slice(0, 5);
+
+  const billingDisplayName =
+    billingProfile?.legalName?.trim() ||
+    user?.displayName?.trim() ||
+    user?.email?.split("@")[0]?.toUpperCase() ||
+    "—";
+
+  const billingAddressLines = [
+    billingProfile?.line1,
+    billingProfile?.line2,
+    [billingProfile?.city, billingProfile?.region, billingProfile?.postalCode].filter(Boolean).join(", "),
+    billingProfile?.country,
+  ]
+    .map((s) => s?.trim())
+    .filter((s): s is string => Boolean(s && s.length > 0));
+
   return (
     <div className="min-h-full flex flex-col lg:flex-row bg-zinc-50 dark:bg-zinc-950">
       <motion.aside
@@ -253,314 +438,576 @@ export default function BillingPage() {
             Return to AxTask
           </Link>
           <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white leading-tight">
-            Billing &amp; payment methods
+            Manage your AxTask billing settings
           </h1>
           <p className="mt-4 text-zinc-400 text-sm leading-relaxed max-w-sm">
-            A calm, high-trust checkout. Sensitive changes always require a fresh verification code.
+            Subscription, payment methods, and invoices for your account. Sensitive changes require a fresh verification
+            code.
           </p>
           <ul className="mt-10 space-y-4 text-sm text-zinc-300">
             <li className="flex gap-3">
               <Shield className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
               <span>
                 <span className="text-white font-medium">Step-up MFA</span>
-                {" — "}one-time codes for adding cards, aligned with your invoice flows.
+                {" — "}for adding cards, aligned with invoice flows.
               </span>
             </li>
             <li className="flex gap-3">
               <Lock className="h-5 w-5 text-sky-400 shrink-0 mt-0.5" />
               <span>
                 <span className="text-white font-medium">No full card storage</span>
-                {" — "}only brand, last four digits, and expiry. Wire Stripe or another PSP for live charges.
+                {" — "}only brand, last four, and expiry. Connect a PSP for live charges.
               </span>
             </li>
             <li className="flex gap-3">
               <Sparkles className="h-5 w-5 text-violet-400 shrink-0 mt-0.5" />
               <span>
-                <span className="text-white font-medium">Built for reuse</span>
-                {" — "}the same MFA panel and API power billing and other sensitive actions.
+                <span className="text-white font-medium">Account plane</span>
+                {" — "}billing is separate from tasks and community features.
               </span>
             </li>
             <li className="flex gap-3">
               <Phone className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
               <span>
                 <span className="text-white font-medium">SMS or email codes</span>
-                {" — "}verify a phone under Account to get text-message codes; switch delivery anytime during checkout.
+                {" — "}verify a phone under Account for SMS delivery.
               </span>
             </li>
           </ul>
           <p className="mt-auto pt-12 text-xs text-zinc-600">
-            AxTask · Encrypted in transit (TLS). Production deployments should tokenize cards with your processor.
+            AxTask · TLS in transit. Production should tokenize cards with your processor.
           </p>
         </div>
       </motion.aside>
 
-      <div className="flex-1 flex flex-col bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-50">
-        <div className="flex-1 px-6 sm:px-10 lg:px-14 py-10 max-w-xl mx-auto w-full">
-          <div className="flex items-center gap-2 text-primary mb-2">
-            <CreditCard className="h-5 w-5" />
-            <span className="text-xs font-semibold uppercase tracking-widest">Secure checkout</span>
-          </div>
-          <h2 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">
-            Add payment method
-          </h2>
-          <p className="text-sm text-muted-foreground mt-2">
-            You are signed in as{" "}
-            <span className="text-foreground font-medium">{user?.email ?? "—"}</span>
-          </p>
-
-          <Tabs value={tab} onValueChange={(v) => setTab(v as "card" | "wallet")} className="mt-8">
-            <TabsList className="grid w-full grid-cols-2 h-11 p-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg">
-              <TabsTrigger
-                value="card"
-                className="rounded-md data-[state=active]:bg-white data-[state=active]:dark:bg-zinc-950 data-[state=active]:shadow-sm"
-              >
-                Card
-              </TabsTrigger>
-              <TabsTrigger
-                value="wallet"
-                disabled
-                className="rounded-md opacity-50 cursor-not-allowed gap-1.5"
-              >
-                <Wallet className="h-3.5 w-3.5" />
-                Google Pay
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="card" className="mt-8 space-y-8 outline-none">
-              <MfaVerificationPanel
-                open={mfaOpen}
-                title="Verify before we save your card"
-                description={mfaDescription}
-                expiresAt={challenge?.expiresAt}
-                devCode={challenge?.devCode ?? null}
-                isBusy={saveMutation.isPending}
-                onDismiss={() => {
-                  setMfaOpen(false);
-                  setChallenge(null);
-                }}
-                onResend={handleResend}
-                onSubmitCode={async (code): Promise<void> => {
-                  await saveMutation.mutateAsync(code);
-                }}
-                alternateDelivery={
-                  user?.phoneVerified
-                    ? otpChannel === "sms"
-                      ? {
-                          label: "Send code to email instead",
-                          onPress: () => void switchOtpChannel("email"),
-                          disabled: saveMutation.isPending,
-                        }
-                      : {
-                          label: "Send code to phone instead",
-                          onPress: () => void switchOtpChannel("sms"),
-                          disabled: saveMutation.isPending,
-                        }
-                    : undefined
-                }
-                className="mb-2"
-              />
-
-              <div className="space-y-5">
-                <div className="space-y-2">
-                  <Label htmlFor="card-pan">Card number</Label>
-                  <Input
-                    id="card-pan"
-                    inputMode="numeric"
-                    autoComplete="cc-number"
-                    placeholder="1234 1234 1234 1234"
-                    className={cn(
-                      "h-11 text-base tracking-wide font-mono",
-                      panDigits.length >= 13 && !luhnOk && "border-destructive",
-                    )}
-                    value={panDisplay}
-                    onChange={(e) => setPanDisplay(formatPanGroups(e.target.value))}
-                  />
-                  <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                    <span>
-                      {panDigits.length >= 13
-                        ? luhnOk
-                          ? "Number looks valid"
-                          : "Check the card number"
-                        : " "}
-                    </span>
-                    <span className="shrink-0 opacity-70">Visa · Mastercard · Amex · Discover</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Expiration</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        inputMode="numeric"
-                        placeholder="MM"
-                        maxLength={2}
-                        autoComplete="cc-exp-month"
-                        className="h-11 font-mono"
-                        value={expMonth}
-                        onChange={(e) => setExpMonth(e.target.value.replace(/\D/g, "").slice(0, 2))}
-                      />
-                      <Input
-                        inputMode="numeric"
-                        placeholder="YYYY"
-                        maxLength={4}
-                        autoComplete="cc-exp-year"
-                        className="h-11 font-mono"
-                        value={expYear}
-                        onChange={(e) => setExpYear(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="cvc">Security code</Label>
-                    <Input
-                      id="cvc"
-                      inputMode="numeric"
-                      maxLength={4}
-                      type="password"
-                      autoComplete="cc-csc"
-                      placeholder="CVC"
-                      className="h-11 font-mono"
-                      value={cvc}
-                      onChange={(e) => setCvc(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                    />
-                    <p className="text-[11px] text-muted-foreground">Never stored on our servers.</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="country">Country</Label>
-                    <select
-                      id="country"
-                      className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      value={country}
-                      onChange={(e) => setCountry(e.target.value)}
+      <div className="flex-1 flex flex-col bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-50 overflow-y-auto">
+        <div className="flex-1 px-6 sm:px-10 lg:px-14 py-10 max-w-2xl w-full mx-auto space-y-12">
+          {/* Current subscription */}
+          <section>
+            <SectionLabel>Current subscription</SectionLabel>
+            {summaryLoading ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : primary ? (
+              <div className="rounded-xl border border-border bg-card/30 p-5 space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  {showPaymentFailed ? (
+                    <Badge
+                      variant="destructive"
+                      className="rounded-full px-2.5 font-normal bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950 dark:text-rose-200 dark:border-rose-800"
                     >
-                      {COUNTRIES.map((c) => (
-                        <option key={c.code} value={c.code}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="zip">ZIP / postal code</Label>
-                    <Input
-                      id="zip"
-                      autoComplete="postal-code"
-                      className="h-11"
-                      value={postalCode}
-                      onChange={(e) => setPostalCode(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="default-pm"
-                    checked={isDefault}
-                    onCheckedChange={(v) => setIsDefault(v === true)}
-                  />
-                  <Label htmlFor="default-pm" className="text-sm font-normal cursor-pointer">
-                    Use as default payment method
-                  </Label>
-                </div>
-
-                <div className="rounded-lg border border-border/80 bg-muted/20 px-4 py-3 space-y-2">
-                  <Label className="text-sm font-medium">Verification code delivery</Label>
-                  <div className="flex flex-wrap gap-4 text-sm">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="otp-channel"
-                        className="accent-primary"
-                        checked={otpChannel === "sms"}
-                        disabled={!user?.phoneVerified}
-                        onChange={() => setOtpChannel("sms")}
-                      />
-                      <span>
-                        Text message
-                        {user?.phoneVerified && user.phoneMasked ? (
-                          <span className="text-muted-foreground"> · {user.phoneMasked}</span>
-                        ) : null}
-                      </span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="otp-channel"
-                        className="accent-primary"
-                        checked={otpChannel === "email"}
-                        onChange={() => setOtpChannel("email")}
-                      />
-                      <span>Email</span>
-                    </label>
-                  </div>
-                  {!user?.phoneVerified && (
-                    <p className="text-xs text-muted-foreground">
-                      <Link href="/account" className="text-primary hover:underline">
-                        Verify a phone number
-                      </Link>{" "}
-                      to use SMS codes (recommended for account security).
-                    </p>
+                      {primary.paymentHealth === "grace" ? "Grace period" : "Payment failed"}
+                    </Badge>
+                  ) : primary.paymentHealth === "inactive" ? (
+                    <Badge variant="secondary">Inactive</Badge>
+                  ) : (
+                    <Badge className="border-transparent bg-emerald-600 text-white hover:bg-emerald-600/90">Active</Badge>
                   )}
                 </div>
-
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  By saving, you agree to our billing terms. Charges are processed by your connected payment processor;
-                  AxTask stores only non-sensitive card metadata after MFA verification.
+                <div>
+                  <h2 className="text-xl font-semibold tracking-tight">{primary.displayName}</h2>
+                  {primary.priceLabel ? (
+                    <p className="text-lg font-semibold mt-1">{primary.priceLabel}</p>
+                  ) : null}
+                </div>
+                {primary.paymentHealth === "failed" && summary?.hasOverdueIssuedInvoice ? (
+                  <div className="flex items-start gap-2 text-sm text-destructive">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>Your latest invoice may be unpaid or overdue. Update your payment method or confirm payment.</span>
+                  </div>
+                ) : null}
+                {summary?.defaultPaymentMethod ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <CreditCard className="h-4 w-4" />
+                    <span>
+                      {brandLabel(summary.defaultPaymentMethod.brand)} •••• {summary.defaultPaymentMethod.last4}
+                    </span>
+                    {showPaymentFailed ? (
+                      <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                    ) : null}
+                  </div>
+                ) : null}
+                {(summary?.subscriptions?.length ?? 0) > 1 ? (
+                  <Collapsible open={subDetailsOpen} onOpenChange={setSubDetailsOpen}>
+                    <CollapsibleTrigger className="flex items-center gap-1 text-sm text-primary hover:underline">
+                      View details
+                      <ChevronDown
+                        className={cn("h-4 w-4 transition-transform", subDetailsOpen && "rotate-180")}
+                      />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="pt-3 space-y-2 text-sm border-t border-border mt-3">
+                      {summary?.subscriptions.map((s) => (
+                        <div key={s.id} className="flex justify-between gap-4 py-1">
+                          <span className="text-muted-foreground">{s.displayName}</span>
+                          <span className="shrink-0 capitalize">{s.status}</span>
+                        </div>
+                      ))}
+                    </CollapsibleContent>
+                  </Collapsible>
+                ) : null}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border bg-card/30 p-5">
+                <Badge className="border-transparent bg-sky-600 text-white mb-3">Included</Badge>
+                <h2 className="text-lg font-semibold">Core AxTask access</h2>
+                <p className="text-sm text-muted-foreground mt-2">
+                  You do not have a separate paid add-on subscription on this account. Tasks, NodeWeaver, and community
+                  features are part of your product tier as configured by your administrator.
                 </p>
-
-                <Button
-                  type="button"
-                  size="lg"
-                  className="w-full h-12 text-base font-medium shadow-sm bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
-                  disabled={!formReady || isRequesting || saveMutation.isPending || mfaOpen}
-                  onClick={() => void startVerification()}
-                >
-                  {isRequesting ? "Sending code…" : mfaOpen ? "Enter code above" : "Continue securely"}
+                <Button variant="outline" size="sm" className="mt-4" asChild>
+                  <Link href="/premium">View premium options</Link>
                 </Button>
               </div>
-            </TabsContent>
+            )}
+          </section>
 
-            <TabsContent value="wallet" className="mt-8">
-              <div className="rounded-xl border border-dashed border-zinc-200 dark:border-zinc-700 p-8 text-center text-sm text-muted-foreground">
-                <Wallet className="h-10 w-10 mx-auto mb-3 opacity-40" />
-                <p className="font-medium text-foreground">Wallet pay</p>
-                <p className="mt-2 max-w-xs mx-auto">
-                  When you connect Stripe (or another processor), Google Pay and Apple Pay can use the same MFA step
-                  before tokens are saved.
-                </p>
-              </div>
-            </TabsContent>
-          </Tabs>
-
-          {saved.length > 0 && (
-            <div className="mt-14 pt-10 border-t border-zinc-200 dark:border-zinc-800">
-              <h3 className="text-sm font-semibold text-foreground mb-4">Saved methods</h3>
-              <ul className="space-y-2">
-                {saved.map((pm) => (
-                  <li
+          {/* Payment method */}
+          <section>
+            <SectionLabel>Payment method</SectionLabel>
+            <div className="space-y-3">
+              {(summary?.paymentMethods?.length ?? 0) > 0 ? (
+                summary!.paymentMethods.map((pm) => (
+                  <div
                     key={pm.id}
-                    className="flex items-center justify-between rounded-lg border border-zinc-200 dark:border-zinc-800 px-4 py-3 text-sm"
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3"
                   >
-                    <span>
-                      {brandLabel(pm.brand)} ·••• {pm.last4}
-                      <span className="text-muted-foreground ml-2">
-                        {String(pm.expMonth).padStart(2, "0")}/{pm.expYear}
-                      </span>
-                    </span>
-                    {pm.isDefault && (
-                      <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Default</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <CreditCard className="h-5 w-5 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {brandLabel(pm.brand)} •••• {pm.last4}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Exp {String(pm.expMonth).padStart(2, "0")}/{pm.expYear}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {pm.isDefault ? (
+                        <span className="text-xs font-medium text-sky-600 dark:text-sky-400 px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-950">
+                          Default
+                        </span>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        disabled={deletePmMutation.isPending}
+                        onClick={() => deletePmMutation.mutate(pm.id)}
+                        aria-label="Remove payment method"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No saved payment methods yet.</p>
+              )}
             </div>
-          )}
+
+            <Collapsible open={addPmOpen} onOpenChange={setAddPmOpen} className="mt-4">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="text-sm font-medium text-primary hover:underline inline-flex items-center gap-1"
+                >
+                  <span className="text-lg leading-none">+</span> Add payment method
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-6 space-y-6 border-t border-border pt-6">
+                <div className="flex items-center gap-2 text-primary">
+                  <CreditCard className="h-5 w-5" />
+                  <span className="text-xs font-semibold uppercase tracking-widest">Secure checkout</span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Signed in as{" "}
+                  <span className="text-foreground font-medium">{user?.email ?? "—"}</span>
+                </p>
+
+                <Tabs value={tab} onValueChange={(v) => setTab(v as "card" | "wallet")}>
+                  <TabsList className="grid w-full grid-cols-2 h-11 p-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg">
+                    <TabsTrigger
+                      value="card"
+                      className="rounded-md data-[state=active]:bg-white data-[state=active]:dark:bg-zinc-950 data-[state=active]:shadow-sm"
+                    >
+                      Card
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="wallet"
+                      disabled
+                      className="rounded-md opacity-50 cursor-not-allowed gap-1.5"
+                    >
+                      <Wallet className="h-3.5 w-3.5" />
+                      Google Pay
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="card" className="mt-8 space-y-8 outline-none">
+                    <MfaVerificationPanel
+                      open={mfaOpen}
+                      title="Verify before we save your card"
+                      description={mfaDescription}
+                      expiresAt={challenge?.expiresAt}
+                      devCode={challenge?.devCode ?? null}
+                      isBusy={saveMutation.isPending}
+                      onDismiss={() => {
+                        setMfaOpen(false);
+                        setChallenge(null);
+                      }}
+                      onResend={handleResend}
+                      onSubmitCode={async (code): Promise<void> => {
+                        await saveMutation.mutateAsync(code);
+                      }}
+                      alternateDelivery={
+                        user?.phoneVerified
+                          ? otpChannel === "sms"
+                            ? {
+                                label: "Send code to email instead",
+                                onPress: () => void switchOtpChannel("email"),
+                                disabled: saveMutation.isPending,
+                              }
+                            : {
+                                label: "Send code to phone instead",
+                                onPress: () => void switchOtpChannel("sms"),
+                                disabled: saveMutation.isPending,
+                              }
+                          : undefined
+                      }
+                      className="mb-2"
+                    />
+
+                    <div className="space-y-5">
+                      <div className="space-y-2">
+                        <Label htmlFor="card-pan">Card number</Label>
+                        <Input
+                          id="card-pan"
+                          inputMode="numeric"
+                          autoComplete="cc-number"
+                          placeholder="1234 1234 1234 1234"
+                          className={cn(
+                            "h-11 text-base tracking-wide font-mono",
+                            panDigits.length >= 13 && !luhnOk && "border-destructive",
+                          )}
+                          value={panDisplay}
+                          onChange={(e) => setPanDisplay(formatPanGroups(e.target.value))}
+                        />
+                        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                          <span>
+                            {panDigits.length >= 13
+                              ? luhnOk
+                                ? "Number looks valid"
+                                : "Check the card number"
+                              : " "}
+                          </span>
+                          <span className="shrink-0 opacity-70">Visa · Mastercard · Amex · Discover</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Expiration</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              inputMode="numeric"
+                              placeholder="MM"
+                              maxLength={2}
+                              autoComplete="cc-exp-month"
+                              className="h-11 font-mono"
+                              value={expMonth}
+                              onChange={(e) => setExpMonth(e.target.value.replace(/\D/g, "").slice(0, 2))}
+                            />
+                            <Input
+                              inputMode="numeric"
+                              placeholder="YYYY"
+                              maxLength={4}
+                              autoComplete="cc-exp-year"
+                              className="h-11 font-mono"
+                              value={expYear}
+                              onChange={(e) => setExpYear(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="cvc">Security code</Label>
+                          <Input
+                            id="cvc"
+                            inputMode="numeric"
+                            maxLength={4}
+                            type="password"
+                            autoComplete="cc-csc"
+                            placeholder="CVC"
+                            className="h-11 font-mono"
+                            value={cvc}
+                            onChange={(e) => setCvc(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                          />
+                          <p className="text-[11px] text-muted-foreground">Never stored on our servers.</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="country">Country</Label>
+                          <select
+                            id="country"
+                            className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            value={country}
+                            onChange={(e) => setCountry(e.target.value)}
+                          >
+                            {COUNTRIES.map((c) => (
+                              <option key={c.code} value={c.code}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="zip">ZIP / postal code</Label>
+                          <Input
+                            id="zip"
+                            autoComplete="postal-code"
+                            className="h-11"
+                            value={postalCode}
+                            onChange={(e) => setPostalCode(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="default-pm"
+                          checked={isDefault}
+                          onCheckedChange={(v) => setIsDefault(v === true)}
+                        />
+                        <Label htmlFor="default-pm" className="text-sm font-normal cursor-pointer">
+                          Use as default payment method
+                        </Label>
+                      </div>
+
+                      <div className="rounded-lg border border-border/80 bg-muted/20 px-4 py-3 space-y-2">
+                        <Label className="text-sm font-medium">Verification code delivery</Label>
+                        <div className="flex flex-wrap gap-4 text-sm">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="otp-channel"
+                              className="accent-primary"
+                              checked={otpChannel === "sms"}
+                              disabled={!user?.phoneVerified}
+                              onChange={() => setOtpChannel("sms")}
+                            />
+                            <span>
+                              Text message
+                              {user?.phoneVerified && user.phoneMasked ? (
+                                <span className="text-muted-foreground"> · {user.phoneMasked}</span>
+                              ) : null}
+                            </span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="otp-channel"
+                              className="accent-primary"
+                              checked={otpChannel === "email"}
+                              onChange={() => setOtpChannel("email")}
+                            />
+                            <span>Email</span>
+                          </label>
+                        </div>
+                        {!user?.phoneVerified && (
+                          <p className="text-xs text-muted-foreground">
+                            <Link href="/account" className="text-primary hover:underline">
+                              Verify a phone number
+                            </Link>{" "}
+                            to use SMS codes.
+                          </p>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        By saving, you agree to our billing terms. Charges are processed by your connected payment
+                        processor; AxTask stores only non-sensitive card metadata after MFA verification.
+                      </p>
+
+                      <Button
+                        type="button"
+                        size="lg"
+                        className="w-full h-12 text-base font-medium shadow-sm bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
+                        disabled={!formReady || isRequesting || saveMutation.isPending || mfaOpen}
+                        onClick={() => void startVerification()}
+                      >
+                        {isRequesting ? "Sending code…" : mfaOpen ? "Enter code above" : "Continue securely"}
+                      </Button>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="wallet" className="mt-8">
+                    <div className="rounded-xl border border-dashed border-zinc-200 dark:border-zinc-700 p-8 text-center text-sm text-muted-foreground">
+                      <Wallet className="h-10 w-10 mx-auto mb-3 opacity-40" />
+                      <p className="font-medium text-foreground">Wallet pay</p>
+                      <p className="mt-2 max-w-xs mx-auto">
+                        When you connect Stripe (or another processor), Google Pay and Apple Pay can use the same MFA step
+                        before tokens are saved.
+                      </p>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </CollapsibleContent>
+            </Collapsible>
+          </section>
+
+          {/* Billing information */}
+          <section>
+            <SectionLabel>Billing information</SectionLabel>
+            <div className="rounded-lg border border-border px-4 py-4 space-y-2">
+              <p className="text-sm font-semibold tracking-wide uppercase">{billingDisplayName}</p>
+              {billingAddressLines.length > 0 ? (
+                billingAddressLines.map((line) => (
+                  <p key={line} className="text-sm text-muted-foreground">
+                    {line}
+                  </p>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No billing address on file.</p>
+              )}
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 text-sm text-primary hover:underline mt-2"
+                onClick={() => setProfileOpen(true)}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Update information
+              </button>
+            </div>
+          </section>
+
+          {/* Invoice history */}
+          <section>
+            <SectionLabel>Invoice history</SectionLabel>
+            {invoiceRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No invoices yet.</p>
+            ) : (
+              <>
+                <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+                  {visibleInvoices.map((inv) => (
+                    <div
+                      key={inv.id}
+                      className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3 text-sm"
+                    >
+                      <span className="text-muted-foreground w-32 shrink-0">
+                        {inv.createdAt
+                          ? format(new Date(inv.createdAt), "MMM d, yyyy")
+                          : "—"}
+                      </span>
+                      <span className="font-medium w-24 shrink-0">
+                        {formatMoney(inv.amountCents, inv.currency)}
+                      </span>
+                      <InvoiceStatusBadge status={inv.status} />
+                      <span className="flex-1 min-w-0 text-muted-foreground truncate">{inv.description}</span>
+                    </div>
+                  ))}
+                </div>
+                {invoiceRows.length > 5 ? (
+                  <button
+                    type="button"
+                    className="mt-3 text-sm text-primary hover:underline inline-flex items-center gap-1"
+                    onClick={() => setInvoiceExpanded(!invoiceExpanded)}
+                  >
+                    {invoiceExpanded ? "Show less" : "View more"}
+                    <ChevronDown className={cn("h-4 w-4", invoiceExpanded && "rotate-180")} />
+                  </button>
+                ) : null}
+              </>
+            )}
+          </section>
         </div>
       </div>
+
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Update billing information</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="bp-name">Legal name</Label>
+              <Input
+                id="bp-name"
+                value={profileForm.legalName}
+                onChange={(e) => setProfileForm((p) => ({ ...p, legalName: e.target.value }))}
+                placeholder="Name on receipts"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bp-l1">Address line 1</Label>
+              <Input
+                id="bp-l1"
+                value={profileForm.line1}
+                onChange={(e) => setProfileForm((p) => ({ ...p, line1: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bp-l2">Address line 2</Label>
+              <Input
+                id="bp-l2"
+                value={profileForm.line2}
+                onChange={(e) => setProfileForm((p) => ({ ...p, line2: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="bp-city">City</Label>
+                <Input
+                  id="bp-city"
+                  value={profileForm.city}
+                  onChange={(e) => setProfileForm((p) => ({ ...p, city: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bp-region">State / region</Label>
+                <Input
+                  id="bp-region"
+                  value={profileForm.region}
+                  onChange={(e) => setProfileForm((p) => ({ ...p, region: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="bp-postal">Postal code</Label>
+                <Input
+                  id="bp-postal"
+                  value={profileForm.postalCode}
+                  onChange={(e) => setProfileForm((p) => ({ ...p, postalCode: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bp-country">Country</Label>
+                <select
+                  id="bp-country"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={profileForm.country}
+                  onChange={(e) => setProfileForm((p) => ({ ...p, country: e.target.value }))}
+                >
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProfileOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => saveProfileMutation.mutate()} disabled={saveProfileMutation.isPending}>
+              {saveProfileMutation.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

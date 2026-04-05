@@ -4,6 +4,8 @@
 
 AxTask is built using modern web development practices with a focus on type safety, performance, and maintainability. This document provides technical details for developers maintaining and extending the intelligent task management system.
 
+For the **product checklist** and documentation map, see [PRODUCT_ROADMAP.md](./PRODUCT_ROADMAP.md). For **dispatcher and engine** boundaries (account vs core), see [ENGINES.md](./ENGINES.md).
+
 ## High-Level Architecture
 
 ```

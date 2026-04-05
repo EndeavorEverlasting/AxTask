@@ -25,6 +25,7 @@ import {
   invoiceEvents,
   mfaChallenges,
   billingPaymentMethods,
+  userBillingProfiles,
   idempotencyKeys,
   premiumSubscriptions,
   premiumSavedViews,
@@ -59,6 +60,7 @@ import {
   type Invoice,
   type InvoiceEvent,
   type BillingPaymentMethod,
+  type UserBillingProfile,
   type PremiumSubscription,
   type PremiumSavedView,
   type PremiumReviewWorkflow,
@@ -2035,6 +2037,80 @@ export async function createBillingPaymentMethod(input: {
   return row;
 }
 
+export async function deleteBillingPaymentMethodForUser(
+  userId: string,
+  paymentMethodId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select()
+    .from(billingPaymentMethods)
+    .where(and(eq(billingPaymentMethods.id, paymentMethodId), eq(billingPaymentMethods.userId, userId)));
+  if (!row) return false;
+  const wasDefault = row.isDefault;
+  await db.delete(billingPaymentMethods).where(eq(billingPaymentMethods.id, paymentMethodId));
+  if (wasDefault) {
+    const [next] = await db
+      .select()
+      .from(billingPaymentMethods)
+      .where(eq(billingPaymentMethods.userId, userId))
+      .orderBy(desc(billingPaymentMethods.createdAt))
+      .limit(1);
+    if (next) {
+      await db
+        .update(billingPaymentMethods)
+        .set({ isDefault: true })
+        .where(eq(billingPaymentMethods.id, next.id));
+    }
+  }
+  return true;
+}
+
+export async function getUserBillingProfile(userId: string): Promise<UserBillingProfile | undefined> {
+  const [row] = await db.select().from(userBillingProfiles).where(eq(userBillingProfiles.userId, userId));
+  return row;
+}
+
+export async function upsertUserBillingProfile(
+  userId: string,
+  input: {
+    legalName?: string | null;
+    line1?: string | null;
+    line2?: string | null;
+    city?: string | null;
+    region?: string | null;
+    postalCode?: string | null;
+    country?: string | null;
+  },
+): Promise<UserBillingProfile> {
+  const existing = await getUserBillingProfile(userId);
+  const payload = {
+    legalName: input.legalName ?? existing?.legalName ?? null,
+    line1: input.line1 ?? existing?.line1 ?? null,
+    line2: input.line2 ?? existing?.line2 ?? null,
+    city: input.city ?? existing?.city ?? null,
+    region: input.region ?? existing?.region ?? null,
+    postalCode: input.postalCode ?? existing?.postalCode ?? null,
+    country: input.country ?? existing?.country ?? null,
+    updatedAt: new Date(),
+  };
+  if (existing) {
+    const [updated] = await db
+      .update(userBillingProfiles)
+      .set(payload)
+      .where(eq(userBillingProfiles.userId, userId))
+      .returning();
+    return updated;
+  }
+  const [created] = await db
+    .insert(userBillingProfiles)
+    .values({
+      userId,
+      ...payload,
+    })
+    .returning();
+  return created;
+}
+
 export async function createInvoice(input: {
   userId: string;
   invoiceNumber: string;
@@ -2097,8 +2173,14 @@ export async function confirmInvoicePayment(invoiceId: string, actorUserId: stri
   return invoice;
 }
 
-export async function listInvoices(limit = 100): Promise<Invoice[]> {
-  return db.select().from(invoices).orderBy(desc(invoices.createdAt)).limit(limit);
+/** Invoices for a single user (never use unscoped list for authenticated API responses). */
+export async function listInvoicesForUser(userId: string, limit = 100): Promise<Invoice[]> {
+  return db
+    .select()
+    .from(invoices)
+    .where(eq(invoices.userId, userId))
+    .orderBy(desc(invoices.createdAt))
+    .limit(limit);
 }
 
 export async function listInvoiceEvents(invoiceId: string): Promise<InvoiceEvent[]> {

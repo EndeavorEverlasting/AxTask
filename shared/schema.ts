@@ -558,6 +558,23 @@ export const billingPaymentMethods = pgTable("billing_payment_methods", {
 
 export type BillingPaymentMethod = typeof billingPaymentMethods.$inferSelect;
 
+/** Receipt / legal billing identity (account plane; separate from community profile). */
+export const userBillingProfiles = pgTable("user_billing_profiles", {
+  userId: varchar("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  legalName: text("legal_name"),
+  line1: text("line1"),
+  line2: text("line2"),
+  city: text("city"),
+  region: text("region"),
+  postalCode: text("postal_code"),
+  country: text("country"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type UserBillingProfile = typeof userBillingProfiles.$inferSelect;
+
 export const idempotencyKeys = pgTable("idempotency_keys", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   key: text("key").notNull(),

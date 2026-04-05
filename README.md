@@ -1,13 +1,17 @@
 
-# Priority Engine Task Management System
+# AxTask
+
+**Priority engine task management** — intelligent scoring, calendar workflows, offline-ready client, and hardened security foundations.
 
 **Version:** 1.2.0 (Robustness + Security Hardening)  
 **Status:** Production Ready  
-**Last Updated:** April 3rd, 2026
+**Last Updated:** April 5th, 2026
 
 ## Overview
 
 A full-stack task management application with an intelligent priority scoring engine that automatically calculates task priorities based on content analysis. Includes hardened import deduplication, usage/storage observability, attachment upload controls, and security event monitoring.
+
+**Product roadmap and vision checklist:** [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md) (start here after cloning). Billing UI and account-plane APIs: [docs/BILLING_UI.md](docs/BILLING_UI.md). Engine orchestration: [docs/ENGINES.md](docs/ENGINES.md).
 
 ## Run locally after cloning with Docker
 

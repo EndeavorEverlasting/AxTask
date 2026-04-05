@@ -16,9 +16,10 @@ import {
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage,
-  hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
+  hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoicesForUser, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
-  listBillingPaymentMethodsForUser, createBillingPaymentMethod,
+  listBillingPaymentMethodsForUser, createBillingPaymentMethod, deleteBillingPaymentMethodForUser,
+  getUserBillingProfile, upsertUserBillingProfile,
   deleteMfaChallengeById, getUserContactForMfa, setUserVerifiedPhone, getUserById,
   appendSecurityEvent, getSecurityEvents, getSecurityAlerts, analyzeAndCreateSecurityAlerts,
   listFeedbackInbox,
@@ -72,6 +73,7 @@ import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
+import { buildBillingSummary } from "./engines/billing-summary-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
 import { processFeedbackWithEngines } from "./engines/feedback-engine";
@@ -2964,10 +2966,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/invoices", requireAuth, async (_req, res) => {
+  app.get("/api/invoices", requireAuth, async (req, res) => {
     try {
-      const invoices = await listInvoices(200);
-      res.json(invoices);
+      const rows = await listInvoicesForUser(req.user!.id, 200);
+      res.json(rows);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch invoices" });
     }
@@ -2982,12 +2984,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/billing/summary", requireAuth, async (req, res) => {
+    try {
+      const summary = await buildBillingSummary(req.user!.id);
+      res.json(summary);
+    } catch {
+      res.status(500).json({ message: "Failed to load billing summary" });
+    }
+  });
+
+  app.get("/api/billing/profile", requireAuth, async (req, res) => {
+    try {
+      const row = await getUserBillingProfile(req.user!.id);
+      res.json(row ?? null);
+    } catch {
+      res.status(500).json({ message: "Failed to load billing profile" });
+    }
+  });
+
+  app.patch("/api/billing/profile", requireAuth, async (req, res) => {
+    try {
+      const body = z
+        .object({
+          legalName: z.string().max(200).optional().nullable(),
+          line1: z.string().max(200).optional().nullable(),
+          line2: z.string().max(200).optional().nullable(),
+          city: z.string().max(120).optional().nullable(),
+          region: z.string().max(120).optional().nullable(),
+          postalCode: z.string().max(32).optional().nullable(),
+          country: z.string().max(64).optional().nullable(),
+        })
+        .parse(req.body ?? {});
+      const updated = await upsertUserBillingProfile(req.user!.id, body);
+      await appendSecurityEvent({
+        eventType: "billing_profile_updated",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to update billing profile" });
+    }
+  });
+
   app.get("/api/billing/payment-methods", requireAuth, async (req, res) => {
     try {
       const rows = await listBillingPaymentMethodsForUser(req.user!.id);
       res.json(rows);
     } catch (error) {
       res.status(500).json({ message: "Failed to load payment methods" });
+    }
+  });
+
+  app.delete("/api/billing/payment-methods/:id", requireAuth, async (req, res) => {
+    try {
+      const ok = await deleteBillingPaymentMethodForUser(req.user!.id, req.params.id);
+      if (!ok) return res.status(404).json({ message: "Payment method not found" });
+      await appendSecurityEvent({
+        eventType: "billing_payment_method_removed",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: { paymentMethodId: req.params.id },
+      });
+      res.status(204).end();
+    } catch {
+      res.status(500).json({ message: "Failed to remove payment method" });
     }
   });
 
