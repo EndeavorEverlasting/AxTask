@@ -22,6 +22,7 @@ This is the fastest way to get a full stack (app + PostgreSQL) on your machine a
 Documentation often shows the Unix `cp` command. **Windows Command Prompt (`cmd.exe`) does not include `cp`** — you will see `'cp' is not recognized as an internal or external command`. Use any of these instead:
 
 - **`npm run docker:env-init`** — creates `.env.docker` from the example (same on every OS).
+- **`npm run submodule:init`** — runs `git submodule update --init --recursive` when you cloned without `--recurse-submodules` (NodeWeaver lives in a submodule).
 - **Windows CMD:** `copy .env.docker.example .env.docker`
 - **Windows PowerShell:** `Copy-Item .env.docker.example .env.docker`
 - **Git Bash, WSL, macOS, Linux:** `cp .env.docker.example .env.docker`
@@ -33,7 +34,38 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
    - **Linux / server:** Docker Engine + Docker Compose v2 plugin  
    Step-by-step: [`docs/DOCKER_FOUNDATION.md`](docs/DOCKER_FOUNDATION.md)
 
-2. **Clone** the repository and open a terminal in the **project root** (the folder that contains `package.json`).
+2. **Clone the repo and work from the project root**
+
+   **Project root** is the folder that contains **`package.json`** and **`docker-compose.yml`**. Run every `npm run …` command in this guide from that directory (your shell prompt should show that folder name after `cd`).
+
+   **Clone with submodules** (recommended — pulls **NodeWeaver** for optional `docker:up:nodeweaver`):
+
+   ```bash
+   git clone --recurse-submodules https://github.com/EndeavorEverlasting/AxTask.git
+   cd AxTask
+   ```
+
+   Use your **fork’s URL** or **SSH** (`git clone --recurse-submodules git@github.com:YOUR_USER/AxTask.git`) if that is how you work.
+
+   **Already cloned without `--recurse-submodules`?** From inside the repo:
+
+   ```bash
+   npm run submodule:init
+   ```
+
+   That runs `git submodule update --init --recursive`. Then stay in the same directory for the steps below.
+
+   **Check you are in the right place:** `dir package.json` (Windows CMD), `Test-Path package.json` (PowerShell), or `ls package.json` (macOS/Linux) should succeed.
+
+   **PowerShell quick check (copy/paste):**
+
+   ```powershell
+   cd C:\Users\Cheex\Desktop\dev\AxTask
+   Test-Path .\package.json
+   npm run docker:env-init
+   ```
+
+   `Test-Path .\package.json` should print `True`. If you see `npm error Missing script: "docker:env-init"`, you are not in the `AxTask` folder yet.
 
 3. **Create and edit `.env.docker`**
 
@@ -52,6 +84,7 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
    - **`DATABASE_URL`** — keep host `database` and user/db names as in the example; **set the password in the URL to match `POSTGRES_PASSWORD`**
    - Optional — **`VITE_QUERY_PERSIST_BUSTER`** in `.env.docker`: bump and **rebuild** the image after a breaking API change so browsers reset persisted read caches (Phase A). See [Docker foundation — Offline Phase A](docs/DOCKER_FOUNDATION.md#offline-phase-a-read-cache-and-rebuilds).
    - **Phase B (device refresh)** needs the **`device_refresh_tokens`** table; the stack’s **migrate** step applies it automatically. See [Docker foundation — Offline Phase B](docs/DOCKER_FOUNDATION.md#offline-phase-b-device-refresh-database) and [`docs/OFFLINE_PHASE_B.md`](docs/OFFLINE_PHASE_B.md).
+   - **Docker demo login** — when **`AXTASK_DOCKER_SEED_DEMO=1`** (default in `.env.docker.example`), the **migrate** step creates/updates **`DOCKER_DEMO_USER_EMAIL`** / **`DOCKER_DEMO_PASSWORD`**. After **`npm run docker:up`**, the same credentials are **printed again in your terminal** for convenience. Turn **`AXTASK_DOCKER_SEED_DEMO=0`** and use strong secrets before any internet-exposed deployment.
 
 4. **Start the stack**
 
@@ -61,11 +94,12 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
    `npm run docker:up` creates `.env.docker` from `.env.docker.example` if the file is missing, refuses to start if secrets are still placeholders, waits for the Docker engine, and on **Windows** / **macOS** tries to start **Docker Desktop** when it is installed but not running. If Docker is already up and you only want Compose without that logic, use `npm run docker:start`.
 
 5. **Open the app:** [http://localhost:5000](http://localhost:5000)  
+   **Sign in:** use the **demo email/password** echoed by `docker:up` (from `.env.docker`) or click **Register** if demo seed is off.  
    Check containers: `npm run docker:status` · Stop: `npm run docker:stop` · Logs: `npm run docker:logs`
 
 ### Optional: NodeWeaver in the same Compose stack
 
-Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run it **next to AxTask** in Docker: add the git submodule under `services/nodeweaver/upstream`, set `NODEWEAVER_URL=http://nodeweaver:5000` in `.env.docker`, then start with **`npm run docker:up:nodeweaver`** (or `node tools/local/docker-start.mjs --with-nodeweaver`). The default `npm run docker:up` does **not** start NodeWeaver. Full steps: [`services/nodeweaver/README.md`](services/nodeweaver/README.md).
+Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run it **next to AxTask** in Docker: ensure the submodule is present (**`npm run submodule:init`** if you did not use `git clone --recurse-submodules`), set `NODEWEAVER_URL=http://nodeweaver:5000` in `.env.docker`, then start with **`npm run docker:up:nodeweaver`** (or `node tools/local/docker-start.mjs --with-nodeweaver`). The default `npm run docker:up` does **not** start NodeWeaver. Full steps: [`services/nodeweaver/README.md`](services/nodeweaver/README.md).
 
 ### One-click Docker scripts
 
@@ -76,45 +110,37 @@ Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run
 
 Use this when you prefer to run the app with `tsx` against your own Postgres (not the Docker Compose stack).
 
+**Clone and `cd`:** same as [Run locally after cloning with Docker](#run-locally-after-cloning-with-docker) — step **2** (`git clone --recurse-submodules …`, `cd AxTask`, and **`npm run submodule:init`** if you cloned without submodules).
+
 From the **project root**:
 
-1. **`npm install`**
-2. **Create `.env`** (only if you do not already have one):
-   - **Any OS (recommended):** `npm run local:env-init` — copies `.env.example` when needed and **writes a strong `SESSION_SECRET` into `.env` without printing it**. If `.env` already exists, it only fixes `SESSION_SECRET` when it is missing or still a placeholder.
-   - **macOS / Linux / Git Bash / WSL:** `cp .env.example .env` (then run **`npm run local:secrets-bootstrap`** so session signing works)
-   - **Windows Command Prompt:** `copy .env.example .env` (then **`npm run local:secrets-bootstrap`**)
-   - **Windows PowerShell:** `Copy-Item .env.example .env` (then **`npm run local:secrets-bootstrap`**)  
-   Or run **`npm run offline:start`** once — it creates `.env` from `.env.example` automatically if missing, bootstraps `SESSION_SECRET`, installs deps, runs `db:push`, and starts the app.
-3. Edit **`.env`**: set **`DATABASE_URL`** to a reachable PostgreSQL instance (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
-4. **`npm run db:push`** then **`npm run dev`**
+**Recommended (one flow):** **`npm run local:start`** (alias: **`npm run offline:start`** / **`npm run dev:smart`**) does, in order: **`npm run local:env-init`** (creates `.env` from `.env.example` when needed and bootstraps **`SESSION_SECRET`** without printing it), dependency install/sync, **`npm run db`** (schema push) when the schema fingerprint changes, then **`npm run dev`** with **`NODE_ENV=development`** already set — dev users **`dev@axtask.local`** / **`admin@axtask.local`** and their **one-time passwords** are printed in **that server terminal** on each start.
+
+Before the first successful run, edit **`.env`** after `local:env-init` and set **`DATABASE_URL`** to a reachable PostgreSQL URL (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
+
+**Manual equivalent:** `npm run local:env-init`, then `npm install`, then `npm run db`, then `npm run dev`. The script `npm run db` is a shortcut for `npm run db:push`.
+
+If you prefer not to run `local:env-init`, create `.env` manually: **Windows CMD:** `copy .env.example .env` · **PowerShell:** `Copy-Item .env.example .env` · **macOS/Linux/Git Bash:** `cp .env.example .env` — then run **`npm run local:secrets-bootstrap`** so session signing works.
 
 Visit `http://localhost:5000` to access the application.
 
 ### One-click local/offline startup
 
 - Windows: double-click `start-offline.cmd`
-- Any OS with Node/npm: run `npm run offline:start` (same as `npm run dev:smart`)
+- Any OS with Node/npm: run **`npm run local:start`** (same as **`npm run offline:start`** / **`npm run dev:smart`**)
 - Optional (Windows): run `npm run offline:shortcut` once to create a Desktop shortcut named `Start AxTask Offline`
 - In-app: use `Install App Shortcut` in the left sidebar to install on desktop/mobile home screen (or show setup steps if browser prompt is unavailable)
 - First-login CTA: users also see a top install banner with `Dismiss` and `Don't show again` controls
 
-This flow automatically installs dependencies (first run), creates `.env` from `.env.example` if missing, ensures **`SESSION_SECRET`** in `.env` (not printed), runs `db:push`, and starts the app.
+This flow automatically runs **`local:env-init`**, installs dependencies when needed, runs **`db:push`** when the schema changes, and starts the dev server with **`NODE_ENV=development`**.
 
 ## Local + Offline Workflow
 
 You can run AxTask fully local (including when offline) as long as your PostgreSQL database is also local.
 
-1. Create your local env file (and session secret):
-   - **Any OS (recommended):** `npm run local:env-init` (also run it again if `SESSION_SECRET` was left as the example placeholder)
-   - macOS / Linux / Git Bash / WSL: `cp .env.example .env`
-   - Windows Command Prompt: `copy .env.example .env`
-   - Windows PowerShell: `Copy-Item .env.example .env`
-2. Ensure `.env` has a local `DATABASE_URL` (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
-3. Run from the AxTask project directory:
-   - `npm install`
-   - `npm run db:push`
-   - `npm run dev`
-4. Work offline as needed, then commit and push changes later when back online.
+1. Ensure **`.env`** has a local **`DATABASE_URL`** (use **`npm run local:env-init`** first if you do not have `.env` yet).
+2. From the project directory: **`npm run local:start`** (or the manual chain: **`npm install`**, **`npm run db`**, **`npm run dev`**).
+3. Work offline as needed, then commit and push changes later when back online.
 
 ### Cached reads and offline UI (Phase A)
 
@@ -130,6 +156,8 @@ The SPA **persists TanStack Query read caches** to `localStorage` (except auth, 
 
 - **`'cp' is not recognized`** (Windows **cmd**)  
   Use **`npm run local:env-init`** or **`npm run docker:env-init`**, or the **`copy`** / **`Copy-Item`** commands shown above — not Unix `cp`.
+- **`npm error Missing script: "docker:env-init"`**  
+  You ran the command outside the AxTask project root. `cd AxTask` first, then re-run `npm run docker:env-init`.
 - `npm error Missing script: "db:push"`  
   You ran the command outside the AxTask folder. Run it from `AxTask`.
 - `DATABASE_URL, ensure the database is provisioned`  
