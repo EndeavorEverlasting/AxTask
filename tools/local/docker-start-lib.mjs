@@ -24,7 +24,7 @@ export function parseDockerUpArgv(argv) {
 export function parseEnvAssignmentLines(text) {
   /** @type {Record<string, string>} */
   const map = {};
-  for (const line of text.split(/\r?\n/)) {
+  for (const line of text.split(/\r\n|\n|\r/)) {
     const t = line.trim();
     if (!t || t.startsWith("#")) continue;
     const eq = t.indexOf("=");

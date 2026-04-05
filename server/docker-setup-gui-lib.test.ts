@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyDockerGuiValues,
+  normalizeEnvText,
   syncDatabaseUrlPassword,
   upsertEnvKey,
   validateDockerGuiValues,
@@ -64,5 +65,25 @@ describe("docker setup gui helpers", () => {
         AXTASK_DOCKER_SEED_DEMO: "0",
       }),
     ).toContain("SESSION_SECRET");
+  });
+
+  it("normalizes CR-only separators so env keys are not merged", () => {
+    const broken = "POSTGRES_USER=axtask\rPOSTGRES_PASSWORD=123\rDATABASE_URL=postgresql://axtask:123@database:5432/axtask\r";
+    const normalized = normalizeEnvText(broken);
+    expect(normalized).toContain("POSTGRES_USER=axtask\nPOSTGRES_PASSWORD=123");
+
+    const next = applyDockerGuiValues(broken, {
+      POSTGRES_PASSWORD: "abc123",
+      SESSION_SECRET: "0123456789abcdef0123456789abcdef",
+      AXTASK_DOCKER_SEED_DEMO: "1",
+      DOCKER_DEMO_USER_EMAIL: "demo@axtask.local",
+      DOCKER_DEMO_PASSWORD: "LocalDockerDemo!ChangeMe",
+    });
+
+    expect(next).toContain("POSTGRES_USER=axtask\n");
+    expect(next).toContain("POSTGRES_PASSWORD=abc123");
+    expect(next).toContain(
+      "DATABASE_URL=postgresql://axtask:abc123@database:5432/axtask",
+    );
   });
 });

@@ -12,6 +12,15 @@ function escapeRegex(value) {
 }
 
 /**
+ * Normalize line endings to LF so env key replacement stays line-safe.
+ * @param {string} text
+ * @returns {string}
+ */
+export function normalizeEnvText(text) {
+  return String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+/**
  * @param {string} databaseUrl
  * @param {string} newPassword
  * @returns {string}
@@ -59,14 +68,15 @@ export function upsertEnvKey(text, key, value) {
  * @returns {string}
  */
 export function applyDockerGuiValues(baseText, values) {
-  const parsed = parseEnvAssignmentLines(baseText);
+  const normalizedBase = normalizeEnvText(baseText);
+  const parsed = parseEnvAssignmentLines(normalizedBase);
   const currentDbUrl = parsed.DATABASE_URL || "";
   const nextDbUrl = syncDatabaseUrlPassword(
     currentDbUrl,
     values.POSTGRES_PASSWORD,
   );
 
-  let next = baseText;
+  let next = normalizedBase;
   next = upsertEnvKey(next, "POSTGRES_PASSWORD", values.POSTGRES_PASSWORD);
   next = upsertEnvKey(next, "SESSION_SECRET", values.SESSION_SECRET);
   next = upsertEnvKey(
