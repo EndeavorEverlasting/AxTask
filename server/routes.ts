@@ -52,7 +52,7 @@ import {
   upsertUserPushSubscription,
   deleteUserPushSubscription,
   addCollaborator, removeCollaborator, getTaskCollaborators, updateCollaboratorRole,
-  getSharedTasks, canAccessTask, isTaskOwner,
+  getSharedTasks, canAccessTask, isTaskOwner, isPgUniqueViolation,
   resetStreak,
   getPatterns, getPatternsByType,
   getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution,
@@ -1509,7 +1509,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertTaskSchema.parse(req.body);
       const userId = req.user!.id;
-      if (validatedData.id && (await storage.isTaskIdTaken(validatedData.id))) {
+      if (validatedData.id && (await storage.isTaskIdTaken(validatedData.id, userId))) {
         return res.status(409).json({ message: "A task with this id already exists" });
       }
       const quota = await assertCanCreateTasks(userId, 1);
@@ -1521,7 +1521,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: "A matching task already exists." });
       }
 
-      let task = await storage.createTask(userId, validatedData);
+      let task;
+      try {
+        task = await storage.createTask(userId, validatedData);
+      } catch (e) {
+        if (isPgUniqueViolation(e)) {
+          return res.status(409).json({ message: "A task with this id already exists" });
+        }
+        throw e;
+      }
       await recordImportFingerprint(userId, fingerprint, "manual_create", task.id);
 
       const allTasks = await storage.getTasks(userId);

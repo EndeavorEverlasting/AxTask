@@ -322,59 +322,72 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
   if (!isBrowserOnline() || drainInProgress) return;
   drainInProgress = true;
 
+  const opDrainMeta = (op: OfflineTaskOp) => {
+    const base = { kind: op.kind, opId: op.opId } as Record<string, unknown>;
+    if (op.kind === "create") base.clientId = op.clientId;
+    if (op.kind === "update" || op.kind === "delete") base.taskId = op.taskId;
+    if (op.kind === "http") {
+      base.method = op.method;
+      base.path = op.path;
+    }
+    return base;
+  };
+
   let ops = peekOfflineQueue();
   try {
-  while (ops.length > 0) {
-    const op = ops[0];
-    try {
-      switch (op.kind) {
-        case "create": {
-          const res = await apiFetch("POST", "/api/tasks", {
-            ...op.payload,
-            id: op.clientId,
-          });
-          if (!res.ok) throw new Error(await res.text());
-          break;
-        }
-        case "update": {
-          const ur = await processUpdateOp(op, queryClient);
-          if (ur === "aborted") {
-            removeOfflineOp(op.opId);
+    while (ops.length > 0) {
+      const op = ops[0];
+      try {
+        switch (op.kind) {
+          case "create": {
+            const res = await apiFetch("POST", "/api/tasks", {
+              ...op.payload,
+              id: op.clientId,
+            });
+            if (!res.ok) throw new Error(await res.text());
             break;
           }
-          break;
-        }
-        case "delete": {
-          const dr = await processDeleteOp(op, queryClient);
-          if (dr === "aborted") {
-            removeOfflineOp(op.opId);
+          case "update": {
+            const ur = await processUpdateOp(op, queryClient);
+            if (ur === "aborted") {
+              removeOfflineOp(op.opId);
+              break;
+            }
             break;
           }
-          break;
+          case "delete": {
+            const dr = await processDeleteOp(op, queryClient);
+            if (dr === "aborted") {
+              removeOfflineOp(op.opId);
+              break;
+            }
+            break;
+          }
+          case "reorder": {
+            const res = await apiRequest("PATCH", "/api/tasks/reorder", { taskIds: op.taskIds });
+            if (!res.ok) throw new Error(await res.text());
+            break;
+          }
+          case "http": {
+            const res = await apiRequest(op.method, op.path, op.body);
+            if (!res.ok && res.status !== 204) throw new Error(await res.text());
+            break;
+          }
+          default:
+            break;
         }
-        case "reorder": {
-          const res = await apiRequest("PATCH", "/api/tasks/reorder", { taskIds: op.taskIds });
-          if (!res.ok) throw new Error(await res.text());
-          break;
-        }
-        case "http": {
-          const res = await apiRequest(op.method, op.path, op.body);
-          if (!res.ok && res.status !== 204) throw new Error(await res.text());
-          break;
-        }
-        default:
-          break;
+        removeOfflineOp(op.opId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[offline-task-queue] drain failed", { ...opDrainMeta(op), error: message, err });
+        break;
       }
-      removeOfflineOp(op.opId);
-    } catch {
-      break;
+      ops = peekOfflineQueue();
     }
-    ops = peekOfflineQueue();
-  }
 
-  await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-  await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-  await queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
+    await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+    await queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
   } finally {
     drainInProgress = false;
   }

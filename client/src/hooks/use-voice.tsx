@@ -104,7 +104,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
           const newDate = data.payload.newDate as string;
           const tasks = queryClient.getQueryData<Task[]>(["/api/tasks"]) ?? [];
           const base = tasks.find((t) => t.id === taskId);
-          void syncUpdateTask(taskId, { id: taskId, date: newDate }, base, queryClient)
+          void syncUpdateTask(taskId, { date: newDate }, base, queryClient)
             .then((r) => {
               const d = r as { offlineQueued?: boolean } | undefined;
               if (d?.offlineQueued) {

@@ -945,8 +945,8 @@ export async function analyzeAndCreateSecurityAlerts(): Promise<{ created: numbe
 export interface IStorage {
   getTasks(userId: string): Promise<Task[]>;
   getTask(userId: string, id: string): Promise<Task | undefined>;
-  /** True if any row uses this primary key (Phase C client-provisioned ids). */
-  isTaskIdTaken(id: string): Promise<boolean>;
+  /** True if this user already has a task with this primary key (Phase C client-provisioned ids). */
+  isTaskIdTaken(id: string, userId: string): Promise<boolean>;
   createTask(userId: string, task: InsertTask): Promise<Task>;
   updateTask(userId: string, task: UpdateTask): Promise<Task | undefined>;
   deleteTask(userId: string, id: string): Promise<boolean>;
@@ -981,8 +981,12 @@ export class DatabaseStorage implements IStorage {
     return task || undefined;
   }
 
-  async isTaskIdTaken(id: string): Promise<boolean> {
-    const [row] = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, id)).limit(1);
+  async isTaskIdTaken(id: string, userId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
+      .limit(1);
     return !!row;
   }
 
@@ -1293,7 +1297,7 @@ export async function getUserRewards(userId: string): Promise<(typeof userReward
   return db.select().from(userRewards).where(eq(userRewards.userId, userId)).orderBy(desc(userRewards.redeemedAt));
 }
 
-function isPgUniqueViolation(err: unknown): boolean {
+export function isPgUniqueViolation(err: unknown): boolean {
   const o = err as { code?: string; cause?: { code?: string } };
   return o?.code === "23505" || o?.cause?.code === "23505";
 }

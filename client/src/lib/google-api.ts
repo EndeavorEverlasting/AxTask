@@ -84,6 +84,23 @@ export class GoogleSheetsClient {
         refreshToken: tokens.refreshToken,
       }),
     });
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const ct = response.headers.get("content-type") || "";
+        if (ct.includes("application/json")) {
+          const j = await response.json();
+          detail = typeof j?.message === "string" ? j.message : JSON.stringify(j);
+        } else {
+          detail = (await response.text()).slice(0, 500);
+        }
+      } catch {
+        detail = response.statusText;
+      }
+      throw new Error(
+        `getSpreadsheetInfo failed: HTTP ${response.status}${detail ? ` — ${detail}` : ""}`,
+      );
+    }
     return await response.json();
   }
 

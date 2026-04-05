@@ -96,6 +96,15 @@ export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
     },
+    onError: (err: Error) => {
+      console.error("update collaborator role failed", err);
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
+      toast({
+        title: "Failed to update role",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const roleIcon = (r: string) => {
