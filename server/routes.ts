@@ -46,6 +46,10 @@ import {
   resolvePremiumInsight,
   buildWeeklyPremiumDigest,
   trackPremiumEvent,
+  grantAdminLifetimePremium,
+  revokeAdminLifetimePremium,
+  listPremiumEventsForUser,
+  listActiveLifetimePremiumGrants,
   getPremiumRetentionMetrics,
   getUserNotificationPreference,
   upsertUserNotificationPreference,
@@ -586,6 +590,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       authProvider,
       loginUrl: loginUrls[authProvider] || "",
       providers,
+      donateUrl: (process.env.DONATE_URL || "").trim(),
     });
   });
 
@@ -3336,9 +3341,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/users", requireAdmin, async (req, res) => {
     try {
       const userList = await getAllUsers();
-      res.json(userList);
+      const lifetimeRows = await listActiveLifetimePremiumGrants();
+      const byUser = new Map<string, Array<{ userId: string; product: string; planKey: string }>>();
+      for (const row of lifetimeRows) {
+        if (!byUser.has(row.userId)) byUser.set(row.userId, []);
+        byUser.get(row.userId)!.push(row);
+      }
+      res.json(
+        userList.map((u) => ({
+          ...u,
+          lifetimePremiumGrants: byUser.get(u.id) ?? [],
+        })),
+      );
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.post("/api/admin/users/:userId/premium/lifetime-grant", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { product, grantType, reason } = req.body || {};
+      const productOk = product === "axtask" || product === "nodeweaver" || product === "bundle";
+      const typeOk = grantType === "beta_tester" || grantType === "patron" || grantType === "manual";
+      if (!productOk || !typeOk || typeof reason !== "string") {
+        return res.status(400).json({ message: "Invalid product, grantType, or reason" });
+      }
+      const row = await grantAdminLifetimePremium({
+        targetUserId: userId,
+        product,
+        grantedByUserId: req.user!.id,
+        grantType,
+        reason,
+      });
+      await logSecurityEvent(
+        "admin_lifetime_premium_granted",
+        req.user!.id,
+        userId,
+        req.ip,
+        `${product} · ${grantType}`,
+      );
+      res.json({ subscription: row });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.includes("Reason is required")) {
+        return res.status(400).json({ message: msg });
+      }
+      res.status(500).json({ message: "Failed to grant lifetime premium" });
+    }
+  });
+
+  app.post("/api/admin/users/:userId/premium/lifetime-revoke", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { product, reason } = req.body || {};
+      const productOk = product === "axtask" || product === "nodeweaver" || product === "bundle";
+      if (!productOk || typeof reason !== "string") {
+        return res.status(400).json({ message: "Invalid product or reason" });
+      }
+      const row = await revokeAdminLifetimePremium({
+        targetUserId: userId,
+        product,
+        revokedByUserId: req.user!.id,
+        reason,
+      });
+      if (!row) {
+        return res.status(404).json({ message: "No lifetime subscription found for that product" });
+      }
+      await logSecurityEvent(
+        "admin_lifetime_premium_revoked",
+        req.user!.id,
+        userId,
+        req.ip,
+        product,
+      );
+      res.json({ subscription: row });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.includes("Reason is required")) {
+        return res.status(400).json({ message: msg });
+      }
+      res.status(500).json({ message: "Failed to revoke lifetime premium" });
+    }
+  });
+
+  app.get("/api/admin/users/:userId/premium-events", requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || "50"), 10) || 50, 1), 200);
+      const events = await listPremiumEventsForUser(req.params.userId, limit);
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch premium events" });
     }
   });
 

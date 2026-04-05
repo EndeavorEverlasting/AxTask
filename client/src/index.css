@@ -53,9 +53,76 @@
     @apply border-border;
   }
 
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+  }
+
+  #root {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
+}
+
+/* Tutorial speech-bubble tail (points toward highlighted target) */
+.tutorial-bubble-tail--left::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 24px;
+  border: 8px solid transparent;
+  border-right-color: white;
+}
+
+.dark .tutorial-bubble-tail--left::before {
+  border-right-color: rgb(31 41 55);
+}
+
+.tutorial-bubble-tail--right::before {
+  content: "";
+  position: absolute;
+  right: -8px;
+  top: 24px;
+  border: 8px solid transparent;
+  border-left-color: white;
+}
+
+.dark .tutorial-bubble-tail--right::before {
+  border-left-color: rgb(31 41 55);
+}
+
+.tutorial-bubble-tail--bottom::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-top-color: white;
+}
+
+.dark .tutorial-bubble-tail--bottom::before {
+  border-top-color: rgb(31 41 55);
+}
+
+.tutorial-bubble-tail--top::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-bottom-color: white;
+}
+
+.dark .tutorial-bubble-tail--top::before {
+  border-bottom-color: rgb(31 41 55);
 }
 
 .safe-area-bottom {

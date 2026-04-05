@@ -55,6 +55,9 @@ export type BillingSummaryDto = {
 };
 
 function catalogPriceLabel(planKey: string): string | null {
+  if (planKey.endsWith("_lifetime")) {
+    return "Lifetime access";
+  }
   const plan = PREMIUM_CATALOG.plans.find((p) => p.planKey === planKey);
   if (!plan) return null;
   return `$${plan.monthlyPriceUsd.toFixed(2)} per month`;
@@ -63,6 +66,9 @@ function catalogPriceLabel(planKey: string): string | null {
 function subscriptionDisplayName(product: string, planKey: string): string {
   const productLabel =
     product === "axtask" ? "AxTask" : product === "nodeweaver" ? "NodeWeaver" : "Power Bundle";
+  if (planKey.endsWith("_lifetime")) {
+    return `${productLabel} · Lifetime (complimentary)`;
+  }
   const plan = PREMIUM_CATALOG.plans.find((p) => p.planKey === planKey);
   if (plan) {
     return `${productLabel} · ${planKey.replace(/_/g, " ")}`;
@@ -132,6 +138,7 @@ export async function buildBillingSummary(userId: string): Promise<BillingSummar
   const subscriptions = subs.map(mapSubscription);
   const now = new Date();
   const activeOrGrace = subs.filter((s) => {
+    if (s.endsAt && new Date(s.endsAt) <= now) return false;
     if (s.status === "active") return true;
     if (s.status === "grace" && s.graceUntil && new Date(s.graceUntil) > now) return true;
     return false;

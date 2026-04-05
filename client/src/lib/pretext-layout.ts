@@ -47,6 +47,38 @@ export function estimateTextLayout(text: string, maxWidth: number, font = "14px 
   return layoutPreparedText(prepared, maxWidth, lineHeight);
 }
 
+/** Greedy wrap using measured token widths (pretext layout). */
+export function wrapTextToLines(text: string, maxWidth: number, font = "14px Inter, system-ui"): string[] {
+  const prepared = prepareText(text.trim(), font);
+  if (prepared.segments.length === 0) return [];
+  const lines: string[] = [];
+  let currentLine = "";
+  let currentWidth = 0;
+  for (const segment of prepared.segments) {
+    const w = segment.width;
+    if (currentWidth + w > maxWidth && currentLine.length > 0) {
+      lines.push(currentLine.trimEnd());
+      currentLine = segment.token;
+      currentWidth = w;
+    } else {
+      currentLine += segment.token;
+      currentWidth += w;
+    }
+  }
+  if (currentLine.trim().length > 0) lines.push(currentLine.trimEnd());
+  return lines;
+}
+
+/** Split instructional copy into a few short bubbles (sentence boundaries). */
+export function splitSentencesForBubbles(text: string, maxBubbles = 3): string[] {
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (sentences.length === 0) return [text.trim()].filter(Boolean);
+  return sentences.slice(0, maxBubbles);
+}
+
 export function benchmarkPretext(samples: string[], maxWidth: number) {
   const start = performance.now();
   let lines = 0;

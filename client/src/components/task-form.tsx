@@ -449,7 +449,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   }, [handleSubmitWithWarnings]);
 
   return (
-    <Card>
+    <Card id="tutorial-task-form">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>

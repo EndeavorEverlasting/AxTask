@@ -117,7 +117,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   return (
-    <div className="flex flex-col h-full outline-none" tabIndex={-1}>
+    <div className="flex flex-col h-full min-h-0 outline-none" tabIndex={-1}>
       <div className="p-6 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-primary flex items-center">
@@ -133,7 +133,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Intelligent Task Management</p>
       </div>
 
-      <nav className="flex-1 p-4 overflow-y-auto">
+      <nav className="flex-1 min-h-0 p-4 overflow-y-auto overscroll-contain">
         <ul className="space-y-1">
           {menuItems.map(({ path, icon: Icon, label, badge }) => (
             <li key={path}>
@@ -380,7 +380,7 @@ export function Sidebar() {
   return (
     <>
       <aside
-        className={`bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex-col shrink-0 hidden md:flex transition-all duration-200 overflow-hidden outline-none ${
+        className={`bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex-col shrink-0 hidden md:flex transition-all duration-200 overflow-hidden min-h-0 outline-none ${
           collapsed ? "w-0 border-r-0" : "w-64"
         }`}
       >

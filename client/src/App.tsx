@@ -194,7 +194,7 @@ function AuthenticatedApp() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="h-full min-h-0 overflow-y-auto flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -207,13 +207,13 @@ function AuthenticatedApp() {
   return (
     <VoiceProvider onNavigate={handleNavigate}>
       <TaskOfflineSyncProvider>
-      <div className="h-screen flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
+      <div className="h-screen min-h-0 flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-hidden">
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <OfflineDataBanner />
           <InstallCtaBanner userId={user.id} />
           <div
-            className="h-full overflow-auto pb-16 md:pb-0"
+            className="min-h-0 flex-1 overflow-auto overscroll-contain pb-16 md:pb-0"
             style={
               scale !== 1
                 ? {

@@ -10,6 +10,7 @@ function csrfHeaders(): Record<string, string> {
     : { "Content-Type": "application/json" };
 }
 import { Button } from "@/components/ui/button";
+import { DonateCta } from "@/components/donate-cta";
 import { Input } from "@/components/ui/input";
 import { SecureInput } from "@/components/ui/secure-input";
 import { Label } from "@/components/ui/label";
@@ -388,7 +389,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
+    <div className="h-full min-h-0 overflow-y-auto flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4 py-8">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 text-primary mb-2">
@@ -940,6 +941,10 @@ export default function LoginPage() {
               </>
             ) : null}
           </div>
+        </div>
+
+        <div className="mt-6 flex justify-center">
+          <DonateCta variant="outline" className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700" />
         </div>
       </div>
     </div>

@@ -5,9 +5,13 @@ import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { useCountUp } from "@/hooks/use-count-up";
 import type { SafeUser, SecurityLog } from "@shared/schema";
+
+type LifetimePremiumGrant = { userId: string; product: string; planKey: string };
+type AdminUserRow = SafeUser & { lifetimePremiumGrants: LifetimePremiumGrant[] };
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -154,6 +158,13 @@ export default function AdminPage() {
   const { toast } = useToast();
   const [banTarget, setBanTarget] = useState<SafeUser | null>(null);
   const [banReason, setBanReason] = useState("");
+  const [lifetimeGrantUser, setLifetimeGrantUser] = useState<AdminUserRow | null>(null);
+  const [grantProduct, setGrantProduct] = useState<"axtask" | "nodeweaver" | "bundle">("axtask");
+  const [grantType, setGrantType] = useState<"beta_tester" | "patron" | "manual">("beta_tester");
+  const [grantReason, setGrantReason] = useState("");
+  const [lifetimeRevokeUser, setLifetimeRevokeUser] = useState<AdminUserRow | null>(null);
+  const [revokeProduct, setRevokeProduct] = useState<"axtask" | "nodeweaver" | "bundle">("axtask");
+  const [revokeReason, setRevokeReason] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceAmount, setInvoiceAmount] = useState("0");
@@ -177,7 +188,7 @@ export default function AdminPage() {
   const [importMode, setImportMode] = useState<"preserve" | "remap">("preserve");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: users = [], isLoading: usersLoading } = useQuery<SafeUser[]>({
+  const { data: users = [], isLoading: usersLoading } = useQuery<AdminUserRow[]>({
     queryKey: ["/api/admin/users"],
     enabled: user?.role === "admin",
   });
@@ -393,6 +404,56 @@ export default function AdminPage() {
     },
   });
 
+  const lifetimeGrantMutation = useMutation({
+    mutationFn: async (payload: {
+      userId: string;
+      product: "axtask" | "nodeweaver" | "bundle";
+      grantType: "beta_tester" | "patron" | "manual";
+      reason: string;
+    }) => {
+      const res = await apiRequest("POST", `/api/admin/users/${payload.userId}/premium/lifetime-grant`, {
+        product: payload.product,
+        grantType: payload.grantType,
+        reason: payload.reason,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/security-logs"] });
+      setLifetimeGrantUser(null);
+      setGrantReason("");
+      toast({ title: "Lifetime access granted", description: "Logged to premium_events and security log." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Grant failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const lifetimeRevokeMutation = useMutation({
+    mutationFn: async (payload: {
+      userId: string;
+      product: "axtask" | "nodeweaver" | "bundle";
+      reason: string;
+    }) => {
+      const res = await apiRequest("POST", `/api/admin/users/${payload.userId}/premium/lifetime-revoke`, {
+        product: payload.product,
+        reason: payload.reason,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/security-logs"] });
+      setLifetimeRevokeUser(null);
+      setRevokeReason("");
+      toast({ title: "Lifetime access revoked", description: "Logged to premium_events and security log." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Revoke failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const exportMutation = useMutation({
     mutationFn: async (userId?: string) => {
       const res = await apiRequest("POST", "/api/admin/export", userId ? { userId } : {});
@@ -470,6 +531,21 @@ export default function AdminPage() {
       </div>
     );
   }
+
+  useEffect(() => {
+    if (!lifetimeRevokeUser) return;
+    const g = lifetimeRevokeUser.lifetimePremiumGrants?.[0];
+    if (g && (g.product === "axtask" || g.product === "nodeweaver" || g.product === "bundle")) {
+      setRevokeProduct(g.product);
+    }
+    setRevokeReason("");
+  }, [lifetimeRevokeUser]);
+
+  useEffect(() => {
+    if (lifetimeGrantUser) {
+      setGrantReason("");
+    }
+  }, [lifetimeGrantUser]);
 
   const filteredUsers = users.filter(
     (u) =>
@@ -1104,16 +1180,47 @@ export default function AdminPage() {
             <div className="space-y-2">
               {filteredUsers.map((u) => (
                 <Card key={u.id} className={u.isBanned ? "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/20" : ""}>
-                  <CardContent className="py-4 flex items-center justify-between">
+                  <CardContent className="py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium truncate dark:text-white">{u.displayName || u.email}</p>
                         <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-xs">{u.role}</Badge>
                         {u.isBanned && <Badge variant="destructive" className="text-xs">Banned</Badge>}
                       </div>
                       <p className="text-sm text-muted-foreground truncate">{u.email}</p>
+                      {(u.lifetimePremiumGrants ?? []).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {(u.lifetimePremiumGrants ?? []).map((g) => (
+                            <Badge key={`${u.id}-${g.planKey}`} variant="outline" className="text-xs border-amber-500/50 text-amber-800 dark:text-amber-200">
+                              {g.product} · lifetime
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setGrantProduct("axtask");
+                          setGrantType("beta_tester");
+                          setLifetimeGrantUser(u);
+                        }}
+                        disabled={lifetimeGrantMutation.isPending}
+                      >
+                        Grant lifetime…
+                      </Button>
+                      {(u.lifetimePremiumGrants ?? []).length > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setLifetimeRevokeUser(u)}
+                          disabled={lifetimeRevokeMutation.isPending}
+                        >
+                          Revoke lifetime…
+                        </Button>
+                      )}
                       {u.role !== "admin" && u.id !== user?.id && (
                         u.isBanned ? (
                           <Button size="sm" variant="outline" onClick={() => unbanMutation.mutate(u.id)} disabled={unbanMutation.isPending}>Unban</Button>
@@ -1485,6 +1592,134 @@ export default function AdminPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setBanTarget(null)}>Cancel</Button>
             <Button variant="destructive" disabled={banReason.trim().length < 3 || banMutation.isPending} onClick={() => banTarget && banMutation.mutate({ userId: banTarget.id, reason: banReason })}>Confirm Ban</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!lifetimeGrantUser} onOpenChange={(open) => !open && setLifetimeGrantUser(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Grant lifetime premium</DialogTitle>
+            <DialogDescription>
+              Creates an active complimentary subscription (no end date). Logged in <code className="text-xs">premium_events</code> as{" "}
+              <code className="text-xs">admin_lifetime_granted</code> and in the security log.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm font-medium dark:text-white">
+              {lifetimeGrantUser?.displayName || lifetimeGrantUser?.email}
+            </p>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="grant-product">Product</label>
+              <select
+                id="grant-product"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                value={grantProduct}
+                onChange={(e) => setGrantProduct(e.target.value as "axtask" | "nodeweaver" | "bundle")}
+              >
+                <option value="axtask">AxTask</option>
+                <option value="nodeweaver">NodeWeaver</option>
+                <option value="bundle">Power Bundle</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="grant-type">Grant type</label>
+              <select
+                id="grant-type"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                value={grantType}
+                onChange={(e) => setGrantType(e.target.value as "beta_tester" | "patron" | "manual")}
+              >
+                <option value="beta_tester">Beta tester</option>
+                <option value="patron">Patron / supporter</option>
+                <option value="manual">Manual / other</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="grant-reason">Reason (audit trail)</label>
+              <Textarea
+                id="grant-reason"
+                placeholder="e.g. Early Docker beta feedback, referral from X, comp for outage…"
+                value={grantReason}
+                onChange={(e) => setGrantReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLifetimeGrantUser(null)}>Cancel</Button>
+            <Button
+              disabled={grantReason.trim().length < 3 || !lifetimeGrantUser || lifetimeGrantMutation.isPending}
+              onClick={() =>
+                lifetimeGrantUser &&
+                lifetimeGrantMutation.mutate({
+                  userId: lifetimeGrantUser.id,
+                  product: grantProduct,
+                  grantType,
+                  reason: grantReason.trim(),
+                })
+              }
+            >
+              Grant access
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!lifetimeRevokeUser} onOpenChange={(open) => !open && setLifetimeRevokeUser(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Revoke lifetime premium</DialogTitle>
+            <DialogDescription>
+              Marks the lifetime plan inactive. Logged as <code className="text-xs">admin_lifetime_revoked</code>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm font-medium dark:text-white">
+              {lifetimeRevokeUser?.displayName || lifetimeRevokeUser?.email}
+            </p>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="revoke-product">Product</label>
+              <select
+                id="revoke-product"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                value={revokeProduct}
+                onChange={(e) => setRevokeProduct(e.target.value as "axtask" | "nodeweaver" | "bundle")}
+              >
+                {(lifetimeRevokeUser?.lifetimePremiumGrants ?? []).map((g) => (
+                  <option key={g.planKey} value={g.product}>
+                    {g.product} ({g.planKey})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="revoke-reason">Reason (required)</label>
+              <Textarea
+                id="revoke-reason"
+                placeholder="Why access is being removed…"
+                value={revokeReason}
+                onChange={(e) => setRevokeReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLifetimeRevokeUser(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={revokeReason.trim().length < 3 || !lifetimeRevokeUser || lifetimeRevokeMutation.isPending}
+              onClick={() =>
+                lifetimeRevokeUser &&
+                lifetimeRevokeMutation.mutate({
+                  userId: lifetimeRevokeUser.id,
+                  product: revokeProduct,
+                  reason: revokeReason.trim(),
+                })
+              }
+            >
+              Revoke access
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

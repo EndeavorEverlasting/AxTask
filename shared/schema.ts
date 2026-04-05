@@ -615,7 +615,7 @@ export const premiumSubscriptions = pgTable("premium_subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   product: text("product").notNull(), // axtask | nodeweaver | bundle
-  planKey: text("plan_key").notNull(), // pro_monthly | pro_yearly | bundle_monthly
+  planKey: text("plan_key").notNull(), // pro_monthly | pro_yearly | bundle_monthly | *_lifetime (admin-granted)
   status: text("status").notNull().default("active"), // active | grace | inactive
   startsAt: timestamp("starts_at").defaultNow(),
   endsAt: timestamp("ends_at"),

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DonateCta } from "@/components/donate-cta";
 
 export default function AccountPage() {
   const { user, refreshUser } = useAuth();
@@ -84,9 +85,12 @@ export default function AccountPage() {
         Back to app
       </Link>
 
-      <div className="flex items-center gap-2">
-        <ShieldCheck className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
-        <h1 className="text-2xl font-semibold tracking-tight">Account security</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
+          <h1 className="text-2xl font-semibold tracking-tight">Account security</h1>
+        </div>
+        <DonateCta />
       </div>
 
       <Card>

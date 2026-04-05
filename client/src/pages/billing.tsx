@@ -42,6 +42,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { DonateCta } from "@/components/donate-cta";
 
 type BillingSubscriptionRow = {
   id: string;
@@ -491,6 +492,9 @@ export default function BillingPage() {
               </span>
             </li>
           </ul>
+          <div className="mt-8">
+            <DonateCta variant="secondary" className="w-full sm:w-auto border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800" />
+          </div>
           <p className="mt-auto pt-12 text-xs text-zinc-600">
             AxTask · TLS in transit. Production should tokenize cards with your processor.
           </p>

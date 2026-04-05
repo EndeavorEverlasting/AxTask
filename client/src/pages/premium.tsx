@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Crown, Sparkles, RefreshCw, Radar, Route, ShieldAlert } from "lucide-react";
+import { DonateCta } from "@/components/donate-cta";
 
 type PremiumCatalog = {
   plans: Array<{
@@ -265,10 +266,13 @@ export default function PremiumPage() {
           </h2>
           <p className="text-gray-600 dark:text-gray-400">Manage premium features, retention workflows, and bundle automation.</p>
         </div>
-        <Button variant="outline" onClick={refreshPremiumQueries}>
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <DonateCta />
+          <Button variant="outline" onClick={refreshPremiumQueries}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <Card>

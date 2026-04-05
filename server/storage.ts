@@ -72,7 +72,7 @@ import {
   type UserPushSubscription,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray } from "drizzle-orm";
+import { eq, and, ilike, or, asc, lt, gt, count, avg, sql, desc, inArray, isNull } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
@@ -2304,7 +2304,27 @@ const PREMIUM_FEATURE_MATRIX: Record<string, string[]> = {
     "bundle_auto_reprioritize",
     "cross_product_digest",
   ],
+  axtask_lifetime: ["saved_smart_views", "review_workflows", "weekly_digest"],
+  nodeweaver_lifetime: ["classification_history_replay", "confidence_drift_alerts", "weekly_digest"],
+  power_bundle_lifetime: [
+    "saved_smart_views",
+    "review_workflows",
+    "weekly_digest",
+    "classification_history_replay",
+    "confidence_drift_alerts",
+    "bundle_auto_reprioritize",
+    "cross_product_digest",
+  ],
 };
+
+/** Plan keys reserved for admin-granted lifetime access (no renewal; `endsAt` stays null). */
+export const LIFETIME_PLAN_KEYS: Record<"axtask" | "nodeweaver" | "bundle", string> = {
+  axtask: "axtask_lifetime",
+  nodeweaver: "nodeweaver_lifetime",
+  bundle: "power_bundle_lifetime",
+};
+
+const LIFETIME_PLAN_KEY_LIST = Object.values(LIFETIME_PLAN_KEYS);
 
 export async function trackPremiumEvent(input: {
   userId?: string;
@@ -2331,10 +2351,16 @@ export async function listPremiumSubscriptions(userId: string): Promise<PremiumS
     .orderBy(desc(premiumSubscriptions.updatedAt));
 }
 
+function premiumSubscriptionIsTimeValid(sub: PremiumSubscription, now: Date): boolean {
+  if (sub.endsAt && new Date(sub.endsAt) <= now) return false;
+  return true;
+}
+
 export async function getPremiumEntitlements(userId: string): Promise<PremiumEntitlements> {
   const subs = await listPremiumSubscriptions(userId);
   const now = new Date();
   const activeOrGrace = subs.filter((sub) => {
+    if (!premiumSubscriptionIsTimeValid(sub, now)) return false;
     if (sub.status === "active") return true;
     if (sub.status === "grace" && sub.graceUntil && new Date(sub.graceUntil) > now) return true;
     return false;
@@ -2365,6 +2391,7 @@ export async function upsertPremiumSubscription(input: {
   planKey: string;
   status: "active" | "grace" | "inactive";
   graceUntil?: Date | null;
+  endsAt?: Date | null;
   metadata?: Record<string, unknown>;
 }): Promise<PremiumSubscription> {
   const [existing] = await db.select().from(premiumSubscriptions).where(and(
@@ -2375,7 +2402,8 @@ export async function upsertPremiumSubscription(input: {
   if (existing) {
     const [updated] = await db.update(premiumSubscriptions).set({
       status: input.status,
-      graceUntil: input.graceUntil || null,
+      graceUntil: input.graceUntil !== undefined ? input.graceUntil : existing.graceUntil,
+      endsAt: input.endsAt !== undefined ? input.endsAt : existing.endsAt,
       reactivatedAt: input.status === "active" ? new Date() : existing.reactivatedAt,
       metadataJson: input.metadata ? JSON.stringify(input.metadata) : existing.metadataJson,
       updatedAt: new Date(),
@@ -2388,12 +2416,133 @@ export async function upsertPremiumSubscription(input: {
     product: input.product,
     planKey: input.planKey,
     status: input.status,
-    graceUntil: input.graceUntil || null,
+    graceUntil: input.graceUntil ?? null,
+    endsAt: input.endsAt !== undefined ? input.endsAt : null,
     downgradedAt: input.status === "grace" ? new Date() : null,
     reactivatedAt: input.status === "active" ? new Date() : null,
     metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
   }).returning();
   return created;
+}
+
+export async function listActiveLifetimePremiumGrants(): Promise<
+  Array<{ userId: string; product: string; planKey: string }>
+> {
+  const now = new Date();
+  return db
+    .select({
+      userId: premiumSubscriptions.userId,
+      product: premiumSubscriptions.product,
+      planKey: premiumSubscriptions.planKey,
+    })
+    .from(premiumSubscriptions)
+    .where(and(
+      eq(premiumSubscriptions.status, "active"),
+      inArray(premiumSubscriptions.planKey, LIFETIME_PLAN_KEY_LIST),
+      or(isNull(premiumSubscriptions.endsAt), gt(premiumSubscriptions.endsAt, now)),
+    ));
+}
+
+export async function listPremiumEventsForUser(userId: string, limit = 50): Promise<PremiumEvent[]> {
+  const cap = Math.min(Math.max(limit, 1), 200);
+  return db
+    .select()
+    .from(premiumEvents)
+    .where(eq(premiumEvents.userId, userId))
+    .orderBy(desc(premiumEvents.createdAt))
+    .limit(cap);
+}
+
+export async function grantAdminLifetimePremium(input: {
+  targetUserId: string;
+  product: "axtask" | "nodeweaver" | "bundle";
+  grantedByUserId: string;
+  grantType: "beta_tester" | "patron" | "manual";
+  reason: string;
+}): Promise<PremiumSubscription> {
+  const planKey = LIFETIME_PLAN_KEYS[input.product];
+  const trimmedReason = input.reason.trim();
+  if (trimmedReason.length < 3) {
+    throw new Error("Reason is required (at least 3 characters)");
+  }
+  const metadata: Record<string, unknown> = {
+    grantType: input.grantType,
+    grantedBy: input.grantedByUserId,
+    reason: trimmedReason,
+    grantedAt: new Date().toISOString(),
+    source: "admin_grant",
+  };
+  const row = await upsertPremiumSubscription({
+    userId: input.targetUserId,
+    product: input.product,
+    planKey,
+    status: "active",
+    graceUntil: null,
+    endsAt: null,
+    metadata,
+  });
+  await trackPremiumEvent({
+    userId: input.targetUserId,
+    eventName: "admin_lifetime_granted",
+    product: input.product,
+    planKey,
+    metadata: {
+      grantType: input.grantType,
+      grantedBy: input.grantedByUserId,
+      reason: trimmedReason,
+      subscriptionId: row.id,
+    },
+  });
+  return row;
+}
+
+export async function revokeAdminLifetimePremium(input: {
+  targetUserId: string;
+  product: "axtask" | "nodeweaver" | "bundle";
+  revokedByUserId: string;
+  reason: string;
+}): Promise<PremiumSubscription | null> {
+  const planKey = LIFETIME_PLAN_KEYS[input.product];
+  const trimmedReason = input.reason.trim();
+  if (trimmedReason.length < 3) {
+    throw new Error("Reason is required (at least 3 characters)");
+  }
+  const [existing] = await db.select().from(premiumSubscriptions).where(and(
+    eq(premiumSubscriptions.userId, input.targetUserId),
+    eq(premiumSubscriptions.product, input.product),
+    eq(premiumSubscriptions.planKey, planKey),
+  ));
+  if (!existing) return null;
+  let priorMeta: Record<string, unknown> = {};
+  if (existing.metadataJson) {
+    try {
+      priorMeta = JSON.parse(existing.metadataJson) as Record<string, unknown>;
+    } catch {
+      priorMeta = {};
+    }
+  }
+  const [updated] = await db.update(premiumSubscriptions).set({
+    status: "inactive",
+    updatedAt: new Date(),
+    metadataJson: JSON.stringify({
+      ...priorMeta,
+      revokedBy: input.revokedByUserId,
+      revokedAt: new Date().toISOString(),
+      revokeReason: trimmedReason,
+    }),
+  }).where(eq(premiumSubscriptions.id, existing.id)).returning();
+  await trackPremiumEvent({
+    userId: input.targetUserId,
+    eventName: "admin_lifetime_revoked",
+    product: input.product,
+    planKey,
+    metadata: {
+      revokedBy: input.revokedByUserId,
+      reason: trimmedReason,
+      subscriptionId: existing.id,
+    },
+  });
+  return updated;
 }
 
 export async function downgradePremiumToGrace(userId: string, product: "axtask" | "nodeweaver" | "bundle", days = 14): Promise<PremiumSubscription | null> {
