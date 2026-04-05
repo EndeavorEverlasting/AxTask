@@ -69,6 +69,10 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
 
 3. **Create and edit `.env.docker`**
 
+   **Guided GUI path (recommended for non-technical setup):**
+   - Run `npm run docker:setup`
+   - A local browser wizard opens, writes `.env.docker`, and can run `docker:up` directly
+
    From the project root, pick one (all create the file only if it is missing):
 
    - **Any OS (recommended):** `npm run docker:env-init`
@@ -78,10 +82,11 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
 
    You can also run `npm run docker:up` once without a `.env.docker` file: it copies from `.env.docker.example` automatically, then stops with a clear error until you replace the placeholders and run it again.
 
-   Open `.env.docker` and replace every placeholder:
-   - **`POSTGRES_PASSWORD`** — strong password for the local database user
-   - **`SESSION_SECRET`** — long random secret (32+ characters)
-   - **`DATABASE_URL`** — keep host `database` and user/db names as in the example; **set the password in the URL to match `POSTGRES_PASSWORD`**
+   **Novice/zero-edit local path:** you can keep `.env.docker.example` defaults for local-only testing and run `npm run docker:up` immediately.
+
+   If you customize `.env.docker`, ensure:
+   - **`POSTGRES_PASSWORD`** and the password inside **`DATABASE_URL`** match exactly
+   - **`SESSION_SECRET`** is a long random secret (32+ characters) for non-demo use
    - Optional — **`VITE_QUERY_PERSIST_BUSTER`** in `.env.docker`: bump and **rebuild** the image after a breaking API change so browsers reset persisted read caches (Phase A). See [Docker foundation — Offline Phase A](docs/DOCKER_FOUNDATION.md#offline-phase-a-read-cache-and-rebuilds).
    - **Phase B (device refresh)** needs the **`device_refresh_tokens`** table; the stack’s **migrate** step applies it automatically. See [Docker foundation — Offline Phase B](docs/DOCKER_FOUNDATION.md#offline-phase-b-device-refresh-database) and [`docs/OFFLINE_PHASE_B.md`](docs/OFFLINE_PHASE_B.md).
    - **Docker demo login** — when **`AXTASK_DOCKER_SEED_DEMO=1`** (default in `.env.docker.example`), the **migrate** step creates/updates **`DOCKER_DEMO_USER_EMAIL`** / **`DOCKER_DEMO_PASSWORD`**. After **`npm run docker:up`**, the same credentials are **printed again in your terminal** for convenience. Turn **`AXTASK_DOCKER_SEED_DEMO=0`** and use strong secrets before any internet-exposed deployment.
@@ -103,6 +108,13 @@ If `migrate` fails with `password authentication failed for user "axtask"`:
   `docker compose --env-file .env.docker down -v`  
   then rerun `npm run docker:up`.
 
+### Local demo defaults vs real account security
+
+- **Local-only demo:** keeping `.env.docker.example` defaults is acceptable for offline/local machine testing.
+- **Any shared or internet-exposed environment:** replace defaults, use strong secrets, and disable demo seeding.
+- **Authentication boundary:** sync/integration actions should require authenticated account sessions.
+- **MFA boundary (recommended):** require step-up MFA for high-risk actions (billing, external account linking, and sync authorization). See [docs/MFA_SIGNUP_VERIFICATION.md](docs/MFA_SIGNUP_VERIFICATION.md).
+
 ### Optional: NodeWeaver in the same Compose stack
 
 Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run it **next to AxTask** in Docker: ensure the submodule is present (**`npm run submodule:init`** if you did not use `git clone --recurse-submodules`), set `NODEWEAVER_URL=http://nodeweaver:5000` in `.env.docker`, then start with **`npm run docker:up:nodeweaver`** (or `node tools/local/docker-start.mjs --with-nodeweaver`). The default `npm run docker:up` does **not** start NodeWeaver. Full steps: [`services/nodeweaver/README.md`](services/nodeweaver/README.md).
@@ -110,6 +122,7 @@ Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run
 ### One-click Docker scripts
 
 - **Windows:** `start-docker.cmd` · **macOS/Linux:** `bash ./start-docker.sh` (both use `npm run docker:up`)
+- **Guided setup GUI:** `npm run docker:setup` (local wizard for `.env.docker` + optional one-click start)
 - **Stop / status:** `stop-docker.cmd` or `bash ./stop-docker.sh` · `status-docker.cmd` or `bash ./status-docker.sh`
 
 ## Quick Start (Node.js + local PostgreSQL)

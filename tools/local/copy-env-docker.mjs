@@ -22,5 +22,5 @@ if (!fs.existsSync(src)) {
 }
 fs.copyFileSync(src, dest);
 console.log(
-  "[docker:env-init] Created .env.docker from .env.docker.example — replace placeholders, then run npm run docker:up",
+  "[docker:env-init] Created .env.docker from .env.docker.example — local demo defaults are usable as-is; run npm run docker:up",
 );

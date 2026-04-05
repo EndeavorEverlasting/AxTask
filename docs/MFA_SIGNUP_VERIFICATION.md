@@ -35,6 +35,15 @@ So **new users cannot yet complete “MFA to create their account”** using the
 4. **Layer defenses** — Verification is one layer; combine with **rate limits**, **invite-only** periods, optional **CAPTCHA** / proof-of-work, and **security event** logging (already present for auth).
 5. **Respect privacy** — For SMS, capture **explicit consent** and document retention; avoid collecting phone numbers solely for marketing without opt-in.
 
+## Sync/integration security boundary
+
+Treat synchronization and external integrations (for example cloud sync or third-party APIs) as higher-risk actions:
+
+- Require a valid authenticated session before any sync operation.
+- Require recent step-up MFA for linking/unlinking external accounts and for authorizing new sync scopes.
+- Expire sync authorization on password reset, suspicious-login events, or explicit security revocation.
+- Keep local/offline demo mode isolated from production sync credentials and enforce clear mode labeling in UI.
+
 ## Threat model and mitigations
 
 | Risk | Mitigations to consider |

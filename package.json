@@ -12,6 +12,7 @@
     "local:secrets-bootstrap": "node tools/local/bootstrap-local-secrets.mjs",
     "submodule:init": "node tools/local/submodule-init.mjs",
     "docker:env-init": "node tools/local/copy-env-docker.mjs",
+    "docker:setup": "node tools/local/docker-setup-gui.mjs",
     "docker:up": "node tools/local/docker-start.mjs",
     "docker:up:nodeweaver": "node tools/local/docker-start.mjs --with-nodeweaver",
     "docker:start": "docker compose --env-file .env.docker up -d --build",
