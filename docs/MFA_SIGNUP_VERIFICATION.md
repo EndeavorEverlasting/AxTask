@@ -90,6 +90,6 @@ These are **not** mutually exclusive; pick based on UX and schema appetite.
 
 ## See also
 
-- Implementation checklist: [`.cursor/plans/mfa_signup_verification.plan.md`](../.cursor/plans/mfa_signup_verification.plan.md) (repository plan file for agents and humans)  
+- Implementation checklist (high level): schema for pending signups or `email_verified` gating; `SIGNUP_EMAIL_VERIFICATION` env; rate limits and uniform API responses; staging with Resend test domain before production. Details: [`AUTH_IMPLEMENTATION_PLAN.md`](./AUTH_IMPLEMENTATION_PLAN.md).  
 - Auth history and file map: [`AUTH_IMPLEMENTATION_PLAN.md`](./AUTH_IMPLEMENTATION_PLAN.md)  
 - Step-up MFA delivery: [`OTP_DELIVERY.md`](./OTP_DELIVERY.md)

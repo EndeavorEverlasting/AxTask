@@ -37,6 +37,7 @@ describe("nodeweaver-client", () => {
     const body = JSON.parse(init.body as string);
     expect(body.tasks).toEqual([
       {
+        id: "t1",
         activity: "standup",
         notes: "daily",
         metadata: { classification_profile: "axtask" },

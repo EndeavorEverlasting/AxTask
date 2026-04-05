@@ -101,8 +101,34 @@ export async function rotateDeviceRefreshToken(
   userId: string,
   userAgent: string | undefined,
 ): Promise<string> {
-  await revokeDeviceRefreshByPlain(oldPlain);
-  return createDeviceRefreshTokenRow(userId, userAgent);
+  if (!isDeviceRefreshTokenShape(oldPlain)) {
+    throw new Error("Invalid device token");
+  }
+  const tokenHash = hashDeviceRefreshToken(oldPlain);
+  const plain = await db.transaction(async (tx) => {
+    const deleted = await tx
+      .delete(deviceRefreshTokens)
+      .where(eq(deviceRefreshTokens.tokenHash, tokenHash))
+      .returning({ id: deviceRefreshTokens.id, userId: deviceRefreshTokens.userId });
+    if (deleted.length !== 1) {
+      throw new Error("Device token rotation failed: token not found or already revoked");
+    }
+    if (deleted[0].userId !== userId) {
+      throw new Error("Device token rotation failed: token does not belong to this user");
+    }
+    const nextPlain = generateDeviceRefreshPlainToken();
+    const nextHash = hashDeviceRefreshToken(nextPlain);
+    const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
+    await tx.insert(deviceRefreshTokens).values({
+      userId,
+      tokenHash: nextHash,
+      expiresAt,
+      userAgent: userAgent?.slice(0, 512) || null,
+    });
+    return nextPlain;
+  });
+  await pruneExcessTokens(userId);
+  return plain;
 }
 
 /** Set httpOnly device cookie after successful Passport login (local + OAuth). */

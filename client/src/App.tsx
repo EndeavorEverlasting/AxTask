@@ -127,7 +127,23 @@ function MobileVoiceFAB() {
 }
 
 const ROUTE_STORAGE_KEY = "axtask_last_route";
-const VALID_ROUTES = ["/", "/tasks", "/calendar", "/analytics", "/import-export", "/google-sheets", "/checklist", "/planner", "/admin", "/rewards"];
+/** Keep aligned with `<Router>` paths so last-route persistence matches real routes. */
+const VALID_ROUTES = [
+  "/",
+  "/tasks",
+  "/calendar",
+  "/analytics",
+  "/import-export",
+  "/google-sheets",
+  "/checklist",
+  "/planner",
+  "/feedback",
+  "/admin",
+  "/rewards",
+  "/premium",
+  "/billing",
+  "/account",
+];
 
 function useRoutePersistence() {
   const [location, setLocation] = useLocation();
@@ -143,7 +159,7 @@ function useRoutePersistence() {
         setLocation(saved);
       }
     }
-  }, []);
+  }, [setLocation]);
 
   useEffect(() => {
     if (location && location !== "/" && VALID_ROUTES.includes(location)) {

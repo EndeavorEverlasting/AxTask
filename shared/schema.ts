@@ -293,7 +293,7 @@ export const taskCollaborators = pgTable("task_collaborators", {
 }, (table) => [
   index("idx_collab_task").on(table.taskId),
   index("idx_collab_user").on(table.userId),
-  index("idx_collab_task_user").on(table.taskId, table.userId),
+  uniqueIndex("uq_task_collaborators_task_user").on(table.taskId, table.userId),
 ]);
 
 export type TaskCollaborator = typeof taskCollaborators.$inferSelect;

@@ -4,6 +4,7 @@ import {
   wallets, coinTransactions, userBadges, rewardsCatalog,
   userRewards, taskCollaborators, taskPatterns,
   classificationContributions, classificationConfirmations,
+  userBillingProfiles, userClassificationCategories,
 } from "@shared/schema";
 import { eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
@@ -60,6 +61,8 @@ function serializeRows(rows: Record<string, unknown>[]): Record<string, unknown>
 export async function exportFullDatabase(): Promise<ExportBundle> {
   const [
     usersData,
+    userBillingProfilesData,
+    userClassificationCategoriesData,
     rewardsCatalogData,
     tasksData,
     walletsData,
@@ -74,6 +77,8 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
     securityLogsData,
   ] = await Promise.all([
     queryChunked(users),
+    queryChunked(userBillingProfiles),
+    queryChunked(userClassificationCategories),
     queryChunked(rewardsCatalog),
     queryChunked(tasks),
     queryChunked(wallets),
@@ -90,6 +95,8 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
 
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows(usersData),
+    userBillingProfiles: serializeRows(userBillingProfilesData),
+    userClassificationCategories: serializeRows(userClassificationCategoriesData),
     rewardsCatalog: serializeRows(rewardsCatalogData),
     tasks: serializeRows(tasksData),
     wallets: serializeRows(walletsData),
@@ -153,6 +160,8 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
     rewardCatalog,
     userRewardData,
     patternData,
+    billingProfileData,
+    classCatData,
   ] = await Promise.all([
     queryChunked(wallets, eq(wallets.userId, userId)),
     queryChunked(coinTransactions, eq(coinTransactions.userId, userId)),
@@ -160,6 +169,8 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
     queryChunked(rewardsCatalog),
     queryChunked(userRewards, eq(userRewards.userId, userId)),
     queryChunked(taskPatterns, eq(taskPatterns.userId, userId)),
+    queryChunked(userBillingProfiles, eq(userBillingProfiles.userId, userId)),
+    queryChunked(userClassificationCategories, eq(userClassificationCategories.userId, userId)),
   ]);
 
   const ownedTaskIdSet = new Set(taskIds);
@@ -195,6 +206,8 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
 
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows([adminMode ? (userData as Record<string, unknown>) : sanitizeUserRow(userData as Record<string, unknown>)]),
+    userBillingProfiles: serializeRows(billingProfileData),
+    userClassificationCategories: serializeRows(classCatData),
     rewardsCatalog: serializeRows(filteredCatalog),
     tasks: serializeRows(allTaskRows),
     wallets: serializeRows(walletData),

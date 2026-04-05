@@ -169,7 +169,13 @@ export default function BillingPage() {
   const queryClient = useQueryClient();
   const { requestChallenge, isRequesting } = useMfaChallenge();
 
-  const { data: summary, isLoading: summaryLoading } = useQuery<BillingSummary>({
+  const {
+    data: summary,
+    isLoading: summaryLoading,
+    isError: summaryError,
+    error: summaryErrorObj,
+    refetch: refetchSummary,
+  } = useQuery<BillingSummary>({
     queryKey: ["/api/billing/summary"],
   });
 
@@ -498,6 +504,16 @@ export default function BillingPage() {
             <SectionLabel>Current subscription</SectionLabel>
             {summaryLoading ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : summaryError ? (
+              <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-5 space-y-3">
+                <p className="text-sm font-medium text-destructive">Could not load billing summary</p>
+                <p className="text-sm text-muted-foreground">
+                  {summaryErrorObj instanceof Error ? summaryErrorObj.message : "Something went wrong. Try again."}
+                </p>
+                <Button type="button" variant="outline" size="sm" onClick={() => void refetchSummary()}>
+                  Retry
+                </Button>
+              </div>
             ) : primary ? (
               <div className="rounded-xl border border-border bg-card/30 p-5 space-y-4">
                 <div className="flex flex-wrap items-center gap-2">
@@ -574,6 +590,11 @@ export default function BillingPage() {
           {/* Payment method */}
           <section>
             <SectionLabel>Payment method</SectionLabel>
+            {summaryError ? (
+              <p className="text-sm text-muted-foreground">
+                Payment methods are unavailable until billing summary loads. Use Retry above if loading failed.
+              </p>
+            ) : (
             <div className="space-y-3">
               {(summary?.paymentMethods?.length ?? 0) > 0 ? (
                 summary!.paymentMethods.map((pm) => (
@@ -616,6 +637,7 @@ export default function BillingPage() {
                 <p className="text-sm text-muted-foreground">No saved payment methods yet.</p>
               )}
             </div>
+            )}
 
             <Collapsible open={addPmOpen} onOpenChange={setAddPmOpen} className="mt-4">
               <CollapsibleTrigger asChild>
@@ -895,7 +917,11 @@ export default function BillingPage() {
           {/* Invoice history */}
           <section>
             <SectionLabel>Invoice history</SectionLabel>
-            {invoiceRows.length === 0 ? (
+            {summaryError ? (
+              <p className="text-sm text-muted-foreground">
+                Invoice history is unavailable until billing summary loads.
+              </p>
+            ) : invoiceRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">No invoices yet.</p>
             ) : (
               <>

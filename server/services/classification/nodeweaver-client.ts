@@ -18,6 +18,7 @@ export async function callNodeWeaverBatchClassify(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       tasks: items.map((item) => ({
+        id: item.id,
         activity: item.activity,
         notes: item.notes || "",
         metadata: { classification_profile: "axtask" },

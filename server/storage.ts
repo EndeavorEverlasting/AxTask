@@ -2888,33 +2888,45 @@ export async function createUserClassificationCategory(
   if (isBuiltInClassification(name)) {
     return { ok: false, message: "That label is reserved for a built-in category." };
   }
-  const [dup] = await db
-    .select({ id: userClassificationCategories.id })
-    .from(userClassificationCategories)
-    .where(
-      and(
-        eq(userClassificationCategories.userId, userId),
-        sql`lower(${userClassificationCategories.name}) = lower(${name})`,
-      ),
-    )
-    .limit(1);
-  if (dup) {
-    return { ok: false, message: "You already have a category with this name." };
-  }
-  const [cnt] = await db
-    .select({ n: count() })
-    .from(userClassificationCategories)
-    .where(eq(userClassificationCategories.userId, userId));
-  if (Number(cnt?.n) >= MAX_USER_CLASSIFICATION_CATEGORIES) {
-    return { ok: false, message: "Maximum custom categories reached." };
-  }
   const coinReward = Math.min(20, Math.max(1, input.coinReward ?? 5));
   try {
-    const [row] = await db
-      .insert(userClassificationCategories)
-      .values({ id: randomUUID(), userId, name, coinReward })
-      .returning();
-    return { ok: true, row };
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`);
+
+      const [dup] = await tx
+        .select({ id: userClassificationCategories.id })
+        .from(userClassificationCategories)
+        .where(
+          and(
+            eq(userClassificationCategories.userId, userId),
+            sql`lower(${userClassificationCategories.name}) = lower(${name})`,
+          ),
+        )
+        .limit(1);
+      if (dup) {
+        return { ok: false, message: "You already have a category with this name." };
+      }
+      const [cnt] = await tx
+        .select({ n: count() })
+        .from(userClassificationCategories)
+        .where(eq(userClassificationCategories.userId, userId));
+      if (Number(cnt?.n) >= MAX_USER_CLASSIFICATION_CATEGORIES) {
+        return { ok: false, message: "Maximum custom categories reached." };
+      }
+
+      try {
+        const [row] = await tx
+          .insert(userClassificationCategories)
+          .values({ id: randomUUID(), userId, name, coinReward })
+          .returning();
+        return { ok: true, row };
+      } catch (e) {
+        if (isPgUniqueViolation(e)) {
+          return { ok: false, message: "You already have a category with this name." };
+        }
+        throw e;
+      }
+    });
   } catch (e) {
     if (isPgUniqueViolation(e)) {
       return { ok: false, message: "You already have a category with this name." };

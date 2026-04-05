@@ -221,8 +221,11 @@ export async function syncReorderTasks(taskIds: string[], queryClient: QueryClie
     enqueueTaskReorder(taskIds);
     queryClient.setQueryData<Task[]>(["/api/tasks"], (old) => {
       if (!old) return old;
-      const map = new Map(old.map((t) => [t.id, t]));
-      return taskIds.map((id) => map.get(id)).filter(Boolean) as Task[];
+      const byId = new Map(old.map((t) => [t.id, t]));
+      const ordered = taskIds.map((id) => byId.get(id)).filter((t): t is Task => Boolean(t));
+      const inReorder = new Set(taskIds);
+      const tail = old.filter((t) => !inReorder.has(t.id));
+      return [...ordered, ...tail];
     });
     return;
   }

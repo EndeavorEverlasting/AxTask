@@ -107,12 +107,19 @@ function getTaskRoom(taskId: string): CollabClient[] {
   return room;
 }
 
-function broadcastToTask(taskId: string, message: Record<string, unknown>, excludeWs?: WebSocket) {
+function broadcastToTask(
+  taskId: string,
+  message: Record<string, unknown>,
+  excludeWs?: WebSocket | WebSocket[],
+) {
   const payload = JSON.stringify(message);
+  const excludeSet =
+    excludeWs === undefined
+      ? null
+      : new Set(Array.isArray(excludeWs) ? excludeWs : [excludeWs]);
   for (const client of getTaskRoom(taskId)) {
-    if (client.ws !== excludeWs) {
-      client.ws.send(payload);
-    }
+    if (excludeSet?.has(client.ws)) continue;
+    client.ws.send(payload);
   }
 }
 
@@ -294,8 +301,14 @@ export function setupCollaborationWs(server: Server) {
 }
 
 export function notifyTaskUpdate(taskId: string, task: Record<string, unknown>, excludeUserId?: string) {
-  const excludeWs = excludeUserId
-    ? Array.from(clients.entries()).find(([, c]) => c.userId === excludeUserId)?.[0]
+  const excludeWsList = excludeUserId
+    ? Array.from(clients.entries())
+        .filter(([, c]) => c.userId === excludeUserId)
+        .map(([ws]) => ws)
     : undefined;
-  broadcastToTask(taskId, { type: "task_updated", task }, excludeWs);
+  broadcastToTask(
+    taskId,
+    { type: "task_updated", task },
+    excludeWsList?.length ? excludeWsList : undefined,
+  );
 }

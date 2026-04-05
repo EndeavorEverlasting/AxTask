@@ -5,6 +5,7 @@ import {
   wallets, coinTransactions, userBadges, rewardsCatalog,
   userRewards, taskCollaborators, taskPatterns,
   classificationContributions, classificationConfirmations,
+  userBillingProfiles, userClassificationCategories,
 } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
@@ -36,6 +37,8 @@ type BundleRow = Record<string, unknown>;
 
 const TABLE_INSERT_ORDER = [
   "users",
+  "userBillingProfiles",
+  "userClassificationCategories",
   "rewardsCatalog",
   "tasks",
   "wallets",
@@ -52,13 +55,16 @@ const TABLE_INSERT_ORDER = [
 
 type TableName = typeof TABLE_INSERT_ORDER[number];
 
-type DrizzleTable = typeof users | typeof rewardsCatalog | typeof tasks | typeof wallets |
+type DrizzleTable = typeof users | typeof userBillingProfiles | typeof userClassificationCategories |
+  typeof rewardsCatalog | typeof tasks | typeof wallets |
   typeof coinTransactions | typeof userBadges | typeof userRewards | typeof taskPatterns |
   typeof taskCollaborators | typeof classificationContributions | typeof classificationConfirmations |
   typeof passwordResetTokens | typeof securityLogs;
 
 const TABLE_MAP: Record<TableName, DrizzleTable> = {
   users,
+  userBillingProfiles,
+  userClassificationCategories,
   rewardsCatalog,
   tasks,
   wallets,
@@ -75,6 +81,8 @@ const TABLE_MAP: Record<TableName, DrizzleTable> = {
 
 const PK_FIELD: Record<TableName, string> = {
   users: "id",
+  userBillingProfiles: "userId",
+  userClassificationCategories: "id",
   rewardsCatalog: "id",
   tasks: "id",
   wallets: "userId",
@@ -98,6 +106,8 @@ interface FkRule {
 
 const FK_RULES: Record<TableName, FkRule[]> = {
   users: [{ field: "bannedBy", refTable: "users", refField: "id", nullable: true }],
+  userBillingProfiles: [{ field: "userId", refTable: "users", refField: "id" }],
+  userClassificationCategories: [{ field: "userId", refTable: "users", refField: "id" }],
   rewardsCatalog: [],
   tasks: [{ field: "userId", refTable: "users", refField: "id" }],
   wallets: [{ field: "userId", refTable: "users", refField: "id" }],
@@ -134,6 +144,8 @@ const FK_RULES: Record<TableName, FkRule[]> = {
 
 const FK_FIELDS_BY_TABLE: Record<TableName, string[]> = {
   users: ["bannedBy"],
+  userBillingProfiles: ["userId"],
+  userClassificationCategories: ["userId"],
   rewardsCatalog: [],
   tasks: ["userId"],
   wallets: ["userId"],
@@ -152,6 +164,7 @@ const USER_OWNED_TABLES = new Set<string>([
   "tasks", "wallets", "coinTransactions", "userBadges",
   "userRewards", "taskPatterns", "taskCollaborators",
   "classificationContributions", "classificationConfirmations",
+  "userBillingProfiles", "userClassificationCategories",
 ]);
 
 const TIMESTAMP_FIELDS = [
@@ -706,6 +719,17 @@ export async function importUserBundle(
           continue;
         }
         const remapped = remapRow(parseTimestamps(row), tableName, pkField, idMap);
+        if (tableName === "userRewards" && remapped.rewardId) {
+          const [catalogExists] = await db
+            .select()
+            .from(rewardsCatalog)
+            .where(eq(rewardsCatalog.id, String(remapped.rewardId)))
+            .limit(1);
+          if (!catalogExists) {
+            wouldSkip++;
+            continue;
+          }
+        }
         const pkValue = remapped[pkField];
         if (pkValue) {
           const pkCol = (table as Record<string, unknown>)[pkField];

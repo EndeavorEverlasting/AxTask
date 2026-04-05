@@ -46,6 +46,7 @@ export function TutorialOverlay() {
       clearTimeout(timer);
       const el = findTarget();
       if (el) {
+        el.classList.remove(glowCls);
         el.classList.remove("field-glow-tutorial");
         el.classList.remove("field-glow-tutorial-success");
         el.classList.remove("field-glow-success");

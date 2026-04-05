@@ -1,6 +1,6 @@
 import type { Task, TaskPattern } from "@shared/schema";
 import { daysBetween } from "../lib/days";
-import { upsertPattern, getPatterns, deleteStalePatterns } from "../storage";
+import { upsertPattern, getPatterns, deleteStalePatterns, clearPatterns } from "../storage";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -79,8 +79,23 @@ export interface DeadlineSuggestion {
 
 const MAX_TASKS_FOR_ANALYSIS = 500;
 
+function parsePatternJson<T>(raw: string, patternId: string, patternType: string): T | null {
+  try {
+    return JSON.parse(raw) as T;
+  } catch (e) {
+    console.warn(
+      `[pattern-engine] Malformed pattern JSON (id=${patternId}, type=${patternType}):`,
+      e instanceof Error ? e.message : e,
+    );
+    return null;
+  }
+}
+
 export async function analyzeTaskHistory(userId: string, allTasks: Task[]): Promise<TaskPattern[]> {
-  if (allTasks.length < 3) return [];
+  if (allTasks.length < 3) {
+    await clearPatterns(userId);
+    return [];
+  }
 
   await deleteStalePatterns(userId, 120);
 
@@ -450,7 +465,8 @@ export function getInsights(patterns: TaskPattern[]): PatternInsight[] {
     .slice(0, 5);
 
   for (const t of topics) {
-    const data = JSON.parse(t.data) as TopicData;
+    const data = parsePatternJson<TopicData>(t.data, t.id, t.patternType);
+    if (!data) continue;
     insights.push({
       type: "topic",
       title: `Frequent topic: "${data.topic}"`,
@@ -466,7 +482,8 @@ export function getInsights(patterns: TaskPattern[]): PatternInsight[] {
     .slice(0, 5);
 
   for (const r of recurrences) {
-    const data = JSON.parse(r.data) as RecurrenceData;
+    const data = parsePatternJson<RecurrenceData>(r.data, r.id, r.patternType);
+    if (!data) continue;
     insights.push({
       type: "recurrence",
       title: `Recurring: "${data.activity}"`,
@@ -482,7 +499,8 @@ export function getInsights(patterns: TaskPattern[]): PatternInsight[] {
     .slice(0, 3);
 
   for (const rh of rhythms) {
-    const data = JSON.parse(rh.data) as DeadlineRhythmData;
+    const data = parsePatternJson<DeadlineRhythmData>(rh.data, rh.id, rh.patternType);
+    if (!data) continue;
     insights.push({
       type: "deadline_rhythm",
       title: `Rhythm: ${data.activity}`,
@@ -498,11 +516,17 @@ export function getInsights(patterns: TaskPattern[]): PatternInsight[] {
     .slice(0, 3);
 
   for (const c of clusters) {
-    const data = JSON.parse(c.data);
+    const data = parsePatternJson<Record<string, unknown>>(c.data, c.id, c.patternType);
+    if (!data || typeof data !== "object") continue;
+    const activities = data.activities;
+    const typicalDayOfWeek = data.typicalDayOfWeek;
+    const count = data.count;
+    if (!Array.isArray(activities) || typeof typicalDayOfWeek !== "string") continue;
+    const countLabel = typeof count === "number" ? count : activities.length;
     insights.push({
       type: "similarity_cluster",
-      title: `Task group (${data.count} similar tasks)`,
-      description: `Examples: ${data.activities.slice(0, 3).join(", ")}. Usually done on ${data.typicalDayOfWeek}s.`,
+      title: `Task group (${countLabel} similar tasks)`,
+      description: `Examples: ${activities.slice(0, 3).map(String).join(", ")}. Usually done on ${typicalDayOfWeek}s.`,
       confidence: c.confidence,
       data,
     });

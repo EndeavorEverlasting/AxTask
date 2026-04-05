@@ -78,6 +78,14 @@ export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
       toast({ title: "Collaborator removed" });
     },
+    onError: (err: Error) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
+      toast({
+        title: "Failed to remove collaborator",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const updateRoleMutation = useMutation({

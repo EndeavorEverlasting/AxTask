@@ -149,12 +149,20 @@ export function enqueueTaskCreate(clientId: string, payload: InsertTask): void {
 }
 
 export function enqueueTaskDelete(taskId: string, baseUpdatedAt: string | null): void {
+  let removedOfflineCreate = false;
   const q = readQueue().filter((o) => {
-    if (o.kind === "create" && o.clientId === taskId) return false;
+    if (o.kind === "create" && o.clientId === taskId) {
+      removedOfflineCreate = true;
+      return false;
+    }
     if (o.kind === "update" && o.taskId === taskId) return false;
     if (o.kind === "delete" && o.taskId === taskId) return false;
     return true;
   });
+  if (removedOfflineCreate) {
+    writeQueue(q);
+    return;
+  }
   q.push({
     v: 1,
     kind: "delete",

@@ -11,7 +11,9 @@ export function TaskOfflineSyncProvider({ children }: { children: ReactNode }) {
   const online = useNetworkOnline();
   const [queueEpoch, setQueueEpoch] = useState(0);
 
-  useEffect(() => subscribeOfflineTaskQueue(() => setQueueEpoch((n) => n + 1)), []);
+  useEffect(() => {
+    return subscribeOfflineTaskQueue(() => setQueueEpoch((n) => n + 1));
+  }, []);
 
   useEffect(() => {
     if (!online) return;

@@ -95,6 +95,17 @@ import { callNodeWeaverBatchClassify } from "./services/classification/nodeweave
 import { BUILT_IN_CLASSIFICATIONS, isGeneralClassification } from "@shared/classification-catalog";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
 
+/** Stored `priority_score` is ~10× the priority engine’s 0–10 score (see task create/update routes). */
+/** Midpoints of `PriorityEngine.scoreToPriority` bands × 10, plus `Lowest` for voice-only label. */
+const VOICE_REVIEW_PRIORITY_TO_SCORE: Record<string, number> = {
+  Lowest: 5,
+  Low: 10,
+  Medium: 25,
+  "Medium-High": 45,
+  High: 65,
+  Highest: 85,
+};
+
 /** Constant-time string comparison — prevents timing side-channel leaks. */
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) {
@@ -2253,6 +2264,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const validPriorities = ["Lowest", "Low", "Medium", "Medium-High", "High", "Highest"];
               if (action.details?.priority && typeof action.details.priority === "string" && validPriorities.includes(action.details.priority)) {
                 updatePayload.priority = action.details.priority;
+                const ps = VOICE_REVIEW_PRIORITY_TO_SCORE[action.details.priority];
+                if (ps !== undefined) {
+                  updatePayload.priorityScore = ps;
+                }
               }
               if (action.details?.notes && typeof action.details.notes === "string") {
                 updatePayload.notes = action.details.notes.slice(0, 2000);
@@ -3697,6 +3712,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "no-store, private");
       res.setHeader(
         "Content-Disposition",
         `attachment; filename="axtask-export-${userId ? "user-" + userId.slice(0, 8) : "full"}-${new Date().toISOString().slice(0, 10)}.json"`
@@ -3720,6 +3736,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "no-store, private");
       res.setHeader(
         "Content-Disposition",
         `attachment; filename="axtask-user-${req.params.userId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json"`
@@ -3795,6 +3812,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const bundle = await exportUserData(req.user!.id);
       res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "no-store, private");
       res.setHeader(
         "Content-Disposition",
         `attachment; filename="my-axtask-data-${new Date().toISOString().slice(0, 10)}.json"`
