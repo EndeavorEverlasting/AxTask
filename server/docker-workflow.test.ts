@@ -31,6 +31,9 @@ describe("docker workflow assets", () => {
     expect(packageJson.scripts["docker:logs"]).toContain(
       "docker compose --env-file .env.docker logs",
     );
+    expect(packageJson.scripts["db:push:and-seed-docker"]).toContain(
+      "docker-seed-demo.mjs",
+    );
   });
 
   it("contains compose health gates for database, migration, and app", () => {
@@ -39,6 +42,7 @@ describe("docker workflow assets", () => {
 
     expect(compose).toContain("database:");
     expect(compose).toContain("migrate:");
+    expect(compose).toContain("db:push:and-seed-docker");
     expect(compose).toContain("app:");
     expect(compose).toContain("condition: service_healthy");
     expect(compose).toContain("condition: service_completed_successfully");

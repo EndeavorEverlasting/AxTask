@@ -9,9 +9,11 @@ import { fileURLToPath } from "url";
 import { spawn, spawnSync } from "child_process";
 import { setTimeout as delay } from "timers/promises";
 import {
+  detectMigrateAuthFailure,
   dockerDesktopExeCandidates,
   firstExistingPath,
   parseDockerUpArgv,
+  readDockerDemoLoginFromEnvText,
   validateEnvDockerText,
 } from "./docker-start-lib.mjs";
 
@@ -38,6 +40,22 @@ function runSync(label, command, commandArgs, options = {}) {
     ...options,
   });
   return result.status ?? 1;
+}
+
+function readMigrateLogsTail() {
+  const result = spawnSync(
+    "docker",
+    ["compose", "--env-file", ".env.docker", "logs", "migrate", "--tail", "200"],
+    {
+      cwd: projectRoot,
+      stdio: "pipe",
+      shell: isWin,
+      encoding: "utf8",
+    },
+  );
+  const stdout = typeof result.stdout === "string" ? result.stdout : "";
+  const stderr = typeof result.stderr === "string" ? result.stderr : "";
+  return `${stdout}\n${stderr}`.trim();
 }
 
 function dockerCliOk() {
@@ -203,6 +221,22 @@ async function main() {
 
   const upCode = runSync("Starting stack (docker compose up)", "docker", composeArgs);
   if (upCode !== 0) {
+    const migrateLogs = readMigrateLogsTail();
+    if (detectMigrateAuthFailure(migrateLogs)) {
+      console.error(
+        "\n[docker:up] Detected Postgres authentication failure in migrate logs.",
+      );
+      console.error(
+        "[docker:up] Ensure POSTGRES_PASSWORD matches DATABASE_URL password in .env.docker.",
+      );
+      console.error(
+        "[docker:up] If values already match, a stale local DB volume likely has older credentials.",
+      );
+      console.error(
+        "[docker:up] Local reset (destroys local Docker DB data): docker compose --env-file .env.docker down -v",
+      );
+      console.error("[docker:up] Then retry: npm run docker:up");
+    }
     process.exit(upCode);
   }
 
@@ -214,6 +248,28 @@ async function main() {
   ]);
 
   console.log("\n[docker:up] Open http://localhost:5000 when the app is healthy.");
+
+  try {
+    if (fs.existsSync(envDockerPath)) {
+      const text = fs.readFileSync(envDockerPath, "utf8");
+      const demo = readDockerDemoLoginFromEnvText(text);
+      if (demo && "passwordMissing" in demo && demo.passwordMissing) {
+        console.log(
+          "[docker:up] AXTASK_DOCKER_SEED_DEMO is on but DOCKER_DEMO_PASSWORD is empty — set it in .env.docker or use Register on the site.",
+        );
+      } else if (demo && "password" in demo) {
+        console.log("[docker:up] Docker demo login (from .env.docker):");
+        console.log(`    Email:    ${demo.email}`);
+        console.log(`    Password: ${demo.password}`);
+      } else {
+        console.log(
+          "[docker:up] Sign in: use **Register** at http://localhost:5000 (open registration), or set AXTASK_DOCKER_SEED_DEMO=1 and demo fields in .env.docker — see .env.docker.example.",
+        );
+      }
+    }
+  } catch {
+    /* ignore parse/read errors */
+  }
 }
 
 main().catch((err) => {

@@ -24,6 +24,7 @@ COPY --from=build /app/client ./client
 COPY --from=build /app/shared ./shared
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
+COPY --from=build /app/scripts ./scripts
 
 USER axtask
 EXPOSE 5000

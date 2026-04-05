@@ -131,6 +131,10 @@ Phase B lets the SPA **re-establish a Passport session** when the short-lived se
 
 The stack can run **NodeWeaver** alongside AxTask using the Compose profile **`nodeweaver`**, after the git submodule is initialized at `services/nodeweaver/upstream`. Set **`NODEWEAVER_URL=http://nodeweaver:5000`** in `.env.docker`, then run **`npm run docker:up:nodeweaver`**. Default **`npm run docker:up`** does not start NodeWeaver. Details: [`services/nodeweaver/README.md`](../services/nodeweaver/README.md).
 
+## Docker demo login (local stacks)
+
+When **`AXTASK_DOCKER_SEED_DEMO=1`** in `.env.docker`, the **migrate** service runs **`db:push`** then seeds **`DOCKER_DEMO_USER_EMAIL`** / **`DOCKER_DEMO_PASSWORD`**. **`npm run docker:up`** prints the same pair when it finishes. Disable (**`AXTASK_DOCKER_SEED_DEMO=0`**) before exposing Compose to the internet.
+
 ## Server note
 
 If you deploy on a server, the server must also have Docker installed/configured.

@@ -41,13 +41,13 @@ describe("offline one-click workflow assets", () => {
     expect(copyScript).toContain("bootstrap-local-secrets.mjs");
   });
 
-  it("offline-start invokes bootstrap before validateLocalEnv", () => {
+  it("offline-start runs local:env-init before validateLocalEnv", () => {
     const offline = fs.readFileSync(
       path.join(projectRoot, "tools", "local", "offline-start.mjs"),
       "utf8",
     );
-    expect(offline).toContain("ensureLocalSessionSecret");
-    expect(offline).toContain("bootstrap-local-secrets.mjs");
+    expect(offline).toContain("ensureLocalEnvInit");
+    expect(offline).toContain("local:env-init");
   });
 
   it("bootstrap replaces SESSION_SECRET placeholder via AXTASK_LOCAL_ENV_FILE", () => {

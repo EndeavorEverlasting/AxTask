@@ -32,7 +32,7 @@ services:
     depends_on:
       database:
         condition: service_healthy
-    command: ["npm", "run", "db:push"]
+    command: ["npm", "run", "db:push:and-seed-docker"]
     restart: "no"
 
   app:

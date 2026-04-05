@@ -2,9 +2,12 @@
 import path from "path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  detectMigrateAuthFailure,
   dockerDesktopExeCandidates,
   firstExistingPath,
   parseDockerUpArgv,
+  parseEnvAssignmentLines,
+  readDockerDemoLoginFromEnvText,
   validateEnvDockerText,
 } from "../tools/local/docker-start-lib.mjs";
 
@@ -33,6 +36,32 @@ describe("docker-start-lib (local stack bootstrap)", () => {
     });
   });
 
+  describe("parseEnvAssignmentLines", () => {
+    it("parses KEY=VALUE and ignores comments", () => {
+      const m = parseEnvAssignmentLines(" # c\nFOO=bar\nBAZ='quoted'\n");
+      expect(m.FOO).toBe("bar");
+      expect(m.BAZ).toBe("quoted");
+    });
+  });
+
+  describe("readDockerDemoLoginFromEnvText", () => {
+    it("returns null when demo seed disabled", () => {
+      expect(readDockerDemoLoginFromEnvText("AXTASK_DOCKER_SEED_DEMO=0\n")).toBeNull();
+    });
+
+    it("returns email and password when enabled", () => {
+      const r = readDockerDemoLoginFromEnvText(
+        "AXTASK_DOCKER_SEED_DEMO=1\nDOCKER_DEMO_USER_EMAIL=a@b.com\nDOCKER_DEMO_PASSWORD=secret1234\n",
+      );
+      expect(r).toEqual({ email: "a@b.com", password: "secret1234" });
+    });
+
+    it("flags missing password", () => {
+      const r = readDockerDemoLoginFromEnvText("AXTASK_DOCKER_SEED_DEMO=true\nDOCKER_DEMO_USER_EMAIL=a@b.com\n");
+      expect(r).toEqual({ email: "a@b.com", passwordMissing: true });
+    });
+  });
+
   describe("validateEnvDockerText", () => {
     it("accepts realistic env content without placeholders", () => {
       expect(
@@ -54,6 +83,21 @@ describe("docker-start-lib (local stack bootstrap)", () => {
       expect(
         validateEnvDockerText("POSTGRES_PASSWORD=replace-me\n"),
       ).toBe("placeholder");
+    });
+  });
+
+  describe("detectMigrateAuthFailure", () => {
+    it("detects auth failures from migrate logs", () => {
+      const logs = [
+        "axtask-migrate  | > drizzle-kit push",
+        'axtask-migrate  | error: password authentication failed for user "axtask"',
+      ].join("\n");
+      expect(detectMigrateAuthFailure(logs)).toBe(true);
+    });
+
+    it("ignores unrelated failures", () => {
+      const logs = "axtask-migrate  | Error: migration file not found";
+      expect(detectMigrateAuthFailure(logs)).toBe(false);
     });
   });
 

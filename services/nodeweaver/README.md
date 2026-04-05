@@ -14,6 +14,8 @@ If `services/nodeweaver/upstream` is empty or missing a `Dockerfile`, fetch the 
 git submodule update --init --recursive
 ```
 
+From the AxTask project root you can run **`npm run submodule:init`** instead (same command).
+
 Or clone AxTask with submodules in one step:
 
 ```bash

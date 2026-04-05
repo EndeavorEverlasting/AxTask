@@ -97,6 +97,12 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
    **Sign in:** use the **demo email/password** echoed by `docker:up` (from `.env.docker`) or click **Register** if demo seed is off.  
    Check containers: `npm run docker:status` · Stop: `npm run docker:stop` · Logs: `npm run docker:logs`
 
+If `migrate` fails with `password authentication failed for user "axtask"`:
+- Confirm `.env.docker` has matching values for `POSTGRES_PASSWORD` and the password inside `DATABASE_URL`.
+- If they already match, reset stale local DB state (this deletes local Docker Postgres data):  
+  `docker compose --env-file .env.docker down -v`  
+  then rerun `npm run docker:up`.
+
 ### Optional: NodeWeaver in the same Compose stack
 
 Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run it **next to AxTask** in Docker: ensure the submodule is present (**`npm run submodule:init`** if you did not use `git clone --recurse-submodules`), set `NODEWEAVER_URL=http://nodeweaver:5000` in `.env.docker`, then start with **`npm run docker:up:nodeweaver`** (or `node tools/local/docker-start.mjs --with-nodeweaver`). The default `npm run docker:up` does **not** start NodeWeaver. Full steps: [`services/nodeweaver/README.md`](services/nodeweaver/README.md).

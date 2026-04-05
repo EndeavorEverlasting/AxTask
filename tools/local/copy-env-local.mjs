@@ -35,5 +35,5 @@ if (!fs.existsSync(dest)) {
 
 runBootstrap();
 console.log(
-  "[local:env-init] Set DATABASE_URL if needed, then npm run db:push && npm run dev",
+  "[local:env-init] Set DATABASE_URL if needed, then npm run local:start (or npm run db && npm run dev).",
 );
