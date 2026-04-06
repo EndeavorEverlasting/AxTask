@@ -25,6 +25,61 @@ The bootstrap script is only **logic**; it does not embed secrets. Generated val
 
 ---
 
+## Render UI: two different places (read this once)
+
+Render splits configuration into **(1) Environment** and **(2) Service settings**. Mixing them up causes “I set everything” while health check or schema steps were never done.
+
+### 1) Environment variables
+
+**Path:** your **Web Service** → **Environment** (or **Environment Variables**).
+
+Put **`DATABASE_URL`**, **`SESSION_SECRET`**, **`BASE_URL`**, OAuth keys, Resend, etc. here.
+
+**`DATABASE_URL` is never “Advanced”** — it is always an **environment variable**. For **Neon**: copy the full **Connection string** from the Neon console (**Connection details** for branch `production`, pooling on is fine). For **Render Postgres**: use that instance’s **Internal Database URL**.
+
+### 2) Service settings (not in the Environment list)
+
+**Path:** the **same Web Service** → **Settings** (sidebar or top tabs). Render changes labels over time; use **Find in page** (`Ctrl+F`) and search for **`health`**.
+
+| Setting | Required for AxTask? | Value |
+|---------|----------------------|--------|
+| **Health Check Path** | **Yes** | **`/ready`** (leading slash). This is **not** an env var named `HEALTH_CHECK` — it is its **own field** on the service. If it is wrong (e.g. `/healthz`), the service may look unhealthy even when the app runs. |
+
+Other toggles (auto-deploy, region, branch) live here too.
+
+### 3) Docker Web Service — “Advanced” panel (if you deploy with **Docker**)
+
+These are **separate** from Environment. For a normal **GitHub → Dockerfile** AxTask deploy:
+
+| Advanced / Docker field | You must fill it? | Notes |
+|-------------------------|-------------------|--------|
+| **Secret Files** | **No** | Optional; not required for Neon + env vars. |
+| **Health Check Path** | **Yes** | Same as above: **`/ready`**. |
+| **Registry Credential** | **No** | Only if you pull a **private** image from a registry. Building from this repo → leave default / none. |
+| **Docker Build Context Directory** | Usually **`.`** | Repo root. |
+| **Dockerfile Path** | **`Dockerfile`** | The **file** name, not `.` alone. |
+| **Docker Command** | **No** | Leave empty; use the image `CMD`. |
+| **Pre-Deploy Command** | **No** (first go-live) | Does **not** replace the manual **`db:push`** below unless you deliberately script it. |
+
+---
+
+## Mandatory: apply database schema (`db:push`)
+
+**Deploying the web service does not create Postgres tables by default.** The Docker image runs the app; it does not auto-run Drizzle against Neon.
+
+**You must run once** (per empty database / new Neon branch), using the **exact same** `DATABASE_URL` as in Render:
+
+```bash
+# From your machine, AxTask repo root:
+DATABASE_URL="postgresql://…your Neon or Postgres URL…" npm run db:push
+```
+
+**Symptom if skipped:** logs like **`relation "rewards_catalog" does not exist`** (or other `relation "…" does not exist`). That means the DB is reachable but **tables were never created** — fix with **`db:push`**, then restart or redeploy.
+
+**Order that works:** set **`DATABASE_URL`** in Render → deploy → run **`db:push`** with that URL locally (or Render **Shell** if you have tooling there) → confirm app starts without missing-relation errors.
+
+---
+
 ## OAuth: not “pick one” — set every provider you use
 
 The app **does not** make you choose a single IdP for the login screen.
@@ -83,6 +138,8 @@ So: **paste all the OAuth env blocks you have configured**; you are not forced t
 
 ## A. Service settings (not in “Environment”)
 
+### A1. Native Node build (if Runtime = Node, not Docker)
+
 | Render field | Paste / value |
 |----------------|---------------|
 | **Name** | `axtask-prod` (or any name you like) |
@@ -92,7 +149,11 @@ So: **paste all the OAuth env blocks you have configured**; you are not forced t
 | **Runtime** | `Node` |
 | **Build Command** | `npm ci && npm run build` |
 | **Start Command** | `npm run start` |
-| **Health Check Path** | `/ready` |
+| **Health Check Path** | **`/ready`** |
+
+### A2. Docker build (if Language / Runtime = Docker)
+
+Use the **Docker** row in the **“Advanced / Docker”** table in [Render UI: two different places](#render-ui-two-different-places-read-this-once). **Health Check Path** is still **`/ready`**. Build/start come from the **Dockerfile** (`npm run build` in image, `node dist/index.js` at runtime).
 
 **Plan:** Starter or higher (match `render.yaml` if you use Blueprint).
 
@@ -222,19 +283,15 @@ Add **each** provider you enabled in B4–B6. Paths must match `BASE_URL`:
 
 ---
 
-## D. After the first successful deploy
+## D. After the first deploy (required order)
 
-1. **Schema** (once per database):
+1. **Schema (mandatory — do not skip)**  
+   Run **`npm run db:push`** with **`DATABASE_URL`** equal to Render’s value (Neon connection string or Render Postgres URL). See **[Mandatory: apply database schema](#mandatory-apply-database-schema-dbpush)**.  
+   Until this succeeds, you may see **`relation "rewards_catalog" does not exist`** (or similar) in logs.
 
-   ```bash
-   DATABASE_URL="YOUR_PROD_URL" npm run db:push
-   ```
+2. **User sign-in and onboarding:** **[SIGN_IN.md](./SIGN_IN.md)**.
 
-   (From your PC with prod URL, or **Render Shell** with env already set.)
-
-2. **User sign-in and onboarding:** see **[SIGN_IN.md](./SIGN_IN.md)** for how people open the app and log in (including local Docker and dev server).
-
-3. **Operator access** (database role changes, privileged URLs, production step-up email): use **[`docs/internal/OPERATOR_RUNBOOK.template.md`](./internal/OPERATOR_RUNBOOK.template.md)** (commit-safe) or a gitignored **`docs/internal/OPERATOR_RUNBOOK.md`** / private wiki — see **[`docs/internal/README.md`](./internal/README.md)**.
+3. **Operator access:** **[`internal/OPERATOR_RUNBOOK.template.md`](./internal/OPERATOR_RUNBOOK.template.md)** / **[`internal/README.md`](./internal/README.md)** / private wiki.
 
 ---
 
