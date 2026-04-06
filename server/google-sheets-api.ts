@@ -165,8 +165,8 @@ export class GoogleSheetsAPI {
 
       const spreadsheetId = response.data.spreadsheetId!;
       const sheets = response.data.sheets ?? [];
-      const tasksMeta = sheets.find((s) => s.properties?.title === "Tasks");
-      const aboutMeta = sheets.find((s) => s.properties?.title === aboutSheetTitle);
+      const tasksMeta = sheets.find((s: { properties?: { title?: string; sheetId?: number } }) => s.properties?.title === "Tasks");
+      const aboutMeta = sheets.find((s: { properties?: { title?: string; sheetId?: number } }) => s.properties?.title === aboutSheetTitle);
       const tasksSheetId = tasksMeta?.properties?.sheetId;
       const aboutSheetId = aboutMeta?.properties?.sheetId;
       if (tasksSheetId === undefined || tasksSheetId === null) {

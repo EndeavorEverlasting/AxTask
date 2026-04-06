@@ -3513,7 +3513,7 @@ export async function upsertPattern(
   userId: string,
   patternType: string,
   patternKey: string,
-  data: Record<string, unknown>,
+  data: unknown,
   confidence: number
 ): Promise<TaskPattern> {
   const now = new Date();

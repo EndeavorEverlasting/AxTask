@@ -263,7 +263,7 @@ export async function validateBundleWithDb(bundle: ExportBundle): Promise<{
     for (const row of rows) {
       const pkValue = row[pkField];
       if (!pkValue) continue;
-      const pkCol = (table as Record<string, unknown>)[pkField];
+      const pkCol = (table as unknown as Record<string, unknown>)[pkField];
       if (pkCol) {
         const [existing] = await db.select().from(table as AnyPgTable).where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);
         if (existing) conflictCount++;
@@ -422,7 +422,7 @@ export async function importBundle(
         for (const row of rows) {
           const pkValue = row[pkField];
           if (!pkValue) continue;
-          const pkCol = (table as Record<string, unknown>)[pkField];
+          const pkCol = (table as unknown as Record<string, unknown>)[pkField];
           if (pkCol) {
             const [existing] = await db.select().from(table as AnyPgTable).where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);
             if (existing) {
@@ -533,7 +533,7 @@ export async function importBundle(
           }
 
           const pkValue = row[pkField];
-          const pkCol = (table as Record<string, unknown>)[pkField];
+          const pkCol = (table as unknown as Record<string, unknown>)[pkField];
 
           if (mode === "preserve" && pkCol && pkValue) {
             const [existing] = await tx.select().from(table as AnyPgTable).where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);
@@ -732,7 +732,7 @@ export async function importUserBundle(
         }
         const pkValue = remapped[pkField];
         if (pkValue) {
-          const pkCol = (table as Record<string, unknown>)[pkField];
+          const pkCol = (table as unknown as Record<string, unknown>)[pkField];
           if (pkCol) {
             const [existing] = await db.select().from(table as AnyPgTable)
               .where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);

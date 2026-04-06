@@ -17,7 +17,7 @@ function jaccardSimilarity(a: string[], b: string[]): number {
   const setA = new Set(a);
   const setB = new Set(b);
   let intersection = 0;
-  for (const w of setA) if (setB.has(w)) intersection++;
+  for (const w of Array.from(setA)) if (setB.has(w)) intersection++;
   const union = setA.size + setB.size - intersection;
   return union === 0 ? 0 : intersection / union;
 }
@@ -152,7 +152,7 @@ async function extractTopics(userId: string, allTasks: Task[]): Promise<TaskPatt
     .slice(0, 50);
 
   const results: TaskPattern[] = [];
-  for (const [topic, data] of significantTopics) {
+  for (const [topic, data] of Array.from(significantTopics)) {
     const confidence = Math.min(100, Math.round((data.count / allTasks.length) * 100 + data.count * 5));
     const avgScore = data.scores.reduce((a, b) => a + b, 0) / data.scores.length;
 
@@ -178,7 +178,7 @@ async function detectRecurrences(userId: string, allTasks: Task[]): Promise<Task
     const normalized = normalizeText(task.activity);
     let matched = false;
 
-    for (const [key, group] of groups) {
+    for (const [key, group] of Array.from(groups.entries())) {
       const sim = jaccardSimilarity(tokenize(key), tokenize(normalized));
       if (sim >= 0.5) {
         group.push(task);
@@ -194,7 +194,7 @@ async function detectRecurrences(userId: string, allTasks: Task[]): Promise<Task
 
   const results: TaskPattern[] = [];
 
-  for (const [key, group] of groups) {
+  for (const [key, group] of Array.from(groups.entries())) {
     if (group.length < 2) continue;
 
     const sorted = group
@@ -218,10 +218,10 @@ async function detectRecurrences(userId: string, allTasks: Task[]): Promise<Task
     const { cadence, avgDays } = detectCadence(intervals);
 
     const dayFreq = new Map<number, number>();
-    for (const d of dayIndices) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
+    for (const d of Array.from(dayIndices)) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
     let typicalDayIdx = 0;
     let maxDayFreq = 0;
-    for (const [day, freq] of dayFreq) {
+    for (const [day, freq] of Array.from(dayFreq.entries())) {
       if (freq > maxDayFreq) { maxDayFreq = freq; typicalDayIdx = day; }
     }
 
@@ -262,7 +262,7 @@ async function detectDeadlineRhythms(userId: string, allTasks: Task[]): Promise<
 
   const results: TaskPattern[] = [];
 
-  for (const [cls, group] of classGroups) {
+  for (const [cls, group] of Array.from(classGroups.entries())) {
     if (group.length < 3) continue;
 
     const sorted = group.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -284,10 +284,10 @@ async function detectDeadlineRhythms(userId: string, allTasks: Task[]): Promise<
     if (cadence === "unknown" || cadence === "occasional") continue;
 
     const dayFreq = new Map<number, number>();
-    for (const d of dayIndices) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
+    for (const d of Array.from(dayIndices)) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
     let typicalDayIdx = 0;
     let maxDayFreq = 0;
-    for (const [day, freq] of dayFreq) {
+    for (const [day, freq] of Array.from(dayFreq.entries())) {
       if (freq > maxDayFreq) { maxDayFreq = freq; typicalDayIdx = day; }
     }
 
@@ -342,11 +342,11 @@ async function buildSimilarityClusters(userId: string, allTasks: Task[]): Promis
     const dates = cluster.tasks.filter(t => t.date).map(t => t.date).sort();
     const dayIndices = dates.map(d => new Date(d).getDay()).filter(d => !isNaN(d));
     const dayFreq = new Map<number, number>();
-    for (const d of dayIndices) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
+    for (const d of Array.from(dayIndices)) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
 
     let typicalDayIdx = 0;
     let maxFreq = 0;
-    for (const [day, freq] of dayFreq) {
+    for (const [day, freq] of Array.from(dayFreq.entries())) {
       if (freq > maxFreq) { maxFreq = freq; typicalDayIdx = day; }
     }
 
@@ -566,10 +566,10 @@ export async function learnFromTask(userId: string, task: Task, allTasks: Task[]
     const { cadence, avgDays } = detectCadence(intervals);
     const dayIndices = allInstances.map(t => new Date(t.date).getDay()).filter(d => !isNaN(d));
     const dayFreq = new Map<number, number>();
-    for (const d of dayIndices) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
+    for (const d of Array.from(dayIndices)) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
     let typicalDayIdx = 0;
     let maxFreq = 0;
-    for (const [day, freq] of dayFreq) {
+    for (const [day, freq] of Array.from(dayFreq.entries())) {
       if (freq > maxFreq) { maxFreq = freq; typicalDayIdx = day; }
     }
 
