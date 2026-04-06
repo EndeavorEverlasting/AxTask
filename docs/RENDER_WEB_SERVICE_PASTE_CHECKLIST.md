@@ -146,6 +146,7 @@ So: **paste all the OAuth env blocks you have configured**; you are not forced t
 | `GOOGLE_CLIENT_*` (login) | `GOOGLE_SHEETS_API_KEY` | **Different** credentials and purposes; both can exist. |
 | `DATABASE_URL` | `npm run db:push` | Same string you use locally or in Render Shell to migrate schema. |
 | `RESEND_FROM` | `CANONICAL_HOST` | Not enforced in code, but Resend requires a **verified** domain; usually matches your product domain. |
+| **Render** (hosting) | **Resend** (email SaaS) | Different companies. Mail uses **`RESEND_*`** env vars on Render — not a “Render email API key.” |
 | `AUTH_PROVIDER` | Multiple SSO buttons | **Optional.** Omit for auto-primary, or set one; **all** configured providers still show if env is complete. |
 
 ---
@@ -193,12 +194,19 @@ SESSION_SECRET=YOUR_RANDOM_STRING_AT_LEAST_32_CHARS
 
 ### B2. Resend (production email)
 
-Set when the deployment sends mail through Resend (transactional email and **privileged step-up flows** in production). Exact flows and operator checklists live in your **internal wiki**, not in this repo.
+**Where in Render:** exactly the same place as `DATABASE_URL` — **Web Service → Manage → Environment**. Add or edit **two rows** (two separate keys). This has nothing to do with “Render API keys”; **Resend** (resend.com) issues the mail key.
+
+| Key | What it is | Where the value comes from |
+|-----|------------|----------------------------|
+| **`RESEND_API_KEY`** | **One** secret API key per Resend account (starts with `re_`). You do **not** need multiple Resend API keys for AxTask unless you intentionally use separate Resend projects. | Resend dashboard → **API Keys** → create/copy. When you rotate, paste the **new** key here only. |
+| **`RESEND_FROM`** | **Not** an API key. The **From** address on outgoing mail (must use a **domain or address verified in Resend**). | Example: `noreply@axtask.app` or `AxTask <noreply@axtask.app>` — verify the domain in the Resend dashboard first. |
 
 ```
-RESEND_API_KEY=YOUR_RESEND_API_KEY
-RESEND_FROM=YOUR_VERIFIED_SENDER@YOUR_DOMAIN
+RESEND_API_KEY=re_xxxxxxxx
+RESEND_FROM=noreply@YOUR_VERIFIED_DOMAIN
 ```
+
+After changing either value: **Save, rebuild, and deploy** on the Web Service.
 
 ### B3. Optional: force a “primary” auth label (`AUTH_PROVIDER`)
 
