@@ -34,12 +34,12 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     intent: "task_review",
     patterns: [
-      /\b(?:i\s+)?(?:already\s+)?(?:finished|completed|did|done with|done|checked off|knocked out|took care of)\s+/i,
+      /\bi\s+(?:already\s+)?(?:finished|completed|did|done with|done|checked off|knocked out|took care of)\s+/i,
       /\bmark\s+.+?\s+(?:as\s+)?(?:completed?|done|finished)\b/i,
-      /\b(?:i(?:'ve| have)\s+)?(?:already\s+)?(?:finished|completed|done)\s+/i,
+      /\bi(?:'ve| have)\s+(?:already\s+)?(?:finished|completed|done)\s+/i,
       /\bbulk\s+(?:complete|update|review)\b/i,
-      /\b(?:i\s+)?(?:already\s+)?(?:took care of|handled|wrapped up|cleared)\s+/i,
-      /\b(?:i\s+)?(?:finished|completed|did).+(?:and|,).+/i,
+      /\bi\s+(?:already\s+)?(?:took care of|handled|wrapped up|cleared)\s+/i,
+      /\bi\s+(?:finished|completed|did).+(?:and|,).+/i,
       /\b(?:move|reschedule|push)\s+.+?\s+to\s+.+?\s+(?:and|,)\s+.+\b(?:finished|completed|done|closed|marked)\b/i,
     ],
     priority: 8,

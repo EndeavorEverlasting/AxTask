@@ -1,8 +1,11 @@
 /** Redact reporter email for persisted inbox payloads and exports (do not store raw addresses). */
 export function maskReporterEmailForPrivacy(raw: string): string {
   const trimmed = raw.trim();
-  const [u, dom] = trimmed.split("@");
-  if (!dom || u.length === 0) return "[redacted]";
+  const atIdx = trimmed.lastIndexOf("@");
+  if (atIdx <= 0) return "[redacted]";
+  const u = trimmed.slice(0, atIdx);
+  const dom = trimmed.slice(atIdx + 1);
+  if (!dom) return "[redacted]";
   if (u.length === 1) return `•@${dom}`;
   if (u.length === 2) return `${u[0]}•@${dom}`;
   return `${u.slice(0, 2)}•••@${dom}`;

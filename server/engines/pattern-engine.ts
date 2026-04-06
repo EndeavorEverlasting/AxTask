@@ -344,7 +344,7 @@ async function detectDeadlineRhythms(userId: string, allTasks: Task[]): Promise<
       typicalDayIndex: typicalDayIdx,
       avgDays,
       cadence,
-      dates: sorted.slice(-5).map(t => t.date),
+      dates: sorted.slice(-5).map(t => t.date!).filter(Boolean) as string[],
     };
 
     const pattern = await upsertPattern(userId, "deadline_rhythm", `rhythm:${cls.toLowerCase()}`, rhythmData, confidence);
@@ -381,7 +381,10 @@ async function buildSimilarityClusters(userId: string, allTasks: Task[]): Promis
   for (const cluster of clusters) {
     if (cluster.tasks.length < 2) continue;
 
-    const dates = cluster.tasks.filter(t => t.date).map(t => t.date).sort();
+    const dates = cluster.tasks
+      .map((t) => t.date)
+      .filter((d): d is string => d != null && d !== "")
+      .sort();
     const dayIndices = dates
       .map((d) => {
         const ms = parseYmdToUtcMs(d);

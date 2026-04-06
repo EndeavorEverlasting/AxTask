@@ -21,6 +21,10 @@ export function useLiveClassificationStream(options: {
 
   useEffect(() => {
     if (!enabled) {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
       esRef.current?.close();
       esRef.current = null;
       setSuggestions([]);

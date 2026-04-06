@@ -212,7 +212,7 @@ async function confirmOverwrite(outPath, force) {
     );
     return /^y(es)?$/i.test(String(ans).trim());
   } finally {
-    await rl.close();
+    rl.close();
   }
 }
 
@@ -240,9 +240,9 @@ async function main() {
         process.exit(1);
       }
       fs.writeFileSync(opts.outPath, next.replace(/\r?\n/g, "\n"), "utf8");
-      logInfo(
+        logInfo(
         "[render:env-bootstrap] Refreshed SESSION_SECRET" +
-          (/\nINVITE_CODE=/m.test(next) ? " and INVITE_CODE" : "") +
+          (/(^|\n)INVITE_CODE=/m.test(next) ? " and INVITE_CODE" : "") +
           " in " +
           opts.outPath,
       );
@@ -265,7 +265,7 @@ async function main() {
       );
       domain = normalizeDomain(raw);
     } finally {
-      await rl.close();
+      rl.close();
     }
   }
 

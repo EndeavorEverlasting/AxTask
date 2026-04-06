@@ -1,8 +1,11 @@
 // @vitest-environment node
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, "..");
 
 describe("Google account login (OAuth) contract", () => {

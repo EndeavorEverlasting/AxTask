@@ -91,6 +91,14 @@ import { parseFeedbackPayload, parseFeedbackReviewPayload } from "./services/fee
 
 /** Allowed clock skew / serialization delta for task optimistic concurrency (updatedAt match). */
 const TASK_OPTIMISTIC_CONCURRENCY_MS = 1000;
+
+/** RFC 4122 string form (any version/variant); rejects malformed client-supplied ids. */
+const CLIENT_TASK_ID_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidClientTaskUuid(id: string): boolean {
+  return CLIENT_TASK_ID_UUID_RE.test(id);
+}
 import { maskE164ForDisplay } from "@shared/phone";
 import { isBuiltInClassification, normalizeCategoryName } from "@shared/classification-catalog";
 import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
@@ -251,7 +259,7 @@ export async function getAccountOwnerProfileFields(
 
 export async function updateUserAccountProfile(
   userId: string,
-  patch: { displayName?: string; birthDate?: string | null },
+  patch: { displayName?: string | null; birthDate?: string | null },
 ): Promise<SafeUser | undefined> {
   const updates: Record<string, unknown> = {};
   if (patch.displayName !== undefined) updates.displayName = patch.displayName;
@@ -1289,7 +1297,15 @@ export class DatabaseStorage implements IStorage {
 
   async createTask(userId: string, insertTask: InsertTask): Promise<Task> {
     const { id: clientId, ...rest } = insertTask as InsertTask & { id?: string };
-    const id = clientId && typeof clientId === "string" ? clientId : randomUUID();
+    let id: string;
+    if (clientId != null && typeof clientId === "string" && clientId.length > 0) {
+      if (!isValidClientTaskUuid(clientId)) {
+        throw new Error("Invalid task id: client id must be a valid UUID");
+      }
+      id = clientId;
+    } else {
+      id = randomUUID();
+    }
     const now = new Date();
 
     const taskData = {
@@ -3728,20 +3744,40 @@ export async function awardAvatarXp(
   })();
   const currentXp = Math.max(0, totalXp - levelBaseXp);
 
-  const [updated] = await db
-    .update(avatarProfiles)
-    .set({
-      totalXp,
-      xp: currentXp,
-      level,
-      updatedAt: new Date(),
-    })
-    .where(eq(avatarProfiles.id, profile.id))
-    .returning();
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(avatarProfiles)
+      .set({
+        totalXp,
+        xp: currentXp,
+        level,
+        updatedAt: new Date(),
+      })
+      .where(eq(avatarProfiles.id, profile.id))
+      .returning();
 
-  if (coinsAwarded > 0) {
-    await addCoins(userId, coinsAwarded, `avatar_xp:${avatarKey}`, `Avatar XP from ${sourceType}:${sourceRef}`);
-  }
+    if (coinsAwarded > 0) {
+      await getOrCreateWallet(userId);
+      await tx
+        .update(wallets)
+        .set({
+          balance: sql`${wallets.balance} + ${coinsAwarded}`,
+          lifetimeEarned: sql`${wallets.lifetimeEarned} + ${coinsAwarded}`,
+        })
+        .where(eq(wallets.userId, userId));
+      await tx
+        .insert(coinTransactions)
+        .values({
+          id: randomUUID(),
+          userId,
+          amount: coinsAwarded,
+          reason: `avatar_xp:${avatarKey}`,
+          details: `Avatar XP from ${sourceType}:${sourceRef}`,
+        });
+    }
+    return row;
+  });
+
   return { awarded: true, profile: updated ?? profile };
 }
 

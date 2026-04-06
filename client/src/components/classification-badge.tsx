@@ -50,6 +50,8 @@ interface ClassificationBadgeProps {
   /** Used with NodeWeaver / AxTask suggestions when the popover opens. */
   activity?: string;
   notes?: string;
+  /** Task's current updatedAt for optimistic concurrency checks on reclassify. */
+  baseUpdatedAt?: string;
 }
 
 export function ClassificationBadge({
@@ -58,6 +60,7 @@ export function ClassificationBadge({
   editable = false,
   activity = "",
   notes = "",
+  baseUpdatedAt,
 }: ClassificationBadgeProps) {
   const [open, setOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -111,10 +114,12 @@ export function ClassificationBadge({
 
   const reclassifyMutation = useMutation({
     mutationFn: async (newClassification: string) => {
+      const payload: Record<string, string> = { classification: newClassification };
+      if (baseUpdatedAt) payload.baseUpdatedAt = baseUpdatedAt;
       return syncRawTaskRequest(
         "POST",
         `/api/tasks/${taskId}/reclassify`,
-        { classification: newClassification },
+        payload,
         queryClientHook,
       );
     },

@@ -26,6 +26,8 @@ export interface ProposedAction {
   details: Record<string, unknown>;
   confidence: number;
   reason: string;
+  /** Stable unique id for this action (may differ from taskId when multiple actions target the same task). */
+  actionId?: string;
 }
 
 interface BulkActionDialogProps {
@@ -76,25 +78,27 @@ export default function BulkActionDialog({
   message,
   unmatched,
 }: BulkActionDialogProps) {
+  const actionKey = (a: ProposedAction, i: number) => a.actionId ?? `${a.taskId}:${i}`;
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
-    setSelected(new Set(actions.map(a => a.taskId)));
+    setSelected(new Set(actions.map((a, i) => actionKey(a, i))));
   }, [actions]);
 
-  const toggleItem = useCallback((taskId: string) => {
+  const toggleItem = useCallback((key: string) => {
     setSelected(prev => {
       const next = new Set(prev);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }, []);
 
   const selectAll = useCallback(() => {
-    setSelected(new Set(actions.map(a => a.taskId)));
+    setSelected(new Set(actions.map((a, i) => actionKey(a, i))));
   }, [actions]);
 
   const deselectAll = useCallback(() => {
@@ -149,7 +153,7 @@ export default function BulkActionDialog({
   });
 
   const handleApply = useCallback(() => {
-    const selectedActions = actions.filter(a => selected.has(a.taskId));
+    const selectedActions = actions.filter((a, i) => selected.has(actionKey(a, i)));
     if (selectedActions.length === 0) return;
     applyMutation.mutate(selectedActions);
   }, [actions, selected, applyMutation]);
@@ -197,13 +201,14 @@ export default function BulkActionDialog({
 
           <AnimatePresence mode="popLayout">
             {actions.map((action, i) => {
+              const key = actionKey(action, i);
               const Icon = ACTION_ICONS[action.type] || CheckCircle2;
               const colorClass = ACTION_COLORS[action.type] || "";
-              const isSelected = selected.has(action.taskId);
+              const isSelected = selected.has(key);
 
               return (
                 <motion.div
-                  key={action.taskId}
+                  key={key}
                   initial={reducedMotion ? false : { opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: i * 0.05 }}
@@ -212,11 +217,11 @@ export default function BulkActionDialog({
                       ? "border-purple-200 dark:border-purple-800 bg-purple-50/30 dark:bg-purple-900/10"
                       : "border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 opacity-60"
                   }`}
-                  onClick={() => toggleItem(action.taskId)}
+                  onClick={() => toggleItem(key)}
                 >
                   <Checkbox
                     checked={isSelected}
-                    onCheckedChange={() => toggleItem(action.taskId)}
+                    onCheckedChange={() => toggleItem(key)}
                     onClick={(e) => e.stopPropagation()}
                     className="mt-0.5"
                   />

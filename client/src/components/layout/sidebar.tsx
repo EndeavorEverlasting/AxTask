@@ -47,13 +47,16 @@ import { useImmersiveShell } from "@/hooks/use-immersive-shell";
 import { PretextPeekStrip } from "@/components/layout/pretext-peek-strip";
 import { ShellSplitter } from "@/components/layout/shell-splitter";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 import type { SafeUser } from "@shared/schema";
 
 function userInitials(u: Pick<SafeUser, "displayName" | "email">): string {
   const base = (u.displayName || u.email || "").trim();
   return base
     .split(/\s+/)
-    .map((w) => w[0])
+    .filter(Boolean)
+    .map((w) => w[0] || "")
+    .filter(Boolean)
     .join("")
     .toUpperCase()
     .slice(0, 2);
@@ -86,6 +89,7 @@ function AccountUserAvatar({
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const { theme, toggleTheme } = useTheme();
+  const { toast } = useToast();
   const { user, logout } = useAuth();
   const { zoom, zoomIn, zoomOut, resetZoom, ZOOM_MIN, ZOOM_MAX } = useZoom();
   const { isActive: tutorialActive, startTutorial, stopTutorial, hasCompleted } = useTutorial();
@@ -359,8 +363,14 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           variant="ghost"
           size="sm"
           onClick={async () => {
-            await logout();
-            handleNavClick();
+            try {
+              await logout();
+              handleNavClick();
+            } catch (err) {
+              console.error("[sidebar] logout failed", err);
+              const message = err instanceof Error ? err.message : "Could not sign out";
+              toast({ title: "Sign out failed", description: message, variant: "destructive" });
+            }
           }}
           className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 min-h-[44px]"
         >

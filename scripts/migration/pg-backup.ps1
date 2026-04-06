@@ -23,7 +23,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 if (-not $DatabaseUrl) {
-  Write-Error "DATABASE_URL not set and -DatabaseUrl not provided."
+  throw "DATABASE_URL not set and -DatabaseUrl not provided."
 }
 
 # Parse URL without passing it as a pg_dump argument (hides password from process listings).
@@ -31,12 +31,12 @@ $normalized = $DatabaseUrl -replace '^postgres(ql)?://', 'https://'
 try {
   $uri = [Uri]$normalized
 } catch {
-  Write-Error "Invalid DATABASE_URL: $_"
+  throw "Invalid DATABASE_URL: $_"
 }
 
 $pgDumpCmd = Get-Command 'pg_dump' -ErrorAction SilentlyContinue
 if (-not $pgDumpCmd) {
-  Write-Error "pg_dump not found. Install PostgreSQL client tools and ensure pg_dump is on PATH."
+  throw "pg_dump not found. Install PostgreSQL client tools and ensure pg_dump is on PATH."
 }
 
 $dir = Split-Path -Parent $OutFile

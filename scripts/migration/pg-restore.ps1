@@ -58,8 +58,16 @@ $env:PGDATABASE = $uri.AbsolutePath.TrimStart('/')
 
 Write-Host "pg_restore <- $BackupFile"
 # --no-owner --role=... optional; target must be empty or use --clean (destructive)
-& pg_restore -h $env:PGHOST -p $env:PGPORT -U $env:PGUSER -d $env:PGDATABASE --no-owner --exit-on-error $BackupFile
-$exit = $LASTEXITCODE
-Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+$exit = 0
+try {
+  & pg_restore -h $env:PGHOST -p $env:PGPORT -U $env:PGUSER -d $env:PGDATABASE --no-owner --exit-on-error $BackupFile
+  $exit = $LASTEXITCODE
+} finally {
+  Remove-Item Env:\PGHOST -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGPORT -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGUSER -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGDATABASE -ErrorAction SilentlyContinue
+}
 if ($exit -ne 0) { exit $exit }
 Write-Host "Restore complete. Then: npm run db:push (from integration/migration-unified) and npm run migration:verify-schema"

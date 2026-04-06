@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -228,8 +228,11 @@ export default function BillingPage() {
     setOtpChannel(user?.phoneVerified ? "sms" : "email");
   }, [user?.phoneVerified]);
 
+  const prevProfileOpenRef = useRef(false);
   useEffect(() => {
-    if (!profileOpen) return;
+    const justOpened = profileOpen && !prevProfileOpenRef.current;
+    prevProfileOpenRef.current = profileOpen;
+    if (!justOpened) return;
     if (billingProfile) {
       setProfileForm({
         legalName: billingProfile.legalName ?? "",

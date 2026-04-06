@@ -93,6 +93,7 @@ import { z, ZodError } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, updateAccountProfileSchema, avatarEngagementSchema, type UpdateTask, type Task } from "@shared/schema";
 import { TASK_CONFLICT_CODE } from "@shared/offline-sync";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
+import { assertMfaChallengeCreateAllowed } from "./mfa-purpose-validation";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { deliverMfaOtp, canDeliverMfaInProduction, sendWelcomeExperienceEmail } from "./services/otp-delivery";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
@@ -1851,9 +1852,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         id: req.params.id,
       });
-      const userId = req.user!.id;
+      const requesterId = req.user!.id;
+      const access = await canAccessTask(requesterId, req.params.id);
+      if (!access.canAccess) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      if (access.role === "viewer") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const taskRow = await getTaskRowById(req.params.id);
+      if (!taskRow?.userId) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const ownerId = taskRow.userId;
 
-      const existingTask = await storage.getTask(userId, req.params.id);
+      const existingTask = await storage.getTask(ownerId, req.params.id);
       if (!existingTask) {
         return res.status(404).json({ message: "Task not found" });
       }
@@ -1865,9 +1878,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const previousStatus = existingTask.status || "pending";
 
-      let task = await storage.updateTask(userId, updates as UpdateTask, concurrencyOpts);
+      let task = await storage.updateTask(ownerId, updates as UpdateTask, concurrencyOpts);
       if (!task) {
-        const cur = await storage.getTask(userId, req.params.id);
+        const cur = await storage.getTask(ownerId, req.params.id);
         if (!cur) {
           return res.status(404).json({ message: "Task not found" });
         }
@@ -1882,7 +1895,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (validatedData.activity || validatedData.notes) {
-        const allTasks = await storage.getTasks(userId);
+        const allTasks = await storage.getTasks(ownerId);
         const priorityResult = await PriorityEngine.calculatePriority(
           task!.activity,
           task!.notes || "",
@@ -1894,7 +1907,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const classification = await classifyTaskWithFallback(task!.activity, task!.notes || "", true);
 
-        task = await storage.updateTask(userId, {
+        task = await storage.updateTask(ownerId, {
           id: task!.id,
           priority: priorityResult.priority,
           priorityScore: Math.round(priorityResult.score * 10),
@@ -1905,7 +1918,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let coinReward = null;
       if (task!.status === "completed" && previousStatus !== "completed") {
-        coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
+        coinReward = await awardCoinsForCompletion(ownerId, task!, previousStatus);
       }
 
       let classificationReward = null;
@@ -1915,14 +1928,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         !isGeneralClassification(task!.classification) &&
         task!.classification !== previousClassification
       ) {
-        classificationReward = await awardCoinsForClassification(userId, task!);
+        classificationReward = await awardCoinsForClassification(ownerId, task!);
       }
 
       if (task && (task.status === "completed" || task.classification !== previousClassification)) {
-        ensureAvatarProfilesForUser(userId)
+        ensureAvatarProfilesForUser(ownerId)
           .then(() =>
             awardAvatarProgressFromContent(
-              userId,
+              ownerId,
               "task",
               task.id,
               `${task.activity} ${task.notes || ""} ${task.classification || ""}`,
@@ -1945,8 +1958,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete task
   app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
-      const userId = req.user!.id;
-      const existingTask = await storage.getTask(userId, req.params.id);
+      const requesterId = req.user!.id;
+      const access = await canAccessTask(requesterId, req.params.id);
+      if (!access.canAccess) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      if (access.role === "viewer") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const taskRow = await getTaskRowById(req.params.id);
+      if (!taskRow?.userId) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const ownerId = taskRow.userId;
+      const existingTask = await storage.getTask(ownerId, req.params.id);
       if (!existingTask) {
         return res.status(404).json({ message: "Task not found" });
       }
@@ -1958,12 +1983,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const expectConflict =
         !forceOverwrite && typeof baseUpdatedAt === "string" && baseUpdatedAt.length > 0;
       const deleted = await storage.deleteTask(
-        userId,
+        ownerId,
         req.params.id,
         expectConflict ? { expectUpdatedAt: baseUpdatedAt } : undefined,
       );
       if (!deleted) {
-        const cur = await storage.getTask(userId, req.params.id);
+        const cur = await storage.getTask(ownerId, req.params.id);
         if (!cur) {
           return res.status(404).json({ message: "Task not found" });
         }
@@ -2611,12 +2636,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             case "update": {
               const updatePayload: UpdateTask = { id: action.taskId };
               const validPriorities = ["Lowest", "Low", "Medium", "Medium-High", "High", "Highest"];
+              let explicitPriorityProvided = false;
               if (action.details?.priority && typeof action.details.priority === "string" && validPriorities.includes(action.details.priority)) {
                 updatePayload.priority = action.details.priority;
                 const ps = VOICE_REVIEW_PRIORITY_TO_SCORE[action.details.priority];
                 if (ps !== undefined) {
                   updatePayload.priorityScore = ps;
                 }
+                explicitPriorityProvided = true;
               }
               let notesChanged = false;
               if (action.details?.notes && typeof action.details.notes === "string") {
@@ -2636,8 +2663,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   allTasks.filter((t) => t.id !== action.taskId),
                 );
                 const classification = await classifyTaskWithFallback(activity, notes, true);
-                updatePayload.priority = priorityResult.priority;
-                updatePayload.priorityScore = Math.round(priorityResult.score * 10);
+                if (!explicitPriorityProvided) {
+                  updatePayload.priority = priorityResult.priority;
+                  updatePayload.priorityScore = Math.round(priorityResult.score * 10);
+                }
                 updatePayload.classification = classification;
                 updatePayload.isRepeated = priorityResult.isRepeated;
               }
@@ -3444,6 +3473,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     purpose: z.string().min(3).max(120),
     channel: z.enum(["email", "sms"]).optional().default("email"),
     phoneE164: z.string().optional(),
+    taskId: z.string().min(1).optional(),
   });
 
   const postMfaChallenge = async (req: Request, res: Response) => {
@@ -3464,6 +3494,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!contact) return res.status(404).json({ message: "User not found" });
 
       let smsDestinationE164: string | null = null;
+
+      await assertMfaChallengeCreateAllowed(req.user!.id, body.purpose, { taskId: body.taskId });
 
       if (channel === "sms") {
         if (body.purpose === MFA_PURPOSES.ACCOUNT_VERIFY_PHONE) {
@@ -4840,7 +4872,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/account/export", requireAuth, migrationLimiter, async (req, res) => {
     try {
-      const bundle = await exportUserData(req.user!.id);
+      const bundle = await exportUserData(req.user!.id, { adminMode: true });
       res.setHeader("Content-Type", "application/json");
       res.setHeader("Cache-Control", "no-store, private");
       res.setHeader(

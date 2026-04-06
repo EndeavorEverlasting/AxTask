@@ -56,8 +56,12 @@ export function MfaVerificationPanel({
   const handleComplete = useCallback(
     async (code: string) => {
       if (code.length !== 6 || isBusy) return;
-      await onSubmitCode(code);
       consumeMfaHandoffSession();
+      try {
+        await onSubmitCode(code);
+      } catch (err) {
+        console.error("[mfa-verification] onSubmitCode rejected", err);
+      }
     },
     [isBusy, onSubmitCode],
   );

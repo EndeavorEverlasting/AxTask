@@ -119,7 +119,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const getCollabFieldUser = useCallback((fieldName: string): string | undefined => {
     if (!collab.connected || !task) return undefined;
     const editing = collab.users.find(u => u.focusedField === fieldName && u.userId !== user?.id);
-    return editing ? (editing.displayName || editing.email) : undefined;
+    return editing ? (editing.displayName || editing.userId) : undefined;
   }, [collab.users, collab.connected, task, user?.id]);
 
   const draftContext = task ? `edit_${task.id}` : defaultDate ? `date_${defaultDate}` : "new";
@@ -220,8 +220,20 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const speech = useSpeechRecognition({
     continuous: true,
     onResult: handleVoiceResult,
-    onLiveText: (combined) =>
-      liveClassificationPushRef.current(combined, form.getValues("notes") || ""),
+    onLiveText: (combined) => {
+      const target = voiceTarget;
+      const activityVal = form.getValues("activity") || "";
+      const notesVal = form.getValues("notes") || "";
+      const prereqVal = form.getValues("prerequisites") || "";
+      if (target === "activity") {
+        liveClassificationPushRef.current(combined, notesVal);
+      } else if (target === "notes") {
+        liveClassificationPushRef.current(activityVal, combined);
+      } else {
+        const notesSide = [notesVal, prereqVal, combined].filter(Boolean).join("\n");
+        liveClassificationPushRef.current(activityVal, notesSide);
+      }
+    },
   });
 
   const {
@@ -564,11 +576,11 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold border-2 border-white dark:border-gray-900 cursor-default"
                           style={{ backgroundColor: u.color }}
                         >
-                          {(u.displayName || u.email).charAt(0).toUpperCase()}
+                          {(u.displayName || u.userId).charAt(0).toUpperCase()}
                         </div>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>{u.displayName || u.email}</p>
+                        <p>{u.displayName || u.userId}</p>
                         {u.focusedField && <p className="text-xs opacity-70">Editing: {u.focusedField}</p>}
                       </TooltipContent>
                     </Tooltip>
@@ -667,7 +679,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       setDeadlineSuggestion(null);
                     }}
                   >
-                    Use {new Date(deadlineSuggestion.suggestedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    Use {(() => { const d = new Date(deadlineSuggestion.suggestedDate + "T12:00:00"); return isNaN(d.getTime()) ? (deadlineSuggestion.suggestedDate || "No date") : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); })()}
                   </Button>
                   <button
                     type="button"
