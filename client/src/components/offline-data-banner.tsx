@@ -100,11 +100,13 @@ export function OfflineDataBanner() {
             type="button"
             variant="outline"
             size="sm"
-            className="shrink-0 border-orange-300 bg-white/80 dark:bg-orange-950/30 dark:border-orange-800"
-            onClick={onRefresh}
+            disabled
+            aria-disabled
+            title="Reconnect to the internet to refresh data from the server."
+            className="shrink-0 border-orange-300 bg-white/80 opacity-70 dark:bg-orange-950/30 dark:border-orange-800"
           >
             <RefreshCw className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-            Retry sync
+            Sync when online
           </Button>
         </div>
       </div>

@@ -5,6 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Task } from "@shared/schema";
 import { syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
+import { useLiveClassificationStream, type LiveClassificationSuggestion } from "./use-live-classification-stream";
 
 interface EngineResponse {
   intent: string;
@@ -57,6 +58,9 @@ interface VoiceContextType {
   taskPrefill: TaskPrefill | null;
   voiceSearchQuery: string | null;
   reviewProposal: ReviewProposal | null;
+  /** Live topic hints while the command mic is listening (SSE + debounced classify). */
+  liveTopicSuggestions: LiveClassificationSuggestion[];
+  liveTopicLoading: boolean;
   toggleListening: () => void;
   openBar: () => void;
   /** Opens the voice bar then starts listening on the next microtask (avoids racing openBar). */
@@ -209,10 +213,25 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
     }
   }, [processMutation]);
 
+  const liveVoicePushRef = useRef<(text: string) => void>(() => {});
+
   const speech = useSpeechRecognition({
     continuous: false,
     onResult: handleVoiceResult,
+    onLiveText: (combined) => liveVoicePushRef.current(combined),
   });
+
+  const {
+    suggestions: liveTopicSuggestions,
+    loading: liveTopicLoading,
+    pushLiveText,
+  } = useLiveClassificationStream({
+    enabled: isBarOpen && speech.status === "listening",
+  });
+
+  useEffect(() => {
+    liveVoicePushRef.current = (text: string) => pushLiveText(text, "");
+  }, [pushLiveText]);
 
   const toggleListening = useCallback(() => {
     if (speech.status === "listening") {
@@ -317,6 +336,8 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         taskPrefill,
         voiceSearchQuery,
         reviewProposal,
+        liveTopicSuggestions,
+        liveTopicLoading,
         toggleListening,
         openBar,
         openBarAndToggleListening,

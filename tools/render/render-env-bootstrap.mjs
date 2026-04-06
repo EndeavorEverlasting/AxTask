@@ -180,7 +180,7 @@ function printPasteGuide(domain) {
     `WORKOS_API_KEY     → WorkOS Dashboard → API Keys`,
     `WORKOS_CLIENT_ID   → WorkOS → Applications → Client ID`,
     `WORKOS_REDIRECT_URI (if you set it in env) should be:`,
-    `                     ${base}/api/auth/workos/callback`,
+    `                     ${base}/api/auth/callback`,
     "",
     `REPL_ID            → Replit → your Repl → cover / metadata (if using Replit auth)`,
     `ISSUER_URL         → default https://replit.com/oidc unless Replit docs say otherwise`,

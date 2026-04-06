@@ -4,6 +4,31 @@ import { upsertPattern, getPatterns, deleteStalePatterns, clearPatterns } from "
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+/** Parse calendar YYYY-MM-DD at UTC midnight (avoids local-DST shifts). */
+function parseYmdToUtcMs(ymd: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const t = Date.UTC(y, mo - 1, d);
+  return Number.isFinite(t) ? t : null;
+}
+
+function utcMsAddCalendarDays(ms: number, days: number): number {
+  const d = new Date(ms);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.getTime();
+}
+
+function formatUtcYmd(ms: number): string {
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
 function normalizeText(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
 }
@@ -133,7 +158,7 @@ async function extractTopics(userId: string, allTasks: Task[]): Promise<TaskPatt
       bigrams.push(`${tokens[i]} ${tokens[i + 1]}`);
     }
 
-    const phrases = [...tokens, ...bigrams];
+    const phrases = [...new Set([...tokens, ...bigrams])];
     for (const phrase of phrases) {
       if (!topicMap.has(phrase)) {
         topicMap.set(phrase, { count: 0, scores: [], classifications: new Set(), activities: [] });
@@ -199,7 +224,11 @@ async function detectRecurrences(userId: string, allTasks: Task[]): Promise<Task
 
     const sorted = group
       .filter(t => t.date)
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      .sort((a, b) => {
+        const ta = parseYmdToUtcMs(a.date!);
+        const tb = parseYmdToUtcMs(b.date!);
+        return (ta ?? 0) - (tb ?? 0);
+      });
 
     if (sorted.length < 2) continue;
 
@@ -211,8 +240,8 @@ async function detectRecurrences(userId: string, allTasks: Task[]): Promise<Task
     }
 
     for (const t of sorted) {
-      const d = new Date(t.date);
-      if (!isNaN(d.getTime())) dayIndices.push(d.getDay());
+      const ms = t.date ? parseYmdToUtcMs(t.date) : null;
+      if (ms !== null) dayIndices.push(new Date(ms).getUTCDay());
     }
 
     const { cadence, avgDays } = detectCadence(intervals);
@@ -226,9 +255,10 @@ async function detectRecurrences(userId: string, allTasks: Task[]): Promise<Task
     }
 
     const lastDate = sorted[sorted.length - 1].date;
-    const nextExpected = new Date(lastDate);
-    nextExpected.setDate(nextExpected.getDate() + (avgDays || 7));
-    const nextExpectedStr = nextExpected.toISOString().split("T")[0];
+    const lastMs = parseYmdToUtcMs(lastDate);
+    if (lastMs === null) continue;
+    const nextMs = utcMsAddCalendarDays(lastMs, avgDays || 7);
+    const nextExpectedStr = formatUtcYmd(nextMs);
 
     const confidence = Math.min(100, Math.round(group.length * 15 + (cadence !== "unknown" ? 20 : 0)));
 
@@ -265,7 +295,11 @@ async function detectDeadlineRhythms(userId: string, allTasks: Task[]): Promise<
   for (const [cls, group] of Array.from(classGroups.entries())) {
     if (group.length < 3) continue;
 
-    const sorted = group.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sorted = group.sort((a, b) => {
+      const ta = parseYmdToUtcMs(a.date!);
+      const tb = parseYmdToUtcMs(b.date!);
+      return (ta ?? 0) - (tb ?? 0);
+    });
     const intervals: number[] = [];
     const dayIndices: number[] = [];
 
@@ -274,8 +308,8 @@ async function detectDeadlineRhythms(userId: string, allTasks: Task[]): Promise<
     }
 
     for (const t of sorted) {
-      const d = new Date(t.date);
-      if (!isNaN(d.getTime())) dayIndices.push(d.getDay());
+      const ms = t.date ? parseYmdToUtcMs(t.date) : null;
+      if (ms !== null) dayIndices.push(new Date(ms).getUTCDay());
     }
 
     if (intervals.length === 0) continue;
@@ -340,9 +374,18 @@ async function buildSimilarityClusters(userId: string, allTasks: Task[]): Promis
     if (cluster.tasks.length < 2) continue;
 
     const dates = cluster.tasks.filter(t => t.date).map(t => t.date).sort();
-    const dayIndices = dates.map(d => new Date(d).getDay()).filter(d => !isNaN(d));
+    const dayIndices = dates
+      .map((d) => {
+        const ms = parseYmdToUtcMs(d);
+        return ms !== null ? new Date(ms).getUTCDay() : NaN;
+      })
+      .filter((d) => !Number.isNaN(d));
     const dayFreq = new Map<number, number>();
     for (const d of Array.from(dayIndices)) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
+
+    if (dayFreq.size === 0) {
+      continue;
+    }
 
     let typicalDayIdx = 0;
     let maxFreq = 0;
@@ -404,37 +447,42 @@ export function suggestDeadline(activity: string, patterns: TaskPattern[]): Dead
         ),
       );
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const nowClock = new Date();
+      const todayUtcMs = Date.UTC(
+        nowClock.getUTCFullYear(),
+        nowClock.getUTCMonth(),
+        nowClock.getUTCDate(),
+      );
 
-      const suggested = new Date(`${data.nextExpectedDate}T12:00:00.000Z`);
-      suggested.setHours(0, 0, 0, 0);
+      const nextExpectedMs = parseYmdToUtcMs(data.nextExpectedDate);
+      if (nextExpectedMs === null) throw new Error("invalid nextExpectedDate");
+      let suggestedMs = nextExpectedMs;
 
-      if (suggested < today) {
+      if (suggestedMs < todayUtcMs) {
         const weeklyLike = intervalDays >= 6 && intervalDays <= 8;
         if (weeklyLike && typeof data.typicalDayIndex === "number") {
-          let daysUntil = (data.typicalDayIndex - today.getDay() + 7) % 7;
+          const todayDow = new Date(todayUtcMs).getUTCDay();
+          let daysUntil = (data.typicalDayIndex - todayDow + 7) % 7;
           if (daysUntil === 0) daysUntil = 7;
-          suggested.setTime(today.getTime() + daysUntil * 24 * 60 * 60 * 1000);
+          suggestedMs = utcMsAddCalendarDays(todayUtcMs, daysUntil);
         } else {
           const safeInterval = Math.max(1, intervalDays);
-          let s = new Date(`${data.nextExpectedDate}T12:00:00.000Z`);
-          s.setHours(0, 0, 0, 0);
+          let s = nextExpectedMs;
           const maxIterations = 4000;
           let iter = 0;
-          while (s < today && iter < maxIterations) {
-            s.setDate(s.getDate() + safeInterval);
+          while (s < todayUtcMs && iter < maxIterations) {
+            s = utcMsAddCalendarDays(s, safeInterval);
             iter += 1;
           }
           if (iter >= maxIterations) {
             console.error("[pattern-engine] suggestDeadline: max iterations advancing recurrence date");
           }
-          suggested.setTime(s.getTime());
+          suggestedMs = s;
         }
       }
 
       return {
-        suggestedDate: suggested.toISOString().split("T")[0],
+        suggestedDate: formatUtcYmd(suggestedMs),
         reason: `You usually do "${data.activity}" ${data.cadence.replace("_", " ")} on ${data.typicalDayOfWeek}s`,
         confidence: bestMatch.pattern.confidence,
         pattern: bestMatch.pattern.patternKey,
@@ -445,23 +493,51 @@ export function suggestDeadline(activity: string, patterns: TaskPattern[]): Dead
   }
 
   const rhythmPatterns = patterns.filter(p => p.patternType === "deadline_rhythm");
+  let bestRhythm: DeadlineSuggestion | null = null;
   for (const pattern of rhythmPatterns) {
     try {
       const data = JSON.parse(pattern.data) as DeadlineRhythmData;
-      const typicalDay = data.typicalDayIndex;
-      const today = new Date();
-      const daysUntil = ((typicalDay - today.getDay()) + 7) % 7 || 7;
-      const suggested = new Date(today.getTime() + daysUntil * 24 * 60 * 60 * 1000);
+      const keyMatch = /^rhythm:(.+)$/.exec(pattern.patternKey);
+      const clsFromKey = keyMatch ? keyMatch[1].replace(/_/g, " ") : "";
+      const actNorm = normalizeText(activity);
+      const dataActNorm = normalizeText(data.activity);
+      const tokenSimData = jaccardSimilarity(tokens, tokenize(data.activity));
+      const tokenSimKey = clsFromKey ? jaccardSimilarity(tokens, tokenize(clsFromKey)) : 0;
+      const clsNorm = normalizeText(clsFromKey);
+      const firstActToken = actNorm.split(/\s+/).find(Boolean) ?? "";
+      const matchesActivity =
+        actNorm === dataActNorm ||
+        tokenSimData >= 0.35 ||
+        tokenSimKey >= 0.25 ||
+        (clsNorm.length > 0 && (actNorm.includes(clsNorm) || clsNorm.includes(firstActToken)));
+      if (!matchesActivity) continue;
 
-      return {
-        suggestedDate: suggested.toISOString().split("T")[0],
+      const typicalDay = data.typicalDayIndex;
+      const nowClock = new Date();
+      const todayUtcMs = Date.UTC(
+        nowClock.getUTCFullYear(),
+        nowClock.getUTCMonth(),
+        nowClock.getUTCDate(),
+      );
+      const todayDow = new Date(todayUtcMs).getUTCDay();
+      const daysUntil = ((typicalDay - todayDow) + 7) % 7 || 7;
+      const suggestedMs = utcMsAddCalendarDays(todayUtcMs, daysUntil);
+
+      const suggestion: DeadlineSuggestion = {
+        suggestedDate: formatUtcYmd(suggestedMs),
         reason: `${data.activity} are typically scheduled on ${data.typicalDayOfWeek}s (${data.cadence.replace("_", " ")})`,
         confidence: pattern.confidence,
         pattern: pattern.patternKey,
       };
+      if (!bestRhythm || suggestion.confidence > bestRhythm.confidence) {
+        bestRhythm = suggestion;
+      }
     } catch (err) {
       console.warn("[pattern-engine] Invalid deadline_rhythm pattern JSON, skipping:", err);
     }
+  }
+  if (bestRhythm) {
+    return bestRhythm;
   }
 
   const clusterPatterns = patterns.filter(p => p.patternType === "similarity_cluster");
@@ -472,12 +548,18 @@ export function suggestDeadline(activity: string, patterns: TaskPattern[]): Dead
       try {
         const data = JSON.parse(pattern.data) as { typicalDayIndex: number; typicalDayOfWeek: string };
         const typicalDay = data.typicalDayIndex;
-        const today = new Date();
-        const daysUntil = ((typicalDay - today.getDay()) + 7) % 7 || 7;
-        const suggested = new Date(today.getTime() + daysUntil * 24 * 60 * 60 * 1000);
+        const nowClock = new Date();
+        const todayUtcMs = Date.UTC(
+          nowClock.getUTCFullYear(),
+          nowClock.getUTCMonth(),
+          nowClock.getUTCDate(),
+        );
+        const todayDow = new Date(todayUtcMs).getUTCDay();
+        const daysUntil = ((typicalDay - todayDow) + 7) % 7 || 7;
+        const suggestedMs = utcMsAddCalendarDays(todayUtcMs, daysUntil);
 
         return {
-          suggestedDate: suggested.toISOString().split("T")[0],
+          suggestedDate: formatUtcYmd(suggestedMs),
           reason: `Similar tasks are usually done on ${data.typicalDayOfWeek}s`,
           confidence: Math.round(pattern.confidence * 0.7),
           pattern: pattern.patternKey,
@@ -594,17 +676,26 @@ export async function learnFromTask(userId: string, task: Task, allTasks: Task[]
 
   if (similarTasks.length >= 1) {
     const withValidDates = [task, ...similarTasks].filter((t) => {
-      const ms = Date.parse(t.date);
-      return Number.isFinite(ms);
+      const ms = t.date ? parseYmdToUtcMs(t.date) : null;
+      return ms !== null;
     });
     if (withValidDates.length >= 2) {
-      const allInstances = withValidDates.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const allInstances = withValidDates.sort((a, b) => {
+        const ma = parseYmdToUtcMs(a.date!)!;
+        const mb = parseYmdToUtcMs(b.date!)!;
+        return ma - mb;
+      });
       const intervals: number[] = [];
       for (let i = 1; i < allInstances.length; i++) {
         intervals.push(daysBetween(allInstances[i - 1].date, allInstances[i].date));
       }
       const { cadence, avgDays } = detectCadence(intervals);
-      const dayIndices = allInstances.map(t => new Date(t.date).getDay()).filter(d => !isNaN(d));
+      const dayIndices = allInstances
+        .map((t) => {
+          const ms = parseYmdToUtcMs(t.date!)!;
+          return new Date(ms).getUTCDay();
+        })
+        .filter((d) => !isNaN(d));
       const dayFreq = new Map<number, number>();
       for (const d of Array.from(dayIndices)) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
       let typicalDayIdx = 0;
@@ -614,8 +705,9 @@ export async function learnFromTask(userId: string, task: Task, allTasks: Task[]
       }
 
       const lastDate = allInstances[allInstances.length - 1].date;
-      const nextExpected = new Date(lastDate);
-      nextExpected.setDate(nextExpected.getDate() + (avgDays || 7));
+      const lastMs = parseYmdToUtcMs(lastDate)!;
+      const nextMs = utcMsAddCalendarDays(lastMs, avgDays || 7);
+      const nextExpectedDate = formatUtcYmd(nextMs);
 
       const recurrenceData: RecurrenceData = {
         activity: task.activity,
@@ -625,7 +717,7 @@ export async function learnFromTask(userId: string, task: Task, allTasks: Task[]
         typicalDayOfWeek: DAYS[typicalDayIdx],
         typicalDayIndex: typicalDayIdx,
         lastDate,
-        nextExpectedDate: nextExpected.toISOString().split("T")[0],
+        nextExpectedDate,
       };
 
       const confidence = Math.min(100, allInstances.length * 15 + (cadence !== "unknown" ? 20 : 0));

@@ -10,8 +10,26 @@ const MAX_QUEUE = 400;
 /** Current signed-in user id for storage namespacing; set from auth (see `setOfflineQueueUserScope`). */
 let offlineQueueScopeUserId: string | null = null;
 
+/** While draining, all queue reads/writes pin to this storage key so scope cannot switch mid-run. */
+let drainScopeStorageKey: string | null = null;
+
 export function setOfflineQueueUserScope(userId: string | null): void {
+  const prevKey = storageKey();
+  const prevOps = readQueueForKey(prevKey);
   offlineQueueScopeUserId = userId;
+  const nextKey = storageKey();
+  if (prevKey !== nextKey && prevOps.length > 0) {
+    const nextExisting = readQueueForKey(nextKey);
+    const merged = [...prevOps, ...nextExisting];
+    writeQueueForKey(nextKey, merged);
+    memoryFallbackQueues.delete(prevKey);
+    try {
+      localStorage.removeItem(prevKey);
+    } catch {
+      /* */
+    }
+    listeners.forEach((l) => l());
+  }
 }
 
 function storageKey(): string {
@@ -19,6 +37,19 @@ function storageKey(): string {
     return `${OFFLINE_QUEUE_KEY_PREFIX}:user:${offlineQueueScopeUserId}`;
   }
   return `${OFFLINE_QUEUE_KEY_PREFIX}:anonymous`;
+}
+
+function queueStorageKey(): string {
+  return drainScopeStorageKey ?? storageKey();
+}
+
+/** Pin queue I/O to the current scope for the duration of a drain (call `endOfflineQueueDrainScope` in finally). */
+export function beginOfflineQueueDrainScope(): void {
+  drainScopeStorageKey = storageKey();
+}
+
+export function endOfflineQueueDrainScope(): void {
+  drainScopeStorageKey = null;
 }
 
 export type OfflineTaskOp =
@@ -74,15 +105,15 @@ export type WriteQueueOutcome = {
 type Listener = () => void;
 const listeners = new Set<Listener>();
 
-/** When localStorage write fails, we keep the full queue here until a write succeeds. */
-let memoryFallbackQueue: OfflineTaskOp[] | null = null;
+/** When localStorage write fails, we keep the full queue here per storage key until a write succeeds. */
+const memoryFallbackQueues = new Map<string, OfflineTaskOp[]>();
 
-function readQueue(): OfflineTaskOp[] {
-  if (memoryFallbackQueue !== null) {
-    return memoryFallbackQueue.slice();
+function readQueueForKey(key: string): OfflineTaskOp[] {
+  const mem = memoryFallbackQueues.get(key);
+  if (mem !== undefined) {
+    return mem.slice();
   }
   try {
-    const key = storageKey();
     let raw = localStorage.getItem(key);
     if (!raw && offlineQueueScopeUserId && key !== OFFLINE_TASK_QUEUE_STORAGE_KEY) {
       const legacy = localStorage.getItem(OFFLINE_TASK_QUEUE_STORAGE_KEY);
@@ -104,20 +135,28 @@ function readQueue(): OfflineTaskOp[] {
   }
 }
 
+function readQueue(): OfflineTaskOp[] {
+  return readQueueForKey(queueStorageKey());
+}
+
 /** Persists the queue; reports persistence, memory fallback, and whether the queue was truncated. */
-function writeQueue(ops: OfflineTaskOp[]): WriteQueueOutcome {
+function writeQueueForKey(key: string, ops: OfflineTaskOp[]): WriteQueueOutcome {
   const overflowed = ops.length > MAX_QUEUE;
-  const truncated = ops.slice(-MAX_QUEUE);
+  const truncated = ops.slice(0, MAX_QUEUE);
   try {
-    localStorage.setItem(storageKey(), JSON.stringify(truncated));
-    memoryFallbackQueue = null;
+    localStorage.setItem(key, JSON.stringify(truncated));
+    memoryFallbackQueues.delete(key);
     listeners.forEach((l) => l());
     return { persistedToStorage: true, usingMemoryFallback: false, overflowed };
   } catch {
-    memoryFallbackQueue = truncated.slice();
+    memoryFallbackQueues.set(key, truncated.slice());
     listeners.forEach((l) => l());
     return { persistedToStorage: false, usingMemoryFallback: true, overflowed };
   }
+}
+
+function writeQueue(ops: OfflineTaskOp[]): WriteQueueOutcome {
+  return writeQueueForKey(queueStorageKey(), ops);
 }
 
 /** Remove a task from reorder ops; drop create/update/delete ops targeting taskId. */
@@ -159,9 +198,10 @@ export function getOfflineQueueLength(): number {
 }
 
 export function clearOfflineTaskQueue(): void {
-  memoryFallbackQueue = null;
+  const key = queueStorageKey();
+  memoryFallbackQueues.delete(key);
   try {
-    localStorage.removeItem(storageKey());
+    localStorage.removeItem(key);
     localStorage.removeItem(OFFLINE_TASK_QUEUE_STORAGE_KEY);
   } catch {
     /* */
@@ -232,7 +272,8 @@ export function enqueueTaskDelete(taskId: string, baseUpdatedAt: string | null):
   const removedOfflineCreate = q0.some((o) => o.kind === "create" && o.clientId === taskId);
   const q = scrubQueueForDeletedTask(q0, taskId);
   if (removedOfflineCreate) {
-    return writeQueue(q);
+    const scrubbed = scrubHttpOpsForClientId(q, taskId);
+    return writeQueue(scrubbed);
   }
   q.push({
     v: 1,

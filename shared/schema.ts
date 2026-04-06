@@ -252,6 +252,13 @@ export const deletePushSubscriptionSchema = z.object({
 export type UserNotificationPreference = typeof userNotificationPreferences.$inferSelect;
 export type UserPushSubscription = typeof userPushSubscriptions.$inferSelect;
 
+/** Server-managed key/value rows (e.g. auto-generated Web Push VAPID keypair). Not user-scoped. */
+export const appRuntimeSecrets = pgTable("app_runtime_secrets", {
+  key: varchar("key", { length: 128 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -417,6 +424,7 @@ export const userRewards = pgTable("user_rewards", {
   isActive: boolean("is_active").notNull().default(true),
 }, (table) => [
   index("idx_user_rewards_user").on(table.userId),
+  // One row per (user, catalog reward). Run npm run migration:dedupe-user-rewards before db:push if duplicates exist.
   uniqueIndex("ux_user_rewards_user_reward").on(table.userId, table.rewardId),
 ]);
 

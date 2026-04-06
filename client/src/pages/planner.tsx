@@ -185,7 +185,6 @@ export default function PlannerPage() {
         toast({
           title: "No matches",
           description: data.message,
-          variant: "destructive",
         });
       }
     },
@@ -542,6 +541,7 @@ export default function PlannerPage() {
                     <Button
                       variant="outline"
                       size="icon"
+                      aria-label="Use voice to review tasks"
                       onClick={() => {
                         voice.openBarAndToggleListening();
                       }}

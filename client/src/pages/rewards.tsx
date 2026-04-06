@@ -349,7 +349,7 @@ export default function RewardsPage() {
                             width: `${Math.min(
                               100,
                               (() => {
-                                const nextThreshold = 100 + av.level * 25;
+                                const nextThreshold = 100 + (av.level - 1) * 25;
                                 return nextThreshold > 0 ? (av.xp / nextThreshold) * 100 : 0;
                               })(),
                             )}%`,

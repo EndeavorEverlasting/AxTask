@@ -26,6 +26,7 @@ COPY --from=build /app/package*.json ./
 COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
 # Migrate service runs `db:push:and-seed-docker` → only this script is needed at runtime (not dev-only post-merge.sh).
 COPY --from=build /app/scripts/docker-seed-demo.mjs ./scripts/docker-seed-demo.mjs
+COPY --from=build /app/scripts/start-with-db-push.mjs ./scripts/start-with-db-push.mjs
 
 USER axtask
 EXPOSE 5000
@@ -33,4 +34,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://localhost:5000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "dist/index.js"]
+# Schema is applied by the compose `migrate` service; use SKIP_DB_PUSH_ON_START when starting app only.
+CMD ["node", "scripts/start-with-db-push.mjs"]

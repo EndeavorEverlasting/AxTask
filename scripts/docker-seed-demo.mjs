@@ -47,6 +47,7 @@ try {
        password_hash = EXCLUDED.password_hash,
        display_name = EXCLUDED.display_name,
        role = EXCLUDED.role,
+       auth_provider = 'local',
        failed_login_attempts = 0,
        locked_until = NULL`,
     [id, email, hash, displayName, role],

@@ -33,11 +33,14 @@ function parseSessionSecretFromDotenv(text) {
     const m = /^\s*SESSION_SECRET\s*=\s*(.*)$/i.exec(line);
     if (!m) continue;
     let val = m[1].trim();
-    if (
+    const quoted =
       (val.startsWith('"') && val.endsWith('"')) ||
-      (val.startsWith("'") && val.endsWith("'"))
-    ) {
+      (val.startsWith("'") && val.endsWith("'"));
+    if (quoted) {
       val = val.slice(1, -1);
+    } else {
+      const hash = val.indexOf("#");
+      if (hash >= 0) val = val.slice(0, hash).trim();
     }
     return { rawLine: line, value: val };
   }

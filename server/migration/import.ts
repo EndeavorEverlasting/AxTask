@@ -11,6 +11,7 @@ import {
 import { eq } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import type { ExportBundle } from "./export";
+import { insertTaskImportFingerprintTx, reconcileBundleTaskIdMapForTasks } from "../import-task-dedupe";
 
 type AnyPgTable = PgTable;
 type AnyPgColumn = typeof users.id;
@@ -199,12 +200,20 @@ const FK_FIELDS_BY_TABLE: Record<TableName, string[]> = {
   securityLogs: ["userId", "targetUserId"],
 };
 
+/** Tables importable via self-service `importUserBundle` (single-user state only; no shared/actor-forged rows). */
 const USER_OWNED_TABLES = new Set<string>([
-  "tasks", "wallets", "coinTransactions", "userBadges",
-  "userRewards", "taskPatterns", "taskCollaborators",
-  "classificationContributions", "classificationConfirmations",
-  "userBillingProfiles", "userClassificationCategories",
-  "appeals", "appealVotes", "userMilestoneGrants", "userEntourage", "avatarProfiles", "avatarXpEvents",
+  "tasks",
+  "wallets",
+  "coinTransactions",
+  "userBadges",
+  "userRewards",
+  "taskPatterns",
+  "userBillingProfiles",
+  "userClassificationCategories",
+  "userMilestoneGrants",
+  "userEntourage",
+  "avatarProfiles",
+  "avatarXpEvents",
 ]);
 
 const TIMESTAMP_FIELDS = [
@@ -751,6 +760,13 @@ export async function importUserBundle(
     }
   }
 
+  await reconcileBundleTaskIdMapForTasks({
+    targetUserId,
+    idMap,
+    taskRows: getBundleRows(bundle, "tasks") as Record<string, unknown>[],
+    remapKey,
+  });
+
   const inserted: Record<string, number> = {};
   const skipped: Record<string, number> = {};
   const conflicts: Record<string, number> = {};
@@ -923,15 +939,39 @@ export async function importUserBundle(
           }
 
           try {
-            const affected = await insertRowTx(table, row);
-            if (affected > 0) {
-              insertCount++;
-            } else {
-              const pkOrig = rawRow[pkField];
-              if (pkOrig !== undefined && pkOrig !== null) {
-                trackSkippedIdUserBundle(tableName, String(pkOrig));
+            if (tableName === "tasks") {
+              const insertedRows = await tx
+                .insert(tasks)
+                .values(row as typeof tasks.$inferInsert)
+                .onConflictDoNothing()
+                .returning({ id: tasks.id });
+
+              if (insertedRows.length > 0) {
+                insertCount++;
+                await insertTaskImportFingerprintTx(tx, {
+                  userId: targetUserId,
+                  taskPk: String(row.id),
+                  row: row as Record<string, unknown>,
+                  source: "user_bundle_import",
+                });
+              } else {
+                const pkOrig = rawRow[pkField];
+                if (pkOrig !== undefined && pkOrig !== null) {
+                  trackSkippedIdUserBundle(tableName, String(pkOrig));
+                }
+                skipCount++;
               }
-              skipCount++;
+            } else {
+              const affected = await insertRowTx(table, row);
+              if (affected > 0) {
+                insertCount++;
+              } else {
+                const pkOrig = rawRow[pkField];
+                if (pkOrig !== undefined && pkOrig !== null) {
+                  trackSkippedIdUserBundle(tableName, String(pkOrig));
+                }
+                skipCount++;
+              }
             }
           } catch (rowErr: unknown) {
             const errMsg = rowErr instanceof Error ? rowErr.message.slice(0, 200) : "Insert failed";

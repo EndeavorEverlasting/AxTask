@@ -1,5 +1,17 @@
 import { readFileSync, writeFileSync } from "fs";
 
+function sumValidTableCounts(tc: Record<string, unknown>): { total: number; validPairs: [string, number][] } {
+  const validPairs: [string, number][] = [];
+  let total = 0;
+  for (const [table, raw] of Object.entries(tc)) {
+    const n = typeof raw === "number" ? raw : Number(raw);
+    if (!Number.isFinite(n)) continue;
+    validPairs.push([table, n]);
+    total += n;
+  }
+  return { total, validPairs };
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -44,10 +56,11 @@ async function main() {
         ? await exportUserData(userId)
         : await exportFullDatabase();
 
-      const totalRecords = Object.values(bundle.metadata.tableCounts).reduce((a, b) => a + b, 0);
-      console.log(`Export complete: ${totalRecords} records across ${Object.keys(bundle.metadata.tableCounts).length} tables`);
+      const tcExport = bundle.metadata.tableCounts as Record<string, unknown>;
+      const { total: totalRecords, validPairs: exportPairs } = sumValidTableCounts(tcExport);
+      console.log(`Export complete: ${totalRecords} records across ${exportPairs.length} tables`);
 
-      for (const [table, count] of Object.entries(bundle.metadata.tableCounts)) {
+      for (const [table, count] of exportPairs) {
         if (count > 0) console.log(`  ${table}: ${count}`);
       }
 
@@ -88,9 +101,15 @@ async function main() {
       process.exit(1);
     }
 
-    const totalRecords = Object.values(bundle.metadata.tableCounts as Record<string, number>).reduce((a: number, b: number) => a + b, 0);
+    const tc = bundle.metadata.tableCounts;
+    if (tc == null || typeof tc !== "object" || Array.isArray(tc)) {
+      console.error("Error: bundle.metadata.tableCounts is missing or not a plain object");
+      process.exit(1);
+    }
+
+    const { total: totalRecords, validPairs: importPairs } = sumValidTableCounts(tc as Record<string, unknown>);
     console.log(`Bundle: ${bundle.metadata.exportMode} export from ${bundle.metadata.exportedAt}`);
-    console.log(`Total records: ${totalRecords}`);
+    console.log(`Total records: ${totalRecords} (${importPairs.length} tables with numeric counts)`);
     console.log(`Import mode: ${mode}`);
 
     if (hasDryRun) {

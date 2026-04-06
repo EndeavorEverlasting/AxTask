@@ -50,6 +50,7 @@ export function MfaVerificationPanel({
 }: MfaVerificationPanelProps) {
   const [value, setValue] = useState("");
   const handoffAppliedRef = useRef(false);
+  const submittedRef = useRef(false);
   const handleCompleteRef = useRef<(code: string) => void | Promise<void>>(() => {});
 
   const handleComplete = useCallback(
@@ -64,13 +65,17 @@ export function MfaVerificationPanel({
   handleCompleteRef.current = handleComplete;
 
   useEffect(() => {
-    if (!open) setValue("");
+    if (!open) {
+      setValue("");
+      submittedRef.current = false;
+    }
   }, [open]);
 
   useEffect(() => {
     if (!open || !challengeId) return;
 
     handoffAppliedRef.current = false;
+    submittedRef.current = false;
 
     const applyHandoff = (parsed: MfaHandoffPayload | null) => {
       if (handoffAppliedRef.current) return;
@@ -78,7 +83,9 @@ export function MfaVerificationPanel({
       if (purpose && parsed.purpose !== purpose) return;
       const code = String(parsed.code || "").replace(/\D/g, "").slice(0, 6);
       if (code.length !== 6) return;
+      if (submittedRef.current) return;
       handoffAppliedRef.current = true;
+      submittedRef.current = true;
       setValue(code);
       void handleCompleteRef.current(code);
     };
@@ -145,7 +152,13 @@ export function MfaVerificationPanel({
                 onChange={(v) => {
                   const next = v.replace(/\D/g, "").slice(0, 6);
                   setValue(next);
-                  if (next.length === 6) void handleComplete(next);
+                  if (next.length < 6) {
+                    submittedRef.current = false;
+                    return;
+                  }
+                  if (submittedRef.current) return;
+                  submittedRef.current = true;
+                  void handleComplete(next);
                 }}
                 disabled={isBusy}
                 containerClassName="gap-1.5"

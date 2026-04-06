@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "http";
 import type { IncomingMessage } from "http";
-import { canAccessTask } from "./storage";
+import { canAccessTask, getTaskRowById } from "./storage";
 import cookie from "cookie";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
@@ -213,6 +213,7 @@ export function setupCollaborationWs(server: Server) {
             const oldTaskId = client.taskId;
             client.taskId = null;
             client.focusedField = null;
+            client.cursorPosition = null;
             sendPresenceUpdate(oldTaskId);
           }
           client.taskId = msg.taskId;
@@ -234,20 +235,48 @@ export function setupCollaborationWs(server: Server) {
         }
 
         case "focus_field": {
+          if (!client.taskId) {
+            client.focusedField = msg.field;
+            client.cursorPosition = msg.cursorPosition ?? null;
+            break;
+          }
+          const access = await canAccessTask(client.userId, client.taskId);
+          if (!access.canAccess) {
+            const oldTaskId = client.taskId;
+            client.taskId = null;
+            client.focusedField = null;
+            client.cursorPosition = null;
+            client.role = null;
+            sendPresenceUpdate(oldTaskId);
+            break;
+          }
+          client.role = access.role;
           client.focusedField = msg.field;
           client.cursorPosition = msg.cursorPosition ?? null;
-          if (client.taskId) {
-            sendPresenceUpdate(client.taskId);
-          }
+          sendPresenceUpdate(client.taskId);
           break;
         }
 
         case "blur_field": {
+          if (!client.taskId) {
+            client.focusedField = null;
+            client.cursorPosition = null;
+            break;
+          }
+          const access = await canAccessTask(client.userId, client.taskId);
+          if (!access.canAccess) {
+            const oldTaskId = client.taskId;
+            client.taskId = null;
+            client.focusedField = null;
+            client.cursorPosition = null;
+            client.role = null;
+            sendPresenceUpdate(oldTaskId);
+            break;
+          }
+          client.role = access.role;
           client.focusedField = null;
           client.cursorPosition = null;
-          if (client.taskId) {
-            sendPresenceUpdate(client.taskId);
-          }
+          sendPresenceUpdate(client.taskId);
           break;
         }
 
@@ -266,10 +295,13 @@ export function setupCollaborationWs(server: Server) {
         case "task_updated": {
           if (!client.taskId) break;
           if (!(await assertCollabEditAccess())) break;
+          const canonical = await getTaskRowById(client.taskId);
+          if (!canonical || canonical.id !== client.taskId) break;
+          const taskPayload = JSON.parse(JSON.stringify(canonical)) as Record<string, unknown>;
           broadcastToTask(client.taskId, {
             type: "task_updated",
             userId: client.userId,
-            task: msg.task,
+            task: taskPayload,
           }, ws);
           break;
         }

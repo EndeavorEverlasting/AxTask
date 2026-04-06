@@ -246,7 +246,13 @@ export function ClassificationBadge({
                   size="sm"
                   className="h-7 text-[11px] px-2"
                   disabled={reclassifyMutation.isPending}
-                  title={s.source === "nodeweaver" ? "Suggested by NodeWeaver" : "Suggested by AxTask classifier"}
+                  title={
+                    s.source === "nodeweaver"
+                      ? "Suggested by NodeWeaver"
+                      : s.source === "catalog"
+                        ? "Matches your category list"
+                        : "Suggested by AxTask classifier"
+                  }
                   onClick={() => reclassifyMutation.mutate(s.label)}
                 >
                   {s.label}
@@ -304,11 +310,12 @@ export function ClassificationBadge({
               className="h-8 text-xs"
               maxLength={48}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const n = newCategoryName.trim();
-                  if (n.length >= 2) addCategoryMutation.mutate(n);
-                }
+                if (e.key !== "Enter") return;
+                if (addCategoryMutation.isPending) return;
+                const n = newCategoryName.trim();
+                if (n.length < 2) return;
+                e.preventDefault();
+                addCategoryMutation.mutate(n);
               }}
             />
             <Button

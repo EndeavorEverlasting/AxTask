@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { eq, desc, inArray, and, gt } from "drizzle-orm";
+import { eq, desc, inArray, and, gt, or, isNotNull, gte } from "drizzle-orm";
 import { deviceRefreshTokens } from "@shared/schema";
 import { db } from "./db";
 import { getUserById } from "./storage";
@@ -14,6 +14,8 @@ export const DEVICE_REFRESH_COOKIE = "axtask.drefresh";
 
 const MAX_TOKENS_PER_USER = 15;
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** Concurrent refresh: if in-place UPDATE wins elsewhere, allow issuing a new row within this window. */
+const GRACE_WINDOW_MS = 30_000;
 
 function cookieBase() {
   const secure = parseCookieSecureFlag(process.env);
@@ -105,27 +107,66 @@ export async function rotateDeviceRefreshToken(
     throw new Error("Invalid device token");
   }
   const tokenHash = hashDeviceRefreshToken(oldPlain);
+  const ua = userAgent?.slice(0, 512) || null;
   const plain = await db.transaction(async (tx) => {
-    const deleted = await tx
-      .delete(deviceRefreshTokens)
-      .where(eq(deviceRefreshTokens.tokenHash, tokenHash))
-      .returning({ id: deviceRefreshTokens.id, userId: deviceRefreshTokens.userId });
-    if (deleted.length !== 1) {
-      throw new Error("Device token rotation failed: token not found or already revoked");
-    }
-    if (deleted[0].userId !== userId) {
-      throw new Error("Device token rotation failed: token does not belong to this user");
-    }
     const nextPlain = generateDeviceRefreshPlainToken();
     const nextHash = hashDeviceRefreshToken(nextPlain);
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
+
+    const updated = await tx
+      .update(deviceRefreshTokens)
+      .set({
+        tokenHash: nextHash,
+        expiresAt,
+        lastUsedAt: new Date(),
+      })
+      .where(and(eq(deviceRefreshTokens.tokenHash, tokenHash), eq(deviceRefreshTokens.userId, userId)))
+      .returning({ id: deviceRefreshTokens.id });
+
+    if (updated.length === 1) {
+      return nextPlain;
+    }
+
+    const [wrong] = await tx
+      .select({ userId: deviceRefreshTokens.userId })
+      .from(deviceRefreshTokens)
+      .where(eq(deviceRefreshTokens.tokenHash, tokenHash))
+      .limit(1);
+    if (wrong && wrong.userId !== userId) {
+      throw new Error("Device token rotation failed: token does not belong to this user");
+    }
+
+    const graceSince = new Date(Date.now() - GRACE_WINDOW_MS);
+    const recentConditions = [
+      eq(deviceRefreshTokens.userId, userId),
+      or(
+        gte(deviceRefreshTokens.createdAt, graceSince),
+        and(isNotNull(deviceRefreshTokens.lastUsedAt), gte(deviceRefreshTokens.lastUsedAt, graceSince)),
+      ),
+    ];
+    if (ua !== null) {
+      recentConditions.push(eq(deviceRefreshTokens.userAgent, ua));
+    }
+    const recentWin = await tx
+      .select({ id: deviceRefreshTokens.id })
+      .from(deviceRefreshTokens)
+      .where(and(...recentConditions))
+      .orderBy(desc(deviceRefreshTokens.lastUsedAt), desc(deviceRefreshTokens.createdAt))
+      .limit(1);
+
+    if (recentWin.length === 0) {
+      throw new Error("Device token rotation failed: token not found or already revoked");
+    }
+
+    const fallbackPlain = generateDeviceRefreshPlainToken();
+    const fallbackHash = hashDeviceRefreshToken(fallbackPlain);
     await tx.insert(deviceRefreshTokens).values({
       userId,
-      tokenHash: nextHash,
+      tokenHash: fallbackHash,
       expiresAt,
-      userAgent: userAgent?.slice(0, 512) || null,
+      userAgent: ua,
     });
-    return nextPlain;
+    return fallbackPlain;
   });
   await pruneExcessTokens(userId);
   return plain;
@@ -183,8 +224,17 @@ export async function performAuthRefresh(req: Request, res: Response): Promise<v
       })
       .catch((e) => {
         console.error("[auth] refresh rotate:", e);
-        clearDeviceRefreshCookie(res);
-        res.status(401).json({ message: "Device session could not be renewed" });
+        req.logout(() => {
+          if (req.session) {
+            req.session.destroy(() => {
+              clearDeviceRefreshCookie(res);
+              res.status(401).json({ message: "Device session could not be renewed" });
+            });
+          } else {
+            clearDeviceRefreshCookie(res);
+            res.status(401).json({ message: "Device session could not be renewed" });
+          }
+        });
       });
   });
 }

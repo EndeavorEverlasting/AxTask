@@ -210,11 +210,12 @@ async function main() {
     process.exit(1);
   }
 
-  const composeArgs = ["compose", "--env-file", ".env.docker", "up", "-d"];
+  const composeArgs = ["compose", "--env-file", ".env.docker"];
   if (withNodeweaver) {
     composeArgs.push("--profile", "nodeweaver");
     console.log("[docker:up] Enabling Compose profile: nodeweaver (see services/nodeweaver/README.md)");
   }
+  composeArgs.push("up", "-d");
   if (!noBuild) {
     composeArgs.push("--build");
   }

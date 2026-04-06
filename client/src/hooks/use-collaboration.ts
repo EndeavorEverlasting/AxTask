@@ -163,6 +163,10 @@ export function useCollaboration(taskId: string | null) {
       setState(s => ({ ...s, connected: false, users: [] }));
       wsRef.current = null;
       if (mountedRef.current) {
+        if (reconnectTimerRef.current != null) {
+          clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
         reconnectTimerRef.current = setTimeout(connect, 3000);
       }
     };

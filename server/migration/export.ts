@@ -1,6 +1,6 @@
 import { db } from "../db";
 import {
-  users, tasks, passwordResetTokens, securityLogs,
+  users, tasks,
   wallets, coinTransactions, userBadges, rewardsCatalog,
   userRewards, taskCollaborators, taskPatterns,
   classificationContributions, classificationConfirmations,
@@ -31,8 +31,11 @@ function idOrderColumn(table: PgTable): AnyPgColumn {
   return t.id;
 }
 
-async function queryChunked(table: PgTable, condition?: SQL): Promise<Record<string, unknown>[]> {
-  const results: Record<string, unknown>[] = [];
+/** Yields one page at a time so callers can stream without holding the full table in one allocation. */
+async function* queryChunkedStream(
+  table: PgTable,
+  condition?: SQL,
+): AsyncGenerator<Record<string, unknown>[], void, undefined> {
   let offset = 0;
   const idCol = idOrderColumn(table);
 
@@ -41,11 +44,18 @@ async function queryChunked(table: PgTable, condition?: SQL): Promise<Record<str
       ? db.select().from(table).where(condition).orderBy(asc(idCol))
       : db.select().from(table).orderBy(asc(idCol));
     const chunk = await baseQuery.limit(CHUNK_SIZE).offset(offset);
-    results.push(...(chunk as Record<string, unknown>[]));
-    if (chunk.length < CHUNK_SIZE) break;
+    const rows = chunk as Record<string, unknown>[];
+    yield rows;
+    if (rows.length < CHUNK_SIZE) break;
     offset += CHUNK_SIZE;
   }
+}
 
+async function queryChunked(table: PgTable, condition?: SQL): Promise<Record<string, unknown>[]> {
+  const results: Record<string, unknown>[] = [];
+  for await (const rows of queryChunkedStream(table, condition)) {
+    results.push(...rows);
+  }
   return results;
 }
 
@@ -80,8 +90,6 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
     taskCollaboratorsData,
     classContribData,
     classConfirmData,
-    resetTokensData,
-    securityLogsData,
   ] = await Promise.all([
     queryChunked(users),
     queryChunked(userBillingProfiles),
@@ -96,9 +104,9 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
     queryChunked(taskCollaborators),
     queryChunked(classificationContributions),
     queryChunked(classificationConfirmations),
-    queryChunked(passwordResetTokens),
-    queryChunked(securityLogs),
   ]);
+  const resetTokensData: Record<string, unknown>[] = [];
+  const securityLogsData: Record<string, unknown>[] = [];
 
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows(usersData),
@@ -150,6 +158,9 @@ const SENSITIVE_USER_FIELDS = new Set([
   "banReason",
   "bannedAt",
   "bannedBy",
+  "email",
+  "displayName",
+  "profileImageUrl",
 ]);
 
 function sanitizeUserRow(row: Record<string, unknown>): Record<string, unknown> {
@@ -218,8 +229,9 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
     const CHUNK = 5000;
     for (let i = 0; i < idList.length; i += CHUNK) {
       const chunk = idList.slice(i, i + CHUNK);
-      const part = (await queryChunked(tasks, inArray(tasks.id, chunk))) as Record<string, unknown>[];
-      referencedTasks.push(...part);
+      for await (const rows of queryChunkedStream(tasks, inArray(tasks.id, chunk))) {
+        referencedTasks.push(...rows);
+      }
     }
   }
 
@@ -230,7 +242,7 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
 
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows([adminMode ? (userData as Record<string, unknown>) : sanitizeUserRow(userData as Record<string, unknown>)]),
-    userBillingProfiles: serializeRows(billingProfileData),
+    userBillingProfiles: adminMode ? serializeRows(billingProfileData) : [],
     userClassificationCategories: serializeRows(classCatData),
     rewardsCatalog: serializeRows(filteredCatalog),
     tasks: serializeRows(allTaskRows),

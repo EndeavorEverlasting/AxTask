@@ -28,7 +28,8 @@ function formatLocalYmd(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function resolveDay(dayName: string, now: Date): string {
+/** Resolves a spoken day to YYYY-MM-DD (local calendar), or null if unrecognized. */
+function resolveDay(dayName: string, now: Date): string | null {
   const lower = dayName.toLowerCase();
   if (lower === "today") return formatLocalYmd(now);
   if (lower === "tomorrow") {
@@ -50,7 +51,7 @@ function resolveDay(dayName: string, now: Date): string {
     d.setDate(d.getDate() + daysAhead);
     return formatLocalYmd(d);
   }
-  return formatLocalYmd(now);
+  return null;
 }
 
 function fuzzyMatch(needle: string, haystack: string): number {
@@ -143,6 +144,11 @@ export function processTaskReview(
         const taskRef = match[1].trim();
         const targetDay = match[2];
         const newDate = resolveDay(targetDay, now);
+        if (newDate === null) {
+          unmatched.push(`${taskRef} → ${targetDay} (unrecognized day)`);
+          handled = true;
+          break;
+        }
         const result = findBestTask(taskRef, pendingTasks);
         if (result && !processedTaskIds.has(result.task.id)) {
           processedTaskIds.add(result.task.id);
@@ -243,6 +249,8 @@ export function processTaskReview(
           confidence: result.confidence,
           reason: "Mark as completed",
         });
+      } else if (!result) {
+        unmatched.push(cleaned);
       }
     }
   }

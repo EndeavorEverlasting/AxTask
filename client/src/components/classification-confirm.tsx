@@ -144,7 +144,8 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
               }`}
               onClick={(e) => {
                 e.stopPropagation();
-                if (canConfirm) confirmMutation.mutate();
+                if (confirmMutation.isPending || !canConfirm) return;
+                confirmMutation.mutate();
               }}
               disabled={!canConfirm || confirmMutation.isPending}
             >
@@ -189,6 +190,7 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
           className="h-7 px-2 text-xs gap-1 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20"
           onClick={(e) => {
             e.stopPropagation();
+            if (confirmMutation.isPending) return;
             confirmMutation.mutate();
           }}
           disabled={confirmMutation.isPending}

@@ -9,7 +9,7 @@
 # Security architecture & best practices (archived layout)
 
 **Version:** 1.0.0  
-**Last Updated:** January 30, 2025  
+**Last Updated:** April 2026  
 **Status:** Contributor reference (not the public disclosure policy)
 
 ## Overview

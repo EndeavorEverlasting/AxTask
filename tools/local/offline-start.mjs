@@ -146,10 +146,12 @@ function ensureSchemaApplied(state) {
 
 function startDevServer() {
   console.log("\n[offline:start] Starting dev server on http://localhost:5000");
-  const child = spawn("npm", ["run", "dev"], {
+  // Spawn tsx directly so we do not chain through `npm run dev` (which runs db:push again).
+  const child = spawn("npx", ["tsx", "server/index.ts"], {
     cwd: projectRoot,
     stdio: "inherit",
     shell: isWin,
+    env: { ...process.env, NODE_ENV: "development" },
   });
 
   child.on("exit", (code) => {

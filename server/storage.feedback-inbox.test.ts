@@ -48,7 +48,7 @@ describe("feedback inbox storage", () => {
     );
     expect(parsed?.message).toBe("Hello from a visitor");
     expect(parsed?.channel).toBe("public_contact");
-    expect(parsed?.reporterEmail).toBe("a@b.co");
+    expect(parsed?.reporterEmail).toBe("•@b.co");
   });
 
   it("parses feedback review payload JSON", () => {

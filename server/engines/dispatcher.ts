@@ -40,7 +40,7 @@ const INTENT_PATTERNS: IntentPattern[] = [
       /\bbulk\s+(?:complete|update|review)\b/i,
       /\b(?:i\s+)?(?:already\s+)?(?:took care of|handled|wrapped up|cleared)\s+/i,
       /\b(?:i\s+)?(?:finished|completed|did).+(?:and|,).+/i,
-      /\b(?:move|reschedule|push)\s+.+?\s+to\s+.+?\s+(?:and|,)\s+/i,
+      /\b(?:move|reschedule|push)\s+.+?\s+to\s+.+?\s+(?:and|,)\s+.+\b(?:finished|completed|done|closed|marked)\b/i,
     ],
     priority: 8,
   },

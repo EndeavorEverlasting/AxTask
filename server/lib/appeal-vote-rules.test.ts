@@ -49,6 +49,10 @@ describe("evaluateAppealOutcome", () => {
     expect(evaluateAppealOutcome(3, 0, 2)).toBe("deny");
   });
 
+  it("when both grant and deny reach supermajority, grant wins (explicit tie-break)", () => {
+    expect(evaluateAppealOutcome(3, 2, 2)).toBe("grant");
+  });
+
   it("two-admin stalemate until both agree", () => {
     expect(evaluateAppealOutcome(2, 1, 0)).toBe("pending");
     expect(evaluateAppealOutcome(2, 1, 1)).toBe("pending");

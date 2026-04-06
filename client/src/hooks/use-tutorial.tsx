@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, createContext, useContext } from "react";
+import { useState, useCallback, createContext, useContext } from "react";
 import type { TutorialStep } from "@/lib/tutorial-types";
 import { KBD, SHORTCUT_FOCUS_NOTE } from "@/lib/keyboard-shortcuts";
 

@@ -1,11 +1,9 @@
 import { type Task } from "@shared/schema";
 import { builtInCoinReward, isGeneralClassification } from "@shared/classification-catalog";
 import {
-  addCoins,
-  getOrCreateWallet,
-  createClassificationContribution,
   getCustomClassificationCoinReward,
   awardCoinsForConfirmationAtomic,
+  awardCoinsForClassificationAtomic,
 } from "./storage";
 import { getMaxCompoundPeriods } from "./lib/classification-compound";
 
@@ -38,25 +36,22 @@ export async function awardCoinsForClassification(
 ): Promise<ClassificationAwardResult | null> {
   if (!task.classification || isGeneralClassification(task.classification)) return null;
 
-  await getOrCreateWallet(userId);
-
   const base = await resolveBaseCoinsForClassification(userId, task.classification);
 
-  const { created } = await createClassificationContribution(task.id, userId, task.classification, base);
-  if (!created) return null;
-
-  const { wallet } = await addCoins(
+  const details = `Classified "${task.activity.substring(0, 80)}" as ${task.classification}`;
+  const out = await awardCoinsForClassificationAtomic(
     userId,
+    task.id,
+    task.classification,
     base,
-    "classification",
-    `Classified "${task.activity.substring(0, 80)}" as ${task.classification}`,
-    task.id
+    details,
   );
+  if (!out) return null;
 
   return {
-    coinsEarned: base,
-    newBalance: wallet.balance,
-    classification: task.classification,
+    coinsEarned: out.coinsEarned,
+    newBalance: out.newBalance,
+    classification: out.classification,
   };
 }
 

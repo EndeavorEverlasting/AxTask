@@ -22,7 +22,8 @@ describe("device-refresh-crypto", () => {
 
   it("hashes deterministically", () => {
     const plain = `${DEVICE_REFRESH_TOKEN_PREFIX}abc`;
-    expect(hashDeviceRefreshToken(plain)).toBe(hashDeviceRefreshToken(plain));
-    expect(hashDeviceRefreshToken(plain)).not.toBe(hashDeviceRefreshToken(`${plain}x`));
+    const first = hashDeviceRefreshToken(plain);
+    expect(first).toBe(hashDeviceRefreshToken(plain));
+    expect(first).not.toBe(hashDeviceRefreshToken(`${plain}x`));
   });
 });

@@ -12,6 +12,8 @@ import {
   removeOfflineOp,
   refreshQueuedUpdateBasesForTask,
   remapOrRemoveQueuedOpsForClientId,
+  beginOfflineQueueDrainScope,
+  endOfflineQueueDrainScope,
   type OfflineTaskOp,
   type WriteQueueOutcome,
 } from "./offline-task-queue";
@@ -276,7 +278,7 @@ async function processUpdateOp(
 ): Promise<"done" | "aborted"> {
   const tasks = queryClient.getQueryData<Task[]>(["/api/tasks"]);
   const cached = tasks?.find((t) => t.id === op.taskId);
-  const effectiveBase = taskUpdatedAtIso(cached) ?? op.baseUpdatedAt;
+  const effectiveBase = op.baseUpdatedAt ?? taskUpdatedAtIso(cached);
   const body: Record<string, unknown> = { id: op.taskId, ...op.patch };
   if (effectiveBase) body.baseUpdatedAt = effectiveBase;
   let res = await apiFetch("PUT", `/api/tasks/${op.taskId}`, body);
@@ -345,6 +347,7 @@ let drainInProgress = false;
 export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<void> {
   if (!isBrowserOnline() || drainInProgress) return;
   drainInProgress = true;
+  beginOfflineQueueDrainScope();
 
   const opDrainMeta = (op: OfflineTaskOp) => {
     const base = { kind: op.kind, opId: op.opId } as Record<string, unknown>;
@@ -387,7 +390,6 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
                 }
               }
               remapOrRemoveQueuedOpsForClientId(op.clientId, serverId);
-              removeOfflineOp(op.opId);
               break;
             }
             if (!res.ok) throw new Error(await res.text());
@@ -437,6 +439,7 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
       await queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
     }
   } finally {
+    endOfflineQueueDrainScope();
     drainInProgress = false;
   }
 }

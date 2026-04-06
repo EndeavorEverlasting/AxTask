@@ -28,6 +28,8 @@ export function createApiWriteOriginGuard(
         return res.status(403).json({ message: "Forbidden — invalid referer" });
       }
     }
+    // Requests with neither Origin nor Referer are allowed on purpose (server-to-server, curl, native apps).
+    // Browser-sourced writes still hit Origin/Referer checks above via isBrowserOriginAllowed. See api-write-origin-guard.test.ts.
     next();
   };
 }

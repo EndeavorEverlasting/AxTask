@@ -13,6 +13,8 @@ import { isLocalBrowserHostname } from "./lib/browser-origin";
 import { createApiWriteOriginGuard } from "./lib/api-write-origin-guard";
 import { parseCookieSecureFlag, parseForceHttps, parseNodeIsDev } from "./lib/login-env-policy";
 import { AXTASK_CSRF_COOKIE, AXTASK_CSRF_HEADER } from "@shared/http-auth";
+import { initVapidAtBoot } from "./services/vapid-runtime";
+import { startWebPushDispatchScheduler } from "./services/web-push-dispatch";
 
 const app = express();
 
@@ -244,6 +246,7 @@ app.use((req, res, next) => {
 
 (async () => {
   await seedDevAccounts();
+  await initVapidAtBoot();
 
   const server = await registerRoutes(app);
 
@@ -277,6 +280,7 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      startWebPushDispatchScheduler();
     },
   );
 })();

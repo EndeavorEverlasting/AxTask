@@ -5,10 +5,12 @@ const MOBILE_BREAKPOINT = 768
 const COARSE_POINTER_MAX_WIDTH = 1024
 
 function computeIsMobile(): boolean {
-  const w = typeof window !== "undefined" ? window.innerWidth : 0
+  if (typeof window === "undefined") return false
+  const w = window.innerWidth
   if (w < MOBILE_BREAKPOINT) return true
   if (w >= COARSE_POINTER_MAX_WIDTH) return false
   try {
+    if (typeof window.matchMedia !== "function") return false
     return window.matchMedia("(pointer: coarse)").matches
   } catch {
     return false

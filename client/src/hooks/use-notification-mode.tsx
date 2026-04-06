@@ -55,6 +55,20 @@ async function patchPreferences(payload: Partial<Pick<NotificationPreference, "e
   return res.json();
 }
 
+async function resolveVapidPublicKey(): Promise<string | null> {
+  const envKey = (import.meta.env.VITE_VAPID_PUBLIC_KEY || "").trim();
+  if (envKey) return envKey;
+  try {
+    const res = await fetch("/api/notifications/push-public-config", { credentials: "include" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { configured?: boolean; publicKey?: string };
+    if (data.configured && data.publicKey?.trim()) return data.publicKey.trim();
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export function NotificationModeProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const [localIntensity, setLocalIntensity] = useState<number>(50);
@@ -105,11 +119,11 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
 
   const ensureSubscription = useCallback(async () => {
     if (!("serviceWorker" in navigator)) return;
-    const vapidPublicKey = (import.meta.env.VITE_VAPID_PUBLIC_KEY || "").trim();
+    const vapidPublicKey = await resolveVapidPublicKey();
     if (!vapidPublicKey) {
       toast({
         title: "Push key missing",
-        description: "VAPID public key is not configured, so browser push is unavailable.",
+        description: "The server has not published a VAPID key yet. Ensure the database is migrated (npm run db:push) and CANONICAL_HOST or VAPID_SUBJECT is set in production.",
         variant: "destructive",
       });
       throw new Error("VAPID public key not configured");

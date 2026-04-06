@@ -254,37 +254,27 @@ export function TaskCalendar() {
     }
     let applied = 0;
     let queued = 0;
-    try {
-      for (const s of suggestions.slice(0, 5)) {
-        const base = tasks.find((t) => t.id === s.taskId);
-        if (!base) continue;
-        try {
-          const result = await rescheduleMutation.mutateAsync({ id: s.taskId, date: s.suggestedDate, base });
-          const r = result as { offlineQueued?: boolean } | undefined;
-          if (r?.offlineQueued) {
-            queued += 1;
-          } else {
-            applied += 1;
-          }
-        } catch (e) {
-          if (e instanceof TaskSyncAbortedError) continue;
-          console.error("[TaskCalendar] AI schedule reschedule failed:", e);
-          toast({
-            title: "AI Scheduler",
-            description: e instanceof Error ? e.message : "Failed to reschedule a task.",
-            variant: "destructive",
-          });
-          return;
+    for (const s of suggestions.slice(0, 5)) {
+      const base = tasks.find((t) => t.id === s.taskId);
+      if (!base) continue;
+      try {
+        const result = await rescheduleMutation.mutateAsync({ id: s.taskId, date: s.suggestedDate, base });
+        const r = result as { offlineQueued?: boolean } | undefined;
+        if (r?.offlineQueued) {
+          queued += 1;
+        } else {
+          applied += 1;
         }
+      } catch (e) {
+        if (e instanceof TaskSyncAbortedError) continue;
+        console.error("[TaskCalendar] AI schedule reschedule failed:", e);
+        toast({
+          title: "AI Scheduler",
+          description: e instanceof Error ? e.message : "Failed to reschedule a task.",
+          variant: "destructive",
+        });
+        return;
       }
-    } catch (e) {
-      console.error("[TaskCalendar] AI schedule failed:", e);
-      toast({
-        title: "AI Scheduler",
-        description: e instanceof Error ? e.message : "Unexpected error while applying suggestions.",
-        variant: "destructive",
-      });
-      return;
     }
     const parts: string[] = [];
     if (applied > 0) parts.push(`Rescheduled ${applied} task${applied === 1 ? "" : "s"} online.`);

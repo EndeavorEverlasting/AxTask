@@ -1,5 +1,17 @@
-/** RFC 4122 v4 UUID; works when `crypto.randomUUID` is missing (non-secure contexts / older browsers). */
-export function randomUuid(): string {
+export type RandomUuidOptions = {
+  /**
+   * When true and `crypto.getRandomValues` is unavailable, throw instead of using
+   * `Math.random` (non-cryptographic, predictable).
+   */
+  throwOnInsecureFallback?: boolean;
+};
+
+/**
+ * RFC 4122 v4 UUID; works when `crypto.randomUUID` is missing (non-secure contexts / older browsers).
+ * If neither `randomUUID` nor `getRandomValues` exists, falls back to `Math.random` and logs a console
+ * warning (or throws when `throwOnInsecureFallback` is true).
+ */
+export function randomUuid(options?: RandomUuidOptions): string {
   const c = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
   if (c && typeof c.randomUUID === "function") {
     return c.randomUUID();
@@ -8,6 +20,12 @@ export function randomUuid(): string {
   if (c && typeof c.getRandomValues === "function") {
     c.getRandomValues(bytes);
   } else {
+    const msg =
+      "[AxTask] UUID: crypto.getRandomValues is unavailable; using Math.random fallback (non-cryptographic, predictable).";
+    if (options?.throwOnInsecureFallback) {
+      throw new Error(msg);
+    }
+    console.warn(msg);
     for (let i = 0; i < 16; i++) {
       bytes[i] = Math.floor(Math.random() * 256);
     }

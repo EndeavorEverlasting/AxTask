@@ -81,15 +81,12 @@ export function serializePersistedClientWithSizeCap(
     ...client,
     clientState: {
       queries: [],
-      mutations: client.clientState.mutations,
+      mutations: [],
     },
   };
   s = stringify(slim);
   if (enc.encode(s).length <= maxBytes) return s;
-  return stringify({
-    ...slim,
-    clientState: { queries: [], mutations: [] },
-  });
+  return s;
 }
 
 function tryRemoveLocalStorageItem(key: string): void {

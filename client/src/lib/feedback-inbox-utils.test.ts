@@ -16,6 +16,10 @@ const sample: FeedbackInboxItem[] = [
     classifierSource: "priority_engine",
     classifierFallbackLayer: 2,
     classifierConfidence: 0.72,
+    message: "First ticket body",
+    channel: "feedback_page",
+    reporterEmail: "reporter1@example.com",
+    reporterName: "Alex Reporter",
     reviewed: false,
     reviewedAt: null,
     reviewedBy: null,
@@ -34,6 +38,10 @@ const sample: FeedbackInboxItem[] = [
     classifierSource: "keyword_fallback",
     classifierFallbackLayer: 3,
     classifierConfidence: 0.55,
+    message: "Second ticket body",
+    channel: "public_contact",
+    reporterEmail: "reporter2@example.com",
+    reporterName: "Sam Support",
     reviewed: true,
     reviewedAt: "2026-04-03T10:00:00.000Z",
     reviewedBy: "admin-1",
@@ -77,5 +85,10 @@ describe("feedback-inbox-utils", () => {
     expect(csv).toContain("\"id\",\"createdAt\",\"actorUserId\",\"channel\"");
     expect(csv).toContain("\"a\"");
     expect(csv).toContain("\"b\"");
+    expect(csv).toContain("feedback_page");
+    expect(csv).toContain("public_contact");
+    expect(csv).toContain("First ticket body");
+    expect(csv).toContain("reporter1@example.com");
+    expect(csv).toContain("Alex Reporter");
   });
 });

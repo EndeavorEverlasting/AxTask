@@ -34,15 +34,15 @@
 | 6 | **Flowcharts** for users | Task dependency / workflow diagrams, export. | [FLOWCHARTS.md](./FLOWCHARTS.md) |
 | 7 | **Google / Windows (Microsoft) calendar sync** | OAuth, sync engine, notifications. | [CALENDAR_SYNC.md](./CALENDAR_SYNC.md) |
 | 7b | **Spreadsheet templates** (top entry UI, embedded IDs/dates, less Apps Script) | Generated Sheets/Excel with **frozen entry band** at top, **log below**; formulas for dates/IDs; optional clasp script. | [SPREADSHEET_TEMPLATE_UX.md](./SPREADSHEET_TEMPLATE_UX.md), [`server/google-sheets-api.ts`](../server/google-sheets-api.ts) |
-| 8 | **Favicon / logo** | `client/index.html`, `docs/BRANDING.md` paths. | BRANDING |
+| 8 | **Favicon / logo** | Brand assets and HTML entry. | [`client/index.html`](../client/index.html), [BRANDING.md](./BRANDING.md) |
 | 9 | **Location** + repeated places | Geolocation consent, place keys, privacy. | [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md), Tasks track |
-| 10a | **Community** deletes, abuse, **rate limits** | Soft delete / tombstone; moderation engine. | COMMUNITY_MODERATION.md (planned) |
-| 10b | **Retention** for malpractice | Append-only moderation audit vs discard—legal review. | [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md), COMMUNITY_MODERATION.md (planned) |
+| 10a | **Community** deletes, abuse, **rate limits** | Soft delete / tombstone; moderation engine. | [COMMUNITY_MODERATION.md](./COMMUNITY_MODERATION.md) (planned sections) |
+| 10b | **Retention** for malpractice | Append-only moderation audit vs discard—legal review. | [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md), [COMMUNITY_MODERATION.md](./COMMUNITY_MODERATION.md) |
 | 11 | **18+ profiles**, feed, analytics, **ephemeral ID OCR** | Dual posture with row 2; tesseract.js available. | [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md), Community track |
 | 12 | **Avatar** + **PreText** | Aggregates for generation; `pretext-layout.ts` for UI metrics. | `client/src/lib/pretext-layout.ts` |
-| 13 | **Redo / undo** | Soft delete + recycle bin; extend to community. | VERSION_1.3.0_PLAN |
+| 13 | **Redo / undo** | Soft delete + recycle bin; extend to community. | [VERSION_1.3.0_PLAN.md](./VERSION_1.3.0_PLAN.md) |
 | 14 | **`npm run check`** baseline | No new errors in `client/`; server debt listed. | [TYPESCRIPT_BASELINE.md](./TYPESCRIPT_BASELINE.md) |
-| 15 | **README branding** | Canonical **AxTask** naming + subtitle. | Root README, BRANDING |
+| 15 | **README branding** | Canonical **AxTask** naming + subtitle. | [README.md](../README.md), [BRANDING.md](./BRANDING.md) |
 | 16 | **Engines** | Dispatcher + per-plane engines. | [ENGINES.md](./ENGINES.md) |
 
 ## Ship protocol

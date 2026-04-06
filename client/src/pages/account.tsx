@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Smartphone, ShieldCheck, Cake } from "lucide-react";
+import { ArrowLeft, Smartphone, ShieldCheck, Cake, Mail } from "lucide-react";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { normalizeToE164 } from "@shared/phone";
 import { useAuth } from "@/lib/auth-context";
@@ -105,6 +105,22 @@ export default function AccountPage() {
       if (dn.length > 0) body.displayName = dn;
       body.birthDate = profileBirthDate.trim() ? profileBirthDate.trim() : null;
       const res = await apiRequest("PATCH", "/api/account/profile", body);
+      if (!res.ok) {
+        const ct = res.headers.get("content-type") || "";
+        let detail = "";
+        try {
+          if (ct.includes("application/json")) {
+            const j = (await res.json()) as { message?: string };
+            if (j?.message && typeof j.message === "string") detail = j.message;
+            else detail = JSON.stringify(j);
+          } else {
+            detail = (await res.text()).trim();
+          }
+        } catch {
+          /* ignore body parse errors */
+        }
+        throw new Error(detail ? `${res.status}: ${detail}` : `Save failed (${res.status})`);
+      }
       return res.json() as Promise<{ message?: string }>;
     },
     onSuccess: async () => {
@@ -130,6 +146,27 @@ export default function AccountPage() {
         </div>
         <DonateCta />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Mail className="h-5 w-5" />
+            Signed in as
+          </CardTitle>
+          <CardDescription>
+            This email is your account identity. Use it to confirm you are in the right account when you use multiple
+            logins.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-1">
+          <p className="text-sm font-medium text-foreground break-all">{user?.email}</p>
+          {user?.authProvider ? (
+            <p className="text-xs text-muted-foreground">
+              Sign-in: <span className="capitalize">{user.authProvider.replace(/_/g, " ")}</span>
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

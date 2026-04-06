@@ -68,6 +68,9 @@ export function GuidedTourOverlay({
   const [fadeIn, setFadeIn] = useState(false);
   const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
   const stackRef = useRef<HTMLDivElement>(null);
+  const glowTargetElRef = useRef<HTMLElement | null>(null);
+  const preTourFocusRef = useRef<HTMLElement | null>(null);
+  const tourWasActiveRef = useRef(false);
 
   const findTarget = useCallback(() => {
     if (!currentStep) return null;
@@ -95,6 +98,27 @@ export function GuidedTourOverlay({
   );
 
   useEffect(() => {
+    if (isActive && !tourWasActiveRef.current) {
+      const ae = document.activeElement;
+      if (ae instanceof HTMLElement) {
+        preTourFocusRef.current = ae;
+      }
+    }
+    if (!isActive && tourWasActiveRef.current) {
+      const prev = preTourFocusRef.current;
+      preTourFocusRef.current = null;
+      if (prev && typeof prev.focus === "function") {
+        try {
+          prev.focus({ preventScroll: true });
+        } catch {
+          prev.focus();
+        }
+      }
+    }
+    tourWasActiveRef.current = isActive;
+  }, [isActive]);
+
+  useEffect(() => {
     if (!isActive || !currentStep) return;
 
     if (currentStep.page && onNavigateToPage) {
@@ -104,16 +128,21 @@ export function GuidedTourOverlay({
     setFadeIn(false);
     const timer = setTimeout(() => {
       refreshTargetRect();
-      const el = findTarget();
-      if (el) {
-        el.classList.add(glowCls);
+      const resolved = findTarget();
+      glowTargetElRef.current = resolved;
+      if (resolved) {
+        resolved.classList.add(glowCls);
+        for (const c of LEGACY_GLOW_CLEANUP) {
+          if (c !== glowCls) resolved.classList.remove(c);
+        }
       }
       setFadeIn(true);
     }, 180);
 
     return () => {
       clearTimeout(timer);
-      const el = findTarget();
+      const el = glowTargetElRef.current;
+      glowTargetElRef.current = null;
       if (el) {
         el.classList.remove(glowCls);
         for (const c of LEGACY_GLOW_CLEANUP) {
@@ -122,6 +151,52 @@ export function GuidedTourOverlay({
       }
     };
   }, [isActive, currentStep, findTarget, onNavigateToPage, refreshTargetRect, glowCls]);
+
+  useEffect(() => {
+    if (!isActive || !currentStep || !fadeIn) return;
+    const shell = stackRef.current;
+    if (!shell) return;
+
+    const focusShell = () => {
+      try {
+        shell.focus({ preventScroll: true });
+      } catch {
+        shell.focus();
+      }
+    };
+    focusShell();
+
+    const focusableSelector =
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const nodes = shell.querySelectorAll<HTMLElement>(focusableSelector);
+      const focusable = Array.from(nodes).filter((node) => !node.hasAttribute("disabled"));
+      if (focusable.length === 0) {
+        e.preventDefault();
+        focusShell();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey) {
+        if (active === first || !shell.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !shell.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [isActive, currentStep, fadeIn]);
 
   useEffect(() => {
     if (!isActive || !currentStep) return;
@@ -226,8 +301,9 @@ export function GuidedTourOverlay({
 
       <div
         ref={stackRef}
+        tabIndex={-1}
         className={cn(
-          "absolute pointer-events-auto max-w-xs w-[min(20rem,calc(100vw-1.5rem))] transition-all duration-300",
+          "absolute pointer-events-auto max-w-xs w-[min(20rem,calc(100vw-1.5rem))] transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-amber-400/80 rounded-2xl",
           fadeIn ? "opacity-100 scale-100" : "opacity-0 scale-95",
         )}
         style={{ top: popoverPos.top, left: popoverPos.left, zIndex: 52 }}

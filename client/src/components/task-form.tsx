@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { apiFetch } from "@/lib/queryClient";
 import {
   syncCreateTask,
   syncUpdateTask,
@@ -30,10 +30,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PriorityBadge } from "./priority-badge";
 import { ClockTimePicker } from "@/components/ui/clock-time-picker";
-import { Plus, CalendarIcon, Lightbulb, Save } from "lucide-react";
+import { Plus, CalendarIcon, Lightbulb, Save, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
 import { useFieldFlow } from "@/hooks/use-field-flow";
+import { useLiveClassificationStream } from "@/hooks/use-live-classification-stream";
 
 interface TaskFormProps {
   task?: Task;
@@ -96,6 +97,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     confidence: number;
   } | null>(null);
   const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+  const liveClassificationPushRef = useRef<(activity: string, notes: string) => void>(() => {});
 
   const collab = useCollaboration(task?.id ?? null);
   const isEditing = !!task;
@@ -218,7 +220,21 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const speech = useSpeechRecognition({
     continuous: true,
     onResult: handleVoiceResult,
+    onLiveText: (combined) =>
+      liveClassificationPushRef.current(combined, form.getValues("notes") || ""),
   });
+
+  const {
+    suggestions: liveTopicSuggestions,
+    loading: liveTopicLoading,
+    pushLiveText,
+  } = useLiveClassificationStream({
+    enabled: speech.status === "listening",
+  });
+
+  useEffect(() => {
+    liveClassificationPushRef.current = (activity, notes) => pushLiveText(activity, notes);
+  }, [pushLiveText]);
 
   useEffect(() => {
     if (speech.error) {
@@ -246,7 +262,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       return syncCreateTask(taskData, queryClient, user?.id ?? "");
     },
     onSuccess: (data: unknown) => {
-      const d = data as { offlineQueued?: boolean; classificationReward?: unknown };
+      const d = data as { offlineQueued?: boolean; classificationReward?: unknown; coinReward?: unknown };
       if (d?.offlineQueued) {
         toast({
           title: "Saved offline",
@@ -263,6 +279,12 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+
+      if (d?.coinReward || d?.classificationReward) {
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
+      }
 
       if (d?.classificationReward) {
         const cr = d.classificationReward as { coinsEarned: number; classification: string; newBalance: number };
@@ -342,7 +364,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     if (!debouncedActivity || debouncedActivity.length < 3 || task) return;
     let cancelled = false;
 
-    apiRequest("POST", "/api/patterns/suggest-deadline", { activity: debouncedActivity })
+    apiFetch("POST", "/api/patterns/suggest-deadline", { activity: debouncedActivity })
       .then(async (res) => {
         if (!res.ok) {
           const t = await res.text().catch(() => "");
@@ -479,7 +501,8 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
               {task ? "Update this task's details" : "Add a new task with automatic priority calculation"}
             </CardDescription>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex items-center gap-2">
             {speech.status === "listening" && (
               <div className="flex items-center gap-2 text-sm text-red-500 font-medium animate-pulse">
                 <span className="relative flex h-2.5 w-2.5">
@@ -496,6 +519,34 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 visibility={task!.visibility}
                 communityShowNotes={task!.communityShowNotes}
               />
+            )}
+            </div>
+            {speech.status === "listening" && (liveTopicLoading || liveTopicSuggestions.length > 0) && (
+              <div className="flex flex-wrap items-end justify-end gap-1.5 max-w-[min(100%,20rem)]">
+                <span className="text-[11px] font-medium text-amber-700/90 dark:text-amber-400/90 flex items-center gap-1 shrink-0">
+                  <Sparkles className="h-3 w-3" />
+                  Topic
+                </span>
+                {liveTopicLoading && (
+                  <span className="text-[11px] text-muted-foreground">Analyzing…</span>
+                )}
+                {liveTopicSuggestions.map((s) => (
+                  <span
+                    key={`${s.label}-${s.source}`}
+                    className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100/90 text-amber-900 dark:bg-amber-900/35 dark:text-amber-200 tabular-nums"
+                    title={
+                      s.source === "nodeweaver"
+                        ? "NodeWeaver"
+                        : s.source === "catalog"
+                          ? "Your categories"
+                          : "AxTask classifier"
+                    }
+                  >
+                    {s.label}
+                    <span className="opacity-70 ml-1">{Math.round(s.confidence * 100)}%</span>
+                  </span>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -965,7 +1016,6 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               field.onBlur();
                               onFieldBlur("prerequisites", e.target.value);
                               if (e.target.value.trim()) clearWarning("prerequisites");
-                              collab.sendFieldEdit("prerequisites", e.target.value);
                               collab.blurField();
                             }}
                             onChange={(e) => {

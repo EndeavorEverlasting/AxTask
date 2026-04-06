@@ -54,7 +54,11 @@ export function evaluateAppealOutcome(
   denyVotes: number,
 ): "grant" | "deny" | "pending" {
   const { grantNeeded, denyNeeded } = computeAppealVoteThreshold(adminCount);
-  if (grantVotes >= grantNeeded) return "grant";
-  if (denyVotes >= denyNeeded) return "deny";
+  const grantMet = grantVotes >= grantNeeded;
+  const denyMet = denyVotes >= denyNeeded;
+  // Both thresholds met (e.g. 2 grant + 2 deny with need=2): explicit tie-break — grant wins (documented policy).
+  if (grantMet && denyMet) return "grant";
+  if (grantMet) return "grant";
+  if (denyMet) return "deny";
   return "pending";
 }

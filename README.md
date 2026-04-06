@@ -108,8 +108,12 @@ Cleanup modes (clear separation):
 
 If `migrate` fails with `password authentication failed for user "axtask"`:
 - Confirm `.env.docker` has matching values for `POSTGRES_PASSWORD` and the password inside `DATABASE_URL`.
-- If they already match, reset stale local DB state (this deletes local Docker Postgres data):  
-  `docker compose --env-file .env.docker down -v`  
+- If they already match, reset stale local DB state (this deletes local Docker Postgres data):
+
+  ```bash
+  docker compose --env-file .env.docker down -v
+  ```
+
   then rerun `npm run docker:up`.
 
 ### Local demo defaults vs real account security
@@ -137,11 +141,11 @@ Use this when you prefer to run the app with `tsx` against your own Postgres (no
 
 From the **project root**:
 
-**Recommended (one flow):** **`npm run local:start`** (alias: **`npm run offline:start`** / **`npm run dev:smart`**) does, in order: **`npm run local:env-init`** (creates `.env` from `.env.example` when needed and bootstraps **`SESSION_SECRET`** without printing it), dependency install/sync, **`npm run db`** (schema push) when the schema fingerprint changes, then **`npm run dev`** with **`NODE_ENV=development`** already set — **ephemeral development accounts** (emails and passwords) are printed in **that server terminal** on each start; use them on the login page. Details: [docs/SIGN_IN.md](docs/SIGN_IN.md).
+**Recommended (one flow):** **`npm run local:start`** (alias: **`npm run offline:start`** / **`npm run dev:smart`**) does, in order: **`npm run local:env-init`** (creates `.env` from `.env.example` when needed and bootstraps **`SESSION_SECRET`** without printing it), dependency install/sync, **`npm run db`** (schema push) when the schema fingerprint changes, then starts the dev server via **`tsx`** with **`NODE_ENV=development`** (not `npm run dev`, so schema is not pushed twice) — **ephemeral development accounts** (emails and passwords) are printed in **that server terminal** on each start; use them on the login page. Details: [docs/SIGN_IN.md](docs/SIGN_IN.md).
 
 Before the first successful run, edit **`.env`** after `local:env-init` and set **`DATABASE_URL`** to a reachable PostgreSQL URL (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
 
-**Manual equivalent:** `npm run local:env-init`, then `npm install`, then `npm run db`, then `npm run dev`. The script `npm run db` is a shortcut for `npm run db:push`.
+**Manual equivalent:** `npm run local:env-init`, then `npm install`, then **`npm run dev`** — which runs **`drizzle-kit push`** automatically before the dev server (use **`npm run dev:raw`** to skip that step). The **`npm run db`** script remains a shortcut for `npm run db:push` if you only want to sync the schema.
 
 If you prefer not to run `local:env-init`, create `.env` manually: **Windows CMD:** `copy .env.example .env` · **PowerShell:** `Copy-Item .env.example .env` · **macOS/Linux/Git Bash:** `cp .env.example .env` — then run **`npm run local:secrets-bootstrap`** so session signing works.
 
@@ -149,7 +153,7 @@ Visit `http://localhost:5000` to access the application and sign in (see [docs/S
 
 ### One-click local/offline startup
 
-- Windows: double-click `start-offline.cmd`
+- Windows: double-click `start-offline.cmd` (smart: schema push only when `shared/schema.ts` / Drizzle config changed) or `start-dev.bat` (simple: `npm run dev` with a schema push every time)
 - Any OS with Node/npm: run **`npm run local:start`** (same as **`npm run offline:start`** / **`npm run dev:smart`**)
 - Optional (Windows): run `npm run offline:shortcut` once to create a Desktop shortcut named `Start AxTask Offline`
 - In-app: use `Install App Shortcut` in the left sidebar to install on desktop/mobile home screen (or show setup steps if browser prompt is unavailable)
@@ -162,14 +166,14 @@ This flow automatically runs **`local:env-init`**, installs dependencies when ne
 You can run AxTask fully local (including when offline) as long as your PostgreSQL database is also local.
 
 1. Ensure **`.env`** has a local **`DATABASE_URL`** (use **`npm run local:env-init`** first if you do not have `.env` yet).
-2. From the project directory: **`npm run local:start`** (or the manual chain: **`npm install`**, **`npm run db`**, **`npm run dev`**).
+2. From the project directory: **`npm run local:start`** (or the manual chain: **`npm install`**, **`npm run dev`** — schema push is included unless you use **`npm run dev:raw`**).
 3. Work offline as needed, then commit and push changes later when back online.
 
 ### Cached reads and offline UI (Phase A)
 
 The SPA **persists TanStack Query read caches** to `localStorage` (except auth, admin, and billing API keys) so the last successful data can appear when the network drops. An **offline / stale banner** explains when you are viewing cached data. Logout clears the persisted cache. Details, security notes, and the **task conflict policy** for future sync work: [`docs/OFFLINE_PHASE_A.md`](docs/OFFLINE_PHASE_A.md).
 
-**Phase B (device refresh):** httpOnly device cookie + `POST /api/auth/refresh` can restore a Passport session when the session cookie expired but the device token is still valid. See [`docs/OFFLINE_PHASE_B.md`](docs/OFFLINE_PHASE_B.md) and run `npm run db:push` after pulling (Docker Compose runs this via the **migrate** service — [`docs/DOCKER_FOUNDATION.md`](docs/DOCKER_FOUNDATION.md#offline-phase-b-device-refresh-database)).
+**Phase B (device refresh):** httpOnly device cookie + `POST /api/auth/refresh` can restore a Passport session when the session cookie expired but the device token is still valid. See [`docs/OFFLINE_PHASE_B.md`](docs/OFFLINE_PHASE_B.md). Schema updates apply automatically when you **`npm run dev`** or **`npm start`** (and Docker Compose still runs a dedicated **migrate** job before the app — [`docs/DOCKER_FOUNDATION.md`](docs/DOCKER_FOUNDATION.md#offline-phase-b-device-refresh-database)).
 
 **Phase C (offline task writes):** queued mutations in the browser, optimistic concurrency on `PUT`/`DELETE` tasks, and a conflict dialog. See [`docs/OFFLINE_PHASE_C.md`](docs/OFFLINE_PHASE_C.md).
 
@@ -243,8 +247,9 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 ## Development
 
 ### Scripts
-- `npm run dev` - Start development server
-- `npm run dev:smart` - Smart local startup: sync deps only if lockfile changed, run `db:push` only if schema changed, then start dev server
+- `npm run dev` - Run `drizzle-kit push` against `DATABASE_URL`, then start the dev server (`tsx`). Set **`SKIP_DB_PUSH_ON_START=true`** to skip the push (or use **`npm run dev:raw`** for tsx only).
+- `npm run dev:raw` - Start development server without an automatic schema push
+- `npm run dev:smart` - Smart local startup: sync deps only if lockfile changed, run `db:push` only if schema changed, then start dev server (tsx directly — no second push)
 - `npm run deps:sync` - Sync dependencies from lockfile (`npm ci` fallback to `npm install`)
 - `npm run docker:up` - Smart Docker startup: `.env.docker` bootstrap, placeholder checks, wait for engine (optionally start Docker Desktop on Windows/macOS), then compose up
 - `npm run docker:start` - Direct `docker compose up -d --build` (engine must already be running)
@@ -254,8 +259,9 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - `npm run docker:status` - Show container status
 - `npm run docker:logs` - Show recent Docker logs
 - `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run db:push` - Sync database schema
+- `npm run start` - Run `drizzle-kit push`, then **`node dist/index.js`** (set **`SKIP_DB_PUSH_ON_START=true`** to skip, or **`npm run start:raw`** for the server only)
+- `npm run start:raw` - Start production server without an automatic schema push
+- `npm run db:push` - Sync database schema only (also invoked automatically by `dev` / `start` unless skipped)
 - `npm run test` - Run the full compendium of unit/integration/sweep tests (includes local login and Docker workflow guardrails)
 - `npm run check` - Run TypeScript checks
 
@@ -388,6 +394,7 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
 - Toggleable notification mode in the sidebar with a `0-100` intensity slider.
 - Browser push permission is requested when enabling notifications.
 - Preferences persist per account via server-backed APIs:
+  - `GET /api/notifications/push-public-config` (public; VAPID public key for subscribe when not build-inlined)
   - `GET /api/notifications/preferences`
   - `PATCH /api/notifications/preferences`
   - `GET /api/notifications/subscriptions`
@@ -399,15 +406,24 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
   - `31-70`: Balanced
   - `71-100`: Frequent
 
-Required env for browser push subscription:
+**Default (no manual key generation):** On startup the server ensures a VAPID keypair exists — it uses `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` (or `VITE_VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY`) if you set **both**, otherwise it **creates and stores** a pair in Postgres (`app_runtime_secrets`). The public key is exposed at `GET /api/notifications/push-public-config`, and the client uses that whenever `VITE_VAPID_PUBLIC_KEY` is not set at build time, so **Enable notifications** works once the DB schema exists (including `app_runtime_secrets`) without `npx web-push`.
+
+**VAPID contact URI (`subject`):** Resolved automatically from, in order: `VAPID_SUBJECT`, `BASE_URL` (https origin), `CANONICAL_HOST` (as `https://…`), or in non-production `mailto:axtask-local@localhost`. Production needs at least one of the first three so the server can complete Web Push setup.
+
+**Optional overrides** (bring your own keys, or CDN-only static build with inlined public key):
+
 ```env
-VITE_VAPID_PUBLIC_KEY=...
+# Optional build-time inlining (client skips the public-config fetch when set)
+# VITE_VAPID_PUBLIC_KEY=...
+# VAPID_PRIVATE_KEY=...   # must match the pair when using explicit public key
+# VAPID_PUBLIC_KEY=...    # Node-only public override (else VITE_* is read)
+# VAPID_SUBJECT=mailto:you@yourdomain.com
+# DISABLE_PUSH_DISPATCH=true
+# PUSH_DISPATCH_INTERVAL_MS=120000
 ```
 
-After pulling these changes, run:
-```bash
-npm run db:push
-```
+After pulling schema changes, run **`npm run dev`** or **`npm start`** once (they apply the schema automatically), or run **`npm run db:push`** manually if you prefer.
+
 - Admin retention metrics:
   - `GET /api/admin/premium/retention?days=30`
 

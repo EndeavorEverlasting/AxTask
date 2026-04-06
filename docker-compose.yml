@@ -43,6 +43,8 @@ services:
       - .env.docker
     environment:
       NODE_ENV: production
+      # migrate service already ran db:push; avoid duplicate push on every app restart
+      SKIP_DB_PUSH_ON_START: "true"
     ports:
       - "5000:5000"
     volumes:

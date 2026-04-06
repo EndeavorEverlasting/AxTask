@@ -12,7 +12,7 @@ export type MfaHandoffPayload = {
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 /** Parse and validate TTL. Returns null if missing, malformed, or expired. */

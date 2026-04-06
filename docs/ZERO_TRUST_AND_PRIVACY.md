@@ -22,10 +22,10 @@ Some features **require identifiable data** (for example **18+ verification** or
 1. **Default:** anonymized / aggregate operator views and encrypted-at-rest storage where feasible.
 2. **Opt-in verified surface:** users who choose a **public verified profile** accept stronger identity processing (e.g. ephemeral OCR on a **temporary** page, **no long-term ID image** storage if that is the policy). Operators still follow least privilege and legal process—not routine browsing of feeds.
 
-Details belong in a future **COMMUNITY_MODERATION.md** (planned; not yet in the repo) and in privacy policy copy.
+Details belong in **[COMMUNITY_MODERATION.md](./COMMUNITY_MODERATION.md)** (in-repo) and in privacy policy copy.
 
 ## Community moderation and retention
 
 For **comment deletion**, **abuse**, and **legal follow-up**, prefer an **append-only moderation audit** (actor id, target id, action, timestamp; content may be redacted or hashed per policy) instead of relying only on volatile client-side listeners. Jurisdiction-specific legal review is required before final retention rules.
 
-See [PRODUCT_ROADMAP.md](./PRODUCT_ROADMAP.md). A dedicated **COMMUNITY_MODERATION.md** is planned to capture moderation workflows; until that document exists, treat this section and the roadmap as the source of intent.
+See [PRODUCT_ROADMAP.md](./PRODUCT_ROADMAP.md) and **[COMMUNITY_MODERATION.md](./COMMUNITY_MODERATION.md)** for moderation workflows and retention intent.

@@ -31,9 +31,11 @@ export function parseEnvAssignmentLines(text) {
     if (eq <= 0) continue;
     const key = t.slice(0, eq).trim();
     let value = t.slice(eq + 1).trim();
+    const len = value.length;
     if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
+      len >= 2 &&
+      ((value[0] === '"' && value[len - 1] === '"') ||
+        (value[0] === "'" && value[len - 1] === "'"))
     ) {
       value = value.slice(1, -1);
     }

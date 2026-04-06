@@ -1,7 +1,7 @@
 import { classifyWithFallback } from "./universal-classifier";
 import { callNodeWeaverBatchClassify } from "./nodeweaver-client";
 
-export type CategorySuggestionSource = "nodeweaver" | "axtask";
+export type CategorySuggestionSource = "nodeweaver" | "axtask" | "catalog";
 
 export interface CategorySuggestion {
   label: string;
@@ -12,6 +12,27 @@ export interface CategorySuggestion {
 function normalizeLabel(s: string): string {
   return s.trim().replace(/\s+/g, " ");
 }
+
+/** Lexical overlap between a catalog label and task text (built-in + user-defined categories). */
+function catalogMatchConfidence(label: string, haystack: string): number {
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  const l = norm(label);
+  const h = norm(haystack);
+  if (l.length < 2 || h.length < 2) return 0;
+  if (h.includes(l)) return 0.72;
+  const labelWords = l.split(/\s+/).filter((w) => w.length > 2);
+  if (labelWords.length === 0) return 0;
+  const hayTokens = new Set(h.split(/[^a-z0-9]+/i).filter((t) => t.length > 2));
+  for (const w of labelWords) {
+    if (hayTokens.has(w)) return 0.58;
+  }
+  return 0;
+}
+
+export type BuildCategorySuggestionsOptions = {
+  /** Built-in labels plus the signed-in user's custom category names — aligns suggestions with the full AxTask taxonomy. */
+  catalogLabels?: string[];
+};
 
 function parseFirstBatchResult(result: unknown): {
   predicted?: string;
@@ -51,7 +72,11 @@ function parseFirstBatchResult(result: unknown): {
  * Merge NodeWeaver batch output (when configured) with the universal classifier stack.
  * Dedupes by case-insensitive label, keeping the highest confidence.
  */
-export async function buildCategorySuggestions(activity: string, notes: string): Promise<CategorySuggestion[]> {
+export async function buildCategorySuggestions(
+  activity: string,
+  notes: string,
+  options?: BuildCategorySuggestionsOptions,
+): Promise<CategorySuggestion[]> {
   const byKey = new Map<string, CategorySuggestion>();
 
   const add = (label: string, confidence: number, source: CategorySuggestionSource) => {
@@ -93,6 +118,20 @@ export async function buildCategorySuggestions(activity: string, notes: string):
 
   const local = await classifyWithFallback(activity, notes, { preferExternal: true });
   add(local.classification, local.confidence, "axtask");
+
+  const haystack = `${activity} ${notes || ""}`;
+  const seenCatalog = new Set<string>();
+  for (const raw of options?.catalogLabels ?? []) {
+    const cleaned = normalizeLabel(raw);
+    if (cleaned.length < 2) continue;
+    const key = cleaned.toLowerCase();
+    if (seenCatalog.has(key)) continue;
+    seenCatalog.add(key);
+    const conf = catalogMatchConfidence(cleaned, haystack);
+    if (conf > 0) {
+      add(cleaned, conf, "catalog");
+    }
+  }
 
   return Array.from(byKey.values()).sort((a, b) => b.confidence - a.confidence);
 }

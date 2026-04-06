@@ -39,7 +39,7 @@ describe("OfflineDataBanner", () => {
     vi.spyOn(network, "useNetworkOnline").mockReturnValue(false);
     wrap();
     expect(screen.getByRole("alert")).toHaveTextContent(/offline/i);
-    expect(screen.getByRole("button", { name: /retry sync/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /sync when online/i })).toBeInTheDocument();
   });
 
   it("renders nothing when online and no stale hint", () => {

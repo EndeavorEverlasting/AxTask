@@ -57,12 +57,32 @@ export default function AppealsPage() {
       if (t.length < 5 || b.length < 20) {
         throw new Error("Title must be at least 5 characters and details at least 20.");
       }
+      const refTrim = subjectType === "account_ban" ? user!.id : subjectRef.trim();
+      if (subjectType !== "account_ban" && refTrim.length === 0) {
+        throw new Error("Subject / reference is required (e.g. feedback id or short description).");
+      }
       const res = await apiRequest("POST", "/api/appeals", {
         subjectType,
-        subjectRef: subjectType === "account_ban" ? user!.id : subjectRef.trim(),
+        subjectRef: refTrim,
         title: t,
         body: b,
       });
+      if (!res.ok) {
+        const ct = res.headers.get("content-type") || "";
+        let detail = "";
+        try {
+          if (ct.includes("application/json")) {
+            const j = (await res.json()) as { message?: string };
+            if (j?.message && typeof j.message === "string") detail = j.message;
+            else detail = JSON.stringify(j);
+          } else {
+            detail = (await res.text()).trim();
+          }
+        } catch {
+          /* ignore body parse errors */
+        }
+        throw new Error(detail ? `${res.status}: ${detail}` : `Request failed (${res.status})`);
+      }
       return res.json() as Promise<AppealRow>;
     },
     onSuccess: () => {
@@ -80,11 +100,29 @@ export default function AppealsPage() {
   const bodyTrim = body.trim();
   const titleValid = titleTrim.length >= 5;
   const bodyValid = bodyTrim.length >= 20;
-  const formValid = titleValid && bodyValid;
+  const subjectRequired = subjectType !== "account_ban";
+  const subjectValid = !subjectRequired || subjectRef.trim().length > 0;
+  const formValid = titleValid && bodyValid && subjectValid;
 
   const withdrawMutation = useMutation({
     mutationFn: async (id: string) => {
-      await apiRequest("POST", `/api/appeals/${id}/withdraw`, {});
+      const res = await apiRequest("POST", `/api/appeals/${id}/withdraw`, {});
+      if (!res.ok) {
+        const ct = res.headers.get("content-type") || "";
+        let detail = "";
+        try {
+          if (ct.includes("application/json")) {
+            const j = (await res.json()) as { message?: string };
+            if (j?.message && typeof j.message === "string") detail = j.message;
+            else detail = JSON.stringify(j);
+          } else {
+            detail = (await res.text()).trim();
+          }
+        } catch {
+          /* ignore body parse errors */
+        }
+        throw new Error(detail ? `${res.status}: ${detail}` : `Withdraw failed (${res.status})`);
+      }
     },
     onSuccess: () => {
       setPendingWithdrawId(null);
@@ -234,8 +272,9 @@ export default function AppealsPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={pendingWithdrawId === a.id}
+                    disabled={withdrawMutation.isPending || pendingWithdrawId === a.id}
                     onClick={() => {
+                      if (withdrawMutation.isPending) return;
                       setPendingWithdrawId(a.id);
                       withdrawMutation.mutate(a.id);
                     }}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { CheckCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,17 @@ export default function ExperienceConfirmPage() {
   });
   const { challengeId, code, purpose } = handoff;
   const [sent, setSent] = useState(false);
+
+  useLayoutEffect(() => {
+    const meta = document.createElement("meta");
+    meta.name = "referrer";
+    meta.content = "no-referrer";
+    meta.setAttribute("data-axtask-experience-confirm", "1");
+    document.head.appendChild(meta);
+    return () => {
+      document.querySelector('meta[data-axtask-experience-confirm="1"]')?.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (mode === "mfa" && challengeId && code && purpose) {

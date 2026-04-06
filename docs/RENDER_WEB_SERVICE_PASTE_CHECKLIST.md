@@ -73,24 +73,23 @@ These are **separate** from Environment. For a normal **GitHub → Dockerfile** 
 | **Docker Build Context Directory** | Usually **`.`** | Repo root. |
 | **Dockerfile Path** | **`Dockerfile`** | The **file** name, not `.` alone. |
 | **Docker Command** | **No** | Leave empty; use the image `CMD`. |
-| **Pre-Deploy Command** | **No** (first go-live) | Does **not** replace the manual **`db:push`** below unless you deliberately script it. |
+| **Pre-Deploy Command** | **No** (first go-live) | **`npm run start`** already runs **`drizzle-kit push`** before `node dist/index.js` (unless **`SKIP_DB_PUSH_ON_START=true`**). You do not need a separate pre-deploy migrate unless you prefer that model. |
 
 ---
 
-## Mandatory: apply database schema (`db:push`)
+## Database schema (`db:push`)
 
-**Deploying the web service does not create Postgres tables by default.** The Docker image runs the app; it does not auto-run Drizzle against Neon.
+**Default:** The production **`start`** script runs **`npm run db:push`** automatically on each process start (same `DATABASE_URL` as Render). That creates/updates tables for an empty Neon branch or new Postgres without a separate manual step.
 
-**You must run once** (per empty database / new Neon branch), using the **exact same** `DATABASE_URL` as in Render:
+**Optional manual push** (troubleshooting or CI): from your machine with the **same** `DATABASE_URL` as Render:
 
 ```bash
-# From your machine, AxTask repo root:
 DATABASE_URL="postgresql://…your Neon or Postgres URL…" npm run db:push
 ```
 
-**Symptom if skipped:** logs like **`relation "rewards_catalog" does not exist`** (or other `relation "…" does not exist`). That means the DB is reachable but **tables were never created** — fix with **`db:push`**, then restart or redeploy.
+**Symptom if schema is missing:** logs like **`relation "rewards_catalog" does not exist`**. Typical causes: **`DATABASE_URL`** wrong/unset at runtime, **`SKIP_DB_PUSH_ON_START=true`** set by mistake, or **`db:push`** failed (check deploy logs for `[axtask:start]` / Drizzle errors).
 
-**Order that works:** set **`DATABASE_URL`** in Render → deploy → run **`db:push`** with that URL locally (or Render **Shell** if you have tooling there) → confirm app starts without missing-relation errors.
+**Order that works:** set **`DATABASE_URL`** in Render → deploy → confirm logs show a successful schema push on boot → **`/ready`** should pass once the app is listening.
 
 ---
 
@@ -134,7 +133,7 @@ So: **paste all the OAuth env blocks you have configured**; you are not forced t
 |----------|------|
 | `CANONICAL_HOST` | Hostname **only**: `axtask.app` — **no** `https://`. |
 | `BASE_URL` | **Must** be `https://` + **same host** as `CANONICAL_HOST`, e.g. `https://axtask.app`. |
-| `WORKOS_REDIRECT_URI` | **Must** equal `https://<CANONICAL_HOST>/api/auth/workos/callback` (same host/scheme as `BASE_URL`). |
+| `WORKOS_REDIRECT_URI` | **Must** equal `https://<CANONICAL_HOST>/api/auth/callback` (same host/scheme as `BASE_URL`; WorkOS callback route in this app). |
 | Google Console **Authorized redirect URI** | **Must** equal `https://<CANONICAL_HOST>/api/auth/google/callback`. |
 
 ### 4) Reuse / “don’t confuse these”
@@ -142,7 +141,7 @@ So: **paste all the OAuth env blocks you have configured**; you are not forced t
 | Item A | Item B | Relationship |
 |--------|--------|----------------|
 | `CANONICAL_HOST` | `BASE_URL` | Same hostname; `BASE_URL` adds `https://`. |
-| `BASE_URL` | OAuth redirect URIs | Redirects are always `BASE_URL` + fixed path (`/api/auth/google/callback`, `/api/auth/workos/callback`). |
+| `BASE_URL` | OAuth redirect URIs | Google: `BASE_URL` + `/api/auth/google/callback`. WorkOS: set `WORKOS_REDIRECT_URI` to `BASE_URL` + `/api/auth/callback`. |
 | `GOOGLE_CLIENT_*` (login) | `GOOGLE_SHEETS_API_KEY` | **Different** credentials and purposes; both can exist. |
 | `DATABASE_URL` | `npm run db:push` | Same string you use locally or in Render Shell to migrate schema. |
 | `RESEND_FROM` | `CANONICAL_HOST` | Not enforced in code, but Resend requires a **verified** domain; usually matches your product domain. |
@@ -234,7 +233,7 @@ GOOGLE_CLIENT_SECRET=YOUR_GOOGLE_OAUTH_CLIENT_SECRET
 ```
 WORKOS_API_KEY=YOUR_WORKOS_API_KEY
 WORKOS_CLIENT_ID=YOUR_WORKOS_CLIENT_ID
-WORKOS_REDIRECT_URI=https://YOUR_DOMAIN_NO_SCHEME/api/auth/workos/callback
+WORKOS_REDIRECT_URI=https://YOUR_DOMAIN_NO_SCHEME/api/auth/callback
 ```
 
 **WorkOS dashboard:** same redirect URI as `WORKOS_REDIRECT_URI`.
@@ -269,12 +268,20 @@ REPLIT_FALLBACK_HOST=YOUR_OLD_REPLIT_APP_HOST
 GOOGLE_SHEETS_API_KEY=YOUR_KEY
 ```
 
-### B10. Optional — browser push (must be set **before** build if you use Vite-inlined keys)
+### B10. Optional — browser push
+
+**Default:** With `CANONICAL_HOST` / `BASE_URL` / `VAPID_SUBJECT` already set elsewhere in this checklist, the app **auto-provisions** a VAPID keypair in the database on boot and serves the public key at `/api/notifications/push-public-config` — you do **not** need `npx web-push` or `VITE_VAPID_PUBLIC_KEY` unless you want the key inlined at build time.
+
+**Bring your own keys:** set **both** public and private before build/runtime (and keep them matched):
 
 ```
 VITE_VAPID_PUBLIC_KEY=YOUR_VAPID_PUBLIC_KEY
+VAPID_PRIVATE_KEY=YOUR_VAPID_PRIVATE_KEY
+VAPID_SUBJECT=mailto:you@yourdomain.com
 VITE_QUERY_PERSIST_BUSTER=v1
 ```
+
+Optional: `VAPID_PUBLIC_KEY` (Node-only public override). Optional: `DISABLE_PUSH_DISPATCH=true`, `PUSH_DISPATCH_INTERVAL_MS` (default `120000`, min `60000`).
 
 ### B11. Optional — other product flags (see server for `PREMIUM_FLAG_*`)
 
@@ -302,16 +309,15 @@ Add **each** provider you enabled in B4–B6. Paths must match `BASE_URL`:
 | Provider | URI to add (same host as `BASE_URL`) |
 |----------|--------------------------------------|
 | Google | `https://YOUR_DOMAIN/api/auth/google/callback` |
-| WorkOS | `https://YOUR_DOMAIN/api/auth/workos/callback` |
+| WorkOS | `https://YOUR_DOMAIN/api/auth/callback` |
 | Replit | Follow Replit OIDC docs for callback registration (env `REPL_ID` + `ISSUER_URL`). |
 
 ---
 
 ## D. After the first deploy (required order)
 
-1. **Schema (mandatory — do not skip)**  
-   Run **`npm run db:push`** with **`DATABASE_URL`** equal to Render’s value (Neon connection string or Render Postgres URL). See **[Mandatory: apply database schema](#mandatory-apply-database-schema-dbpush)**.  
-   Until this succeeds, you may see **`relation "rewards_catalog" does not exist`** (or similar) in logs.
+1. **Schema**  
+   Normally applied automatically when the web service starts (**`npm run start`** → `drizzle-kit push`). If logs show missing-relation errors, fix **`DATABASE_URL`**, remove **`SKIP_DB_PUSH_ON_START`** if set, or run **`npm run db:push`** manually with Render’s URL. See **[Database schema (`db:push`)](#database-schema-dbpush)**.
 
 2. **User sign-in and onboarding:** **[SIGN_IN.md](./SIGN_IN.md)**.
 
@@ -321,4 +327,16 @@ Add **each** provider you enabled in B4–B6. Paths must match `BASE_URL`:
 
 ## E. Second domain (e.g. `axtask.dev`)
 
-Create a **second** Web Service (or preview env) with its **own** `CANONICAL_HOST`, `BASE_URL`, `DATABASE_URL` (separate DB recommended), `SESSION_SECRET`, and **duplicate OAuth redirect URIs** for that host in Google/WorkOS.
+### E1. Same Render Web Service (alias domain)
+
+Use this when **one deployment** should answer on both hostnames (e.g. `axtask.app` and `axtask.dev`).
+
+1. Render → your Web Service → **Custom Domains** → add `axtask.dev` (and `www` if you use it) → point DNS at the records Render shows.
+2. Keep **`CANONICAL_HOST`** and **`BASE_URL`** on your **primary** host (e.g. `axtask.app` / `https://axtask.app`).
+3. Set **`ADDITIONAL_ALLOWED_HOSTS=axtask.dev`** (comma-separated if you add more). Set **`ADDITIONAL_ALLOWED_ORIGINS=https://axtask.dev`** so API writes from that origin are allowed.
+
+**OAuth caveat:** `WORKOS_REDIRECT_URI` is a **single** URL. WorkOS always sends users back to that host after login (see `server/auth-providers.ts`). People who start on `axtask.dev` may finish on your primary domain after WorkOS; session cookies are per-host, so treat the extra domain as an **alias** (bookmark/marketing) or make the domain in `WORKOS_REDIRECT_URI` / `BASE_URL` your main entry point. Google can list **both** redirect URIs in Cloud Console; if you do **not** set `GOOGLE_REDIRECT_URI`, the app uses the request host for Google’s `redirect_uri`.
+
+### E2. Separate environment (staging / true second product URL)
+
+Create a **second** Web Service (or preview env) with its **own** `CANONICAL_HOST`, `BASE_URL`, `DATABASE_URL` (separate DB recommended), `SESSION_SECRET`, and **OAuth redirect URIs** registered for **that** host in Google/WorkOS (`WORKOS_REDIRECT_URI` must match the callback path: `https://<that-host>/api/auth/callback`).

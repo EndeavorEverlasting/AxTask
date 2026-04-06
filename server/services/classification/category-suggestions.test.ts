@@ -87,6 +87,24 @@ describe("category-suggestions", () => {
     expect(suggestions.map((s) => s.label)).toContain("Administrative");
   });
 
+  it("surfaces catalog labels that overlap task text (built-in + custom taxonomy)", async () => {
+    delete process.env.NODEWEAVER_URL;
+    vi.mocked(classifyWithFallback).mockResolvedValue({
+      classification: "General",
+      confidence: 0.45,
+      source: "keyword_fallback",
+      fallbackLayer: 2,
+    });
+
+    const suggestions = await buildCategorySuggestions("client onboarding call tomorrow", "", {
+      catalogLabels: ["Meeting", "Client Work", "Research"],
+    });
+
+    const clientWork = suggestions.find((s) => s.label === "Client Work");
+    expect(clientWork?.source).toBe("catalog");
+    expect(clientWork?.confidence).toBeGreaterThan(0.5);
+  });
+
   it("dedupes labels case-insensitively keeping the highest confidence", async () => {
     vi.mocked(callNodeWeaverBatchClassify).mockResolvedValue({
       results: [{ predicted_category: "research", confidence_score: 0.6 }],

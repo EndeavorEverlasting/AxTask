@@ -11,8 +11,10 @@
 - Added tests for notification schema validation and intensity dispatch profiles.
 
 ### Migration Notes
-- Run `npm run db:push` to apply new notification tables/columns.
-- Set `VITE_VAPID_PUBLIC_KEY` for push subscription enablement in the browser.
+- `npm run dev` and `npm run start` run `drizzle-kit push` automatically unless `SKIP_DB_PUSH_ON_START=true` (Docker Compose sets that on the **app** container because the **migrate** job already pushed). You can still run `npm run db:push` by itself.
+- New notification tables/columns and the `app_runtime_secrets` table (auto-provisioned VAPID keys) apply with that push.
+- Push in the browser works without `VITE_VAPID_PUBLIC_KEY` when the server exposes `GET /api/notifications/push-public-config` (default after DB migration and boot).
+- Optional: set `VITE_VAPID_PUBLIC_KEY` + matching `VAPID_PRIVATE_KEY` (or `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY`) instead of auto keys; use `DISABLE_PUSH_DISPATCH=true` to turn off the in-process digest scheduler.
 
 ## Version 1.2.0 - November 2, 2025
 

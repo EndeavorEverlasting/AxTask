@@ -1,6 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { timingSafeEqual, createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
+import { computeTaskFingerprint } from "./import-task-dedupe";
 import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
@@ -113,9 +114,18 @@ import { writeAttachmentObject, deleteAttachmentObject } from "./services/attach
 import { scanAttachmentBuffer } from "./services/attachment-scan";
 import { classifyWithFallback } from "./services/classification/universal-classifier";
 import { buildCategorySuggestions } from "./services/classification/category-suggestions";
-import { callNodeWeaverBatchClassify } from "./services/classification/nodeweaver-client";
+import {
+  broadcastClassificationEvent,
+  classificationSseCount,
+  CLASSIFICATION_SSE_MAX_PER_USER,
+  registerClassificationSse,
+  hasClassificationSse,
+} from "./services/classification/classification-stream-registry";
+import { callNodeWeaverBatchClassify, notifyNodeWeaverCorrection } from "./services/classification/nodeweaver-client";
 import { BUILT_IN_CLASSIFICATIONS, isGeneralClassification } from "@shared/classification-catalog";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
+import { getVapidPublicKey } from "./services/vapid-runtime";
+import { maskReporterEmailForPrivacy, maskReporterNameForPrivacy } from "./services/feedback-inbox-parser";
 
 /**
  * Maps voice review priority labels to stored `priority_score` (~10× the engine’s numeric score; see task routes).
@@ -142,25 +152,6 @@ function safeEqual(a: string, b: string): boolean {
     return false;
   }
   return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
-}
-
-function normalizeForFingerprint(value?: string | null): string {
-  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function computeTaskFingerprint(task: {
-  date?: string;
-  time?: string | null;
-  activity?: string | null;
-  notes?: string | null;
-}): string {
-  const base = [
-    normalizeForFingerprint(task.date || ""),
-    normalizeForFingerprint(task.time || ""),
-    normalizeForFingerprint(task.activity || ""),
-    normalizeForFingerprint(task.notes || ""),
-  ].join("|");
-  return createHash("sha256").update(base).digest("hex");
 }
 
 function getUploadSigningSecret(): string {
@@ -427,6 +418,11 @@ function maskEmailForOtp(email: string): string {
   return `${u.slice(0, 2)}•••@${dom}`;
 }
 
+/** One-way identifier for failed-login audit rows (do not store plaintext email in security_events). */
+function hashEmailForAuthAudit(email: string): string {
+  return createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api", (req, res, next) => {
     const startedAt = Date.now();
@@ -584,7 +580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               ipAddress: req.ip,
               userAgent: req.get("user-agent") || undefined,
               payload: {
-                email,
+                email: hashEmailForAuthAudit(email),
                 xForwardedFor: req.get("x-forwarded-for") || undefined,
                 cfConnectingIp: req.get("cf-connecting-ip") || undefined,
               },
@@ -622,8 +618,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/refresh", authLimiter, async (req: Request, res: Response) => {
-    await performAuthRefresh(req, res);
+  app.post("/api/auth/refresh", authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await performAuthRefresh(req, res);
+    } catch (err) {
+      next(err);
+    }
   });
 
   app.post("/api/auth/logout", async (req: Request, res: Response) => {
@@ -1230,6 +1230,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/premium/bundle/reclassify-backlog", requireAuth, async (req, res) => {
     await requirePremiumFeature(req, res, async () => {
+      const backlogOpts = z
+        .object({ learnOnNodeWeaver: z.boolean().optional() })
+        .optional()
+        .parse(req.body ?? {});
+      const rawLearn = backlogOpts?.learnOnNodeWeaver;
+      const learnOnNodeWeaver =
+        Boolean(process.env.NODEWEAVER_URL) &&
+        (rawLearn === true || (rawLearn !== false && process.env.NODEWEAVER_BACKLOG_LEARN === "true"));
+
       const allTasks = await storage.getTasks(req.user!.id);
       const pending = allTasks.filter((task) => task.status !== "completed").slice(0, 100);
       if (pending.length === 0) {
@@ -1240,11 +1249,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ) as { results?: unknown[] };
       const results = Array.isArray(batchResponse.results) ? batchResponse.results : [];
       const updates: UpdateTask[] = [];
+      const nodeWeaverCorrections: Array<{ text: string; newCat: string; oldCat: string }> = [];
       for (let i = 0; i < pending.length; i++) {
         const result = results[i] as { predicted_category?: unknown; confidence_score?: unknown } | undefined;
         const category = typeof result?.predicted_category === "string" ? result.predicted_category : undefined;
         const confidence = typeof result?.confidence_score === "number" ? result.confidence_score : undefined;
         if (!category) continue;
+        const prevClass = (pending[i].classification || "General").trim() || "General";
+        if (learnOnNodeWeaver && category !== prevClass) {
+          const text = `${pending[i].activity} ${pending[i].notes || ""}`.trim();
+          if (text) {
+            nodeWeaverCorrections.push({ text, newCat: category, oldCat: prevClass });
+          }
+        }
         updates.push({
           id: pending[i].id,
           classification: category,
@@ -1274,6 +1291,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         metadata: { scanned: pending.length, updated: updates.length },
       });
       res.json({ scanned: pending.length, updated: updates.length });
+
+      if (learnOnNodeWeaver && nodeWeaverCorrections.length > 0) {
+        const gapMs = Math.max(
+          50,
+          Number.parseInt(process.env.NODEWEAVER_BACKLOG_LEARN_MS || "250", 10) || 250,
+        );
+        void (async () => {
+          for (const c of nodeWeaverCorrections) {
+            try {
+              await notifyNodeWeaverCorrection(c.text, c.newCat, { previousCategory: c.oldCat });
+            } catch {
+              /* best-effort */
+            }
+            await new Promise((r) => setTimeout(r, gapMs));
+          }
+        })();
+      }
     }, "bundle_auto_reprioritize", true);
   });
 
@@ -1317,6 +1351,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         threshold: body.lowConfidenceThreshold,
       });
     }, "bundle_auto_reprioritize", true);
+  });
+
+  app.get("/api/notifications/push-public-config", (_req, res) => {
+    const publicKey = getVapidPublicKey();
+    if (!publicKey) {
+      return res.json({ configured: false as const });
+    }
+    return res.json({ configured: true as const, publicKey });
   });
 
   app.get("/api/notifications/preferences", requireAuth, async (req, res) => {
@@ -2535,10 +2577,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 concurrencyOpts,
               );
               if (updatedTask) {
-                try {
-                  await awardCoinsForCompletion(userId, updatedTask, previousStatus);
-                } catch (coinErr) {
-                  console.error(`Coin award failed for task ${action.taskId}:`, coinErr);
+                if (previousStatus !== "completed" && updatedTask.status === "completed") {
+                  try {
+                    await awardCoinsForCompletion(userId, updatedTask, previousStatus);
+                  } catch (coinErr) {
+                    console.error(`Coin award failed for task ${action.taskId}:`, coinErr);
+                  }
                 }
                 results.push({ taskId: action.taskId, success: true });
               } else {
@@ -2574,8 +2618,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   updatePayload.priorityScore = ps;
                 }
               }
+              let notesChanged = false;
               if (action.details?.notes && typeof action.details.notes === "string") {
                 updatePayload.notes = action.details.notes.slice(0, 2000);
+                notesChanged = true;
+              }
+              if (notesChanged) {
+                const allTasks = await storage.getTasks(userId);
+                const activity = existingTask.activity;
+                const notes = updatePayload.notes ?? existingTask.notes ?? "";
+                const priorityResult = await PriorityEngine.calculatePriority(
+                  activity,
+                  notes,
+                  existingTask.urgency,
+                  existingTask.impact,
+                  existingTask.effort,
+                  allTasks.filter((t) => t.id !== action.taskId),
+                );
+                const classification = await classifyTaskWithFallback(activity, notes, true);
+                updatePayload.priority = priorityResult.priority;
+                updatePayload.priorityScore = Math.round(priorityResult.score * 10);
+                updatePayload.classification = classification;
+                updatePayload.isRepeated = priorityResult.isRepeated;
               }
               if (Object.keys(updatePayload).length > 1) {
                 const updatedTask = await storage.updateTask(userId, updatePayload, concurrencyOpts);
@@ -2974,11 +3038,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/classification/suggestions", requireAuth, async (req, res) => {
     try {
       const payload = classifySchema.parse(req.body);
-      const suggestions = await buildCategorySuggestions(payload.activity, payload.notes || "");
+      const userId = req.user!.id;
+      const custom = await listUserClassificationCategories(userId);
+      const catalogLabels = [
+        ...BUILT_IN_CLASSIFICATIONS.map((c) => c.label),
+        ...custom.map((row) => row.name),
+      ];
+      const suggestions = await buildCategorySuggestions(payload.activity, payload.notes || "", {
+        catalogLabels,
+      });
       res.json({ suggestions });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to build suggestions" });
+    }
+  });
+
+  const classificationStreamPushSchema = z.object({
+    activity: z.string().min(1).max(500),
+    notes: z.string().max(5000).optional().default(""),
+    preferStream: z.boolean().optional().default(false),
+    seq: z.number().int().nonnegative().optional(),
+  });
+
+  app.get("/api/classification/stream", requireAuth, (req, res) => {
+    const userId = req.user!.id;
+    if (classificationSseCount(userId) >= CLASSIFICATION_SSE_MAX_PER_USER) {
+      return res.status(429).json({ message: "Too many open classification streams. Close another tab or try again." });
+    }
+    if (!registerClassificationSse(userId, res)) {
+      return res.status(429).json({ message: "Could not open classification stream." });
+    }
+    res.status(200);
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    const flush = (res as { flushHeaders?: () => void }).flushHeaders;
+    if (typeof flush === "function") flush.call(res);
+
+    res.write("retry: 5000\n\n");
+    res.write(`data: ${JSON.stringify({ type: "ready" })}\n\n`);
+  });
+
+  app.post("/api/classification/stream/push", requireAuth, async (req, res) => {
+    try {
+      const payload = classificationStreamPushSchema.parse(req.body);
+      const userId = req.user!.id;
+      const custom = await listUserClassificationCategories(userId);
+      const catalogLabels = [
+        ...BUILT_IN_CLASSIFICATIONS.map((c) => c.label),
+        ...custom.map((row) => row.name),
+      ];
+      const suggestions = await buildCategorySuggestions(payload.activity, payload.notes || "", {
+        catalogLabels,
+      });
+      const hadListener = hasClassificationSse(userId);
+      broadcastClassificationEvent(userId, {
+        type: "suggestions",
+        suggestions,
+        seq: payload.seq ?? null,
+      });
+      if (payload.preferStream && hadListener) {
+        return res.status(202).json({ ok: true, seq: payload.seq ?? null });
+      }
+      return res.json({ suggestions, seq: payload.seq ?? null });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to push classification stream" });
     }
   });
 
@@ -3227,6 +3354,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const channel = actorUserId ? "contact_form" : "public_contact";
+      const reporterEmailStored = reporterEmail ? maskReporterEmailForPrivacy(reporterEmail) : undefined;
+      const reporterNameStored = reporterName ? maskReporterNameForPrivacy(reporterName) : undefined;
 
       await logSecurityEvent(
         "contact_form_submitted",
@@ -3248,8 +3377,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           messageLength: parsed.message.length,
           attachments: 0,
           channel,
-          reporterEmail,
-          reporterName,
+          reporterEmail: reporterEmailStored,
+          reporterName: reporterNameStored,
           analysis,
         },
       });
@@ -3271,17 +3400,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const payload = feedbackProcessSchema.parse(req.body);
       const analysis = await processFeedbackWithEngines(payload.message, payload.attachmentCount);
-      ensureAvatarProfilesForUser(req.user!.id)
-        .then(() =>
-          awardAvatarProgressFromContent(
-            req.user!.id,
-            "feedback",
-            `feedback_process:${Date.now()}`,
-            payload.message,
-            true,
-          ),
-        )
-        .catch((err) => console.error("[avatar] feedback process progress", err));
       res.json(analysis);
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
@@ -3955,7 +4073,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let classificationReward = null;
       if (!isGeneralClassification(classification)) {
-        classificationReward = await awardCoinsForClassification(userId, task);
+        try {
+          classificationReward = await awardCoinsForClassification(userId, task);
+        } catch (awardErr) {
+          console.error("[tasks] reclassify awardCoinsForClassification:", awardErr);
+          classificationReward = null;
+        }
+      }
+
+      const taskText = `${existingTask.activity} ${existingTask.notes || ""}`.trim();
+      if (taskText && process.env.NODEWEAVER_URL) {
+        notifyNodeWeaverCorrection(taskText, classification, {
+          previousCategory: existingTask.classification || undefined,
+        }).catch(() => {});
       }
 
       res.json({ ...task, classificationReward });

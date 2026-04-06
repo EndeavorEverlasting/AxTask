@@ -47,6 +47,41 @@ import { useImmersiveShell } from "@/hooks/use-immersive-shell";
 import { PretextPeekStrip } from "@/components/layout/pretext-peek-strip";
 import { ShellSplitter } from "@/components/layout/shell-splitter";
 import { cn } from "@/lib/utils";
+import type { SafeUser } from "@shared/schema";
+
+function userInitials(u: Pick<SafeUser, "displayName" | "email">): string {
+  const base = (u.displayName || u.email || "").trim();
+  return base
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function AccountUserAvatar({
+  user,
+  className,
+}: {
+  user: Pick<SafeUser, "displayName" | "email" | "profileImageUrl">;
+  className?: string;
+}) {
+  const initials = userInitials(user);
+  const wrap = cn("rounded-full shrink-0 object-cover", className);
+  if (user.profileImageUrl) {
+    return <img src={user.profileImageUrl} alt="" className={wrap} />;
+  }
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-center rounded-full bg-primary/15 text-primary font-semibold shrink-0",
+        className,
+      )}
+    >
+      {initials ? <span className="leading-none">{initials}</span> : <User className="h-4 w-4" />}
+    </div>
+  );
+}
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
@@ -284,14 +319,22 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         )}
 
         {user && (
-          <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 truncate">
-            {user.profileImageUrl ? (
-              <img src={user.profileImageUrl} alt="" className="h-5 w-5 rounded-full shrink-0" />
-            ) : (
-              <User className="h-4 w-4 shrink-0" />
-            )}
-            <span className="truncate">{user.displayName || user.email}</span>
-          </div>
+          <Link href="/account">
+            <div
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 min-h-[44px] rounded-lg text-sm truncate transition-colors cursor-pointer",
+                "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-primary",
+                isActiveRoute("/account") && "bg-gray-100 dark:bg-gray-700 text-primary",
+              )}
+              onClick={handleNavClick}
+              role="link"
+              title="Account — email and profile"
+              aria-label={`Open account for ${user.displayName || user.email}`}
+            >
+              <AccountUserAvatar user={user} className="h-8 w-8 text-xs" />
+              <span className="truncate min-w-0">{user.displayName || user.email}</span>
+            </div>
+          </Link>
         )}
         <Button
           variant="ghost"
@@ -315,7 +358,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => { logout(); handleNavClick(); }}
+          onClick={async () => {
+            await logout();
+            handleNavClick();
+          }}
           className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 min-h-[44px]"
         >
           <LogOut className="mr-2 h-4 w-4" />
@@ -327,6 +373,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
+  const { user } = useAuth();
   return (
     <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shrink-0">
       <Button variant="ghost" size="icon" className="h-10 w-10" onClick={onMenuOpen} aria-label="Open menu">
@@ -336,7 +383,22 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
         <CheckSquare className="mr-2 h-5 w-5" />
         AxTask
       </h1>
-      <div className="w-10" />
+      {user ? (
+        <Link
+          href="/account"
+          className={cn(
+            "inline-flex h-10 w-10 items-center justify-center rounded-full overflow-hidden shrink-0",
+            "text-sm font-medium hover:bg-accent hover:text-accent-foreground",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background",
+          )}
+          aria-label={`Account — ${user.displayName || user.email}`}
+          title="Account"
+        >
+          <AccountUserAvatar user={user} className="h-9 w-9 text-xs" />
+        </Link>
+      ) : (
+        <div className="w-10" />
+      )}
     </div>
   );
 }

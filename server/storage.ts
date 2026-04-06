@@ -88,6 +88,9 @@ import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
 import { parseFeedbackPayload, parseFeedbackReviewPayload } from "./services/feedback-inbox-parser";
+
+/** Allowed clock skew / serialization delta for task optimistic concurrency (updatedAt match). */
+const TASK_OPTIMISTIC_CONCURRENCY_MS = 1000;
 import { maskE164ForDisplay } from "@shared/phone";
 import { isBuiltInClassification, normalizeCategoryName } from "@shared/classification-catalog";
 import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
@@ -1345,7 +1348,7 @@ export class DatabaseStorage implements IStorage {
         ? and(
             eq(tasks.id, updateTask.id),
             eq(tasks.userId, userId),
-            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 <= 1`,
+            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 <= ${TASK_OPTIMISTIC_CONCURRENCY_MS}`,
           )
         : and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId));
     const [task] = await db
@@ -1363,7 +1366,7 @@ export class DatabaseStorage implements IStorage {
         ? and(
             eq(tasks.id, id),
             eq(tasks.userId, userId),
-            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 <= 1`,
+            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 <= ${TASK_OPTIMISTIC_CONCURRENCY_MS}`,
           )
         : and(eq(tasks.id, id), eq(tasks.userId, userId));
     const result = await db.delete(tasks).where(where);
@@ -2169,6 +2172,7 @@ export async function getUsageSnapshots(limit = 30): Promise<UsageSnapshot[]> {
   return db.select().from(usageSnapshots).orderBy(desc(usageSnapshots.snapshotDate)).limit(limit);
 }
 
+/** Used by spreadsheet import (`routes.ts`) and JSON bundle import (`import-task-dedupe.ts` / migration). */
 export async function hasImportFingerprint(userId: string, fingerprint: string): Promise<boolean> {
   const [row] = await db.select({ value: count() })
     .from(taskImportFingerprints)
@@ -2190,6 +2194,7 @@ export async function getTaskIdForImportFingerprint(
   return typeof tid === "string" && tid.length > 0 ? tid : undefined;
 }
 
+/** Persists dedupe keys for imports; sources should match `TaskImportFingerprintSource` in `import-task-dedupe.ts`. */
 export async function recordImportFingerprint(userId: string, fingerprint: string, source: string, firstTaskId?: string): Promise<void> {
   await db.insert(taskImportFingerprints).values({
     id: randomUUID(),
@@ -4146,6 +4151,41 @@ async function addCoinsInTx(
     reason,
     details,
     taskId,
+  });
+}
+
+/** Single transaction: classification contribution row + wallet credit (no orphan contributions). */
+export async function awardCoinsForClassificationAtomic(
+  userId: string,
+  taskId: string,
+  classification: string,
+  baseCoins: number,
+  details: string,
+): Promise<{ coinsEarned: number; newBalance: number; classification: string } | null> {
+  return db.transaction(async (tx) => {
+    try {
+      await tx.insert(classificationContributions).values({
+        id: randomUUID(),
+        taskId,
+        userId,
+        classification,
+        baseCoinsAwarded: baseCoins,
+        totalCoinsEarned: baseCoins,
+        confirmationCount: 0,
+      });
+    } catch (e) {
+      if (isPgUniqueViolation(e)) return null;
+      throw e;
+    }
+
+    await addCoinsInTx(tx, userId, baseCoins, "classification", details, taskId);
+
+    const [walletRow] = await tx.select().from(wallets).where(eq(wallets.userId, userId));
+    return {
+      coinsEarned: baseCoins,
+      newBalance: walletRow?.balance ?? 0,
+      classification,
+    };
   });
 }
 

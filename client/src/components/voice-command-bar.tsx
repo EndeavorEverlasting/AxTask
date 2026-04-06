@@ -13,6 +13,7 @@ import {
   CalendarDays,
   Brain,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,8 @@ export function VoiceCommandBar() {
     toggleListening,
     closeBar,
     clearResponse,
+    liveTopicSuggestions,
+    liveTopicLoading,
   } = useVoice();
 
   const reducedMotion = useReducedMotion();
@@ -117,6 +120,34 @@ export function VoiceCommandBar() {
                 <p className="text-sm text-gray-700 dark:text-gray-200 truncate">
                   "{transcript}"
                 </p>
+              )}
+
+              {status === "listening" && (liveTopicLoading || liveTopicSuggestions.length > 0) && (
+                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <span className="text-[10px] font-semibold text-amber-700/90 dark:text-amber-400/90 flex items-center gap-0.5 shrink-0">
+                    <Sparkles className="h-3 w-3" />
+                    Topic
+                  </span>
+                  {liveTopicLoading && (
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400">Analyzing…</span>
+                  )}
+                  {liveTopicSuggestions.map((s) => (
+                    <span
+                      key={`${s.label}-${s.source}`}
+                      className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100/90 text-amber-900 dark:bg-amber-900/35 dark:text-amber-200 tabular-nums"
+                      title={
+                        s.source === "nodeweaver"
+                          ? "NodeWeaver"
+                          : s.source === "catalog"
+                            ? "Your categories"
+                            : "AxTask classifier"
+                      }
+                    >
+                      {s.label}
+                      <span className="opacity-70 ml-0.5">{Math.round(s.confidence * 100)}%</span>
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
 

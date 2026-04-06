@@ -82,7 +82,7 @@ export default function Dashboard() {
         <ImmersivePretextCue />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
         <StatCard
           label="Total Tasks"
           value={isLoading ? "..." : String(totalTasks)}
