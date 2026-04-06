@@ -203,17 +203,11 @@ const FK_FIELDS_BY_TABLE: Record<TableName, string[]> = {
 /** Tables importable via self-service `importUserBundle` (single-user state only; no shared/actor-forged rows). */
 const USER_OWNED_TABLES = new Set<string>([
   "tasks",
-  "wallets",
-  "coinTransactions",
-  "userBadges",
-  "userRewards",
   "taskPatterns",
   "userBillingProfiles",
   "userClassificationCategories",
-  "userMilestoneGrants",
   "userEntourage",
   "avatarProfiles",
-  "avatarXpEvents",
 ]);
 
 const TIMESTAMP_FIELDS = [
@@ -579,7 +573,7 @@ export async function importBundle(
             }
           }
 
-          if (mode === "remap" && tableName !== "users") {
+          if ((mode === "remap" || mode === "preserve") && tableName !== "users") {
             const fkRules = FK_RULES[tableName];
             let referencesSkippedRow = false;
             for (const rule of fkRules) {
@@ -613,6 +607,10 @@ export async function importBundle(
           if (mode === "preserve" && pkCol && pkValue) {
             const [existing] = await tx.select().from(table as AnyPgTable).where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);
             if (existing) {
+              const pkOrig = originalRow[pkField];
+              if (pkOrig !== undefined && pkOrig !== null) {
+                trackSkippedId(tableName, String(pkOrig));
+              }
               skipCount++;
               conflictCount++;
               continue;
@@ -725,6 +723,28 @@ export async function importUserBundle(
     };
   }
 
+  const bundleUserRows = getBundleRows(bundle, "users");
+  if (bundleUserRows.length !== 1) {
+    return {
+      success: false,
+      dryRun,
+      mode: "remap",
+      inserted: {},
+      skipped: {},
+      conflicts: {},
+      errors: [
+        {
+          table: "users",
+          rowIndex: 0,
+          field: "users",
+          message: `User bundle must contain exactly one user row (found ${bundleUserRows.length})`,
+          severity: "error",
+        },
+      ],
+      warnings: validation.warnings,
+    };
+  }
+
   const skipTables = new Set(
     TABLE_INSERT_ORDER.filter(t => !USER_OWNED_TABLES.has(t))
   );
@@ -739,7 +759,7 @@ export async function importUserBundle(
     skippedIdsByTable[table].add(id);
   };
 
-  const bundleUserIds = getBundleRows(bundle, "users").map((u) => String(u.id));
+  const bundleUserIds = bundleUserRows.map((u) => String(u.id));
   for (const oldUserId of bundleUserIds) {
     idMap.set(remapKey("users", oldUserId), targetUserId);
   }

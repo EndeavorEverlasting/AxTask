@@ -37,7 +37,9 @@ function assertEnqueueOk(o: WriteQueueOutcome, context: string): void {
     throw new Error("Could not save offline queue");
   }
   if (o.overflowed) {
-    console.warn(`[offline-task-queue] ${context}: queue overflow; oldest ops dropped`);
+    console.warn(
+      `[offline-task-queue] ${context}: queue overflow; oldest operations were dropped (newest retained up to the offline queue cap)`,
+    );
   }
 }
 
@@ -338,6 +340,8 @@ async function processDeleteOp(
     const t = await res.text();
     throw new Error(t || res.statusText);
   }
+  removeTaskFromCache(queryClient, op.taskId);
+  await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
   return "done";
 }
 
@@ -347,7 +351,6 @@ let drainInProgress = false;
 export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<void> {
   if (!isBrowserOnline() || drainInProgress) return;
   drainInProgress = true;
-  beginOfflineQueueDrainScope();
 
   const opDrainMeta = (op: OfflineTaskOp) => {
     const base = { kind: op.kind, opId: op.opId } as Record<string, unknown>;
@@ -360,9 +363,11 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
     return base;
   };
 
-  let ops = peekOfflineQueue();
+  let ops: OfflineTaskOp[] = [];
   let drainStoppedEarly = false;
   try {
+    beginOfflineQueueDrainScope();
+    ops = peekOfflineQueue();
     while (ops.length > 0) {
       const op = ops[0];
       try {
@@ -390,6 +395,18 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
                 }
               }
               remapOrRemoveQueuedOpsForClientId(op.clientId, serverId);
+              if (serverId) {
+                const getRes = await apiFetch("GET", `/api/tasks/${encodeURIComponent(serverId)}`);
+                if (getRes.ok) {
+                  const t = (await getRes.json()) as Task;
+                  queryClient.setQueryData<Task[]>(["/api/tasks"], (old) => {
+                    if (!old) return old;
+                    const filtered = old.filter((x) => x.id !== op.clientId && x.id !== t.id);
+                    return [...filtered, t];
+                  });
+                  refreshQueuedUpdateBasesForTask(t.id, taskUpdatedAtIso(t));
+                }
+              }
               break;
             }
             if (!res.ok) throw new Error(await res.text());
@@ -413,11 +430,17 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
           case "reorder": {
             const res = await apiRequest("PATCH", "/api/tasks/reorder", { taskIds: op.taskIds });
             if (!res.ok) throw new Error(await res.text());
+            await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+            await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
             break;
           }
           case "http": {
             const res = await apiRequest(op.method, op.path, op.body);
             if (!res.ok && res.status !== 204) throw new Error(await res.text());
+            if (op.path.startsWith("/api/tasks")) {
+              await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+              await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+            }
             break;
           }
           default:

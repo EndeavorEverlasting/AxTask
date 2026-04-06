@@ -85,8 +85,11 @@ export function serializePersistedClientWithSizeCap(
     },
   };
   s = stringify(slim);
-  if (enc.encode(s).length <= maxBytes) return s;
-  return s;
+  const slimBytes = enc.encode(s).length;
+  if (slimBytes <= maxBytes) return s;
+  throw new Error(
+    `Persisted client still exceeds storage cap after slimming: ${slimBytes} bytes serialized, maxBytes=${maxBytes} (queries and mutations were cleared)`,
+  );
 }
 
 function tryRemoveLocalStorageItem(key: string): void {

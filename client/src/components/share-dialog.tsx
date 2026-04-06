@@ -386,7 +386,12 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
                   setPubMfaOpen(false);
                   setPubChallenge(null);
                 }}
-                onResend={() => void startPublishMfa()}
+                onResend={() =>
+                  startPublishMfa().catch((e: Error) => {
+                    console.error("[share-dialog] publish MFA resend failed", e);
+                    toast({ title: "Could not send code", description: e.message, variant: "destructive" });
+                  })
+                }
                 onSubmitCode={(code) => {
                   if (!pubChallenge) return;
                   publishMutation.mutate({ challengeId: pubChallenge.challengeId, code });
@@ -409,7 +414,12 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
                   setUnpubMfaOpen(false);
                   setUnpubChallenge(null);
                 }}
-                onResend={() => void startUnpublishMfa()}
+                onResend={() =>
+                  startUnpublishMfa().catch((e: Error) => {
+                    console.error("[share-dialog] unpublish MFA resend failed", e);
+                    toast({ title: "Could not send code", description: e.message, variant: "destructive" });
+                  })
+                }
                 onSubmitCode={(code) => {
                   if (!unpubChallenge) return;
                   unpublishMutation.mutate({ challengeId: unpubChallenge.challengeId, code });

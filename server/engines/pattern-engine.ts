@@ -4,13 +4,21 @@ import { upsertPattern, getPatterns, deleteStalePatterns, clearPatterns } from "
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-/** Parse calendar YYYY-MM-DD at UTC midnight (avoids local-DST shifts). */
+function daysInMonthUtc(year: number, month1to12: number): number {
+  return new Date(Date.UTC(year, month1to12, 0)).getUTCDate();
+}
+
+/** Parse calendar YYYY-MM-DD at UTC midnight (avoids local-DST shifts). Rejects invalid calendar dates. */
 function parseYmdToUtcMs(ymd: string): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
   if (!m) return null;
   const y = Number(m[1]);
   const mo = Number(m[2]);
   const d = Number(m[3]);
+  if (!Number.isInteger(y) || !Number.isInteger(mo) || !Number.isInteger(d)) return null;
+  if (mo < 1 || mo > 12) return null;
+  const dim = daysInMonthUtc(y, mo);
+  if (d < 1 || d > dim) return null;
   const t = Date.UTC(y, mo - 1, d);
   return Number.isFinite(t) ? t : null;
 }
@@ -655,7 +663,9 @@ export function getInsights(patterns: TaskPattern[]): PatternInsight[] {
 export async function learnFromTask(userId: string, task: Task, allTasks: Task[]): Promise<void> {
   const tokens = tokenize(task.activity);
   for (const token of tokens) {
-    const existing = allTasks.filter(t => t.id !== task.id && normalizeText(t.activity).includes(token));
+    const existing = allTasks.filter(
+      (t) => t.id !== task.id && tokenize(t.activity).includes(token),
+    );
     if (existing.length >= 1) {
       const topicData: TopicData = {
         topic: token,

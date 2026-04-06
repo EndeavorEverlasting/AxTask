@@ -21,7 +21,10 @@ export function setOfflineQueueUserScope(userId: string | null): void {
   if (prevKey !== nextKey && prevOps.length > 0) {
     const nextExisting = readQueueForKey(nextKey);
     const merged = [...prevOps, ...nextExisting];
-    writeQueueForKey(nextKey, merged);
+    const lastIdx = new Map<string, number>();
+    merged.forEach((op, i) => lastIdx.set(op.opId, i));
+    const deduped = merged.filter((op, i) => lastIdx.get(op.opId) === i);
+    writeQueueForKey(nextKey, deduped);
     memoryFallbackQueues.delete(prevKey);
     try {
       localStorage.removeItem(prevKey);
@@ -142,7 +145,8 @@ function readQueue(): OfflineTaskOp[] {
 /** Persists the queue; reports persistence, memory fallback, and whether the queue was truncated. */
 function writeQueueForKey(key: string, ops: OfflineTaskOp[]): WriteQueueOutcome {
   const overflowed = ops.length > MAX_QUEUE;
-  const truncated = ops.slice(0, MAX_QUEUE);
+  /** Keep newest ops when over limit; oldest are dropped. */
+  const truncated = ops.slice(-MAX_QUEUE);
   try {
     localStorage.setItem(key, JSON.stringify(truncated));
     memoryFallbackQueues.delete(key);

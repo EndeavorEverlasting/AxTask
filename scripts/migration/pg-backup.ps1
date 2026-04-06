@@ -26,17 +26,22 @@ if (-not $DatabaseUrl) {
   Write-Error "DATABASE_URL not set and -DatabaseUrl not provided."
 }
 
-$dir = Split-Path -Parent $OutFile
-if ($dir -and -not (Test-Path $dir)) {
-  New-Item -ItemType Directory -Path $dir -Force | Out-Null
-}
-
 # Parse URL without passing it as a pg_dump argument (hides password from process listings).
 $normalized = $DatabaseUrl -replace '^postgres(ql)?://', 'https://'
 try {
   $uri = [Uri]$normalized
 } catch {
   Write-Error "Invalid DATABASE_URL: $_"
+}
+
+$pgDumpCmd = Get-Command 'pg_dump' -ErrorAction SilentlyContinue
+if (-not $pgDumpCmd) {
+  Write-Error "pg_dump not found. Install PostgreSQL client tools and ensure pg_dump is on PATH."
+}
+
+$dir = Split-Path -Parent $OutFile
+if ($dir -and -not (Test-Path $dir)) {
+  New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
 
 $env:PGHOST = $uri.Host
@@ -55,12 +60,26 @@ if ($userInfo) {
 }
 $env:PGDATABASE = $uri.AbsolutePath.TrimStart('/')
 
-# -Fc custom format for pg_restore; --no-owner helps cross-host restore
-$pgDumpCmd = Get-Command 'pg_dump' -ErrorAction SilentlyContinue
-if (-not $pgDumpCmd) {
-  Write-Error "pg_dump not found. Install PostgreSQL client tools and ensure pg_dump is on PATH."
+$queryRaw = $uri.Query.TrimStart('?')
+if ($queryRaw) {
+  foreach ($part in $queryRaw -split '&') {
+    if (-not $part) { continue }
+    $kv = $part -split '=', 2
+    $key = [Uri]::UnescapeDataString($kv[0]).Trim().ToLowerInvariant()
+    $val = if ($kv.Length -gt 1) { [Uri]::UnescapeDataString($kv[1]) } else { '' }
+    switch ($key) {
+      'sslmode' { $env:PGSSLMODE = $val }
+      'sslrootcert' { $env:PGSSLROOTCERT = $val }
+      'sslcert' { $env:PGSSLCERT = $val }
+      'sslkey' { $env:PGSSLKEY = $val }
+      'application_name' { $env:PGAPPNAME = $val }
+      'connect_timeout' { $env:PGCONNECT_TIMEOUT = $val }
+      'channel_binding' { $env:PGCHANNELBINDING = $val }
+    }
+  }
 }
 
+# -Fc custom format for pg_restore; --no-owner helps cross-host restore
 Write-Host "pg_dump -> $OutFile"
 & pg_dump -Fc -f $OutFile --no-owner
 $exit = $LASTEXITCODE

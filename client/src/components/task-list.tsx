@@ -595,8 +595,13 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefOb
       if (dist >= PULL_THRESHOLD && !isRefreshingRef.current) {
         setIsRefreshing(true);
         setPullDistance(PULL_THRESHOLD);
-        await onRefresh();
-        if (isMounted.current) setIsRefreshing(false);
+        try {
+          await onRefresh();
+        } catch (err) {
+          console.error("[task-list] pull-to-refresh failed", err);
+        } finally {
+          if (isMounted.current) setIsRefreshing(false);
+        }
       }
       pullDistanceRef.current = 0;
       if (isMounted.current) setPullDistance(0);

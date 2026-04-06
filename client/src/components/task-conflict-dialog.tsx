@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   TASK_CONFLICT_EVENT,
+  abortConflictDialog,
+  getPendingConflictDetail,
   submitConflictChoice,
   type TaskConflictDetail,
 } from "@/lib/task-conflict-deferred";
@@ -47,7 +49,12 @@ export function TaskConflictDialog() {
       setDetail(ce.detail);
     };
     window.addEventListener(TASK_CONFLICT_EVENT, fn);
-    return () => window.removeEventListener(TASK_CONFLICT_EVENT, fn);
+    return () => {
+      if (getPendingConflictDetail() !== null) {
+        abortConflictDialog();
+      }
+      window.removeEventListener(TASK_CONFLICT_EVENT, fn);
+    };
   }, []);
 
   const close = (choice: "server" | "local" | "both") => {

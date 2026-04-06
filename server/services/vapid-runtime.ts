@@ -6,7 +6,7 @@ import { log } from "../vite";
 
 const VAPID_STORAGE_KEY = "web_push_vapid_keypair";
 
-let bootstrapped = false;
+let initVapidAtBootPromise: Promise<void> | null = null;
 let cachedPublicKey: string | null = null;
 let webPushConfigured = false;
 
@@ -117,44 +117,47 @@ async function loadOrCreateKeyPairFromDb(): Promise<{ publicKey: string; private
 
 /**
  * Loads explicit env keys, or creates/persists a VAPID pair in Postgres, then configures web-push.
- * Safe to call once at process startup; subsequent calls no-op.
+ * Concurrent callers await the same in-flight initialization; configuration flags update only after async work finishes.
  */
 export async function initVapidAtBoot(): Promise<void> {
-  if (bootstrapped) return;
-  bootstrapped = true;
+  if (initVapidAtBootPromise) return initVapidAtBootPromise;
 
-  const subject = resolveVapidSubject();
-  if (!subject) {
-    log(
-      "Web Push disabled: set VAPID_SUBJECT, BASE_URL (https), or CANONICAL_HOST for a VAPID contact URI.",
-      "web-push",
-    );
-    return;
-  }
-
-  const envPublic = readEnvPublicKey();
-  const envPrivate = readEnvPrivateKey();
-
-  let pair: { publicKey: string; privateKey: string };
-
-  try {
-    if (envPublic && envPrivate) {
-      pair = { publicKey: envPublic, privateKey: envPrivate };
-    } else {
-      if (envPublic || envPrivate) {
-        log(
-          "Web Push: incomplete VAPID env (need both public and private, or neither); using auto-managed database keypair.",
-          "web-push",
-        );
-      }
-      pair = await loadOrCreateKeyPairFromDb();
+  initVapidAtBootPromise = (async () => {
+    const subject = resolveVapidSubject();
+    if (!subject) {
+      log(
+        "Web Push disabled: set VAPID_SUBJECT, BASE_URL (https), or CANONICAL_HOST for a VAPID contact URI.",
+        "web-push",
+      );
+      return;
     }
 
-    webPush.setVapidDetails(subject, pair.publicKey, pair.privateKey);
-    cachedPublicKey = pair.publicKey;
-    webPushConfigured = true;
-    log("Web Push VAPID configured.", "web-push");
-  } catch (e) {
-    log(`Web Push bootstrap failed: ${e instanceof Error ? e.message : String(e)}`, "web-push");
-  }
+    const envPublic = readEnvPublicKey();
+    const envPrivate = readEnvPrivateKey();
+
+    let pair: { publicKey: string; privateKey: string };
+
+    try {
+      if (envPublic && envPrivate) {
+        pair = { publicKey: envPublic, privateKey: envPrivate };
+      } else {
+        if (envPublic || envPrivate) {
+          log(
+            "Web Push: incomplete VAPID env (need both public and private, or neither); using auto-managed database keypair.",
+            "web-push",
+          );
+        }
+        pair = await loadOrCreateKeyPairFromDb();
+      }
+
+      webPush.setVapidDetails(subject, pair.publicKey, pair.privateKey);
+      cachedPublicKey = pair.publicKey;
+      webPushConfigured = true;
+      log("Web Push VAPID configured.", "web-push");
+    } catch (e) {
+      log(`Web Push bootstrap failed: ${e instanceof Error ? e.message : String(e)}`, "web-push");
+    }
+  })();
+
+  return initVapidAtBootPromise;
 }

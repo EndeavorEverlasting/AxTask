@@ -41,4 +41,8 @@ const child = spawn(process.execPath, [entry], {
   env: process.env,
 });
 
+child.on("error", (err) => {
+  console.error("[axtask:start] failed to spawn server process:", err);
+  process.exit(1);
+});
 child.on("exit", (code) => process.exit(code ?? 0));

@@ -215,7 +215,7 @@ export default function AdminPage() {
   const [adminStepChallengeId, setAdminStepChallengeId] = useState<string | null>(null);
   const [adminStepMasked, setAdminStepMasked] = useState<string | null>(null);
 
-  const { data: stepUpStatus, isLoading: stepUpLoading } = useQuery<{
+  const stepUpQuery = useQuery<{
     stepUpRequired: boolean;
     stepUpSatisfied: boolean;
     expiresAt: number | null;
@@ -223,9 +223,17 @@ export default function AdminPage() {
     queryKey: ["/api/admin/step-up-status"],
     enabled: user?.role === "admin",
   });
+  const { data: stepUpStatus, isPending: stepUpPending, isSuccess: stepUpSuccess, isError: stepUpError } =
+    stepUpQuery;
+
+  const stepUpResolved = user?.role !== "admin" || (!stepUpPending && (stepUpSuccess || stepUpError));
 
   const adminApiEnabled =
-    user?.role === "admin" && !stepUpLoading && Boolean(stepUpStatus?.stepUpSatisfied);
+    user?.role === "admin" &&
+    stepUpResolved &&
+    !stepUpError &&
+    !!stepUpStatus &&
+    (!stepUpStatus.stepUpRequired || stepUpStatus.stepUpSatisfied);
 
   const { data: users = [], isLoading: usersLoading } = useQuery<AdminUserRow[]>({
     queryKey: ["/api/admin/users"],
@@ -752,7 +760,7 @@ export default function AdminPage() {
     );
   }
 
-  if (stepUpLoading) {
+  if (stepUpPending) {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[50vh] gap-3">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />

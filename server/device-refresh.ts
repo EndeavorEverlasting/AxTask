@@ -185,14 +185,18 @@ export async function revokeDeviceRefreshFromRequest(req: Request): Promise<void
 
 /** Core handler for POST /api/auth/refresh */
 export async function performAuthRefresh(req: Request, res: Response): Promise<void> {
+  const noStore = () => res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+
   const plain = req.cookies?.[DEVICE_REFRESH_COOKIE] as string | undefined;
   if (!plain) {
+    noStore();
     res.status(401).json({ message: "No device session" });
     return;
   }
   const userId = await lookupValidDeviceRefreshUserId(plain);
   if (!userId) {
     clearDeviceRefreshCookie(res);
+    noStore();
     res.status(401).json({ message: "Device session expired or invalid" });
     return;
   }
@@ -200,12 +204,14 @@ export async function performAuthRefresh(req: Request, res: Response): Promise<v
   if (!user) {
     await revokeDeviceRefreshByPlain(plain);
     clearDeviceRefreshCookie(res);
+    noStore();
     res.status(401).json({ message: "Not authenticated" });
     return;
   }
   if (user.isBanned) {
     await revokeDeviceRefreshByPlain(plain);
     clearDeviceRefreshCookie(res);
+    noStore();
     res.status(403).json({ message: "This account has been suspended." });
     return;
   }
@@ -213,13 +219,14 @@ export async function performAuthRefresh(req: Request, res: Response): Promise<v
   req.login(user, (err) => {
     if (err) {
       console.error("[auth] refresh session error:", err);
+      noStore();
       res.status(500).json({ message: "Session restore failed" });
       return;
     }
     void rotateDeviceRefreshToken(plain, userId, req.get("user-agent"))
       .then((newPlain) => {
         setDeviceRefreshCookie(res, newPlain);
-        res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+        noStore();
         res.json(user);
       })
       .catch((e) => {
@@ -228,10 +235,12 @@ export async function performAuthRefresh(req: Request, res: Response): Promise<v
           if (req.session) {
             req.session.destroy(() => {
               clearDeviceRefreshCookie(res);
+              noStore();
               res.status(401).json({ message: "Device session could not be renewed" });
             });
           } else {
             clearDeviceRefreshCookie(res);
+            noStore();
             res.status(401).json({ message: "Device session could not be renewed" });
           }
         });
