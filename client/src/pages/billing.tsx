@@ -289,7 +289,11 @@ export default function BillingPage() {
     (yNum > now.getFullYear() ||
       (yNum === now.getFullYear() && mNum >= now.getMonth() + 1));
 
-  const zipOk = country !== "US" || postalCode.replace(/\D/g, "").length >= 5;
+  const postalTrim = postalCode.trim();
+  const zipOk =
+    country === "US"
+      ? postalTrim.replace(/\D/g, "").length >= 5
+      : postalTrim.length >= 3;
 
   const formReady = luhnOk && expOk && zipOk && panDigits.length >= 13;
 

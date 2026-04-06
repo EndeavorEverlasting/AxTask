@@ -190,19 +190,24 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   });
 
   const startPublishMfa = async () => {
-    const c = await requestChallenge({
-      purpose: MFA_PURPOSES.COMMUNITY_PUBLISH_TASK,
-      channel: "email",
-      taskId,
-    });
-    setPubChallenge({
-      challengeId: c.challengeId,
-      expiresAt: c.expiresAt,
-      devCode: c.devCode,
-      maskedDestination: c.maskedDestination,
-    });
-    setPubMfaOpen(true);
-    toast({ title: "Code sent", description: "Check your email for the verification code." });
+    try {
+      const c = await requestChallenge({
+        purpose: MFA_PURPOSES.COMMUNITY_PUBLISH_TASK,
+        channel: "email",
+        taskId,
+      });
+      setPubChallenge({
+        challengeId: c.challengeId,
+        expiresAt: c.expiresAt,
+        devCode: c.devCode,
+        maskedDestination: c.maskedDestination,
+      });
+      setPubMfaOpen(true);
+      toast({ title: "Code sent", description: "Check your email for the verification code." });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not send verification code";
+      toast({ title: "Publish verification failed", description: message, variant: "destructive" });
+    }
   };
 
   const startUnpublishMfa = async () => {

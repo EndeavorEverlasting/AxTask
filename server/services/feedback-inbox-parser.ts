@@ -1,6 +1,23 @@
+/** Pull a single email token from free text or RFC5322-style display forms. */
+function extractEmailForMasking(raw: string): string | null {
+  const t = raw.trim();
+  if (!t) return null;
+  const lt = t.indexOf("<");
+  const gtIdx = t.lastIndexOf(">");
+  if (lt !== -1 && gtIdx > lt) {
+    const inner = t.slice(lt + 1, gtIdx).trim();
+    if (inner.includes("@")) return inner;
+  }
+  if (t.includes("@")) return t;
+  const m = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.exec(t);
+  return m ? m[0] : null;
+}
+
 /** Redact reporter email for persisted inbox payloads and exports (do not store raw addresses). */
 export function maskReporterEmailForPrivacy(raw: string): string {
-  const trimmed = raw.trim();
+  const extracted = extractEmailForMasking(raw);
+  if (!extracted) return "[redacted]";
+  const trimmed = extracted.trim();
   const atIdx = trimmed.lastIndexOf("@");
   if (atIdx <= 0) return "[redacted]";
   const u = trimmed.slice(0, atIdx);

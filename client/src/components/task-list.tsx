@@ -438,6 +438,14 @@ function MobileTaskCard({
 
   const handleTouchEnd = () => {
     if (isUpdating || isDeleting) {
+      suppressClickUntilRef.current = Date.now() + 400;
+      if (suppressClickTimeoutRef.current != null) {
+        clearTimeout(suppressClickTimeoutRef.current);
+      }
+      suppressClickTimeoutRef.current = window.setTimeout(() => {
+        suppressClickUntilRef.current = 0;
+        suppressClickTimeoutRef.current = null;
+      }, 450) as unknown as number;
       setSwipeX(0);
       setSwiping(false);
       touchStartRef.current = null;

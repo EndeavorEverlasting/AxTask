@@ -4006,12 +4006,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const createAppealBodySchema = z.object({
-    subjectType: z.enum(["account_ban", "feedback_dispute", "other"]),
-    subjectRef: z.string().min(1).max(200),
-    title: z.string().trim().min(5).max(200),
-    body: z.string().trim().min(20).max(8000),
-  });
+  const createAppealBodySchema = z
+    .object({
+      subjectType: z.enum(["account_ban", "feedback_dispute", "other"]),
+      subjectRef: z.string().min(1).max(200).optional(),
+      title: z.string().trim().min(5).max(200),
+      body: z.string().trim().min(20).max(8000),
+    })
+    .superRefine((data, ctx) => {
+      if (data.subjectType !== "account_ban") {
+        const ref = data.subjectRef?.trim() ?? "";
+        if (!ref) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "subjectRef is required for this appeal type",
+            path: ["subjectRef"],
+          });
+        }
+      }
+    });
 
   app.get("/api/appeals", requireAuthAllowSuspended, async (req, res) => {
     try {
@@ -4028,7 +4041,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isAppealSubjectType(body.subjectType)) {
         return res.status(400).json({ message: "Invalid subject type" });
       }
-      let subjectRef = body.subjectRef.trim();
+      let subjectRef = (body.subjectRef ?? "").trim();
       if (body.subjectType === "account_ban") {
         subjectRef = req.user!.id;
       }

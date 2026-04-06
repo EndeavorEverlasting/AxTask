@@ -274,7 +274,7 @@ export default function AppealsPage() {
                     variant="outline"
                     disabled={withdrawMutation.isPending || pendingWithdrawId === a.id}
                     onClick={() => {
-                      if (withdrawMutation.isPending) return;
+                      if (withdrawMutation.isPending || pendingWithdrawId === a.id) return;
                       setPendingWithdrawId(a.id);
                       withdrawMutation.mutate(a.id);
                     }}

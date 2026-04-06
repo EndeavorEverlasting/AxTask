@@ -36,4 +36,8 @@ describe("maskReporterEmailForPrivacy", () => {
   it("returns [redacted] when @ is at position 0", () => {
     expect(maskReporterEmailForPrivacy("@example.com")).toBe("[redacted]");
   });
+
+  it("extracts email from display name with angle brackets", () => {
+    expect(maskReporterEmailForPrivacy('John @ Work <john@example.com>')).toBe("jo•••@example.com");
+  });
 });

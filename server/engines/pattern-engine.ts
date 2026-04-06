@@ -1,6 +1,6 @@
 import type { Task, TaskPattern } from "@shared/schema";
 import { daysBetween } from "../lib/days";
-import { upsertPattern, getPatterns, deleteStalePatterns, clearPatterns } from "../storage";
+import { upsertPattern, clearPatterns } from "../storage";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -130,7 +130,7 @@ export async function analyzeTaskHistory(userId: string, allTasks: Task[]): Prom
     return [];
   }
 
-  await deleteStalePatterns(userId, 120);
+  await clearPatterns(userId);
 
   const sorted = [...allTasks].sort((a, b) => {
     const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -230,26 +230,29 @@ async function detectRecurrences(userId: string, allTasks: Task[]): Promise<Task
   for (const [key, group] of Array.from(groups.entries())) {
     if (group.length < 2) continue;
 
-    const sorted = group
-      .filter(t => t.date)
-      .sort((a, b) => {
-        const ta = parseYmdToUtcMs(a.date!);
-        const tb = parseYmdToUtcMs(b.date!);
-        return (ta ?? 0) - (tb ?? 0);
-      });
+    const dated = group
+      .map((t) => {
+        const ms = t.date ? parseYmdToUtcMs(t.date) : null;
+        return ms !== null ? { task: t, ms } : null;
+      })
+      .filter((x): x is { task: Task; ms: number } => x != null)
+      .sort((a, b) => a.ms - b.ms);
 
-    if (sorted.length < 2) continue;
+    if (dated.length < 2) continue;
+
+    const sorted = dated.map((d) => d.task);
 
     const intervals: number[] = [];
     const dayIndices: number[] = [];
 
-    for (let i = 1; i < sorted.length; i++) {
-      intervals.push(daysBetween(sorted[i - 1].date, sorted[i].date));
+    for (let i = 1; i < dated.length; i++) {
+      const d0 = formatUtcYmd(dated[i - 1].ms);
+      const d1 = formatUtcYmd(dated[i].ms);
+      intervals.push(daysBetween(d0, d1));
     }
 
-    for (const t of sorted) {
-      const ms = t.date ? parseYmdToUtcMs(t.date) : null;
-      if (ms !== null) dayIndices.push(new Date(ms).getUTCDay());
+    for (const { ms } of dated) {
+      dayIndices.push(new Date(ms).getUTCDay());
     }
 
     const { cadence, avgDays } = detectCadence(intervals);
@@ -303,21 +306,28 @@ async function detectDeadlineRhythms(userId: string, allTasks: Task[]): Promise<
   for (const [cls, group] of Array.from(classGroups.entries())) {
     if (group.length < 3) continue;
 
-    const sorted = group.sort((a, b) => {
-      const ta = parseYmdToUtcMs(a.date!);
-      const tb = parseYmdToUtcMs(b.date!);
-      return (ta ?? 0) - (tb ?? 0);
-    });
+    const dated = group
+      .map((t) => {
+        const ms = t.date ? parseYmdToUtcMs(t.date) : null;
+        return ms !== null ? { task: t, ms } : null;
+      })
+      .filter((x): x is { task: Task; ms: number } => x != null)
+      .sort((a, b) => a.ms - b.ms);
+
+    if (dated.length < 3) continue;
+
+    const sorted = dated.map((d) => d.task);
     const intervals: number[] = [];
     const dayIndices: number[] = [];
 
-    for (let i = 1; i < sorted.length; i++) {
-      intervals.push(daysBetween(sorted[i - 1].date, sorted[i].date));
+    for (let i = 1; i < dated.length; i++) {
+      const d0 = formatUtcYmd(dated[i - 1].ms);
+      const d1 = formatUtcYmd(dated[i].ms);
+      intervals.push(daysBetween(d0, d1));
     }
 
-    for (const t of sorted) {
-      const ms = t.date ? parseYmdToUtcMs(t.date) : null;
-      if (ms !== null) dayIndices.push(new Date(ms).getUTCDay());
+    for (const { ms } of dated) {
+      dayIndices.push(new Date(ms).getUTCDay());
     }
 
     if (intervals.length === 0) continue;
@@ -381,16 +391,17 @@ async function buildSimilarityClusters(userId: string, allTasks: Task[]): Promis
   for (const cluster of clusters) {
     if (cluster.tasks.length < 2) continue;
 
-    const dates = cluster.tasks
+    const datedDates = cluster.tasks
       .map((t) => t.date)
       .filter((d): d is string => d != null && d !== "")
-      .sort();
-    const dayIndices = dates
       .map((d) => {
         const ms = parseYmdToUtcMs(d);
-        return ms !== null ? new Date(ms).getUTCDay() : NaN;
+        return ms !== null ? { d, ms } : null;
       })
-      .filter((d) => !Number.isNaN(d));
+      .filter((x): x is { d: string; ms: number } => x != null)
+      .sort((a, b) => a.ms - b.ms);
+    const dates = datedDates.map((x) => x.d);
+    const dayIndices = datedDates.map((x) => new Date(x.ms).getUTCDay());
     const dayFreq = new Map<number, number>();
     for (const d of Array.from(dayIndices)) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
 

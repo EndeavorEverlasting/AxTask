@@ -4028,7 +4028,14 @@ export async function getPatternsByType(userId: string, patternType: string): Pr
 }
 
 export async function deleteStalePatterns(userId: string, olderThanDays: number = 90): Promise<number> {
-  const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+  if (!Number.isFinite(olderThanDays) || olderThanDays <= 0) {
+    throw new TypeError("deleteStalePatterns: olderThanDays must be a finite number > 0");
+  }
+  const days = Math.floor(olderThanDays);
+  if (days < 1) {
+    throw new TypeError("deleteStalePatterns: olderThanDays must be at least 1 day after flooring");
+  }
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const result = await db
     .delete(taskPatterns)
     .where(and(eq(taskPatterns.userId, userId), lt(taskPatterns.lastSeen, cutoff)))

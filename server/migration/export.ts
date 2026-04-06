@@ -14,7 +14,7 @@ import {
   offlineGenerators, offlineSkillNodes, userOfflineSkills,
   usageSnapshots, storagePolicies,
 } from "@shared/schema";
-import { and, asc, eq, gt, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, gt, inArray, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
 
 export interface ExportMetadata {
@@ -50,7 +50,7 @@ async function* queryChunkedStream(
   orderColumn?: AnyPgColumn,
 ): AsyncGenerator<Record<string, unknown>[], void, undefined> {
   const idCol = idOrderColumn(table, orderColumn);
-  const colName = idCol.name;
+  const cols = getTableColumns(table);
   let lastSeen: unknown | undefined = undefined;
 
   while (true) {
@@ -58,12 +58,18 @@ async function* queryChunkedStream(
     const whereClause =
       condition && cursorCond ? and(condition, cursorCond) : condition ?? cursorCond;
     const baseQuery = whereClause
-      ? db.select().from(table).where(whereClause).orderBy(asc(idCol)).limit(CHUNK_SIZE)
-      : db.select().from(table).orderBy(asc(idCol)).limit(CHUNK_SIZE);
-    const rows = (await baseQuery) as Record<string, unknown>[];
+      ? db
+          .select({ ...cols, _paginationCursor: idCol })
+          .from(table)
+          .where(whereClause)
+          .orderBy(asc(idCol))
+          .limit(CHUNK_SIZE)
+      : db.select({ ...cols, _paginationCursor: idCol }).from(table).orderBy(asc(idCol)).limit(CHUNK_SIZE);
+    const rawRows = (await baseQuery) as Record<string, unknown>[];
+    const rows = rawRows.map(({ _paginationCursor: _pc, ...rest }) => rest);
     yield rows;
-    if (rows.length < CHUNK_SIZE) break;
-    const lastVal = rows[rows.length - 1][colName];
+    if (rawRows.length < CHUNK_SIZE) break;
+    const lastVal = rawRows[rawRows.length - 1]._paginationCursor;
     if (lastVal === undefined || lastVal === null) break;
     lastSeen = lastVal;
   }

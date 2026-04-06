@@ -7,6 +7,8 @@ server/public
 *.tar.gz
 vite.config.ts.*
 .env
+.env.local
+.env.*.local
 .env.docker
 # Render env scaffolds (secrets). Generator scripts under tools/render/ stay in git.
 .env.render
@@ -39,3 +41,6 @@ coverage/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+.idea/
+*.log
+.eslintcache
