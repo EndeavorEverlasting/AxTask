@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 
 export type MfaVerificationPanelProps = {
   open: boolean;
+  challengeId?: string;
+  purpose?: string;
   title?: string;
   description?: string;
   expiresAt?: string | null;
@@ -25,6 +27,8 @@ export type MfaVerificationPanelProps = {
  */
 export function MfaVerificationPanel({
   open,
+  challengeId,
+  purpose,
   title = "Confirm it is you",
   description = "Enter the verification code we sent to your account email.",
   expiresAt,
@@ -41,6 +45,50 @@ export function MfaVerificationPanel({
   useEffect(() => {
     if (!open) setValue("");
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !challengeId) return;
+    const key = "axtask_mfa_handoff";
+    const applyPayload = (raw: string | null) => {
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as {
+          challengeId?: string;
+          purpose?: string;
+          code?: string;
+          ts?: number;
+        };
+        if (!parsed?.challengeId || parsed.challengeId !== challengeId) return;
+        if (purpose && parsed.purpose && parsed.purpose !== purpose) return;
+        const code = String(parsed.code || "").replace(/\D/g, "").slice(0, 6);
+        if (code.length !== 6) return;
+        setValue(code);
+        void handleComplete(code);
+      } catch {
+        // ignore malformed payloads
+      }
+    };
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== key) return;
+      applyPayload(e.newValue);
+    };
+    window.addEventListener("storage", onStorage);
+
+    let bc: BroadcastChannel | null = null;
+    if ("BroadcastChannel" in window) {
+      bc = new BroadcastChannel("axtask_mfa_handoff");
+      bc.onmessage = (ev: MessageEvent) => {
+        applyPayload(JSON.stringify(ev.data ?? null));
+      };
+    }
+
+    applyPayload(localStorage.getItem(key));
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      if (bc) bc.close();
+    };
+  }, [open, challengeId, purpose]);
 
   const handleComplete = async (code: string) => {
     if (code.length !== 6 || isBusy) return;

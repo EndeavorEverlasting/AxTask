@@ -63,6 +63,16 @@ import {
   getPatterns, getPatternsByType,
   getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution,
   listUserClassificationCategories, createUserClassificationCategory,
+  updateUserAccountProfile,
+  listPublicCommunityTasks,
+  getPublicCommunityTaskById,
+  toCommunityTaskPublicDto,
+  publishTaskToCommunity,
+  unpublishTaskFromCommunity,
+  getTaskRowById,
+  processUserMilestoneGrants,
+  changePremiumPlanForUser,
+  cancelPremiumSubscriptionForUser,
 } from "./storage";
 import {
   grantDeviceRefreshForUser,
@@ -73,11 +83,11 @@ import {
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
 import { z, ZodError } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, type UpdateTask, type Task } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, updateAccountProfileSchema, type UpdateTask, type Task } from "@shared/schema";
 import { TASK_CONFLICT_CODE, taskUpdatedAtMatchesServer } from "@shared/offline-sync";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
-import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
+import { deliverMfaOtp, canDeliverMfaInProduction, sendWelcomeExperienceEmail } from "./services/otp-delivery";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { buildBillingSummary } from "./engines/billing-summary-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
@@ -85,6 +95,7 @@ import { processPlannerQuery } from "./engines/planner-engine";
 import { processFeedbackWithEngines } from "./engines/feedback-engine";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
 import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from "./engines/pattern-engine";
+import { getOrRecomputeEntourage } from "./engines/entourage-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { generateChecklistPDF } from "./checklist-pdf";
 import { processChecklistImage } from "./ocr-processor";
@@ -372,6 +383,15 @@ const migrationLimiter = rateLimit({
   message: { message: "Too many migration requests — try again later" },
 });
 
+const publicCommunityLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Too many community requests — slow down" },
+});
+
 
 // ── Invite-code / registration gate ─────────────────────────────────────────
 // In production, set REGISTRATION_MODE=invite in .env and provide INVITE_CODE.
@@ -410,6 +430,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     });
     next();
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Public community task discovery (no auth)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/public/community/tasks", publicCommunityLimiter, async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || "20"), 10) || 20, 1), 50);
+      const curAt = typeof req.query.cursorAt === "string" ? req.query.cursorAt : "";
+      const curId = typeof req.query.cursorId === "string" ? req.query.cursorId : "";
+      const cursor =
+        curAt && curId
+          ? { publishedAt: new Date(curAt), id: curId }
+          : null;
+      const { items, nextCursor } = await listPublicCommunityTasks(limit, cursor);
+      res.json({
+        tasks: items.map(toCommunityTaskPublicDto),
+        nextCursor,
+      });
+    } catch (error) {
+      console.error("[public/community/tasks]", error);
+      res.status(500).json({ message: "Failed to list community tasks" });
+    }
+  });
+
+  app.get("/api/public/community/tasks/:id", publicCommunityLimiter, async (req, res) => {
+    try {
+      const task = await getPublicCommunityTaskById(req.params.id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      res.json(toCommunityTaskPublicDto(task));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load community task" });
+    }
   });
 
   // ════════════════════════════════════════════════════════════════════════
@@ -455,6 +511,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch (e) {
           console.error("[auth] device token after register:", e);
         }
+        sendWelcomeExperienceEmail({ email: user.email, displayName: user.displayName }).catch((e) => {
+          console.error("[auth] welcome email error:", e);
+        });
         res.status(201).json(user);
       });
     } catch (error) {
@@ -897,6 +956,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to reactivate subscription" });
+    }
+  });
+
+  app.post("/api/premium/subscriptions/change-plan", requireAuth, async (req, res) => {
+    try {
+      const payload = z
+        .object({
+          product: z.enum(["axtask", "nodeweaver", "bundle"]),
+          planKey: z.string().min(3).max(120),
+        })
+        .parse(req.body || {});
+      const updated = await changePremiumPlanForUser(req.user!.id, payload.product, payload.planKey);
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to change plan" });
+    }
+  });
+
+  app.post("/api/premium/subscriptions/cancel", requireAuth, async (req, res) => {
+    try {
+      const payload = z
+        .object({
+          product: z.enum(["axtask", "nodeweaver", "bundle"]),
+        })
+        .parse(req.body || {});
+      const updated = await cancelPremiumSubscriptionForUser(req.user!.id, payload.product);
+      if (!updated) {
+        return res.status(404).json({ message: "No cancellable subscription for this product" });
+      }
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to cancel subscription" });
     }
   });
 
@@ -1397,14 +1490,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/tasks/:id/community/publish", requireAuth, async (req, res) => {
+    try {
+      const body = z
+        .object({
+          challengeId: z.string().min(1),
+          code: z.string().min(4).max(12),
+          communityShowNotes: z.boolean().optional(),
+        })
+        .parse(req.body || {});
+      const ok = await verifyMfaChallenge(
+        req.user!.id,
+        body.challengeId,
+        body.code,
+        MFA_PURPOSES.COMMUNITY_PUBLISH_TASK,
+      );
+      if (!ok) {
+        return res.status(403).json({ message: "Invalid or expired verification code" });
+      }
+      if (!(await isTaskOwner(req.user!.id, req.params.id))) {
+        return res.status(403).json({ message: "Only the task owner can publish to the community" });
+      }
+      const task = await publishTaskToCommunity(req.user!.id, req.params.id, body.communityShowNotes ?? false);
+      if (!task) return res.status(404).json({ message: "Task not found" });
+      res.json(task);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to publish task" });
+    }
+  });
+
+  app.post("/api/tasks/:id/community/unpublish", requireAuth, async (req, res) => {
+    try {
+      const body = z
+        .object({
+          challengeId: z.string().min(1),
+          code: z.string().min(4).max(12),
+        })
+        .parse(req.body || {});
+      const ok = await verifyMfaChallenge(
+        req.user!.id,
+        body.challengeId,
+        body.code,
+        MFA_PURPOSES.COMMUNITY_UNPUBLISH_TASK,
+      );
+      if (!ok) {
+        return res.status(403).json({ message: "Invalid or expired verification code" });
+      }
+      if (!(await isTaskOwner(req.user!.id, req.params.id))) {
+        return res.status(403).json({ message: "Only the task owner can unpublish" });
+      }
+      const task = await unpublishTaskFromCommunity(req.user!.id, req.params.id);
+      if (!task) return res.status(404).json({ message: "Task not found" });
+      res.json(task);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to unpublish task" });
+    }
+  });
+
   // Get task by ID
   app.get("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
-      const task = await storage.getTask(req.user!.id, req.params.id);
-      if (!task) {
+      const row = await getTaskRowById(req.params.id);
+      if (!row) {
         return res.status(404).json({ message: "Task not found" });
       }
-      res.json(task);
+      const access = await canAccessTask(req.user!.id, req.params.id);
+      if (!access.canAccess) {
+        if (row.visibility === "community") {
+          return res.status(403).json({
+            message: "This task is public under Community — open the community browser or sign in as a collaborator.",
+          });
+        }
+        return res.status(404).json({ message: "Task not found" });
+      }
+      res.json(row);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch task" });
     }
@@ -1541,7 +1702,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: "A matching task already exists." });
       }
 
-      let task;
+      let task: Task;
       try {
         task = await storage.createTask(userId, validatedData);
       } catch (e) {
@@ -2456,6 +2617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/gamification/profile", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
+      const milestoneGrants = await processUserMilestoneGrants(userId);
       const [wallet, badges, rewards, txs, classificationStats] = await Promise.all([
         getOrCreateWallet(userId),
         getUserBadges(userId),
@@ -2463,9 +2625,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         getTransactions(userId, 20),
         getUserClassificationStats(userId),
       ]);
-      res.json({ wallet, badges, rewards, transactions: txs, definitions: BADGE_DEFINITIONS, classificationStats });
+      res.json({
+        wallet,
+        badges,
+        rewards,
+        transactions: txs,
+        definitions: BADGE_DEFINITIONS,
+        classificationStats,
+        milestoneGrants: milestoneGrants.grants,
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch profile" });
+    }
+  });
+
+  app.get("/api/gamification/entourage", requireAuth, async (req, res) => {
+    try {
+      const force = req.query.refresh === "1" || req.query.refresh === "true";
+      const entourage = await getOrRecomputeEntourage(req.user!.id, force);
+      res.json(entourage);
+    } catch (error) {
+      console.error("[gamification/entourage]", error);
+      res.status(500).json({ message: "Failed to load entourage" });
     }
   });
 
@@ -2884,6 +3065,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const deliver = await deliverMfaOtp({
         channel,
+        challengeId: challenge.challengeId,
         code: challenge.code,
         purpose: body.purpose,
         email: contact.email,
@@ -3199,6 +3381,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to save payment method" });
+    }
+  });
+
+  app.patch("/api/account/profile", requireAuth, async (req, res) => {
+    try {
+      const body = updateAccountProfileSchema.parse(req.body ?? {});
+      if (body.birthDate !== undefined && body.birthDate !== null) {
+        const d = new Date(`${body.birthDate}T12:00:00.000Z`);
+        if (Number.isNaN(d.getTime())) {
+          return res.status(400).json({ message: "Invalid birth date" });
+        }
+        const today = new Date();
+        today.setUTCHours(23, 59, 59, 999);
+        if (d.getTime() > today.getTime()) {
+          return res.status(400).json({ message: "Birth date cannot be in the future" });
+        }
+        if (d.getUTCFullYear() < 1900) {
+          return res.status(400).json({ message: "Birth year must be 1900 or later" });
+        }
+      }
+      const updated = await updateUserAccountProfile(req.user!.id, {
+        displayName: body.displayName,
+        birthDate: body.birthDate,
+      });
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Validation failed", issues: error.issues });
+      }
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to update profile" });
     }
   });
 

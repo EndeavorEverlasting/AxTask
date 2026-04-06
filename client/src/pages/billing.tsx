@@ -683,6 +683,8 @@ export default function BillingPage() {
                   <TabsContent value="card" className="mt-8 space-y-8 outline-none">
                     <MfaVerificationPanel
                       open={mfaOpen}
+                      challengeId={challenge?.challengeId}
+                      purpose={MFA_PURPOSES.BILLING_ADD_PAYMENT_METHOD}
                       title="Verify before we save your card"
                       description={mfaDescription}
                       expiresAt={challenge?.expiresAt}

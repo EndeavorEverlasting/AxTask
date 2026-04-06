@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Smartphone, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Smartphone, ShieldCheck, Cake } from "lucide-react";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { normalizeToE164 } from "@shared/phone";
 import { useAuth } from "@/lib/auth-context";
@@ -21,6 +21,8 @@ export default function AccountPage() {
   const { requestChallenge, isRequesting } = useMfaChallenge();
 
   const [phoneInput, setPhoneInput] = useState("");
+  const [profileDisplayName, setProfileDisplayName] = useState("");
+  const [profileBirthDate, setProfileBirthDate] = useState("");
   const [mfaOpen, setMfaOpen] = useState(false);
   const [challenge, setChallenge] = useState<{
     challengeId: string;
@@ -78,6 +80,30 @@ export default function AccountPage() {
       ? `Enter the code sent to ${challenge.maskedDestination}.`
       : "Enter the code we sent to your phone.";
 
+  useEffect(() => {
+    if (!user) return;
+    setProfileDisplayName(user.displayName || "");
+    const bd = (user as { birthDate?: string | null }).birthDate;
+    setProfileBirthDate(bd && typeof bd === "string" ? bd : "");
+  }, [user]);
+
+  const saveProfileMutation = useMutation({
+    mutationFn: async () => {
+      const body: { displayName?: string; birthDate?: string | null } = {};
+      const dn = profileDisplayName.trim();
+      if (dn.length > 0) body.displayName = dn;
+      body.birthDate = profileBirthDate.trim() ? profileBirthDate.trim() : null;
+      const res = await apiRequest("PATCH", "/api/account/profile", body);
+      return res.json() as Promise<{ message?: string }>;
+    },
+    onSuccess: async () => {
+      await refreshUser();
+      toast({ title: "Profile updated", description: "Your profile details were saved." });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Could not save profile", description: e.message, variant: "destructive" }),
+  });
+
   return (
     <div className="p-6 max-w-lg mx-auto space-y-6">
       <Link href="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
@@ -92,6 +118,48 @@ export default function AccountPage() {
         </div>
         <DonateCta />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Cake className="h-5 w-5" />
+            Profile
+          </CardTitle>
+          <CardDescription>
+            Display name and optional birthday (UTC calendar date) for milestone rewards on your birthday and account
+            anniversary.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="disp">Display name</Label>
+            <Input
+              id="disp"
+              value={profileDisplayName}
+              onChange={(e) => setProfileDisplayName(e.target.value)}
+              placeholder="How you appear in the app"
+              maxLength={120}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="bd">Birthday (optional)</Label>
+            <Input
+              id="bd"
+              type="date"
+              value={profileBirthDate}
+              onChange={(e) => setProfileBirthDate(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">Used only for in-app coin bonuses — not shown on community tasks.</p>
+          </div>
+          <Button
+            type="button"
+            onClick={() => saveProfileMutation.mutate()}
+            disabled={saveProfileMutation.isPending}
+          >
+            {saveProfileMutation.isPending ? "Saving…" : "Save profile"}
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -113,6 +181,8 @@ export default function AccountPage() {
             <>
               <MfaVerificationPanel
                 open={mfaOpen}
+                challengeId={challenge?.challengeId}
+                purpose={MFA_PURPOSES.ACCOUNT_VERIFY_PHONE}
                 title="Verify your phone"
                 description={mfaDescription}
                 expiresAt={challenge?.expiresAt}

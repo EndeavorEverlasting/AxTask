@@ -2,14 +2,21 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
+import { MFA_PURPOSES } from "@shared/mfa-purposes";
+import { useMfaChallenge } from "@/hooks/use-mfa-challenge";
+import { MfaVerificationPanel } from "@/components/mfa/mfa-verification-panel";
+import { apiRequest } from "@/lib/queryClient";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Users, UserPlus, Trash2, Crown, Eye, Pencil } from "lucide-react";
+import { Users, UserPlus, Trash2, Crown, Eye, Pencil, Globe2 } from "lucide-react";
 
 interface Collaborator {
   id: string;
@@ -24,14 +31,27 @@ interface Collaborator {
 interface ShareDialogProps {
   taskId: string;
   isOwner: boolean;
+  visibility?: string;
+  communityShowNotes?: boolean;
 }
 
-export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
+export function ShareDialog({ taskId, isOwner, visibility = "private", communityShowNotes = false }: ShareDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { requestChallenge, isRequesting: mfaSending } = useMfaChallenge();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("editor");
   const [open, setOpen] = useState(false);
+  const [showNotes, setShowNotes] = useState(communityShowNotes);
+  const [pubMfaOpen, setPubMfaOpen] = useState(false);
+  const [unpubMfaOpen, setUnpubMfaOpen] = useState(false);
+  const [pubChallenge, setPubChallenge] = useState<{
+    challengeId: string;
+    expiresAt: string;
+    devCode?: string;
+    maskedDestination?: string;
+  } | null>(null);
+  const [unpubChallenge, setUnpubChallenge] = useState<typeof pubChallenge | null>(null);
 
   const { data: collaborators = [] } = useQuery<Collaborator[]>({
     queryKey: ["/api/tasks", taskId, "collaborators"],
@@ -119,6 +139,62 @@ export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
     if (r === "owner") return <Crown className="h-3.5 w-3.5 text-amber-500" />;
     if (r === "editor") return <Pencil className="h-3.5 w-3.5 text-blue-500" />;
     return <Eye className="h-3.5 w-3.5 text-gray-500" />;
+  };
+
+  const publishMutation = useMutation({
+    mutationFn: async ({ challengeId, code }: { challengeId: string; code: string }) => {
+      const res = await apiRequest("POST", `/api/tasks/${taskId}/community/publish`, {
+        challengeId,
+        code,
+        communityShowNotes: showNotes,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      setPubMfaOpen(false);
+      setPubChallenge(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({ title: "Published", description: "This task is listed in Community (public)." });
+    },
+    onError: (err: Error) => toast({ title: "Publish failed", description: err.message, variant: "destructive" }),
+  });
+
+  const unpublishMutation = useMutation({
+    mutationFn: async ({ challengeId, code }: { challengeId: string; code: string }) => {
+      const res = await apiRequest("POST", `/api/tasks/${taskId}/community/unpublish`, { challengeId, code });
+      return res.json();
+    },
+    onSuccess: () => {
+      setUnpubMfaOpen(false);
+      setUnpubChallenge(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({ title: "Removed from community", description: "This task is private again." });
+    },
+    onError: (err: Error) => toast({ title: "Unpublish failed", description: err.message, variant: "destructive" }),
+  });
+
+  const startPublishMfa = async () => {
+    const c = await requestChallenge({ purpose: MFA_PURPOSES.COMMUNITY_PUBLISH_TASK, channel: "email" });
+    setPubChallenge({
+      challengeId: c.challengeId,
+      expiresAt: c.expiresAt,
+      devCode: c.devCode,
+      maskedDestination: c.maskedDestination,
+    });
+    setPubMfaOpen(true);
+    toast({ title: "Code sent", description: "Check your email for the verification code." });
+  };
+
+  const startUnpublishMfa = async () => {
+    const c = await requestChallenge({ purpose: MFA_PURPOSES.COMMUNITY_UNPUBLISH_TASK, channel: "email" });
+    setUnpubChallenge({
+      challengeId: c.challengeId,
+      expiresAt: c.expiresAt,
+      devCode: c.devCode,
+      maskedDestination: c.maskedDestination,
+    });
+    setUnpubMfaOpen(true);
+    toast({ title: "Code sent", description: "Check your email for the verification code." });
   };
 
   return (
@@ -228,6 +304,106 @@ export function ShareDialog({ taskId, isOwner }: ShareDialogProps) {
             ))
           )}
         </div>
+
+        {isOwner && (
+          <>
+            <Separator className="my-4" />
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Globe2 className="h-4 w-4 text-sky-600" />
+                Community (public listing)
+              </div>
+              <p className="text-xs text-muted-foreground">
+                MFA is required to publish or unpublish. Anyone can read the listing from the Community page without signing in.
+              </p>
+              {visibility === "community" ? (
+                <Badge className="bg-sky-600">Live on community</Badge>
+              ) : (
+                <Badge variant="outline">Private</Badge>
+              )}
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="comm-notes"
+                  checked={showNotes}
+                  onCheckedChange={(v) => setShowNotes(v === true)}
+                  disabled={visibility === "community"}
+                />
+                <Label htmlFor="comm-notes" className="text-sm font-normal cursor-pointer">
+                  Include notes in the public listing (off by default)
+                </Label>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {visibility !== "community" ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={mfaSending || publishMutation.isPending}
+                    onClick={() => startPublishMfa().catch((e: Error) => toast({ title: "Could not send code", description: e.message, variant: "destructive" }))}
+                  >
+                    Publish with MFA
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={mfaSending || unpublishMutation.isPending}
+                    onClick={() => startUnpublishMfa().catch((e: Error) => toast({ title: "Could not send code", description: e.message, variant: "destructive" }))}
+                  >
+                    Unpublish with MFA
+                  </Button>
+                )}
+              </div>
+              <MfaVerificationPanel
+                open={pubMfaOpen}
+                challengeId={pubChallenge?.challengeId}
+                purpose={MFA_PURPOSES.COMMUNITY_PUBLISH_TASK}
+                title="Verify to publish"
+                description={
+                  pubChallenge?.maskedDestination
+                    ? `Enter the code sent to ${pubChallenge.maskedDestination}.`
+                    : "Enter the code we emailed you."
+                }
+                expiresAt={pubChallenge?.expiresAt}
+                devCode={pubChallenge?.devCode ?? null}
+                isBusy={publishMutation.isPending}
+                onDismiss={() => {
+                  setPubMfaOpen(false);
+                  setPubChallenge(null);
+                }}
+                onResend={() => void startPublishMfa()}
+                onSubmitCode={(code) => {
+                  if (!pubChallenge) return;
+                  publishMutation.mutate({ challengeId: pubChallenge.challengeId, code });
+                }}
+              />
+              <MfaVerificationPanel
+                open={unpubMfaOpen}
+                challengeId={unpubChallenge?.challengeId}
+                purpose={MFA_PURPOSES.COMMUNITY_UNPUBLISH_TASK}
+                title="Verify to unpublish"
+                description={
+                  unpubChallenge?.maskedDestination
+                    ? `Enter the code sent to ${unpubChallenge.maskedDestination}.`
+                    : "Enter the code we emailed you."
+                }
+                expiresAt={unpubChallenge?.expiresAt}
+                devCode={unpubChallenge?.devCode ?? null}
+                isBusy={unpublishMutation.isPending}
+                onDismiss={() => {
+                  setUnpubMfaOpen(false);
+                  setUnpubChallenge(null);
+                }}
+                onResend={() => void startUnpublishMfa()}
+                onSubmitCode={(code) => {
+                  if (!unpubChallenge) return;
+                  unpublishMutation.mutate({ challengeId: unpubChallenge.challengeId, code });
+                }}
+              />
+            </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

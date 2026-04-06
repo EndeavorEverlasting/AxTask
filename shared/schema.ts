@@ -26,6 +26,8 @@ export const users = pgTable("users", {
   /** E.164 (+15551234567). Omitted from SafeUser; use phoneMasked in API responses. */
   phoneE164: text("phone_e164"),
   phoneVerifiedAt: timestamp("phone_verified_at"),
+  /** Optional ISO date YYYY-MM-DD for birthday rewards (owner-only in API). */
+  birthDate: text("birth_date"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -268,12 +270,17 @@ export const tasks = pgTable("tasks", {
   status: text("status").notNull().default("pending"),
   isRepeated: boolean("is_repeated").default(false),
   sortOrder: integer("sort_order").default(0),
+  /** private | community — use MFA-gated routes to set community. */
+  visibility: text("visibility").notNull().default("private"),
+  communityPublishedAt: timestamp("community_published_at"),
+  communityShowNotes: boolean("community_show_notes").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_tasks_user_status").on(table.userId, table.status),
   index("idx_tasks_user_priority").on(table.userId, table.priority),
   index("idx_tasks_user_sort_order").on(table.userId, table.sortOrder),
+  index("idx_tasks_community_published").on(table.visibility, table.communityPublishedAt),
 ]);
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({
@@ -284,6 +291,9 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   classification: true,
   isRepeated: true,
   sortOrder: true,
+  visibility: true,
+  communityPublishedAt: true,
+  communityShowNotes: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
@@ -312,6 +322,10 @@ export const updateTaskSchema = insertTaskSchema.partial().extend({
   baseUpdatedAt: z.string().optional(),
   /** Phase C: user chose to overwrite after a conflict. */
   forceOverwrite: z.boolean().optional(),
+  /** Ignored if present — use community publish API with MFA. */
+  visibility: z.never().optional(),
+  communityPublishedAt: z.never().optional(),
+  communityShowNotes: z.never().optional(),
 });
 
 export const reorderTasksSchema = z.object({
@@ -406,6 +420,40 @@ export const userRewards = pgTable("user_rewards", {
 ]);
 
 export type UserReward = typeof userRewards.$inferSelect;
+
+/** Idempotent milestone grants (birthday, account anniversary). */
+export const userMilestoneGrants = pgTable("user_milestone_grants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  milestoneKey: text("milestone_key").notNull(),
+  coinsGranted: integer("coins_granted").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_user_milestone_grants_user_key").on(table.userId, table.milestoneKey),
+  index("idx_user_milestone_grants_user").on(table.userId),
+]);
+
+export type UserMilestoneGrant = typeof userMilestoneGrants.$inferSelect;
+
+/** Cached entourage companion personas (derived from usage). */
+export const userEntourage = pgTable("user_entourage", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  payloadJson: text("payload_json").notNull(),
+  computedAt: timestamp("computed_at").notNull(),
+});
+
+export type UserEntourage = typeof userEntourage.$inferSelect;
+
+export const updateAccountProfileSchema = z.object({
+  displayName: z.string().min(1).max(120).optional(),
+  birthDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+});
+
+export type UpdateAccountProfile = z.infer<typeof updateAccountProfileSchema>;
 
 // ─── Gamification: Offline Generator ─────────────────────────────────────────
 export const offlineGenerators = pgTable("offline_generators", {

@@ -10,6 +10,10 @@ export const MFA_PURPOSES = {
   ACCOUNT_VERIFY_PHONE: "account:verify_phone",
   /** Step-up verification before admin API access (production only). */
   ADMIN_STEP_UP: "admin:step_up",
+  /** Publish a task to the public community directory (SMS/email OTP). */
+  COMMUNITY_PUBLISH_TASK: "community:publish_task",
+  /** Remove a task from the public community directory. */
+  COMMUNITY_UNPUBLISH_TASK: "community:unpublish_task",
 } as const;
 
 export type MfaPurpose = (typeof MFA_PURPOSES)[keyof typeof MFA_PURPOSES];

@@ -469,7 +469,12 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
               </div>
             )}
             {isEditing && (
-              <ShareDialog taskId={task!.id} isOwner={isOwner} />
+              <ShareDialog
+                taskId={task!.id}
+                isOwner={isOwner}
+                visibility={task!.visibility}
+                communityShowNotes={task!.communityShowNotes}
+              />
             )}
           </div>
         </div>

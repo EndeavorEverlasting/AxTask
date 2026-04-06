@@ -35,6 +35,7 @@ import BillingPage from "@/pages/billing";
 import AccountPage from "@/pages/account";
 import AppealsPage from "@/pages/appeals";
 import FeedbackPage from "@/pages/feedback";
+import ExperienceConfirmPage from "@/pages/experience-confirm";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
@@ -197,6 +198,11 @@ function AuthenticatedApp() {
   const [, setLocation] = useLocation();
 
   useRoutePersistence();
+
+  const path = window.location.pathname;
+  if (path === "/mfa/confirm" || path === "/welcome-confirm") {
+    return <ExperienceConfirmPage />;
+  }
 
   const handleNavigate = useCallback((path: string) => {
     setLocation(path);

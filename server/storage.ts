@@ -12,6 +12,8 @@ import {
   userBadges,
   rewardsCatalog,
   userRewards,
+  userMilestoneGrants,
+  userEntourage,
   taskCollaborators,
   taskPatterns,
   classificationContributions,
@@ -73,6 +75,7 @@ import {
   type UserNotificationPreference,
   type UserPushSubscription,
   type Appeal,
+  type UserEntourage,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, gt, count, avg, sql, desc, inArray, notInArray, isNull } from "drizzle-orm";
@@ -222,6 +225,18 @@ export async function getUserByEmail(email: string): Promise<User | undefined> {
 export async function getUserById(id: string): Promise<SafeUser | undefined> {
   const [user] = await db.select().from(users).where(eq(users.id, id));
   return user ? toSafeUser(user) : undefined;
+}
+
+export async function updateUserAccountProfile(
+  userId: string,
+  patch: { displayName?: string; birthDate?: string | null },
+): Promise<SafeUser | undefined> {
+  const updates: Record<string, unknown> = {};
+  if (patch.displayName !== undefined) updates.displayName = patch.displayName;
+  if (patch.birthDate !== undefined) updates.birthDate = patch.birthDate;
+  if (Object.keys(updates).length === 0) return getUserById(userId);
+  await db.update(users).set(updates as Partial<User>).where(eq(users.id, userId));
+  return getUserById(userId);
 }
 
 const DEFAULT_NOTIFICATION_INTENSITY = 50;
@@ -2524,7 +2539,7 @@ export type PremiumEntitlements = {
   features: string[];
 };
 
-const PREMIUM_FEATURE_MATRIX: Record<string, string[]> = {
+export const PREMIUM_FEATURE_MATRIX: Record<string, string[]> = {
   axtask_pro_monthly: ["saved_smart_views", "review_workflows", "weekly_digest"],
   axtask_pro_yearly: ["saved_smart_views", "review_workflows", "weekly_digest"],
   nodeweaver_pro_monthly: ["classification_history_replay", "confidence_drift_alerts", "weekly_digest"],
@@ -3185,6 +3200,311 @@ export async function canAccessTask(userId: string, taskId: string): Promise<{ c
 export async function isTaskOwner(userId: string, taskId: string): Promise<boolean> {
   const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
   return task?.userId === userId;
+}
+
+export async function getTaskRowById(taskId: string): Promise<Task | undefined> {
+  const [row] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+  return row;
+}
+
+export type CommunityTaskPublicDto = {
+  id: string;
+  activity: string;
+  date: string;
+  time: string | null;
+  status: string;
+  priority: string;
+  classification: string;
+  notes?: string;
+};
+
+export function toCommunityTaskPublicDto(task: Task): CommunityTaskPublicDto {
+  const base: CommunityTaskPublicDto = {
+    id: task.id,
+    activity: task.activity,
+    date: task.date,
+    time: task.time ?? null,
+    status: task.status,
+    priority: task.priority,
+    classification: task.classification,
+  };
+  if (task.communityShowNotes) {
+    base.notes = task.notes || "";
+  }
+  return base;
+}
+
+export async function listPublicCommunityTasks(
+  limit: number,
+  cursor?: { publishedAt: Date; id: string } | null,
+): Promise<{ items: Task[]; nextCursor: { publishedAt: string; id: string } | null }> {
+  const cap = Math.min(Math.max(limit, 1), 50);
+  const baseAnd = cursor
+    ? and(
+        eq(tasks.visibility, "community"),
+        sql`${tasks.communityPublishedAt} IS NOT NULL`,
+        or(
+          lt(tasks.communityPublishedAt, cursor.publishedAt),
+          and(
+            eq(tasks.communityPublishedAt, cursor.publishedAt),
+            sql`${tasks.id}::text < ${cursor.id}`,
+          ),
+        ),
+      )
+    : and(eq(tasks.visibility, "community"), sql`${tasks.communityPublishedAt} IS NOT NULL`);
+
+  const rows = await db
+    .select()
+    .from(tasks)
+    .where(baseAnd!)
+    .orderBy(desc(tasks.communityPublishedAt), desc(tasks.id))
+    .limit(cap + 1);
+
+  const slice = rows.slice(0, cap);
+  const next =
+    rows.length > cap && slice.length > 0
+      ? {
+          publishedAt: (slice[slice.length - 1]!.communityPublishedAt ?? new Date()).toISOString(),
+          id: slice[slice.length - 1]!.id,
+        }
+      : null;
+  return { items: slice, nextCursor: next };
+}
+
+export async function getPublicCommunityTaskById(taskId: string): Promise<Task | undefined> {
+  const [row] = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.visibility, "community")));
+  return row;
+}
+
+export async function publishTaskToCommunity(
+  ownerUserId: string,
+  taskId: string,
+  showNotes: boolean,
+): Promise<Task | null> {
+  const now = new Date();
+  const [existing] = await db.select().from(tasks).where(and(eq(tasks.id, taskId), eq(tasks.userId, ownerUserId)));
+  if (!existing) return null;
+  const [updated] = await db
+    .update(tasks)
+    .set({
+      visibility: "community",
+      communityPublishedAt: existing.communityPublishedAt ?? now,
+      communityShowNotes: showNotes,
+      updatedAt: now,
+    })
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, ownerUserId)))
+    .returning();
+  return updated ?? null;
+}
+
+export async function unpublishTaskFromCommunity(ownerUserId: string, taskId: string): Promise<Task | null> {
+  const now = new Date();
+  const [updated] = await db
+    .update(tasks)
+    .set({
+      visibility: "private",
+      communityShowNotes: false,
+      updatedAt: now,
+    })
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, ownerUserId)))
+    .returning();
+  return updated ?? null;
+}
+
+export async function countTasksWhereUserIsCollaborator(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ c: count() })
+    .from(taskCollaborators)
+    .where(eq(taskCollaborators.userId, userId));
+  return Number(row?.c) || 0;
+}
+
+export async function getDominantClassificationForUser(userId: string): Promise<string | null> {
+  const rows = await db
+    .select({ cl: tasks.classification, n: count() })
+    .from(tasks)
+    .where(and(eq(tasks.userId, userId), eq(tasks.status, "completed")))
+    .groupBy(tasks.classification)
+    .orderBy(desc(count()));
+  const top = rows[0];
+  return top?.cl ?? null;
+}
+
+export async function tryGrantMilestone(
+  userId: string,
+  milestoneKey: string,
+  coins: number,
+  details: string,
+): Promise<{ granted: boolean; balance?: number }> {
+  const [exists] = await db
+    .select({ id: userMilestoneGrants.id })
+    .from(userMilestoneGrants)
+    .where(and(eq(userMilestoneGrants.userId, userId), eq(userMilestoneGrants.milestoneKey, milestoneKey)));
+  if (exists) return { granted: false };
+  const grantId = randomUUID();
+  try {
+    await db.insert(userMilestoneGrants).values({
+      id: grantId,
+      userId,
+      milestoneKey,
+      coinsGranted: coins,
+    });
+  } catch (e) {
+    if (isPgUniqueViolation(e)) return { granted: false };
+    throw e;
+  }
+  try {
+    const { wallet } = await addCoins(userId, coins, "milestone", details);
+    return { granted: true, balance: wallet.balance };
+  } catch (e) {
+    await db.delete(userMilestoneGrants).where(eq(userMilestoneGrants.id, grantId));
+    throw e;
+  }
+}
+
+export async function processUserMilestoneGrants(userId: string): Promise<{ grants: string[] }> {
+  const [u] = await db.select().from(users).where(eq(users.id, userId));
+  if (!u) return { grants: [] };
+  const granted: string[] = [];
+  const now = new Date();
+  const todayMonth = now.getUTCMonth() + 1;
+  const todayDay = now.getUTCDate();
+
+  if (u.birthDate) {
+    const parts = u.birthDate.split("-").map(Number);
+    const m = parts[1];
+    const d = parts[2];
+    if (m === todayMonth && d === todayDay) {
+      const key = `birthday_${now.getUTCFullYear()}`;
+      const r = await tryGrantMilestone(userId, key, 50, "Birthday bonus");
+      if (r.granted) granted.push(key);
+    }
+  }
+
+  if (u.createdAt) {
+    const c = new Date(u.createdAt);
+    if (c.getUTCMonth() + 1 === todayMonth && c.getUTCDate() === todayDay) {
+      const years = now.getUTCFullYear() - c.getUTCFullYear();
+      if (years >= 1) {
+        const key = `account_anniversary_${years}y_${now.getUTCFullYear()}`;
+        const coins = 25 + Math.min(years, 10) * 5;
+        const r = await tryGrantMilestone(userId, key, coins, `Account anniversary (${years}y)`);
+        if (r.granted) granted.push(key);
+      }
+    }
+  }
+
+  return { grants: granted };
+}
+
+export async function getUserEntourageRow(userId: string): Promise<UserEntourage | undefined> {
+  const [row] = await db.select().from(userEntourage).where(eq(userEntourage.userId, userId));
+  return row;
+}
+
+export async function upsertUserEntourageRow(userId: string, payloadJson: string): Promise<void> {
+  const now = new Date();
+  await db
+    .insert(userEntourage)
+    .values({ userId, payloadJson, computedAt: now })
+    .onConflictDoUpdate({
+      target: userEntourage.userId,
+      set: { payloadJson, computedAt: now },
+    });
+}
+
+export async function changePremiumPlanForUser(
+  userId: string,
+  product: "axtask" | "nodeweaver" | "bundle",
+  planKey: string,
+): Promise<PremiumSubscription> {
+  if (LIFETIME_PLAN_KEY_LIST.includes(planKey)) {
+    throw new Error("Lifetime plans cannot be activated via change-plan");
+  }
+  if (!PREMIUM_FEATURE_MATRIX[planKey]) {
+    throw new Error("Unknown plan key");
+  }
+  const productFromKey =
+    planKey.startsWith("axtask_")
+      ? "axtask"
+      : planKey.startsWith("nodeweaver_")
+        ? "nodeweaver"
+        : planKey.startsWith("power_bundle")
+          ? "bundle"
+          : null;
+  if (productFromKey !== product) {
+    throw new Error("Plan key does not match product");
+  }
+
+  await db
+    .update(premiumSubscriptions)
+    .set({ status: "inactive", updatedAt: new Date() })
+    .where(
+      and(
+        eq(premiumSubscriptions.userId, userId),
+        eq(premiumSubscriptions.product, product),
+        notInArray(premiumSubscriptions.planKey, LIFETIME_PLAN_KEY_LIST),
+      ),
+    );
+
+  const row = await upsertPremiumSubscription({
+    userId,
+    product,
+    planKey,
+    status: "active",
+    graceUntil: null,
+    endsAt: null,
+  });
+  await trackPremiumEvent({
+    userId,
+    eventName: "premium_plan_changed",
+    product,
+    planKey,
+    metadata: { planKey },
+  });
+  return row;
+}
+
+export async function cancelPremiumSubscriptionForUser(
+  userId: string,
+  product: "axtask" | "nodeweaver" | "bundle",
+): Promise<PremiumSubscription | null> {
+  const [existing] = await db
+    .select()
+    .from(premiumSubscriptions)
+    .where(
+      and(
+        eq(premiumSubscriptions.userId, userId),
+        eq(premiumSubscriptions.product, product),
+        notInArray(premiumSubscriptions.planKey, LIFETIME_PLAN_KEY_LIST),
+        or(eq(premiumSubscriptions.status, "active"), eq(premiumSubscriptions.status, "grace")),
+      ),
+    )
+    .orderBy(desc(premiumSubscriptions.updatedAt))
+    .limit(1);
+  if (!existing) return null;
+  const end = new Date();
+  const [updated] = await db
+    .update(premiumSubscriptions)
+    .set({
+      status: "inactive",
+      graceUntil: null,
+      endsAt: end,
+      updatedAt: end,
+    })
+    .where(eq(premiumSubscriptions.id, existing.id))
+    .returning();
+  await trackPremiumEvent({
+    userId,
+    eventName: "premium_subscription_cancelled",
+    product,
+    planKey: updated.planKey,
+    metadata: { endsAt: end.toISOString() },
+  });
+  return updated;
 }
 
 // ─── Pattern Learning Storage ────────────────────────────────────────────────
