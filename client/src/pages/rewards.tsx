@@ -51,6 +51,17 @@ interface UserBadge {
   earnedAt: string;
 }
 
+interface AvatarProfile {
+  id: string;
+  avatarKey: "mood" | "archetype" | "productivity" | "social";
+  displayName: string;
+  archetypeKey: string;
+  level: number;
+  xp: number;
+  totalXp: number;
+  mission: string;
+}
+
 export default function RewardsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -68,6 +79,9 @@ export default function RewardsPage() {
     totalConfirmationsReceived: number;
     totalClassificationCoins: number;
   }>({ queryKey: ["/api/gamification/classification-stats"] });
+  const { data: avatarData } = useQuery<{ avatars: AvatarProfile[] }>({
+    queryKey: ["/api/gamification/avatars"],
+  });
 
   const animatedBalance = useCountUp(wallet?.balance ?? 0);
 
@@ -84,6 +98,58 @@ export default function RewardsPage() {
     },
     onError: (err: Error) => {
       toast({ title: "Redemption failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const engageAvatarMutation = useMutation({
+    mutationFn: async (payload: {
+      avatarKey: string;
+      sourceType: "task" | "feedback" | "post";
+      text: string;
+      completed?: boolean;
+    }) => {
+      const res = await apiRequest("POST", `/api/gamification/avatars/${payload.avatarKey}/engage`, {
+        sourceType: payload.sourceType,
+        sourceRef: `${payload.sourceType}:${Date.now()}`,
+        text: payload.text,
+        completed: payload.completed ?? false,
+      });
+      return res.json() as Promise<{ awarded: boolean; xp?: number; coins?: number; message?: string }>;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/avatars"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      if (result.awarded) {
+        toast({
+          title: "Avatar leveled up progress",
+          description: `Mission complete: +${result.xp ?? 0} XP and +${result.coins ?? 0} coins`,
+        });
+      } else {
+        toast({
+          title: "No mission credit yet",
+          description: result.message || "Try a more archetype-focused task or feedback note.",
+        });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Avatar mission failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const boostAvatarMutation = useMutation({
+    mutationFn: async ({ avatarKey, coins }: { avatarKey: string; coins: number }) => {
+      const res = await apiRequest("POST", `/api/gamification/avatars/${avatarKey}/spend`, { coins });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/avatars"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      toast({ title: "Avatar boosted", description: "Coins spent for avatar XP boost." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Boost failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -252,6 +318,77 @@ export default function RewardsPage() {
                     })}
                   </div>
                 )}
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-emerald-500" />
+                  Avatar Entourage Missions
+                </h4>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Post a task or feedback related to each avatar's archetype to earn XP, level up avatars, and gain coins.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {(avatarData?.avatars ?? []).map((av) => (
+                    <div key={av.id} className="p-4 rounded-xl border bg-gradient-to-br from-slate-50 to-white dark:from-slate-900/40 dark:to-slate-900/10">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="font-semibold">{av.displayName}</p>
+                          <p className="text-xs text-muted-foreground capitalize">
+                            {av.avatarKey} archetype: {av.archetypeKey}
+                          </p>
+                        </div>
+                        <Badge>Lvl {av.level}</Badge>
+                      </div>
+                      <p className="text-xs mt-2 text-muted-foreground">{av.mission}</p>
+                      <div className="mt-2 h-2 rounded bg-muted overflow-hidden">
+                        <div className="h-full bg-emerald-500 transition-all" style={{ width: `${Math.min(100, (av.xp / 300) * 100)}%` }} />
+                      </div>
+                      <p className="text-[11px] mt-1 text-muted-foreground">
+                        XP: {av.xp} (total {av.totalXp})
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={engageAvatarMutation.isPending}
+                          onClick={() =>
+                            engageAvatarMutation.mutate({
+                              avatarKey: av.avatarKey,
+                              sourceType: "task",
+                              text: `Task related to ${av.archetypeKey}`,
+                              completed: true,
+                            })
+                          }
+                        >
+                          Claim Task Mission
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={engageAvatarMutation.isPending}
+                          onClick={() =>
+                            engageAvatarMutation.mutate({
+                              avatarKey: av.avatarKey,
+                              sourceType: "feedback",
+                              text: `Feedback about ${av.archetypeKey}`,
+                              completed: true,
+                            })
+                          }
+                        >
+                          Claim Feedback Mission
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={boostAvatarMutation.isPending}
+                          onClick={() => boostAvatarMutation.mutate({ avatarKey: av.avatarKey, coins: 25 })}
+                        >
+                          Spend 25 Coins
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </CardContent>
           </Card>

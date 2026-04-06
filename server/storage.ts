@@ -14,6 +14,8 @@ import {
   userRewards,
   userMilestoneGrants,
   userEntourage,
+  avatarProfiles,
+  avatarXpEvents,
   taskCollaborators,
   taskPatterns,
   classificationContributions,
@@ -76,6 +78,7 @@ import {
   type UserPushSubscription,
   type Appeal,
   type UserEntourage,
+  type AvatarProfile,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, gt, count, avg, sql, desc, inArray, notInArray, isNull } from "drizzle-orm";
@@ -89,6 +92,9 @@ import { isBuiltInClassification, normalizeCategoryName } from "@shared/classifi
 import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
+function normalizeText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
 
 function toSafeUser(user: User): SafeUser {
   const {
@@ -3505,6 +3511,249 @@ export async function cancelPremiumSubscriptionForUser(
     metadata: { endsAt: end.toISOString() },
   });
   return updated;
+}
+
+export type AvatarCompanionInput = {
+  slot: "mood" | "archetype" | "productivity" | "social";
+  key: string;
+  label: string;
+};
+
+function avatarLevelForTotalXp(totalXp: number): number {
+  let level = 1;
+  let needed = 100;
+  let remaining = totalXp;
+  while (remaining >= needed && level < 100) {
+    remaining -= needed;
+    level += 1;
+    needed = 100 + (level - 1) * 25;
+  }
+  return level;
+}
+
+function missionTextForAvatar(profile: AvatarProfile): string {
+  const archetype = profile.archetypeKey || "general";
+  if (profile.avatarKey === "archetype") {
+    return `Post a task or feedback related to "${archetype}" and complete it to level me up.`;
+  }
+  if (profile.avatarKey === "productivity") {
+    return "Complete a task and mark it done to train your productivity companion.";
+  }
+  if (profile.avatarKey === "social") {
+    return "Post constructive feedback or a social update to grow your social companion.";
+  }
+  return "Log a meaningful task or feedback update to improve your mood companion.";
+}
+
+export async function ensureAvatarProfilesFromEntourage(
+  userId: string,
+  companions: AvatarCompanionInput[],
+): Promise<AvatarProfile[]> {
+  for (const comp of companions) {
+    const existing = await db
+      .select()
+      .from(avatarProfiles)
+      .where(and(eq(avatarProfiles.userId, userId), eq(avatarProfiles.avatarKey, comp.slot)))
+      .limit(1);
+    if (existing.length === 0) {
+      await db.insert(avatarProfiles).values({
+        id: randomUUID(),
+        userId,
+        avatarKey: comp.slot,
+        archetypeKey: comp.key,
+        displayName: comp.label,
+        level: 1,
+        xp: 0,
+        totalXp: 0,
+      });
+    } else {
+      await db
+        .update(avatarProfiles)
+        .set({ archetypeKey: comp.key, displayName: comp.label, updatedAt: new Date() })
+        .where(eq(avatarProfiles.id, existing[0].id));
+    }
+  }
+
+  return db
+    .select()
+    .from(avatarProfiles)
+    .where(eq(avatarProfiles.userId, userId))
+    .orderBy(asc(avatarProfiles.avatarKey));
+}
+
+export async function getAvatarProfilesForUser(userId: string): Promise<Array<AvatarProfile & { mission: string }>> {
+  const rows = await db
+    .select()
+    .from(avatarProfiles)
+    .where(eq(avatarProfiles.userId, userId))
+    .orderBy(asc(avatarProfiles.avatarKey));
+  return rows.map((r) => ({ ...r, mission: missionTextForAvatar(r) }));
+}
+
+export async function awardAvatarXp(
+  userId: string,
+  avatarKey: string,
+  sourceType: "task" | "feedback" | "post",
+  sourceRef: string,
+  xpAwarded: number,
+  coinsAwarded: number,
+  metadata?: Record<string, unknown>,
+): Promise<{ awarded: boolean; profile?: AvatarProfile }> {
+  const [profile] = await db
+    .select()
+    .from(avatarProfiles)
+    .where(and(eq(avatarProfiles.userId, userId), eq(avatarProfiles.avatarKey, avatarKey)))
+    .limit(1);
+  if (!profile) return { awarded: false };
+
+  try {
+    await db.insert(avatarXpEvents).values({
+      id: randomUUID(),
+      userId,
+      avatarKey,
+      sourceType,
+      sourceRef,
+      xpAwarded,
+      coinsAwarded,
+      metadataJson: metadata ? JSON.stringify(metadata) : null,
+    });
+  } catch (e) {
+    if (isPgUniqueViolation(e)) return { awarded: false };
+    throw e;
+  }
+
+  const totalXp = profile.totalXp + xpAwarded;
+  const level = avatarLevelForTotalXp(totalXp);
+  const levelBaseXp = (() => {
+    let spent = 0;
+    for (let l = 1; l < level; l++) {
+      spent += 100 + (l - 1) * 25;
+    }
+    return spent;
+  })();
+  const currentXp = Math.max(0, totalXp - levelBaseXp);
+
+  const [updated] = await db
+    .update(avatarProfiles)
+    .set({
+      totalXp,
+      xp: currentXp,
+      level,
+      updatedAt: new Date(),
+    })
+    .where(eq(avatarProfiles.id, profile.id))
+    .returning();
+
+  if (coinsAwarded > 0) {
+    await addCoins(userId, coinsAwarded, `avatar_xp:${avatarKey}`, `Avatar XP from ${sourceType}:${sourceRef}`);
+  }
+  return { awarded: true, profile: updated ?? profile };
+}
+
+export async function awardAvatarProgressFromContent(
+  userId: string,
+  sourceType: "task" | "feedback" | "post",
+  sourceRef: string,
+  text: string,
+  completed = false,
+): Promise<Array<{ avatarKey: string; xp: number; coins: number }>> {
+  const profiles = await db
+    .select()
+    .from(avatarProfiles)
+    .where(eq(avatarProfiles.userId, userId));
+  const normalized = normalizeText(text || "");
+  const rewards: Array<{ avatarKey: string; xp: number; coins: number }> = [];
+
+  const computeXp = (p: AvatarProfile): number => {
+    if (p.avatarKey === "archetype") {
+      const keyNorm = normalizeText(p.archetypeKey.replace(/_/g, " "));
+      return normalized.includes(keyNorm) ? 35 : 0;
+    }
+    if (p.avatarKey === "productivity") {
+      if (sourceType === "task") return completed ? 40 : 15;
+      return 0;
+    }
+    if (p.avatarKey === "social") {
+      return sourceType === "feedback" || sourceType === "post" ? 30 : 0;
+    }
+    if (p.avatarKey === "mood") {
+      return sourceType === "task" || sourceType === "feedback" ? 12 : 0;
+    }
+    return 0;
+  };
+
+  for (const p of profiles) {
+    const xp = computeXp(p);
+    if (xp <= 0) continue;
+    const coins = Math.max(1, Math.round(xp / 5));
+    const result = await awardAvatarXp(userId, p.avatarKey, sourceType, sourceRef, xp, coins, {
+      completed,
+      archetype: p.archetypeKey,
+    });
+    if (result.awarded) {
+      rewards.push({ avatarKey: p.avatarKey, xp, coins });
+    }
+  }
+  return rewards;
+}
+
+export async function engageAvatarWithContent(
+  userId: string,
+  avatarKey: string,
+  sourceType: "task" | "feedback" | "post",
+  sourceRef: string,
+  text: string,
+  completed = false,
+): Promise<{ awarded: boolean; xp: number; coins: number; profile?: AvatarProfile }> {
+  const [profile] = await db
+    .select()
+    .from(avatarProfiles)
+    .where(and(eq(avatarProfiles.userId, userId), eq(avatarProfiles.avatarKey, avatarKey)))
+    .limit(1);
+  if (!profile) return { awarded: false, xp: 0, coins: 0 };
+
+  const normalized = normalizeText(text || "");
+  let xp = 0;
+  if (profile.avatarKey === "archetype") {
+    const keyNorm = normalizeText(profile.archetypeKey.replace(/_/g, " "));
+    xp = normalized.includes(keyNorm) ? 35 : 0;
+  } else if (profile.avatarKey === "productivity") {
+    xp = sourceType === "task" ? (completed ? 40 : 15) : 0;
+  } else if (profile.avatarKey === "social") {
+    xp = sourceType === "feedback" || sourceType === "post" ? 30 : 0;
+  } else if (profile.avatarKey === "mood") {
+    xp = sourceType === "task" || sourceType === "feedback" ? 12 : 0;
+  }
+  if (xp <= 0) return { awarded: false, xp: 0, coins: 0, profile };
+
+  const coins = Math.max(1, Math.round(xp / 5));
+  const result = await awardAvatarXp(userId, avatarKey, sourceType, sourceRef, xp, coins, {
+    completed,
+    archetype: profile.archetypeKey,
+  });
+  return { awarded: !!result.awarded, xp, coins, profile: result.profile ?? profile };
+}
+
+export async function spendCoinsForAvatarBoost(
+  userId: string,
+  avatarKey: string,
+  coins: number,
+): Promise<{ ok: boolean; profile?: AvatarProfile; message?: string }> {
+  const [profile] = await db
+    .select()
+    .from(avatarProfiles)
+    .where(and(eq(avatarProfiles.userId, userId), eq(avatarProfiles.avatarKey, avatarKey)))
+    .limit(1);
+  if (!profile) return { ok: false, message: "Avatar not found" };
+
+  const spend = await spendCoins(userId, coins, `avatar_boost:${avatarKey}`);
+  if (!spend) return { ok: false, message: "Not enough coins" };
+  const xpBoost = coins * 2;
+  const result = await awardAvatarXp(userId, avatarKey, "post", `coin_boost_${Date.now()}`, xpBoost, 0, {
+    boostedByCoins: coins,
+  });
+  if (!result.awarded || !result.profile) return { ok: false, message: "Avatar not found" };
+  return { ok: true, profile: result.profile };
 }
 
 // ─── Pattern Learning Storage ────────────────────────────────────────────────

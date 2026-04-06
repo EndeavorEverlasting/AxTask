@@ -71,6 +71,11 @@ import {
   unpublishTaskFromCommunity,
   getTaskRowById,
   processUserMilestoneGrants,
+  ensureAvatarProfilesFromEntourage,
+  getAvatarProfilesForUser,
+  awardAvatarProgressFromContent,
+  engageAvatarWithContent,
+  spendCoinsForAvatarBoost,
   changePremiumPlanForUser,
   cancelPremiumSubscriptionForUser,
 } from "./storage";
@@ -83,7 +88,7 @@ import {
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
 import { z, ZodError } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, updateAccountProfileSchema, type UpdateTask, type Task } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, updateAccountProfileSchema, avatarEngagementSchema, type UpdateTask, type Task } from "@shared/schema";
 import { TASK_CONFLICT_CODE, taskUpdatedAtMatchesServer } from "@shared/offline-sync";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
@@ -1742,6 +1747,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         classificationReward = await awardCoinsForClassification(userId, task);
       }
 
+      ensureAvatarProfilesForUser(userId)
+        .then(() =>
+          awardAvatarProgressFromContent(
+            userId,
+            "task",
+            task.id,
+            `${task.activity} ${task.notes || ""} ${task.classification || ""}`,
+            task.status === "completed",
+          ),
+        )
+        .catch((err) => console.error("[avatar] task create progress", err));
+
       res.status(201).json({ ...task, classificationReward });
     } catch (error) {
       if (error instanceof Error) {
@@ -1819,6 +1836,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         task!.classification !== previousClassification
       ) {
         classificationReward = await awardCoinsForClassification(userId, task!);
+      }
+
+      if (task && (task.status === "completed" || task.classification !== previousClassification)) {
+        ensureAvatarProfilesForUser(userId)
+          .then(() =>
+            awardAvatarProgressFromContent(
+              userId,
+              "task",
+              task.id,
+              `${task.activity} ${task.notes || ""} ${task.classification || ""}`,
+              task.status === "completed",
+            ),
+          )
+          .catch((err) => console.error("[avatar] task update progress", err));
       }
 
       res.json({ ...task, coinReward, classificationReward });
@@ -2537,6 +2568,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/account", apiLimiter);
   app.use("/api/billing", apiLimiter);
 
+  const ensureAvatarProfilesForUser = async (userId: string): Promise<void> => {
+    const entourage = await getOrRecomputeEntourage(userId, false);
+    await ensureAvatarProfilesFromEntourage(
+      userId,
+      entourage.companions.map((c) => ({ slot: c.slot, key: c.key, label: c.label })),
+    );
+  };
+
   await seedRewardsCatalog();
   await seedOfflineSkillTree();
 
@@ -2647,6 +2686,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[gamification/entourage]", error);
       res.status(500).json({ message: "Failed to load entourage" });
+    }
+  });
+
+  app.get("/api/gamification/avatars", requireAuth, async (req, res) => {
+    try {
+      const entourage = await getOrRecomputeEntourage(req.user!.id, false);
+      await ensureAvatarProfilesFromEntourage(
+        req.user!.id,
+        entourage.companions.map((c) => ({ slot: c.slot, key: c.key, label: c.label })),
+      );
+      const avatars = await getAvatarProfilesForUser(req.user!.id);
+      res.json({ avatars });
+    } catch (error) {
+      console.error("[gamification/avatars]", error);
+      res.status(500).json({ message: "Failed to load avatars" });
+    }
+  });
+
+  app.post("/api/gamification/avatars/:avatarKey/engage", requireAuth, async (req, res) => {
+    try {
+      await ensureAvatarProfilesForUser(req.user!.id);
+      const body = avatarEngagementSchema.parse(req.body ?? {});
+      const avatarKey = req.params.avatarKey;
+      const result = await engageAvatarWithContent(
+        req.user!.id,
+        avatarKey,
+        body.sourceType,
+        body.sourceRef,
+        body.text || "",
+        body.completed,
+      );
+      if (!result.awarded) {
+        return res.status(200).json({
+          awarded: false,
+          message: "No matching archetype signal found for this avatar yet.",
+          xp: 0,
+          coins: 0,
+        });
+      }
+      res.json({ awarded: true, xp: result.xp, coins: result.coins, profile: result.profile });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to process avatar engagement" });
+    }
+  });
+
+  app.post("/api/gamification/avatars/:avatarKey/spend", requireAuth, async (req, res) => {
+    try {
+      await ensureAvatarProfilesForUser(req.user!.id);
+      const avatarKey = req.params.avatarKey;
+      const body = z.object({ coins: z.number().int().min(1).max(2000) }).parse(req.body ?? {});
+      const result = await spendCoinsForAvatarBoost(req.user!.id, avatarKey, body.coins);
+      if (!result.ok) {
+        return res.status(400).json({ message: result.message || "Unable to spend coins for boost" });
+      }
+      const wallet = await getOrCreateWallet(req.user!.id);
+      res.json({ message: "Avatar boosted", profile: result.profile, wallet });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to spend coins for avatar boost" });
     }
   });
 
@@ -2936,6 +3035,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const totalAttachments = createdAssets.length + linkedAssets;
       const analysis = await processFeedbackWithEngines(parsed.message, totalAttachments);
+      ensureAvatarProfilesForUser(req.user!.id)
+        .then(() =>
+          awardAvatarProgressFromContent(
+            req.user!.id,
+            "feedback",
+            `feedback:${Date.now()}`,
+            parsed.message,
+            true,
+          ),
+        )
+        .catch((err) => console.error("[avatar] feedback progress", err));
 
       await logSecurityEvent(
         "feedback_submitted",
@@ -2973,6 +3083,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const payload = feedbackProcessSchema.parse(req.body);
       const analysis = await processFeedbackWithEngines(payload.message, payload.attachmentCount);
+      ensureAvatarProfilesForUser(req.user!.id)
+        .then(() =>
+          awardAvatarProgressFromContent(
+            req.user!.id,
+            "feedback",
+            `feedback_process:${Date.now()}`,
+            payload.message,
+            true,
+          ),
+        )
+        .catch((err) => console.error("[avatar] feedback process progress", err));
       res.json(analysis);
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });

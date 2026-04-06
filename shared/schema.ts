@@ -444,6 +444,43 @@ export const userEntourage = pgTable("user_entourage", {
 
 export type UserEntourage = typeof userEntourage.$inferSelect;
 
+/** Persistent avatar progression per user and avatar role. */
+export const avatarProfiles = pgTable("avatar_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  avatarKey: text("avatar_key").notNull(), // mood | archetype | productivity | social
+  archetypeKey: text("archetype_key").notNull(),
+  displayName: text("display_name").notNull(),
+  level: integer("level").notNull().default(1),
+  xp: integer("xp").notNull().default(0),
+  totalXp: integer("total_xp").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_avatar_profiles_user_key").on(table.userId, table.avatarKey),
+  index("idx_avatar_profiles_user").on(table.userId),
+]);
+
+export type AvatarProfile = typeof avatarProfiles.$inferSelect;
+
+/** Idempotent avatar XP awards from tasks/feedback/posts. */
+export const avatarXpEvents = pgTable("avatar_xp_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  avatarKey: text("avatar_key").notNull(),
+  sourceType: text("source_type").notNull(), // task | feedback | post
+  sourceRef: text("source_ref").notNull(),
+  xpAwarded: integer("xp_awarded").notNull().default(0),
+  coinsAwarded: integer("coins_awarded").notNull().default(0),
+  metadataJson: text("metadata_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_avatar_xp_events_unique_source").on(table.userId, table.avatarKey, table.sourceType, table.sourceRef),
+  index("idx_avatar_xp_events_user").on(table.userId),
+]);
+
+export type AvatarXpEvent = typeof avatarXpEvents.$inferSelect;
+
 export const updateAccountProfileSchema = z.object({
   displayName: z.string().min(1).max(120).optional(),
   birthDate: z
@@ -454,6 +491,15 @@ export const updateAccountProfileSchema = z.object({
 });
 
 export type UpdateAccountProfile = z.infer<typeof updateAccountProfileSchema>;
+
+export const avatarEngagementSchema = z.object({
+  sourceType: z.enum(["task", "feedback", "post"]),
+  sourceRef: z.string().min(1).max(120),
+  text: z.string().max(5000).optional().default(""),
+  completed: z.boolean().optional().default(false),
+});
+
+export type AvatarEngagementInput = z.infer<typeof avatarEngagementSchema>;
 
 // ─── Gamification: Offline Generator ─────────────────────────────────────────
 export const offlineGenerators = pgTable("offline_generators", {
