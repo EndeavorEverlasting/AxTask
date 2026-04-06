@@ -9,7 +9,6 @@ import { users } from "@shared/schema";
 
 interface PresenceInfo {
   userId: string;
-  email: string;
   displayName: string | null;
   color: string;
   focusedField: string | null;
@@ -126,7 +125,6 @@ function broadcastToTask(
 function buildPresenceList(taskId: string): PresenceInfo[] {
   return getTaskRoom(taskId).map(c => ({
     userId: c.userId,
-    email: c.email,
     displayName: c.displayName,
     color: c.color,
     focusedField: c.focusedField,
@@ -144,6 +142,7 @@ export function setupCollaborationWs(server: Server) {
 
   server.on("upgrade", async (req, socket, head) => {
     if (req.url !== "/ws/collab") {
+      socket.destroy();
       return;
     }
 
@@ -228,6 +227,7 @@ export function setupCollaborationWs(server: Server) {
             const oldTaskId = client.taskId;
             client.taskId = null;
             client.focusedField = null;
+            client.cursorPosition = null;
             sendPresenceUpdate(oldTaskId);
           }
           break;

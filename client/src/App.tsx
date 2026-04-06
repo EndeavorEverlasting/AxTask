@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTutorial } from "@/hooks/use-tutorial";
 import { PersistedQueryLayer } from "./lib/app-query-provider";
 import { Toaster } from "@/components/ui/toaster";
@@ -37,9 +37,12 @@ import AppealsPage from "@/pages/appeals";
 import FeedbackPage from "@/pages/feedback";
 import ExperienceConfirmPage from "@/pages/experience-confirm";
 import LoginPage from "@/pages/login";
+import ContactPage from "@/pages/contact";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 import { Link } from "wouter";
+import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
+import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
 
 function Router() {
   return (
@@ -59,18 +62,19 @@ function Router() {
       <Route path="/billing" component={BillingPage} />
       <Route path="/account" component={AccountPage} />
       <Route path="/appeals" component={AppealsPage} />
+      <Route path="/contact" component={ContactPage} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-/** Ctrl+Shift+T / Cmd+Shift+T toggles tutorial (does not steal the browser new-tab shortcut). */
+/** Ctrl+Shift+Y / Cmd+Shift+Y toggles tutorial (avoids Ctrl/Cmd+T and Ctrl/Cmd+Shift+T reserved for browser tabs). */
 function TutorialHotkeys() {
   const { isActive, startTutorial, stopTutorial } = useTutorial();
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      if (e.shiftKey && (e.ctrlKey || e.metaKey) && k === "t") {
+      if (e.shiftKey && (e.ctrlKey || e.metaKey) && k === "y") {
         e.preventDefault();
         if (isActive) stopTutorial();
         else startTutorial();
@@ -167,6 +171,7 @@ const VALID_ROUTES = [
   "/billing",
   "/account",
   "/appeals",
+  "/contact",
 ];
 
 function useRoutePersistence() {
@@ -197,18 +202,31 @@ function AuthenticatedApp() {
   const { zoom } = useZoom();
   const isMobile = useIsMobile();
   const scale = isMobile ? 1 : zoom / 100;
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
 
   useRoutePersistence();
 
-  const path = window.location.pathname;
-  if (path === "/mfa/confirm" || path === "/welcome-confirm") {
+  if (location === "/mfa/confirm" || location === "/welcome-confirm") {
     return <ExperienceConfirmPage />;
   }
 
   const handleNavigate = useCallback((path: string) => {
     setLocation(path);
   }, [setLocation]);
+
+  const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user || loading) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "Slash") {
+        e.preventDefault();
+        setHotkeyHelpOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [user, loading]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -230,19 +248,23 @@ function AuthenticatedApp() {
   }
 
   if (!user) {
+    if (location === "/contact") {
+      return <ContactPage />;
+    }
     return <LoginPage />;
   }
 
   return (
+    <ImmersiveShellProvider>
     <VoiceProvider onNavigate={handleNavigate}>
       <TaskOfflineSyncProvider>
       <div className="h-dvh min-h-0 flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <Sidebar />
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <OfflineDataBanner />
           <InstallCtaBanner userId={user.id} />
           <div
-            className="min-h-0 flex-1 overflow-auto overscroll-contain pb-16 md:pb-0"
+            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0 [scrollbar-gutter:stable]"
             style={
               scale !== 1
                 ? {
@@ -260,6 +282,7 @@ function AuthenticatedApp() {
         <MobileBottomNav />
         <MobileVoiceFAB />
         <TutorialHotkeys />
+        {user ? <HotkeyHelpDialog open={hotkeyHelpOpen} onOpenChange={setHotkeyHelpOpen} /> : null}
         <TutorialOverlay />
         <TutorialInteractionGuide />
         <VoiceCommandBar />
@@ -267,6 +290,7 @@ function AuthenticatedApp() {
       </div>
       </TaskOfflineSyncProvider>
     </VoiceProvider>
+    </ImmersiveShellProvider>
   );
 }
 

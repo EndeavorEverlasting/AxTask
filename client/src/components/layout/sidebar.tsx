@@ -28,6 +28,7 @@ import {
   UserRoundCog,
   Menu,
   CheckSquare,
+  Mail,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -40,7 +41,12 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { VoiceBarTrigger } from "@/components/voice-command-bar";
 import { InstallShortcutButton } from "@/components/install-shortcut-button";
+import { KBD, tutorialToggleTitle } from "@/lib/keyboard-shortcuts";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { useImmersiveShell } from "@/hooks/use-immersive-shell";
+import { PretextPeekStrip } from "@/components/layout/pretext-peek-strip";
+import { ShellSplitter } from "@/components/layout/shell-splitter";
+import { cn } from "@/lib/utils";
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
@@ -93,6 +99,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     { path: "/billing", icon: CreditCard, label: "Billing" },
     { path: "/account", icon: UserRoundCog, label: "Account" },
     { path: "/feedback", icon: MessageSquare, label: "Feedback" },
+    { path: "/contact", icon: Mail, label: "Contact" },
     { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },
     { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
@@ -166,7 +173,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <Button
             size="sm"
             className="w-full justify-between bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg"
-            title="Create task (Ctrl+N)"
+            title={`Create task (${KBD.newTask} / ${KBD.newTaskMac} — click in the page if the browser captures the key)`}
           >
             <span className="flex items-center">
               <PlusCircle className="mr-2 h-4 w-4" />
@@ -197,7 +204,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           variant={tutorialActive ? "default" : "outline"}
           size="sm"
           onClick={tutorialActive ? stopTutorial : startTutorial}
-          title="Toggle tutorial (Ctrl+T)"
+          title={`Toggle tutorial (${tutorialToggleTitle()})`}
           className={`w-full justify-between min-h-[44px] ring-1 ring-purple-400/40 ${
             tutorialActive ? "bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-500/30" : "bg-purple-50/60 dark:bg-purple-900/20"
           }`}
@@ -206,7 +213,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <GraduationCap className="mr-2 h-4 w-4" />
             {tutorialActive ? "Exit Tutorial" : hasCompleted ? "Restart Tutorial" : "Start Tutorial"}
           </span>
-          <kbd className="ml-2 text-[10px] font-mono opacity-60 bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">⌃T</kbd>
+          <kbd className="ml-2 text-[10px] font-mono opacity-60 bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">⌃⇧Y</kbd>
         </Button>
 
         <div className="rounded-lg border border-sky-300/40 bg-sky-50/60 p-3 dark:border-sky-700/40 dark:bg-sky-900/15">
@@ -337,27 +344,23 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
 export function Sidebar() {
   const isMobile = useIsMobile();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const [showHotkeys, setShowHotkeys] = useState(false);
+  const { sidebarWidthPx, isNavFocus, toggleSidebarHidden } = useImmersiveShell();
 
   useEffect(() => {
+    /** Ctrl/Cmd+Shift+B is reserved for bookmarks in many browsers; use Backslash instead. */
     function handleKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "B") {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "Backslash") {
         e.preventDefault();
         if (isMobile) {
           setMobileOpen((v) => !v);
         } else {
-          setCollapsed((v) => !v);
+          toggleSidebarHidden();
         }
-      }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "Slash") {
-        e.preventDefault();
-        setShowHotkeys((v) => !v);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isMobile]);
+  }, [isMobile, toggleSidebarHidden]);
 
   if (isMobile) {
     return (
@@ -372,7 +375,6 @@ export function Sidebar() {
             <SidebarContent onNavigate={() => setMobileOpen(false)} />
           </SheetContent>
         </Sheet>
-        <HotkeyDialog open={showHotkeys} onOpenChange={setShowHotkeys} />
       </>
     );
   }
@@ -380,49 +382,17 @@ export function Sidebar() {
   return (
     <>
       <aside
-        className={`bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex-col shrink-0 hidden md:flex transition-all duration-200 overflow-hidden min-h-0 outline-none ${
-          collapsed ? "w-0 border-r-0" : "w-64"
-        }`}
+        className={cn(
+          "bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex-col shrink-0 hidden md:flex transition-[width,box-shadow] duration-200 overflow-hidden min-h-0 outline-none",
+          sidebarWidthPx === 0 && "border-r-0 shadow-none",
+          isNavFocus && "ring-2 ring-primary/35 shadow-2xl z-10",
+        )}
+        style={{ width: sidebarWidthPx }}
       >
-        {!collapsed && <SidebarContent />}
+        {sidebarWidthPx > 0 ? <SidebarContent /> : null}
       </aside>
-      <HotkeyDialog open={showHotkeys} onOpenChange={setShowHotkeys} />
+      {sidebarWidthPx === 0 ? <PretextPeekStrip /> : null}
+      {sidebarWidthPx > 0 ? <ShellSplitter /> : null}
     </>
-  );
-}
-
-function HotkeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  if (!open) return null;
-
-  const hotkeys = [
-    { keys: "Ctrl + Shift + B", action: "Toggle sidebar" },
-    { keys: "Ctrl + Shift + /", action: "Show keyboard shortcuts" },
-    { keys: "Ctrl + Enter", action: "Submit task form" },
-    { keys: "Ctrl + M", action: "Voice commands" },
-    { keys: "Ctrl + T", action: "Toggle tutorial" },
-  ];
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => onOpenChange(false)}>
-      <div
-        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-[400px] max-w-[90vw] border border-gray-200 dark:border-gray-700"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-bold mb-4 text-gray-900 dark:text-gray-100">Keyboard Shortcuts</h2>
-        <div className="space-y-3">
-          {hotkeys.map(({ keys, action }) => (
-            <div key={keys} className="flex items-center justify-between">
-              <span className="text-sm text-gray-600 dark:text-gray-400">{action}</span>
-              <kbd className="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">
-                {keys}
-              </kbd>
-            </div>
-          ))}
-        </div>
-        <div className="mt-5 text-right">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Close</Button>
-        </div>
-      </div>
-    </div>
   );
 }

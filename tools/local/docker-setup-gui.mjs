@@ -47,9 +47,11 @@ function parseForm(text) {
   const out = {};
   for (const pair of text.split("&")) {
     if (!pair) continue;
-    const [k, v] = pair.split("=");
-    const key = decodeURIComponent(String(k || "").replaceAll("+", " "));
-    const value = decodeURIComponent(String(v || "").replaceAll("+", " "));
+    const eqIdx = pair.indexOf("=");
+    const rawKey = eqIdx >= 0 ? pair.slice(0, eqIdx) : pair;
+    const rawVal = eqIdx >= 0 ? pair.slice(eqIdx + 1) : "";
+    const key = decodeURIComponent(String(rawKey || "").replaceAll("+", " "));
+    const value = decodeURIComponent(String(rawVal || "").replaceAll("+", " "));
     out[key] = value;
   }
   return out;
@@ -208,9 +210,18 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && req.url === "/save") {
     let body = "";
+    let tooLarge = false;
     for await (const chunk of req) {
       body += String(chunk);
-      if (body.length > 1_000_000) break;
+      if (body.length > 1_000_000) {
+        tooLarge = true;
+        break;
+      }
+    }
+    if (tooLarge) {
+      res.writeHead(413, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Request body too large");
+      return;
     }
     const rawForm = parseForm(body);
     const normalized = normalizeForm(rawForm);

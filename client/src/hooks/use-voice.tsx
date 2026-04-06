@@ -32,6 +32,19 @@ export interface ReviewProposal {
   message: string;
 }
 
+function isReviewProposalAction(x: unknown): x is ReviewProposal["actions"][number] {
+  if (!x || typeof x !== "object") return false;
+  const o = x as Record<string, unknown>;
+  const type = o.type;
+  if (type !== "complete" && type !== "reschedule" && type !== "update") return false;
+  if (typeof o.taskId !== "string" || o.taskId.length === 0) return false;
+  if (typeof o.taskActivity !== "string") return false;
+  if (!o.details || typeof o.details !== "object" || Array.isArray(o.details)) return false;
+  if (typeof o.confidence !== "number" || !Number.isFinite(o.confidence)) return false;
+  if (typeof o.reason !== "string") return false;
+  return true;
+}
+
 interface VoiceContextType {
   isSupported: boolean;
   status: SpeechStatus;
@@ -46,6 +59,8 @@ interface VoiceContextType {
   reviewProposal: ReviewProposal | null;
   toggleListening: () => void;
   openBar: () => void;
+  /** Opens the voice bar then starts listening on the next microtask (avoids racing openBar). */
+  openBarAndToggleListening: () => void;
   closeBar: () => void;
   toggleBar: () => void;
   clearResponse: () => void;
@@ -102,10 +117,36 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         case "reschedule_task": {
           const taskId = data.payload.taskId as string;
           const newDate = data.payload.newDate as string;
-          const tasks = queryClient.getQueryData<Task[]>(["/api/tasks"]) ?? [];
-          const base = tasks.find((t) => t.id === taskId);
-          void syncUpdateTask(taskId, { date: newDate }, base, queryClient)
-            .then((r) => {
+          void (async () => {
+            let base: Task | undefined = queryClient.getQueryData<Task[]>(["/api/tasks"])?.find((t) => t.id === taskId);
+            if (!base) {
+              try {
+                base = await queryClient.fetchQuery({
+                  queryKey: ["/api/tasks", taskId],
+                  queryFn: async () => {
+                    const res = await apiRequest("GET", `/api/tasks/${taskId}`);
+                    if (!res.ok) {
+                      const t = await res.text();
+                      throw new Error(t || res.statusText);
+                    }
+                    return res.json() as Promise<Task>;
+                  },
+                });
+              } catch {
+                toast({
+                  title: "Error",
+                  description: "Could not load that task. It may have been removed.",
+                  variant: "destructive",
+                });
+                return;
+              }
+            }
+            if (!base) {
+              toast({ title: "Error", description: "Task not found.", variant: "destructive" });
+              return;
+            }
+            try {
+              const r = await syncUpdateTask(taskId, { date: newDate }, base, queryClient);
               const d = r as { offlineQueued?: boolean } | undefined;
               if (d?.offlineQueued) {
                 toast({ title: "Saved offline", description: "Reschedule will sync when you're online." });
@@ -114,11 +155,11 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
               queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
               queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
               toast({ title: "Task rescheduled", description: data.message });
-            })
-            .catch((e: unknown) => {
+            } catch (e: unknown) {
               if (e instanceof TaskSyncAbortedError) return;
               toast({ title: "Error", description: "Failed to reschedule task", variant: "destructive" });
-            });
+            }
+          })();
           break;
         }
         case "show_results": {
@@ -130,12 +171,18 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
           break;
         }
         case "show_review": {
-          const reviewActions = data.payload.actions as ReviewProposal["actions"];
-          const reviewUnmatched = data.payload.unmatched as string[];
-          if (reviewActions && reviewActions.length > 0) {
+          const rawActions = data.payload.actions;
+          const rawUnmatched = data.payload.unmatched;
+          const reviewActions = Array.isArray(rawActions)
+            ? rawActions.filter(isReviewProposalAction)
+            : [];
+          const reviewUnmatched = Array.isArray(rawUnmatched)
+            ? rawUnmatched.filter((u): u is string => typeof u === "string")
+            : [];
+          if (reviewActions.length > 0) {
             setReviewProposal({
               actions: reviewActions,
-              unmatched: reviewUnmatched || [],
+              unmatched: reviewUnmatched,
               message: data.message,
             });
           } else {
@@ -180,6 +227,13 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
   const openBar = useCallback(() => {
     setIsBarOpen(true);
   }, []);
+
+  const openBarAndToggleListening = useCallback(() => {
+    setIsBarOpen(true);
+    queueMicrotask(() => {
+      toggleListening();
+    });
+  }, [toggleListening]);
 
   const closeBar = useCallback(() => {
     setIsBarOpen(false);
@@ -265,6 +319,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         reviewProposal,
         toggleListening,
         openBar,
+        openBarAndToggleListening,
         closeBar,
         toggleBar,
         clearResponse,

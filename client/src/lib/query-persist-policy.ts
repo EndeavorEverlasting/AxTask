@@ -28,6 +28,7 @@ export const QUERY_PERSIST_MAX_SERIALIZED_BYTES = 1_500_000;
 
 const SENSITIVE_ROOT_PREFIXES = [
   "/api/auth",
+  "/api/account",
   "/api/admin",
   "/api/billing",
   "/api/invoices",

@@ -543,8 +543,7 @@ export default function PlannerPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => {
-                        voice.openBar();
-                        setTimeout(() => voice.toggleListening(), 100);
+                        voice.openBarAndToggleListening();
                       }}
                       className="shrink-0 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
                       title="Use voice to review tasks"

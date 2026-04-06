@@ -7,15 +7,30 @@ const base = (process.env.BASE_URL || "http://localhost:5000").replace(/\/$/, ""
 
 const paths = ["/health", "/ready"];
 
+const FETCH_TIMEOUT_MS = 15_000;
+
 async function fetchOk(path) {
   const url = `${base}${path}`;
-  const res = await fetch(url, { redirect: "manual" });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(url, { redirect: "manual", signal: controller.signal });
+  } catch (e) {
+    const name = e && typeof e === "object" && "name" in e ? e.name : "";
+    if (name === "AbortError") {
+      return { path, ok: false, status: 0, error: "timeout" };
+    }
+    return { path, ok: false, status: 0, error: String(e) };
+  } finally {
+    clearTimeout(timer);
+  }
   return { path, ok: res.ok, status: res.status };
 }
 
 async function main() {
   const results = await Promise.all(paths.map((p) => fetchOk(p)));
-  const bad = results.filter((r) => !r.ok);
+  const bad = results.filter((r) => !r.ok || r.status === 0);
   for (const r of results) {
     console.log(`migration:smoke-api: ${r.path} -> ${r.status} ${r.ok ? "OK" : "FAIL"}`);
   }

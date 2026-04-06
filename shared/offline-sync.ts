@@ -11,7 +11,13 @@ export type TaskConflictPayload = {
 export function isTaskConflictPayload(value: unknown): value is TaskConflictPayload {
   if (!value || typeof value !== "object") return false;
   const o = value as Record<string, unknown>;
-  return o.code === TASK_CONFLICT_CODE && typeof o.message === "string" && o.serverTask !== undefined;
+  return (
+    o.code === TASK_CONFLICT_CODE
+    && typeof o.message === "string"
+    && typeof o.serverTask === "object"
+    && o.serverTask !== null
+    && !Array.isArray(o.serverTask)
+  );
 }
 
 /** Compare server updatedAt with client-supplied ISO string (1ms tolerance). */

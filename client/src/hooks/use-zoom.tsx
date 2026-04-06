@@ -41,7 +41,7 @@ export function ZoomProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
         if (e.key === "+" || e.key === "=") {
           e.preventDefault();
           zoomIn();

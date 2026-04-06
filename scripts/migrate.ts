@@ -66,11 +66,12 @@ async function main() {
       process.exit(1);
     }
 
-    const mode = (getArg("mode") as "preserve" | "remap") || "preserve";
-    if (!["preserve", "remap"].includes(mode)) {
+    const rawMode = getArg("mode") || "preserve";
+    if (rawMode !== "preserve" && rawMode !== "remap") {
       console.error("Error: --mode must be 'preserve' or 'remap'");
       process.exit(1);
     }
+    const mode = rawMode as "preserve" | "remap";
 
     console.log(`Reading: ${file}`);
     let bundle: any;
@@ -107,7 +108,8 @@ async function main() {
       const totalInserted = Object.values(result.inserted).reduce((a, b) => a + b, 0);
       const totalSkipped = Object.values(result.skipped).reduce((a, b) => a + b, 0);
       const totalConflicts = Object.values(result.conflicts).reduce((a, b) => a + b, 0);
-      console.log(`Records ${hasDryRun ? "would be" : ""} inserted: ${totalInserted}`);
+      const insertLabel = hasDryRun ? "Records would be inserted" : "Records inserted";
+      console.log(`${insertLabel}: ${totalInserted}`);
       console.log(`Records skipped: ${totalSkipped}`);
       if (totalConflicts > 0) console.log(`ID conflicts: ${totalConflicts}`);
 

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, createContext, useContext } from "react";
 import type { TutorialStep } from "@/lib/tutorial-types";
+import { KBD, SHORTCUT_FOCUS_NOTE } from "@/lib/keyboard-shortcuts";
 
 export type { TutorialStep };
 
@@ -40,7 +41,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "voice-commands",
     title: "Voice Commands",
-    description: "Tap the microphone icon or press Ctrl+M to dictate tasks hands-free. Say things like \"urgency 4\" or \"due tomorrow\" and the form fills in automatically. Switch between Activity and Notes targets.",
+    description: `Tap the microphone icon or press ${KBD.voice} (${KBD.voiceMac} on Mac) to dictate tasks hands-free — with focus in the page, not the address bar. Say things like "urgency 4" or "due tomorrow" and the form fills in automatically. Switch between Activity and Notes targets.`,
     page: "/",
     targetId: "tutorial-task-form",
     position: "right",
@@ -112,13 +113,13 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "shortcuts",
     title: "Keyboard Shortcuts & Sidebar",
-    description: "Power user tips: Ctrl+Shift+B toggles the sidebar, Ctrl+Shift+/ opens the shortcut reference, Ctrl+M starts voice input, Ctrl+Enter submits the task form, and Ctrl+T restarts this tutorial.",
+    description: `Power user tips: ${KBD.sidebar} (${KBD.sidebarMac}) toggles the sidebar, ${KBD.hotkeyHelp} (${KBD.hotkeyHelpMac}) opens the shortcut reference, ${KBD.voice} (${KBD.voiceMac}) starts voice input, ${KBD.submitTask} (${KBD.submitTaskMac}) submits the task form, and ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) toggles this tutorial. ${SHORTCUT_FOCUS_NOTE}`,
     position: "bottom",
   },
   {
     id: "complete",
     title: "You're All Set!",
-    description: "You now know every corner of AxTask. Restart this tutorial anytime with Ctrl+T or from the sidebar. Happy tasking!",
+    description: `You now know every corner of AxTask. Restart this tutorial anytime with ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) or from the sidebar. Happy tasking!`,
     position: "bottom",
     glowClass: "field-glow-tutorial-success",
   },

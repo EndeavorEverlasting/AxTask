@@ -13,36 +13,45 @@ export type TaskConflictDetail = {
 
 export const TASK_CONFLICT_EVENT = "axtask-task-conflict";
 
-type Pending = {
+type Queued = {
   resolve: (c: ConflictChoice) => void;
   detail: TaskConflictDetail;
 };
 
-let pending: Pending | null = null;
+let active: Queued | null = null;
+const conflictQueue: Queued[] = [];
+
+function dispatchActive(): void {
+  if (active) return;
+  const next = conflictQueue.shift();
+  if (!next) return;
+  active = next;
+  window.dispatchEvent(new CustomEvent(TASK_CONFLICT_EVENT, { detail: next.detail }));
+}
 
 export function openConflictDialog(detail: TaskConflictDetail): Promise<ConflictChoice> {
-  if (pending) {
-    pending.resolve("server");
-    pending = null;
-  }
   return new Promise((resolve) => {
-    pending = { resolve, detail };
-    window.dispatchEvent(new CustomEvent(TASK_CONFLICT_EVENT, { detail }));
+    conflictQueue.push({ resolve, detail });
+    dispatchActive();
   });
 }
 
 export function getPendingConflictDetail(): TaskConflictDetail | null {
-  return pending?.detail ?? null;
+  return active?.detail ?? null;
 }
 
 export function submitConflictChoice(choice: ConflictChoice): void {
-  pending?.resolve(choice);
-  pending = null;
+  if (!active) return;
+  const { resolve } = active;
+  active = null;
+  resolve(choice);
+  dispatchActive();
 }
 
 export function abortConflictDialog(): void {
-  if (pending) {
-    pending.resolve("server");
-    pending = null;
-  }
+  if (!active) return;
+  const { resolve } = active;
+  active = null;
+  resolve("server");
+  dispatchActive();
 }

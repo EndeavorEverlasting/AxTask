@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { useIsRestoring, useQueryClient } from "@tanstack/react-query";
-import { WifiOff, RefreshCw, HardDrive } from "lucide-react";
+import { WifiOff, RefreshCw, HardDrive, CloudUpload } from "lucide-react";
 import { useNetworkOnline } from "@/hooks/use-network-status";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -9,7 +9,6 @@ import {
 } from "@/lib/query-persist-policy";
 import { Button } from "@/components/ui/button";
 import { getOfflineQueueLength, subscribeOfflineTaskQueue } from "@/lib/offline-task-queue";
-import { CloudUpload } from "lucide-react";
 
 function useStalePersistedDataHint(): boolean {
   const queryClient = useQueryClient();

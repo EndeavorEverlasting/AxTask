@@ -100,4 +100,24 @@ jobs:
             exit 0
           fi
           git commit -m "chore(ci): test attestation for ${{ github.sha }} [skip ci]"
-          git push
+          BRANCH="${GITHUB_REF_NAME}"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin "$BRANCH"
+            git pull --rebase --autostash origin "$BRANCH" || {
+              pull_rc=$?
+              echo "::error::git pull --rebase --autostash failed (exit ${pull_rc})"
+              git status
+              git diff --name-only --diff-filter=U 2>/dev/null || true
+              if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+                git rebase --abort || true
+              fi
+              exit 1
+            }
+            if git push origin "$BRANCH"; then
+              exit 0
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "git push failed after retries"
+          exit 1
+

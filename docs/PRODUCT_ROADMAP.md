@@ -15,7 +15,7 @@
 | [TYPESCRIPT_BASELINE.md](./TYPESCRIPT_BASELINE.md) | `npm run check` server debt |
 | [SPREADSHEET_TEMPLATE_UX.md](./SPREADSHEET_TEMPLATE_UX.md) | Top entry zone, embedded formulas vs Apps Script, sync phases |
 | [CALENDAR_SYNC.md](./CALENDAR_SYNC.md) | External calendar sync (planned) |
-| [COMMUNITY_MODERATION.md](./COMMUNITY_MODERATION.md) | Community moderation (planned) |
+| COMMUNITY_MODERATION.md (planned) | Community moderation; doc not added to the repo yet |
 | [FLOWCHARTS.md](./FLOWCHARTS.md) | User flowcharts (planned) |
 | [BRANDING.md](./BRANDING.md) | Logo / favicon paths |
 | [VERSION_1.3.0_PLAN.md](./VERSION_1.3.0_PLAN.md) | Soft delete, recycle bin, DnD, etc. |
@@ -27,18 +27,18 @@
 | # | Theme | Direction | Docs / code |
 |---|--------|-----------|-------------|
 | 1 | Open source + **zero-trust** | MIT license; threat model, least privilege, audit. | [SECURITY.md](./SECURITY.md), [SECURITY_TECHNICAL_REFERENCE.md](./SECURITY_TECHNICAL_REFERENCE.md), [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md), [ARCHITECTURE.md](./ARCHITECTURE.md) |
-| 2 | **Anonymize** operator views; **category** activity / mood / circumstance | Aggregation layer; optional client-side enrichment; admin aggregates. | ZERO_TRUST_AND_PRIVACY, future schema |
-| 3 | **Sophisticated cache** | TanStack persist, offline phases A–C, SW; tiers / invalidation / optional Redis later. | [OFFLINE_PHASE_A.md](./OFFLINE_PHASE_A.md), C, ARCHITECTURE |
+| 2 | **Anonymize** operator views; **category** activity / mood / circumstance | Aggregation layer; optional client-side enrichment; admin aggregates. | [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md), future schema |
+| 3 | **Sophisticated cache** | TanStack persist, offline phases A–C, SW; tiers / invalidation / optional Redis later. | [OFFLINE_PHASE_A.md](./OFFLINE_PHASE_A.md), [OFFLINE_PHASE_C.md](./OFFLINE_PHASE_C.md), [ARCHITECTURE.md](./ARCHITECTURE.md) |
 | 4 | **User cache toggle** | Setting gates persisted query cache; clear on off. | `client/src/lib/query-persist-policy.ts` |
 | 5 | **Billing page** | Screenshot-style `/billing`; MFA; non-PCI fingerprints. | [BILLING_UI.md](./BILLING_UI.md) |
 | 6 | **Flowcharts** for users | Task dependency / workflow diagrams, export. | [FLOWCHARTS.md](./FLOWCHARTS.md) |
 | 7 | **Google / Windows (Microsoft) calendar sync** | OAuth, sync engine, notifications. | [CALENDAR_SYNC.md](./CALENDAR_SYNC.md) |
 | 7b | **Spreadsheet templates** (top entry UI, embedded IDs/dates, less Apps Script) | Generated Sheets/Excel with **frozen entry band** at top, **log below**; formulas for dates/IDs; optional clasp script. | [SPREADSHEET_TEMPLATE_UX.md](./SPREADSHEET_TEMPLATE_UX.md), [`server/google-sheets-api.ts`](../server/google-sheets-api.ts) |
 | 8 | **Favicon / logo** | `client/index.html`, `docs/BRANDING.md` paths. | BRANDING |
-| 9 | **Location** + repeated places | Geolocation consent, place keys, privacy. | ZERO_TRUST_AND_PRIVACY, Tasks track |
-| 10a | **Community** deletes, abuse, **rate limits** | Soft delete / tombstone; moderation engine. | COMMUNITY_MODERATION |
-| 10b | **Retention** for malpractice | Append-only moderation audit vs discard—legal review. | ZERO_TRUST_AND_PRIVACY, COMMUNITY_MODERATION |
-| 11 | **18+ profiles**, feed, analytics, **ephemeral ID OCR** | Dual posture with row 2; tesseract.js available. | ZERO_TRUST_AND_PRIVACY, Community track |
+| 9 | **Location** + repeated places | Geolocation consent, place keys, privacy. | [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md), Tasks track |
+| 10a | **Community** deletes, abuse, **rate limits** | Soft delete / tombstone; moderation engine. | COMMUNITY_MODERATION.md (planned) |
+| 10b | **Retention** for malpractice | Append-only moderation audit vs discard—legal review. | [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md), COMMUNITY_MODERATION.md (planned) |
+| 11 | **18+ profiles**, feed, analytics, **ephemeral ID OCR** | Dual posture with row 2; tesseract.js available. | [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md), Community track |
 | 12 | **Avatar** + **PreText** | Aggregates for generation; `pretext-layout.ts` for UI metrics. | `client/src/lib/pretext-layout.ts` |
 | 13 | **Redo / undo** | Soft delete + recycle bin; extend to community. | VERSION_1.3.0_PLAN |
 | 14 | **`npm run check`** baseline | No new errors in `client/`; server debt listed. | [TYPESCRIPT_BASELINE.md](./TYPESCRIPT_BASELINE.md) |

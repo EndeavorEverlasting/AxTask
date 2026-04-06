@@ -86,6 +86,7 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
       setActivated(true);
       return;
     }
+    if (confirmMutation.isPending) return;
     if (data && !data.hasConfirmed && !data.isContributor && data.contributions.length > 0) {
       confirmMutation.mutate();
     }
@@ -95,6 +96,7 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
     if (compact) {
       return (
         <button
+          type="button"
           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-600 dark:hover:text-amber-400 transition-all"
           onClick={handleActivate}
         >
@@ -132,6 +134,7 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all ${
                 canConfirm
                   ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer"

@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { useMfaChallenge } from "@/hooks/use-mfa-challenge";
 import { MfaVerificationPanel } from "@/components/mfa/mfa-verification-panel";
-import { apiRequest } from "@/lib/queryClient";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -43,6 +42,9 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   const [role, setRole] = useState("editor");
   const [open, setOpen] = useState(false);
   const [showNotes, setShowNotes] = useState(communityShowNotes);
+  useEffect(() => {
+    setShowNotes(communityShowNotes);
+  }, [communityShowNotes]);
   const [pubMfaOpen, setPubMfaOpen] = useState(false);
   const [unpubMfaOpen, setUnpubMfaOpen] = useState(false);
   const [pubChallenge, setPubChallenge] = useState<{
@@ -60,7 +62,7 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
-    enabled: open,
+    staleTime: 30_000,
   });
 
   const addMutation = useMutation({
@@ -143,14 +145,18 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
 
   const publishMutation = useMutation({
     mutationFn: async ({ challengeId, code }: { challengeId: string; code: string }) => {
-      const res = await apiRequest("POST", `/api/tasks/${taskId}/community/publish`, {
-        challengeId,
-        code,
-        communityShowNotes: showNotes,
-      });
-      return res.json();
+      return syncRawTaskRequest(
+        "POST",
+        `/api/tasks/${taskId}/community/publish`,
+        { challengeId, code, communityShowNotes: showNotes },
+        queryClient,
+      );
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data && typeof data === "object" && "offlineQueued" in data) {
+        toast({ title: "Queued", description: "Publish will sync when you're online." });
+        return;
+      }
       setPubMfaOpen(false);
       setPubChallenge(null);
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
@@ -161,10 +167,18 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
 
   const unpublishMutation = useMutation({
     mutationFn: async ({ challengeId, code }: { challengeId: string; code: string }) => {
-      const res = await apiRequest("POST", `/api/tasks/${taskId}/community/unpublish`, { challengeId, code });
-      return res.json();
+      return syncRawTaskRequest(
+        "POST",
+        `/api/tasks/${taskId}/community/unpublish`,
+        { challengeId, code },
+        queryClient,
+      );
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data && typeof data === "object" && "offlineQueued" in data) {
+        toast({ title: "Queued", description: "Unpublish will sync when you're online." });
+        return;
+      }
       setUnpubMfaOpen(false);
       setUnpubChallenge(null);
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });

@@ -113,13 +113,14 @@ export async function deliverMfaOtp(params: DeliverMfaParams): Promise<{ ok: tru
 
   if (channel === "email") {
     const handoffUrl = buildMfaHandoffUrl({ challengeId, code, purpose });
+    const handoffUrlHref = escapeHtml(handoffUrl);
     const html = `
       <div style="font-family:Inter,Segoe UI,Arial,sans-serif;line-height:1.5;color:#111827">
         <h2 style="margin:0 0 10px 0">Confirm it's you</h2>
-        <p style="margin:0 0 8px 0">Your AxTask verification code is <strong style="font-size:20px;letter-spacing:2px">${code}</strong>.</p>
+        <p style="margin:0 0 8px 0">Your AxTask verification code is <strong style="font-size:20px;letter-spacing:2px">${escapeHtml(code)}</strong>.</p>
         <p style="margin:0 0 14px 0;color:#4b5563">For a seamless handoff, open the button below and AxTask will attempt to auto-load the active flow.</p>
         <p style="margin:0 0 16px 0">
-          <a href="${handoffUrl}" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#0f172a;color:#fff;text-decoration:none;font-weight:600">Open AxTask confirmation</a>
+          <a href="${handoffUrlHref}" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#0f172a;color:#fff;text-decoration:none;font-weight:600">Open AxTask confirmation</a>
         </p>
         <p style="margin:0;color:#6b7280;font-size:12px">If you did not request this, you can ignore this email.</p>
       </div>`;
@@ -149,11 +150,11 @@ export async function sendWelcomeExperienceEmail(params: {
       <h1 style="margin:0 0 10px 0;font-size:24px">Welcome to AxTask, ${firstSafe}.</h1>
       <p style="margin:0 0 14px 0;color:#374151">Your workspace is ready. We'll auto-load the AxTask experience when you open this page.</p>
       <p style="margin:0 0 16px 0">
-        <a href="${url}" style="display:inline-block;padding:11px 16px;border-radius:12px;background:linear-gradient(120deg,#0ea5e9,#8b5cf6);color:#fff;text-decoration:none;font-weight:700">
+        <a href="${urlSafe}" style="display:inline-block;padding:11px 16px;border-radius:12px;background:linear-gradient(120deg,#0ea5e9,#8b5cf6);color:#fff;text-decoration:none;font-weight:700">
           ✓ Launch My AxTask Adventure
         </a>
       </p>
-      <p style="margin:0;color:#6b7280;font-size:12px">If it doesn't load automatically, use the button above or this direct link: <a href="${url}">${urlSafe}</a>.</p>
+      <p style="margin:0;color:#6b7280;font-size:12px">If it doesn't load automatically, use the button above or this direct link: <a href="${urlSafe}">${urlSafe}</a>.</p>
     </div>`;
   return sendResendEmail(params.email, "Welcome to AxTask - your workspace is ready", html);
 }

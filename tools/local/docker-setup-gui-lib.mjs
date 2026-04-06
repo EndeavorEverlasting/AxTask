@@ -21,6 +21,21 @@ export function normalizeEnvText(text) {
 }
 
 /**
+ * Double-quote and escape a value for a single-line KEY="..." .env assignment.
+ * @param {string} value
+ * @returns {string}
+ */
+function encodeEnvValue(value) {
+  const s = String(value);
+  const escaped = s
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r");
+  return `"${escaped}"`;
+}
+
+/**
  * @param {string} databaseUrl
  * @param {string} newPassword
  * @returns {string}
@@ -46,7 +61,7 @@ export function syncDatabaseUrlPassword(databaseUrl, newPassword) {
  */
 export function upsertEnvKey(text, key, value) {
   const safeKey = escapeRegex(key);
-  const line = `${key}=${value}`;
+  const line = `${key}=${encodeEnvValue(value)}`;
   const re = new RegExp(`^\\s*${safeKey}\\s*=.*$`, "m");
   if (re.test(text)) {
     return text.replace(re, line);
@@ -101,14 +116,31 @@ export function applyDockerGuiValues(baseText, values) {
 }
 
 /**
+ * @param {string} s
+ * @returns {boolean} true when the string contains characters unsafe for .env lines
+ */
+function hasForbiddenEnvChars(s) {
+  return /[\r\n\x00]/.test(String(s));
+}
+
+/**
  * @param {Record<string, string>} formData
- * @returns {string | null}
+ * @returns {string | null} error message, or null when valid
  */
 export function validateDockerGuiValues(formData) {
   const postgresPassword = String(formData.POSTGRES_PASSWORD || "").trim();
   const sessionSecret = String(formData.SESSION_SECRET || "").trim();
   const demoEnabled = String(formData.AXTASK_DOCKER_SEED_DEMO || "0") === "1";
   const demoPassword = String(formData.DOCKER_DEMO_PASSWORD || "").trim();
+  const demoEmail = String(formData.DOCKER_DEMO_USER_EMAIL || "").trim();
+  if (
+    hasForbiddenEnvChars(postgresPassword) ||
+    hasForbiddenEnvChars(sessionSecret) ||
+    hasForbiddenEnvChars(demoPassword) ||
+    hasForbiddenEnvChars(demoEmail)
+  ) {
+    return "Values cannot contain line breaks or null bytes.";
+  }
   if (!postgresPassword) {
     return "POSTGRES_PASSWORD is required.";
   }

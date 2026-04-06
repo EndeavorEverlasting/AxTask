@@ -74,6 +74,7 @@ import {
   applyFeedbackFilters,
   buildFeedbackCsv,
   type FeedbackInboxItem,
+  feedbackChannelLabel,
   type FeedbackPriorityFilter,
   type FeedbackReviewedFilter,
   type FeedbackReviewerFilter,
@@ -207,6 +208,7 @@ export default function AdminPage() {
   const [importBundle, setImportBundle] = useState<any>(null);
   const [importFileName, setImportFileName] = useState("");
   const [importMode, setImportMode] = useState<"preserve" | "remap">("preserve");
+  const [importConfirmOpen, setImportConfirmOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [adminStepCode, setAdminStepCode] = useState("");
@@ -1297,6 +1299,11 @@ export default function AdminPage() {
                     </Badge>
                     <Badge variant="outline">{item.classification}</Badge>
                     <Badge variant="outline">{item.sentiment}</Badge>
+                    {item.channel ? (
+                      <Badge variant="outline" className="font-normal">
+                        {feedbackChannelLabel(item.channel)}
+                      </Badge>
+                    ) : null}
                     <span className="text-xs text-muted-foreground">
                       {item.createdAt ? new Date(item.createdAt).toLocaleString() : "n/a"}
                     </span>
@@ -1307,8 +1314,24 @@ export default function AdminPage() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    user: {item.actorUserId || "unknown"} · message chars: {item.messageLength} · attachments: {item.attachments}
+                    user: {item.actorUserId || (item.channel === "public_contact" ? "anonymous" : "unknown")} · message
+                    chars: {item.messageLength} · attachments: {item.attachments}
+                    {item.reporterEmail ? (
+                      <>
+                        {" "}
+                        · reply-to: <span className="font-mono">{item.reporterEmail}</span>
+                      </>
+                    ) : null}
+                    {item.reporterName ? (
+                      <>
+                        {" "}
+                        · name: {item.reporterName}
+                      </>
+                    ) : null}
                   </p>
+                  {item.message ? (
+                    <p className="text-sm whitespace-pre-wrap rounded-md border bg-muted/30 p-3">{item.message}</p>
+                  ) : null}
                   {item.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {item.tags.map((tag) => (
@@ -1661,11 +1684,7 @@ export default function AdminPage() {
                       <Button
                         className="flex-1"
                         disabled={importMutation.isPending}
-                        onClick={() => {
-                          if (confirm("This will import data into the database. Records with existing IDs will be skipped. Continue?")) {
-                            importMutation.mutate({ bundle: importBundle, dryRun: false, mode: importMode });
-                          }
-                        }}
+                        onClick={() => setImportConfirmOpen(true)}
                       >
                         {importMutation.isPending ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1976,6 +1995,35 @@ export default function AdminPage() {
               }
             >
               Revoke access
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={importConfirmOpen} onOpenChange={setImportConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Run database import?</DialogTitle>
+            <DialogDescription>
+              This writes to the database. Rows whose IDs already exist will be skipped. Use &quot;Dry Run&quot; first if
+              you are unsure.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setImportConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!importBundle || importMutation.isPending}
+              onClick={() => {
+                setImportConfirmOpen(false);
+                if (importBundle) {
+                  importMutation.mutate({ bundle: importBundle, dryRun: false, mode: importMode });
+                }
+              }}
+            >
+              Import now
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -6,8 +6,8 @@ import {
   classificationContributions, classificationConfirmations,
   userBillingProfiles, userClassificationCategories,
 } from "@shared/schema";
-import { eq, inArray, sql, type SQL } from "drizzle-orm";
-import type { PgTable } from "drizzle-orm/pg-core";
+import { asc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
 
 export interface ExportMetadata {
   schemaVersion: number;
@@ -25,14 +25,21 @@ export interface ExportBundle {
 
 const CHUNK_SIZE = 1000;
 
+function idOrderColumn(table: PgTable): AnyPgColumn {
+  const t = table as unknown as { id?: AnyPgColumn };
+  if (!t.id) throw new Error("queryChunked: table must expose an id column for stable pagination");
+  return t.id;
+}
+
 async function queryChunked(table: PgTable, condition?: SQL): Promise<Record<string, unknown>[]> {
   const results: Record<string, unknown>[] = [];
   let offset = 0;
+  const idCol = idOrderColumn(table);
 
   while (true) {
     const baseQuery = condition
-      ? db.select().from(table).where(condition)
-      : db.select().from(table);
+      ? db.select().from(table).where(condition).orderBy(asc(idCol))
+      : db.select().from(table).orderBy(asc(idCol));
     const chunk = await baseQuery.limit(CHUNK_SIZE).offset(offset);
     results.push(...(chunk as Record<string, unknown>[]));
     if (chunk.length < CHUNK_SIZE) break;
@@ -129,8 +136,20 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
 }
 
 const SENSITIVE_USER_FIELDS = new Set([
-  "passwordHash", "securityAnswerHash", "securityQuestion",
-  "failedLoginAttempts", "lockedUntil",
+  "passwordHash",
+  "securityAnswerHash",
+  "securityQuestion",
+  "failedLoginAttempts",
+  "lockedUntil",
+  "workosId",
+  "googleId",
+  "replitId",
+  "phoneE164",
+  "phoneVerifiedAt",
+  "birthDate",
+  "banReason",
+  "bannedAt",
+  "bannedBy",
 ]);
 
 function sanitizeUserRow(row: Record<string, unknown>): Record<string, unknown> {
@@ -196,7 +215,12 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
   let referencedTasks: Record<string, unknown>[] = [];
   if (referencedTaskIds.size > 0) {
     const idList = Array.from(referencedTaskIds);
-    referencedTasks = (await queryChunked(tasks, inArray(tasks.id, idList))) as Record<string, unknown>[];
+    const CHUNK = 5000;
+    for (let i = 0; i < idList.length; i += CHUNK) {
+      const chunk = idList.slice(i, i + CHUNK);
+      const part = (await queryChunked(tasks, inArray(tasks.id, chunk))) as Record<string, unknown>[];
+      referencedTasks.push(...part);
+    }
   }
 
   const allTaskRows = [...userTasks, ...referencedTasks];

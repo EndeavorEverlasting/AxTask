@@ -1,16 +1,22 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearOfflineTaskQueue,
   enqueueTaskCreate,
   enqueueTaskDelete,
   enqueueTaskUpdate,
-  OFFLINE_TASK_QUEUE_STORAGE_KEY,
   peekOfflineQueue,
+  setOfflineQueueUserScope,
 } from "./offline-task-queue";
 
+const SCOPED_KEY = "axtask.offline_task_queue.v1:user:test-user";
+
 describe("offline-task-queue", () => {
+  beforeEach(() => {
+    setOfflineQueueUserScope("test-user");
+  });
   afterEach(() => {
     clearOfflineTaskQueue();
+    setOfflineQueueUserScope(null);
     vi.restoreAllMocks();
   });
 
@@ -36,7 +42,7 @@ describe("offline-task-queue", () => {
 
   it("persists to localStorage", () => {
     enqueueTaskCreate("cid", { date: "2026-01-01", activity: "A" } as import("@shared/schema").InsertTask);
-    const raw = localStorage.getItem(OFFLINE_TASK_QUEUE_STORAGE_KEY);
+    const raw = localStorage.getItem(SCOPED_KEY);
     expect(raw).toBeTruthy();
     expect(JSON.parse(raw!).length).toBe(1);
   });

@@ -29,3 +29,14 @@ docs/AxTask_Robust_Hosting_Migration_Plan_*.docx
 
 # Filled operator runbook (may contain real emails / hostnames) — template stays in git
 docs/internal/OPERATOR_RUNBOOK.md
+
+# Test / typecheck artifacts (keep out of PRs and accidental commits)
+coverage/
+.nyc_output/
+.vitest/
+*.tsbuildinfo
+
+# OS / editor noise
+Thumbs.db
+ehthumbs.db
+Desktop.ini

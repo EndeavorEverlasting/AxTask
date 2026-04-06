@@ -143,8 +143,8 @@ export async function computeEntouragePayload(userId: string): Promise<Entourage
   ]);
 
   const openCount = allTasks.filter((t: Task) => t.status !== "completed").length;
-  const streak = wallet.currentStreak;
-  const longest = wallet.longestStreak;
+  const streak = wallet.currentStreak ?? 0;
+  const longest = wallet.longestStreak ?? 0;
 
   const companions: EntourageCompanion[] = [
     moodFromSignals(patterns, streak, openCount, completed),

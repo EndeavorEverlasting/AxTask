@@ -14,6 +14,7 @@ function csrfHeaders(): Record<string, string> {
     ? { "Content-Type": "application/json", [AXTASK_CSRF_HEADER]: token }
     : { "Content-Type": "application/json" };
 }
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { DonateCta } from "@/components/donate-cta";
 import { LoginHelpOverlay } from "@/components/login-help-overlay";
@@ -1002,8 +1003,17 @@ export default function LoginPage() {
                 |
               </span>
               <span className="text-xs text-gray-400 dark:text-gray-500">
-                Shortcut: Ctrl+Shift+H
+                Shortcut: Ctrl+Shift+H (Cmd+Shift+H on Mac) — focus the page, not the bar
               </span>
+              <span className="text-gray-300 dark:text-gray-600 hidden sm:inline" aria-hidden>
+                |
+              </span>
+              <Link
+                href="/contact"
+                className="inline-flex items-center gap-1.5 text-primary hover:underline font-medium"
+              >
+                Contact &amp; email
+              </Link>
             </div>
             {mode === "login" ? (
               canRegister ? (

@@ -106,6 +106,12 @@ describe("GoogleSheetsSync", () => {
       expect(cb).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("generateSyncInstructions mentions Import/Export", () => {
+    expect(GoogleSheetsSync.generateSyncInstructions()).toContain(
+      "Import/Export",
+    );
+  });
 });
 
 describe("googleSheetsUtils", () => {
@@ -126,11 +132,5 @@ describe("googleSheetsUtils", () => {
       "Date,Activity\n2025-01-01\tTask",
     );
     expect(r.warnings.some((w) => w.toLowerCase().includes("tab"))).toBe(true);
-  });
-
-  it("generateSyncInstructions mentions Import/Export", () => {
-    expect(GoogleSheetsSync.generateSyncInstructions()).toContain(
-      "Import/Export",
-    );
   });
 });

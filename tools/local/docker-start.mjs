@@ -260,7 +260,7 @@ async function main() {
       } else if (demo && "password" in demo) {
         console.log("[docker:up] Docker demo login (from .env.docker):");
         console.log(`    Email:    ${demo.email}`);
-        console.log(`    Password: ${demo.password}`);
+        console.log("    Password: (see DOCKER_DEMO_PASSWORD in .env.docker — not printed)");
       } else {
         console.log(
           "[docker:up] Sign in: use **Register** at http://localhost:5000 (open registration), or set AXTASK_DOCKER_SEED_DEMO=1 and demo fields in .env.docker — see .env.docker.example.",

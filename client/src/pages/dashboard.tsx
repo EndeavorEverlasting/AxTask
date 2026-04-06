@@ -6,6 +6,7 @@ import { BarChart3, CheckCircle, AlertTriangle, ListTodo } from "lucide-react";
 import { motion } from "framer-motion";
 import { useCountUp, useCountUpDecimal } from "@/hooks/use-count-up";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { ImmersivePretextCue } from "@/components/layout/immersive-pretext-cue";
 
 interface TaskStats {
   totalTasks: number;
@@ -73,9 +74,12 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 md:space-y-8">
-      <div>
-        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Task Dashboard</h2>
-        <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">Manage and prioritize your tasks efficiently</p>
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Task Dashboard</h2>
+          <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">Manage and prioritize your tasks efficiently</p>
+        </div>
+        <ImmersivePretextCue />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">

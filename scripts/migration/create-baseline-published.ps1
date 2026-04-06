@@ -23,7 +23,7 @@ Set-Location (Resolve-Path (Join-Path $PSScriptRoot "..\.."))
 git fetch origin
 $resolved = git rev-parse --verify "${Commit}^{commit}" 2>$null
 if (-not $resolved) {
-  Write-Error "Invalid commit: $Commit"
+  throw "Invalid commit: $Commit (not found in repository)"
 }
 
 if (git show-ref --verify --quiet "refs/heads/baseline/published") {

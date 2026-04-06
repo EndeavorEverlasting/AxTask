@@ -280,8 +280,8 @@ function VirtualizedTaskTable({
   onEdit,
   onToggleStatus,
   onDelete,
-  isUpdating,
-  isDeleting,
+  isUpdatingRow,
+  isDeletingRow,
   sortField,
   sortDirection,
   handleSort,
@@ -291,8 +291,8 @@ function VirtualizedTaskTable({
   onEdit: (task: Task) => void;
   onToggleStatus: (id: string, status: string) => void;
   onDelete: (id: string) => void;
-  isUpdating: boolean;
-  isDeleting: boolean;
+  isUpdatingRow: (taskId: string) => boolean;
+  isDeletingRow: (taskId: string) => boolean;
   sortField: SortField;
   sortDirection: SortDirection;
   handleSort: (field: SortField) => void;
@@ -309,7 +309,7 @@ function VirtualizedTaskTable({
 
   return (
     <div ref={scrollContainerRef} className="overflow-auto" style={{ maxHeight: '70vh' }}>
-      <Table>
+      <Table containerClassName="overflow-visible max-h-none">
         <TableHeader className="sticky top-0 z-10 bg-white dark:bg-gray-800">
           <TableRow>
             {isDragMode && <TableHead className="w-8"></TableHead>}
@@ -369,8 +369,8 @@ function VirtualizedTaskTable({
                   onEdit={onEdit}
                   onToggleStatus={onToggleStatus}
                   onDelete={onDelete}
-                  isUpdating={isUpdating}
-                  isDeleting={isDeleting}
+                  isUpdating={isUpdatingRow(task.id)}
+                  isDeleting={isDeletingRow(task.id)}
                   reducedMotion={true}
                 />
               );
@@ -550,6 +550,7 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefOb
   const pulling = useRef(false);
   const pullDistanceRef = useRef(0);
   const isRefreshingRef = useRef(false);
+  const isMounted = useRef(true);
   const PULL_THRESHOLD = 60;
 
   useEffect(() => {
@@ -559,6 +560,13 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefOb
   useEffect(() => {
     isRefreshingRef.current = isRefreshing;
   }, [isRefreshing]);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -588,10 +596,10 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefOb
         setIsRefreshing(true);
         setPullDistance(PULL_THRESHOLD);
         await onRefresh();
-        setIsRefreshing(false);
+        if (isMounted.current) setIsRefreshing(false);
       }
       pullDistanceRef.current = 0;
-      setPullDistance(0);
+      if (isMounted.current) setPullDistance(0);
       pulling.current = false;
     };
 
@@ -651,9 +659,24 @@ export function TaskList() {
     queryKey: ["/api/storage/me"],
   });
 
+  const [updatingTaskIds, setUpdatingTaskIds] = useState<Set<string>>(() => new Set());
+  const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(() => new Set());
+
   const deleteTaskMutation = useMutation({
     mutationFn: async ({ id, baseTask }: { id: string; baseTask?: Task }) => {
       await syncDeleteTask(id, baseTask, queryClient);
+    },
+    onMutate: ({ id }) => {
+      setDeletingTaskIds((prev) => new Set(prev).add(id));
+    },
+    onSettled: (_d, _e, variables) => {
+      const id = variables?.id;
+      if (!id) return;
+      setDeletingTaskIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     },
     onSuccess: () => {
       if (isBrowserOnline()) {
@@ -678,6 +701,18 @@ export function TaskList() {
   const updateTaskStatusMutation = useMutation({
     mutationFn: async ({ id, status, baseTask }: { id: string; status: string; baseTask?: Task }) => {
       return syncUpdateTask(id, { status }, baseTask, queryClient);
+    },
+    onMutate: ({ id }) => {
+      setUpdatingTaskIds((prev) => new Set(prev).add(id));
+    },
+    onSettled: (_d, _e, variables) => {
+      const id = variables?.id;
+      if (!id) return;
+      setUpdatingTaskIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     },
     onSuccess: (data) => {
       const d = data as { offlineQueued?: boolean; coinReward?: unknown } | undefined;
@@ -1020,8 +1055,8 @@ export function TaskList() {
                   onEdit={handleEdit}
                   onToggleStatus={handleToggleStatus}
                   onDelete={handleDelete}
-                  isUpdating={updateTaskStatusMutation.isPending}
-                  isDeleting={deleteTaskMutation.isPending}
+                  isUpdating={updatingTaskIds.has(task.id)}
+                  isDeleting={deletingTaskIds.has(task.id)}
                 />
               ))}
             </div>
@@ -1035,15 +1070,15 @@ export function TaskList() {
                 onEdit={handleEdit}
                 onToggleStatus={handleToggleStatus}
                 onDelete={handleDelete}
-                isUpdating={updateTaskStatusMutation.isPending}
-                isDeleting={deleteTaskMutation.isPending}
+                isUpdatingRow={(id) => updatingTaskIds.has(id)}
+                isDeletingRow={(id) => deletingTaskIds.has(id)}
                 sortField={sortField}
                 sortDirection={sortDirection}
                 handleSort={handleSort}
               />
             ) : (
               <div className="overflow-x-auto">
-                <Table>
+                <Table containerClassName="overflow-visible max-h-none">
                   <TableHeader>
                     <TableRow>
                       {isDragMode && <TableHead className="w-8"></TableHead>}
@@ -1097,8 +1132,8 @@ export function TaskList() {
                             onEdit={handleEdit}
                             onToggleStatus={handleToggleStatus}
                             onDelete={handleDelete}
-                            isUpdating={updateTaskStatusMutation.isPending}
-                            isDeleting={deleteTaskMutation.isPending}
+                            isUpdating={updatingTaskIds.has(task.id)}
+                            isDeleting={deletingTaskIds.has(task.id)}
                             reducedMotion={reducedMotion}
                           />
                         ))}

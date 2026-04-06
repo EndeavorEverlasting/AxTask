@@ -6,18 +6,20 @@ AxTask automates work through **small, testable engines** and a **dispatcher** r
 
 - **File:** [`server/engines/dispatcher.ts`](../server/engines/dispatcher.ts)
 - **Role:** Classifies user intent (`task_create`, `planner_query`, `calendar_command`, `task_review`, etc.) and delegates to the right engine.
-- **Registration:** New NL intents belong in one place (`INTENT_PATTERNS`) with priority ordering.
+- **Registration:** New NL intents are added in `dispatcher.ts` (patterns + handler branches), not a separate global `INTENT_PATTERNS` registry file.
 
-## Specialized engines (today)
+## Specialized engines (implemented under `server/engines/`)
 
 | Engine | File | Role |
 |--------|------|------|
-| Calendar | `calendar-engine.ts` | Natural language → structured calendar commands. |
-| Planner | `planner-engine.ts` | Queries over tasks / priorities. |
-| Review | `review-engine.ts` | Completion / bulk review flows. |
-| Feedback | `feedback-engine.ts` | Feedback inbox processing. |
-| Pattern | `pattern-engine.ts` | Task history / pattern insights (NodeWeaver-related). |
-| **Billing summary** | `billing-summary-engine.ts` | **Account plane** read model for `/billing` (subscriptions + invoices + payment methods only). |
+| **Dispatcher** | `dispatcher.ts` | Intent routing for voice/NL; delegates to planner, calendar, review, etc. |
+| **Planner** | `planner-engine.ts` | Natural-language queries over tasks / priorities / briefing-style answers. |
+| **Calendar** | `calendar-engine.ts` | Natural language → structured calendar commands. |
+| **Review** | `review-engine.ts` | Voice/review completion and bulk review actions. |
+| **Pattern** | `pattern-engine.ts` | Task history / pattern insights (classification and habit signals). |
+| **Feedback** | `feedback-engine.ts` | Feedback inbox parsing and related helpers. |
+| **Billing summary** | `billing-summary-engine.ts` | Account-plane read model for `/billing` (subscriptions, invoices, payment methods). |
+| **Entourage** | `entourage-engine.ts` | Avatar / companion payload derived from usage (used with gamification routes). |
 
 ## Product planes (do not conflate)
 

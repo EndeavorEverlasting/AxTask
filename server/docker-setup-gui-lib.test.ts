@@ -17,10 +17,10 @@ describe("docker setup gui helpers", () => {
 
   it("upserts existing keys and appends missing keys", () => {
     const updated = upsertEnvKey("FOO=1\n", "FOO", "2");
-    expect(updated).toContain("FOO=2");
+    expect(updated).toContain('FOO="2"');
 
     const appended = upsertEnvKey("FOO=1\n", "BAR", "x");
-    expect(appended).toContain("BAR=x");
+    expect(appended).toContain('BAR="x"');
   });
 
   it("applies GUI values and keeps DB password in sync", () => {
@@ -42,10 +42,10 @@ describe("docker setup gui helpers", () => {
       DOCKER_DEMO_PASSWORD: "newDemoPass1",
     });
 
-    expect(next).toContain("POSTGRES_PASSWORD=new123");
-    expect(next).toContain("DATABASE_URL=postgresql://axtask:new123@database:5432/axtask");
-    expect(next).toContain("AXTASK_DOCKER_SEED_DEMO=0");
-    expect(next).toContain("DOCKER_DEMO_USER_EMAIL=new@demo.local");
+    expect(next).toContain('POSTGRES_PASSWORD="new123"');
+    expect(next).toContain('DATABASE_URL="postgresql://axtask:new123@database:5432/axtask"');
+    expect(next).toContain('AXTASK_DOCKER_SEED_DEMO="0"');
+    expect(next).toContain('DOCKER_DEMO_USER_EMAIL="new@demo.local"');
   });
 
   it("validates required values", () => {
@@ -81,9 +81,9 @@ describe("docker setup gui helpers", () => {
     });
 
     expect(next).toContain("POSTGRES_USER=axtask\n");
-    expect(next).toContain("POSTGRES_PASSWORD=abc123");
+    expect(next).toContain('POSTGRES_PASSWORD="abc123"');
     expect(next).toContain(
-      "DATABASE_URL=postgresql://axtask:abc123@database:5432/axtask",
+      'DATABASE_URL="postgresql://axtask:abc123@database:5432/axtask"',
     );
   });
 });

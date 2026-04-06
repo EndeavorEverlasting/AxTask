@@ -60,7 +60,9 @@ function catalogPriceLabel(planKey: string): string | null {
   }
   const plan = PREMIUM_CATALOG.plans.find((p) => p.planKey === planKey);
   if (!plan) return null;
-  return `$${plan.monthlyPriceUsd.toFixed(2)} per month`;
+  const usd = plan.monthlyPriceUsd;
+  if (typeof usd !== "number" || !Number.isFinite(usd)) return null;
+  return `$${usd.toFixed(2)} per month`;
 }
 
 function subscriptionDisplayName(product: string, planKey: string): string {

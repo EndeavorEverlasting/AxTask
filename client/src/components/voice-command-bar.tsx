@@ -1,4 +1,5 @@
 import { useVoice } from "@/hooks/use-voice";
+import { KBD } from "@/lib/keyboard-shortcuts";
 import { AnimatePresence, motion } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import {
@@ -173,7 +174,9 @@ export function VoiceCommandBar() {
 
           <div className="px-4 pb-2 flex items-center justify-between">
             <div className="flex gap-2 text-[10px] text-gray-400 dark:text-gray-500">
-              <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">Ctrl+M</span>
+              <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">
+                {KBD.voice}/{KBD.voiceMac}
+              </span>
               <span>toggle mic</span>
               <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">Esc</span>
               <span>close</span>
@@ -199,7 +202,7 @@ export function VoiceBarTrigger() {
           ? "bg-red-500/10 text-red-500 animate-pulse"
           : "text-gray-400 hover:text-purple-500 hover:bg-purple-500/10"
       )}
-      title="Voice Commands (Ctrl+M)"
+      title={`Voice commands (${KBD.voice} / ${KBD.voiceMac}, with focus in the page)`}
     >
       <Mic className="h-4 w-4" />
     </button>

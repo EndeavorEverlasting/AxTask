@@ -246,12 +246,14 @@ function parseVaultRows(rows: any[][], headers: string[]): any[] {
   return tasks;
 }
 
-/** Removes leading # comment lines so CSV re-import after export stays clean. */
+/** Removes leading # comment lines (before the header row) so CSV re-import after export stays clean. */
 export function stripCsvAttributionLines(csvText: string): string {
-  return csvText
-    .split("\n")
-    .filter((line) => !/^\s*#/.test(line))
-    .join("\n");
+  const lines = csvText.split("\n");
+  let i = 0;
+  while (i < lines.length && /^\s*#/.test(lines[i] ?? "")) {
+    i += 1;
+  }
+  return lines.slice(i).join("\n");
 }
 
 export function parseTasksFromCSV(csvText: string): any[] {

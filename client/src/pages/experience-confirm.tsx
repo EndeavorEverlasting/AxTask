@@ -35,16 +35,27 @@ function CompletedSplash() {
 
 export default function ExperienceConfirmPage() {
   const mode: Mode = window.location.pathname.startsWith("/welcome") ? "welcome" : "mfa";
-  const q = new URLSearchParams(window.location.search);
-  const challengeId = q.get("challengeId") || "";
-  const code = q.get("code") || "";
-  const purpose = q.get("purpose") || "";
+  const [handoff] = useState(() => {
+    const q = new URLSearchParams(window.location.search);
+    return {
+      challengeId: q.get("challengeId") || "",
+      code: q.get("code") || "",
+      purpose: q.get("purpose") || "",
+    };
+  });
+  const { challengeId, code, purpose } = handoff;
   const [sent, setSent] = useState(false);
 
   useEffect(() => {
     if (mode === "mfa" && challengeId && code && purpose) {
       emitMfaHandoff({ challengeId, code, purpose });
       setSent(true);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("challengeId");
+      url.searchParams.delete("code");
+      url.searchParams.delete("purpose");
+      const next = url.pathname + (url.search ? url.search : "");
+      window.history.replaceState({}, "", next);
     }
     const t = window.setTimeout(() => {
       window.location.href = "/";
@@ -62,7 +73,7 @@ export default function ExperienceConfirmPage() {
       : "AxTask should auto-load. If it does not, hit the launch button below and jump straight in.";
 
   const onLaunch = () => {
-    if (mode === "mfa" && challengeId && code && purpose) {
+    if (!sent && mode === "mfa" && challengeId && code && purpose) {
       emitMfaHandoff({ challengeId, code, purpose });
       setSent(true);
     }
@@ -117,4 +128,3 @@ export default function ExperienceConfirmPage() {
     </div>
   );
 }
-

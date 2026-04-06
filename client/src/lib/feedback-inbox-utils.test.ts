@@ -74,7 +74,7 @@ describe("feedback-inbox-utils", () => {
 
   it("builds CSV header and values", () => {
     const csv = buildFeedbackCsv(sample);
-    expect(csv).toContain("\"id\",\"createdAt\"");
+    expect(csv).toContain("\"id\",\"createdAt\",\"actorUserId\",\"channel\"");
     expect(csv).toContain("\"a\"");
     expect(csv).toContain("\"b\"");
   });

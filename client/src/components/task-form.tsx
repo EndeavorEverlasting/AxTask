@@ -343,16 +343,35 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     let cancelled = false;
 
     apiRequest("POST", "/api/patterns/suggest-deadline", { activity: debouncedActivity })
-      .then(res => res.json())
-      .then(data => {
-        if (!cancelled && data.suggestion) {
-          setDeadlineSuggestion(data.suggestion);
+      .then(async (res) => {
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          console.warn("[task-form] suggest-deadline failed:", res.status, t || res.statusText);
+          if (!cancelled) setDeadlineSuggestion(null);
+          return;
+        }
+        return res.json() as Promise<{ suggestion?: unknown }>;
+      })
+      .then((data) => {
+        if (!data || cancelled) return;
+        const s = data.suggestion;
+        if (
+          s &&
+          typeof s === "object" &&
+          typeof (s as { suggestedDate?: unknown }).suggestedDate === "string" &&
+          typeof (s as { reason?: unknown }).reason === "string" &&
+          typeof (s as { confidence?: unknown }).confidence === "number"
+        ) {
+          setDeadlineSuggestion(s as { suggestedDate: string; reason: string; confidence: number });
           setSuggestionDismissed(false);
-        } else if (!cancelled) {
+        } else {
           setDeadlineSuggestion(null);
         }
       })
-      .catch(() => {});
+      .catch((e) => {
+        console.warn("[task-form] suggest-deadline error:", e);
+        if (!cancelled) setDeadlineSuggestion(null);
+      });
 
     return () => { cancelled = true; };
   }, [debouncedActivity, task]);
@@ -427,6 +446,8 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     }
   }, [consumeTaskPrefill, form, task]);
 
+  // Intentionally mount-only: one-time yellow hints for a fresh composer, not re-run when task/form changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
   useEffect(() => {
     if (task) return;
     const values = form.getValues();
@@ -989,7 +1010,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 <Button 
                   type="submit" 
                   disabled={createTaskMutation.isPending} 
-                  title="Submit (Ctrl+Enter)" 
+                  title="Submit (Ctrl+Enter / Cmd+Enter — focus in the page)" 
                   className={cn(
                     "min-h-[44px]",
                     task 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { Globe2, ChevronLeft } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,55 +27,68 @@ export default function CommunityPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const loadMoreAbortRef = useRef<AbortController | null>(null);
 
-  const fetchPage = useCallback(async (cursor: { publishedAt: string; id: string } | null) => {
-    const params = new URLSearchParams();
-    params.set("limit", "20");
-    if (cursor) {
-      params.set("cursorAt", cursor.publishedAt);
-      params.set("cursorId", cursor.id);
-    }
-    const r = await fetch(`/api/public/community/tasks?${params.toString()}`);
-    if (!r.ok) {
-      throw new Error((await r.json().catch(() => ({})))?.message || r.statusText);
-    }
-    return r.json() as Promise<ListResponse>;
-  }, []);
+  const fetchPage = useCallback(
+    async (cursor: { publishedAt: string; id: string } | null, signal?: AbortSignal) => {
+      const params = new URLSearchParams();
+      params.set("limit", "20");
+      if (cursor) {
+        params.set("cursorAt", cursor.publishedAt);
+        params.set("cursorId", cursor.id);
+      }
+      const r = await fetch(`/api/public/community/tasks?${params.toString()}`, { signal });
+      if (!r.ok) {
+        throw new Error((await r.json().catch(() => ({})))?.message || r.statusText);
+      }
+      return r.json() as Promise<ListResponse>;
+    },
+    [],
+  );
 
   useEffect(() => {
-    let cancelled = false;
+    mountedRef.current = true;
+    const ac = new AbortController();
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const j = await fetchPage(null);
-        if (!cancelled) {
-          setTasks(j.tasks);
-          setNextCursor(j.nextCursor);
-        }
+        const j = await fetchPage(null, ac.signal);
+        if (!mountedRef.current) return;
+        setTasks(j.tasks);
+        setNextCursor(j.nextCursor);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
+        if ((e as Error).name === "AbortError") return;
+        if (mountedRef.current) setError(e instanceof Error ? e.message : "Failed to load");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (mountedRef.current) setLoading(false);
       }
     })();
     return () => {
-      cancelled = true;
+      mountedRef.current = false;
+      ac.abort();
+      loadMoreAbortRef.current?.abort();
     };
   }, [fetchPage]);
 
   const loadMore = async () => {
     if (!nextCursor) return;
+    loadMoreAbortRef.current?.abort();
+    const ac = new AbortController();
+    loadMoreAbortRef.current = ac;
     setLoadingMore(true);
     setError(null);
     try {
-      const j = await fetchPage(nextCursor);
+      const j = await fetchPage(nextCursor, ac.signal);
+      if (!mountedRef.current) return;
       setTasks((t) => [...t, ...j.tasks]);
       setNextCursor(j.nextCursor);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load more");
+      if ((e as Error).name === "AbortError") return;
+      if (mountedRef.current) setError(e instanceof Error ? e.message : "Failed to load more");
     } finally {
-      setLoadingMore(false);
+      if (mountedRef.current) setLoadingMore(false);
     }
   };
 

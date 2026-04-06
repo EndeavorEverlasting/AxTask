@@ -40,6 +40,7 @@ export default function AppealsPage() {
   const [subjectRef, setSubjectRef] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [pendingWithdrawId, setPendingWithdrawId] = useState<string | null>(null);
 
   const { data: appeals = [], isLoading } = useQuery<AppealRow[]>({
     queryKey: ["/api/appeals"],
@@ -48,11 +49,19 @@ export default function AppealsPage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      if (subjectType === "account_ban" && !user) {
+        throw new Error("You must be signed in to appeal an account ban.");
+      }
+      const t = title.trim();
+      const b = body.trim();
+      if (t.length < 5 || b.length < 20) {
+        throw new Error("Title must be at least 5 characters and details at least 20.");
+      }
       const res = await apiRequest("POST", "/api/appeals", {
         subjectType,
         subjectRef: subjectType === "account_ban" ? user!.id : subjectRef.trim(),
-        title: title.trim(),
-        body: body.trim(),
+        title: t,
+        body: b,
       });
       return res.json() as Promise<AppealRow>;
     },
@@ -67,16 +76,25 @@ export default function AppealsPage() {
       toast({ title: "Could not submit", description: e.message, variant: "destructive" }),
   });
 
+  const titleTrim = title.trim();
+  const bodyTrim = body.trim();
+  const titleValid = titleTrim.length >= 5;
+  const bodyValid = bodyTrim.length >= 20;
+  const formValid = titleValid && bodyValid;
+
   const withdrawMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("POST", `/api/appeals/${id}/withdraw`, {});
     },
     onSuccess: () => {
+      setPendingWithdrawId(null);
       queryClient.invalidateQueries({ queryKey: ["/api/appeals"] });
       toast({ title: "Withdrawn", description: "Your appeal was withdrawn." });
     },
-    onError: (e: Error) =>
-      toast({ title: "Withdraw failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => {
+      setPendingWithdrawId(null);
+      toast({ title: "Withdraw failed", description: e.message, variant: "destructive" });
+    },
   });
 
   if (!user) {
@@ -161,7 +179,11 @@ export default function AppealsPage() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Summary (min 5 characters)"
+              aria-invalid={titleTrim.length > 0 && !titleValid}
             />
+            {titleTrim.length > 0 && !titleValid && (
+              <p className="text-xs text-destructive">Use at least 5 characters for the title.</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="body">Details</Label>
@@ -171,10 +193,14 @@ export default function AppealsPage() {
               onChange={(e) => setBody(e.target.value)}
               placeholder="Explain what you are appealing and why (min 20 characters)."
               rows={6}
+              aria-invalid={bodyTrim.length > 0 && !bodyValid}
             />
+            {bodyTrim.length > 0 && !bodyValid && (
+              <p className="text-xs text-destructive">Use at least 20 characters in the details.</p>
+            )}
           </div>
           <Button
-            disabled={createMutation.isPending}
+            disabled={!formValid || createMutation.isPending}
             onClick={() => createMutation.mutate()}
           >
             Submit appeal
@@ -208,8 +234,11 @@ export default function AppealsPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={withdrawMutation.isPending}
-                    onClick={() => withdrawMutation.mutate(a.id)}
+                    disabled={pendingWithdrawId === a.id}
+                    onClick={() => {
+                      setPendingWithdrawId(a.id);
+                      withdrawMutation.mutate(a.id);
+                    }}
                   >
                     Withdraw
                   </Button>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,8 @@ export function MfaVerificationPanel({
   className,
 }: MfaVerificationPanelProps) {
   const [value, setValue] = useState("");
+  const handoffAppliedRef = useRef(false);
+  const handleCompleteRef = useRef<(code: string) => void | Promise<void>>(() => {});
 
   const handleComplete = useCallback(
     async (code: string) => {
@@ -59,6 +61,8 @@ export function MfaVerificationPanel({
     [isBusy, onSubmitCode],
   );
 
+  handleCompleteRef.current = handleComplete;
+
   useEffect(() => {
     if (!open) setValue("");
   }, [open]);
@@ -66,13 +70,17 @@ export function MfaVerificationPanel({
   useEffect(() => {
     if (!open || !challengeId) return;
 
+    handoffAppliedRef.current = false;
+
     const applyHandoff = (parsed: MfaHandoffPayload | null) => {
+      if (handoffAppliedRef.current) return;
       if (!parsed || parsed.challengeId !== challengeId) return;
       if (purpose && parsed.purpose !== purpose) return;
       const code = String(parsed.code || "").replace(/\D/g, "").slice(0, 6);
       if (code.length !== 6) return;
+      handoffAppliedRef.current = true;
       setValue(code);
-      void handleComplete(code);
+      void handleCompleteRef.current(code);
     };
 
     let bc: BroadcastChannel | null = null;
@@ -92,7 +100,7 @@ export function MfaVerificationPanel({
     return () => {
       if (bc) bc.close();
     };
-  }, [open, challengeId, purpose, handleComplete]);
+  }, [open, challengeId, purpose]);
 
   return (
     <AnimatePresence>

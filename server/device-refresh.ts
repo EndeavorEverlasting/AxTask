@@ -169,19 +169,22 @@ export async function performAuthRefresh(req: Request, res: Response): Promise<v
     return;
   }
 
-  req.login(user, async (err) => {
+  req.login(user, (err) => {
     if (err) {
       console.error("[auth] refresh session error:", err);
       res.status(500).json({ message: "Session restore failed" });
       return;
     }
-    try {
-      const newPlain = await rotateDeviceRefreshToken(plain, userId, req.get("user-agent"));
-      setDeviceRefreshCookie(res, newPlain);
-    } catch (e) {
-      console.error("[auth] refresh rotate:", e);
-    }
-    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
-    res.json(user);
+    void rotateDeviceRefreshToken(plain, userId, req.get("user-agent"))
+      .then((newPlain) => {
+        setDeviceRefreshCookie(res, newPlain);
+        res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+        res.json(user);
+      })
+      .catch((e) => {
+        console.error("[auth] refresh rotate:", e);
+        clearDeviceRefreshCookie(res);
+        res.status(401).json({ message: "Device session could not be renewed" });
+      });
   });
 }

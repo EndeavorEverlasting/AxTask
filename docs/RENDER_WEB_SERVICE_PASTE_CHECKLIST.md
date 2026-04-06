@@ -199,12 +199,14 @@ SESSION_SECRET=YOUR_RANDOM_STRING_AT_LEAST_32_CHARS
 | Key | What it is | Where the value comes from |
 |-----|------------|----------------------------|
 | **`RESEND_API_KEY`** | **One** secret API key per Resend account (starts with `re_`). You do **not** need multiple Resend API keys for AxTask unless you intentionally use separate Resend projects. | Resend dashboard → **API Keys** → create/copy. When you rotate, paste the **new** key here only. |
-| **`RESEND_FROM`** | **Not** an API key. The **From** address on outgoing mail (must use a **domain or address verified in Resend**). | Example: `noreply@axtask.app` or `AxTask <noreply@axtask.app>` — verify the domain in the Resend dashboard first. |
+| **`RESEND_FROM`** | **Not** an API key. The **From** address on outgoing mail (must use a **domain or address verified in Resend**). | Prefer a **subdomain** for automated mail (Resend’s UI recommends this): verify e.g. `mail.yourdomain.com` in Resend, add the DNS records at your registrar, then set `RESEND_FROM` to `noreply@mail.yourdomain.com` (or `AxTask <noreply@mail.yourdomain.com>`). Root domain (`yourdomain.com`) still works if you accept the reputation tradeoff. |
 
 ```
 RESEND_API_KEY=re_xxxxxxxx
-RESEND_FROM=noreply@YOUR_VERIFIED_DOMAIN
+RESEND_FROM=noreply@mail.YOUR_VERIFIED_SUBDOMAIN
 ```
+
+**Subdomain vs “contact” page:** The **mail subdomain** is only for **DNS + Resend** — you do **not** need a separate Render service or a public URL on `mail.…` for email to work. If you want a **public** URL such as `https://contact.yourdomain.com` that shows the same app (e.g. the in-app **`/contact`** page), add **`contact`** as a **custom domain** on the **same** Render Web Service and point a **CNAME** at Render in Porkbun (same flow as `www` / apex). Then set **`ADDITIONAL_ALLOWED_HOSTS=contact.yourdomain.com`** (and **`ADDITIONAL_ALLOWED_ORIGINS=https://contact.yourdomain.com`** if browser calls ever hit that host) so host allowlisting does not redirect that hostname away.
 
 After changing either value: **Save, rebuild, and deploy** on the Web Service.
 

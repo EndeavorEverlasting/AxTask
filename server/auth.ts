@@ -131,3 +131,11 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+/** Same session validation as requireAuth, but does not reject suspended accounts (e.g. ban appeals). */
+export function requireAuthAllowSuspended(req: Request, res: Response, next: NextFunction) {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ message: "Not authenticated" });
+  }
+  next();
+}
+

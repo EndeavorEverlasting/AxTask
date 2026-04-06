@@ -12,10 +12,27 @@ export type FeedbackInboxItem = {
   classifierSource: string;
   classifierFallbackLayer: number;
   classifierConfidence: number;
+  message?: string;
+  channel?: string;
+  reporterEmail?: string;
+  reporterName?: string;
   reviewed: boolean;
   reviewedAt?: string | null;
   reviewedBy?: string | null;
 };
+
+export function feedbackChannelLabel(channel?: string | null): string {
+  switch (channel) {
+    case "public_contact":
+      return "Public contact";
+    case "contact_form":
+      return "Contact (signed in)";
+    case "feedback_page":
+      return "Feedback";
+    default:
+      return "Other";
+  }
+}
 
 export type FeedbackSort = "newest" | "oldest" | "critical-first";
 export type FeedbackPriorityFilter = "all" | "critical" | "high" | "medium" | "low";
@@ -87,11 +104,15 @@ export function buildFeedbackCsv(items: FeedbackInboxItem[]): string {
     "id",
     "createdAt",
     "actorUserId",
+    "channel",
+    "reporterEmail",
+    "reporterName",
     "priority",
     "classification",
     "sentiment",
     "messageLength",
     "attachments",
+    "message",
     "tags",
     "recommendedActions",
     "classifierSource",
@@ -105,11 +126,15 @@ export function buildFeedbackCsv(items: FeedbackInboxItem[]): string {
     item.id,
     item.createdAt || "",
     item.actorUserId || "",
+    item.channel || "",
+    item.reporterEmail || "",
+    item.reporterName || "",
     item.priority,
     item.classification,
     item.sentiment,
     item.messageLength,
     item.attachments,
+    item.message || "",
     item.tags.join("|"),
     item.recommendedActions.join("|"),
     item.classifierSource,

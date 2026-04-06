@@ -107,10 +107,11 @@ export default function RewardsPage() {
       sourceType: "task" | "feedback" | "post";
       text: string;
       completed?: boolean;
+      sourceRef: string;
     }) => {
       const res = await apiRequest("POST", `/api/gamification/avatars/${payload.avatarKey}/engage`, {
         sourceType: payload.sourceType,
-        sourceRef: `${payload.sourceType}:${Date.now()}`,
+        sourceRef: payload.sourceRef,
         text: payload.text,
         completed: payload.completed ?? false,
       });
@@ -342,7 +343,18 @@ export default function RewardsPage() {
                       </div>
                       <p className="text-xs mt-2 text-muted-foreground">{av.mission}</p>
                       <div className="mt-2 h-2 rounded bg-muted overflow-hidden">
-                        <div className="h-full bg-emerald-500 transition-all" style={{ width: `${Math.min(100, (av.xp / 300) * 100)}%` }} />
+                        <div
+                          className="h-full bg-emerald-500 transition-all"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              (() => {
+                                const nextThreshold = 100 + av.level * 25;
+                                return nextThreshold > 0 ? (av.xp / nextThreshold) * 100 : 0;
+                              })(),
+                            )}%`,
+                          }}
+                        />
                       </div>
                       <p className="text-[11px] mt-1 text-muted-foreground">
                         XP: {av.xp} (total {av.totalXp})
@@ -352,14 +364,16 @@ export default function RewardsPage() {
                           size="sm"
                           variant="outline"
                           disabled={engageAvatarMutation.isPending}
-                          onClick={() =>
+                          onClick={() => {
+                            const claimDate = new Date().toISOString().slice(0, 10);
                             engageAvatarMutation.mutate({
                               avatarKey: av.avatarKey,
                               sourceType: "task",
                               text: `Task related to ${av.archetypeKey}`,
                               completed: true,
-                            })
-                          }
+                              sourceRef: `${av.avatarKey}_task_${claimDate}`,
+                            });
+                          }}
                         >
                           Claim Task Mission
                         </Button>
@@ -367,14 +381,16 @@ export default function RewardsPage() {
                           size="sm"
                           variant="outline"
                           disabled={engageAvatarMutation.isPending}
-                          onClick={() =>
+                          onClick={() => {
+                            const claimDate = new Date().toISOString().slice(0, 10);
                             engageAvatarMutation.mutate({
                               avatarKey: av.avatarKey,
                               sourceType: "feedback",
                               text: `Feedback about ${av.archetypeKey}`,
                               completed: true,
-                            })
-                          }
+                              sourceRef: `${av.avatarKey}_feedback_${claimDate}`,
+                            });
+                          }}
                         >
                           Claim Feedback Mission
                         </Button>

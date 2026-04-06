@@ -165,15 +165,22 @@ export function ClassificationBadge({
 
   const addCategoryMutation = useMutation({
     mutationFn: async (name: string) => {
-      const res = await apiRequest("POST", "/api/classification/categories", { name });
-      return res.json();
+      return syncRawTaskRequest("POST", "/api/classification/categories", { name }, queryClientHook);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result && typeof result === "object" && "offlineQueued" in result) {
+        toast({
+          title: "Queued",
+          description: "New category will sync when you're online.",
+        });
+        return;
+      }
       setNewCategoryName("");
       queryClientHook.invalidateQueries({ queryKey: ["/api/classification/categories"] });
       toast({ title: "Category added", description: "It appears in your list for future tasks." });
     },
     onError: (err: unknown) => {
+      if (err instanceof TaskSyncAbortedError) return;
       const message = err instanceof Error ? err.message : "Could not add category.";
       toast({ title: "Add category failed", description: message, variant: "destructive" });
     },
@@ -197,6 +204,7 @@ export function ClassificationBadge({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
+          type="button"
           className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-amber-400/50 dark:hover:ring-offset-gray-900 transition-all min-h-[28px] ${getClassificationColor(classification)}`}
           onClick={(e) => e.stopPropagation()}
         >

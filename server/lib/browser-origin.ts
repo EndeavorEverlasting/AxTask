@@ -1,6 +1,6 @@
 export function isLocalBrowserHostname(hostname: string): boolean {
   const h = hostname.toLowerCase();
-  return h === "localhost" || h === "127.0.0.1";
+  return h === "localhost" || h === "127.0.0.1" || h === "::1";
 }
 
 /**
@@ -13,7 +13,8 @@ export function isBrowserOriginAllowed(
   forceHttps: boolean,
 ): boolean {
   const lower = originHeader.toLowerCase();
-  if (allowedOrigins.has(lower)) return true;
+  const normalizedAllowed = new Set([...allowedOrigins].map((o) => o.toLowerCase()));
+  if (normalizedAllowed.has(lower)) return true;
   try {
     const u = new URL(originHeader);
     const host = u.hostname.toLowerCase();

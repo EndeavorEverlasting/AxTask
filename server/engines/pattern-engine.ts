@@ -388,14 +388,49 @@ export function suggestDeadline(activity: string, patterns: TaskPattern[]): Dead
   if (bestMatch) {
     try {
       const data = JSON.parse(bestMatch.pattern.data) as RecurrenceData;
-      const nextDate = data.nextExpectedDate;
+      const cad = (data.cadence || "").toLowerCase();
+      const fallbackInterval =
+        cad.includes("daily") ? 1
+        : cad.includes("biweekly") ? 14
+        : cad.includes("weekly") ? 7
+        : cad.includes("monthly") ? 30
+        : 7;
+      const intervalDays = Math.max(
+        1,
+        Math.round(
+          typeof data.avgDays === "number" && Number.isFinite(data.avgDays) && data.avgDays > 0
+            ? data.avgDays
+            : fallbackInterval,
+        ),
+      );
+
       const today = new Date();
-      const suggested = new Date(nextDate);
+      today.setHours(0, 0, 0, 0);
+
+      const suggested = new Date(`${data.nextExpectedDate}T12:00:00.000Z`);
+      suggested.setHours(0, 0, 0, 0);
 
       if (suggested < today) {
-        const typicalDay = data.typicalDayIndex;
-        const daysUntil = ((typicalDay - today.getDay()) + 7) % 7 || 7;
-        suggested.setTime(today.getTime() + daysUntil * 24 * 60 * 60 * 1000);
+        const weeklyLike = intervalDays >= 6 && intervalDays <= 8;
+        if (weeklyLike && typeof data.typicalDayIndex === "number") {
+          let daysUntil = (data.typicalDayIndex - today.getDay() + 7) % 7;
+          if (daysUntil === 0) daysUntil = 7;
+          suggested.setTime(today.getTime() + daysUntil * 24 * 60 * 60 * 1000);
+        } else {
+          const safeInterval = Math.max(1, intervalDays);
+          let s = new Date(`${data.nextExpectedDate}T12:00:00.000Z`);
+          s.setHours(0, 0, 0, 0);
+          const maxIterations = 4000;
+          let iter = 0;
+          while (s < today && iter < maxIterations) {
+            s.setDate(s.getDate() + safeInterval);
+            iter += 1;
+          }
+          if (iter >= maxIterations) {
+            console.error("[pattern-engine] suggestDeadline: max iterations advancing recurrence date");
+          }
+          suggested.setTime(s.getTime());
+        }
       }
 
       return {
@@ -558,37 +593,43 @@ export async function learnFromTask(userId: string, task: Task, allTasks: Task[]
   });
 
   if (similarTasks.length >= 1) {
-    const allInstances = [task, ...similarTasks].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    const intervals: number[] = [];
-    for (let i = 1; i < allInstances.length; i++) {
-      intervals.push(daysBetween(allInstances[i - 1].date, allInstances[i].date));
+    const withValidDates = [task, ...similarTasks].filter((t) => {
+      const ms = Date.parse(t.date);
+      return Number.isFinite(ms);
+    });
+    if (withValidDates.length >= 2) {
+      const allInstances = withValidDates.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const intervals: number[] = [];
+      for (let i = 1; i < allInstances.length; i++) {
+        intervals.push(daysBetween(allInstances[i - 1].date, allInstances[i].date));
+      }
+      const { cadence, avgDays } = detectCadence(intervals);
+      const dayIndices = allInstances.map(t => new Date(t.date).getDay()).filter(d => !isNaN(d));
+      const dayFreq = new Map<number, number>();
+      for (const d of Array.from(dayIndices)) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
+      let typicalDayIdx = 0;
+      let maxFreq = 0;
+      for (const [day, freq] of Array.from(dayFreq.entries())) {
+        if (freq > maxFreq) { maxFreq = freq; typicalDayIdx = day; }
+      }
+
+      const lastDate = allInstances[allInstances.length - 1].date;
+      const nextExpected = new Date(lastDate);
+      nextExpected.setDate(nextExpected.getDate() + (avgDays || 7));
+
+      const recurrenceData: RecurrenceData = {
+        activity: task.activity,
+        count: allInstances.length,
+        cadence,
+        avgDays,
+        typicalDayOfWeek: DAYS[typicalDayIdx],
+        typicalDayIndex: typicalDayIdx,
+        lastDate,
+        nextExpectedDate: nextExpected.toISOString().split("T")[0],
+      };
+
+      const confidence = Math.min(100, allInstances.length * 15 + (cadence !== "unknown" ? 20 : 0));
+      await upsertPattern(userId, "recurrence", normalizeText(task.activity), recurrenceData, confidence);
     }
-    const { cadence, avgDays } = detectCadence(intervals);
-    const dayIndices = allInstances.map(t => new Date(t.date).getDay()).filter(d => !isNaN(d));
-    const dayFreq = new Map<number, number>();
-    for (const d of Array.from(dayIndices)) dayFreq.set(d, (dayFreq.get(d) || 0) + 1);
-    let typicalDayIdx = 0;
-    let maxFreq = 0;
-    for (const [day, freq] of Array.from(dayFreq.entries())) {
-      if (freq > maxFreq) { maxFreq = freq; typicalDayIdx = day; }
-    }
-
-    const lastDate = allInstances[allInstances.length - 1].date;
-    const nextExpected = new Date(lastDate);
-    nextExpected.setDate(nextExpected.getDate() + (avgDays || 7));
-
-    const recurrenceData: RecurrenceData = {
-      activity: task.activity,
-      count: allInstances.length,
-      cadence,
-      avgDays,
-      typicalDayOfWeek: DAYS[typicalDayIdx],
-      typicalDayIndex: typicalDayIdx,
-      lastDate,
-      nextExpectedDate: nextExpected.toISOString().split("T")[0],
-    };
-
-    const confidence = Math.min(100, allInstances.length * 15 + (cadence !== "unknown" ? 20 : 0));
-    await upsertPattern(userId, "recurrence", normalizeText(task.activity), recurrenceData, confidence);
   }
 }

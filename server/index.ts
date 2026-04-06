@@ -55,6 +55,28 @@ for (const origin of parseCsvEnv(process.env.ADDITIONAL_ALLOWED_ORIGINS)) {
   allowedOrigins.add(origin.startsWith("http") ? origin : `https://${origin}`);
 }
 
+const connectSrcDirectives = (() => {
+  const s = new Set<string>([
+    "'self'",
+    "https://accounts.google.com",
+    "https://oauth2.googleapis.com",
+  ]);
+  for (const host of allowedHosts) {
+    if (!host) continue;
+    s.add(`https://${host}`);
+    s.add(`wss://${host}`);
+  }
+  for (const origin of allowedOrigins) {
+    s.add(origin);
+    try {
+      s.add(`wss://${new URL(origin).hostname}`);
+    } catch {
+      /* ignore malformed ADDITIONAL_ALLOWED_ORIGINS entries */
+    }
+  }
+  return Array.from(s);
+})();
+
 app.use(
   helmet({
     contentSecurityPolicy: isDev ? false : {
@@ -64,7 +86,7 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'", "wss:", "ws:", "https://accounts.google.com", "https://oauth2.googleapis.com"],
+        connectSrc: connectSrcDirectives,
         frameSrc: ["'none'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],

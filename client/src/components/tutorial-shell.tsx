@@ -8,6 +8,15 @@ import type { TutorialStep } from "@/lib/tutorial-types";
 const PRETEXT_FONT = "14px ui-sans-serif, system-ui, sans-serif";
 const BUBBLE_TEXT_MAX_WIDTH = 248;
 
+/** Extra glow classes that may still be present from older tutorial steps (not the current `glowCls`). */
+const LEGACY_GLOW_CLEANUP = [
+  "field-glow-tutorial",
+  "field-glow-tutorial-success",
+  "field-glow-success",
+  "field-glow-hint",
+  "field-glow-warning",
+] as const;
+
 function tailClassForPosition(pos: "top" | "bottom" | "left" | "right" | undefined): string {
   switch (pos || "right") {
     case "right":
@@ -80,6 +89,11 @@ export function GuidedTourOverlay({
     }
   }, [findTarget]);
 
+  const glowCls = useMemo(
+    () => currentStep?.glowClass ?? "field-glow-tutorial",
+    [currentStep?.glowClass],
+  );
+
   useEffect(() => {
     if (!isActive || !currentStep) return;
 
@@ -88,7 +102,6 @@ export function GuidedTourOverlay({
     }
 
     setFadeIn(false);
-    const glowCls = currentStep.glowClass || "field-glow-tutorial";
     const timer = setTimeout(() => {
       refreshTargetRect();
       const el = findTarget();
@@ -103,14 +116,12 @@ export function GuidedTourOverlay({
       const el = findTarget();
       if (el) {
         el.classList.remove(glowCls);
-        el.classList.remove("field-glow-tutorial");
-        el.classList.remove("field-glow-tutorial-success");
-        el.classList.remove("field-glow-success");
-        el.classList.remove("field-glow-hint");
-        el.classList.remove("field-glow-warning");
+        for (const c of LEGACY_GLOW_CLEANUP) {
+          if (c !== glowCls) el.classList.remove(c);
+        }
       }
     };
-  }, [isActive, currentStep, findTarget, onNavigateToPage, refreshTargetRect]);
+  }, [isActive, currentStep, findTarget, onNavigateToPage, refreshTargetRect, glowCls]);
 
   useEffect(() => {
     if (!isActive || !currentStep) return;

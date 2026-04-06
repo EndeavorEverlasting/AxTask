@@ -129,14 +129,21 @@ function brandLabel(b: string): string {
 }
 
 function formatMoney(cents: number, currency: string): string {
+  const code = (currency || "USD").toUpperCase();
   try {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
-      currency: currency || "USD",
+      currency: code,
     }).format(cents / 100);
   } catch {
-    return `$${(cents / 100).toFixed(2)}`;
+    return `${code} ${(cents / 100).toFixed(2)}`;
   }
+}
+
+function formatInvoiceDateSafe(createdAt: string | null | undefined): string {
+  if (createdAt == null || createdAt === "") return "—";
+  const d = new Date(createdAt);
+  return Number.isNaN(d.getTime()) ? "—" : format(d, "MMM d, yyyy");
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -600,8 +607,8 @@ export default function BillingPage() {
               </p>
             ) : (
             <div className="space-y-3">
-              {(summary?.paymentMethods?.length ?? 0) > 0 ? (
-                summary!.paymentMethods.map((pm) => (
+              {summary && summary.paymentMethods && summary.paymentMethods.length > 0 ? (
+                summary.paymentMethods.map((pm) => (
                   <div
                     key={pm.id}
                     className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3"
@@ -938,9 +945,7 @@ export default function BillingPage() {
                       className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3 text-sm"
                     >
                       <span className="text-muted-foreground w-32 shrink-0">
-                        {inv.createdAt
-                          ? format(new Date(inv.createdAt), "MMM d, yyyy")
-                          : "—"}
+                        {formatInvoiceDateSafe(inv.createdAt)}
                       </span>
                       <span className="font-medium w-24 shrink-0">
                         {formatMoney(inv.amountCents, inv.currency)}

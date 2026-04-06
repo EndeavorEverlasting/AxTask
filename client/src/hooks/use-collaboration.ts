@@ -61,8 +61,17 @@ export function useCollaboration(taskId: string | null) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const taskIdRef = useRef(taskId);
+  /** Last task id we successfully sent `join_task` for on the current socket (avoids duplicate joins from onopen + effect). */
+  const joinedTaskIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   taskIdRef.current = taskId;
+
+  const sendJoinTaskIfNeeded = useCallback((ws: WebSocket, tid: string) => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    if (joinedTaskIdRef.current === tid) return;
+    ws.send(JSON.stringify({ type: "join_task", taskId: tid }));
+    joinedTaskIdRef.current = tid;
+  }, []);
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
@@ -75,8 +84,9 @@ export function useCollaboration(taskId: string | null) {
     ws.onopen = () => {
       if (!mountedRef.current) { ws.close(); return; }
       setState(s => ({ ...s, connected: true }));
-      if (taskIdRef.current) {
-        ws.send(JSON.stringify({ type: "join_task", taskId: taskIdRef.current }));
+      const tid = taskIdRef.current;
+      if (tid) {
+        sendJoinTaskIfNeeded(ws, tid);
       }
     };
 
@@ -134,7 +144,7 @@ export function useCollaboration(taskId: string | null) {
           break;
         }
         case "field_edit":
-          setFieldEdits(prev => [...prev.slice(-20), {
+          setFieldEdits(prev => [...prev.slice(-19), {
             userId: String(msg.userId),
             field: String(msg.field),
             value: String(msg.value ?? ""),
@@ -149,13 +159,14 @@ export function useCollaboration(taskId: string | null) {
     };
 
     ws.onclose = () => {
+      joinedTaskIdRef.current = null;
       setState(s => ({ ...s, connected: false, users: [] }));
       wsRef.current = null;
       if (mountedRef.current) {
         reconnectTimerRef.current = setTimeout(connect, 3000);
       }
     };
-  }, []);
+  }, [sendJoinTaskIfNeeded]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -174,14 +185,19 @@ export function useCollaboration(taskId: string | null) {
 
   useEffect(() => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!ws) return;
+    if (ws.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+    if (ws.readyState !== WebSocket.OPEN) return;
     if (taskId) {
-      ws.send(JSON.stringify({ type: "join_task", taskId }));
+      sendJoinTaskIfNeeded(ws, taskId);
     } else {
+      joinedTaskIdRef.current = null;
       ws.send(JSON.stringify({ type: "leave_task" }));
       setState(s => ({ ...s, users: [], role: "owner" }));
     }
-  }, [taskId]);
+  }, [taskId, sendJoinTaskIfNeeded]);
 
   const focusField = useCallback((field: string, cursorPosition?: number) => {
     wsRef.current?.send(JSON.stringify({ type: "focus_field", field, cursorPosition }));
@@ -201,12 +217,15 @@ export function useCollaboration(taskId: string | null) {
   }, []);
 
   const consumeFieldEdit = useCallback((field: string): FieldEdit | undefined => {
-    const edit = fieldEdits.find(e => e.field === field);
-    if (edit) {
-      setFieldEdits(prev => prev.filter(e => e !== edit));
-    }
-    return edit;
-  }, [fieldEdits]);
+    let found: FieldEdit | undefined;
+    setFieldEdits(prev => {
+      const edit = prev.find(e => e.field === field);
+      if (!edit) return prev;
+      found = edit;
+      return prev.filter(e => e !== edit);
+    });
+    return found;
+  }, []);
 
   return {
     ...state,

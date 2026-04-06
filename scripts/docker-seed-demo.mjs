@@ -35,9 +35,9 @@ if (!password || password.length < 8) {
 const displayName = (process.env.DOCKER_DEMO_DISPLAY_NAME || "Docker Demo").trim() || "Docker Demo";
 const role = process.env.DOCKER_DEMO_ROLE === "admin" ? "admin" : "user";
 
-const pool = new pg.Pool({ connectionString: databaseUrl });
-
+let pool;
 try {
+  pool = new pg.Pool({ connectionString: databaseUrl });
   const hash = await bcrypt.hash(password, 12);
   const id = randomUUID();
   await pool.query(
@@ -58,5 +58,5 @@ try {
   console.error("[docker-seed-demo] Failed:", e);
   process.exit(1);
 } finally {
-  await pool.end();
+  if (pool) await pool.end();
 }

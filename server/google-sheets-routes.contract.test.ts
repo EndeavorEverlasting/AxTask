@@ -1,8 +1,10 @@
 // @vitest-environment node
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 
 describe("Google Sheets API route contract (local + Google account sync)", () => {

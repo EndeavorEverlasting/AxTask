@@ -20,18 +20,26 @@ const DAY_NAMES: Record<string, number> = {
   thursday: 4, friday: 5, saturday: 6,
 };
 
+/** YYYY-MM-DD in the environment's local calendar (not UTC). */
+function formatLocalYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function resolveDay(dayName: string, now: Date): string {
   const lower = dayName.toLowerCase();
-  if (lower === "today") return now.toISOString().split("T")[0];
+  if (lower === "today") return formatLocalYmd(now);
   if (lower === "tomorrow") {
     const d = new Date(now);
     d.setDate(d.getDate() + 1);
-    return d.toISOString().split("T")[0];
+    return formatLocalYmd(d);
   }
   if (lower === "next week") {
     const d = new Date(now);
     d.setDate(d.getDate() + 7);
-    return d.toISOString().split("T")[0];
+    return formatLocalYmd(d);
   }
   const targetDay = DAY_NAMES[lower];
   if (targetDay !== undefined) {
@@ -40,9 +48,9 @@ function resolveDay(dayName: string, now: Date): string {
     if (daysAhead <= 0) daysAhead += 7;
     const d = new Date(now);
     d.setDate(d.getDate() + daysAhead);
-    return d.toISOString().split("T")[0];
+    return formatLocalYmd(d);
   }
-  return now.toISOString().split("T")[0];
+  return formatLocalYmd(now);
 }
 
 function fuzzyMatch(needle: string, haystack: string): number {

@@ -43,6 +43,15 @@ describe("createApiWriteOriginGuard", () => {
     expect(res.status).toBe(200);
   });
 
+  it("allows POST when Origin and Referer are both absent", async () => {
+    const app = appWithGuard(new Set(["https://localhost"]), false);
+    const res = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "a@b.co", password: "x" });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
   it("blocks http localhost when forceHttps is true", async () => {
     const app = appWithGuard(new Set(["https://localhost"]), true);
     const res = await request(app)

@@ -9,7 +9,6 @@ import {
   queryKeyRootString,
   QUERY_PERSIST_LEGACY_GLOBAL_KEY,
   QUERY_PERSIST_MAX_SERIALIZED_BYTES,
-  QUERY_PERSIST_STORAGE_KEY,
   serializePersistedClientWithSizeCap,
   shouldDehydrateQueryForPersist,
 } from "./query-persist-policy";
@@ -94,9 +93,9 @@ describe("query-persist-policy", () => {
     });
 
     it("removes the legacy global persist key", () => {
-      localStorage.setItem(QUERY_PERSIST_STORAGE_KEY, "{}");
+      localStorage.setItem(QUERY_PERSIST_LEGACY_GLOBAL_KEY, "{}");
       clearQueryPersistStorage();
-      expect(localStorage.getItem(QUERY_PERSIST_STORAGE_KEY)).toBeNull();
+      expect(localStorage.getItem(QUERY_PERSIST_LEGACY_GLOBAL_KEY)).toBeNull();
     });
 
     it("does not throw when storage throws", () => {

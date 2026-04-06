@@ -246,20 +246,56 @@ export function TaskCalendar() {
   }, [isDragging]);
 
   // AI auto-schedule
-  const handleAISchedule = () => {
+  const handleAISchedule = async () => {
     const suggestions = TaskAIEngine.suggestSchedule(tasks);
     if (suggestions.length === 0) {
       toast({ title: "AI Scheduler", description: "No scheduling suggestions at this time." });
       return;
     }
-    // Apply first few suggestions
-    for (const s of suggestions.slice(0, 5)) {
-      const base = tasks.find((t) => t.id === s.taskId);
-      rescheduleMutation.mutate({ id: s.taskId, date: s.suggestedDate, base });
+    let applied = 0;
+    let queued = 0;
+    try {
+      for (const s of suggestions.slice(0, 5)) {
+        const base = tasks.find((t) => t.id === s.taskId);
+        if (!base) continue;
+        try {
+          const result = await rescheduleMutation.mutateAsync({ id: s.taskId, date: s.suggestedDate, base });
+          const r = result as { offlineQueued?: boolean } | undefined;
+          if (r?.offlineQueued) {
+            queued += 1;
+          } else {
+            applied += 1;
+          }
+        } catch (e) {
+          if (e instanceof TaskSyncAbortedError) continue;
+          console.error("[TaskCalendar] AI schedule reschedule failed:", e);
+          toast({
+            title: "AI Scheduler",
+            description: e instanceof Error ? e.message : "Failed to reschedule a task.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      console.error("[TaskCalendar] AI schedule failed:", e);
+      toast({
+        title: "AI Scheduler",
+        description: e instanceof Error ? e.message : "Unexpected error while applying suggestions.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const parts: string[] = [];
+    if (applied > 0) parts.push(`Rescheduled ${applied} task${applied === 1 ? "" : "s"} online.`);
+    if (queued > 0) parts.push(`${queued} update${queued === 1 ? "" : "s"} queued for when you're online.`);
+    if (parts.length === 0) {
+      toast({ title: "AI Scheduler", description: "No changes applied." });
+      return;
     }
     toast({
       title: "AI Scheduler Applied",
-      description: `Rescheduled ${Math.min(suggestions.length, 5)} tasks to optimal dates.`,
+      description: parts.join(" "),
     });
   };
 

@@ -158,21 +158,15 @@ app.use((req, res, next) => {
 - Session-based authentication
 - No state-changing GET requests
 
-**Recommended Enhancement**:
-```typescript
-// CSRF token implementation
-import csrf from 'csurf';
+**Recommended Enhancement** (maintained alternatives — the `csurf` package is archived):
 
-const csrfProtection = csrf({
-  cookie: {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict'
-  }
-});
+Use a **double-submit cookie** pattern or your framework’s built-in CSRF middleware:
 
-app.use(csrfProtection);
-```
+1. On session/login, set a **non-HttpOnly** cookie holding a random CSRF token (e.g. `csrf_token`), with `Secure` and `SameSite` appropriate for your deployment (`SameSite=Lax` or `Strict` is typical; `Secure` in production).
+2. Client JavaScript reads that cookie and sends the same value in a header on state-changing requests (e.g. `X-CSRF-Token` or `X-XSRF-Token`).
+3. Server compares the header to the cookie value; reject if missing or mismatched.
+
+This avoids synchronizer tokens stored only server-side for SPAs that need to read the token from the cookie. Prefer framework-native CSRF support when available (e.g. middleware that issues and validates tokens per session).
 
 ### Data Exposure Through Import/Export
 
@@ -306,8 +300,10 @@ app.use((req, res, next) => {
   // Prevent MIME type sniffing
   res.setHeader('X-Content-Type-Options', 'nosniff');
   
-  // XSS protection
-  res.setHeader('X-XSS-Protection', '1; mode=block');
+  // Prefer Content-Security-Policy and correct encoding over legacy X-XSS-Protection (deprecated in browsers)
+  res.setHeader('Content-Security-Policy',
+    "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'"
+  );
   
   // HTTPS enforcement
   if (process.env.NODE_ENV === 'production') {
@@ -322,6 +318,8 @@ app.use((req, res, next) => {
   next();
 });
 ```
+
+Use the **`Content-Security-Policy`** header as the primary modern XSS mitigation: configure `default-src` and especially `script-src` to match your real script and asset origins (avoid broad `'unsafe-inline'` for scripts when you can). Combine CSP with server-side output encoding, strict input validation, and other framework-specific XSS defenses. Do not rely on the deprecated `X-XSS-Protection` header.
 
 ### CORS Configuration
 ```typescript
@@ -533,14 +531,14 @@ function auditLog(event: AuditEvent) {
 5. **End-to-End Encryption**: Client-side encryption for sensitive data
 
 ### Security Roadmap
-- **Q1 2025**: Implement CSRF protection and enhanced rate limiting
-- **Q2 2025**: Add comprehensive audit logging and monitoring
-- **Q3 2025**: Implement advanced authentication and authorization
-- **Q4 2025**: Complete security compliance assessment
+- **Phase 1**: CSRF protection and enhanced rate limiting
+- **Phase 2**: Comprehensive audit logging and monitoring
+- **Phase 3**: Advanced authentication and authorization hardening
+- **Phase 4**: Security compliance assessment and control verification
 
 ---
 
-**Last security review (technical reference):** January 30, 2025  
+**Last security review (technical reference):** April 2026  
 
 **Reporting vulnerabilities:** use **[`SECURITY.md`](./SECURITY.md)** — not this file.
 

@@ -19,6 +19,10 @@
         var s = document.createElement("script");
         s.src = "https://replit.com/public/js/replit-dev-banner.js";
         s.async = true;
+        /* SRI sha384 — re-hash if this external script ever changes */
+        s.integrity =
+          "sha384-Lr8msOeo7cvFA8+X/ADC61BfRU+i0RNkQMdqpxPrAzHm+wp/DzHdubAro4rY/6TN";
+        s.crossOrigin = "anonymous";
         document.body.appendChild(s);
       })();
     </script>

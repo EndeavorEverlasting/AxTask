@@ -192,6 +192,7 @@ export type SafeUser = Omit<
   | "googleId"
   | "replitId"
   | "phoneE164"
+  | "birthDate"
 > & {
   phoneMasked: string | null;
   phoneVerified: boolean;
@@ -487,7 +488,20 @@ export const updateAccountProfileSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullable()
-    .optional(),
+    .optional()
+    .superRefine((val, ctx) => {
+      if (val == null || val === undefined) return;
+      const parts = val.split("-").map((p) => Number(p));
+      if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid calendar date" });
+        return;
+      }
+      const [y, m, d] = parts;
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid calendar date" });
+      }
+    }),
 });
 
 export type UpdateAccountProfile = z.infer<typeof updateAccountProfileSchema>;

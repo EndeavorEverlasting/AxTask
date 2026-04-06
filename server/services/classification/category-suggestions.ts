@@ -65,10 +65,13 @@ export async function buildCategorySuggestions(activity: string, notes: string):
   };
 
   if (process.env.NODEWEAVER_URL) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
     try {
-      const body = await callNodeWeaverBatchClassify([
-        { id: "__suggest__", activity, notes: notes || "" },
-      ]);
+      const body = await callNodeWeaverBatchClassify(
+        [{ id: "__suggest__", activity, notes: notes || "" }],
+        { signal: controller.signal },
+      );
       const results = Array.isArray((body as { results?: unknown }).results)
         ? (body as { results: unknown[] }).results
         : [];
@@ -83,6 +86,8 @@ export async function buildCategorySuggestions(activity: string, notes: string):
       }
     } catch {
       /* NodeWeaver optional at runtime */
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

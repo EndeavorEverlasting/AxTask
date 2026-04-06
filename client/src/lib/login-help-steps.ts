@@ -53,7 +53,7 @@ export function buildLoginHelpSteps(options: { oauthProviderNames: string[] }): 
       id: "login-help-password",
       title: "Email and password",
       description:
-        "Choose Password or Sign in with email & password. Enter your account email and password, then submit. Passwords are not stored in the browser; only your email and provider type may be saved locally if you enabled “Remember my login method.”",
+        "Choose Password or Sign in with email & password. Enter your account email and password, then submit. Passwords are not stored in the browser; only your email and provider type may be saved locally if you enabled \"Remember my login method.\"",
       targetId: "login-help-password-cta",
       position: "right",
       glowClass: "field-glow-tutorial-success",

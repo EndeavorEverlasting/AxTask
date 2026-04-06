@@ -38,7 +38,7 @@ if (!process.env.DATABASE_URL) {
   console.log("[deps] DATABASE_URL is set");
 }
 
-if (!hasCmd("docker", ["version"])) {
+if (!hasCmd("docker", ["--version"])) {
   console.warn("[deps] Docker CLI not found — optional unless you use `npm run docker:up` / compose workflows.");
 } else {
   console.log("[deps] docker CLI OK");

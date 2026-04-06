@@ -4,7 +4,7 @@
 **Priority engine task management** — intelligent scoring, calendar workflows, offline-ready client, and hardened security foundations.
 
 **Version:** 1.2.0 (Robustness + Security Hardening)  
-**Status:** Production Ready  
+**Status:** Production-Ready  
 **Last Updated:** April 5th, 2026
 
 ## Overview
@@ -60,7 +60,7 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
    **PowerShell quick check (copy/paste):**
 
    ```powershell
-   cd C:\Users\Cheex\Desktop\dev\AxTask
+   cd C:\path\to\AxTask
    Test-Path .\package.json
    npm run docker:env-init
    ```

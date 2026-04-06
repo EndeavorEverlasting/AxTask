@@ -17,7 +17,9 @@ export function TaskOfflineSyncProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!online) return;
-    void drainOfflineTaskQueue(queryClient);
+    void drainOfflineTaskQueue(queryClient).catch((err) => {
+      console.error("[offline-task-queue] drain failed", err);
+    });
   }, [online, queryClient, queueEpoch]);
 
   return (

@@ -17,7 +17,7 @@ import {
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage,
-  hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoicesForUser, listInvoiceEvents,
+  hasImportFingerprint, getTaskIdForImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoicesForUser, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
   listBillingPaymentMethodsForUser, createBillingPaymentMethod, deleteBillingPaymentMethodForUser,
   getUserBillingProfile, upsertUserBillingProfile, getInvoiceForUser,
@@ -64,6 +64,7 @@ import {
   getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution,
   listUserClassificationCategories, createUserClassificationCategory,
   updateUserAccountProfile,
+  getAccountOwnerProfileFields,
   listPublicCommunityTasks,
   getPublicCommunityTaskById,
   toCommunityTaskPublicDto,
@@ -89,7 +90,7 @@ import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
 import { z, ZodError } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, updateAccountProfileSchema, avatarEngagementSchema, type UpdateTask, type Task } from "@shared/schema";
-import { TASK_CONFLICT_CODE, taskUpdatedAtMatchesServer } from "@shared/offline-sync";
+import { TASK_CONFLICT_CODE } from "@shared/offline-sync";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { deliverMfaOtp, canDeliverMfaInProduction, sendWelcomeExperienceEmail } from "./services/otp-delivery";
@@ -104,7 +105,7 @@ import { getOrRecomputeEntourage } from "./engines/entourage-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { generateChecklistPDF } from "./checklist-pdf";
 import { processChecklistImage } from "./ocr-processor";
-import { requireAuth } from "./auth";
+import { requireAuth, requireAuthAllowSuspended } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
 import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./services/usage-service";
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
@@ -393,8 +394,24 @@ const publicCommunityLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: userOrIpKey,
+  keyGenerator: (req: Request) => {
+    if (req.user?.id) return `user:${req.user.id}`;
+    return req.ip || "unknown";
+  },
   message: { message: "Too many community requests — slow down" },
+});
+
+/** Public /contact form — tighter cap for anonymous IPs; logged-in users key off user id. */
+const publicContactLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    if (req.user?.id) return `user:${req.user.id}`;
+    return req.ip || "unknown";
+  },
+  message: { message: "Too many contact submissions — try again later" },
 });
 
 
@@ -1698,7 +1715,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertTaskSchema.parse(req.body);
       const userId = req.user!.id;
       if (validatedData.id && (await storage.isTaskIdTaken(validatedData.id, userId))) {
-        return res.status(409).json({ message: "A task with this id already exists" });
+        const serverTask = await storage.getTask(userId, validatedData.id);
+        return res.status(409).json({
+          message: "A task with this id already exists",
+          ...(serverTask ? { serverTask } : {}),
+        });
       }
       const quota = await assertCanCreateTasks(userId, 1);
       if (!quota.ok) {
@@ -1706,7 +1727,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const fingerprint = computeTaskFingerprint(validatedData);
       if (await hasImportFingerprint(userId, fingerprint)) {
-        return res.status(409).json({ message: "A matching task already exists." });
+        const tid = await getTaskIdForImportFingerprint(userId, fingerprint);
+        const serverTask = tid ? await storage.getTask(userId, tid) : undefined;
+        return res.status(409).json({
+          message: "A matching task already exists.",
+          ...(serverTask ? { serverTask } : {}),
+        });
       }
 
       let task: Task;
@@ -1714,7 +1740,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         task = await storage.createTask(userId, validatedData);
       } catch (e) {
         if (isPgUniqueViolation(e)) {
-          return res.status(409).json({ message: "A task with this id already exists" });
+          const id = validatedData.id;
+          const serverTask = id ? await storage.getTask(userId, id) : undefined;
+          return res.status(409).json({
+            message: "A task with this id already exists",
+            ...(serverTask ? { serverTask } : {}),
+          });
         }
         throw e;
       }
@@ -1788,18 +1819,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { baseUpdatedAt, forceOverwrite, ...updates } = validatedData;
       const expectConflict =
         !forceOverwrite && typeof baseUpdatedAt === "string" && baseUpdatedAt.length > 0;
-      if (expectConflict && !taskUpdatedAtMatchesServer(existingTask.updatedAt, baseUpdatedAt)) {
-        return res.status(409).json({
-          code: TASK_CONFLICT_CODE,
-          message: "This task was changed on the server or another device.",
-          serverTask: existingTask,
-        });
-      }
+      const concurrencyOpts = expectConflict ? { expectUpdatedAt: baseUpdatedAt } : undefined;
 
       const previousStatus = existingTask.status || "pending";
 
-      let task = await storage.updateTask(userId, updates as UpdateTask);
+      let task = await storage.updateTask(userId, updates as UpdateTask, concurrencyOpts);
       if (!task) {
+        const cur = await storage.getTask(userId, req.params.id);
+        if (!cur) {
+          return res.status(404).json({ message: "Task not found" });
+        }
+        if (expectConflict) {
+          return res.status(409).json({
+            code: TASK_CONFLICT_CODE,
+            message: "This task was changed on the server or another device.",
+            serverTask: cur,
+          });
+        }
         return res.status(404).json({ message: "Task not found" });
       }
 
@@ -1879,15 +1915,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.query.forceOverwrite === "1";
       const expectConflict =
         !forceOverwrite && typeof baseUpdatedAt === "string" && baseUpdatedAt.length > 0;
-      if (expectConflict && !taskUpdatedAtMatchesServer(existingTask.updatedAt, baseUpdatedAt)) {
-        return res.status(409).json({
-          code: TASK_CONFLICT_CODE,
-          message: "This task was changed on the server or another device.",
-          serverTask: existingTask,
-        });
-      }
-      const deleted = await storage.deleteTask(userId, req.params.id);
+      const deleted = await storage.deleteTask(
+        userId,
+        req.params.id,
+        expectConflict ? { expectUpdatedAt: baseUpdatedAt } : undefined,
+      );
       if (!deleted) {
+        const cur = await storage.getTask(userId, req.params.id);
+        if (!cur) {
+          return res.status(404).json({ message: "Task not found" });
+        }
+        if (expectConflict) {
+          return res.status(409).json({
+            code: TASK_CONFLICT_CODE,
+            message: "This task was changed on the server or another device.",
+            serverTask: cur,
+          });
+        }
         return res.status(404).json({ message: "Task not found" });
       }
       res.status(204).send();
@@ -2438,7 +2482,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const userId = req.user!.id;
-      const results: Array<{ taskId: string; success: boolean; error?: string }> = [];
+      const results: Array<{
+        taskId: string;
+        success: boolean;
+        error?: string;
+        serverTask?: Task;
+        expectedBaseUpdatedAt?: string;
+      }> = [];
 
       for (const action of actions as ReviewAction[]) {
         try {
@@ -2453,26 +2503,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
             continue;
           }
 
+          const d = action.details;
+          const baseUpdatedAt =
+            d && typeof d.baseUpdatedAt === "string" && d.baseUpdatedAt.length > 0 ? d.baseUpdatedAt : undefined;
+          const concurrencyOpts = baseUpdatedAt !== undefined ? { expectUpdatedAt: baseUpdatedAt } : undefined;
+
           const previousStatus = existingTask.status;
+
+          const pushConflictOrMissing = async () => {
+            const cur = await storage.getTask(userId, action.taskId);
+            if (!cur) {
+              results.push({ taskId: action.taskId, success: false, error: "Task not found" });
+            } else if (baseUpdatedAt !== undefined) {
+              results.push({
+                taskId: action.taskId,
+                success: false,
+                error: "conflict",
+                serverTask: cur,
+                expectedBaseUpdatedAt: baseUpdatedAt,
+              });
+            } else {
+              results.push({ taskId: action.taskId, success: false, error: "Task not found" });
+            }
+          };
 
           switch (action.type) {
             case "complete": {
-              const updatedTask = await storage.updateTask(userId, { id: action.taskId, status: "completed" });
+              const updatedTask = await storage.updateTask(
+                userId,
+                { id: action.taskId, status: "completed" },
+                concurrencyOpts,
+              );
               if (updatedTask) {
                 try {
                   await awardCoinsForCompletion(userId, updatedTask, previousStatus);
                 } catch (coinErr) {
                   console.error(`Coin award failed for task ${action.taskId}:`, coinErr);
                 }
+                results.push({ taskId: action.taskId, success: true });
+              } else {
+                await pushConflictOrMissing();
               }
-              results.push({ taskId: action.taskId, success: true });
               break;
             }
             case "reschedule": {
               const newDate = action.details?.newDate;
               if (typeof newDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
-                await storage.updateTask(userId, { id: action.taskId, date: newDate });
-                results.push({ taskId: action.taskId, success: true });
+                const updatedTask = await storage.updateTask(
+                  userId,
+                  { id: action.taskId, date: newDate },
+                  concurrencyOpts,
+                );
+                if (updatedTask) {
+                  results.push({ taskId: action.taskId, success: true });
+                } else {
+                  await pushConflictOrMissing();
+                }
               } else {
                 results.push({ taskId: action.taskId, success: false, error: "Invalid date" });
               }
@@ -2492,8 +2578,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 updatePayload.notes = action.details.notes.slice(0, 2000);
               }
               if (Object.keys(updatePayload).length > 1) {
-                await storage.updateTask(userId, updatePayload);
-                results.push({ taskId: action.taskId, success: true });
+                const updatedTask = await storage.updateTask(userId, updatePayload, concurrencyOpts);
+                if (updatedTask) {
+                  results.push({ taskId: action.taskId, success: true });
+                } else {
+                  await pushConflictOrMissing();
+                }
               } else {
                 results.push({ taskId: action.taskId, success: false, error: "No valid updates" });
               }
@@ -2706,6 +2796,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Rate-limited by app.use("/api/gamification", apiLimiter) above.
   app.post("/api/gamification/avatars/:avatarKey/engage", requireAuth, async (req, res) => {
     try {
       await ensureAvatarProfilesForUser(req.user!.id);
@@ -2902,6 +2993,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })).max(10).default([]),
   });
 
+  const publicContactSchema = z.object({
+    message: z.string().min(10).max(5000).trim(),
+    email: z.string().max(255).optional(),
+    name: z.string().max(120).optional(),
+    /** Honeypot — must stay empty for real browsers. */
+    website: z.string().max(200).optional(),
+  });
+
   const uploadUrlSchema = z.object({
     fileName: z.string().min(1).max(255),
     mimeType: z.string().min(3).max(128),
@@ -3065,6 +3164,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
         payload: {
+          message: parsed.message,
+          channel: "feedback_page",
           messageLength: parsed.message.length,
           attachments: totalAttachments,
           analysis,
@@ -3078,6 +3179,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to submit feedback" });
+    }
+  });
+
+  app.post("/api/public/contact", publicContactLimiter, async (req, res) => {
+    try {
+      const parsed = publicContactSchema.parse(req.body ?? {});
+      if (parsed.website != null && String(parsed.website).trim().length > 0) {
+        return res.status(200).json({ message: "Thanks — your message has been recorded for review." });
+      }
+
+      let reporterEmail: string | undefined;
+      if (parsed.email != null && String(parsed.email).trim().length > 0) {
+        const em = String(parsed.email).trim();
+        if (!z.string().email().safeParse(em).success) {
+          return res.status(400).json({ message: "Invalid email address" });
+        }
+        reporterEmail = em;
+      }
+      const reporterName =
+        parsed.name != null && String(parsed.name).trim().length > 0
+          ? String(parsed.name).trim().slice(0, 120)
+          : undefined;
+
+      const authed = req.isAuthenticated() && req.user;
+      const actorUserId = authed && !req.user!.isBanned ? req.user!.id : undefined;
+
+      const analysis = await processFeedbackWithEngines(parsed.message, 0);
+      if (!actorUserId) {
+        analysis.tags = Array.from(new Set([...analysis.tags, "public-contact"]));
+      } else {
+        analysis.tags = Array.from(new Set([...analysis.tags, "contact-form"]));
+      }
+
+      if (actorUserId) {
+        ensureAvatarProfilesForUser(actorUserId)
+          .then(() =>
+            awardAvatarProgressFromContent(
+              actorUserId,
+              "feedback",
+              `contact:${Date.now()}`,
+              parsed.message,
+              true,
+            ),
+          )
+          .catch((err) => console.error("[avatar] contact form progress", err));
+      }
+
+      const channel = actorUserId ? "contact_form" : "public_contact";
+
+      await logSecurityEvent(
+        "contact_form_submitted",
+        actorUserId,
+        undefined,
+        req.ip,
+        `${channel} · ${parsed.message.length} chars${reporterEmail ? " · reply-to set" : ""}`,
+      );
+      await appendSecurityEvent({
+        eventType: "feedback_processed",
+        actorUserId,
+        route: "/api/public/contact",
+        method: req.method,
+        statusCode: 201,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {
+          message: parsed.message,
+          messageLength: parsed.message.length,
+          attachments: 0,
+          channel,
+          reporterEmail,
+          reporterName,
+          analysis,
+        },
+      });
+
+      res.status(201).json({
+        message: "Thanks — your message has been recorded for review.",
+        analysis,
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Invalid request", issues: error.issues });
+      }
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to submit contact message" });
     }
   });
 
@@ -3507,12 +3693,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/account/profile", requireAuth, async (req, res) => {
+    try {
+      const row = await getAccountOwnerProfileFields(req.user!.id);
+      if (!row) return res.status(404).json({ message: "User not found" });
+      res.json(row);
+    } catch (error) {
+      console.error("[account/profile GET]", error);
+      res.status(500).json({ message: "Failed to load profile" });
+    }
+  });
+
   app.patch("/api/account/profile", requireAuth, async (req, res) => {
     try {
       const body = updateAccountProfileSchema.parse(req.body ?? {});
       if (body.birthDate !== undefined && body.birthDate !== null) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(body.birthDate);
+        if (!m) {
+          return res.status(400).json({ message: "Invalid birth date" });
+        }
+        const py = Number(m[1]);
+        const pm = Number(m[2]);
+        const pd = Number(m[3]);
         const d = new Date(`${body.birthDate}T12:00:00.000Z`);
         if (Number.isNaN(d.getTime())) {
+          return res.status(400).json({ message: "Invalid birth date" });
+        }
+        if (d.getUTCFullYear() !== py || d.getUTCMonth() + 1 !== pm || d.getUTCDate() !== pd) {
           return res.status(400).json({ message: "Invalid birth date" });
         }
         const today = new Date();
@@ -3592,7 +3799,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     body: z.string().trim().min(20).max(8000),
   });
 
-  app.get("/api/appeals", requireAuth, async (req, res) => {
+  app.get("/api/appeals", requireAuthAllowSuspended, async (req, res) => {
     try {
       const rows = await listAppealsForUser(req.user!.id);
       res.json(rows);
@@ -3601,7 +3808,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/appeals", requireAuth, async (req, res) => {
+  app.post("/api/appeals", requireAuthAllowSuspended, async (req, res) => {
     try {
       const body = createAppealBodySchema.parse(req.body ?? {});
       if (!isAppealSubjectType(body.subjectType)) {
@@ -3633,7 +3840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/appeals/:appealId/withdraw", requireAuth, async (req, res) => {
+  app.post("/api/appeals/:appealId/withdraw", requireAuthAllowSuspended, async (req, res) => {
     try {
       const ok = await withdrawAppeal(req.params.appealId, req.user!.id);
       if (!ok) return res.status(400).json({ message: "Cannot withdraw this appeal" });
@@ -3687,6 +3894,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const reclassifyBodySchema = z.object({
     classification: z.string().trim().min(2).max(60),
+    baseUpdatedAt: z.string().optional(),
   });
 
   app.post("/api/tasks/:id/reclassify", requireAuth, async (req, res) => {
@@ -3698,11 +3906,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid classification (2–60 characters)." });
       }
       const classification = parsed.data.classification;
+      const baseUpdatedAt = parsed.data.baseUpdatedAt;
+      const concurrencyOpts =
+        typeof baseUpdatedAt === "string" && baseUpdatedAt.length > 0 ? { expectUpdatedAt: baseUpdatedAt } : undefined;
 
       const accessCheck = await canAccessTask(userId, taskId);
       if (!accessCheck.canAccess) return res.status(403).json({ message: "Access denied" });
+      if (accessCheck.role === "viewer") {
+        return res.status(403).json({ message: "Access denied" });
+      }
 
-      const existingTask = await storage.getTask(userId, taskId);
+      const existingTask = await getTaskRowById(taskId);
       if (!existingTask) {
         return res.status(404).json({ message: "Task not found" });
       }
@@ -3711,14 +3925,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Task is already classified as " + classification });
       }
 
-      const task = await storage.updateTask(userId, {
-        id: taskId,
-        classification,
-      });
+      const ownerId = existingTask.userId;
+      if (!ownerId) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const task = await storage.updateTask(
+        ownerId,
+        {
+          id: taskId,
+          classification,
+        },
+        concurrencyOpts,
+      );
+
+      if (!task) {
+        const cur = await storage.getTask(ownerId, taskId);
+        if (!cur) {
+          return res.status(404).json({ message: "Task not found" });
+        }
+        if (concurrencyOpts) {
+          return res.status(409).json({
+            code: TASK_CONFLICT_CODE,
+            message: "This task was changed on the server or another device.",
+            serverTask: cur,
+          });
+        }
+        return res.status(404).json({ message: "Task not found" });
+      }
 
       let classificationReward = null;
       if (!isGeneralClassification(classification)) {
-        classificationReward = await awardCoinsForClassification(userId, task!);
+        classificationReward = await awardCoinsForClassification(userId, task);
       }
 
       res.json({ ...task, classificationReward });
@@ -4552,12 +4789,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validRoles = ["editor", "viewer"];
       if (role && !validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
       const user = await getUserByEmail(email);
-      if (!user) return res.status(404).json({ message: "User not found" });
-      if (user.id === req.user!.id) return res.status(400).json({ message: "Cannot add yourself" });
+      if (!user || user.id === req.user!.id) {
+        return res.status(400).json({ message: "Unable to add collaborator" });
+      }
       const collab = await addCollaborator(req.params.id, user.id, role || "editor", req.user!.id);
       res.json(collab);
     } catch (error) {
-      res.status(500).json({ message: "Failed to add collaborator" });
+      res.status(500).json({ message: "Unable to add collaborator" });
     }
   });
 

@@ -83,6 +83,7 @@ import {
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, gt, count, avg, sql, desc, inArray, notInArray, isNull } from "drizzle-orm";
 import { computeAppealVoteThreshold, evaluateAppealOutcome } from "./lib/appeal-vote-rules";
+import { computeCompoundContributorBonus, getMaxCompoundPeriods } from "./lib/classification-compound";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
@@ -106,6 +107,7 @@ function toSafeUser(user: User): SafeUser {
     googleId,
     replitId,
     phoneE164,
+    birthDate: _birthDate,
     ...rest
   } = user;
   return {
@@ -231,6 +233,17 @@ export async function getUserByEmail(email: string): Promise<User | undefined> {
 export async function getUserById(id: string): Promise<SafeUser | undefined> {
   const [user] = await db.select().from(users).where(eq(users.id, id));
   return user ? toSafeUser(user) : undefined;
+}
+
+/** Owner-only profile fields not included in `SafeUser` session payloads. */
+export async function getAccountOwnerProfileFields(
+  userId: string,
+): Promise<{ displayName: string | null; birthDate: string | null } | undefined> {
+  const [row] = await db
+    .select({ displayName: users.displayName, birthDate: users.birthDate })
+    .from(users)
+    .where(eq(users.id, userId));
+  return row ?? undefined;
 }
 
 export async function updateUserAccountProfile(
@@ -746,24 +759,28 @@ export async function listAppealsForAdmin(limit = 100): Promise<AppealListRow[]>
   const rows = await db.select().from(appeals).orderBy(desc(appeals.createdAt)).limit(Math.min(limit, 200));
   const adminCount = await countAdmins();
   const threshold = computeAppealVoteThreshold(adminCount);
-  const out: AppealListRow[] = [];
-  for (const a of rows) {
-    const [g] = await db
-      .select({ value: count() })
+  const ids = rows.map((r) => r.id);
+  const voteCounts = new Map<string, number>();
+  if (ids.length > 0) {
+    const agg = await db
+      .select({
+        appealId: appealVotes.appealId,
+        decision: appealVotes.decision,
+        cnt: count(),
+      })
       .from(appealVotes)
-      .where(and(eq(appealVotes.appealId, a.id), eq(appealVotes.decision, "grant")));
-    const [d] = await db
-      .select({ value: count() })
-      .from(appealVotes)
-      .where(and(eq(appealVotes.appealId, a.id), eq(appealVotes.decision, "deny")));
-    out.push({
-      ...a,
-      grantVotes: Number(g?.value) || 0,
-      denyVotes: Number(d?.value) || 0,
-      threshold,
-    });
+      .where(inArray(appealVotes.appealId, ids))
+      .groupBy(appealVotes.appealId, appealVotes.decision);
+    for (const row of agg) {
+      voteCounts.set(`${row.appealId}:${row.decision}`, Number(row.cnt) || 0);
+    }
   }
-  return out;
+  return rows.map((a) => ({
+    ...a,
+    grantVotes: voteCounts.get(`${a.id}:grant`) ?? 0,
+    denyVotes: voteCounts.get(`${a.id}:deny`) ?? 0,
+    threshold,
+  }));
 }
 
 export async function withdrawAppeal(appealId: string, appellantUserId: string): Promise<boolean> {
@@ -995,6 +1012,10 @@ export type FeedbackInboxItem = {
   classifierSource: string;
   classifierFallbackLayer: number;
   classifierConfidence: number;
+  message?: string;
+  channel?: string;
+  reporterEmail?: string;
+  reporterName?: string;
   reviewed: boolean;
   reviewedAt: Date | null;
   reviewedBy: string | null;
@@ -1217,8 +1238,12 @@ export interface IStorage {
   /** True if this user already has a task with this primary key (Phase C client-provisioned ids). */
   isTaskIdTaken(id: string, userId: string): Promise<boolean>;
   createTask(userId: string, task: InsertTask): Promise<Task>;
-  updateTask(userId: string, task: UpdateTask): Promise<Task | undefined>;
-  deleteTask(userId: string, id: string): Promise<boolean>;
+  updateTask(
+    userId: string,
+    task: UpdateTask,
+    options?: { expectUpdatedAt?: string },
+  ): Promise<Task | undefined>;
+  deleteTask(userId: string, id: string, options?: { expectUpdatedAt?: string }): Promise<boolean>;
   getTasksByStatus(userId: string, status: string): Promise<Task[]>;
   getTasksByPriority(userId: string, priority: string): Promise<Task[]>;
   searchTasks(userId: string, query: string): Promise<Task[]>;
@@ -1305,23 +1330,43 @@ export class DatabaseStorage implements IStorage {
     return allInserted;
   }
 
-  async updateTask(userId: string, updateTask: UpdateTask): Promise<Task | undefined> {
+  async updateTask(
+    userId: string,
+    updateTask: UpdateTask,
+    options?: { expectUpdatedAt?: string },
+  ): Promise<Task | undefined> {
     const { baseUpdatedAt: _b, forceOverwrite: _f, ...rest } = updateTask as UpdateTask & {
       baseUpdatedAt?: unknown;
       forceOverwrite?: unknown;
     };
+    const expect = options?.expectUpdatedAt;
+    const where =
+      expect && !Number.isNaN(new Date(expect).getTime())
+        ? and(
+            eq(tasks.id, updateTask.id),
+            eq(tasks.userId, userId),
+            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 <= 1`,
+          )
+        : and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId));
     const [task] = await db
       .update(tasks)
       .set({ ...rest, updatedAt: new Date() })
-      .where(and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId)))
+      .where(where)
       .returning();
     return task || undefined;
   }
 
-  async deleteTask(userId: string, id: string): Promise<boolean> {
-    const result = await db
-      .delete(tasks)
-      .where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
+  async deleteTask(userId: string, id: string, options?: { expectUpdatedAt?: string }): Promise<boolean> {
+    const expect = options?.expectUpdatedAt;
+    const where =
+      expect && !Number.isNaN(new Date(expect).getTime())
+        ? and(
+            eq(tasks.id, id),
+            eq(tasks.userId, userId),
+            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 <= 1`,
+          )
+        : and(eq(tasks.id, id), eq(tasks.userId, userId));
+    const result = await db.delete(tasks).where(where);
     return (result.rowCount || 0) > 0;
   }
 
@@ -2131,6 +2176,20 @@ export async function hasImportFingerprint(userId: string, fingerprint: string):
   return (Number(row?.value) || 0) > 0;
 }
 
+/** First task id recorded for this fingerprint (for 409 conflict payloads). */
+export async function getTaskIdForImportFingerprint(
+  userId: string,
+  fingerprint: string,
+): Promise<string | undefined> {
+  const [row] = await db
+    .select({ firstTaskId: taskImportFingerprints.firstTaskId })
+    .from(taskImportFingerprints)
+    .where(and(eq(taskImportFingerprints.userId, userId), eq(taskImportFingerprints.fingerprint, fingerprint)))
+    .limit(1);
+  const tid = row?.firstTaskId;
+  return typeof tid === "string" && tid.length > 0 ? tid : undefined;
+}
+
 export async function recordImportFingerprint(userId: string, fingerprint: string, source: string, firstTaskId?: string): Promise<void> {
   await db.insert(taskImportFingerprints).values({
     id: randomUUID(),
@@ -2308,28 +2367,30 @@ export async function deleteBillingPaymentMethodForUser(
   userId: string,
   paymentMethodId: string,
 ): Promise<boolean> {
-  const [row] = await db
-    .select()
-    .from(billingPaymentMethods)
-    .where(and(eq(billingPaymentMethods.id, paymentMethodId), eq(billingPaymentMethods.userId, userId)));
-  if (!row) return false;
-  const wasDefault = row.isDefault;
-  await db.delete(billingPaymentMethods).where(eq(billingPaymentMethods.id, paymentMethodId));
-  if (wasDefault) {
-    const [next] = await db
+  return db.transaction(async (tx) => {
+    const [row] = await tx
       .select()
       .from(billingPaymentMethods)
-      .where(eq(billingPaymentMethods.userId, userId))
-      .orderBy(desc(billingPaymentMethods.createdAt))
-      .limit(1);
-    if (next) {
-      await db
-        .update(billingPaymentMethods)
-        .set({ isDefault: true })
-        .where(eq(billingPaymentMethods.id, next.id));
+      .where(and(eq(billingPaymentMethods.id, paymentMethodId), eq(billingPaymentMethods.userId, userId)));
+    if (!row) return false;
+    const wasDefault = row.isDefault;
+    await tx.delete(billingPaymentMethods).where(eq(billingPaymentMethods.id, paymentMethodId));
+    if (wasDefault) {
+      const [next] = await tx
+        .select()
+        .from(billingPaymentMethods)
+        .where(eq(billingPaymentMethods.userId, userId))
+        .orderBy(desc(billingPaymentMethods.createdAt))
+        .limit(1);
+      if (next) {
+        await tx
+          .update(billingPaymentMethods)
+          .set({ isDefault: true })
+          .where(eq(billingPaymentMethods.id, next.id));
+      }
     }
-  }
-  return true;
+    return true;
+  });
 }
 
 export async function getUserBillingProfile(userId: string): Promise<UserBillingProfile | undefined> {
@@ -3186,9 +3247,7 @@ export async function getSharedTasks(userId: string): Promise<Task[]> {
     .where(eq(taskCollaborators.userId, userId));
   if (rows.length === 0) return [];
   const taskIds = rows.map(r => r.taskId);
-  const result = await db.select().from(tasks).where(
-    or(...taskIds.map(id => eq(tasks.id, id)))
-  );
+  const result = await db.select().from(tasks).where(inArray(tasks.id, taskIds));
   return result;
 }
 
@@ -3345,30 +3404,45 @@ export async function tryGrantMilestone(
   coins: number,
   details: string,
 ): Promise<{ granted: boolean; balance?: number }> {
-  const [exists] = await db
-    .select({ id: userMilestoneGrants.id })
-    .from(userMilestoneGrants)
-    .where(and(eq(userMilestoneGrants.userId, userId), eq(userMilestoneGrants.milestoneKey, milestoneKey)));
-  if (exists) return { granted: false };
-  const grantId = randomUUID();
-  try {
-    await db.insert(userMilestoneGrants).values({
-      id: grantId,
+  return db.transaction(async (tx) => {
+    const [exists] = await tx
+      .select({ id: userMilestoneGrants.id })
+      .from(userMilestoneGrants)
+      .where(and(eq(userMilestoneGrants.userId, userId), eq(userMilestoneGrants.milestoneKey, milestoneKey)));
+    if (exists) return { granted: false };
+    const grantId = randomUUID();
+    try {
+      await tx.insert(userMilestoneGrants).values({
+        id: grantId,
+        userId,
+        milestoneKey,
+        coinsGranted: coins,
+      });
+    } catch (e) {
+      if (isPgUniqueViolation(e)) return { granted: false };
+      throw e;
+    }
+    const [existingWallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId));
+    if (!existingWallet) {
+      await tx.insert(wallets).values({ userId });
+    }
+    const [updated] = await tx
+      .update(wallets)
+      .set({
+        balance: sql`${wallets.balance} + ${coins}`,
+        lifetimeEarned: sql`${wallets.lifetimeEarned} + ${coins}`,
+      })
+      .where(eq(wallets.userId, userId))
+      .returning();
+    await tx.insert(coinTransactions).values({
+      id: randomUUID(),
       userId,
-      milestoneKey,
-      coinsGranted: coins,
+      amount: coins,
+      reason: "milestone",
+      details,
     });
-  } catch (e) {
-    if (isPgUniqueViolation(e)) return { granted: false };
-    throw e;
-  }
-  try {
-    const { wallet } = await addCoins(userId, coins, "milestone", details);
-    return { granted: true, balance: wallet.balance };
-  } catch (e) {
-    await db.delete(userMilestoneGrants).where(eq(userMilestoneGrants.id, grantId));
-    throw e;
-  }
+    return { granted: true, balance: updated?.balance };
+  });
 }
 
 export async function processUserMilestoneGrants(userId: string): Promise<{ grants: string[] }> {
@@ -3380,13 +3454,29 @@ export async function processUserMilestoneGrants(userId: string): Promise<{ gran
   const todayDay = now.getUTCDate();
 
   if (u.birthDate) {
-    const parts = u.birthDate.split("-").map(Number);
-    const m = parts[1];
-    const d = parts[2];
-    if (m === todayMonth && d === todayDay) {
-      const key = `birthday_${now.getUTCFullYear()}`;
-      const r = await tryGrantMilestone(userId, key, 50, "Birthday bonus");
-      if (r.granted) granted.push(key);
+    const bd = String(u.birthDate).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(bd)) {
+      const parts = bd.split("-").map((p) => Number(p));
+      if (parts.length === 3 && parts.every((n) => Number.isFinite(n))) {
+        const [, m, d] = parts;
+        if (
+          typeof m === "number" &&
+          typeof d === "number" &&
+          m >= 1 &&
+          m <= 12 &&
+          d >= 1 &&
+          d <= 31
+        ) {
+          const dt = new Date(Date.UTC(parts[0], m - 1, d));
+          if (dt.getUTCFullYear() === parts[0] && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d) {
+            if (m === todayMonth && d === todayDay) {
+              const key = `birthday_${now.getUTCFullYear()}`;
+              const r = await tryGrantMilestone(userId, key, 50, "Birthday bonus");
+              if (r.granted) granted.push(key);
+            }
+          }
+        }
+      }
     }
   }
 
@@ -3739,21 +3829,76 @@ export async function spendCoinsForAvatarBoost(
   avatarKey: string,
   coins: number,
 ): Promise<{ ok: boolean; profile?: AvatarProfile; message?: string }> {
-  const [profile] = await db
-    .select()
-    .from(avatarProfiles)
-    .where(and(eq(avatarProfiles.userId, userId), eq(avatarProfiles.avatarKey, avatarKey)))
-    .limit(1);
-  if (!profile) return { ok: false, message: "Avatar not found" };
+  try {
+    return await db.transaction(async (tx) => {
+      const [profile] = await tx
+        .select()
+        .from(avatarProfiles)
+        .where(and(eq(avatarProfiles.userId, userId), eq(avatarProfiles.avatarKey, avatarKey)))
+        .limit(1);
+      if (!profile) return { ok: false, message: "Avatar not found" };
 
-  const spend = await spendCoins(userId, coins, `avatar_boost:${avatarKey}`);
-  if (!spend) return { ok: false, message: "Not enough coins" };
-  const xpBoost = coins * 2;
-  const result = await awardAvatarXp(userId, avatarKey, "post", `coin_boost_${Date.now()}`, xpBoost, 0, {
-    boostedByCoins: coins,
-  });
-  if (!result.awarded || !result.profile) return { ok: false, message: "Avatar not found" };
-  return { ok: true, profile: result.profile };
+      const [existingWallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId));
+      if (!existingWallet) {
+        await tx.insert(wallets).values({ userId });
+      }
+      const [spentWallet] = await tx
+        .update(wallets)
+        .set({ balance: sql`${wallets.balance} - ${coins}` })
+        .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${coins}`))
+        .returning();
+      if (!spentWallet) return { ok: false, message: "Not enough coins" };
+
+      await tx.insert(coinTransactions).values({
+        id: randomUUID(),
+        userId,
+        amount: -coins,
+        reason: `avatar_boost:${avatarKey}`,
+      });
+
+      const xpBoost = coins * 2;
+      const sourceRef = `coin_boost_${Date.now()}`;
+      await tx.insert(avatarXpEvents).values({
+        id: randomUUID(),
+        userId,
+        avatarKey,
+        sourceType: "post",
+        sourceRef,
+        xpAwarded: xpBoost,
+        coinsAwarded: 0,
+        metadataJson: JSON.stringify({ boostedByCoins: coins }),
+      });
+
+      const totalXp = profile.totalXp + xpBoost;
+      const level = avatarLevelForTotalXp(totalXp);
+      const levelBaseXp = (() => {
+        let spent = 0;
+        for (let l = 1; l < level; l++) {
+          spent += 100 + (l - 1) * 25;
+        }
+        return spent;
+      })();
+      const currentXp = Math.max(0, totalXp - levelBaseXp);
+
+      const [updated] = await tx
+        .update(avatarProfiles)
+        .set({
+          totalXp,
+          xp: currentXp,
+          level,
+          updatedAt: new Date(),
+        })
+        .where(eq(avatarProfiles.id, profile.id))
+        .returning();
+
+      return { ok: true, profile: updated ?? profile };
+    });
+  } catch (e) {
+    if (isPgUniqueViolation(e)) {
+      return { ok: false, message: "Could not apply boost" };
+    }
+    throw e;
+  }
 }
 
 // ─── Pattern Learning Storage ────────────────────────────────────────────────
@@ -3767,20 +3912,32 @@ export async function upsertPattern(
 ): Promise<TaskPattern> {
   const now = new Date();
   const dataStr = JSON.stringify(data);
-
-  const result = await db.execute(sql`
-    INSERT INTO task_patterns (id, user_id, pattern_type, pattern_key, data, confidence, occurrences, last_seen, created_at)
-    VALUES (${randomUUID()}, ${userId}, ${patternType}, ${patternKey}, ${dataStr}, ${confidence}, 1, ${now}, ${now})
-    ON CONFLICT (user_id, pattern_type, pattern_key)
-    DO UPDATE SET
-      data = ${dataStr},
-      confidence = ${confidence},
-      occurrences = task_patterns.occurrences + 1,
-      last_seen = ${now}
-    RETURNING *
-  `);
-
-  return result.rows[0] as unknown as TaskPattern;
+  const id = randomUUID();
+  const [row] = await db
+    .insert(taskPatterns)
+    .values({
+      id,
+      userId,
+      patternType,
+      patternKey,
+      data: dataStr,
+      confidence,
+      occurrences: 1,
+      lastSeen: now,
+      createdAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [taskPatterns.userId, taskPatterns.patternType, taskPatterns.patternKey],
+      set: {
+        data: dataStr,
+        confidence,
+        occurrences: sql`${taskPatterns.occurrences} + 1`,
+        lastSeen: now,
+      },
+    })
+    .returning();
+  if (!row) throw new Error("upsertPattern failed");
+  return row;
 }
 
 export async function getPatterns(userId: string): Promise<TaskPattern[]> {
@@ -3905,41 +4062,28 @@ export async function createClassificationContribution(
   userId: string,
   classification: string,
   baseCoinsAwarded: number
-): Promise<ClassificationContribution> {
-  const [existing] = await db
-    .select()
-    .from(classificationContributions)
-    .where(and(
-      eq(classificationContributions.taskId, taskId),
-      eq(classificationContributions.userId, userId)
-    ))
-    .limit(1);
-
-  if (existing) {
-    const [updated] = await db
-      .update(classificationContributions)
-      .set({
+): Promise<{ contribution: ClassificationContribution; created: boolean }> {
+  try {
+    const [contrib] = await db
+      .insert(classificationContributions)
+      .values({
+        id: randomUUID(),
+        taskId,
+        userId,
         classification,
         baseCoinsAwarded,
+        totalCoinsEarned: baseCoinsAwarded,
+        confirmationCount: 0,
       })
-      .where(eq(classificationContributions.id, existing.id))
       .returning();
-    return updated;
+    return { contribution: contrib, created: true };
+  } catch (e) {
+    if (isPgUniqueViolation(e)) {
+      const existing = await getContribution(taskId, userId);
+      if (existing) return { contribution: existing, created: false };
+    }
+    throw e;
   }
-
-  const [contrib] = await db
-    .insert(classificationContributions)
-    .values({
-      id: randomUUID(),
-      taskId,
-      userId,
-      classification,
-      baseCoinsAwarded,
-      totalCoinsEarned: baseCoinsAwarded,
-      confirmationCount: 0,
-    })
-    .returning();
-  return contrib;
 }
 
 export async function getContributionsForTask(taskId: string): Promise<(ClassificationContribution & { displayName: string | null })[]> {
@@ -3974,6 +4118,126 @@ export async function getContribution(taskId: string, userId: string): Promise<C
   return row || null;
 }
 
+const CONFIRMER_CONFIRMATION_COINS = 3;
+
+async function addCoinsInTx(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  userId: string,
+  amount: number,
+  reason: string,
+  details?: string,
+  taskId?: string,
+): Promise<void> {
+  const [row] = await tx.select().from(wallets).where(eq(wallets.userId, userId));
+  if (!row) {
+    await tx.insert(wallets).values({ userId });
+  }
+  await tx
+    .update(wallets)
+    .set({
+      balance: sql`${wallets.balance} + ${amount}`,
+      lifetimeEarned: sql`${wallets.lifetimeEarned} + ${amount}`,
+    })
+    .where(eq(wallets.userId, userId));
+  await tx.insert(coinTransactions).values({
+    id: randomUUID(),
+    userId,
+    amount,
+    reason,
+    details,
+    taskId,
+  });
+}
+
+export async function awardCoinsForConfirmationAtomic(
+  confirmingUserId: string,
+  taskId: string,
+): Promise<{
+  confirmerCoins: number;
+  contributorBonuses: { userId: string; displayName: string | null; bonus: number }[];
+  totalConfirmations: number;
+  newBalance: number;
+} | null> {
+  const alreadyConfirmed = await hasUserConfirmedTask(taskId, confirmingUserId);
+  if (alreadyConfirmed) return null;
+  const contributions = await getContributionsForTask(taskId);
+  if (contributions.length === 0) return null;
+  if (contributions.some((c) => c.userId === confirmingUserId)) return null;
+
+  const primaryContribution = contributions[0];
+
+  return db.transaction(async (tx) => {
+    const confirmId = randomUUID();
+    const [insertedRow] = await tx
+      .insert(classificationConfirmations)
+      .values({
+        id: confirmId,
+        contributionId: primaryContribution.id,
+        taskId,
+        userId: confirmingUserId,
+        coinsAwarded: CONFIRMER_CONFIRMATION_COINS,
+      })
+      .onConflictDoNothing({
+        target: [classificationConfirmations.taskId, classificationConfirmations.userId],
+      })
+      .returning();
+    if (!insertedRow) return null;
+
+    await addCoinsInTx(
+      tx,
+      confirmingUserId,
+      CONFIRMER_CONFIRMATION_COINS,
+      "classification_confirm",
+      "Confirmed classification on task",
+      taskId,
+    );
+
+    const contributorBonuses: { userId: string; displayName: string | null; bonus: number }[] = [];
+
+    for (const contrib of contributions) {
+      const bonus = computeCompoundContributorBonus(contrib.baseCoinsAwarded, contrib.confirmationCount);
+      const compoundPeriod = Math.min(contrib.confirmationCount + 1, getMaxCompoundPeriods());
+      if (bonus > 0) {
+        await tx
+          .update(classificationContributions)
+          .set({
+            confirmationCount: sql`${classificationContributions.confirmationCount} + 1`,
+            totalCoinsEarned: sql`${classificationContributions.totalCoinsEarned} + ${bonus}`,
+          })
+          .where(eq(classificationContributions.id, contrib.id));
+        await addCoinsInTx(
+          tx,
+          contrib.userId,
+          bonus,
+          "classification_confirmed",
+          `Your classification was confirmed (×${compoundPeriod}): +${bonus} compound interest`,
+          taskId,
+        );
+        contributorBonuses.push({
+          userId: contrib.userId,
+          displayName: contrib.displayName,
+          bonus,
+        });
+      }
+    }
+
+    const [trow] = await tx
+      .select({ c: count() })
+      .from(classificationConfirmations)
+      .where(eq(classificationConfirmations.taskId, taskId));
+    const totalConfirmations = Number(trow?.c) || 0;
+
+    const [confWallet] = await tx.select().from(wallets).where(eq(wallets.userId, confirmingUserId));
+
+    return {
+      confirmerCoins: CONFIRMER_CONFIRMATION_COINS,
+      contributorBonuses,
+      totalConfirmations,
+      newBalance: confWallet?.balance ?? 0,
+    };
+  });
+}
+
 export async function hasUserConfirmedTask(taskId: string, userId: string): Promise<boolean> {
   const [row] = await db
     .select({ value: count() })
@@ -3990,19 +4254,39 @@ export async function recordConfirmation(
   taskId: string,
   confirmingUserId: string,
   coinsAwarded: number
-): Promise<ClassificationConfirmation> {
-  const [confirmation] = await db
+): Promise<{ confirmation: ClassificationConfirmation; inserted: boolean }> {
+  const id = randomUUID();
+  const [insertedRow] = await db
     .insert(classificationConfirmations)
     .values({
-      id: randomUUID(),
+      id,
       contributionId,
       taskId,
       userId: confirmingUserId,
       coinsAwarded,
     })
+    .onConflictDoNothing({
+      target: [classificationConfirmations.taskId, classificationConfirmations.userId],
+    })
     .returning();
 
-  return confirmation;
+  if (insertedRow) {
+    return { confirmation: insertedRow, inserted: true };
+  }
+
+  const [existing] = await db
+    .select()
+    .from(classificationConfirmations)
+    .where(and(
+      eq(classificationConfirmations.taskId, taskId),
+      eq(classificationConfirmations.userId, confirmingUserId),
+    ))
+    .limit(1);
+
+  if (!existing) {
+    throw new Error("recordConfirmation: expected row after unique conflict");
+  }
+  return { confirmation: existing, inserted: false };
 }
 
 export async function incrementContributionConfirmCount(contributionId: string): Promise<void> {

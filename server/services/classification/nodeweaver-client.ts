@@ -8,6 +8,7 @@
 
 export async function callNodeWeaverBatchClassify(
   items: Array<{ id: string; activity: string; notes?: string }>,
+  options?: { signal?: AbortSignal },
 ): Promise<unknown> {
   const baseUrl = process.env.NODEWEAVER_URL;
   if (!baseUrl) {
@@ -16,6 +17,7 @@ export async function callNodeWeaverBatchClassify(
   const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/v1/classify/batch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal: options?.signal,
     body: JSON.stringify({
       tasks: items.map((item) => ({
         id: item.id,

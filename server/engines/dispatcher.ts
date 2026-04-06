@@ -1,7 +1,7 @@
 import type { Task } from "@shared/schema";
 import { classifyCalendarIntent, processCalendarCommand, type CalendarResult } from "./calendar-engine";
 import { processPlannerQuery, type PlannerResult } from "./planner-engine";
-import { isTaskReviewIntent, processTaskReview, type ReviewResult } from "./review-engine";
+import { processTaskReview, type ReviewResult } from "./review-engine";
 
 export type IntentType = "task_create" | "planner_query" | "calendar_command" | "navigation" | "search" | "task_review";
 

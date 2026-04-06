@@ -6,6 +6,7 @@ import {
   userRewards, taskCollaborators, taskPatterns,
   classificationContributions, classificationConfirmations,
   userBillingProfiles, userClassificationCategories,
+  appeals, appealVotes, userMilestoneGrants, userEntourage, avatarProfiles, avatarXpEvents,
 } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
@@ -40,6 +41,12 @@ const TABLE_INSERT_ORDER = [
   "userBillingProfiles",
   "userClassificationCategories",
   "rewardsCatalog",
+  "appeals",
+  "appealVotes",
+  "userMilestoneGrants",
+  "userEntourage",
+  "avatarProfiles",
+  "avatarXpEvents",
   "tasks",
   "wallets",
   "coinTransactions",
@@ -56,7 +63,9 @@ const TABLE_INSERT_ORDER = [
 type TableName = typeof TABLE_INSERT_ORDER[number];
 
 type DrizzleTable = typeof users | typeof userBillingProfiles | typeof userClassificationCategories |
-  typeof rewardsCatalog | typeof tasks | typeof wallets |
+  typeof rewardsCatalog | typeof appeals | typeof appealVotes | typeof userMilestoneGrants |
+  typeof userEntourage | typeof avatarProfiles | typeof avatarXpEvents |
+  typeof tasks | typeof wallets |
   typeof coinTransactions | typeof userBadges | typeof userRewards | typeof taskPatterns |
   typeof taskCollaborators | typeof classificationContributions | typeof classificationConfirmations |
   typeof passwordResetTokens | typeof securityLogs;
@@ -66,6 +75,12 @@ const TABLE_MAP: Record<TableName, DrizzleTable> = {
   userBillingProfiles,
   userClassificationCategories,
   rewardsCatalog,
+  appeals,
+  appealVotes,
+  userMilestoneGrants,
+  userEntourage,
+  avatarProfiles,
+  avatarXpEvents,
   tasks,
   wallets,
   coinTransactions,
@@ -84,6 +99,12 @@ const PK_FIELD: Record<TableName, string> = {
   userBillingProfiles: "userId",
   userClassificationCategories: "id",
   rewardsCatalog: "id",
+  appeals: "id",
+  appealVotes: "id",
+  userMilestoneGrants: "id",
+  userEntourage: "userId",
+  avatarProfiles: "id",
+  avatarXpEvents: "id",
   tasks: "id",
   wallets: "userId",
   coinTransactions: "id",
@@ -109,6 +130,18 @@ const FK_RULES: Record<TableName, FkRule[]> = {
   userBillingProfiles: [{ field: "userId", refTable: "users", refField: "id" }],
   userClassificationCategories: [{ field: "userId", refTable: "users", refField: "id" }],
   rewardsCatalog: [],
+  appeals: [
+    { field: "appellantUserId", refTable: "users", refField: "id" },
+    { field: "resolvedByUserId", refTable: "users", refField: "id", nullable: true },
+  ],
+  appealVotes: [
+    { field: "appealId", refTable: "appeals", refField: "id" },
+    { field: "adminUserId", refTable: "users", refField: "id" },
+  ],
+  userMilestoneGrants: [{ field: "userId", refTable: "users", refField: "id" }],
+  userEntourage: [{ field: "userId", refTable: "users", refField: "id" }],
+  avatarProfiles: [{ field: "userId", refTable: "users", refField: "id" }],
+  avatarXpEvents: [{ field: "userId", refTable: "users", refField: "id" }],
   tasks: [{ field: "userId", refTable: "users", refField: "id" }],
   wallets: [{ field: "userId", refTable: "users", refField: "id" }],
   coinTransactions: [
@@ -147,6 +180,12 @@ const FK_FIELDS_BY_TABLE: Record<TableName, string[]> = {
   userBillingProfiles: ["userId"],
   userClassificationCategories: ["userId"],
   rewardsCatalog: [],
+  appeals: ["appellantUserId", "resolvedByUserId"],
+  appealVotes: ["appealId", "adminUserId"],
+  userMilestoneGrants: ["userId"],
+  userEntourage: ["userId"],
+  avatarProfiles: ["userId"],
+  avatarXpEvents: ["userId"],
   tasks: ["userId"],
   wallets: ["userId"],
   coinTransactions: ["userId", "taskId"],
@@ -165,12 +204,24 @@ const USER_OWNED_TABLES = new Set<string>([
   "userRewards", "taskPatterns", "taskCollaborators",
   "classificationContributions", "classificationConfirmations",
   "userBillingProfiles", "userClassificationCategories",
+  "appeals", "appealVotes", "userMilestoneGrants", "userEntourage", "avatarProfiles", "avatarXpEvents",
 ]);
 
 const TIMESTAMP_FIELDS = [
   "createdAt", "updatedAt", "expiresAt", "usedAt", "bannedAt",
   "lockedUntil", "earnedAt", "redeemedAt", "lastSeen", "invitedAt",
+  "phoneVerifiedAt", "startsAt", "endsAt", "graceUntil", "resolvedAt",
+  "issuedAt", "paidAt", "consumedAt", "lastSeenAt", "lastSentAt", "computedAt",
 ];
+
+function maskEmailForImportWarning(email: string): string {
+  const s = String(email).trim();
+  const i = s.indexOf("@");
+  if (i <= 0) return "[redacted]";
+  const local = s.slice(0, i);
+  const domain = s.slice(i + 1);
+  return `${local.slice(0, 1) || "?"}***@${domain}`;
+}
 
 function parseTimestamps(row: BundleRow): BundleRow {
   const out = { ...row };
@@ -325,6 +376,8 @@ function remapRow(row: BundleRow, tableName: TableName, pkField: string, idMap: 
       const fkKey = remapKey(rule.refTable, String(val));
       if (idMap.has(fkKey)) {
         out[rule.field] = idMap.get(fkKey);
+      } else if (rule.nullable) {
+        out[rule.field] = null;
       }
     }
   }
@@ -385,7 +438,14 @@ export async function importBundle(
   const inserted: Record<string, number> = {};
   const skipped: Record<string, number> = {};
   const conflicts: Record<string, number> = {};
-  const skippedUserIds = new Set<string>();
+  /** Original PKs skipped during import, by table — used so dependent rows can be skipped. */
+  const skippedIdsByTable: Record<string, Set<string>> = {};
+  const trackSkippedId = (table: string, rawId: string | undefined) => {
+    if (rawId === undefined || rawId === null) return;
+    const id = String(rawId);
+    if (!skippedIdsByTable[table]) skippedIdsByTable[table] = new Set();
+    skippedIdsByTable[table].add(id);
+  };
 
   if (dryRun) {
     for (const tableName of TABLE_INSERT_ORDER) {
@@ -465,8 +525,12 @@ export async function importBundle(
   try {
     await db.transaction(async (tx) => {
       const insertRowTx = async (table: DrizzleTable, row: BundleRow): Promise<number> => {
-        const result = await tx.insert(table as AnyPgTable).values(row as Record<string, unknown>).onConflictDoNothing();
-        return (result as { rowCount?: number }).rowCount ?? 0;
+        const inserted = await tx
+          .insert(table as AnyPgTable)
+          .values(row as Record<string, unknown>)
+          .onConflictDoNothing()
+          .returning();
+        return inserted.length;
       };
 
       for (const tableName of TABLE_INSERT_ORDER) {
@@ -506,23 +570,25 @@ export async function importBundle(
             }
           }
 
-          if (mode === "remap" && tableName !== "users" && skippedUserIds.size > 0) {
+          if (mode === "remap" && tableName !== "users") {
             const fkRules = FK_RULES[tableName];
-            let referencesSkippedUser = false;
+            let referencesSkippedRow = false;
             for (const rule of fkRules) {
-              if (rule.refTable === "users") {
-                const fkVal = originalRow[rule.field];
-                if (fkVal && skippedUserIds.has(String(fkVal))) {
-                  if (rule.nullable) {
-                    row[rule.field] = null;
-                  } else {
-                    referencesSkippedUser = true;
-                    break;
-                  }
+              const fkVal = originalRow[rule.field];
+              if (fkVal === null || fkVal === undefined) continue;
+              const refSkipped = skippedIdsByTable[rule.refTable];
+              if (refSkipped?.has(String(fkVal))) {
+                if (rule.nullable) {
+                  row[rule.field] = null;
+                } else {
+                  referencesSkippedRow = true;
+                  break;
                 }
               }
             }
-            if (referencesSkippedUser) {
+            if (referencesSkippedRow) {
+              const pkOrig = originalRow[pkField];
+              trackSkippedId(tableName, pkOrig !== undefined && pkOrig !== null ? String(pkOrig) : undefined);
               skipCount++;
               continue;
             }
@@ -551,11 +617,11 @@ export async function importBundle(
               if (existingUser) {
                 const originalId = originalRow[pkField];
                 if (originalId) {
-                  skippedUserIds.add(String(originalId));
+                  trackSkippedId("users", String(originalId));
                 }
                 validation.warnings.push({
                   table: "users", rowIndex: i, field: "email",
-                  message: `User with email ${email} already exists — skipping user and all dependent records`,
+                  message: `User with email ${maskEmailForImportWarning(String(email))} already exists — skipping user and all dependent records`,
                   severity: "warning",
                 });
                 skipCount++;
@@ -570,6 +636,12 @@ export async function importBundle(
             if (affected > 0) {
               insertCount++;
             } else {
+              const pkOrig = originalRow[pkField];
+              if (pkOrig !== undefined && pkOrig !== null) {
+                if (mode === "remap" || mode === "preserve") {
+                  trackSkippedId(tableName, String(pkOrig));
+                }
+              }
               skipCount++;
               conflictCount++;
             }
@@ -649,6 +721,14 @@ export async function importUserBundle(
   );
 
   const idMap = new Map<string, string>();
+
+  const skippedIdsByTable: Record<string, Set<string>> = {};
+  const trackSkippedIdUserBundle = (table: string, rawId: string | undefined) => {
+    if (rawId === undefined || rawId === null) return;
+    const id = String(rawId);
+    if (!skippedIdsByTable[table]) skippedIdsByTable[table] = new Set();
+    skippedIdsByTable[table].add(id);
+  };
 
   const bundleUserIds = getBundleRows(bundle, "users").map((u) => String(u.id));
   for (const oldUserId of bundleUserIds) {
@@ -775,8 +855,12 @@ export async function importUserBundle(
   try {
     await db.transaction(async (tx) => {
       const insertRowTx = async (table: DrizzleTable, row: BundleRow): Promise<number> => {
-        const result = await tx.insert(table as AnyPgTable).values(row as Record<string, unknown>).onConflictDoNothing();
-        return (result as { rowCount?: number }).rowCount ?? 0;
+        const inserted = await tx
+          .insert(table as AnyPgTable)
+          .values(row as Record<string, unknown>)
+          .onConflictDoNothing()
+          .returning();
+        return inserted.length;
       };
 
       for (const tableName of pendingTables) {
@@ -802,6 +886,28 @@ export async function importUserBundle(
           let row = parseTimestamps(rawRow);
           row = remapRow(row, tableName, pkField, idMap);
 
+          const fkRulesUser = FK_RULES[tableName];
+          let referencesSkippedRow = false;
+          for (const rule of fkRulesUser) {
+            const fkVal = rawRow[rule.field];
+            if (fkVal === null || fkVal === undefined) continue;
+            const refSkipped = skippedIdsByTable[rule.refTable];
+            if (refSkipped?.has(String(fkVal))) {
+              if (rule.nullable) {
+                row[rule.field] = null;
+              } else {
+                referencesSkippedRow = true;
+                break;
+              }
+            }
+          }
+          if (referencesSkippedRow) {
+            const pkOrig = rawRow[pkField];
+            trackSkippedIdUserBundle(tableName, pkOrig !== undefined && pkOrig !== null ? String(pkOrig) : undefined);
+            skipCount++;
+            continue;
+          }
+
           if (tableName === "userRewards" && row.rewardId) {
             const [catalogExists] = await tx.select().from(rewardsCatalog)
               .where(eq(rewardsCatalog.id, String(row.rewardId))).limit(1);
@@ -821,6 +927,10 @@ export async function importUserBundle(
             if (affected > 0) {
               insertCount++;
             } else {
+              const pkOrig = rawRow[pkField];
+              if (pkOrig !== undefined && pkOrig !== null) {
+                trackSkippedIdUserBundle(tableName, String(pkOrig));
+              }
               skipCount++;
             }
           } catch (rowErr: unknown) {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Smartphone, ShieldCheck, Cake } from "lucide-react";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { normalizeToE164 } from "@shared/phone";
@@ -17,6 +17,7 @@ import { DonateCta } from "@/components/donate-cta";
 
 export default function AccountPage() {
   const { user, refreshUser } = useAuth();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const { requestChallenge, isRequesting } = useMfaChallenge();
 
@@ -75,17 +76,27 @@ export default function AccountPage() {
       toast({ title: "Verification failed", description: e.message, variant: "destructive" }),
   });
 
+  const { data: ownerProfile } = useQuery({
+    queryKey: ["/api/account/profile"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/account/profile");
+      if (!res.ok) throw new Error("Failed to load profile");
+      return res.json() as Promise<{ displayName: string | null; birthDate: string | null }>;
+    },
+    enabled: Boolean(user),
+  });
+
   const mfaDescription =
     challenge?.maskedDestination != null && challenge.maskedDestination !== ""
       ? `Enter the code sent to ${challenge.maskedDestination}.`
       : "Enter the code we sent to your phone.";
 
   useEffect(() => {
-    if (!user) return;
-    setProfileDisplayName(user.displayName || "");
-    const bd = (user as { birthDate?: string | null }).birthDate;
+    if (!ownerProfile) return;
+    setProfileDisplayName(ownerProfile.displayName || "");
+    const bd = ownerProfile.birthDate;
     setProfileBirthDate(bd && typeof bd === "string" ? bd : "");
-  }, [user]);
+  }, [ownerProfile]);
 
   const saveProfileMutation = useMutation({
     mutationFn: async () => {
@@ -97,6 +108,7 @@ export default function AccountPage() {
       return res.json() as Promise<{ message?: string }>;
     },
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/account/profile"] });
       await refreshUser();
       toast({ title: "Profile updated", description: "Your profile details were saved." });
     },

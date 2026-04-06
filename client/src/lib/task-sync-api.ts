@@ -10,9 +10,13 @@ import {
   enqueueTaskUpdate,
   peekOfflineQueue,
   removeOfflineOp,
+  refreshQueuedUpdateBasesForTask,
+  remapOrRemoveQueuedOpsForClientId,
   type OfflineTaskOp,
+  type WriteQueueOutcome,
 } from "./offline-task-queue";
 import { openConflictDialog, type ConflictChoice } from "./task-conflict-deferred";
+import { randomUuid } from "./uuid";
 
 /** User chose server / review during conflict — caller should not toast success. */
 export class TaskSyncAbortedError extends Error {
@@ -24,6 +28,15 @@ export class TaskSyncAbortedError extends Error {
 
 export function isBrowserOnline(): boolean {
   return typeof navigator !== "undefined" && navigator.onLine;
+}
+
+function assertEnqueueOk(o: WriteQueueOutcome, context: string): void {
+  if (!o.persistedToStorage && !o.usingMemoryFallback) {
+    throw new Error("Could not save offline queue");
+  }
+  if (o.overflowed) {
+    console.warn(`[offline-task-queue] ${context}: queue overflow; oldest ops dropped`);
+  }
 }
 
 export function taskUpdatedAtIso(task: Task | undefined): string | null {
@@ -52,6 +65,8 @@ export function optimisticTaskFromInsert(data: InsertTask, id: string, userId: s
     status: data.status ?? "pending",
     isRepeated: false,
     sortOrder: 0,
+    visibility: "private",
+    communityShowNotes: false,
     createdAt: now,
     updatedAt: now,
   } as unknown as Task;
@@ -113,8 +128,8 @@ export async function syncCreateTask(
   userId: string,
 ): Promise<unknown> {
   if (!isBrowserOnline()) {
-    const clientId = crypto.randomUUID();
-    enqueueTaskCreate(clientId, data);
+    const clientId = randomUuid();
+    assertEnqueueOk(enqueueTaskCreate(clientId, data), "enqueueTaskCreate");
     const optimistic = optimisticTaskFromInsert(data, clientId, userId);
     appendTaskToCache(queryClient, optimistic);
     return { ...optimistic, offlineQueued: true };
@@ -144,7 +159,7 @@ export async function syncUpdateTask(
 
   if (!isBrowserOnline()) {
     const shallow: Record<string, unknown> = { ...shallowIn };
-    enqueueTaskUpdate(taskId, shallow, baseUpdatedAt);
+    assertEnqueueOk(enqueueTaskUpdate(taskId, shallow, baseUpdatedAt), "enqueueTaskUpdate");
     mergeTaskInCache(queryClient, taskId, shallow);
     return { offlineQueued: true };
   }
@@ -184,7 +199,7 @@ export async function syncDeleteTask(
       : "";
 
   if (!isBrowserOnline()) {
-    enqueueTaskDelete(taskId, baseUpdatedAt);
+    assertEnqueueOk(enqueueTaskDelete(taskId, baseUpdatedAt), "enqueueTaskDelete");
     removeTaskFromCache(queryClient, taskId);
     return;
   }
@@ -218,7 +233,7 @@ export async function syncDeleteTask(
 
 export async function syncReorderTasks(taskIds: string[], queryClient: QueryClient): Promise<void> {
   if (!isBrowserOnline()) {
-    enqueueTaskReorder(taskIds);
+    assertEnqueueOk(enqueueTaskReorder(taskIds), "enqueueTaskReorder");
     queryClient.setQueryData<Task[]>(["/api/tasks"], (old) => {
       if (!old) return old;
       const byId = new Map(old.map((t) => [t.id, t]));
@@ -243,7 +258,7 @@ export async function syncRawTaskRequest(
   queryClient: QueryClient,
 ): Promise<unknown> {
   if (!isBrowserOnline()) {
-    enqueueHttpMutation(method, path, body);
+    assertEnqueueOk(enqueueHttpMutation(method, path, body), "enqueueHttpMutation");
     return { offlineQueued: true };
   }
   const res = await apiRequest(method, path, body);
@@ -259,8 +274,11 @@ async function processUpdateOp(
   op: Extract<OfflineTaskOp, { kind: "update" }>,
   queryClient: QueryClient,
 ): Promise<"done" | "aborted"> {
+  const tasks = queryClient.getQueryData<Task[]>(["/api/tasks"]);
+  const cached = tasks?.find((t) => t.id === op.taskId);
+  const effectiveBase = taskUpdatedAtIso(cached) ?? op.baseUpdatedAt;
   const body: Record<string, unknown> = { id: op.taskId, ...op.patch };
-  if (op.baseUpdatedAt) body.baseUpdatedAt = op.baseUpdatedAt;
+  if (effectiveBase) body.baseUpdatedAt = effectiveBase;
   let res = await apiFetch("PUT", `/api/tasks/${op.taskId}`, body);
   if (res.status === 409) {
     const j = await res.json();
@@ -269,7 +287,7 @@ async function processUpdateOp(
         op.taskId,
         { ...op.patch },
         j.serverTask as Task,
-        op.baseUpdatedAt,
+        effectiveBase,
         queryClient,
       );
     }
@@ -279,6 +297,9 @@ async function processUpdateOp(
     const t = await res.text();
     throw new Error(t || res.statusText);
   }
+  const updated = (await res.json()) as Task;
+  refreshQueuedUpdateBasesForTask(op.taskId, taskUpdatedAtIso(updated));
+  mergeTaskInCache(queryClient, op.taskId, updated as Record<string, unknown>);
   return "done";
 }
 
@@ -337,6 +358,7 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
   };
 
   let ops = peekOfflineQueue();
+  let drainStoppedEarly = false;
   try {
     while (ops.length > 0) {
       const op = ops[0];
@@ -347,7 +369,35 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
               ...op.payload,
               id: op.clientId,
             });
+            if (res.status === 409) {
+              let serverId: string | null = null;
+              const raw = await res.text();
+              try {
+                const j = raw ? (JSON.parse(raw) as { serverTask?: { id?: string } }) : null;
+                const sid = j?.serverTask?.id;
+                if (typeof sid === "string" && sid.length > 0) serverId = sid;
+              } catch {
+                /* ignore */
+              }
+              if (!serverId) {
+                const getRes = await apiFetch("GET", `/api/tasks/${encodeURIComponent(op.clientId)}`);
+                if (getRes.ok) {
+                  const t = (await getRes.json()) as Task;
+                  if (t?.id) serverId = t.id;
+                }
+              }
+              remapOrRemoveQueuedOpsForClientId(op.clientId, serverId);
+              removeOfflineOp(op.opId);
+              break;
+            }
             if (!res.ok) throw new Error(await res.text());
+            const serverTask = (await res.json()) as Task;
+            queryClient.setQueryData<Task[]>(["/api/tasks"], (old) => {
+              if (!old) return old;
+              const filtered = old.filter((t) => t.id !== op.clientId && t.id !== serverTask.id);
+              return [...filtered, serverTask];
+            });
+            refreshQueuedUpdateBasesForTask(serverTask.id, taskUpdatedAtIso(serverTask));
             break;
           }
           case "update": {
@@ -375,14 +425,17 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error("[offline-task-queue] drain failed", { ...opDrainMeta(op), error: message, err });
+        drainStoppedEarly = true;
         break;
       }
       ops = peekOfflineQueue();
     }
 
-    await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-    await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-    await queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
+    if (!drainStoppedEarly && peekOfflineQueue().length === 0) {
+      await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
+    }
   } finally {
     drainInProgress = false;
   }

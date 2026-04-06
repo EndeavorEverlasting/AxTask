@@ -10,7 +10,7 @@ import {
 } from "@shared/http-auth";
 import { queryClient, getCsrfToken } from "./queryClient";
 import { clearPersistOnLogout, clearQueryPersistStorageForUser } from "./query-persist-policy";
-import { clearOfflineTaskQueue } from "./offline-task-queue";
+import { clearOfflineTaskQueue, setOfflineQueueUserScope } from "./offline-task-queue";
 
 function csrfHeaders(): Record<string, string> {
   const token = getCsrfToken();
@@ -82,9 +82,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await fetchSessionUser();
         if (cancelled) return;
         setUser(data);
+        setOfflineQueueUserScope(data?.id ?? null);
         if (data?.email) rememberKnownAccount(data);
       } catch {
-        if (!cancelled) setUser(null);
+        if (!cancelled) {
+          setUser(null);
+          setOfflineQueueUserScope(null);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -108,6 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json();
     clearQueryPersistStorageForUser(null);
     setUser(data);
+    setOfflineQueueUserScope(data?.id ?? null);
     rememberKnownAccount(data);
   }, []);
 
@@ -125,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json();
     clearQueryPersistStorageForUser(null);
     setUser(data);
+    setOfflineQueueUserScope(data?.id ?? null);
     rememberKnownAccount(data);
   }, []);
 
@@ -136,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       credentials: "include",
     });
     setUser(null);
+    setOfflineQueueUserScope(null);
     clearPersistOnLogout(uid);
     clearOfflineTaskQueue();
     queryClient.clear();
@@ -144,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshUser = useCallback(async () => {
     const data = await fetchSessionUser();
     setUser(data);
+    setOfflineQueueUserScope(data?.id ?? null);
     if (data?.email) rememberKnownAccount(data);
   }, []);
 
