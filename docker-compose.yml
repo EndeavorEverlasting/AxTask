@@ -60,7 +60,7 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # NodeWeaver: optional Python classifier (git submodule at services/nodeweaver/upstream). Not started by default.
+  # NodeWeaver: optional Python classifier (sources at services/nodeweaver/upstream). Not started by default.
   nodeweaver:
     profiles: ["nodeweaver"]
     build:

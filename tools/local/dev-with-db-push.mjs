@@ -11,6 +11,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..", "..");
 const isWin = process.platform === "win32";
 
+// `npm run dev` runs `predev` (bootstrap) first; skip duplicate when lifecycle is `dev`.
+if (process.env.npm_lifecycle_event !== "dev") {
+  const bootstrap = spawnSync(process.execPath, [path.join(__dirname, "repo-bootstrap.mjs")], {
+    cwd: projectRoot,
+    stdio: "inherit",
+    shell: isWin,
+  });
+  if ((bootstrap.status ?? 1) !== 0) process.exit(bootstrap.status ?? 1);
+}
+
 dotenv.config({ path: path.join(projectRoot, ".env") });
 
 const skip =

@@ -17,7 +17,7 @@ Use this when you want **`npm run dev` / `npm run local:start`** against Postgre
 
 ### 1.2 One-time setup (project root)
 
-1. `git clone` / `cd AxTask` (and `npm run submodule:init` if you did not use `--recurse-submodules`).
+1. `git clone` / `cd AxTask` (optional: `npm run submodule:init` verifies NodeWeaver sources under `services/nodeweaver/upstream`).
 2. **`npm run local:env-init`**  
    - Creates `.env` from `.env.example` if missing.  
    - Writes a strong **`SESSION_SECRET`** without printing it.

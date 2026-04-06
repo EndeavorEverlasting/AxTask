@@ -160,6 +160,13 @@ function startDevServer() {
 }
 
 console.log("[offline:start] Bootstrapping local offline workflow");
+const bootstrap = spawnSync(process.execPath, [path.join(__dirname, "repo-bootstrap.mjs")], {
+  cwd: projectRoot,
+  stdio: "inherit",
+  shell: isWin,
+});
+if ((bootstrap.status ?? 1) !== 0) process.exit(bootstrap.status ?? 1);
+
 const previousState = readState();
 ensureLocalEnvInit();
 ensureNodeModules();

@@ -22,7 +22,7 @@ This is the fastest way to get a full stack (app + PostgreSQL) on your machine a
 Documentation often shows the Unix `cp` command. **Windows Command Prompt (`cmd.exe`) does not include `cp`** — you will see `'cp' is not recognized as an internal or external command`. Use any of these instead:
 
 - **`npm run docker:env-init`** — creates `.env.docker` from the example (same on every OS).
-- **`npm run submodule:init`** — runs `git submodule update --init --recursive` when you cloned without `--recurse-submodules` (NodeWeaver lives in a submodule).
+- **`npm run submodule:init`** — same as the automatic bootstrap (NodeWeaver check + optional `uv sync`); usually unnecessary because **`npm install`** runs **`postinstall`** and **`npm run dev`** runs **`predev`** first.
 - **Windows CMD:** `copy .env.docker.example .env.docker`
 - **Windows PowerShell:** `Copy-Item .env.docker.example .env.docker`
 - **Git Bash, WSL, macOS, Linux:** `cp .env.docker.example .env.docker`
@@ -38,22 +38,12 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
 
    **Project root** is the folder that contains **`package.json`** and **`docker-compose.yml`**. Run every `npm run …` command in this guide from that directory (your shell prompt should show that folder name after `cd`).
 
-   **Clone with submodules** (recommended — pulls **NodeWeaver** for optional `docker:up:nodeweaver`):
-
    ```bash
-   git clone --recurse-submodules https://github.com/EndeavorEverlasting/AxTask.git
+   git clone https://github.com/EndeavorEverlasting/AxTask.git
    cd AxTask
    ```
 
-   Use your **fork’s URL** or **SSH** (`git clone --recurse-submodules git@github.com:YOUR_USER/AxTask.git`) if that is how you work.
-
-   **Already cloned without `--recurse-submodules`?** From inside the repo:
-
-   ```bash
-   npm run submodule:init
-   ```
-
-   That runs `git submodule update --init --recursive`. Then stay in the same directory for the steps below.
+   Use your **fork’s URL** or **SSH** if that is how you work. **NodeWeaver** for optional `docker:up:nodeweaver` is already under `services/nodeweaver/upstream`; run **`npm run submodule:init`** if you want a quick check that `Dockerfile` is present.
 
    **Check you are in the right place:** `dir package.json` (Windows CMD), `Test-Path package.json` (PowerShell), or `ls package.json` (macOS/Linux) should succeed.
 
@@ -126,7 +116,7 @@ If `migrate` fails with `password authentication failed for user "axtask"`:
 
 ### Optional: NodeWeaver in the same Compose stack
 
-Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run it **next to AxTask** in Docker: ensure the submodule is present (**`npm run submodule:init`** if you did not use `git clone --recurse-submodules`), set `NODEWEAVER_URL=http://nodeweaver:5000` in `.env.docker`, then start with **`npm run docker:up:nodeweaver`** (or `node tools/local/docker-start.mjs --with-nodeweaver`). The default `npm run docker:up` does **not** start NodeWeaver. Full steps: [`services/nodeweaver/README.md`](services/nodeweaver/README.md).
+Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run it **next to AxTask** in Docker: set `NODEWEAVER_URL=http://nodeweaver:5000` in `.env.docker`, then start with **`npm run docker:up:nodeweaver`** (or `node tools/local/docker-start.mjs --with-nodeweaver`). The default `npm run docker:up` does **not** start NodeWeaver. Full steps: [`services/nodeweaver/README.md`](services/nodeweaver/README.md).
 
 ### One-click Docker scripts
 
@@ -138,7 +128,7 @@ Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run
 
 Use this when you prefer to run the app with `tsx` against your own Postgres (not the Docker Compose stack).
 
-**Clone and `cd`:** same as [Run locally after cloning with Docker](#run-locally-after-cloning-with-docker) — step **2** (`git clone --recurse-submodules …`, `cd AxTask`, and **`npm run submodule:init`** if you cloned without submodules).
+**Clone and `cd`:** same as [Run locally after cloning with Docker](#run-locally-after-cloning-with-docker) — step **2** (`git clone …`, `cd AxTask`).
 
 From the **project root**:
 
@@ -286,7 +276,7 @@ If something ever gets out of sync, run:
 npm run deps:sync
 ```
 
-For matching behavior in `NodeWeaver`, run that repo's setup script once too.
+If you use a **standalone** NodeWeaver checkout (outside AxTask), run that repo’s setup script once too; the copy under `services/nodeweaver/upstream` is the one Docker builds by default.
 
 ### File Structure
 ```

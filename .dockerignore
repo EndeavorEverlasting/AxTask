@@ -1,7 +1,7 @@
 node_modules
 npm-debug.log
 dist
-# NodeWeaver lives under services/nodeweaver/upstream (submodule); never bake it into the AxTask image.
+# NodeWeaver lives under services/nodeweaver/upstream (separate Compose service); never bake it into the AxTask image.
 services/nodeweaver/upstream
 .git
 .github

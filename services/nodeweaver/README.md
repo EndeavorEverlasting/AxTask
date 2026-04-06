@@ -1,49 +1,26 @@
 # NodeWeaver (AxTask integration)
 
-NodeWeaver is a **separate Python service**. This folder wires it into the AxTask repo for a **single checkout** and **optional Docker Compose** profile.
+NodeWeaver is the **Python classification service** for AxTask. Its source lives **inside this repository** at **`upstream/`** (vendored copy of [NodeWeaver](https://github.com/EndeavorEverlasting/NodeWeaver)) so you get **one clone**, **no submodules**, and **one Docker Compose stack** when you enable the profile.
 
 ## Layout
 
-- **`upstream/`** — git submodule pointing at [NodeWeaver](https://github.com/EndeavorEverlasting/NodeWeaver) (`feature/axtask-contract-hardening`).
+- **`upstream/`** — full NodeWeaver app (`Dockerfile`, `app.py` / `main.py`, etc.). Treat edits here as AxTask-owned unless you are syncing from the upstream GitHub project on purpose.
 
-## After clone: initialize the submodule
+## After clone
 
-If `services/nodeweaver/upstream` is empty or missing a `Dockerfile`, fetch the submodule:
+No manual step. **`npm install`** runs **`postinstall`**, which verifies `services/nodeweaver/upstream` and (outside CI, if **`uv`** is on your PATH) syncs the Python env when `uv.lock` / `pyproject.toml` change. **`npm run dev`** runs the same check via **`predev`** first.
 
-```bash
-git submodule update --init --recursive
-```
+Optional: **`npm run submodule:init`** runs the same bootstrap script (legacy script name).
 
-From the AxTask project root you can run **`npm run submodule:init`** instead (same command).
+Set **`AXTASK_SKIP_NODEWEAVER_PY=1`** to skip the optional `uv sync` (AxTask does not require local Python). CI skips `uv` automatically.
 
-Or clone AxTask with submodules in one step:
+## Refreshing from the standalone NodeWeaver repo
 
-```bash
-git clone --recurse-submodules <your-axtask-repo-url>
-```
-
-## One-time: add the submodule (only if `.gitmodules` does not exist yet)
-
-Use this when you are **introducing** NodeWeaver into a branch that does not yet have it:
-
-1. Ensure **`services/nodeweaver/upstream` does not exist** (remove any placeholder `.gitkeep` or empty folder).
-2. From the **AxTask repo root**:
-
-```bash
-git submodule add -b feature/axtask-contract-hardening \
-  https://github.com/EndeavorEverlasting/NodeWeaver.git \
-  services/nodeweaver/upstream
-git submodule update --init --recursive
-```
-
-3. Commit **`.gitmodules`** and the **`services/nodeweaver/upstream`** gitlink.
-
-Without a populated `upstream/`, **`docker compose build` for the `nodeweaver` service will fail** (no `Dockerfile`).
+If you maintain a separate NodeWeaver checkout, copy its contents **into** `services/nodeweaver/upstream` **without** the `.git` directory so AxTask stays a single git root.
 
 ## Docker Compose (profile `nodeweaver`)
 
-1. Initialize **`services/nodeweaver/upstream`** as above.
-2. In **`.env.docker`**, set:
+1. In **`.env.docker`**, set:
 
    ```env
    NODEWEAVER_URL=http://nodeweaver:5000
@@ -51,9 +28,9 @@ Without a populated `upstream/`, **`docker compose build` for the `nodeweaver` s
 
    (AxTask’s `app` container uses this hostname on the Compose network. NodeWeaver listens on **5000** inside its image.)
 
-3. Add any keys NodeWeaver expects (for example model/API keys) to `.env.docker`; variable names match the upstream service’s configuration.
+2. Add any keys NodeWeaver expects (for example model/API keys) to `.env.docker`; variable names match the upstream service’s configuration.
 
-4. Start the stack **with the profile**:
+3. Start the stack **with the profile**:
 
    ```bash
    npm run docker:up:nodeweaver
@@ -72,3 +49,7 @@ With the profile enabled, port **`5001`** on the host is mapped to NodeWeaver’
 ## Contract
 
 AxTask calls **`POST /api/v1/classify/batch`** on `NODEWEAVER_URL`. See [`server/services/classification/nodeweaver-client.ts`](../../server/services/classification/nodeweaver-client.ts).
+
+## One bill, one product experience
+
+Run NodeWeaver **only** as the Compose service next to AxTask (same host / same `docker compose` project), or point `NODEWEAVER_URL` at a single shared classifier URL. Avoid paying for **two** separate production apps (duplicate AxTask + NodeWeaver SaaS stacks) for the same user-facing product; this layout keeps the classifier **optional** and **co-located** by default.

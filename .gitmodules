@@ -1,4 +1,0 @@
-[submodule "services/nodeweaver/upstream"]
-	path = services/nodeweaver/upstream
-	url = https://github.com/EndeavorEverlasting/NodeWeaver.git
-	branch = main
