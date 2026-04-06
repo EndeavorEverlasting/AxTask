@@ -397,19 +397,21 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   useEffect(() => {
     if (!debouncedActivity || debouncedActivity.length < 3 || task) return;
     let cancelled = false;
+    const ac = new AbortController();
 
-    apiFetch("POST", "/api/patterns/suggest-deadline", { activity: debouncedActivity })
+    apiFetch("POST", "/api/patterns/suggest-deadline", { activity: debouncedActivity }, undefined, ac.signal)
       .then(async (res) => {
+        if (ac.signal.aborted) return;
         if (!res.ok) {
           const t = await res.text().catch(() => "");
           console.warn("[task-form] suggest-deadline failed:", res.status, t || res.statusText);
-          if (!cancelled) setDeadlineSuggestion(null);
+          if (!cancelled && !ac.signal.aborted) setDeadlineSuggestion(null);
           return;
         }
         return res.json() as Promise<{ suggestion?: unknown }>;
       })
       .then((data) => {
-        if (!data || cancelled) return;
+        if (!data || cancelled || ac.signal.aborted) return;
         const s = data.suggestion;
         if (
           s &&
@@ -431,12 +433,16 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
           setDeadlineSuggestion(null);
         }
       })
-      .catch((e) => {
+      .catch((e: unknown) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
         console.warn("[task-form] suggest-deadline error:", e);
-        if (!cancelled) setDeadlineSuggestion(null);
+        if (!cancelled && !ac.signal.aborted) setDeadlineSuggestion(null);
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
   }, [debouncedActivity, task]);
 
   useEffect(() => {
@@ -1051,7 +1057,8 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           <Input
                             placeholder="Dependencies or prerequisites..."
                             {...field}
-                            className={cn("min-h-[44px]", getFieldClass("prerequisites"), "w-full")}
+                            className={cn("min-h-[44px]", getFieldClass("prerequisites"), getCollabFieldStyle("prerequisites"), "w-full")}
+                            style={getCollabFieldColor("prerequisites") ? { "--tw-ring-color": getCollabFieldColor("prerequisites") } as React.CSSProperties : undefined}
                             onFocus={() => { setVoiceTarget("prerequisites"); collab.focusField("prerequisites"); }}
                             onBlur={(e) => {
                               field.onBlur();
@@ -1065,6 +1072,11 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               collab.sendFieldEdit("prerequisites", e.target.value);
                             }}
                           />
+                          {getCollabFieldUser("prerequisites") && (
+                            <span className="absolute -top-5 right-0 text-xs px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCollabFieldColor("prerequisites") }}>
+                              {getCollabFieldUser("prerequisites")}
+                            </span>
+                          )}
                         </div>
                         <MicButton
                           status={voiceTarget === "prerequisites" ? speech.status : "idle"}

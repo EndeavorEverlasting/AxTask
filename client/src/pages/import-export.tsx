@@ -5,7 +5,10 @@
 import { useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
+import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { apiRequest } from "@/lib/queryClient";
+import { useMfaChallenge } from "@/hooks/use-mfa-challenge";
+import { MfaVerificationPanel } from "@/components/mfa/mfa-verification-panel";
 import { formatAxTaskCsvAttribution } from "@shared/attribution";
 import { tasksToCSV, parseTasksFromCSV, downloadCSV, parseExcelSheetInfo } from "@/lib/csv-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -53,6 +56,14 @@ interface AccountImportApiResult {
 export default function ImportExport() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { requestChallenge: requestDataExportChallenge, isRequesting: dataExportCodeSending } = useMfaChallenge();
+  const [dataExportMfaOpen, setDataExportMfaOpen] = useState(false);
+  const [dataExportChallenge, setDataExportChallenge] = useState<{
+    challengeId: string;
+    expiresAt: string;
+    devCode?: string;
+    maskedDestination?: string;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
@@ -76,6 +87,62 @@ export default function ImportExport() {
     queryKey: ["/api/tasks"],
   });
 
+  const { data: dataExportStepUp } = useQuery({
+    queryKey: ["/api/account/data-export-step-up-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/account/data-export-step-up-status", { credentials: "include" });
+      if (!res.ok) throw new Error("Could not load verification status");
+      return res.json() as Promise<{
+        stepUpRequired: boolean;
+        stepUpSatisfied: boolean;
+        expiresAt: number | null;
+      }>;
+    },
+    staleTime: 15_000,
+  });
+
+  const accountDataStepUpBlocks =
+    Boolean(dataExportStepUp?.stepUpRequired) && !dataExportStepUp?.stepUpSatisfied;
+
+  const verifyDataExportStepUpMutation = useMutation({
+    mutationFn: async (payload: { challengeId: string; code: string }) => {
+      const res = await apiRequest("POST", "/api/account/data-export-step-up", payload);
+      return res.json() as Promise<{ ok?: boolean }>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/account/data-export-step-up-status"] });
+      setDataExportMfaOpen(false);
+      setDataExportChallenge(null);
+      toast({
+        title: "Verified",
+        description: "You can download or import your JSON account backup for the next hour.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Verification failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const startDataExportVerification = async () => {
+    try {
+      const c = await requestDataExportChallenge(MFA_PURPOSES.ACCOUNT_DATA_EXPORT);
+      setDataExportChallenge({
+        challengeId: c.challengeId,
+        expiresAt: c.expiresAt,
+        devCode: c.devCode,
+        maskedDestination: c.maskedDestination,
+      });
+      setDataExportMfaOpen(true);
+      toast({ title: "Code sent", description: "Check your email for the verification code." });
+    } catch (e) {
+      toast({
+        title: "Could not send code",
+        description: e instanceof Error ? e.message : "Try again later.",
+        variant: "destructive",
+      });
+    }
+  };
+
   function invalidateAfterAccountImport() {
     void queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
     void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
@@ -91,6 +158,9 @@ export default function ImportExport() {
   const accountJsonMutation = useMutation({
     mutationFn: async (dryRun: boolean) => {
       if (!jsonBundle) throw new Error("No backup loaded");
+      if (accountDataStepUpBlocks) {
+        throw new Error("Verify your identity first (email code) before importing a JSON backup.");
+      }
       const res = await apiRequest("POST", "/api/account/import", { bundle: jsonBundle, dryRun });
       return (await res.json()) as AccountImportApiResult;
     },
@@ -127,6 +197,14 @@ export default function ImportExport() {
   });
 
   const handleExportJsonBundle = async () => {
+    if (accountDataStepUpBlocks) {
+      toast({
+        title: "Verification required",
+        description: "Request a code and confirm your email before downloading your JSON backup.",
+        variant: "destructive",
+      });
+      return;
+    }
     setJsonExportBusy(true);
     try {
       const res = await apiRequest("GET", "/api/account/export");
@@ -389,6 +467,48 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
         </p>
       </div>
 
+      <MfaVerificationPanel
+        open={dataExportMfaOpen}
+        challengeId={dataExportChallenge?.challengeId}
+        purpose={MFA_PURPOSES.ACCOUNT_DATA_EXPORT}
+        title="Verify for account backup"
+        description={
+          dataExportChallenge?.maskedDestination
+            ? `Code sent to ${dataExportChallenge.maskedDestination}`
+            : "Enter the code we email you."
+        }
+        expiresAt={dataExportChallenge?.expiresAt}
+        devCode={dataExportChallenge?.devCode ?? null}
+        isBusy={verifyDataExportStepUpMutation.isPending}
+        onDismiss={() => {
+          setDataExportMfaOpen(false);
+          setDataExportChallenge(null);
+        }}
+        onResend={() => void startDataExportVerification()}
+        onSubmitCode={async (code) => {
+          if (!dataExportChallenge?.challengeId) return;
+          await verifyDataExportStepUpMutation.mutateAsync({
+            challengeId: dataExportChallenge.challengeId,
+            code,
+          });
+        }}
+      />
+
+      {accountDataStepUpBlocks ? (
+        <div className="rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 p-4 text-sm">
+          <p className="font-medium text-amber-950 dark:text-amber-100 mb-2">
+            Email verification required for JSON account backup
+          </p>
+          <p className="text-amber-900/90 dark:text-amber-200/90 mb-3">
+            In production, downloading or importing your full JSON backup requires a one-time code (same idea as billing
+            verification).
+          </p>
+          <Button type="button" size="sm" onClick={() => void startDataExportVerification()} disabled={dataExportCodeSending}>
+            {dataExportCodeSending ? "Sending…" : "Email me a code"}
+          </Button>
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <Card>
           <CardHeader>
@@ -417,7 +537,7 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
               variant="outline"
               className="w-full"
               onClick={() => void handleExportJsonBundle()}
-              disabled={jsonExportBusy}
+              disabled={jsonExportBusy || accountDataStepUpBlocks}
             >
               {jsonExportBusy ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -599,7 +719,7 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
                   type="file"
                   accept=".json,application/json"
                   onChange={handleJsonFileSelect}
-                  disabled={isImporting || isParsing || accountJsonMutation.isPending}
+                  disabled={isImporting || isParsing || accountJsonMutation.isPending || accountDataStepUpBlocks}
                 />
               </div>
               {jsonFileName ? (
@@ -615,7 +735,7 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
                   type="button"
                   variant="secondary"
                   size="sm"
-                  disabled={!jsonBundle || accountJsonMutation.isPending}
+                  disabled={!jsonBundle || accountJsonMutation.isPending || accountDataStepUpBlocks}
                   onClick={() => accountJsonMutation.mutate(true)}
                 >
                   {accountJsonMutation.isPending ? (
@@ -626,7 +746,7 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
                 <Button
                   type="button"
                   size="sm"
-                  disabled={!jsonBundle || accountJsonMutation.isPending}
+                  disabled={!jsonBundle || accountJsonMutation.isPending || accountDataStepUpBlocks}
                   onClick={() => accountJsonMutation.mutate(false)}
                 >
                   Import JSON backup

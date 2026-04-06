@@ -90,7 +90,6 @@ import { buildSecurityEventHash } from "./security/event-hash";
 import { parseFeedbackPayload, parseFeedbackReviewPayload } from "./services/feedback-inbox-parser";
 
 /** Allowed clock skew / serialization delta for task optimistic concurrency (updatedAt match). */
-const TASK_OPTIMISTIC_CONCURRENCY_MS = 1000;
 
 /** RFC 4122 string form (any version/variant); rejects malformed client-supplied ids. */
 const CLIENT_TASK_ID_UUID_RE =
@@ -1250,7 +1249,8 @@ export interface IStorage {
   getTasks(userId: string): Promise<Task[]>;
   getTask(userId: string, id: string): Promise<Task | undefined>;
   /** True if this user already has a task with this primary key (Phase C client-provisioned ids). */
-  isTaskIdTaken(id: string, userId: string): Promise<boolean>;
+  /** True if any task row exists with this primary key (global uniqueness). */
+  isTaskIdTaken(id: string, _userId?: string): Promise<boolean>;
   createTask(userId: string, task: InsertTask): Promise<Task>;
   updateTask(
     userId: string,
@@ -1289,12 +1289,8 @@ export class DatabaseStorage implements IStorage {
     return task || undefined;
   }
 
-  async isTaskIdTaken(id: string, userId: string): Promise<boolean> {
-    const [row] = await db
-      .select({ id: tasks.id })
-      .from(tasks)
-      .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
-      .limit(1);
+  async isTaskIdTaken(id: string, _userId?: string): Promise<boolean> {
+    const [row] = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, id)).limit(1);
     return !!row;
   }
 
@@ -1375,14 +1371,15 @@ export class DatabaseStorage implements IStorage {
       communityTags?: unknown;
     };
     const expect = options?.expectUpdatedAt;
-    const where =
-      expect && !Number.isNaN(new Date(expect).getTime())
-        ? and(
-            eq(tasks.id, updateTask.id),
-            eq(tasks.userId, userId),
-            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 < ${TASK_OPTIMISTIC_CONCURRENCY_MS}`,
-          )
-        : and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId));
+    const expectParsed =
+      typeof expect === "string" && expect.trim().length > 0 ? new Date(expect) : null;
+    const expectValid = expectParsed !== null && !Number.isNaN(expectParsed.getTime());
+    if (expect !== undefined && expect !== null && String(expect).trim().length > 0 && !expectValid) {
+      return undefined;
+    }
+    const where = expectValid
+      ? and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId), eq(tasks.updatedAt, expectParsed!))
+      : and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId));
     const [task] = await db
       .update(tasks)
       .set({ ...rest, updatedAt: new Date() })
@@ -1393,14 +1390,15 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTask(userId: string, id: string, options?: { expectUpdatedAt?: string }): Promise<boolean> {
     const expect = options?.expectUpdatedAt;
-    const where =
-      expect && !Number.isNaN(new Date(expect).getTime())
-        ? and(
-            eq(tasks.id, id),
-            eq(tasks.userId, userId),
-            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 < ${TASK_OPTIMISTIC_CONCURRENCY_MS}`,
-          )
-        : and(eq(tasks.id, id), eq(tasks.userId, userId));
+    const expectParsed =
+      typeof expect === "string" && expect.trim().length > 0 ? new Date(expect) : null;
+    const expectValid = expectParsed !== null && !Number.isNaN(expectParsed.getTime());
+    if (expect !== undefined && expect !== null && String(expect).trim().length > 0 && !expectValid) {
+      return false;
+    }
+    const where = expectValid
+      ? and(eq(tasks.id, id), eq(tasks.userId, userId), eq(tasks.updatedAt, expectParsed!))
+      : and(eq(tasks.id, id), eq(tasks.userId, userId));
     const result = await db.delete(tasks).where(where);
     return (result.rowCount || 0) > 0;
   }
@@ -3338,36 +3336,49 @@ export function toCommunityTaskPublicDto(task: Task): CommunityTaskPublicDto {
 
 export async function listPublicCommunityTasks(
   limit: number,
-  cursor?: { publishedAt: Date; id: string } | null,
-): Promise<{ items: Task[]; nextCursor: { publishedAt: string; id: string } | null }> {
+  cursor?: { publishedAt: Date; id: string; createdAt?: Date } | null,
+): Promise<{
+  items: Task[];
+  nextCursor: { publishedAt: string; id: string; createdAt: string } | null;
+}> {
   const cap = Math.min(Math.max(limit, 1), 50);
-  const baseAnd = cursor
-    ? and(
-        eq(tasks.visibility, "community"),
-        sql`${tasks.communityPublishedAt} IS NOT NULL`,
-        or(
+  const olderThanCursor = cursor
+    ? cursor.createdAt != null
+      ? or(
           lt(tasks.communityPublishedAt, cursor.publishedAt),
           and(
             eq(tasks.communityPublishedAt, cursor.publishedAt),
-            sql`${tasks.id}::text < ${cursor.id}`,
+            or(
+              lt(tasks.createdAt, cursor.createdAt),
+              and(eq(tasks.createdAt, cursor.createdAt), sql`${tasks.id}::text < ${cursor.id}`),
+            ),
           ),
-        ),
-      )
+        )
+      : or(
+          lt(tasks.communityPublishedAt, cursor.publishedAt),
+          and(eq(tasks.communityPublishedAt, cursor.publishedAt), sql`${tasks.id}::text < ${cursor.id}`),
+        )
+    : undefined;
+
+  const baseAnd = cursor
+    ? and(eq(tasks.visibility, "community"), sql`${tasks.communityPublishedAt} IS NOT NULL`, olderThanCursor)
     : and(eq(tasks.visibility, "community"), sql`${tasks.communityPublishedAt} IS NOT NULL`);
 
   const rows = await db
     .select()
     .from(tasks)
     .where(baseAnd!)
-    .orderBy(desc(tasks.communityPublishedAt), desc(tasks.id))
+    .orderBy(desc(tasks.communityPublishedAt), desc(tasks.createdAt), desc(tasks.id))
     .limit(cap + 1);
 
   const slice = rows.slice(0, cap);
+  const last = slice.length > 0 ? slice[slice.length - 1]! : null;
   const next =
-    rows.length > cap && slice.length > 0
+    rows.length > cap && last
       ? {
-          publishedAt: (slice[slice.length - 1]!.communityPublishedAt ?? new Date()).toISOString(),
-          id: slice[slice.length - 1]!.id,
+          publishedAt: (last.communityPublishedAt ?? new Date()).toISOString(),
+          id: last.id,
+          createdAt: (last.createdAt instanceof Date ? last.createdAt : new Date(last.createdAt ?? Date.now())).toISOString(),
         }
       : null;
   return { items: slice, nextCursor: next };

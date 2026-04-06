@@ -22,8 +22,11 @@ try {
     WHERE a.user_id = b.user_id
       AND a.reward_id = b.reward_id
       AND (
-        a.redeemed_at > b.redeemed_at
-        OR (a.redeemed_at IS NOT DISTINCT FROM b.redeemed_at AND a.id > b.id)
+        COALESCE(a.redeemed_at, '-infinity'::timestamptz) > COALESCE(b.redeemed_at, '-infinity'::timestamptz)
+        OR (
+          COALESCE(a.redeemed_at, '-infinity'::timestamptz) IS NOT DISTINCT FROM COALESCE(b.redeemed_at, '-infinity'::timestamptz)
+          AND a.id > b.id
+        )
       )
   `);
   const n = result.rowCount ?? 0;

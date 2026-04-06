@@ -124,6 +124,10 @@ async function applyTaskConflictResolutionIfNeeded(
       serverTask,
       baseUpdatedAt,
     });
+    if (choice === "aborted") {
+      await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      return new Response(null, { status: 499 });
+    }
     if (choice === "server" || choice === "both") {
       await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       return new Response(null, { status: 499 });
@@ -226,6 +230,11 @@ async function resolveUpdateConflict(
     localPatch: patch,
     baseUpdatedAt,
   });
+  if (choice === "aborted") {
+    await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+    return new Response(null, { status: 499 });
+  }
   if (choice === "server") {
     await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
     await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
@@ -349,6 +358,9 @@ export async function syncDeleteTask(
         serverTask: j.serverTask as Task,
         baseUpdatedAt,
       });
+      if (choice === "aborted") {
+        throw new TaskSyncAbortedError("Conflict dialog dismissed.");
+      }
       if (choice === "server" || choice === "both") {
         await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
         throw new TaskSyncAbortedError("Delete cancelled — server version kept.");
@@ -434,6 +446,8 @@ async function processUpdateOp(
   const updated = (await res.json()) as Task;
   refreshQueuedUpdateBasesForTask(op.taskId, taskUpdatedAtIso(updated));
   mergeTaskInCache(queryClient, op.taskId, updated as Record<string, unknown>);
+  void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+  void queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
   return "done";
 }
 
@@ -455,6 +469,10 @@ async function processDeleteOp(
         serverTask: j.serverTask as Task,
         baseUpdatedAt: op.baseUpdatedAt,
       });
+      if (choice === "aborted") {
+        await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+        return "aborted";
+      }
       if (choice === "server" || choice === "both") {
         await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
         return "aborted";
@@ -536,18 +554,23 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
                     return [...filtered, t];
                   });
                   refreshQueuedUpdateBasesForTask(t.id, taskUpdatedAtIso(t));
+                  void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+                  void queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
                 }
               }
               break;
             }
             if (!res.ok) throw new Error(await res.text());
             const serverTask = (await res.json()) as Task;
+            remapOrRemoveQueuedOpsForClientId(op.clientId, serverTask.id);
             queryClient.setQueryData<Task[]>(["/api/tasks"], (old) => {
               if (!old) return old;
               const filtered = old.filter((t) => t.id !== op.clientId && t.id !== serverTask.id);
               return [...filtered, serverTask];
             });
             refreshQueuedUpdateBasesForTask(serverTask.id, taskUpdatedAtIso(serverTask));
+            void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+            void queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
             break;
           }
           case "update": {

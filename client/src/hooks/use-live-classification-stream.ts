@@ -19,15 +19,20 @@ export function useLiveClassificationStream(options: {
   const [suggestions, setSuggestions] = useState<LiveClassificationSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const esRef = useRef<EventSource | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seqRef = useRef(0);
   const reconnectAttemptRef = useRef(0);
 
   useEffect(() => {
     if (!enabled) {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
       }
       esRef.current?.close();
       esRef.current = null;
@@ -40,9 +45,9 @@ export function useLiveClassificationStream(options: {
     let cancelled = false;
 
     const clearReconnectTimer = () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
       }
     };
 
@@ -52,8 +57,8 @@ export function useLiveClassificationStream(options: {
       const attempt = reconnectAttemptRef.current;
       const delay = Math.min(SSE_RECONNECT_MAX_MS, SSE_RECONNECT_BASE_MS * 2 ** attempt);
       reconnectAttemptRef.current = attempt + 1;
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null;
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
         connect();
       }, delay);
     };
@@ -112,17 +117,17 @@ export function useLiveClassificationStream(options: {
     (activity: string, notes: string) => {
       const snippet = activity.trim();
       if (snippet.length < minChars) {
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-          timerRef.current = null;
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current);
+          debounceTimerRef.current = null;
         }
         setSuggestions([]);
         setLoading(false);
         return;
       }
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null;
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => {
+        debounceTimerRef.current = null;
         setLoading(true);
         const seq = ++seqRef.current;
         const preferStream = esRef.current?.readyState === EventSource.OPEN;
@@ -158,7 +163,7 @@ export function useLiveClassificationStream(options: {
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
   }, []);
 

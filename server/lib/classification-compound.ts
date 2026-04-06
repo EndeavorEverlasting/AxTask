@@ -1,4 +1,4 @@
-const COMPOUND_RATE = 0.08;
+export const COMPOUND_RATE = 0.08;
 const MAX_COMPOUND_PERIODS = 50;
 
 /** Pure formula for contributor compound rewards (and unit tests). */

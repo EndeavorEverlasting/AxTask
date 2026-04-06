@@ -5,7 +5,7 @@ import {
   awardCoinsForConfirmationAtomic,
   awardCoinsForClassificationAtomic,
 } from "./storage";
-import { getMaxCompoundPeriods } from "./lib/classification-compound";
+import { COMPOUND_RATE, getMaxCompoundPeriods } from "./lib/classification-compound";
 
 async function resolveBaseCoinsForClassification(userId: string, classification: string): Promise<number> {
   const builtin = builtInCoinReward(classification);
@@ -14,8 +14,6 @@ async function resolveBaseCoinsForClassification(userId: string, classification:
   if (custom !== null) return custom;
   return 5;
 }
-
-const COMPOUND_RATE = 0.08;
 
 export interface ClassificationAwardResult {
   coinsEarned: number;

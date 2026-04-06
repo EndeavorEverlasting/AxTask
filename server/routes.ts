@@ -1,6 +1,6 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { createHash, timingSafeEqual } from "crypto";
+import { createHmac, createHash, timingSafeEqual } from "crypto";
 import { computeTaskFingerprint } from "./import-task-dedupe";
 import rateLimit from "express-rate-limit";
 import passport from "passport";
@@ -425,12 +425,33 @@ function maskEmailForOtp(email: string): string {
   return `${u.slice(0, 2)}•••@${dom}`;
 }
 
-/** One-way identifier for failed-login audit rows (do not store plaintext email in security_events). */
+/**
+ * One-way identifier for failed-login audit rows (do not store plaintext email in security_events).
+ * Uses HMAC-SHA256 with AUTH_AUDIT_PEPPER so offline guessing is impractical. Rotate the pepper
+ * (and optionally key id in env) if the secret may be compromised; historical audit rows keep old digests.
+ */
 function hashEmailForAuthAudit(email: string): string {
-  return createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
+  const raw = process.env.AUTH_AUDIT_PEPPER?.trim();
+  const pepper =
+    process.env.NODE_ENV === "production"
+      ? (raw ?? "")
+      : raw || "dev-only-insecure-auth-audit-pepper";
+  if (!pepper) {
+    throw new Error("AUTH_AUDIT_PEPPER must be set for auth audit hashing");
+  }
+  return createHmac("sha256", pepper).update(email.trim().toLowerCase()).digest("hex");
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  if (process.env.NODE_ENV === "production") {
+    const p = process.env.AUTH_AUDIT_PEPPER?.trim();
+    if (!p || p.length < 16) {
+      throw new Error(
+        "AUTH_AUDIT_PEPPER must be set (min 16 characters) in production for login audit hashing",
+      );
+    }
+  }
+
   app.use("/api", (req, res, next) => {
     const startedAt = Date.now();
     const actorUserId = req.user?.id;
@@ -468,9 +489,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const curIdRaw = typeof req.query.cursorId === "string" ? req.query.cursorId : "";
       const curId = curIdRaw.trim();
       const atMs = curAt ? Date.parse(curAt) : NaN;
+      const curCreatedRaw = typeof req.query.cursorCreatedAt === "string" ? req.query.cursorCreatedAt : "";
+      const createdMs = curCreatedRaw ? Date.parse(curCreatedRaw) : NaN;
+      const cursorCreatedAt = curCreatedRaw && !Number.isNaN(createdMs) ? new Date(createdMs) : undefined;
       const cursor =
         curId && !Number.isNaN(atMs)
-          ? { publishedAt: new Date(atMs), id: curId }
+          ? { publishedAt: new Date(atMs), id: curId, createdAt: cursorCreatedAt }
           : null;
       const { items, nextCursor } = await listPublicCommunityTasks(limit, cursor);
       res.json({
@@ -558,6 +582,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const emailRaw = typeof rawBody?.email === "string" ? rawBody.email.trim() : "";
       const emailParsed = z.string().email().safeParse(emailRaw);
       const email = emailParsed.success ? emailParsed.data : emailRaw;
+      if (emailParsed.success && req.body && typeof req.body === "object") {
+        (req.body as { email?: string }).email = emailParsed.data;
+      }
       if (emailRaw.length > 0) {
         if (emailParsed.success) {
           const banStatus = await isUserBanned(email);
@@ -2676,8 +2703,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 explicitPriorityProvided = true;
               }
               let notesChanged = false;
-              if (action.details?.notes && typeof action.details.notes === "string") {
-                updatePayload.notes = action.details.notes.slice(0, 2000);
+              const det = action.details;
+              if (det && "notes" in det && typeof det.notes === "string") {
+                updatePayload.notes = det.notes.slice(0, 2000);
                 notesChanged = true;
               }
               if (notesChanged) {
@@ -3350,11 +3378,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
         payload: {
-          message: parsed.message,
+          messageRedacted: true,
           channel: "feedback_page",
           messageLength: parsed.message.length,
           attachments: totalAttachments,
-          analysis,
+          analysisSummary: {
+            classification: analysis.classification,
+            priority: analysis.priority,
+          },
         },
       });
       res.status(201).json({
@@ -3432,13 +3463,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
         payload: {
-          message: parsed.message,
+          messageRedacted: true,
           messageLength: parsed.message.length,
           attachments: 0,
           channel,
           reporterEmail: reporterEmailStored,
           reporterName: reporterNameStored,
-          analysis,
+          analysisSummary: {
+            classification: analysis.classification,
+            priority: analysis.priority,
+          },
         },
       });
 
@@ -4902,10 +4936,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─── User Self-Service Export & Import (GDPR) ──────────────────────────────
+  const ACCOUNT_DATA_STEP_UP_TTL_MS = 60 * 60 * 1000;
+
+  app.get("/api/account/data-export-step-up-status", requireAuth, (req, res) => {
+    const prod = process.env.NODE_ENV === "production";
+    const exp = req.session.accountDataExportStepUpExpiresAt;
+    const valid = Boolean(exp && Date.now() < exp);
+    res.json({
+      stepUpRequired: prod,
+      stepUpSatisfied: !prod || valid,
+      expiresAt: valid ? exp : null,
+    });
+  });
+
+  app.post("/api/account/data-export-step-up", requireAuth, async (req, res) => {
+    try {
+      if (process.env.NODE_ENV !== "production") {
+        return res.json({ ok: true, skipped: true, message: "Step-up not required outside production." });
+      }
+      const { challengeId, code } = z
+        .object({
+          challengeId: z.string().min(1),
+          code: z.string().length(6).regex(/^\d{6}$/),
+        })
+        .parse(req.body);
+
+      const ok = await verifyMfaChallenge(
+        req.user!.id,
+        challengeId,
+        code,
+        MFA_PURPOSES.ACCOUNT_DATA_EXPORT,
+      );
+      if (!ok) {
+        await appendSecurityEvent({
+          eventType: "mfa_verify_failed",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 403,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: { context: "account_data_export_step_up" },
+        });
+        return res.status(403).json({ message: "Invalid or expired verification code" });
+      }
+
+      req.session.accountDataExportStepUpExpiresAt = Date.now() + ACCOUNT_DATA_STEP_UP_TTL_MS;
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error("[account] session save after data export step-up:", saveErr);
+          return res.status(500).json({ message: "Session update failed" });
+        }
+        void appendSecurityEvent({
+          eventType: "account_data_export_step_up_success",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 200,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        res.json({ ok: true, expiresAt: req.session.accountDataExportStepUpExpiresAt });
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Account data step-up failed" });
+    }
+  });
 
   app.get("/api/account/export", requireAuth, migrationLimiter, async (req, res) => {
     try {
-      const bundle = await exportUserData(req.user!.id, { adminMode: true });
+      if (process.env.NODE_ENV === "production") {
+        const exp = req.session.accountDataExportStepUpExpiresAt;
+        if (!exp || Date.now() >= exp) {
+          return res.status(403).json({
+            message: "Verify your identity before downloading your data (request a code, then confirm).",
+            code: "ACCOUNT_DATA_STEP_UP_REQUIRED",
+          });
+        }
+      }
+      const bundle = await exportUserData(req.user!.id);
       res.setHeader("Content-Type", "application/json");
       res.setHeader("Cache-Control", "no-store, private");
       res.setHeader(
@@ -4920,6 +5030,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/account/import", requireAuth, migrationLimiter, async (req, res) => {
     try {
+      if (process.env.NODE_ENV === "production") {
+        const exp = req.session.accountDataExportStepUpExpiresAt;
+        if (!exp || Date.now() >= exp) {
+          return res.status(403).json({
+            message: "Verify your identity before importing account data (request a code, then confirm).",
+            code: "ACCOUNT_DATA_STEP_UP_REQUIRED",
+          });
+        }
+      }
       const { bundle, dryRun } = req.body;
       if (!bundle || !bundle.metadata || !bundle.data) {
         return res.status(400).json({ message: "Invalid export bundle format" });
@@ -4927,6 +5046,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (bundle.metadata.exportMode !== "user") {
         return res.status(400).json({ message: "Only user-level export bundles can be imported via self-service. Full database imports require admin access." });
+      }
+      if (bundle.metadata.includesPrivilegedUserData === true) {
+        return res.status(400).json({
+          message: "This bundle was exported with admin-only fields and cannot be imported via self-service.",
+        });
+      }
+      const billingRows = bundle.data?.userBillingProfiles;
+      if (Array.isArray(billingRows) && billingRows.length > 0) {
+        return res.status(400).json({
+          message: "Self-service import only accepts user exports without billing profile rows.",
+        });
       }
 
       const validation = validateBundle(bundle);

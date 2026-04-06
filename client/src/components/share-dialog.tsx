@@ -16,6 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Users, UserPlus, Trash2, Crown, Eye, Pencil, Globe2 } from "lucide-react";
+import { z } from "zod";
 
 interface Collaborator {
   id: string;
@@ -39,6 +40,7 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   const queryClient = useQueryClient();
   const { requestChallenge, isRequesting: mfaSending } = useMfaChallenge();
   const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [role, setRole] = useState("editor");
   const [open, setOpen] = useState(false);
   const [showNotes, setShowNotes] = useState(communityShowNotes);
@@ -246,11 +248,23 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
             <Input
               placeholder="Enter email address"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (emailError) setEmailError(null);
+              }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && email) addMutation.mutate({ email, role });
+                if (e.key !== "Enter") return;
+                const trimmed = email.trim();
+                const parsed = z.string().email().safeParse(trimmed);
+                if (!parsed.success) {
+                  setEmailError("Enter a valid email address");
+                  return;
+                }
+                setEmailError(null);
+                addMutation.mutate({ email: trimmed, role });
               }}
               className="flex-1"
+              aria-invalid={emailError ? true : undefined}
             />
             <Select value={role} onValueChange={setRole}>
               <SelectTrigger className="w-24">
@@ -262,14 +276,28 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
               </SelectContent>
             </Select>
             <Button
-              onClick={() => email && addMutation.mutate({ email, role })}
-              disabled={!email || addMutation.isPending}
+              onClick={() => {
+                const trimmed = email.trim();
+                const parsed = z.string().email().safeParse(trimmed);
+                if (!parsed.success) {
+                  setEmailError("Enter a valid email address");
+                  return;
+                }
+                setEmailError(null);
+                addMutation.mutate({ email: trimmed, role });
+              }}
+              disabled={!email.trim() || addMutation.isPending}
               size="icon"
             >
               <UserPlus className="h-4 w-4" />
             </Button>
           </div>
         )}
+        {isOwner && emailError ? (
+          <p className="text-sm text-destructive mt-1" role="alert">
+            {emailError}
+          </p>
+        ) : null}
 
         <div className="space-y-2 mt-2">
           {collaborators.length === 0 ? (

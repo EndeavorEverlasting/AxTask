@@ -33,7 +33,12 @@ function appBaseUrl(): string {
     process.env.APP_BASE_URL?.trim() ||
     process.env.PUBLIC_APP_URL?.trim();
   if (explicit) return explicit.replace(/\/+$/, "");
-  return process.env.NODE_ENV === "production" ? "https://app.axtask.com" : "http://localhost:5173";
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Set BASE_URL, APP_BASE_URL, or PUBLIC_APP_URL in production so MFA and email links use the correct app origin.",
+    );
+  }
+  return "http://localhost:5173";
 }
 
 function escapeHtml(text: string): string {
@@ -66,7 +71,12 @@ async function sendResendEmail(to: string, subject: string, html: string): Promi
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    return { ok: false, error: `Resend error ${res.status}: ${text.slice(0, 200)}` };
+    let err = `Resend error ${res.status}: ${text.slice(0, 200)}`;
+    if (res.status === 403 && /domain.*not verified|verify your domain/i.test(text)) {
+      err +=
+        " — Verify the sending domain for RESEND_FROM at https://resend.com/domains or use a verified From address.";
+    }
+    return { ok: false, error: err };
   }
   return { ok: true };
 }

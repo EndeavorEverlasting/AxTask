@@ -18,12 +18,12 @@ type PublicTask = {
 
 type ListResponse = {
   tasks: PublicTask[];
-  nextCursor: { publishedAt: string; id: string } | null;
+  nextCursor: { publishedAt: string; id: string; createdAt: string } | null;
 };
 
 export default function CommunityPage() {
   const [tasks, setTasks] = useState<PublicTask[]>([]);
-  const [nextCursor, setNextCursor] = useState<{ publishedAt: string; id: string } | null>(null);
+  const [nextCursor, setNextCursor] = useState<{ publishedAt: string; id: string; createdAt: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,12 +31,13 @@ export default function CommunityPage() {
   const loadMoreAbortRef = useRef<AbortController | null>(null);
 
   const fetchPage = useCallback(
-    async (cursor: { publishedAt: string; id: string } | null, signal?: AbortSignal) => {
+    async (cursor: { publishedAt: string; id: string; createdAt: string } | null, signal?: AbortSignal) => {
       const params = new URLSearchParams();
       params.set("limit", "20");
       if (cursor) {
         params.set("cursorAt", cursor.publishedAt);
         params.set("cursorId", cursor.id);
+        params.set("cursorCreatedAt", cursor.createdAt);
       }
       const r = await fetch(`/api/public/community/tasks?${params.toString()}`, { signal });
       if (!r.ok) {

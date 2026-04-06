@@ -424,7 +424,7 @@ export const userRewards = pgTable("user_rewards", {
   isActive: boolean("is_active").notNull().default(true),
 }, (table) => [
   index("idx_user_rewards_user").on(table.userId),
-  // One row per (user, catalog reward). Run npm run migration:dedupe-user-rewards before db:push if duplicates exist.
+  // One row per (user, catalog reward). Run npm run db:push:with-dedupe (or migration:dedupe-user-rewards before db:push) if duplicates exist.
   uniqueIndex("ux_user_rewards_user_reward").on(table.userId, table.rewardId),
 ]);
 

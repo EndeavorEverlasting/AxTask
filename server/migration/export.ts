@@ -5,6 +5,14 @@ import {
   userRewards, taskCollaborators, taskPatterns,
   classificationContributions, classificationConfirmations,
   userBillingProfiles, userClassificationCategories,
+  passwordResetTokens, securityLogs,
+  appeals, appealVotes, userMilestoneGrants, userEntourage, avatarProfiles, avatarXpEvents,
+  userNotificationPreferences, userPushSubscriptions,
+  billingPaymentMethods, invoices, invoiceEvents,
+  attachmentAssets, taskImportFingerprints,
+  premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents,
+  offlineGenerators, offlineSkillNodes, userOfflineSkills,
+  usageSnapshots, storagePolicies,
 } from "@shared/schema";
 import { and, asc, eq, gt, inArray, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
@@ -13,6 +21,8 @@ export interface ExportMetadata {
   schemaVersion: number;
   exportedAt: string;
   exportMode: "full" | "user";
+  /** True when exported via admin path with full billing/sensitive user fields. */
+  includesPrivilegedUserData?: boolean;
   sourceEnvironment: string;
   userId?: string;
   tableCounts: Record<string, number>;
@@ -87,13 +97,50 @@ function serializeRows(rows: Record<string, unknown>[]): Record<string, unknown>
   return rows.map(serializeRow);
 }
 
+function mergeByPrimaryKey(
+  primary: Record<string, unknown>[],
+  extra: Record<string, unknown>[],
+  pkField: string,
+): Record<string, unknown>[] {
+  const map = new Map<string, Record<string, unknown>>();
+  for (const r of primary) map.set(String(r[pkField]), r);
+  for (const r of extra) {
+    const k = String(r[pkField]);
+    if (!map.has(k)) map.set(k, r);
+  }
+  return [...map.values()];
+}
+
 export async function exportFullDatabase(): Promise<ExportBundle> {
   const [
     usersData,
     userBillingProfilesData,
     userClassificationCategoriesData,
     rewardsCatalogData,
+    userNotificationPreferencesData,
+    userPushSubscriptionsData,
+    billingPaymentMethodsData,
+    invoicesData,
+    invoiceEventsData,
+    appealsData,
+    appealVotesData,
+    userMilestoneGrantsData,
+    userEntourageData,
+    avatarProfilesData,
+    avatarXpEventsData,
+    offlineSkillNodesData,
+    offlineGeneratorsData,
+    userOfflineSkillsData,
+    usageSnapshotsData,
+    storagePoliciesData,
+    premiumSubscriptionsData,
+    premiumSavedViewsData,
+    premiumReviewWorkflowsData,
+    premiumInsightsData,
+    premiumEventsData,
     tasksData,
+    attachmentAssetsData,
+    taskImportFingerprintsData,
     walletsData,
     coinTransactionsData,
     userBadgesData,
@@ -102,12 +149,37 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
     taskCollaboratorsData,
     classContribData,
     classConfirmData,
+    passwordResetTokensData,
+    securityLogsData,
   ] = await Promise.all([
     queryChunked(users),
     queryChunked(userBillingProfiles),
     queryChunked(userClassificationCategories),
     queryChunked(rewardsCatalog),
+    queryChunked(userNotificationPreferences),
+    queryChunked(userPushSubscriptions),
+    queryChunked(billingPaymentMethods),
+    queryChunked(invoices),
+    queryChunked(invoiceEvents),
+    queryChunked(appeals),
+    queryChunked(appealVotes),
+    queryChunked(userMilestoneGrants),
+    queryChunked(userEntourage),
+    queryChunked(avatarProfiles),
+    queryChunked(avatarXpEvents),
+    queryChunked(offlineSkillNodes),
+    queryChunked(offlineGenerators),
+    queryChunked(userOfflineSkills),
+    queryChunked(usageSnapshots),
+    queryChunked(storagePolicies),
+    queryChunked(premiumSubscriptions),
+    queryChunked(premiumSavedViews),
+    queryChunked(premiumReviewWorkflows),
+    queryChunked(premiumInsights),
+    queryChunked(premiumEvents),
     queryChunked(tasks),
+    queryChunked(attachmentAssets),
+    queryChunked(taskImportFingerprints),
     queryChunked(wallets),
     queryChunked(coinTransactions),
     queryChunked(userBadges),
@@ -116,16 +188,39 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
     queryChunked(taskCollaborators),
     queryChunked(classificationContributions),
     queryChunked(classificationConfirmations),
+    queryChunked(passwordResetTokens),
+    queryChunked(securityLogs),
   ]);
-  const resetTokensData: Record<string, unknown>[] = [];
-  const securityLogsData: Record<string, unknown>[] = [];
 
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows(usersData),
     userBillingProfiles: serializeRows(userBillingProfilesData),
     userClassificationCategories: serializeRows(userClassificationCategoriesData),
     rewardsCatalog: serializeRows(rewardsCatalogData),
+    userNotificationPreferences: serializeRows(userNotificationPreferencesData),
+    userPushSubscriptions: serializeRows(userPushSubscriptionsData),
+    billingPaymentMethods: serializeRows(billingPaymentMethodsData),
+    invoices: serializeRows(invoicesData),
+    invoiceEvents: serializeRows(invoiceEventsData),
+    appeals: serializeRows(appealsData),
+    appealVotes: serializeRows(appealVotesData),
+    userMilestoneGrants: serializeRows(userMilestoneGrantsData),
+    userEntourage: serializeRows(userEntourageData),
+    avatarProfiles: serializeRows(avatarProfilesData),
+    avatarXpEvents: serializeRows(avatarXpEventsData),
+    offlineSkillNodes: serializeRows(offlineSkillNodesData),
+    offlineGenerators: serializeRows(offlineGeneratorsData),
+    userOfflineSkills: serializeRows(userOfflineSkillsData),
+    usageSnapshots: serializeRows(usageSnapshotsData),
+    storagePolicies: serializeRows(storagePoliciesData),
+    premiumSubscriptions: serializeRows(premiumSubscriptionsData),
+    premiumSavedViews: serializeRows(premiumSavedViewsData),
+    premiumReviewWorkflows: serializeRows(premiumReviewWorkflowsData),
+    premiumInsights: serializeRows(premiumInsightsData),
+    premiumEvents: serializeRows(premiumEventsData),
     tasks: serializeRows(tasksData),
+    attachmentAssets: serializeRows(attachmentAssetsData),
+    taskImportFingerprints: serializeRows(taskImportFingerprintsData),
     wallets: serializeRows(walletsData),
     coinTransactions: serializeRows(coinTransactionsData),
     userBadges: serializeRows(userBadgesData),
@@ -134,7 +229,7 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
     taskCollaborators: serializeRows(taskCollaboratorsData),
     classificationContributions: serializeRows(classContribData),
     classificationConfirmations: serializeRows(classConfirmData),
-    passwordResetTokens: serializeRows(resetTokensData),
+    passwordResetTokens: serializeRows(passwordResetTokensData),
     securityLogs: serializeRows(securityLogsData),
   };
 
@@ -217,17 +312,52 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
 
   const ownedTaskIdSet = new Set(taskIds);
 
-  const collabData = await queryChunked(taskCollaborators, eq(taskCollaborators.userId, userId), taskCollaborators.id);
-  const contribData = await queryChunked(
+  let collabData = await queryChunked(taskCollaborators, eq(taskCollaborators.userId, userId), taskCollaborators.id);
+  let contribData = await queryChunked(
     classificationContributions,
     eq(classificationContributions.userId, userId),
     classificationContributions.id,
   );
-  const confirmData = await queryChunked(
+  let confirmData = await queryChunked(
     classificationConfirmations,
     eq(classificationConfirmations.userId, userId),
     classificationConfirmations.id,
   );
+
+  if (ownedTaskIdSet.size > 0) {
+    const idArr = Array.from(ownedTaskIdSet);
+    const CHUNK = 2000;
+    let extraCollab: Record<string, unknown>[] = [];
+    let extraContrib: Record<string, unknown>[] = [];
+    let extraConfirm: Record<string, unknown>[] = [];
+    for (let i = 0; i < idArr.length; i += CHUNK) {
+      const chunk = idArr.slice(i, i + CHUNK);
+      extraCollab.push(
+        ...(await queryChunked(
+          taskCollaborators,
+          inArray(taskCollaborators.taskId, chunk),
+          taskCollaborators.id,
+        )),
+      );
+      extraContrib.push(
+        ...(await queryChunked(
+          classificationContributions,
+          inArray(classificationContributions.taskId, chunk),
+          classificationContributions.id,
+        )),
+      );
+      extraConfirm.push(
+        ...(await queryChunked(
+          classificationConfirmations,
+          inArray(classificationConfirmations.taskId, chunk),
+          classificationConfirmations.id,
+        )),
+      );
+    }
+    collabData = mergeByPrimaryKey(collabData, extraCollab, "id");
+    contribData = mergeByPrimaryKey(contribData, extraContrib, "id");
+    confirmData = mergeByPrimaryKey(confirmData, extraConfirm, "id");
+  }
 
   const referencedTaskIds = new Set<string>();
   for (const c of collabData) {
@@ -288,6 +418,7 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
       schemaVersion: 1,
       exportedAt: new Date().toISOString(),
       exportMode: "user",
+      includesPrivilegedUserData: adminMode,
       sourceEnvironment: process.env.REPL_SLUG || process.env.REPLIT_DEV_DOMAIN || "unknown",
       userId,
       tableCounts,

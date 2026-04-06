@@ -533,6 +533,10 @@ export default function AdminPage() {
   const exportMutation = useMutation({
     mutationFn: async (userId?: string) => {
       const res = await apiRequest("POST", "/api/admin/export", userId ? { userId } : {});
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || res.statusText || `Export failed (${res.status})`);
+      }
       return res.json();
     },
     onSuccess: (data) => {
@@ -554,6 +558,10 @@ export default function AdminPage() {
   const importMutation = useMutation({
     mutationFn: async ({ bundle, dryRun, mode }: { bundle: any; dryRun: boolean; mode?: string }) => {
       const res = await apiRequest("POST", "/api/admin/import", { bundle, dryRun, mode: mode || "preserve" });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || res.statusText || `Import failed (${res.status})`);
+      }
       return res.json();
     },
     onSuccess: (data) => {

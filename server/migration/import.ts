@@ -7,6 +7,12 @@ import {
   classificationContributions, classificationConfirmations,
   userBillingProfiles, userClassificationCategories,
   appeals, appealVotes, userMilestoneGrants, userEntourage, avatarProfiles, avatarXpEvents,
+  userNotificationPreferences, userPushSubscriptions,
+  billingPaymentMethods, invoices, invoiceEvents,
+  attachmentAssets, taskImportFingerprints,
+  premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents,
+  offlineGenerators, offlineSkillNodes, userOfflineSkills,
+  usageSnapshots, storagePolicies,
 } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
@@ -42,13 +48,30 @@ const TABLE_INSERT_ORDER = [
   "userBillingProfiles",
   "userClassificationCategories",
   "rewardsCatalog",
+  "userNotificationPreferences",
+  "userPushSubscriptions",
+  "billingPaymentMethods",
+  "invoices",
+  "invoiceEvents",
   "appeals",
   "appealVotes",
   "userMilestoneGrants",
   "userEntourage",
   "avatarProfiles",
   "avatarXpEvents",
+  "offlineSkillNodes",
+  "offlineGenerators",
+  "userOfflineSkills",
+  "usageSnapshots",
+  "storagePolicies",
+  "premiumSubscriptions",
+  "premiumSavedViews",
+  "premiumReviewWorkflows",
+  "premiumInsights",
+  "premiumEvents",
   "tasks",
+  "attachmentAssets",
+  "taskImportFingerprints",
   "wallets",
   "coinTransactions",
   "userBadges",
@@ -63,26 +86,75 @@ const TABLE_INSERT_ORDER = [
 
 type TableName = typeof TABLE_INSERT_ORDER[number];
 
-type DrizzleTable = typeof users | typeof userBillingProfiles | typeof userClassificationCategories |
-  typeof rewardsCatalog | typeof appeals | typeof appealVotes | typeof userMilestoneGrants |
-  typeof userEntourage | typeof avatarProfiles | typeof avatarXpEvents |
-  typeof tasks | typeof wallets |
-  typeof coinTransactions | typeof userBadges | typeof userRewards | typeof taskPatterns |
-  typeof taskCollaborators | typeof classificationContributions | typeof classificationConfirmations |
-  typeof passwordResetTokens | typeof securityLogs;
+type DrizzleTable =
+  | typeof users
+  | typeof userBillingProfiles
+  | typeof userClassificationCategories
+  | typeof rewardsCatalog
+  | typeof userNotificationPreferences
+  | typeof userPushSubscriptions
+  | typeof billingPaymentMethods
+  | typeof invoices
+  | typeof invoiceEvents
+  | typeof appeals
+  | typeof appealVotes
+  | typeof userMilestoneGrants
+  | typeof userEntourage
+  | typeof avatarProfiles
+  | typeof avatarXpEvents
+  | typeof offlineSkillNodes
+  | typeof offlineGenerators
+  | typeof userOfflineSkills
+  | typeof usageSnapshots
+  | typeof storagePolicies
+  | typeof premiumSubscriptions
+  | typeof premiumSavedViews
+  | typeof premiumReviewWorkflows
+  | typeof premiumInsights
+  | typeof premiumEvents
+  | typeof tasks
+  | typeof attachmentAssets
+  | typeof taskImportFingerprints
+  | typeof wallets
+  | typeof coinTransactions
+  | typeof userBadges
+  | typeof userRewards
+  | typeof taskPatterns
+  | typeof taskCollaborators
+  | typeof classificationContributions
+  | typeof classificationConfirmations
+  | typeof passwordResetTokens
+  | typeof securityLogs;
 
 const TABLE_MAP: Record<TableName, DrizzleTable> = {
   users,
   userBillingProfiles,
   userClassificationCategories,
   rewardsCatalog,
+  userNotificationPreferences,
+  userPushSubscriptions,
+  billingPaymentMethods,
+  invoices,
+  invoiceEvents,
   appeals,
   appealVotes,
   userMilestoneGrants,
   userEntourage,
   avatarProfiles,
   avatarXpEvents,
+  offlineSkillNodes,
+  offlineGenerators,
+  userOfflineSkills,
+  usageSnapshots,
+  storagePolicies,
+  premiumSubscriptions,
+  premiumSavedViews,
+  premiumReviewWorkflows,
+  premiumInsights,
+  premiumEvents,
   tasks,
+  attachmentAssets,
+  taskImportFingerprints,
   wallets,
   coinTransactions,
   userBadges,
@@ -100,13 +172,30 @@ const PK_FIELD: Record<TableName, string> = {
   userBillingProfiles: "userId",
   userClassificationCategories: "id",
   rewardsCatalog: "id",
+  userNotificationPreferences: "userId",
+  userPushSubscriptions: "id",
+  billingPaymentMethods: "id",
+  invoices: "id",
+  invoiceEvents: "id",
   appeals: "id",
   appealVotes: "id",
   userMilestoneGrants: "id",
   userEntourage: "userId",
   avatarProfiles: "id",
   avatarXpEvents: "id",
+  offlineSkillNodes: "id",
+  offlineGenerators: "userId",
+  userOfflineSkills: "id",
+  usageSnapshots: "id",
+  storagePolicies: "id",
+  premiumSubscriptions: "id",
+  premiumSavedViews: "id",
+  premiumReviewWorkflows: "id",
+  premiumInsights: "id",
+  premiumEvents: "id",
   tasks: "id",
+  attachmentAssets: "id",
+  taskImportFingerprints: "id",
   wallets: "userId",
   coinTransactions: "id",
   userBadges: "id",
@@ -131,6 +220,14 @@ const FK_RULES: Record<TableName, FkRule[]> = {
   userBillingProfiles: [{ field: "userId", refTable: "users", refField: "id" }],
   userClassificationCategories: [{ field: "userId", refTable: "users", refField: "id" }],
   rewardsCatalog: [],
+  userNotificationPreferences: [{ field: "userId", refTable: "users", refField: "id" }],
+  userPushSubscriptions: [{ field: "userId", refTable: "users", refField: "id" }],
+  billingPaymentMethods: [{ field: "userId", refTable: "users", refField: "id" }],
+  invoices: [{ field: "userId", refTable: "users", refField: "id" }],
+  invoiceEvents: [
+    { field: "invoiceId", refTable: "invoices", refField: "id" },
+    { field: "actorUserId", refTable: "users", refField: "id", nullable: true },
+  ],
   appeals: [
     { field: "appellantUserId", refTable: "users", refField: "id" },
     { field: "resolvedByUserId", refTable: "users", refField: "id", nullable: true },
@@ -143,7 +240,25 @@ const FK_RULES: Record<TableName, FkRule[]> = {
   userEntourage: [{ field: "userId", refTable: "users", refField: "id" }],
   avatarProfiles: [{ field: "userId", refTable: "users", refField: "id" }],
   avatarXpEvents: [{ field: "userId", refTable: "users", refField: "id" }],
+  offlineSkillNodes: [],
+  offlineGenerators: [{ field: "userId", refTable: "users", refField: "id" }],
+  userOfflineSkills: [
+    { field: "userId", refTable: "users", refField: "id" },
+    { field: "skillNodeId", refTable: "offlineSkillNodes", refField: "id" },
+  ],
+  usageSnapshots: [],
+  storagePolicies: [{ field: "userId", refTable: "users", refField: "id", nullable: true }],
+  premiumSubscriptions: [{ field: "userId", refTable: "users", refField: "id" }],
+  premiumSavedViews: [{ field: "userId", refTable: "users", refField: "id" }],
+  premiumReviewWorkflows: [{ field: "userId", refTable: "users", refField: "id" }],
+  premiumInsights: [{ field: "userId", refTable: "users", refField: "id" }],
+  premiumEvents: [{ field: "userId", refTable: "users", refField: "id", nullable: true }],
   tasks: [{ field: "userId", refTable: "users", refField: "id" }],
+  attachmentAssets: [{ field: "userId", refTable: "users", refField: "id" }],
+  taskImportFingerprints: [
+    { field: "userId", refTable: "users", refField: "id" },
+    { field: "firstTaskId", refTable: "tasks", refField: "id", nullable: true },
+  ],
   wallets: [{ field: "userId", refTable: "users", refField: "id" }],
   coinTransactions: [
     { field: "userId", refTable: "users", refField: "id" },
@@ -181,13 +296,30 @@ const FK_FIELDS_BY_TABLE: Record<TableName, string[]> = {
   userBillingProfiles: ["userId"],
   userClassificationCategories: ["userId"],
   rewardsCatalog: [],
+  userNotificationPreferences: ["userId"],
+  userPushSubscriptions: ["userId"],
+  billingPaymentMethods: ["userId"],
+  invoices: ["userId"],
+  invoiceEvents: ["invoiceId", "actorUserId"],
   appeals: ["appellantUserId", "resolvedByUserId"],
   appealVotes: ["appealId", "adminUserId"],
   userMilestoneGrants: ["userId"],
   userEntourage: ["userId"],
   avatarProfiles: ["userId"],
   avatarXpEvents: ["userId"],
+  offlineSkillNodes: [],
+  offlineGenerators: ["userId"],
+  userOfflineSkills: ["userId", "skillNodeId"],
+  usageSnapshots: [],
+  storagePolicies: ["userId"],
+  premiumSubscriptions: ["userId"],
+  premiumSavedViews: ["userId"],
+  premiumReviewWorkflows: ["userId"],
+  premiumInsights: ["userId"],
+  premiumEvents: ["userId"],
   tasks: ["userId"],
+  attachmentAssets: ["userId"],
+  taskImportFingerprints: ["userId", "firstTaskId"],
   wallets: ["userId"],
   coinTransactions: ["userId", "taskId"],
   userBadges: ["userId"],
@@ -619,6 +751,10 @@ export async function importBundle(
               }
             }
             if (hasUnresolvable) {
+              const pkOrig = originalRow[pkField];
+              if (pkOrig !== undefined && pkOrig !== null) {
+                trackSkippedId(tableName, String(pkOrig));
+              }
               skipCount++;
               continue;
             }

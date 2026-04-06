@@ -27,7 +27,12 @@ if (-not $resolved) {
 }
 
 if (git show-ref --verify --quiet "refs/heads/baseline/published") {
-  git branch -f "baseline/published" $resolved
+  $head = git rev-parse --abbrev-ref HEAD
+  if ($head -eq "baseline/published") {
+    git update-ref "refs/heads/baseline/published" $resolved
+  } else {
+    git branch -f "baseline/published" $resolved
+  }
   Write-Host "Updated local baseline/published -> $resolved"
 } else {
   git branch "baseline/published" $resolved

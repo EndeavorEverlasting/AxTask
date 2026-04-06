@@ -23,6 +23,7 @@ export async function apiFetch(
   url: string,
   data?: unknown | undefined,
   extraHeaders?: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const headers: Record<string, string> = { ...(extraHeaders || {}) };
   if (data !== undefined && data !== null) headers["Content-Type"] = "application/json";
@@ -34,6 +35,7 @@ export async function apiFetch(
     headers,
     body: data !== undefined && data !== null ? JSON.stringify(data) : undefined,
     credentials: "include",
+    signal,
   });
 }
 

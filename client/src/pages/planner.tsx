@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
+import { isBrowserOnline, syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { useVoice } from "@/hooks/use-voice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -125,6 +125,14 @@ export default function PlannerPage() {
     mutationFn: async (taskId: string) => {
       const tasks = queryClient.getQueryData<Task[]>(["/api/tasks"]) ?? [];
       const base = tasks.find((t) => t.id === taskId);
+      if (!base) {
+        if (!isBrowserOnline()) {
+          throw new Error(
+            "Cannot save changes offline without the latest task data. Connect or refresh tasks, then try again.",
+          );
+        }
+        throw new Error("Task not in cache. Refresh your task list and try again.");
+      }
       return syncUpdateTask(taskId, { id: taskId, status: "completed" }, base, queryClient);
     },
     onSuccess: (data) => {
@@ -151,6 +159,14 @@ export default function PlannerPage() {
       const newDate = tomorrow.toISOString().split("T")[0];
       const tasks = queryClient.getQueryData<Task[]>(["/api/tasks"]) ?? [];
       const base = tasks.find((t) => t.id === taskId);
+      if (!base) {
+        if (!isBrowserOnline()) {
+          throw new Error(
+            "Cannot save changes offline without the latest task data. Connect or refresh tasks, then try again.",
+          );
+        }
+        throw new Error("Task not in cache. Refresh your task list and try again.");
+      }
       return syncUpdateTask(taskId, { id: taskId, date: newDate }, base, queryClient);
     },
     onSuccess: (data) => {

@@ -64,14 +64,15 @@ export async function runWebPushDispatchTick(): Promise<{ sent: number; errors: 
       );
       try {
         await markPushSubscriptionDispatched(subscription.endpoint);
+        sent += 1;
       } catch (markErr) {
+        errors += 1;
         console.error(
           "[web-push] markPushSubscriptionDispatched failed",
           subscription.endpoint,
           markErr instanceof Error ? markErr.message : markErr,
         );
       }
-      sent += 1;
     } catch (err) {
       errors += 1;
       const status = pushSendErrorStatus(err);

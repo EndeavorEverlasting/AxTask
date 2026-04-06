@@ -40,6 +40,7 @@
     "test:watch": "vitest",
     "db": "npm run db:push",
     "db:push": "drizzle-kit push",
+    "db:push:with-dedupe": "npm run migration:dedupe-user-rewards && drizzle-kit push",
     "db:push:and-seed-docker": "npm run db:push && node scripts/docker-seed-demo.mjs",
     "local:start": "node tools/local/offline-start.mjs",
     "migration:dedupe-user-rewards": "node scripts/migration/dedupe-user-rewards.mjs",

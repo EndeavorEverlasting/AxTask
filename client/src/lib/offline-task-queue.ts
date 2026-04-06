@@ -34,29 +34,40 @@ function mayMergeOfflineQueueScopes(prevKey: string, nextKey: string): boolean {
   return a !== null && b !== null && a === b;
 }
 
-export function setOfflineQueueUserScope(userId: string | null): void {
-  const prevKey = storageKey();
+function migrateQueueBetweenKeys(prevKey: string, nextKey: string): void {
+  if (prevKey === nextKey) return;
   const prevOps = readQueueForKey(prevKey);
+  if (prevOps.length === 0 || !mayMergeOfflineQueueScopes(prevKey, nextKey)) {
+    listeners.forEach((l) => l());
+    return;
+  }
+  const nextExisting = readQueueForKey(nextKey);
+  const merged = [...prevOps, ...nextExisting];
+  const lastIdx = new Map<string, number>();
+  merged.forEach((op, i) => lastIdx.set(op.opId, i));
+  const deduped = merged.filter((op, i) => lastIdx.get(op.opId) === i);
+  const outcome = writeQueueForKey(nextKey, deduped);
+  if (outcome.persistedToStorage || outcome.usingMemoryFallback) {
+    memoryFallbackQueues.delete(prevKey);
+    try {
+      localStorage.removeItem(prevKey);
+    } catch {
+      /* */
+    }
+  }
+}
+
+export function setOfflineQueueUserScope(userId: string | null): void {
+  if (drainScopeStorageKey !== null) {
+    offlineQueueScopeUserId = userId;
+    listeners.forEach((l) => l());
+    return;
+  }
+  const prevKey = storageKey();
   offlineQueueScopeUserId = userId;
   const nextKey = storageKey();
   if (prevKey !== nextKey) {
-    if (prevOps.length > 0 && mayMergeOfflineQueueScopes(prevKey, nextKey)) {
-      const nextExisting = readQueueForKey(nextKey);
-      const merged = [...prevOps, ...nextExisting];
-      const lastIdx = new Map<string, number>();
-      merged.forEach((op, i) => lastIdx.set(op.opId, i));
-      const deduped = merged.filter((op, i) => lastIdx.get(op.opId) === i);
-      const outcome = writeQueueForKey(nextKey, deduped);
-      if (outcome.persistedToStorage || outcome.usingMemoryFallback) {
-        memoryFallbackQueues.delete(prevKey);
-        try {
-          localStorage.removeItem(prevKey);
-        } catch {
-          /* */
-        }
-      }
-    }
-    listeners.forEach((l) => l());
+    migrateQueueBetweenKeys(prevKey, nextKey);
   }
 }
 
@@ -77,7 +88,10 @@ export function beginOfflineQueueDrainScope(): void {
 }
 
 export function endOfflineQueueDrainScope(): void {
+  const pinned = drainScopeStorageKey;
   drainScopeStorageKey = null;
+  if (!pinned) return;
+  migrateQueueBetweenKeys(pinned, storageKey());
 }
 
 export type OfflineTaskOp =

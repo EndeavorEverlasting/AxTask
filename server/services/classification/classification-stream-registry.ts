@@ -78,9 +78,14 @@ export function hasClassificationSse(userId: string): boolean {
 export function broadcastClassificationEvent(userId: string, payload: unknown): void {
   const set = byUser.get(userId);
   if (!set) return;
-  for (const entry of set) {
+  const entries = [...set];
+  const failed: StreamEntry[] = [];
+  for (const entry of entries) {
     if (!writeSseData(entry.res, payload)) {
-      removeClassificationSse(userId, entry);
+      failed.push(entry);
     }
+  }
+  for (const entry of failed) {
+    removeClassificationSse(userId, entry);
   }
 }

@@ -113,7 +113,14 @@ async function loadOrCreateKeyPairFromDb(): Promise<{ publicKey: string; private
   if (!again?.value) {
     throw new Error("VAPID keypair missing after insert race");
   }
-  const parsed = JSON.parse(again.value) as { publicKey?: string; privateKey?: string };
+  let parsed: { publicKey?: string; privateKey?: string };
+  try {
+    parsed = JSON.parse(again.value) as { publicKey?: string; privateKey?: string };
+  } catch (e) {
+    throw new Error(
+      `Stored VAPID keypair JSON is invalid: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
   if (!parsed.publicKey || !parsed.privateKey) {
     throw new Error("Stored VAPID keypair is invalid");
   }
