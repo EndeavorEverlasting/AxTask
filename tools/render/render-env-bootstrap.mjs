@@ -300,6 +300,14 @@ async function main() {
 
   fs.writeFileSync(opts.outPath, finalBody.replace(/\r?\n/g, "\n"), "utf8");
   logInfo("[render:env-bootstrap] Wrote " + opts.outPath);
+  logInfo(
+    "[render:env-bootstrap] In Render, set DATABASE_URL to your real Postgres connection string. If you paste the template value (…@HOST/…), the app will crash with ENOTFOUND HOST.",
+  );
+  logInfo(
+    "[render:env-bootstrap] Before running bootstrap again for another domain (e.g. dev), copy " +
+      opts.outPath +
+      " aside — the next run overwrites this file (including SESSION_SECRET).",
+  );
   printPasteGuide(domain);
 }
 

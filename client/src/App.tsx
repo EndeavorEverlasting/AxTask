@@ -64,12 +64,13 @@ function Router() {
   );
 }
 
-/** Ctrl+T / Cmd+T toggles post-auth tutorial only (avoids hijacking shortcut on login screen). */
+/** Ctrl+Shift+T / Cmd+Shift+T toggles tutorial (does not steal the browser new-tab shortcut). */
 function TutorialHotkeys() {
   const { isActive, startTutorial, stopTutorial } = useTutorial();
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "t") {
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      if (e.shiftKey && (e.ctrlKey || e.metaKey) && k === "t") {
         e.preventDefault();
         if (isActive) stopTutorial();
         else startTutorial();
@@ -165,6 +166,7 @@ const VALID_ROUTES = [
   "/premium",
   "/billing",
   "/account",
+  "/appeals",
 ];
 
 function useRoutePersistence() {

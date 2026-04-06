@@ -445,10 +445,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const limit = Math.min(Math.max(parseInt(String(req.query.limit || "20"), 10) || 20, 1), 50);
       const curAt = typeof req.query.cursorAt === "string" ? req.query.cursorAt : "";
-      const curId = typeof req.query.cursorId === "string" ? req.query.cursorId : "";
+      const curIdRaw = typeof req.query.cursorId === "string" ? req.query.cursorId : "";
+      const curId = curIdRaw.trim();
+      const atMs = curAt ? Date.parse(curAt) : NaN;
       const cursor =
-        curAt && curId
-          ? { publishedAt: new Date(curAt), id: curId }
+        curId && !Number.isNaN(atMs)
+          ? { publishedAt: new Date(atMs), id: curId }
           : null;
       const { items, nextCursor } = await listPublicCommunityTasks(limit, cursor);
       res.json({

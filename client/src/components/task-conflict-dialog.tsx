@@ -56,13 +56,13 @@ export function TaskConflictDialog() {
   };
 
   return (
-    <Dialog
-      open={!!detail}
-      onOpenChange={(open) => {
-        if (!open && detail) close("server");
-      }}
-    >
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={!!detail} onOpenChange={() => {}}>
+      <DialogContent
+        className="sm:max-w-md"
+        hideCloseButton
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>Task changed elsewhere</DialogTitle>
           <DialogDescription>

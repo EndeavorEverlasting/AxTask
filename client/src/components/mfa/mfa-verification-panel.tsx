@@ -1,9 +1,17 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { cn } from "@/lib/utils";
+import {
+  consumeMfaHandoffSession,
+  MFA_HANDOFF_CHANNEL,
+  MFA_HANDOFF_STORAGE_KEY,
+  parseMfaHandoff,
+  parseMfaHandoffMessage,
+  type MfaHandoffPayload,
+} from "@/lib/mfa-handoff";
 
 export type MfaVerificationPanelProps = {
   open: boolean;
@@ -42,58 +50,49 @@ export function MfaVerificationPanel({
 }: MfaVerificationPanelProps) {
   const [value, setValue] = useState("");
 
+  const handleComplete = useCallback(
+    async (code: string) => {
+      if (code.length !== 6 || isBusy) return;
+      await onSubmitCode(code);
+      consumeMfaHandoffSession();
+    },
+    [isBusy, onSubmitCode],
+  );
+
   useEffect(() => {
     if (!open) setValue("");
   }, [open]);
 
   useEffect(() => {
     if (!open || !challengeId) return;
-    const key = "axtask_mfa_handoff";
-    const applyPayload = (raw: string | null) => {
-      if (!raw) return;
-      try {
-        const parsed = JSON.parse(raw) as {
-          challengeId?: string;
-          purpose?: string;
-          code?: string;
-          ts?: number;
-        };
-        if (!parsed?.challengeId || parsed.challengeId !== challengeId) return;
-        if (purpose && parsed.purpose && parsed.purpose !== purpose) return;
-        const code = String(parsed.code || "").replace(/\D/g, "").slice(0, 6);
-        if (code.length !== 6) return;
-        setValue(code);
-        void handleComplete(code);
-      } catch {
-        // ignore malformed payloads
-      }
-    };
 
-    const onStorage = (e: StorageEvent) => {
-      if (e.key !== key) return;
-      applyPayload(e.newValue);
+    const applyHandoff = (parsed: MfaHandoffPayload | null) => {
+      if (!parsed || parsed.challengeId !== challengeId) return;
+      if (purpose && parsed.purpose !== purpose) return;
+      const code = String(parsed.code || "").replace(/\D/g, "").slice(0, 6);
+      if (code.length !== 6) return;
+      setValue(code);
+      void handleComplete(code);
     };
-    window.addEventListener("storage", onStorage);
 
     let bc: BroadcastChannel | null = null;
     if ("BroadcastChannel" in window) {
-      bc = new BroadcastChannel("axtask_mfa_handoff");
+      bc = new BroadcastChannel(MFA_HANDOFF_CHANNEL);
       bc.onmessage = (ev: MessageEvent) => {
-        applyPayload(JSON.stringify(ev.data ?? null));
+        applyHandoff(parseMfaHandoffMessage(ev.data));
       };
     }
 
-    applyPayload(localStorage.getItem(key));
+    try {
+      applyHandoff(parseMfaHandoff(sessionStorage.getItem(MFA_HANDOFF_STORAGE_KEY)));
+    } catch {
+      // ignore
+    }
+
     return () => {
-      window.removeEventListener("storage", onStorage);
       if (bc) bc.close();
     };
-  }, [open, challengeId, purpose]);
-
-  const handleComplete = async (code: string) => {
-    if (code.length !== 6 || isBusy) return;
-    await onSubmitCode(code);
-  };
+  }, [open, challengeId, purpose, handleComplete]);
 
   return (
     <AnimatePresence>

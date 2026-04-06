@@ -27,12 +27,12 @@ if (-not $resolved) {
 }
 
 if (git show-ref --verify --quiet "refs/heads/baseline/published") {
-  git branch -f "baseline/published" $Commit
-  Write-Host "Updated local baseline/published -> $Commit"
+  git branch -f "baseline/published" $resolved
+  Write-Host "Updated local baseline/published -> $resolved"
 } else {
-  git branch "baseline/published" $Commit
-  Write-Host "Created local baseline/published -> $Commit"
+  git branch "baseline/published" $resolved
+  Write-Host "Created local baseline/published -> $resolved"
 }
 
 Write-Host "Next: git push -u origin baseline/published"
-Write-Host "Optional tag: git tag -a published-baseline-$(Get-Date -Format 'yyyy-MM-dd') $Commit -m 'Published app baseline'"
+Write-Host "Optional tag: git tag -a published-baseline-$(Get-Date -Format 'yyyy-MM-dd') $resolved -m 'Published app baseline'"

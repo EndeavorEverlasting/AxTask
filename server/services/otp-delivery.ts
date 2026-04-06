@@ -28,9 +28,21 @@ export type DeliverMfaParams = {
 };
 
 function appBaseUrl(): string {
-  const explicit = process.env.APP_BASE_URL?.trim() || process.env.PUBLIC_APP_URL?.trim();
+  const explicit =
+    process.env.BASE_URL?.trim() ||
+    process.env.APP_BASE_URL?.trim() ||
+    process.env.PUBLIC_APP_URL?.trim();
   if (explicit) return explicit.replace(/\/+$/, "");
   return process.env.NODE_ENV === "production" ? "https://app.axtask.com" : "http://localhost:5173";
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function buildMfaHandoffUrl(params: { challengeId: string; code: string; purpose: string }): string {
@@ -125,21 +137,23 @@ export async function sendWelcomeExperienceEmail(params: {
   displayName?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const first = params.displayName?.trim() || "there";
+  const firstSafe = escapeHtml(first);
   const url = `${appBaseUrl()}/welcome-confirm`;
+  const urlSafe = escapeHtml(url);
   if (process.env.NODE_ENV !== "production") {
     console.log(`[WELCOME] email=${params.email} url=${url}`);
     return { ok: true };
   }
   const html = `
     <div style="font-family:Inter,Segoe UI,Arial,sans-serif;line-height:1.5;color:#111827">
-      <h1 style="margin:0 0 10px 0;font-size:24px">Welcome to AxTask, ${first}.</h1>
+      <h1 style="margin:0 0 10px 0;font-size:24px">Welcome to AxTask, ${firstSafe}.</h1>
       <p style="margin:0 0 14px 0;color:#374151">Your workspace is ready. We'll auto-load the AxTask experience when you open this page.</p>
       <p style="margin:0 0 16px 0">
         <a href="${url}" style="display:inline-block;padding:11px 16px;border-radius:12px;background:linear-gradient(120deg,#0ea5e9,#8b5cf6);color:#fff;text-decoration:none;font-weight:700">
           ✓ Launch My AxTask Adventure
         </a>
       </p>
-      <p style="margin:0;color:#6b7280;font-size:12px">If it doesn't load automatically, use the button above or this direct link: <a href="${url}">${url}</a>.</p>
+      <p style="margin:0;color:#6b7280;font-size:12px">If it doesn't load automatically, use the button above or this direct link: <a href="${url}">${urlSafe}</a>.</p>
     </div>`;
   return sendResendEmail(params.email, "Welcome to AxTask - your workspace is ready", html);
 }

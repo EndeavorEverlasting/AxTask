@@ -2,25 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { CheckCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { storeMfaHandoffSession } from "@/lib/mfa-handoff";
 
 type Mode = "mfa" | "welcome";
 
 function emitMfaHandoff(payload: { challengeId: string; code: string; purpose: string }) {
-  const enriched = { ...payload, ts: Date.now() };
-  try {
-    localStorage.setItem("axtask_mfa_handoff", JSON.stringify(enriched));
-  } catch {
-    // ignore storage failures
-  }
-  try {
-    if ("BroadcastChannel" in window) {
-      const bc = new BroadcastChannel("axtask_mfa_handoff");
-      bc.postMessage(enriched);
-      bc.close();
-    }
-  } catch {
-    // no-op
-  }
+  storeMfaHandoffSession(payload);
 }
 
 function CompletedSplash() {

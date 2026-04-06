@@ -80,12 +80,29 @@ export function useCollaboration(taskId: string | null) {
       }
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
+      let raw: string;
+      try {
+        const d = event.data;
+        if (typeof d === "string") {
+          raw = d;
+        } else if (d instanceof Blob) {
+          raw = await d.text();
+        } else if (d instanceof ArrayBuffer) {
+          raw = new TextDecoder().decode(d);
+        } else {
+          console.warn("[collab] Unsupported WebSocket message type:", typeof d);
+          return;
+        }
+      } catch (e) {
+        console.warn("[collab] Failed to read WebSocket message:", e);
+        return;
+      }
       let msg: Record<string, unknown>;
       try {
-        msg = JSON.parse(event.data as string) as Record<string, unknown>;
+        msg = JSON.parse(raw) as Record<string, unknown>;
       } catch (parseErr) {
-        console.warn("[collab] Invalid JSON from server:", event.data, parseErr);
+        console.warn("[collab] Invalid JSON from server:", raw, parseErr);
         return;
       }
       const type = msg.type;

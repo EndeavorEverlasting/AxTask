@@ -548,7 +548,17 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefOb
   const [isRefreshing, setIsRefreshing] = useState(false);
   const touchStartY = useRef(0);
   const pulling = useRef(false);
+  const pullDistanceRef = useRef(0);
+  const isRefreshingRef = useRef(false);
   const PULL_THRESHOLD = 60;
+
+  useEffect(() => {
+    pullDistanceRef.current = pullDistance;
+  }, [pullDistance]);
+
+  useEffect(() => {
+    isRefreshingRef.current = isRefreshing;
+  }, [isRefreshing]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -562,21 +572,25 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefOb
     };
 
     const onTouchMove = (e: globalThis.TouchEvent) => {
-      if (!pulling.current || isRefreshing) return;
+      if (!pulling.current || isRefreshingRef.current) return;
       const dy = e.touches[0].clientY - touchStartY.current;
       if (dy > 0 && el.scrollTop <= 0) {
-        setPullDistance(Math.min(dy * 0.5, PULL_THRESHOLD * 2));
+        const next = Math.min(dy * 0.5, PULL_THRESHOLD * 2);
+        pullDistanceRef.current = next;
+        setPullDistance(next);
         if (dy > 10) e.preventDefault();
       }
     };
 
     const onTouchEnd = async () => {
-      if (pullDistance >= PULL_THRESHOLD && !isRefreshing) {
+      const dist = pullDistanceRef.current;
+      if (dist >= PULL_THRESHOLD && !isRefreshingRef.current) {
         setIsRefreshing(true);
         setPullDistance(PULL_THRESHOLD);
         await onRefresh();
         setIsRefreshing(false);
       }
+      pullDistanceRef.current = 0;
       setPullDistance(0);
       pulling.current = false;
     };
@@ -590,7 +604,7 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefOb
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
     };
-  }, [scrollRef, onRefresh, pullDistance, isRefreshing]);
+  }, [scrollRef, onRefresh]);
 
   return { pullDistance, isRefreshing };
 }

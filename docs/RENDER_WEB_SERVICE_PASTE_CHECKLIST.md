@@ -12,6 +12,10 @@ Use this when creating or editing a **Render → Web Service**. Replace every `Y
 
 The bootstrap script is only **logic**; it does not embed secrets. Generated values live in **gitignored** files (see root `.gitignore`: `.env.render`, backups). That keeps recovery fast: clone the repo, run the generator, paste into a **new** Render service, and rotate credentials at each provider if something was compromised.
 
+**Critical:** Never deploy with a placeholder **`DATABASE_URL`** (e.g. `…@HOST/…` or `USER:PASSWORD` literals). Render will fail at runtime with **`getaddrinfo ENOTFOUND HOST`**. Paste the **Internal Database URL** from your Render PostgreSQL instance (or Neon, etc.) into the `DATABASE_URL` env var.
+
+**Second domain / dev:** Running `render:env-bootstrap` again **overwrites** `.env.render`. Copy the file (or save `SESSION_SECRET` in Render) before generating for **axtask.dev** if you still need the prod scaffold on disk.
+
 ### Fast recovery (new web service or rotation)
 
 1. **New app secrets:** `npm run render:env-bootstrap -- --domain=YOUR_HOST --invite --force` (writes `.env.render`; does not print secrets to the terminal).
