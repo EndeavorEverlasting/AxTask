@@ -11,7 +11,7 @@
 
 A full-stack task management application with an intelligent priority scoring engine that automatically calculates task priorities based on content analysis. Includes hardened import deduplication, usage/storage observability, attachment upload controls, and security event monitoring.
 
-**Product roadmap and vision checklist:** [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md) (start here after cloning). Billing UI and account-plane APIs: [docs/BILLING_UI.md](docs/BILLING_UI.md). Engine orchestration: [docs/ENGINES.md](docs/ENGINES.md).
+**Product roadmap and vision checklist:** [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md) (start here after cloning). **Sign-in (production, Docker, local):** [docs/SIGN_IN.md](docs/SIGN_IN.md). **Operator / admin + local testing unblock:** [docs/internal/OPERATOR_RUNBOOK.template.md](docs/internal/OPERATOR_RUNBOOK.template.md) (copy to gitignored `docs/internal/OPERATOR_RUNBOOK.md` — see [docs/internal/README.md](docs/internal/README.md)). Billing UI and account-plane APIs: [docs/BILLING_UI.md](docs/BILLING_UI.md). Engine orchestration: [docs/ENGINES.md](docs/ENGINES.md).
 
 ## Run locally after cloning with Docker
 
@@ -99,7 +99,7 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
    `npm run docker:up` creates `.env.docker` from `.env.docker.example` if the file is missing, refuses to start if secrets are still placeholders, waits for the Docker engine, and on **Windows** / **macOS** tries to start **Docker Desktop** when it is installed but not running. If Docker is already up and you only want Compose without that logic, use `npm run docker:start`.
 
 5. **Open the app:** [http://localhost:5000](http://localhost:5000)  
-   **Sign in:** use the **demo email/password** echoed by `docker:up` (from `.env.docker`) or click **Register** if demo seed is off.  
+   **Sign in:** use the **demo email/password** echoed by `docker:up` (from `.env.docker`) or click **Register** if demo seed is off. Full guide: [docs/SIGN_IN.md](docs/SIGN_IN.md).  
    Check containers: `npm run docker:status` · Stop: `npm run docker:stop` · Logs: `npm run docker:logs`
 
 Cleanup modes (clear separation):
@@ -137,7 +137,7 @@ Use this when you prefer to run the app with `tsx` against your own Postgres (no
 
 From the **project root**:
 
-**Recommended (one flow):** **`npm run local:start`** (alias: **`npm run offline:start`** / **`npm run dev:smart`**) does, in order: **`npm run local:env-init`** (creates `.env` from `.env.example` when needed and bootstraps **`SESSION_SECRET`** without printing it), dependency install/sync, **`npm run db`** (schema push) when the schema fingerprint changes, then **`npm run dev`** with **`NODE_ENV=development`** already set — dev users **`dev@axtask.local`** / **`admin@axtask.local`** and their **one-time passwords** are printed in **that server terminal** on each start.
+**Recommended (one flow):** **`npm run local:start`** (alias: **`npm run offline:start`** / **`npm run dev:smart`**) does, in order: **`npm run local:env-init`** (creates `.env` from `.env.example` when needed and bootstraps **`SESSION_SECRET`** without printing it), dependency install/sync, **`npm run db`** (schema push) when the schema fingerprint changes, then **`npm run dev`** with **`NODE_ENV=development`** already set — **ephemeral development accounts** (emails and passwords) are printed in **that server terminal** on each start; use them on the login page. Details: [docs/SIGN_IN.md](docs/SIGN_IN.md).
 
 Before the first successful run, edit **`.env`** after `local:env-init` and set **`DATABASE_URL`** to a reachable PostgreSQL URL (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
 
@@ -145,7 +145,7 @@ Before the first successful run, edit **`.env`** after `local:env-init` and set 
 
 If you prefer not to run `local:env-init`, create `.env` manually: **Windows CMD:** `copy .env.example .env` · **PowerShell:** `Copy-Item .env.example .env` · **macOS/Linux/Git Bash:** `cp .env.example .env` — then run **`npm run local:secrets-bootstrap`** so session signing works.
 
-Visit `http://localhost:5000` to access the application.
+Visit `http://localhost:5000` to access the application and sign in (see [docs/SIGN_IN.md](docs/SIGN_IN.md)).
 
 ### One-click local/offline startup
 
@@ -173,7 +173,7 @@ The SPA **persists TanStack Query read caches** to `localStorage` (except auth, 
 
 **Phase C (offline task writes):** queued mutations in the browser, optimistic concurrency on `PUT`/`DELETE` tasks, and a conflict dialog. See [`docs/OFFLINE_PHASE_C.md`](docs/OFFLINE_PHASE_C.md).
 
-**Local accounts:** Seeded dev users (`*@axtask.local`) and passwords appear in the **dev server terminal** only. To use a **real email** on the same local database, register through the UI; task merge from seed users is not automatic — see [`docs/LOCAL_ACCOUNT_TRANSITION.md`](docs/LOCAL_ACCOUNT_TRANSITION.md).
+**Local accounts:** Seeded development accounts and passwords appear in the **dev server terminal** only. To use a **real email** on the same local database, register through the UI; task merge from seed users is not automatic — see [`docs/SIGN_IN.md`](docs/SIGN_IN.md) and [`docs/LOCAL_ACCOUNT_TRANSITION.md`](docs/LOCAL_ACCOUNT_TRANSITION.md).
 
 ### Why local runs fail most often
 

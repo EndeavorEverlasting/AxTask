@@ -146,6 +146,8 @@ The stack can run **NodeWeaver** alongside AxTask using the Compose profile **`n
 
 When **`AXTASK_DOCKER_SEED_DEMO=1`** in `.env.docker`, the **migrate** service runs **`db:push`** then seeds **`DOCKER_DEMO_USER_EMAIL`** / **`DOCKER_DEMO_PASSWORD`**. **`npm run docker:up`** prints the same pair when it finishes. Disable (**`AXTASK_DOCKER_SEED_DEMO=0`**) before exposing Compose to the internet.
 
+User-facing steps (including non-Docker local dev): **[SIGN_IN.md](./SIGN_IN.md)**.
+
 ## Server note
 
 If you deploy on a server, the server must also have Docker installed/configured.

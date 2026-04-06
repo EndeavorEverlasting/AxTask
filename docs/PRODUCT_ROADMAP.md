@@ -6,6 +6,9 @@
 
 | Document | Purpose |
 |----------|---------|
+| [SIGN_IN.md](./SIGN_IN.md) | How users sign in (prod, Docker, local dev); no operator secrets |
+| [internal/README.md](./internal/README.md) | Operator runbook location; template vs gitignored copy |
+| [internal/OPERATOR_RUNBOOK.template.md](./internal/OPERATOR_RUNBOOK.template.md) | Admin grant, `/admin`, dev seeds, local testing steps |
 | [BILLING_UI.md](./BILLING_UI.md) | `/billing` layout and APIs |
 | [ENGINES.md](./ENGINES.md) | Dispatcher + engines; account vs core |
 | [ZERO_TRUST_AND_PRIVACY.md](./ZERO_TRUST_AND_PRIVACY.md) | Admin boundaries, aggregates, ID tension |

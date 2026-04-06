@@ -85,7 +85,7 @@ These are **not** mutually exclusive; pick based on UX and schema appetite.
 ## Documentation and rollout
 
 1. Update **login/register UI** copy so it is obvious that verification applies to **new** sign-ups only; **existing users** keep the same login experience (plus any step-up MFA they already see on sensitive actions).  
-2. Add **admin runbook** steps: how to disable open registration, rotate invite codes, and respond to OTP spam spikes.  
+2. Add **internal operator runbook** steps: how to disable open registration, rotate invite codes, and respond to OTP spam spikes (keep out of the public repo).  
 3. **Staging:** Run full registration path with Resend test domain before enabling in production.
 
 ## See also

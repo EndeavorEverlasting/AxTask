@@ -2,6 +2,16 @@
 
 **Canonical handoff:** [PRODUCT_ROADMAP.md](./PRODUCT_ROADMAP.md) — vision checklist, doc map, and ship protocol.
 
+**Sign-in (production, Docker, local dev):** [SIGN_IN.md](./SIGN_IN.md).
+
+## Documentation visibility and planning
+
+- **`docs/` as a whole** has the same visibility as the rest of the repository (public if the remote is public, private if the remote is private). There is no separate “hidden docs” layer inside the tree.
+- **Keep in-repo:** runbooks, templates, architecture notes, and checklists that **do not embed secrets** — for example [RENDER_WEB_SERVICE_PASTE_CHECKLIST.md](./RENDER_WEB_SERVICE_PASTE_CHECKLIST.md) (names and steps only; real values live in gitignored `.env.render` and provider dashboards) and [SIGN_IN.md](./SIGN_IN.md) (end-user login; no operator SQL or privileged URLs).
+- **Keep outside the public tree:** living strategic plans, sensitive prioritization, incident postmortems with confidential detail, and other narratives that should not ship with a public clone. Maintain those in a **private internal wiki or doc system**, not as the source of truth in a public Git branch.
+- **Operator / admin procedures:** committed **[`internal/OPERATOR_RUNBOOK.template.md`](./internal/OPERATOR_RUNBOOK.template.md)** (placeholders only); filled copies as **[`internal/OPERATOR_RUNBOOK.md`](./internal/OPERATOR_RUNBOOK.md)** are **gitignored** — or mirror the template into a private wiki. See **[`internal/README.md`](./internal/README.md)**.
+- **Cursor `.cursor/plans/`** is gitignored so IDE-generated plan drafts stay local. That is intentional: the *infrastructure* (that teams may use Cursor, that `docs/` holds operational guides) is visible; the *plan bodies* you care to protect are not committed here.
+
 ---
 
 # AxTask - Intelligent Task Management System

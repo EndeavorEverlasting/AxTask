@@ -8,8 +8,11 @@ server/public
 vite.config.ts.*
 .env
 .env.docker
-# Local copy of Render env (filled from .env.render.example — contains secrets)
+# Render env scaffolds (secrets). Generator scripts under tools/render/ stay in git.
 .env.render
+.env.render.bak
+.env.render.backup
+.env.render.*.local
 pics/
 
 # Never commit credential-bearing plan copies
@@ -23,3 +26,6 @@ pics/
 docs/AxTask_Migration_Master_Plan.md
 docs/AxTask_Robust_Hosting_Migration_Plan_*.docx
 .security/local-node-provenance.json
+
+# Filled operator runbook (may contain real emails / hostnames) — template stays in git
+docs/internal/OPERATOR_RUNBOOK.md
