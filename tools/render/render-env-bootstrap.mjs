@@ -189,7 +189,12 @@ function printPasteGuide(domain) {
     `RESEND_FROM        → verified sender, e.g. noreply@${host}`,
     "",
     `Optional: TWILIO_* from Twilio Console; VITE_* from your push / cache-bust needs.`,
-    `See docs/RENDER_WEB_SERVICE_PASTE_CHECKLIST.md for Render UI field-by-field steps.`,
+    "",
+    "---------- Render Web Service — where to click (sidebar) ----------",
+    `Manage → Environment  = paste env vars (DATABASE_URL, SESSION_SECRET, …).`,
+    `Events → Settings      = Health Check Path /ready (NOT on Environment page).`,
+    `On Environment page: do NOT Ctrl+F "dashboard" (0 matches). Open Settings, then Ctrl+F "health".`,
+    `Full steps: docs/RENDER_WEB_SERVICE_PASTE_CHECKLIST.md`,
     "",
     "======================================================================",
     "",
@@ -307,6 +312,9 @@ async function main() {
     "[render:env-bootstrap] Before running bootstrap again for another domain (e.g. dev), copy " +
       opts.outPath +
       " aside — the next run overwrites this file (including SESSION_SECRET).",
+  );
+  logInfo(
+    "[render:env-bootstrap] Lost in Render? Env vars = sidebar Manage → Environment. Health /ready = Events → Settings (not Environment).",
   );
   printPasteGuide(domain);
 }

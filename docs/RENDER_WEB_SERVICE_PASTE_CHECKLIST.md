@@ -4,6 +4,20 @@ Use this when creating or editing a **Render → Web Service**. Replace every `Y
 
 **End-user login** after deploy: [SIGN_IN.md](./SIGN_IN.md). **Operator / privileged access** stays in your internal wiki only.
 
+### Render: where to click (sidebar — do this first)
+
+On a **Web Service** (e.g. AxTask), Render puts things in **different left-sidebar sections**. This is the #1 source of confusion.
+
+| What you need | Click in the **left sidebar** (labels as of 2025–2026) |
+|---------------|--------------------------------------------------------|
+| **`DATABASE_URL`**, `SESSION_SECRET`, all **Environment Variables** | **Manage → Environment** (same page as “Secret Files” / “Add variable”). |
+| **Health Check Path** (`/ready`), Docker build path, region, branch, custom domain (service-level) | **Events → Settings** — **not** under Manage → Environment. |
+| Deploy logs | **Monitor → Logs** |
+
+**Do not** use the browser Find box (`Ctrl+F`) on the **Environment** page to search for **`dashboard`** — that string is not on that page, so you will get **0/0** matches and think the docs are wrong. **Open `Settings` first** (sidebar), *then* `Ctrl+F` → type **`health`** to jump to **Health Check Path**.
+
+**Neon:** If the branch compute shows **SUSPENDED**, wake/resume it (Connect / SQL Editor / Edit compute) or connections from Render can fail until Postgres is active.
+
 ### What stays in git vs what does not
 
 | In repository (safe) | Never commit |
@@ -27,11 +41,11 @@ The bootstrap script is only **logic**; it does not embed secrets. Generated val
 
 ## Render UI: two different places (read this once)
 
-Render splits configuration into **(1) Environment** and **(2) Service settings**. Mixing them up causes “I set everything” while health check or schema steps were never done.
+Same idea as the **Render: where to click** table at the **top** of this doc: **Manage → Environment** vs **Events → Settings**. Mixing them up causes “I set everything” while health check or schema steps were never done.
 
 ### 1) Environment variables
 
-**Path:** your **Web Service** → **Environment** (or **Environment Variables**).
+**Path:** **Manage → Environment** on your Web Service.
 
 Put **`DATABASE_URL`**, **`SESSION_SECRET`**, **`BASE_URL`**, OAuth keys, Resend, etc. here.
 
@@ -39,11 +53,11 @@ Put **`DATABASE_URL`**, **`SESSION_SECRET`**, **`BASE_URL`**, OAuth keys, Resend
 
 ### 2) Service settings (not in the Environment list)
 
-**Path:** the **same Web Service** → **Settings** (sidebar or top tabs). Render changes labels over time; use **Find in page** (`Ctrl+F`) and search for **`health`**.
+**Path:** **Events → Settings** (left sidebar on the Web Service). **Only after this page is open**, use `Ctrl+F` → **`health`**.
 
 | Setting | Required for AxTask? | Value |
 |---------|----------------------|--------|
-| **Health Check Path** | **Yes** | **`/ready`** (leading slash). This is **not** an env var named `HEALTH_CHECK` — it is its **own field** on the service. If it is wrong (e.g. `/healthz`), the service may look unhealthy even when the app runs. |
+| **Health Check Path** | **Yes** (when the field exists) | **`/ready`** (leading slash). This is **not** an env var named `HEALTH_CHECK` — it is its **own field**. If it is wrong (e.g. `/healthz`), the service may look unhealthy even when the app runs. On some **Free** tiers the field may be absent; the app can still run — fix **`DATABASE_URL`** and **`db:push`** first. |
 
 Other toggles (auto-deploy, region, branch) live here too.
 
