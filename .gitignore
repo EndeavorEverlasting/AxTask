@@ -15,12 +15,11 @@ vite.config.ts.*
 .env.render.*.local
 pics/
 
-# Never commit credential-bearing plan copies
+# Never commit credential-bearing plan copies (any path)
 *.secrets.md
-.cursor/plans/**/*.secrets.md
 
-# Cursor IDE plan drafts (local / personal; keep out of shared branches)
-.cursor/plans/
+# Cursor IDE — local workspace, plans, caches (git add -f .cursor/rules/... if sharing team rules)
+.cursor/
 
 # Local planning artifacts
 docs/AxTask_Migration_Master_Plan.md
