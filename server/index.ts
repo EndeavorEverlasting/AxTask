@@ -136,7 +136,7 @@ const LARGE_BODY_PATHS = ["/api/admin/import", "/api/account/import", "/api/admi
 const largeJsonParser = express.json({ limit: "50mb" });
 const defaultJsonParser = express.json({ limit: "2mb" });
 app.use((req, res, next) => {
-  if (LARGE_BODY_PATHS.some(p => req.path.startsWith(p))) {
+  if (LARGE_BODY_PATHS.includes(req.path)) {
     return largeJsonParser(req, res, next);
   }
   return defaultJsonParser(req, res, next);

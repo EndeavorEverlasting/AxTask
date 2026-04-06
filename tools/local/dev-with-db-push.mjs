@@ -41,4 +41,8 @@ const child = spawn("npx", ["tsx", "server/index.ts"], {
   env: { ...process.env, NODE_ENV: "development" },
 });
 
+child.on("error", (err) => {
+  console.error("[axtask:dev] failed to spawn dev server:", err);
+  process.exit(1);
+});
 child.on("exit", (code) => process.exit(code ?? 0));

@@ -3,7 +3,7 @@ import { apiRequest } from "@/lib/queryClient";
 
 export type MfaChallengeRequest =
   | string
-  | { purpose: string; channel?: "email" | "sms"; phoneE164?: string };
+  | { purpose: string; channel?: "email" | "sms"; phoneE164?: string; taskId?: string };
 
 export type MfaChallengeResponse = {
   challengeId: string;
@@ -22,6 +22,7 @@ function toRequestBody(input: MfaChallengeRequest): Record<string, string> {
     channel: input.channel ?? "email",
   };
   if (input.phoneE164?.trim()) body.phoneE164 = input.phoneE164.trim();
+  if (input.taskId?.trim()) body.taskId = input.taskId.trim();
   return body;
 }
 

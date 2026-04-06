@@ -16,7 +16,7 @@
  * - JSON bundle import **reconciles** bundle task IDs to existing tasks when a fingerprint
  *   already exists (`reconcileBundleTaskIdMapForTasks`), then **records** fingerprints for
  *   every processed task row in the same transaction as the task insert
- *   (`insertTaskImportFingerprintTx`).
+ *   (`insertBundleTaskWithFingerprintClaimTx`).
  *
  * ### Why this matters (gamification / abuse)
  *
@@ -30,8 +30,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { eq } from "drizzle-orm";
-import { taskImportFingerprints } from "@shared/schema";
+import { and, eq } from "drizzle-orm";
+import { taskImportFingerprints, tasks } from "@shared/schema";
 import { db } from "./db";
 import { computeTaskFingerprint } from "./task-fingerprint";
 
@@ -113,27 +113,68 @@ export async function reconcileBundleTaskIdMapForTasks(options: {
   }
 }
 
-type TxLike = Pick<typeof db, "insert">;
+type BundleImportTx = Pick<typeof db, "insert" | "select" | "delete">;
 
-/** Register fingerprint in the same transaction as the task row (JSON bundle path). */
-export async function insertTaskImportFingerprintTx(
-  tx: TxLike,
+/**
+ * Claims the import fingerprint row before inserting the task so concurrent imports cannot
+ * both miss the index and insert duplicate logical tasks. Rolls back a freshly claimed
+ * fingerprint if the task PK insert loses an onConflict race.
+ */
+export async function insertBundleTaskWithFingerprintClaimTx(
+  tx: BundleImportTx,
   params: {
-    userId: string;
-    taskPk: string;
-    row: Record<string, unknown>;
-    source: TaskImportFingerprintSource;
+    targetUserId: string;
+    taskRow: typeof tasks.$inferInsert;
+    fingerprintSource: TaskImportFingerprintSource;
+    fingerprintRow: Record<string, unknown>;
   },
-): Promise<void> {
-  const { userId, taskPk, row, source } = params;
-  await tx
+): Promise<"inserted" | "skipped_duplicate" | "skipped_pk_conflict"> {
+  const { targetUserId, taskRow, fingerprintSource, fingerprintRow } = params;
+  const taskPk = String(taskRow.id);
+  const fp = fingerprintFromBundleTaskRow(fingerprintRow);
+
+  const fpIns = await tx
     .insert(taskImportFingerprints)
     .values({
       id: randomUUID(),
-      userId,
-      fingerprint: fingerprintFromBundleTaskRow(row),
-      source,
+      userId: targetUserId,
+      fingerprint: fp,
+      source: fingerprintSource,
       firstTaskId: taskPk,
     })
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ id: taskImportFingerprints.id });
+
+  if (fpIns.length === 0) {
+    const [ex] = await tx
+      .select({ firstTaskId: taskImportFingerprints.firstTaskId })
+      .from(taskImportFingerprints)
+      .where(
+        and(eq(taskImportFingerprints.userId, targetUserId), eq(taskImportFingerprints.fingerprint, fp)),
+      )
+      .limit(1);
+    const existingTid = ex?.firstTaskId;
+    if (existingTid && existingTid !== taskPk) {
+      return "skipped_duplicate";
+    }
+  }
+
+  const inserted = await tx
+    .insert(tasks)
+    .values(taskRow)
+    .onConflictDoNothing()
+    .returning({ id: tasks.id });
+
+  if (inserted.length === 0) {
+    if (fpIns.length > 0) {
+      await tx
+        .delete(taskImportFingerprints)
+        .where(
+          and(eq(taskImportFingerprints.userId, targetUserId), eq(taskImportFingerprints.fingerprint, fp)),
+        );
+    }
+    return "skipped_pk_conflict";
+  }
+
+  return "inserted";
 }

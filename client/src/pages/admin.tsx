@@ -623,6 +623,15 @@ export default function AdminPage() {
     setImportResult(null);
 
     const reader = new FileReader();
+    reader.onerror = () => {
+      console.error("[admin] import file read failed", reader.error);
+      setImportBundle(null);
+      toast({
+        title: "Could not read file",
+        description: reader.error?.message || "The file could not be read (permission, missing file, or disk error).",
+        variant: "destructive",
+      });
+    };
     reader.onload = (evt) => {
       try {
         const parsed = JSON.parse(evt.target?.result as string);
@@ -765,6 +774,29 @@ export default function AdminPage() {
       <div className="p-6 flex flex-col items-center justify-center min-h-[50vh] gap-3">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />
         <p className="text-sm text-muted-foreground">Checking admin session…</p>
+      </div>
+    );
+  }
+
+  if (stepUpError) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md w-full border-destructive/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-destructive" />
+              Admin session check failed
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              We could not load step-up status for this admin session. Refresh the page or sign out and sign back in, then open /admin again.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Button type="button" variant="secondary" className="w-full" onClick={() => window.location.reload()}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }

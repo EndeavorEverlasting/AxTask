@@ -13,23 +13,48 @@ let offlineQueueScopeUserId: string | null = null;
 /** While draining, all queue reads/writes pin to this storage key so scope cannot switch mid-run. */
 let drainScopeStorageKey: string | null = null;
 
+const SCOPED_USER_PREFIX = `${OFFLINE_QUEUE_KEY_PREFIX}:user:`;
+
+/** `null` = anonymous bucket; non-null = authenticated user id from the storage key. */
+function userIdFromOfflineStorageKey(key: string): string | null {
+  if (key === `${OFFLINE_QUEUE_KEY_PREFIX}:anonymous`) return null;
+  if (key.startsWith(SCOPED_USER_PREFIX)) {
+    const id = key.slice(SCOPED_USER_PREFIX.length);
+    return id.length > 0 ? id : null;
+  }
+  return null;
+}
+
+/** Merge queues when both keys are anonymous, when upgrading from anonymous to signed-in, or when both belong to the same user. */
+function mayMergeOfflineQueueScopes(prevKey: string, nextKey: string): boolean {
+  const a = userIdFromOfflineStorageKey(prevKey);
+  const b = userIdFromOfflineStorageKey(nextKey);
+  if (a === null && b === null) return true;
+  if (a === null) return true;
+  return a !== null && b !== null && a === b;
+}
+
 export function setOfflineQueueUserScope(userId: string | null): void {
   const prevKey = storageKey();
   const prevOps = readQueueForKey(prevKey);
   offlineQueueScopeUserId = userId;
   const nextKey = storageKey();
-  if (prevKey !== nextKey && prevOps.length > 0) {
-    const nextExisting = readQueueForKey(nextKey);
-    const merged = [...prevOps, ...nextExisting];
-    const lastIdx = new Map<string, number>();
-    merged.forEach((op, i) => lastIdx.set(op.opId, i));
-    const deduped = merged.filter((op, i) => lastIdx.get(op.opId) === i);
-    writeQueueForKey(nextKey, deduped);
-    memoryFallbackQueues.delete(prevKey);
-    try {
-      localStorage.removeItem(prevKey);
-    } catch {
-      /* */
+  if (prevKey !== nextKey) {
+    if (prevOps.length > 0 && mayMergeOfflineQueueScopes(prevKey, nextKey)) {
+      const nextExisting = readQueueForKey(nextKey);
+      const merged = [...prevOps, ...nextExisting];
+      const lastIdx = new Map<string, number>();
+      merged.forEach((op, i) => lastIdx.set(op.opId, i));
+      const deduped = merged.filter((op, i) => lastIdx.get(op.opId) === i);
+      const outcome = writeQueueForKey(nextKey, deduped);
+      if (outcome.persistedToStorage || outcome.usingMemoryFallback) {
+        memoryFallbackQueues.delete(prevKey);
+        try {
+          localStorage.removeItem(prevKey);
+        } catch {
+          /* */
+        }
+      }
     }
     listeners.forEach((l) => l());
   }
@@ -184,12 +209,135 @@ function scrubQueueForDeletedTask(q: OfflineTaskOp[], taskId: string): OfflineTa
   });
 }
 
+function tryParseJsonBody(body: unknown): { ok: true; value: unknown } | { ok: false } {
+  if (body === null || body === undefined) return { ok: true, value: {} };
+  if (typeof body === "object") return { ok: true, value: body };
+  if (typeof body === "string") {
+    const s = body.trim();
+    if (!s) return { ok: true, value: {} };
+    try {
+      return { ok: true, value: JSON.parse(s) };
+    } catch {
+      return { ok: false };
+    }
+  }
+  return { ok: false };
+}
+
+function jsonContainsClientIdString(val: unknown, clientId: string): boolean {
+  const esc = encodeURIComponent(clientId);
+  let found = false;
+  function walk(x: unknown): void {
+    if (found) return;
+    if (typeof x === "string") {
+      if (x === clientId || x === esc) found = true;
+      return;
+    }
+    if (Array.isArray(x)) {
+      x.forEach(walk);
+      return;
+    }
+    if (x && typeof x === "object") Object.values(x as object).forEach(walk);
+  }
+  walk(val);
+  return found;
+}
+
+function deepReplaceClientIdInJson(val: unknown, clientId: string, serverId: string): unknown {
+  const escC = encodeURIComponent(clientId);
+  const escS = encodeURIComponent(serverId);
+  if (typeof val === "string") {
+    if (val === clientId) return serverId;
+    if (val === escC) return escS;
+    return val;
+  }
+  if (Array.isArray(val)) return val.map((x) => deepReplaceClientIdInJson(x, clientId, serverId));
+  if (val && typeof val === "object") {
+    const o = val as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(o)) {
+      out[k] = deepReplaceClientIdInJson(v, clientId, serverId);
+    }
+    return out;
+  }
+  return val;
+}
+
+function httpBodyReferencesClientId(o: Extract<OfflineTaskOp, { kind: "http" }>, clientId: string): boolean {
+  const parsed = tryParseJsonBody(o.body);
+  if (parsed.ok) return jsonContainsClientIdString(parsed.value, clientId);
+  if (typeof o.body === "string") {
+    return o.body.includes(clientId) || o.body.includes(encodeURIComponent(clientId));
+  }
+  if (
+    o.body === null ||
+    o.body === undefined ||
+    typeof o.body === "number" ||
+    typeof o.body === "boolean" ||
+    typeof o.body === "bigint" ||
+    typeof o.body === "symbol"
+  ) {
+    return false;
+  }
+  return jsonContainsClientIdString(o.body, clientId);
+}
+
+function remapHttpOpForClientId(
+  o: Extract<OfflineTaskOp, { kind: "http" }>,
+  clientId: string,
+  serverId: string | null,
+): Extract<OfflineTaskOp, { kind: "http" }> | null {
+  const esc = encodeURIComponent(clientId);
+  const pathTouches =
+    o.path.includes(`/api/tasks/${clientId}`) || o.path.includes(`/api/tasks/${esc}`);
+
+  if (serverId === null) {
+    if (pathTouches) return null;
+    if (httpBodyReferencesClientId(o, clientId)) return null;
+    return o;
+  }
+
+  let path = o.path;
+  if (pathTouches) {
+    path = path
+      .replace(`/api/tasks/${clientId}`, `/api/tasks/${serverId}`)
+      .replace(`/api/tasks/${esc}`, `/api/tasks/${encodeURIComponent(serverId)}`);
+  }
+
+  const parsed = tryParseJsonBody(o.body);
+  if (!parsed.ok) {
+    if (typeof o.body === "string") {
+      try {
+        const j = JSON.parse(o.body) as unknown;
+        const next = deepReplaceClientIdInJson(j, clientId, serverId);
+        return { ...o, path, body: JSON.stringify(next), enqueuedAt: Date.now() };
+      } catch {
+        return httpBodyReferencesClientId(o, clientId) ? null : { ...o, path, enqueuedAt: Date.now() };
+      }
+    }
+    return httpBodyReferencesClientId(o, clientId) ? null : { ...o, path, enqueuedAt: Date.now() };
+  }
+
+  if (jsonContainsClientIdString(parsed.value, clientId)) {
+    const nextVal = deepReplaceClientIdInJson(parsed.value, clientId, serverId);
+    const bodyOut = typeof o.body === "string" ? JSON.stringify(nextVal) : nextVal;
+    return { ...o, path, body: bodyOut, enqueuedAt: Date.now() };
+  }
+
+  return path !== o.path ? { ...o, path, enqueuedAt: Date.now() } : o;
+}
+
 function scrubHttpOpsForClientId(q: OfflineTaskOp[], clientId: string): OfflineTaskOp[] {
-  const needle = `/api/tasks/${clientId}`;
-  return q.filter((o) => {
-    if (o.kind !== "http") return true;
-    return !o.path.includes(needle) && !o.path.includes(`/api/tasks/${encodeURIComponent(clientId)}`);
-  });
+  const out: OfflineTaskOp[] = [];
+  for (const o of q) {
+    if (o.kind !== "http") {
+      out.push(o);
+      continue;
+    }
+    const remapped = remapHttpOpForClientId(o, clientId, null);
+    if (remapped) out.push(remapped);
+  }
+  return out;
 }
 
 export function subscribeOfflineTaskQueue(listener: Listener): () => void {
@@ -274,10 +422,9 @@ export function enqueueTaskCreate(clientId: string, payload: InsertTask): WriteQ
 export function enqueueTaskDelete(taskId: string, baseUpdatedAt: string | null): WriteQueueOutcome {
   const q0 = readQueue();
   const removedOfflineCreate = q0.some((o) => o.kind === "create" && o.clientId === taskId);
-  const q = scrubQueueForDeletedTask(q0, taskId);
+  const q = scrubHttpOpsForClientId(scrubQueueForDeletedTask(q0, taskId), taskId);
   if (removedOfflineCreate) {
-    const scrubbed = scrubHttpOpsForClientId(q, taskId);
-    return writeQueue(scrubbed);
+    return writeQueue(q);
   }
   q.push({
     v: 1,
@@ -330,7 +477,7 @@ export function refreshQueuedUpdateBasesForTask(taskId: string, newBaseUpdatedAt
   const q = readQueue();
   let changed = false;
   const next = q.map((o) => {
-    if (o.kind === "update" && o.taskId === taskId) {
+    if ((o.kind === "update" || o.kind === "delete") && o.taskId === taskId) {
       changed = true;
       return { ...o, baseUpdatedAt: newBaseUpdatedAt };
     }
@@ -356,30 +503,29 @@ export function replaceOfflineQueue(ops: OfflineTaskOp[]): WriteQueueOutcome {
 export function remapOrRemoveQueuedOpsForClientId(clientId: string, serverId: string | null): boolean {
   const q = readQueue();
   if (serverId) {
-    const esc = encodeURIComponent(clientId);
-    const next = q.map((o) => {
+    const next: OfflineTaskOp[] = [];
+    for (const o of q) {
       if (o.kind === "update" && o.taskId === clientId) {
-        return { ...o, taskId: serverId };
+        next.push({ ...o, taskId: serverId });
+        continue;
       }
       if (o.kind === "delete" && o.taskId === clientId) {
-        return { ...o, taskId: serverId };
+        next.push({ ...o, taskId: serverId });
+        continue;
       }
       if (o.kind === "reorder") {
         const taskIds = o.taskIds.map((id) => (id === clientId ? serverId : id));
-        if (taskIds.every((id, i) => id === o.taskIds[i])) return o;
-        return { ...o, taskIds, enqueuedAt: Date.now() };
+        if (taskIds.every((id, i) => id === o.taskIds[i])) next.push(o);
+        else next.push({ ...o, taskIds, enqueuedAt: Date.now() });
+        continue;
       }
       if (o.kind === "http") {
-        let path = o.path;
-        const before = path;
-        path = path.replace(`/api/tasks/${clientId}`, `/api/tasks/${serverId}`);
-        path = path.replace(`/api/tasks/${esc}`, `/api/tasks/${encodeURIComponent(serverId)}`);
-        if (path !== before) {
-          return { ...o, path, enqueuedAt: Date.now() };
-        }
+        const r = remapHttpOpForClientId(o, clientId, serverId);
+        if (r) next.push(r);
+        continue;
       }
-      return o;
-    });
+      next.push(o);
+    }
     const w = writeQueue(next);
     return w.persistedToStorage || w.usingMemoryFallback;
   }

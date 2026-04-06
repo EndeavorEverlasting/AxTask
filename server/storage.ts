@@ -666,7 +666,8 @@ export type DemoteAdminResult =
   | "not_found"
   | "not_admin"
   | "self"
-  | "last_admin";
+  | "last_admin"
+  | "actor_not_admin";
 
 /** Serialize admin demotions so concurrent last-admin checks stay consistent. */
 const ADVISORY_LOCK_ADMIN_DEMOTE = 928_471;
@@ -685,6 +686,8 @@ export async function demoteAdminUser(
 
   const outcome = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${ADVISORY_LOCK_ADMIN_DEMOTE})`);
+    const [actor] = await tx.select({ role: users.role }).from(users).where(eq(users.id, demotedByUserId));
+    if (!actor || actor.role !== "admin") return "actor_not_admin" as const;
     const [row] = await tx.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, targetUserId));
     if (!row) return "not_found" as const;
     if (row.role !== "admin") return "not_admin" as const;
@@ -1354,9 +1357,22 @@ export class DatabaseStorage implements IStorage {
     updateTask: UpdateTask,
     options?: { expectUpdatedAt?: string },
   ): Promise<Task | undefined> {
-    const { baseUpdatedAt: _b, forceOverwrite: _f, ...rest } = updateTask as UpdateTask & {
+    const {
+      baseUpdatedAt: _b,
+      forceOverwrite: _f,
+      visibility: _visibility,
+      communityPublishedAt: _communityPublishedAt,
+      communityShowNotes: _communityShowNotes,
+      communityId: _communityId,
+      communityVisibility: _communityVisibility,
+      communityTags: _communityTags,
+      ...rest
+    } = updateTask as UpdateTask & {
       baseUpdatedAt?: unknown;
       forceOverwrite?: unknown;
+      communityId?: unknown;
+      communityVisibility?: unknown;
+      communityTags?: unknown;
     };
     const expect = options?.expectUpdatedAt;
     const where =
@@ -1364,7 +1380,7 @@ export class DatabaseStorage implements IStorage {
         ? and(
             eq(tasks.id, updateTask.id),
             eq(tasks.userId, userId),
-            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 <= ${TASK_OPTIMISTIC_CONCURRENCY_MS}`,
+            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 < ${TASK_OPTIMISTIC_CONCURRENCY_MS}`,
           )
         : and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId));
     const [task] = await db
@@ -1382,7 +1398,7 @@ export class DatabaseStorage implements IStorage {
         ? and(
             eq(tasks.id, id),
             eq(tasks.userId, userId),
-            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 <= ${TASK_OPTIMISTIC_CONCURRENCY_MS}`,
+            sql`abs(extract(epoch from (${tasks.updatedAt} - ${new Date(expect)}::timestamptz))) * 1000 < ${TASK_OPTIMISTIC_CONCURRENCY_MS}`,
           )
         : and(eq(tasks.id, id), eq(tasks.userId, userId));
     const result = await db.delete(tasks).where(where);
@@ -3710,75 +3726,78 @@ export async function awardAvatarXp(
   coinsAwarded: number,
   metadata?: Record<string, unknown>,
 ): Promise<{ awarded: boolean; profile?: AvatarProfile }> {
-  const [profile] = await db
-    .select()
-    .from(avatarProfiles)
-    .where(and(eq(avatarProfiles.userId, userId), eq(avatarProfiles.avatarKey, avatarKey)))
-    .limit(1);
-  if (!profile) return { awarded: false };
-
   try {
-    await db.insert(avatarXpEvents).values({
-      id: randomUUID(),
-      userId,
-      avatarKey,
-      sourceType,
-      sourceRef,
-      xpAwarded,
-      coinsAwarded,
-      metadataJson: metadata ? JSON.stringify(metadata) : null,
-    });
-  } catch (e) {
-    if (isPgUniqueViolation(e)) return { awarded: false };
-    throw e;
-  }
+    return await db.transaction(async (tx) => {
+      const [profile] = await tx
+        .select()
+        .from(avatarProfiles)
+        .where(and(eq(avatarProfiles.userId, userId), eq(avatarProfiles.avatarKey, avatarKey)))
+        .limit(1);
+      if (!profile) return { awarded: false };
 
-  const totalXp = profile.totalXp + xpAwarded;
-  const level = avatarLevelForTotalXp(totalXp);
-  const levelBaseXp = (() => {
-    let spent = 0;
-    for (let l = 1; l < level; l++) {
-      spent += 100 + (l - 1) * 25;
-    }
-    return spent;
-  })();
-  const currentXp = Math.max(0, totalXp - levelBaseXp);
+      try {
+        await tx.insert(avatarXpEvents).values({
+          id: randomUUID(),
+          userId,
+          avatarKey,
+          sourceType,
+          sourceRef,
+          xpAwarded,
+          coinsAwarded,
+          metadataJson: metadata ? JSON.stringify(metadata) : null,
+        });
+      } catch (e) {
+        if (isPgUniqueViolation(e)) return { awarded: false };
+        throw e;
+      }
 
-  const updated = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(avatarProfiles)
-      .set({
-        totalXp,
-        xp: currentXp,
-        level,
-        updatedAt: new Date(),
-      })
-      .where(eq(avatarProfiles.id, profile.id))
-      .returning();
+      const totalXp = profile.totalXp + xpAwarded;
+      const level = avatarLevelForTotalXp(totalXp);
+      const levelBaseXp = (() => {
+        let spent = 0;
+        for (let l = 1; l < level; l++) {
+          spent += 100 + (l - 1) * 25;
+        }
+        return spent;
+      })();
+      const currentXp = Math.max(0, totalXp - levelBaseXp);
 
-    if (coinsAwarded > 0) {
-      await getOrCreateWallet(userId);
-      await tx
-        .update(wallets)
+      const [row] = await tx
+        .update(avatarProfiles)
         .set({
-          balance: sql`${wallets.balance} + ${coinsAwarded}`,
-          lifetimeEarned: sql`${wallets.lifetimeEarned} + ${coinsAwarded}`,
+          totalXp,
+          xp: currentXp,
+          level,
+          updatedAt: new Date(),
         })
-        .where(eq(wallets.userId, userId));
-      await tx
-        .insert(coinTransactions)
-        .values({
+        .where(eq(avatarProfiles.id, profile.id))
+        .returning();
+
+      if (coinsAwarded > 0) {
+        const [w0] = await tx.select().from(wallets).where(eq(wallets.userId, userId));
+        if (!w0) await tx.insert(wallets).values({ userId });
+        await tx
+          .update(wallets)
+          .set({
+            balance: sql`${wallets.balance} + ${coinsAwarded}`,
+            lifetimeEarned: sql`${wallets.lifetimeEarned} + ${coinsAwarded}`,
+          })
+          .where(eq(wallets.userId, userId));
+        await tx.insert(coinTransactions).values({
           id: randomUUID(),
           userId,
           amount: coinsAwarded,
           reason: `avatar_xp:${avatarKey}`,
           details: `Avatar XP from ${sourceType}:${sourceRef}`,
         });
-    }
-    return row;
-  });
+      }
 
-  return { awarded: true, profile: updated ?? profile };
+      return { awarded: true, profile: row ?? profile };
+    });
+  } catch (e) {
+    if (isPgUniqueViolation(e)) return { awarded: false };
+    throw e;
+  }
 }
 
 export async function awardAvatarProgressFromContent(
@@ -4268,9 +4287,27 @@ export async function awardCoinsForConfirmationAtomic(
       taskId,
     );
 
+    const contribIds = contributions.map((c) => c.id);
+    const locked = await tx
+      .select({
+        id: classificationContributions.id,
+        userId: classificationContributions.userId,
+        baseCoinsAwarded: classificationContributions.baseCoinsAwarded,
+        confirmationCount: classificationContributions.confirmationCount,
+        displayName: users.displayName,
+      })
+      .from(classificationContributions)
+      .innerJoin(users, eq(users.id, classificationContributions.userId))
+      .where(inArray(classificationContributions.id, contribIds))
+      .for("update");
+
+    const lockedById = new Map(locked.map((r) => [r.id, r]));
+
     const contributorBonuses: { userId: string; displayName: string | null; bonus: number }[] = [];
 
-    for (const contrib of contributions) {
+    for (const c of contributions) {
+      const contrib = lockedById.get(c.id);
+      if (!contrib) continue;
       const bonus = computeCompoundContributorBonus(contrib.baseCoinsAwarded, contrib.confirmationCount);
       const compoundPeriod = Math.min(contrib.confirmationCount + 1, getMaxCompoundPeriods());
       if (bonus > 0) {

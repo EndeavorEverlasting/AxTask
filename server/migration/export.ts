@@ -6,7 +6,7 @@ import {
   classificationContributions, classificationConfirmations,
   userBillingProfiles, userClassificationCategories,
 } from "@shared/schema";
-import { asc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
 
 export interface ExportMetadata {
@@ -25,35 +25,47 @@ export interface ExportBundle {
 
 const CHUNK_SIZE = 1000;
 
-function idOrderColumn(table: PgTable): AnyPgColumn {
-  const t = table as unknown as { id?: AnyPgColumn };
-  if (!t.id) throw new Error("queryChunked: table must expose an id column for stable pagination");
-  return t.id;
+function idOrderColumn(table: PgTable, orderColumn?: AnyPgColumn): AnyPgColumn {
+  if (orderColumn) return orderColumn;
+  const t = table as unknown as { id?: AnyPgColumn; userId?: AnyPgColumn };
+  if (t.id) return t.id;
+  if (t.userId) return t.userId;
+  throw new Error("queryChunked: pass orderColumn or use a table with id or userId for stable pagination");
 }
 
-/** Yields one page at a time so callers can stream without holding the full table in one allocation. */
+/** Keyset pagination so live inserts/deletes do not shift offsets between pages. */
 async function* queryChunkedStream(
   table: PgTable,
   condition?: SQL,
+  orderColumn?: AnyPgColumn,
 ): AsyncGenerator<Record<string, unknown>[], void, undefined> {
-  let offset = 0;
-  const idCol = idOrderColumn(table);
+  const idCol = idOrderColumn(table, orderColumn);
+  const colName = idCol.name;
+  let lastSeen: unknown | undefined = undefined;
 
   while (true) {
-    const baseQuery = condition
-      ? db.select().from(table).where(condition).orderBy(asc(idCol))
-      : db.select().from(table).orderBy(asc(idCol));
-    const chunk = await baseQuery.limit(CHUNK_SIZE).offset(offset);
-    const rows = chunk as Record<string, unknown>[];
+    const cursorCond = lastSeen === undefined ? undefined : gt(idCol, lastSeen as never);
+    const whereClause =
+      condition && cursorCond ? and(condition, cursorCond) : condition ?? cursorCond;
+    const baseQuery = whereClause
+      ? db.select().from(table).where(whereClause).orderBy(asc(idCol)).limit(CHUNK_SIZE)
+      : db.select().from(table).orderBy(asc(idCol)).limit(CHUNK_SIZE);
+    const rows = (await baseQuery) as Record<string, unknown>[];
     yield rows;
     if (rows.length < CHUNK_SIZE) break;
-    offset += CHUNK_SIZE;
+    const lastVal = rows[rows.length - 1][colName];
+    if (lastVal === undefined || lastVal === null) break;
+    lastSeen = lastVal;
   }
 }
 
-async function queryChunked(table: PgTable, condition?: SQL): Promise<Record<string, unknown>[]> {
+async function queryChunked(
+  table: PgTable,
+  condition?: SQL,
+  orderColumn?: AnyPgColumn,
+): Promise<Record<string, unknown>[]> {
   const results: Record<string, unknown>[] = [];
-  for await (const rows of queryChunkedStream(table, condition)) {
+  for await (const rows of queryChunkedStream(table, condition, orderColumn)) {
     results.push(...rows);
   }
   return results;
@@ -180,7 +192,7 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
     throw new Error(`User ${userId} not found`);
   }
 
-  const userTasks = await queryChunked(tasks, eq(tasks.userId, userId));
+  const userTasks = await queryChunked(tasks, eq(tasks.userId, userId), tasks.id);
   const taskIds = userTasks.map((t) => t.id as string);
 
   const [
@@ -193,21 +205,29 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
     billingProfileData,
     classCatData,
   ] = await Promise.all([
-    queryChunked(wallets, eq(wallets.userId, userId)),
-    queryChunked(coinTransactions, eq(coinTransactions.userId, userId)),
-    queryChunked(userBadges, eq(userBadges.userId, userId)),
-    queryChunked(rewardsCatalog),
-    queryChunked(userRewards, eq(userRewards.userId, userId)),
-    queryChunked(taskPatterns, eq(taskPatterns.userId, userId)),
-    queryChunked(userBillingProfiles, eq(userBillingProfiles.userId, userId)),
-    queryChunked(userClassificationCategories, eq(userClassificationCategories.userId, userId)),
+    queryChunked(wallets, eq(wallets.userId, userId), wallets.userId),
+    queryChunked(coinTransactions, eq(coinTransactions.userId, userId), coinTransactions.id),
+    queryChunked(userBadges, eq(userBadges.userId, userId), userBadges.id),
+    queryChunked(rewardsCatalog, undefined, rewardsCatalog.id),
+    queryChunked(userRewards, eq(userRewards.userId, userId), userRewards.id),
+    queryChunked(taskPatterns, eq(taskPatterns.userId, userId), taskPatterns.id),
+    queryChunked(userBillingProfiles, eq(userBillingProfiles.userId, userId), userBillingProfiles.userId),
+    queryChunked(userClassificationCategories, eq(userClassificationCategories.userId, userId), userClassificationCategories.id),
   ]);
 
   const ownedTaskIdSet = new Set(taskIds);
 
-  const collabData = await queryChunked(taskCollaborators, eq(taskCollaborators.userId, userId));
-  const contribData = await queryChunked(classificationContributions, eq(classificationContributions.userId, userId));
-  const confirmData = await queryChunked(classificationConfirmations, eq(classificationConfirmations.userId, userId));
+  const collabData = await queryChunked(taskCollaborators, eq(taskCollaborators.userId, userId), taskCollaborators.id);
+  const contribData = await queryChunked(
+    classificationContributions,
+    eq(classificationContributions.userId, userId),
+    classificationContributions.id,
+  );
+  const confirmData = await queryChunked(
+    classificationConfirmations,
+    eq(classificationConfirmations.userId, userId),
+    classificationConfirmations.id,
+  );
 
   const referencedTaskIds = new Set<string>();
   for (const c of collabData) {
@@ -229,7 +249,7 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
     const CHUNK = 5000;
     for (let i = 0; i < idList.length; i += CHUNK) {
       const chunk = idList.slice(i, i + CHUNK);
-      for await (const rows of queryChunkedStream(tasks, inArray(tasks.id, chunk))) {
+      for await (const rows of queryChunkedStream(tasks, inArray(tasks.id, chunk), tasks.id)) {
         referencedTasks.push(...rows);
       }
     }

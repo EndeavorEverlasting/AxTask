@@ -40,8 +40,15 @@ git log --oneline origin/replit-published-preproduction-clean..experimental/next
 
 Write-Host "`n=== replit-published-preproduction-clean NOT in experimental/next ===" -ForegroundColor Cyan
 git log --oneline experimental/next..origin/replit-published-preproduction-clean | Select-Object -First 25
-$more = (git rev-list --count experimental/next..origin/replit-published-preproduction-clean)
-if ([int]$more -gt 25) { Write-Host "... ($more commits total on replit side)" }
+$more = git rev-list --count experimental/next..origin/replit-published-preproduction-clean 2>$null
+if (-not [string]::IsNullOrWhiteSpace([string]$more)) {
+  try {
+    $moreInt = [int]$more
+    if ($moreInt -gt 25) { Write-Host "... ($moreInt commits total on replit side)" }
+  } catch {
+    # ignore non-integer git output
+  }
+}
 
 Write-Host "`n=== experimental/next NOT in origin/baseline/published (Replit branch noise check) ===" -ForegroundColor Cyan
 git log --oneline origin/baseline/published..experimental/next | Select-Object -First 15

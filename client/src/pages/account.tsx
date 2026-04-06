@@ -100,9 +100,9 @@ export default function AccountPage() {
 
   const saveProfileMutation = useMutation({
     mutationFn: async () => {
-      const body: { displayName?: string; birthDate?: string | null } = {};
-      const dn = profileDisplayName.trim();
-      if (dn.length > 0) body.displayName = dn;
+      const body: { displayName: string | null; birthDate?: string | null } = {
+        displayName: profileDisplayName.trim() ? profileDisplayName.trim() : null,
+      };
       body.birthDate = profileBirthDate.trim() ? profileBirthDate.trim() : null;
       const res = await apiRequest("PATCH", "/api/account/profile", body);
       if (!res.ok) {

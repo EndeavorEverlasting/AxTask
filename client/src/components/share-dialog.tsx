@@ -188,7 +188,11 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   });
 
   const startPublishMfa = async () => {
-    const c = await requestChallenge({ purpose: MFA_PURPOSES.COMMUNITY_PUBLISH_TASK, channel: "email" });
+    const c = await requestChallenge({
+      purpose: MFA_PURPOSES.COMMUNITY_PUBLISH_TASK,
+      channel: "email",
+      taskId,
+    });
     setPubChallenge({
       challengeId: c.challengeId,
       expiresAt: c.expiresAt,
@@ -200,7 +204,11 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   };
 
   const startUnpublishMfa = async () => {
-    const c = await requestChallenge({ purpose: MFA_PURPOSES.COMMUNITY_UNPUBLISH_TASK, channel: "email" });
+    const c = await requestChallenge({
+      purpose: MFA_PURPOSES.COMMUNITY_UNPUBLISH_TASK,
+      channel: "email",
+      taskId,
+    });
     setUnpubChallenge({
       challengeId: c.challengeId,
       expiresAt: c.expiresAt,

@@ -32,6 +32,127 @@ export function isBrowserOnline(): boolean {
   return typeof navigator !== "undefined" && navigator.onLine;
 }
 
+function pathWithoutQuery(path: string): string {
+  const i = path.indexOf("?");
+  return i >= 0 ? path.slice(0, i) : path;
+}
+
+/** Ensures batch endpoints that return 200 with per-action failures are not treated as full success. */
+function assertReviewApplyReplaySucceeded(json: unknown): void {
+  const o = json as { failed?: number; results?: Array<{ success?: boolean }> };
+  if (typeof o.failed === "number" && o.failed > 0) {
+    throw new Error(`Review apply reported ${o.failed} failed action(s); keeping offline mutation for retry`);
+  }
+  if (Array.isArray(o.results) && o.results.some((r) => r && r.success === false)) {
+    throw new Error("Review apply returned unsuccessful actions; keeping offline mutation for retry");
+  }
+}
+
+function safeJsonParse(text: string): unknown {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractTaskPatchFromHttpBody(body: unknown): Record<string, unknown> {
+  const raw =
+    typeof body === "object" && body !== null && !Array.isArray(body)
+      ? { ...(body as Record<string, unknown>) }
+      : ({} as Record<string, unknown>);
+  delete raw.id;
+  delete raw.baseUpdatedAt;
+  delete raw.forceOverwrite;
+  return raw;
+}
+
+function parseBaseUpdatedAtFromTaskDeletePath(path: string): string | null {
+  const q = path.indexOf("?");
+  if (q < 0) return null;
+  const params = new URLSearchParams(path.slice(q + 1));
+  const v = params.get("baseUpdatedAt");
+  return v && v.length > 0 ? v : null;
+}
+
+/**
+ * When the server returns a task conflict payload (409 or JSON body with task_conflict),
+ * run the same resolution flow as syncUpdateTask / syncDeleteTask and return the follow-up Response.
+ */
+async function applyTaskConflictResolutionIfNeeded(
+  res: Response,
+  queryClient: QueryClient,
+  method: string,
+  path: string,
+  body: unknown,
+): Promise<Response> {
+  if (res.ok) return res;
+  const text = await res.text();
+  const parsed = safeJsonParse(text);
+  if (!isTaskConflictPayload(parsed)) {
+    throw new Error(text || res.statusText);
+  }
+  const serverTask = parsed.serverTask as Task;
+  const basePath = pathWithoutQuery(path);
+  const pathMatch = basePath.match(/^\/api\/tasks\/([^/]+)$/);
+  const taskId =
+    typeof serverTask?.id === "string" && serverTask.id.length > 0
+      ? serverTask.id
+      : pathMatch
+        ? decodeURIComponent(pathMatch[1])
+        : null;
+  if (!taskId) {
+    throw new Error(text || res.statusText);
+  }
+
+  if (method === "PUT" || method === "PATCH") {
+    const patch = extractTaskPatchFromHttpBody(body);
+    return resolveUpdateConflict(
+      taskId,
+      patch,
+      serverTask,
+      taskUpdatedAtIso(serverTask),
+      queryClient,
+    );
+  }
+
+  if (method === "DELETE") {
+    const baseUpdatedAt = parseBaseUpdatedAtFromTaskDeletePath(path) ?? taskUpdatedAtIso(serverTask);
+    const choice = await openConflictDialog({
+      kind: "delete",
+      taskId,
+      serverTask,
+      baseUpdatedAt,
+    });
+    if (choice === "server" || choice === "both") {
+      await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      return new Response(null, { status: 499 });
+    }
+    const delQs =
+      baseUpdatedAt !== null && baseUpdatedAt !== undefined
+        ? `?overwrite=1&baseUpdatedAt=${encodeURIComponent(baseUpdatedAt)}`
+        : "?overwrite=1";
+    return apiFetch("DELETE", `/api/tasks/${taskId}${delQs}`);
+  }
+
+  throw new Error(text || res.statusText);
+}
+
+async function parseHttpSyncResponse(res: Response, path: string): Promise<unknown> {
+  if (res.status === 204) return null;
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || res.statusText);
+  }
+  const base = pathWithoutQuery(path);
+  if (base === "/api/tasks/review/apply") {
+    const json = await res.json();
+    assertReviewApplyReplaySucceeded(json);
+    return json;
+  }
+  return res.json();
+}
+
 function assertEnqueueOk(o: WriteQueueOutcome, context: string): void {
   if (!o.persistedToStorage && !o.usingMemoryFallback) {
     throw new Error("Could not save offline queue");
@@ -162,6 +283,11 @@ export async function syncUpdateTask(
   if (baseUpdatedAt) body.baseUpdatedAt = baseUpdatedAt;
 
   if (!isBrowserOnline()) {
+    if (!baseTask || !baseUpdatedAt) {
+      throw new Error(
+        "Cannot save changes offline without the latest task data. Connect or refresh tasks, then try again.",
+      );
+    }
     const shallow: Record<string, unknown> = { ...shallowIn };
     assertEnqueueOk(enqueueTaskUpdate(taskId, shallow, baseUpdatedAt), "enqueueTaskUpdate");
     mergeTaskInCache(queryClient, taskId, shallow);
@@ -203,6 +329,11 @@ export async function syncDeleteTask(
       : "";
 
   if (!isBrowserOnline()) {
+    if (!baseTask || !baseUpdatedAt) {
+      throw new Error(
+        "Cannot delete offline without the latest task version. Connect or refresh tasks, then try again.",
+      );
+    }
     assertEnqueueOk(enqueueTaskDelete(taskId, baseUpdatedAt), "enqueueTaskDelete");
     removeTaskFromCache(queryClient, taskId);
     return;
@@ -265,13 +396,12 @@ export async function syncRawTaskRequest(
     assertEnqueueOk(enqueueHttpMutation(method, path, body), "enqueueHttpMutation");
     return { offlineQueued: true };
   }
-  const res = await apiRequest(method, path, body);
-  if (res.status === 204) return null;
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(t || res.statusText);
+  let res = await apiFetch(method, path, body);
+  res = await applyTaskConflictResolutionIfNeeded(res, queryClient, method, path, body);
+  if (res.status === 499) {
+    throw new TaskSyncAbortedError("Discarded in favor of server data.");
   }
-  return res.json();
+  return parseHttpSyncResponse(res, path);
 }
 
 async function processUpdateOp(
@@ -371,6 +501,7 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
     while (ops.length > 0) {
       const op = ops[0];
       try {
+        let syncAborted = false;
         switch (op.kind) {
           case "create": {
             const res = await apiFetch("POST", "/api/tasks", {
@@ -420,11 +551,13 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
             break;
           }
           case "update": {
-            await processUpdateOp(op, queryClient);
+            const ur = await processUpdateOp(op, queryClient);
+            if (ur === "aborted") syncAborted = true;
             break;
           }
           case "delete": {
-            await processDeleteOp(op, queryClient);
+            const dr = await processDeleteOp(op, queryClient);
+            if (dr === "aborted") syncAborted = true;
             break;
           }
           case "reorder": {
@@ -435,8 +568,13 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
             break;
           }
           case "http": {
-            const res = await apiRequest(op.method, op.path, op.body);
-            if (!res.ok && res.status !== 204) throw new Error(await res.text());
+            let res = await apiFetch(op.method, op.path, op.body);
+            res = await applyTaskConflictResolutionIfNeeded(res, queryClient, op.method, op.path, op.body);
+            if (res.status === 499) {
+              syncAborted = true;
+              break;
+            }
+            await parseHttpSyncResponse(res, op.path);
             if (op.path.startsWith("/api/tasks")) {
               await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
               await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
@@ -445,6 +583,10 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
           }
           default:
             break;
+        }
+        if (syncAborted) {
+          drainStoppedEarly = true;
+          break;
         }
         removeOfflineOp(op.opId);
       } catch (err) {

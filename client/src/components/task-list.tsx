@@ -282,6 +282,7 @@ function VirtualizedTaskTable({
   onDelete,
   isUpdatingRow,
   isDeletingRow,
+  reducedMotion,
   sortField,
   sortDirection,
   handleSort,
@@ -293,6 +294,7 @@ function VirtualizedTaskTable({
   onDelete: (id: string) => void;
   isUpdatingRow: (taskId: string) => boolean;
   isDeletingRow: (taskId: string) => boolean;
+  reducedMotion: boolean;
   sortField: SortField;
   sortDirection: SortDirection;
   handleSort: (field: SortField) => void;
@@ -371,7 +373,7 @@ function VirtualizedTaskTable({
                   onDelete={onDelete}
                   isUpdating={isUpdatingRow(task.id)}
                   isDeleting={isDeletingRow(task.id)}
-                  reducedMotion={true}
+                  reducedMotion={reducedMotion}
                 />
               );
             })}
@@ -435,6 +437,12 @@ function MobileTaskCard({
   };
 
   const handleTouchEnd = () => {
+    if (isUpdating || isDeleting) {
+      setSwipeX(0);
+      setSwiping(false);
+      touchStartRef.current = null;
+      return;
+    }
     let triggeredAction = false;
     if (swipeX > SWIPE_THRESHOLD) {
       suppressClickUntilRef.current = Date.now() + 400;
@@ -543,7 +551,7 @@ function MobileTaskCard({
   );
 }
 
-function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefObject<HTMLElement | null>) {
+function usePullToRefresh(onRefresh: () => Promise<void>, scrollEl: HTMLElement | null) {
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const touchStartY = useRef(0);
@@ -569,8 +577,8 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefOb
   }, []);
 
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
+    if (!scrollEl) return;
+    const el = scrollEl;
 
     const onTouchStart = (e: globalThis.TouchEvent) => {
       if (el.scrollTop <= 0) {
@@ -617,7 +625,7 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefOb
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
     };
-  }, [scrollRef, onRefresh]);
+  }, [scrollEl, onRefresh]);
 
   return { pullDistance, isRefreshing };
 }
@@ -637,7 +645,10 @@ export function TaskList() {
   const [pretextStats, setPretextStats] = useState<{ sampleCount: number; totalLines: number; elapsedMs: number } | null>(null);
   const reducedMotion = useReducedMotion();
   const { consumeVoiceSearch } = useVoice();
-  const mobileScrollRef = useRef<HTMLDivElement | null>(null);
+  const [pullScrollEl, setPullScrollEl] = useState<HTMLDivElement | null>(null);
+  const mobileScrollRef = useCallback((node: HTMLDivElement | null) => {
+    setPullScrollEl(node);
+  }, []);
 
   const handlePullRefresh = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
@@ -645,7 +656,7 @@ export function TaskList() {
     await new Promise(r => setTimeout(r, 400));
   }, [queryClient]);
 
-  const { pullDistance, isRefreshing } = usePullToRefresh(handlePullRefresh, mobileScrollRef);
+  const { pullDistance, isRefreshing } = usePullToRefresh(handlePullRefresh, pullScrollEl);
 
   useEffect(() => {
     const voiceQuery = consumeVoiceSearch();
@@ -1077,6 +1088,7 @@ export function TaskList() {
                 onDelete={handleDelete}
                 isUpdatingRow={(id) => updatingTaskIds.has(id)}
                 isDeletingRow={(id) => deletingTaskIds.has(id)}
+                reducedMotion={reducedMotion}
                 sortField={sortField}
                 sortDirection={sortDirection}
                 handleSort={handleSort}

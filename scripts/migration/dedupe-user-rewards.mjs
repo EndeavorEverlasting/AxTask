@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * One-time cleanup before applying uniqueIndex ux_user_rewards_user_reward on user_rewards.
- * Keeps the lexicographically smallest id per (user_id, reward_id); deletes other duplicates.
+ * Keeps the earliest redeemed row per (user_id, reward_id) (by redeemed_at, then id); deletes newer duplicates.
  *
  * Usage: DATABASE_URL=... node scripts/migration/dedupe-user-rewards.mjs
  * Or:    npm run migration:dedupe-user-rewards
@@ -21,10 +21,13 @@ try {
     USING user_rewards AS b
     WHERE a.user_id = b.user_id
       AND a.reward_id = b.reward_id
-      AND a.id > b.id
+      AND (
+        a.redeemed_at > b.redeemed_at
+        OR (a.redeemed_at IS NOT DISTINCT FROM b.redeemed_at AND a.id > b.id)
+      )
   `);
   const n = result.rowCount ?? 0;
-  console.log(`[dedupe-user-rewards] Removed ${n} duplicate row(s); kept smallest id per (user_id, reward_id).`);
+  console.log(`[dedupe-user-rewards] Removed ${n} duplicate row(s); kept oldest redeemed_at per (user_id, reward_id).`);
 } catch (e) {
   console.error("[dedupe-user-rewards] Failed:", e);
   process.exit(1);

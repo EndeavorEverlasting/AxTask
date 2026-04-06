@@ -224,10 +224,6 @@ export default function BillingPage() {
     country: "US",
   });
 
-  useEffect(() => {
-    setOtpChannel(user?.phoneVerified ? "sms" : "email");
-  }, [user?.phoneVerified]);
-
   const prevProfileOpenRef = useRef(false);
   useEffect(() => {
     const justOpened = profileOpen && !prevProfileOpenRef.current;
@@ -497,8 +493,8 @@ export default function BillingPage() {
             <li className="flex gap-3">
               <Phone className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
               <span>
-                <span className="text-white font-medium">SMS or email codes</span>
-                {" — "}verify a phone under Account for SMS delivery.
+                <span className="text-white font-medium">Email codes by default</span>
+                {" — "}SMS is optional after you verify a phone and configure Twilio on the server.
               </span>
             </li>
           </ul>
@@ -835,7 +831,21 @@ export default function BillingPage() {
 
                       <div className="rounded-lg border border-border/80 bg-muted/20 px-4 py-3 space-y-2">
                         <Label className="text-sm font-medium">Verification code delivery</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Email is the default (Resend). SMS is an optional second layer when your account has a verified
+                          phone and the server has Twilio configured.
+                        </p>
                         <div className="flex flex-wrap gap-4 text-sm">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="otp-channel"
+                              className="accent-primary"
+                              checked={otpChannel === "email"}
+                              onChange={() => setOtpChannel("email")}
+                            />
+                            <span>Email</span>
+                          </label>
                           <label className="flex items-center gap-2 cursor-pointer">
                             <input
                               type="radio"
@@ -852,23 +862,13 @@ export default function BillingPage() {
                               ) : null}
                             </span>
                           </label>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="otp-channel"
-                              className="accent-primary"
-                              checked={otpChannel === "email"}
-                              onChange={() => setOtpChannel("email")}
-                            />
-                            <span>Email</span>
-                          </label>
                         </div>
                         {!user?.phoneVerified && (
                           <p className="text-xs text-muted-foreground">
                             <Link href="/account" className="text-primary hover:underline">
                               Verify a phone number
                             </Link>{" "}
-                            to use SMS codes.
+                            to enable SMS (requires Twilio on the server in production).
                           </p>
                         )}
                       </div>

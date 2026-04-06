@@ -122,6 +122,7 @@ If `migrate` fails with `password authentication failed for user "axtask"`:
 - **Any shared or internet-exposed environment:** replace defaults, use strong secrets, and disable demo seeding.
 - **Authentication boundary:** sync/integration actions should require authenticated account sessions.
 - **MFA boundary (recommended):** require step-up MFA for high-risk actions (billing, external account linking, and sync authorization). See [docs/MFA_SIGNUP_VERIFICATION.md](docs/MFA_SIGNUP_VERIFICATION.md).
+- **Production OTP:** **Layer 1 — email** via **Resend** (`RESEND_*`) is the primary path; configure and verify your sending domain first. **Layer 2 — SMS** via **Twilio** is optional and can be added later. Neither uses “Render API keys.” Guide: [docs/RENDER_WEB_SERVICE_PASTE_CHECKLIST.md](docs/RENDER_WEB_SERVICE_PASTE_CHECKLIST.md) (**B** intro, **B2**, **B12**).
 
 ### Optional: NodeWeaver in the same Compose stack
 

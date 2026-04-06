@@ -11,6 +11,7 @@ describe("isBrowserOriginAllowed", () => {
   it("allows http localhost with port when TLS is not forced (Docker / local prod)", () => {
     expect(isBrowserOriginAllowed("http://localhost:5000", allowed, false)).toBe(true);
     expect(isBrowserOriginAllowed("http://127.0.0.1:5000", allowed, false)).toBe(true);
+    expect(isBrowserOriginAllowed("http://[::1]:5000", allowed, false)).toBe(true);
   });
 
   it("blocks http localhost when TLS is forced", () => {
@@ -19,6 +20,7 @@ describe("isBrowserOriginAllowed", () => {
 
   it("allows https localhost even when forceHttps (browser origin is still https)", () => {
     expect(isBrowserOriginAllowed("https://localhost:5000", allowed, true)).toBe(true);
+    expect(isBrowserOriginAllowed("https://[::1]:5000", allowed, true)).toBe(true);
   });
 
   it("rejects non-local http origins when forceHttps is false", () => {

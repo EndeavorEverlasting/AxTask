@@ -125,6 +125,9 @@ So: **paste all the OAuth env blocks you have configured**; you are not forced t
 | `REPL_ID` | Replit → your Repl / OIDC app identifier (if using Replit login). |
 | `RESEND_API_KEY` | Resend dashboard → API Keys. |
 | `RESEND_FROM` | An address/domain **verified in Resend** (e.g. `noreply@yourdomain.com`). |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | Twilio Console → **Account** → **API keys & tokens** (or **Account Info** on older UI) — **not** from Render. |
+| `TWILIO_MESSAGING_SERVICE_SID` | Twilio → **Messaging** → **Services** → create/open a service → **Messaging Service SID** (starts with `MG`). |
+| `TWILIO_FROM_NUMBER` | Twilio → **Phone Numbers** → **Manage** → **Active numbers** → choose a number → copy **E.164** (e.g. `+15551234567`). Use this **or** a Messaging Service SID, not both required. |
 | `GOOGLE_SHEETS_API_KEY` | (Optional, different product) Google Cloud → API key for Sheets — **not** the same field as OAuth client secret, often a different credential type. |
 
 ### 3) You **type from your own domain** (must stay consistent)
@@ -146,6 +149,8 @@ So: **paste all the OAuth env blocks you have configured**; you are not forced t
 | `DATABASE_URL` | `npm run db:push` | Same string you use locally or in Render Shell to migrate schema. |
 | `RESEND_FROM` | `CANONICAL_HOST` | Not enforced in code, but Resend requires a **verified** domain; usually matches your product domain. |
 | **Render** (hosting) | **Resend** (email SaaS) | Different companies. Mail uses **`RESEND_*`** env vars on Render — not a “Render email API key.” |
+| **Render** “API keys” / dashboard tokens | **Twilio** or **Resend** | **No.** Render’s own API keys are for **automating Render** (REST API, Blueprints). They **cannot** send SMS or transactional email. OTP/MFA needs credentials **from Twilio** (SMS) and **from Resend** (email), pasted as env vars on your Web Service. |
+| One **Twilio** project | Staging + production | **You may reuse** the same `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` on multiple Render services if policy allows. Prefer **separate Twilio subaccounts** or **Messaging Services** per environment for isolation. You do **not** create “another Render key” for Twilio — you create/use credentials in **Twilio Console**. |
 | `AUTH_PROVIDER` | Multiple SSO buttons | **Optional.** Omit for auto-primary, or set one; **all** configured providers still show if env is complete. |
 
 ---
@@ -179,6 +184,15 @@ Use the **Docker** row in the **“Advanced / Docker”** table in [Render UI: t
 
 Add each row in **Environment → Environment Variables** (or “Add from .env” using a **local** filled file — never commit that file).
 
+### MFA / OTP delivery — two layers (operator order)
+
+| Layer | What | Required for production email codes? | When to add |
+|-------|------|--------------------------------------|-------------|
+| **1 — Email (Resend)** | Transactional email for OTP / MFA | **Yes**, if you use **email** step-up (billing, shares, etc.) | **First.** Finish domain verification and `RESEND_*` before worrying about SMS. |
+| **2 — SMS (Twilio)** | Text message OTP / phone verify | **No.** Optional add-on | **Later**, when you want SMS billing codes or **Account → verify phone** in production. |
+
+You can ship with **only Layer 1**: users choose **email** for billing MFA and all flows that support it. **Layer 2** does not block Layer 1. If Twilio env vars are unset, **SMS** challenges return **503** until configured; **email** still works when Resend is set.
+
 ### B1. Core (always set on Render)
 
 ```
@@ -191,23 +205,35 @@ DATABASE_URL=YOUR_POSTGRES_URL_WITH_SSLMODE
 SESSION_SECRET=YOUR_RANDOM_STRING_AT_LEAST_32_CHARS
 ```
 
-### B2. Resend (production email)
+### B2. Layer 1 — Resend (production email MFA) — **configure this first**
 
 **Where in Render:** exactly the same place as `DATABASE_URL` — **Web Service → Manage → Environment**. Add or edit **two rows** (two separate keys). This has nothing to do with “Render API keys”; **Resend** (resend.com) issues the mail key.
 
 | Key | What it is | Where the value comes from |
 |-----|------------|----------------------------|
 | **`RESEND_API_KEY`** | **One** secret API key per Resend account (starts with `re_`). You do **not** need multiple Resend API keys for AxTask unless you intentionally use separate Resend projects. | Resend dashboard → **API Keys** → create/copy. When you rotate, paste the **new** key here only. |
-| **`RESEND_FROM`** | **Not** an API key. The **From** address on outgoing mail (must use a **domain or address verified in Resend**). | Prefer a **subdomain** for automated mail (Resend’s UI recommends this): verify e.g. `mail.yourdomain.com` in Resend, add the DNS records at your registrar, then set `RESEND_FROM` to `noreply@mail.yourdomain.com` (or `AxTask <noreply@mail.yourdomain.com>`). Root domain (`yourdomain.com`) still works if you accept the reputation tradeoff. |
+| **`RESEND_FROM`** | **Not** an API key. The **From** header (display name + address). The **domain** (or single sender) must be **verified in Resend** or sends fail. | After domain verification (steps below), e.g. `AxTask <no-reply@notifications.yourdomain.com>`. |
+
+#### Where to verify `RESEND_FROM` in Resend (domain / DNS)
+
+1. Log in to **[resend.com](https://resend.com)** → **Domains** (sidebar).
+2. **Add domain** — enter the domain you will send from (e.g. `notifications.yourdomain.com` or your apex domain).
+3. Resend shows **DNS records** (often `TXT` for SPF, `MX` / `CNAME` for DKIM, etc.). Add them at your **DNS host** (registrar, Cloudflare, etc.). Wait for Resend to show **Verified** (can take a few minutes to 48h depending on DNS).
+4. Use an address on that domain in **`RESEND_FROM`**, e.g. `AxTask <no-reply@notifications.yourdomain.com>`. The local part (`no-reply`, `noreply`, etc.) can be any mailbox name; deliverability is about the **verified domain**, not a separate “email service” product inside Resend beyond **Domains** + **API Keys**.
+5. Paste **`RESEND_API_KEY`** and **`RESEND_FROM`** into Render → redeploy.
+
+**Sandbox / testing:** Resend may allow sending only to **your own** verified addresses until the domain is fully verified — check Resend’s current dashboard messaging.
 
 ```
 RESEND_API_KEY=re_xxxxxxxx
-RESEND_FROM=noreply@mail.YOUR_VERIFIED_SUBDOMAIN
+RESEND_FROM=AxTask <no-reply@notifications.YOUR_VERIFIED_DOMAIN>
 ```
 
 **Subdomain vs “contact” page:** The **mail subdomain** is only for **DNS + Resend** — you do **not** need a separate Render service or a public URL on `mail.…` for email to work. If you want a **public** URL such as `https://contact.yourdomain.com` that shows the same app (e.g. the in-app **`/contact`** page), add **`contact`** as a **custom domain** on the **same** Render Web Service and point a **CNAME** at Render in Porkbun (same flow as `www` / apex). Then set **`ADDITIONAL_ALLOWED_HOSTS=contact.yourdomain.com`** (and **`ADDITIONAL_ALLOWED_ORIGINS=https://contact.yourdomain.com`** if browser calls ever hit that host) so host allowlisting does not redirect that hostname away.
 
 After changing either value: **Save, rebuild, and deploy** on the Web Service.
+
+**Production OTP behavior:** With `NODE_ENV=production`, **email** MFA requires **`RESEND_API_KEY`** (and a verified **`RESEND_FROM`** is strongly recommended). If Resend is missing, the API returns **503** with a clear message — that is **not** fixed by Render dashboard “API keys.” See **`server/services/otp-delivery.ts`** (`canDeliverMfaInProduction`).
 
 ### B3. Optional: force a “primary” auth label (`AUTH_PROVIDER`)
 
@@ -291,14 +317,77 @@ NODEWEAVER_URL=
 ATTACHMENT_UPLOAD_SECRET=
 ```
 
-### B12. Optional — SMS MFA (Twilio)
+### B12. Layer 2 — SMS MFA (Twilio) — **optional; add when ready**
+
+**Not required** if you only use **email** OTP (Layer 1 / Resend). Add this block when you want **SMS** billing codes or production **phone verification** on the Account page.
+
+**You cannot use “Render API keys” here.** Render only **stores** these strings as environment variables. The values come **100% from [Twilio](https://www.twilio.com)** (same pattern as Resend for email).
+
+| Question | Answer |
+|----------|--------|
+| Do I need a **new** Twilio account for AxTask? | **No** — use an **existing** Twilio project if you already have one. Create **one** pair SID + Auth Token per account (rotate in Twilio if compromised). |
+| Do I need a **second** Twilio credential for Render vs local? | **Optional.** Same SID/token on staging and prod works but couples environments; use **subaccounts** in Twilio if you want hard separation. |
+| What do I paste into Render? | Exactly the variable **names** below; **values** are copied from Twilio Console (never invent placeholders). |
+
+#### Step 1 — Account SID and Auth Token
+
+1. Log in to **[Twilio Console](https://console.twilio.com/)**.
+2. On the **Account Dashboard** (home), find **Account Info**:
+   - **Account SID** — copy into Render as **`TWILIO_ACCOUNT_SID`** (starts with `AC`).
+   - **Auth Token** — click to reveal → copy into **`TWILIO_AUTH_TOKEN`**.  
+     Treat it like a password. If you **regenerate** the token in Twilio, update Render immediately or SMS will fail with **502** from Twilio.
+
+#### Step 2 — Either a Messaging Service **or** a From number (one is enough)
+
+AxTask’s server requires **at least one** of:
+
+- **`TWILIO_MESSAGING_SERVICE_SID`** (recommended for production), **or**
+- **`TWILIO_FROM_NUMBER`**
+
+**Option A — Messaging Service (recommended)**
+
+1. Twilio Console → **Messaging** → **Services** → **Create messaging service** (e.g. name `AxTask MFA`).
+2. Add **Sender Pool**: add your **Twilio phone number** (or short code / toll-free as allowed on your account).
+3. Complete any compliance / A2P registration steps Twilio requires for your country and use case (US A2P 10DLC, etc.) — without this, sends may fail.
+4. Open the service → copy **Messaging Service SID** (starts with `MG`) → Render: **`TWILIO_MESSAGING_SERVICE_SID=MGxxxxxxxx`**
+5. Leave **`TWILIO_FROM_NUMBER`** empty if the Messaging Service owns the senders.
+
+**Option B — From number only (simpler, smaller scale)**
+
+1. Twilio Console → **Phone Numbers** → **Manage** → **Buy a number** (or use a trial number — trial can only SMS **verified** destination numbers).
+2. Copy the number in **E.164** format, e.g. `+15551234567`.
+3. Render: **`TWILIO_FROM_NUMBER=+15551234567`**
+4. Leave **`TWILIO_MESSAGING_SERVICE_SID`** empty.
+
+**Do not set both** to conflicting values unless you know you need both; the code uses **Messaging Service SID if set**, else **From number** (`server/services/otp-delivery.ts`).
+
+#### Step 3 — Paste into Render
+
+**Web Service → Manage → Environment** — add four rows (omit unused optional column):
 
 ```
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_MESSAGING_SERVICE_SID=
-TWILIO_FROM_NUMBER=
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=your_auth_token_here
+TWILIO_MESSAGING_SERVICE_SID=MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
+
+*or* (if not using a Messaging Service):
+
+```
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=your_auth_token_here
+TWILIO_FROM_NUMBER=+15551234567
+```
+
+Save → **Manual Deploy** or wait for auto-deploy. Test SMS MFA from the app; if Twilio rejects the request, logs show a **502** with Twilio’s error text (different from **503** “not configured”).
+
+#### Troubleshooting quick reference
+
+| HTTP / symptom | Meaning |
+|----------------|---------|
+| **503** “SMS OTP is not configured…” | Production + missing **`TWILIO_ACCOUNT_SID`**, **`TWILIO_AUTH_TOKEN`**, or **neither** `TWILIO_MESSAGING_SERVICE_SID` **nor** `TWILIO_FROM_NUMBER`. |
+| **502** with Twilio message | Credentials set, but Twilio API failed (invalid token, unverified trial recipient, A2P block, etc.). Fix in Twilio Console / logs. |
+| Email works, SMS does not | Expected if **Layer 2** (Twilio) is unset. Email = **Resend** only; SMS = **Twilio** only — add B12 when ready. |
 
 ---
 

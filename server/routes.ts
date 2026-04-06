@@ -354,6 +354,12 @@ function userOrIpKey(req: Request): string {
   return addr || "unknown";
 }
 
+/** Rate-limit key for sensitive routes: prefer Express `req.ip` (honors `trust proxy`), not client-supplied X-Forwarded-For. */
+function trustedIpKey(req: Request): string {
+  if (req.user?.id) return `user:${req.user.id}`;
+  return req.ip || req.socket?.remoteAddress || "unknown";
+}
+
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
@@ -377,7 +383,7 @@ const migrationLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: userOrIpKey,
+  keyGenerator: trustedIpKey,
   message: { message: "Too many migration requests — try again later" },
 });
 
@@ -548,44 +554,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/login", authLimiter, async (req: Request, res: Response, next) => {
     try {
-      const { email } = req.body;
-      if (email) {
-        const banStatus = await isUserBanned(email);
-        if (banStatus.banned) {
-          await logSecurityEvent("login_banned_attempt", undefined, undefined, req.ip, `Banned user tried to login: ${email}`);
-          return res.status(403).json({
-            message: "This account has been suspended. Contact an administrator for assistance.",
-          });
-        }
+      const rawBody = req.body as { email?: unknown } | undefined;
+      const emailRaw = typeof rawBody?.email === "string" ? rawBody.email.trim() : "";
+      const emailParsed = z.string().email().safeParse(emailRaw);
+      const email = emailParsed.success ? emailParsed.data : emailRaw;
+      if (emailRaw.length > 0) {
+        if (emailParsed.success) {
+          const banStatus = await isUserBanned(email);
+          if (banStatus.banned) {
+            await logSecurityEvent("login_banned_attempt", undefined, undefined, req.ip, `Banned user tried to login: ${email}`);
+            return res.status(403).json({
+              message: "This account has been suspended. Contact an administrator for assistance.",
+            });
+          }
 
-        const dbUser = await getUserByEmail(email);
-        if (dbUser?.lockedUntil && new Date(dbUser.lockedUntil) > new Date()) {
-          const mins = Math.ceil((new Date(dbUser.lockedUntil).getTime() - Date.now()) / 60000);
-          return res.status(423).json({
-            message: `Account locked due to too many failed attempts. Try again in ${mins} minute(s).`,
-          });
+          const dbUser = await getUserByEmail(email);
+          if (dbUser?.lockedUntil && new Date(dbUser.lockedUntil) > new Date()) {
+            const mins = Math.ceil((new Date(dbUser.lockedUntil).getTime() - Date.now()) / 60000);
+            return res.status(423).json({
+              message: `Account locked due to too many failed attempts. Try again in ${mins} minute(s).`,
+            });
+          }
         }
       }
 
       passport.authenticate("local", async (err: any, user: any, info: any) => {
         if (err) return next(err);
         if (!user) {
-          if (email) {
-            await recordFailedLogin(email, req.ip);
-            await logSecurityEvent("login_failed", undefined, undefined, req.ip, `Failed login for: ${email}`);
-            await appendSecurityEvent({
-              eventType: "auth_login_failed",
-              route: req.path,
-              method: req.method,
-              statusCode: 401,
-              ipAddress: req.ip,
-              userAgent: req.get("user-agent") || undefined,
-              payload: {
-                email: hashEmailForAuthAudit(email),
-                xForwardedFor: req.get("x-forwarded-for") || undefined,
-                cfConnectingIp: req.get("cf-connecting-ip") || undefined,
-              },
-            });
+          if (emailRaw.length > 0) {
+            try {
+              if (emailParsed.success) {
+                await recordFailedLogin(emailParsed.data, req.ip);
+              }
+              await logSecurityEvent("login_failed", undefined, undefined, req.ip, `Failed login attempt (${emailParsed.success ? "user" : "invalid email shape"})`);
+              const auditEmail = emailParsed.success ? hashEmailForAuthAudit(emailParsed.data) : "[invalid_email]";
+              await appendSecurityEvent({
+                eventType: "auth_login_failed",
+                route: req.path,
+                method: req.method,
+                statusCode: 401,
+                ipAddress: req.ip,
+                userAgent: req.get("user-agent") || undefined,
+                payload: {
+                  email: auditEmail,
+                  xForwardedFor: req.get("x-forwarded-for") || undefined,
+                  cfConnectingIp: req.get("cf-connecting-ip") || undefined,
+                },
+              });
+            } catch (auditErr) {
+              console.error("[auth] login_failed audit:", auditErr);
+            }
           }
           return res.status(401).json({ message: info?.message || "Invalid credentials" });
         }
@@ -1820,7 +1838,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let classificationReward = null;
       if (task.classification && !isGeneralClassification(task.classification)) {
-        classificationReward = await awardCoinsForClassification(userId, task);
+        try {
+          classificationReward = await awardCoinsForClassification(userId, task);
+        } catch (e) {
+          console.error("[routes] awardCoinsForClassification after task create:", e);
+        }
       }
 
       ensureAvatarProfilesForUser(userId)
@@ -1918,7 +1940,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let coinReward = null;
       if (task!.status === "completed" && previousStatus !== "completed") {
-        coinReward = await awardCoinsForCompletion(ownerId, task!, previousStatus);
+        try {
+          coinReward = await awardCoinsForCompletion(ownerId, task!, previousStatus);
+        } catch (e) {
+          console.error("[routes] awardCoinsForCompletion after task update:", e);
+        }
       }
 
       let classificationReward = null;
@@ -1928,7 +1954,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         !isGeneralClassification(task!.classification) &&
         task!.classification !== previousClassification
       ) {
-        classificationReward = await awardCoinsForClassification(ownerId, task!);
+        try {
+          classificationReward = await awardCoinsForClassification(ownerId, task!);
+        } catch (e) {
+          console.error("[routes] awardCoinsForClassification after task update:", e);
+        }
       }
 
       if (task && (task.status === "completed" || task.classification !== previousClassification)) {
@@ -4390,6 +4420,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (outcome === "self") {
         return res.status(400).json({ message: "You cannot remove your own admin role here" });
+      }
+      if (outcome === "actor_not_admin") {
+        return res.status(403).json({ message: "Only administrators can demote other admins" });
       }
       if (outcome === "last_admin") {
         return res.status(409).json({

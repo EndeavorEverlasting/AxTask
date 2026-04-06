@@ -12,7 +12,7 @@ Use this when you want **`npm run dev` / `npm run local:start`** against Postgre
 
 ### 1.1 Prerequisites
 
-- Node.js 18+ and npm
+- Node.js >=20.16 (see `package.json` `engines.node`) and npm
 - PostgreSQL running and reachable (create an empty database if needed, e.g. `axtask`)
 
 ### 1.2 One-time setup (project root)

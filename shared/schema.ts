@@ -491,7 +491,7 @@ export const avatarXpEvents = pgTable("avatar_xp_events", {
 export type AvatarXpEvent = typeof avatarXpEvents.$inferSelect;
 
 export const updateAccountProfileSchema = z.object({
-  displayName: z.string().min(1).max(120).optional(),
+  displayName: z.union([z.string().min(1).max(120), z.null()]).optional(),
   birthDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)

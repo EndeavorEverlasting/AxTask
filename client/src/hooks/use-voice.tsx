@@ -190,6 +190,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
               message: data.message,
             });
           } else {
+            setReviewProposal(null);
             toast({
               title: "No matches found",
               description: data.message,

@@ -162,6 +162,16 @@ export default function ImportExport() {
     if (!file) return;
     setJsonAccountResult(null);
     const reader = new FileReader();
+    reader.onerror = () => {
+      const detail = reader.error?.message?.trim() || "Could not read this file.";
+      toast({
+        title: "Could not read file",
+        description: detail,
+        variant: "destructive",
+      });
+      setJsonBundle(null);
+      setJsonFileName("");
+    };
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result || ""));
@@ -185,8 +195,13 @@ export default function ImportExport() {
               ? `${file.name} — ${tc.toLocaleString()} tasks in file. Run a dry run before importing.`
               : `${file.name} ready. Run a dry run before importing.`,
         });
-      } catch {
-        toast({ title: "Invalid JSON", description: "Could not parse this file.", variant: "destructive" });
+      } catch (e) {
+        const detail = e instanceof Error && e.message ? e.message : "Could not parse this file.";
+        toast({
+          title: "Invalid JSON",
+          description: detail,
+          variant: "destructive",
+        });
         setJsonBundle(null);
         setJsonFileName("");
       }

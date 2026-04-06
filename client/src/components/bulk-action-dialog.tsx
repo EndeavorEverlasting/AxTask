@@ -78,7 +78,7 @@ export default function BulkActionDialog({
   message,
   unmatched,
 }: BulkActionDialogProps) {
-  const actionKey = (a: ProposedAction, i: number) => a.actionId ?? `${a.taskId}:${i}`;
+  const actionKey = useCallback((a: ProposedAction, i: number) => a.actionId ?? `${a.taskId}:${i}`, []);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const { toast } = useToast();
@@ -86,7 +86,7 @@ export default function BulkActionDialog({
 
   useEffect(() => {
     setSelected(new Set(actions.map((a, i) => actionKey(a, i))));
-  }, [actions]);
+  }, [actions, actionKey]);
 
   const toggleItem = useCallback((key: string) => {
     setSelected(prev => {
@@ -99,7 +99,7 @@ export default function BulkActionDialog({
 
   const selectAll = useCallback(() => {
     setSelected(new Set(actions.map((a, i) => actionKey(a, i))));
-  }, [actions]);
+  }, [actions, actionKey]);
 
   const deselectAll = useCallback(() => {
     setSelected(new Set());

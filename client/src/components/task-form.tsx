@@ -281,7 +281,18 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
           description: "Will sync when you're back online.",
         });
         if (!task) {
-          form.reset();
+          form.reset({
+            date: defaultDate || new Date().toISOString().split("T")[0],
+            time: "",
+            activity: "",
+            notes: "",
+            urgency: undefined,
+            impact: undefined,
+            effort: undefined,
+            prerequisites: "",
+            recurrence: "none",
+            status: "pending",
+          });
           clearDraft(draftKey);
         }
         onSuccess?.();
@@ -312,7 +323,18 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       }
 
       if (!task) {
-        form.reset();
+        form.reset({
+          date: defaultDate || new Date().toISOString().split("T")[0],
+          time: "",
+          activity: "",
+          notes: "",
+          urgency: undefined,
+          impact: undefined,
+          effort: undefined,
+          prerequisites: "",
+          recurrence: "none",
+          status: "pending",
+        });
         clearDraft(draftKey);
       }
       onSuccess?.();
@@ -396,6 +418,13 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
           typeof (s as { reason?: unknown }).reason === "string" &&
           typeof (s as { confidence?: unknown }).confidence === "number"
         ) {
+          const suggestedDate = (s as { suggestedDate: string }).suggestedDate.trim();
+          const ymd = /^\d{4}-\d{2}-\d{2}$/;
+          const parsed = ymd.test(suggestedDate) ? Date.parse(`${suggestedDate}T12:00:00.000Z`) : Date.parse(suggestedDate);
+          if (!Number.isFinite(parsed)) {
+            setDeadlineSuggestion(null);
+            return;
+          }
           setDeadlineSuggestion(s as { suggestedDate: string; reason: string; confidence: number });
           setSuggestionDismissed(false);
         } else {

@@ -11,7 +11,7 @@ import {
 import { eq } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import type { ExportBundle } from "./export";
-import { insertTaskImportFingerprintTx, reconcileBundleTaskIdMapForTasks } from "../import-task-dedupe";
+import { insertBundleTaskWithFingerprintClaimTx, reconcileBundleTaskIdMapForTasks } from "../import-task-dedupe";
 
 type AnyPgTable = PgTable;
 type AnyPgColumn = typeof users.id;
@@ -230,14 +230,26 @@ function parseTimestamps(row: BundleRow): BundleRow {
   const out = { ...row };
   for (const f of TIMESTAMP_FIELDS) {
     if (out[f] && typeof out[f] === "string") {
-      out[f] = new Date(out[f] as string);
+      const d = new Date(out[f] as string);
+      if (Number.isNaN(d.getTime())) {
+        console.warn(`[import] invalid timestamp string for field "${f}"; clearing value`);
+        out[f] = null;
+      } else {
+        out[f] = d;
+      }
     }
   }
   return out;
 }
 
 function getBundleRows(bundle: ExportBundle, tableName: string): BundleRow[] {
-  return (bundle.data[tableName] || []) as BundleRow[];
+  const v = bundle.data[tableName];
+  if (v === undefined) return [];
+  if (!Array.isArray(v)) {
+    const kind = v === null ? "null" : typeof v;
+    throw new Error(`Invalid export bundle: data["${tableName}"] must be an array or omitted (got ${kind}).`);
+  }
+  return v as BundleRow[];
 }
 
 export function validateBundle(bundle: ExportBundle): { errors: ValidationIssue[]; warnings: ValidationIssue[] } {
@@ -461,41 +473,80 @@ export async function importBundle(
       }
 
       if (mode === "remap") {
-        let uniqueConflicts = 0;
+        const pkField = PK_FIELD[tableName];
+        const fkRules = FK_RULES[tableName];
+        let skipCount = 0;
         for (const row of rows) {
+          const pkValue = row[pkField];
+          let rowSkip = false;
+          for (const rule of fkRules) {
+            const fkVal = row[rule.field];
+            if (fkVal === null || fkVal === undefined) continue;
+            if (skippedIdsByTable[rule.refTable]?.has(String(fkVal)) && !rule.nullable) {
+              rowSkip = true;
+              break;
+            }
+          }
+          if (rowSkip) {
+            skipCount++;
+            if (pkValue !== undefined && pkValue !== null) trackSkippedId(tableName, String(pkValue));
+            continue;
+          }
           if (await checkUniqueConflict(tableName, row)) {
-            uniqueConflicts++;
+            skipCount++;
+            if (pkValue !== undefined && pkValue !== null) trackSkippedId(tableName, String(pkValue));
           }
         }
-        inserted[tableName] = rows.length - uniqueConflicts;
-        skipped[tableName] = uniqueConflicts;
-        conflicts[tableName] = uniqueConflicts;
-        if (uniqueConflicts > 0) {
+        inserted[tableName] = rows.length - skipCount;
+        skipped[tableName] = skipCount;
+        conflicts[tableName] = skipCount;
+        if (skipCount > 0) {
           validation.warnings.push({
             table: tableName, rowIndex: -1, field: "unique",
-            message: `${uniqueConflicts} records have unique constraint conflicts (e.g. duplicate email) and will be skipped`,
+            message: `${skipCount} record(s) will be skipped (unique conflicts and/or references to skipped parent rows)`,
             severity: "warning",
           });
         }
       } else {
         const table = TABLE_MAP[tableName];
         const pkField = PK_FIELD[tableName];
+        const fkRules = FK_RULES[tableName];
         let conflictCount = 0;
 
         for (const row of rows) {
           const pkValue = row[pkField];
           if (!pkValue) continue;
+
+          let refSkipped = false;
+          for (const rule of fkRules) {
+            const fkVal = row[rule.field];
+            if (fkVal === null || fkVal === undefined) continue;
+            if (skippedIdsByTable[rule.refTable]?.has(String(fkVal)) && !rule.nullable) {
+              refSkipped = true;
+              break;
+            }
+          }
+          if (refSkipped) {
+            conflictCount++;
+            trackSkippedId(tableName, String(pkValue));
+            continue;
+          }
+
           const pkCol = (table as unknown as Record<string, unknown>)[pkField];
           if (pkCol) {
             const [existing] = await db.select().from(table as AnyPgTable).where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);
             if (existing) {
               conflictCount++;
+              trackSkippedId(tableName, String(pkValue));
               continue;
             }
           }
           if (tableName === "users" && row.email) {
             const [emailConflict] = await db.select().from(users).where(eq(users.email, String(row.email))).limit(1);
-            if (emailConflict) conflictCount++;
+            if (emailConflict) {
+              conflictCount++;
+              trackSkippedId(tableName, String(pkValue));
+            }
           }
         }
 
@@ -905,6 +956,7 @@ export async function importUserBundle(
         const pkField = PK_FIELD[tableName];
         let insertCount = 0;
         let skipCount = 0;
+        let conflictCount = 0;
 
         for (let i = 0; i < rows.length; i++) {
           const rawRow = rows[i];
@@ -960,26 +1012,21 @@ export async function importUserBundle(
 
           try {
             if (tableName === "tasks") {
-              const insertedRows = await tx
-                .insert(tasks)
-                .values(row as typeof tasks.$inferInsert)
-                .onConflictDoNothing()
-                .returning({ id: tasks.id });
-
-              if (insertedRows.length > 0) {
+              const outcome = await insertBundleTaskWithFingerprintClaimTx(tx, {
+                targetUserId,
+                taskRow: row as typeof tasks.$inferInsert,
+                fingerprintSource: "user_bundle_import",
+                fingerprintRow: row as Record<string, unknown>,
+              });
+              if (outcome === "inserted") {
                 insertCount++;
-                await insertTaskImportFingerprintTx(tx, {
-                  userId: targetUserId,
-                  taskPk: String(row.id),
-                  row: row as Record<string, unknown>,
-                  source: "user_bundle_import",
-                });
               } else {
                 const pkOrig = rawRow[pkField];
                 if (pkOrig !== undefined && pkOrig !== null) {
                   trackSkippedIdUserBundle(tableName, String(pkOrig));
                 }
                 skipCount++;
+                conflictCount++;
               }
             } else {
               const affected = await insertRowTx(table, row);
@@ -991,6 +1038,7 @@ export async function importUserBundle(
                   trackSkippedIdUserBundle(tableName, String(pkOrig));
                 }
                 skipCount++;
+                conflictCount++;
               }
             }
           } catch (rowErr: unknown) {
@@ -1008,7 +1056,7 @@ export async function importUserBundle(
 
         inserted[tableName] = insertCount;
         skipped[tableName] = skipCount;
-        conflicts[tableName] = 0;
+        conflicts[tableName] = conflictCount;
       }
 
       if (validation.errors.length > 0) {

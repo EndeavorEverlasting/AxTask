@@ -56,7 +56,14 @@ async function main() {
         ? await exportUserData(userId)
         : await exportFullDatabase();
 
-      const tcExport = bundle.metadata.tableCounts as Record<string, unknown>;
+      const rawTc = bundle.metadata?.tableCounts;
+      const tcExport: Record<string, unknown> =
+        rawTc && typeof rawTc === "object" && !Array.isArray(rawTc)
+          ? (rawTc as Record<string, unknown>)
+          : {};
+      if (!rawTc || typeof rawTc !== "object" || Array.isArray(rawTc)) {
+        console.warn("[migrate] export bundle missing or invalid metadata.tableCounts; using empty counts for summary.");
+      }
       const { total: totalRecords, validPairs: exportPairs } = sumValidTableCounts(tcExport);
       console.log(`Export complete: ${totalRecords} records across ${exportPairs.length} tables`);
 

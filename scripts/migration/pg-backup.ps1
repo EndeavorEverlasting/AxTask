@@ -81,8 +81,18 @@ if ($queryRaw) {
 
 # -Fc custom format for pg_restore; --no-owner helps cross-host restore
 Write-Host "pg_dump -> $OutFile"
-& pg_dump -Fc -f $OutFile --no-owner
-$exit = $LASTEXITCODE
-Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+$exit = 0
+try {
+  & pg_dump -Fc -f $OutFile --no-owner
+  $exit = $LASTEXITCODE
+} finally {
+  foreach ($k in @(
+      "PGHOST", "PGPORT", "PGUSER", "PGDATABASE", "PGPASSWORD",
+      "PGSSLMODE", "PGSSLKEY", "PGSSLCERT", "PGSSLROOTCERT",
+      "PGAPPNAME", "PGCONNECT_TIMEOUT", "PGCHANNELBINDING"
+    )) {
+    Remove-Item "Env:\$k" -ErrorAction SilentlyContinue
+  }
+}
 if ($exit -ne 0) { exit $exit }
 Write-Host "Backup complete."

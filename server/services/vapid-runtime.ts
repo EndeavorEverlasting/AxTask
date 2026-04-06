@@ -63,6 +63,11 @@ export function resolveVapidSubject(): string | null {
 }
 
 async function loadOrCreateKeyPairFromDb(): Promise<{ publicKey: string; privateKey: string }> {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "[loadOrCreateKeyPairFromDb] Production must set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY; storing VAPID keys in the database is disabled when NODE_ENV=production.",
+    );
+  }
   const [existing] = await db
     .select()
     .from(appRuntimeSecrets)
@@ -141,9 +146,16 @@ export async function initVapidAtBoot(): Promise<void> {
       if (envPublic && envPrivate) {
         pair = { publicKey: envPublic, privateKey: envPrivate };
       } else {
+        if (process.env.NODE_ENV === "production") {
+          log(
+            "Web Push disabled in production: set both VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY (DB key fallback is not allowed; see loadOrCreateKeyPairFromDb / NODE_ENV). Optional: ALLOW_DB_VAPID_FALLBACK is ignored in production.",
+            "web-push",
+          );
+          return;
+        }
         if (envPublic || envPrivate) {
           log(
-            "Web Push: incomplete VAPID env (need both public and private, or neither); using auto-managed database keypair.",
+            "Web Push: incomplete VAPID env (need both public and private, or neither); using auto-managed database keypair (non-production only).",
             "web-push",
           );
         }

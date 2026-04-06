@@ -36,12 +36,12 @@ Registration behavior is driven by server environment variables such as `REGISTR
 
 ## Docker Compose (full stack on your machine)
 
-1. From the repo root, start the stack (see root [README.md](../README.md#run-locally-after-cloning-with-docker)): `npm run docker:up`.
+1. From the repo root, start the stack (see root [README.md](../README.md#run-locally-after-cloning-with-docker)): `npm run docker:start` (or `npm run docker:up` for the guided launcher).
 2. Open **http://localhost:5000**.
-3. When **demo seeding** is enabled (default in `.env.docker.example` via `AXTASK_DOCKER_SEED_DEMO=1`), the **same terminal** prints a **demo email and password** after startup — use them on the login page.
-4. If demo seeding is off, use **Register** / **Create account** when registration is allowed, or credentials your team supplies.
+3. **Demo seeding** is **off by default** in `.env.docker.example` (`AXTASK_DOCKER_SEED_DEMO=0`). To enable it for local Compose only, set **`AXTASK_DOCKER_SEED_DEMO=1`** and restart the stack; the migrate step will seed the user defined by **`DOCKER_DEMO_USER_EMAIL`** / **`DOCKER_DEMO_PASSWORD`** (see comments in `.env.docker.example`). When seeding is on, the **same terminal** can print the demo email and password after startup — use them on the login page.
+4. With demo seeding disabled, use **Register** / **Create account** when registration is allowed, or credentials your team supplies.
 
-More context: [DOCKER_FOUNDATION.md](./DOCKER_FOUNDATION.md) (demo login section), `.env.docker.example`.
+More context: [DOCKER_FOUNDATION.md](./DOCKER_FOUNDATION.md) (demo login section), `.env.docker.example` ( **`AXTASK_DOCKER_SEED_DEMO`** and demo user variables).
 
 ---
 

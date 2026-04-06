@@ -93,8 +93,15 @@ function findBestTask(ref: string, tasks: Task[]): { task: Task; confidence: num
   return best ? { task: best, confidence: bestScore } : null;
 }
 
-const COMPLETION_PATTERNS = [
-  /\b(?:i\s+)?(?:already\s+)?(?:finished|completed|did|done with|done|checked off|knocked out|took care of)\s+(?:the\s+)?(.+?)(?:\s*(?:,\s*and\s+|,\s*|\s+and\s+)(?:also\s+)?(?:finished|completed|did|done with|done|checked off|knocked out|took care of)\s+(?:the\s+)?(.+?))*$/i,
+/** Matches each verb + task phrase; repeated phrases are collected via matchAll (avoids JS dropping repeated capture groups). */
+const COMPLETION_VERB =
+  "(?:finished|completed|did|done with|done|checked off|knocked out|took care of)";
+const MULTI_COMPLETION_PHRASE_RE = new RegExp(
+  `\\b(?:i\\s+)?(?:already\\s+)?${COMPLETION_VERB}\\s+(?:the\\s+)?(.+?)(?=\\s*(?:,\\s*|\\s+and\\s+(?:also\\s+)?)${COMPLETION_VERB}\\b|$)`,
+  "gi",
+);
+
+const COMPLETION_TAIL_PATTERNS = [
   /\b(?:mark|set)\s+(.+?)\s+(?:as\s+)?(?:completed?|done|finished)\b/i,
   /\b(?:i(?:'ve| have)\s+)?(?:already\s+)?(?:finished|completed|done)\s+(.+?)$/i,
 ];
@@ -194,36 +201,70 @@ export function processTaskReview(
     }
     if (handled) continue;
 
-    for (const pattern of COMPLETION_PATTERNS) {
-      const match = sentence.match(pattern);
-      if (match) {
-        const groups = Array.from(match).slice(1).filter(Boolean);
-        const allRefs: string[] = [];
-        for (const group of groups) {
-          allRefs.push(...splitTaskReferences(group));
+    const multiCompletionMatches = [...sentence.matchAll(MULTI_COMPLETION_PHRASE_RE)];
+    if (multiCompletionMatches.length > 0) {
+      const allRefs: string[] = [];
+      for (const m of multiCompletionMatches) {
+        const g = m[1];
+        if (typeof g === "string" && g.trim()) {
+          allRefs.push(...splitTaskReferences(g));
         }
-        for (const ref of allRefs) {
-          const cleaned = ref
-            .replace(/\b(?:already|also|too|as well)\b/gi, "")
-            .trim();
-          if (!cleaned) continue;
-          const result = findBestTask(cleaned, pendingTasks);
-          if (result && !processedTaskIds.has(result.task.id)) {
-            processedTaskIds.add(result.task.id);
-            actions.push({
-              type: "complete",
-              taskId: result.task.id,
-              taskActivity: result.task.activity,
-              details: {},
-              confidence: result.confidence,
-              reason: "Mark as completed",
-            });
-          } else if (!result) {
-            unmatched.push(cleaned);
+      }
+      for (const ref of allRefs) {
+        const cleaned = ref
+          .replace(/\b(?:already|also|too|as well)\b/gi, "")
+          .trim();
+        if (!cleaned) continue;
+        const result = findBestTask(cleaned, pendingTasks);
+        if (result && !processedTaskIds.has(result.task.id)) {
+          processedTaskIds.add(result.task.id);
+          actions.push({
+            type: "complete",
+            taskId: result.task.id,
+            taskActivity: result.task.activity,
+            details: {},
+            confidence: result.confidence,
+            reason: "Mark as completed",
+          });
+        } else if (!result) {
+          unmatched.push(cleaned);
+        }
+      }
+      handled = true;
+    }
+
+    if (!handled) {
+      for (const pattern of COMPLETION_TAIL_PATTERNS) {
+        const match = sentence.match(pattern);
+        if (match) {
+          const groups = Array.from(match).slice(1).filter(Boolean);
+          const allRefs: string[] = [];
+          for (const group of groups) {
+            allRefs.push(...splitTaskReferences(group));
           }
+          for (const ref of allRefs) {
+            const cleaned = ref
+              .replace(/\b(?:already|also|too|as well)\b/gi, "")
+              .trim();
+            if (!cleaned) continue;
+            const result = findBestTask(cleaned, pendingTasks);
+            if (result && !processedTaskIds.has(result.task.id)) {
+              processedTaskIds.add(result.task.id);
+              actions.push({
+                type: "complete",
+                taskId: result.task.id,
+                taskActivity: result.task.activity,
+                details: {},
+                confidence: result.confidence,
+                reason: "Mark as completed",
+              });
+            } else if (!result) {
+              unmatched.push(cleaned);
+            }
+          }
+          handled = true;
+          break;
         }
-        handled = true;
-        break;
       }
     }
     if (handled) continue;

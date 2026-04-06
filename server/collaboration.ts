@@ -72,7 +72,18 @@ async function authenticateWs(req: IncomingMessage): Promise<{ userId: string; e
   if (!store) return null;
 
   return new Promise((resolve) => {
+    const SESSION_LOOKUP_MS = 5000;
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(null);
+    }, SESSION_LOOKUP_MS);
+
     store.get(rawSid, async (err: Error | null, session: { passport?: { user?: string } } | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       if (err || !session?.passport?.user) {
         resolve(null);
         return;
@@ -118,7 +129,15 @@ function broadcastToTask(
       : new Set(Array.isArray(excludeWs) ? excludeWs : [excludeWs]);
   for (const client of getTaskRoom(taskId)) {
     if (excludeSet?.has(client.ws)) continue;
-    client.ws.send(payload);
+    try {
+      client.ws.send(payload);
+    } catch (err) {
+      console.error("[collab] broadcast send failed", {
+        taskId,
+        userId: client.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 }
 
@@ -195,14 +214,15 @@ export function setupCollaborationWs(server: Server) {
     }
 
     ws.on("message", async (data) => {
-      let msg: CollabMessage;
       try {
-        msg = JSON.parse(data.toString());
-      } catch {
-        return;
-      }
+        let msg: CollabMessage;
+        try {
+          msg = JSON.parse(data.toString());
+        } catch {
+          return;
+        }
 
-      switch (msg.type) {
+        switch (msg.type) {
         case "join_task": {
           const access = await canAccessTask(user.userId, msg.taskId);
           if (!access.canAccess) {
@@ -304,6 +324,18 @@ export function setupCollaborationWs(server: Server) {
             task: taskPayload,
           }, ws);
           break;
+        }
+        }
+      } catch (err) {
+        console.error("[collab] message handler error:", err);
+        try {
+          ws.send(JSON.stringify({ type: "error", message: "Server error processing message" }));
+        } catch {
+          /* socket may be closing */
+        }
+        const tid = client.taskId;
+        if (tid) {
+          sendPresenceUpdate(tid);
         }
       }
     });

@@ -239,7 +239,7 @@ export function ClassificationBadge({
             {suggestionsQuery.isError && (
               <p className="text-[11px] text-gray-500 dark:text-gray-400">Suggestions unavailable offline.</p>
             )}
-            {!suggestionsQuery.isLoading && topSuggestions.length === 0 && (
+            {!suggestionsQuery.isLoading && !suggestionsQuery.isError && topSuggestions.length === 0 && (
               <p className="text-[11px] text-gray-500 dark:text-gray-400">No alternate suggestions.</p>
             )}
             <div className="flex flex-wrap gap-1">

@@ -72,7 +72,11 @@ function AccountUserAvatar({
   const initials = userInitials(user);
   const wrap = cn("rounded-full shrink-0 object-cover", className);
   if (user.profileImageUrl) {
-    return <img src={user.profileImageUrl} alt="" className={wrap} />;
+    const alt =
+      (user.displayName || "").trim() ||
+      (user.email || "").trim() ||
+      (initials ? `User avatar (${initials})` : "User avatar");
+    return <img src={user.profileImageUrl} alt={alt} className={wrap} />;
   }
   return (
     <div

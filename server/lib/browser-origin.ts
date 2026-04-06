@@ -1,5 +1,8 @@
 export function isLocalBrowserHostname(hostname: string): boolean {
-  const h = hostname.toLowerCase();
+  let h = hostname.toLowerCase();
+  if (h.startsWith("[") && h.endsWith("]")) {
+    h = h.slice(1, -1);
+  }
   return h === "localhost" || h === "127.0.0.1" || h === "::1";
 }
 

@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 interface PresenceUser {
   userId: string;
-  email: string;
   displayName: string | null;
   color: string;
   focusedField: string | null;
@@ -34,7 +33,6 @@ function coercePresenceUser(raw: unknown): PresenceUser | null {
   const o = raw as Record<string, unknown>;
   const userId = parseUserId(o.userId);
   if (!userId) return null;
-  const email = typeof o.email === "string" ? o.email : "";
   const displayName =
     o.displayName === null ? null : typeof o.displayName === "string" ? o.displayName : null;
   const color = typeof o.color === "string" && o.color.length > 0 ? o.color : "#64748B";
@@ -46,7 +44,7 @@ function coercePresenceUser(raw: unknown): PresenceUser | null {
       : typeof o.cursorPosition === "number" && Number.isFinite(o.cursorPosition)
         ? o.cursorPosition
         : null;
-  return { userId, email, displayName, color, focusedField, cursorPosition };
+  return { userId, displayName, color, focusedField, cursorPosition };
 }
 
 export function useCollaboration(taskId: string | null) {
@@ -58,6 +56,7 @@ export function useCollaboration(taskId: string | null) {
     role: "owner",
   });
   const [fieldEdits, setFieldEdits] = useState<FieldEdit[]>([]);
+  const fieldEditsRef = useRef<FieldEdit[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const taskIdRef = useRef(taskId);
@@ -65,6 +64,10 @@ export function useCollaboration(taskId: string | null) {
   const joinedTaskIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   taskIdRef.current = taskId;
+
+  useEffect(() => {
+    fieldEditsRef.current = fieldEdits;
+  }, [fieldEdits]);
 
   const sendJoinTaskIfNeeded = useCallback((ws: WebSocket, tid: string) => {
     if (ws.readyState !== WebSocket.OPEN) return;
@@ -221,14 +224,13 @@ export function useCollaboration(taskId: string | null) {
   }, []);
 
   const consumeFieldEdit = useCallback((field: string): FieldEdit | undefined => {
-    let found: FieldEdit | undefined;
-    setFieldEdits(prev => {
-      const edit = prev.find(e => e.field === field);
-      if (!edit) return prev;
-      found = edit;
-      return prev.filter(e => e !== edit);
-    });
-    return found;
+    const q = fieldEditsRef.current.slice();
+    const idx = q.findIndex(e => e.field === field);
+    if (idx < 0) return undefined;
+    const [removed] = q.splice(idx, 1);
+    fieldEditsRef.current = q;
+    setFieldEdits(q);
+    return removed;
   }, []);
 
   return {
