@@ -15,7 +15,7 @@ function formatWhen(d: Date | string | null | undefined): string {
 export function generateTaskReportXlsxBuffer(task: Task): Buffer {
   const rows: string[][] = [
     ["Field", "Value"],
-    ["Task ID", task.id],
+    ["Task ID", String(task.id)],
     ["Date", task.date],
     ["Time", task.time || ""],
     ["Activity", task.activity],
@@ -37,5 +37,5 @@ export function generateTaskReportXlsxBuffer(task: Task): Buffer {
   const ws = XLSX.utils.aoa_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Report");
-  return Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer);
+  return Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
 }

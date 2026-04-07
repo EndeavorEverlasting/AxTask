@@ -77,22 +77,37 @@ export async function revokeDeviceRefreshByPlain(plainToken: string | undefined)
   await db.delete(deviceRefreshTokens).where(eq(deviceRefreshTokens.tokenHash, tokenHash));
 }
 
-/** Validate plaintext token; returns userId or null. Does not delete (use rotate after session established). */
-export async function lookupValidDeviceRefreshUserId(plainToken: string): Promise<string | null> {
+/**
+ * Atomically validates the plaintext token, rotates its hash (invalidates the presented cookie value),
+ * and returns the user id plus the new plaintext for Set-Cookie. Concurrent requests with the same
+ * cookie: only one UPDATE matches the old hash; others get null.
+ */
+export async function lookupValidDeviceRefreshUserId(
+  plainToken: string,
+  userAgent?: string | null,
+): Promise<{ userId: string; newPlain: string } | null> {
   if (!isDeviceRefreshTokenShape(plainToken)) return null;
-  const tokenHash = hashDeviceRefreshToken(plainToken);
+  const oldHash = hashDeviceRefreshToken(plainToken);
   const now = new Date();
+  const ua = userAgent?.slice(0, 512) || null;
+  const newPlain = generateDeviceRefreshPlainToken();
+  const newHash = hashDeviceRefreshToken(newPlain);
+  const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
+
   const [row] = await db
-    .select({ userId: deviceRefreshTokens.userId, id: deviceRefreshTokens.id })
-    .from(deviceRefreshTokens)
-    .where(and(eq(deviceRefreshTokens.tokenHash, tokenHash), gt(deviceRefreshTokens.expiresAt, now)))
-    .limit(1);
-  if (!row) return null;
-  await db
     .update(deviceRefreshTokens)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(deviceRefreshTokens.id, row.id));
-  return row.userId;
+    .set({
+      tokenHash: newHash,
+      expiresAt,
+      lastUsedAt: new Date(),
+      ...(ua !== null ? { userAgent: ua } : {}),
+    })
+    .where(and(eq(deviceRefreshTokens.tokenHash, oldHash), gt(deviceRefreshTokens.expiresAt, now)))
+    .returning({ userId: deviceRefreshTokens.userId });
+
+  if (!row) return null;
+  await pruneExcessTokens(row.userId);
+  return { userId: row.userId, newPlain };
 }
 
 /** Replace old plaintext token with a new row and return new plaintext. */
@@ -161,23 +176,24 @@ export async function performAuthRefresh(req: Request, res: Response): Promise<v
     res.status(401).json({ message: "No device session" });
     return;
   }
-  const userId = await lookupValidDeviceRefreshUserId(plain);
-  if (!userId) {
+  const rotated = await lookupValidDeviceRefreshUserId(plain, req.get("user-agent"));
+  if (!rotated) {
     clearDeviceRefreshCookie(res);
     noStore();
     res.status(401).json({ message: "Device session expired or invalid" });
     return;
   }
+  const { userId, newPlain } = rotated;
   const user = await getUserById(userId);
   if (!user) {
-    await revokeDeviceRefreshByPlain(plain);
+    await revokeDeviceRefreshByPlain(newPlain);
     clearDeviceRefreshCookie(res);
     noStore();
     res.status(401).json({ message: "Not authenticated" });
     return;
   }
   if (user.isBanned) {
-    await revokeDeviceRefreshByPlain(plain);
+    await revokeDeviceRefreshByPlain(newPlain);
     clearDeviceRefreshCookie(res);
     noStore();
     res.status(403).json({ message: "This account has been suspended." });
@@ -187,37 +203,13 @@ export async function performAuthRefresh(req: Request, res: Response): Promise<v
   req.login(user, (err) => {
     if (err) {
       console.error("[auth] refresh session error:", err);
+      clearDeviceRefreshCookie(res);
       noStore();
       res.status(500).json({ message: "Session restore failed" });
       return;
     }
-    void rotateDeviceRefreshToken(plain, userId, req.get("user-agent"))
-      .then((newPlain) => {
-        setDeviceRefreshCookie(res, newPlain);
-        noStore();
-        res.json(user);
-      })
-      .catch((e) => {
-        console.error("[auth] refresh rotate:", e);
-        void revokeDeviceRefreshByPlain(plain)
-          .catch((revokeErr) => {
-            console.error("[auth] refresh rotate revoke failed:", revokeErr);
-          })
-          .finally(() => {
-            req.logout(() => {
-              if (req.session) {
-                req.session.destroy(() => {
-                  clearDeviceRefreshCookie(res);
-                  noStore();
-                  res.status(401).json({ message: "Device session could not be renewed" });
-                });
-              } else {
-                clearDeviceRefreshCookie(res);
-                noStore();
-                res.status(401).json({ message: "Device session could not be renewed" });
-              }
-            });
-          });
-      });
+    setDeviceRefreshCookie(res, newPlain);
+    noStore();
+    res.json(user);
   });
 }

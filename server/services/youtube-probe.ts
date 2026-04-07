@@ -8,6 +8,7 @@ import {
 } from "../storage";
 import { callNodeWeaverBatchClassify } from "./classification/nodeweaver-client";
 import { isGeneralClassification } from "@shared/classification-catalog";
+import type { Task } from "@shared/schema";
 
 export const YOUTUBE_PROBE_VERSION = "1";
 
@@ -182,7 +183,7 @@ export async function getNextYoutubeProbe(
   const [entourage, dominantRaw, tasks] = await Promise.all([
     getOrRecomputeEntourage(userId, false),
     getDominantClassificationForUser(userId),
-    storage.getTasks(userId),
+    shareTaskText ? storage.getRecentTasksByUpdatedAt(userId, 5) : Promise.resolve([] as Task[]),
   ]);
 
   const companions = entourage.companions;
@@ -194,9 +195,7 @@ export async function getNextYoutubeProbe(
   const dominant =
     dominantRaw && !isGeneralClassification(dominantRaw) ? dominantRaw.trim() : null;
 
-  const recentTasks = [...tasks]
-    .sort((a, b) => new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime())
-    .slice(0, 5);
+  const recentTasks = tasks;
   const taskBits = shareTaskText
     ? recentTasks
         .map((t) => scrubSnippet(t.activity || "", 48))

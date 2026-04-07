@@ -56,6 +56,26 @@ if ($userInfo) {
 }
 $env:PGDATABASE = $uri.AbsolutePath.TrimStart('/')
 
+$query = $uri.Query.TrimStart('?')
+if ($query) {
+  foreach ($pair in $query.Split([char[]]@('&'), [StringSplitOptions]::RemoveEmptyEntries)) {
+    $eq = $pair.IndexOf('=')
+    $rawK = if ($eq -ge 0) { $pair.Substring(0, $eq) } else { $pair }
+    $rawV = if ($eq -ge 0) { $pair.Substring($eq + 1) } else { '' }
+    $k = [Uri]::UnescapeDataString($rawK).Trim().ToLowerInvariant()
+    $v = if ($eq -ge 0) { [Uri]::UnescapeDataString($rawV) } else { '' }
+    if (-not $v) { continue }
+    switch ($k) {
+      'sslmode' { if (-not $env:PGSSLMODE) { $env:PGSSLMODE = $v } }
+      'sslrootcert' { if (-not $env:PGSSLROOTCERT) { $env:PGSSLROOTCERT = $v } }
+      'sslcert' { if (-not $env:PGSSLCERT) { $env:PGSSLCERT = $v } }
+      'sslkey' { if (-not $env:PGSSLKEY) { $env:PGSSLKEY = $v } }
+      'sslcrl' { if (-not $env:PGSSLCRL) { $env:PGSSLCRL = $v } }
+      'sslsni' { if (-not $env:PGSSLSNI) { $env:PGSSLSNI = $v } }
+    }
+  }
+}
+
 Write-Host "pg_restore <- $BackupFile"
 # --no-owner --role=... optional; target must be empty or use --clean (destructive)
 $exit = 0
@@ -68,6 +88,12 @@ try {
   Remove-Item Env:\PGUSER -ErrorAction SilentlyContinue
   Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
   Remove-Item Env:\PGDATABASE -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLMODE -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLROOTCERT -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLCERT -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLKEY -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLCRL -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLSNI -ErrorAction SilentlyContinue
 }
 if ($exit -ne 0) { exit $exit }
 Write-Host "Restore complete. Then: npm run db:push (from integration/migration-unified) and npm run migration:verify-schema"

@@ -43,8 +43,11 @@ function idOrderColumn(table: PgTable, orderColumn?: AnyPgColumn): AnyPgColumn {
   throw new Error("queryChunked: pass orderColumn or use a table with id or userId for stable pagination");
 }
 
+type ExportQueryDb = Pick<typeof db, "select">;
+
 /** Keyset pagination so live inserts/deletes do not shift offsets between pages. */
 async function* queryChunkedStream(
+  executor: ExportQueryDb,
   table: PgTable,
   condition?: SQL,
   orderColumn?: AnyPgColumn,
@@ -58,13 +61,13 @@ async function* queryChunkedStream(
     const whereClause =
       condition && cursorCond ? and(condition, cursorCond) : condition ?? cursorCond;
     const baseQuery = whereClause
-      ? db
+      ? executor
           .select({ ...cols, _paginationCursor: idCol })
           .from(table)
           .where(whereClause)
           .orderBy(asc(idCol))
           .limit(CHUNK_SIZE)
-      : db.select({ ...cols, _paginationCursor: idCol }).from(table).orderBy(asc(idCol)).limit(CHUNK_SIZE);
+      : executor.select({ ...cols, _paginationCursor: idCol }).from(table).orderBy(asc(idCol)).limit(CHUNK_SIZE);
     const rawRows = (await baseQuery) as Record<string, unknown>[];
     const rows = rawRows.map(({ _paginationCursor: _pc, ...rest }) => rest);
     yield rows;
@@ -76,12 +79,13 @@ async function* queryChunkedStream(
 }
 
 async function queryChunked(
+  executor: ExportQueryDb,
   table: PgTable,
   condition?: SQL,
   orderColumn?: AnyPgColumn,
 ): Promise<Record<string, unknown>[]> {
   const results: Record<string, unknown>[] = [];
-  for await (const rows of queryChunkedStream(table, condition, orderColumn)) {
+  for await (const rows of queryChunkedStream(executor, table, condition, orderColumn)) {
     results.push(...rows);
   }
   return results;
@@ -122,7 +126,7 @@ export type ExportFullDatabaseOptions = {
   includeSecurityTables?: boolean;
 };
 
-export async function exportFullDatabase(opts?: ExportFullDatabaseOptions): Promise<ExportBundle> {
+async function exportFullDatabaseSnapshot(tx: ExportQueryDb, opts?: ExportFullDatabaseOptions): Promise<ExportBundle> {
   const includeSecurityTables = opts?.includeSecurityTables === true;
   const [
     usersData,
@@ -162,42 +166,42 @@ export async function exportFullDatabase(opts?: ExportFullDatabaseOptions): Prom
     classContribData,
     classConfirmData,
   ] = await Promise.all([
-    queryChunked(users),
-    queryChunked(userBillingProfiles),
-    queryChunked(userClassificationCategories),
-    queryChunked(rewardsCatalog),
-    queryChunked(userNotificationPreferences),
-    queryChunked(userPushSubscriptions),
-    queryChunked(billingPaymentMethods),
-    queryChunked(invoices),
-    queryChunked(invoiceEvents),
-    queryChunked(appeals),
-    queryChunked(appealVotes),
-    queryChunked(userMilestoneGrants),
-    queryChunked(userEntourage),
-    queryChunked(avatarProfiles),
-    queryChunked(avatarXpEvents),
-    queryChunked(offlineSkillNodes),
-    queryChunked(offlineGenerators),
-    queryChunked(userOfflineSkills),
-    queryChunked(usageSnapshots),
-    queryChunked(storagePolicies),
-    queryChunked(premiumSubscriptions),
-    queryChunked(premiumSavedViews),
-    queryChunked(premiumReviewWorkflows),
-    queryChunked(premiumInsights),
-    queryChunked(premiumEvents),
-    queryChunked(tasks),
-    queryChunked(attachmentAssets),
-    queryChunked(taskImportFingerprints),
-    queryChunked(wallets),
-    queryChunked(coinTransactions),
-    queryChunked(userBadges),
-    queryChunked(userRewards),
-    queryChunked(taskPatterns),
-    queryChunked(taskCollaborators),
-    queryChunked(classificationContributions),
-    queryChunked(classificationConfirmations),
+    queryChunked(tx, users),
+    queryChunked(tx, userBillingProfiles),
+    queryChunked(tx, userClassificationCategories),
+    queryChunked(tx, rewardsCatalog),
+    queryChunked(tx, userNotificationPreferences),
+    queryChunked(tx, userPushSubscriptions),
+    queryChunked(tx, billingPaymentMethods),
+    queryChunked(tx, invoices),
+    queryChunked(tx, invoiceEvents),
+    queryChunked(tx, appeals),
+    queryChunked(tx, appealVotes),
+    queryChunked(tx, userMilestoneGrants),
+    queryChunked(tx, userEntourage),
+    queryChunked(tx, avatarProfiles),
+    queryChunked(tx, avatarXpEvents),
+    queryChunked(tx, offlineSkillNodes),
+    queryChunked(tx, offlineGenerators),
+    queryChunked(tx, userOfflineSkills),
+    queryChunked(tx, usageSnapshots),
+    queryChunked(tx, storagePolicies),
+    queryChunked(tx, premiumSubscriptions),
+    queryChunked(tx, premiumSavedViews),
+    queryChunked(tx, premiumReviewWorkflows),
+    queryChunked(tx, premiumInsights),
+    queryChunked(tx, premiumEvents),
+    queryChunked(tx, tasks),
+    queryChunked(tx, attachmentAssets),
+    queryChunked(tx, taskImportFingerprints),
+    queryChunked(tx, wallets),
+    queryChunked(tx, coinTransactions),
+    queryChunked(tx, userBadges),
+    queryChunked(tx, userRewards),
+    queryChunked(tx, taskPatterns),
+    queryChunked(tx, taskCollaborators),
+    queryChunked(tx, classificationContributions),
+    queryChunked(tx, classificationConfirmations),
   ]);
 
   let passwordResetTokensData: Record<string, unknown>[] = [];
@@ -206,10 +210,11 @@ export async function exportFullDatabase(opts?: ExportFullDatabaseOptions): Prom
     const now = new Date();
     [passwordResetTokensData, securityLogsData] = await Promise.all([
       queryChunked(
+        tx,
         passwordResetTokens,
         and(isNull(passwordResetTokens.usedAt), gt(passwordResetTokens.expiresAt, now)),
       ),
-      queryChunked(securityLogs),
+      queryChunked(tx, securityLogs),
     ]);
   }
 
@@ -273,186 +278,219 @@ export async function exportFullDatabase(opts?: ExportFullDatabaseOptions): Prom
   };
 }
 
-const SENSITIVE_USER_FIELDS = new Set([
+export async function exportFullDatabase(opts?: ExportFullDatabaseOptions): Promise<ExportBundle> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql.raw("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"));
+    return exportFullDatabaseSnapshot(tx as unknown as ExportQueryDb, opts);
+  });
+}
+
+const ALWAYS_REDACT_USER_FIELDS = new Set([
   "passwordHash",
   "securityAnswerHash",
   "securityQuestion",
   "failedLoginAttempts",
   "lockedUntil",
+  "banReason",
+  "bannedAt",
+  "bannedBy",
+]);
+
+const CROSS_USER_PII_FIELDS = new Set([
   "workosId",
   "googleId",
   "replitId",
   "phoneE164",
   "phoneVerifiedAt",
   "birthDate",
-  "banReason",
-  "bannedAt",
-  "bannedBy",
   "email",
   "displayName",
   "profileImageUrl",
 ]);
 
-function sanitizeUserRow(row: Record<string, unknown>): Record<string, unknown> {
+function sanitizeUserRowForExport(
+  row: Record<string, unknown>,
+  requesterId: string | null,
+  adminMode: boolean,
+): Record<string, unknown> {
+  if (adminMode) return { ...row };
+  const isOwner = requesterId != null && String(row.id) === String(requesterId);
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(row)) {
-    if (!SENSITIVE_USER_FIELDS.has(key)) {
-      out[key] = value;
-    }
+    if (ALWAYS_REDACT_USER_FIELDS.has(key)) continue;
+    if (!isOwner && CROSS_USER_PII_FIELDS.has(key)) continue;
+    out[key] = value;
   }
   return out;
 }
 
 export async function exportUserData(userId: string, options: { adminMode?: boolean } = {}): Promise<ExportBundle> {
   const { adminMode = false } = options;
-  const [userData] = await db.select().from(users).where(eq(users.id, userId));
-  if (!userData) {
-    throw new Error(`User ${userId} not found`);
-  }
+  return db.transaction(async (tx) => {
+    await tx.execute(sql.raw("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"));
+    const ex = tx as unknown as ExportQueryDb;
 
-  const userTasks = await queryChunked(tasks, eq(tasks.userId, userId), tasks.id);
-  const taskIds = userTasks.map((t) => t.id as string);
-
-  const [
-    walletData,
-    coinTxData,
-    badgeData,
-    rewardCatalog,
-    userRewardData,
-    patternData,
-    billingProfileData,
-    classCatData,
-  ] = await Promise.all([
-    queryChunked(wallets, eq(wallets.userId, userId), wallets.userId),
-    queryChunked(coinTransactions, eq(coinTransactions.userId, userId), coinTransactions.id),
-    queryChunked(userBadges, eq(userBadges.userId, userId), userBadges.id),
-    queryChunked(rewardsCatalog, undefined, rewardsCatalog.id),
-    queryChunked(userRewards, eq(userRewards.userId, userId), userRewards.id),
-    queryChunked(taskPatterns, eq(taskPatterns.userId, userId), taskPatterns.id),
-    queryChunked(userBillingProfiles, eq(userBillingProfiles.userId, userId), userBillingProfiles.userId),
-    queryChunked(userClassificationCategories, eq(userClassificationCategories.userId, userId), userClassificationCategories.id),
-  ]);
-
-  const ownedTaskIdSet = new Set(taskIds);
-
-  let collabData = await queryChunked(taskCollaborators, eq(taskCollaborators.userId, userId), taskCollaborators.id);
-  let contribData = await queryChunked(
-    classificationContributions,
-    eq(classificationContributions.userId, userId),
-    classificationContributions.id,
-  );
-  let confirmData = await queryChunked(
-    classificationConfirmations,
-    eq(classificationConfirmations.userId, userId),
-    classificationConfirmations.id,
-  );
-
-  if (ownedTaskIdSet.size > 0) {
-    const idArr = Array.from(ownedTaskIdSet);
-    const CHUNK = 2000;
-    let extraCollab: Record<string, unknown>[] = [];
-    let extraContrib: Record<string, unknown>[] = [];
-    let extraConfirm: Record<string, unknown>[] = [];
-    for (let i = 0; i < idArr.length; i += CHUNK) {
-      const chunk = idArr.slice(i, i + CHUNK);
-      extraCollab.push(
-        ...(await queryChunked(
-          taskCollaborators,
-          inArray(taskCollaborators.taskId, chunk),
-          taskCollaborators.id,
-        )),
-      );
-      extraContrib.push(
-        ...(await queryChunked(
-          classificationContributions,
-          inArray(classificationContributions.taskId, chunk),
-          classificationContributions.id,
-        )),
-      );
-      extraConfirm.push(
-        ...(await queryChunked(
-          classificationConfirmations,
-          inArray(classificationConfirmations.taskId, chunk),
-          classificationConfirmations.id,
-        )),
-      );
+    const [userData] = await tx.select().from(users).where(eq(users.id, userId));
+    if (!userData) {
+      throw new Error(`User ${userId} not found`);
     }
-    collabData = mergeByPrimaryKey(collabData, extraCollab, "id");
-    contribData = mergeByPrimaryKey(contribData, extraContrib, "id");
-    confirmData = mergeByPrimaryKey(confirmData, extraConfirm, "id");
-  }
 
-  const referencedTaskIds = new Set<string>();
-  for (const c of collabData) {
-    const tid = c.taskId as string;
-    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
-  }
-  for (const c of contribData) {
-    const tid = c.taskId as string;
-    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
-  }
-  for (const c of confirmData) {
-    const tid = c.taskId as string;
-    if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
-  }
+    const userTasks = await queryChunked(ex, tasks, eq(tasks.userId, userId), tasks.id);
+    const taskIds = userTasks.map((t) => t.id as string);
 
-  let referencedTasks: Record<string, unknown>[] = [];
-  if (referencedTaskIds.size > 0) {
-    const idList = Array.from(referencedTaskIds);
-    const CHUNK = 5000;
-    for (let i = 0; i < idList.length; i += CHUNK) {
-      const chunk = idList.slice(i, i + CHUNK);
-      for await (const rows of queryChunkedStream(tasks, inArray(tasks.id, chunk), tasks.id)) {
-        referencedTasks.push(...rows);
+    const [
+      walletData,
+      coinTxData,
+      badgeData,
+      rewardCatalog,
+      userRewardData,
+      patternData,
+      billingProfileData,
+      classCatData,
+    ] = await Promise.all([
+      queryChunked(ex, wallets, eq(wallets.userId, userId), wallets.userId),
+      queryChunked(ex, coinTransactions, eq(coinTransactions.userId, userId), coinTransactions.id),
+      queryChunked(ex, userBadges, eq(userBadges.userId, userId), userBadges.id),
+      queryChunked(ex, rewardsCatalog, undefined, rewardsCatalog.id),
+      queryChunked(ex, userRewards, eq(userRewards.userId, userId), userRewards.id),
+      queryChunked(ex, taskPatterns, eq(taskPatterns.userId, userId), taskPatterns.id),
+      queryChunked(ex, userBillingProfiles, eq(userBillingProfiles.userId, userId), userBillingProfiles.userId),
+      queryChunked(
+        ex,
+        userClassificationCategories,
+        eq(userClassificationCategories.userId, userId),
+        userClassificationCategories.id,
+      ),
+    ]);
+
+    const ownedTaskIdSet = new Set(taskIds);
+
+    let collabData = await queryChunked(ex, taskCollaborators, eq(taskCollaborators.userId, userId), taskCollaborators.id);
+    let contribData = await queryChunked(
+      ex,
+      classificationContributions,
+      eq(classificationContributions.userId, userId),
+      classificationContributions.id,
+    );
+    let confirmData = await queryChunked(
+      ex,
+      classificationConfirmations,
+      eq(classificationConfirmations.userId, userId),
+      classificationConfirmations.id,
+    );
+
+    if (ownedTaskIdSet.size > 0) {
+      const idArr = Array.from(ownedTaskIdSet);
+      const CHUNK = 2000;
+      let extraCollab: Record<string, unknown>[] = [];
+      let extraContrib: Record<string, unknown>[] = [];
+      let extraConfirm: Record<string, unknown>[] = [];
+      for (let i = 0; i < idArr.length; i += CHUNK) {
+        const chunk = idArr.slice(i, i + CHUNK);
+        extraCollab.push(
+          ...(await queryChunked(
+            ex,
+            taskCollaborators,
+            inArray(taskCollaborators.taskId, chunk),
+            taskCollaborators.id,
+          )),
+        );
+        extraContrib.push(
+          ...(await queryChunked(
+            ex,
+            classificationContributions,
+            inArray(classificationContributions.taskId, chunk),
+            classificationContributions.id,
+          )),
+        );
+        extraConfirm.push(
+          ...(await queryChunked(
+            ex,
+            classificationConfirmations,
+            inArray(classificationConfirmations.taskId, chunk),
+            classificationConfirmations.id,
+          )),
+        );
+      }
+      collabData = mergeByPrimaryKey(collabData, extraCollab, "id");
+      contribData = mergeByPrimaryKey(contribData, extraContrib, "id");
+      confirmData = mergeByPrimaryKey(confirmData, extraConfirm, "id");
+    }
+
+    const referencedTaskIds = new Set<string>();
+    for (const c of collabData) {
+      const tid = c.taskId as string;
+      if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
+    }
+    for (const c of contribData) {
+      const tid = c.taskId as string;
+      if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
+    }
+    for (const c of confirmData) {
+      const tid = c.taskId as string;
+      if (tid && !ownedTaskIdSet.has(tid)) referencedTaskIds.add(tid);
+    }
+
+    let referencedTasks: Record<string, unknown>[] = [];
+    if (referencedTaskIds.size > 0) {
+      const idList = Array.from(referencedTaskIds);
+      const CHUNK = 5000;
+      for (let i = 0; i < idList.length; i += CHUNK) {
+        const chunk = idList.slice(i, i + CHUNK);
+        for await (const rows of queryChunkedStream(ex, tasks, inArray(tasks.id, chunk), tasks.id)) {
+          referencedTasks.push(...rows);
+        }
       }
     }
-  }
 
-  const allTaskRows = [...userTasks, ...referencedTasks];
+    const allTaskRows = [...userTasks, ...referencedTasks];
 
-  const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
-  const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
+    const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
+    const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
 
-  // User export intentionally omits tables present in `exportFullDatabase`: cross-user or infra rows
-  // (e.g. userNotificationPreferences, userPushSubscriptions, billingPaymentMethods, invoices, invoiceEvents,
-  // appeals, appealVotes, userMilestoneGrants, userEntourage, avatarProfiles, avatarXpEvents, offlineSkillNodes,
-  // offlineGenerators, userOfflineSkills, usageSnapshots, storagePolicies, premiumSubscriptions, premiumSavedViews,
-  // premiumReviewWorkflows, premiumInsights, premiumEvents, attachmentAssets, taskImportFingerprints) and empty
-  // stubs here (passwordResetTokens, securityLogs). Keeps the bundle focused on one user's tasks + gamification core.
+    // User export intentionally omits tables present in `exportFullDatabase`: cross-user or infra rows
+    // (e.g. userNotificationPreferences, userPushSubscriptions, billingPaymentMethods, invoices, invoiceEvents,
+    // appeals, appealVotes, userMilestoneGrants, userEntourage, avatarProfiles, avatarXpEvents, offlineSkillNodes,
+    // offlineGenerators, userOfflineSkills, usageSnapshots, storagePolicies, premiumSubscriptions, premiumSavedViews,
+    // premiumReviewWorkflows, premiumInsights, premiumEvents, attachmentAssets, taskImportFingerprints) and empty
+    // stubs here (passwordResetTokens, securityLogs). Keeps the bundle focused on one user's tasks + gamification core.
 
-  const data: Record<string, Record<string, unknown>[]> = {
-    users: serializeRows([adminMode ? (userData as Record<string, unknown>) : sanitizeUserRow(userData as Record<string, unknown>)]),
-    userBillingProfiles: adminMode ? serializeRows(billingProfileData) : [],
-    userClassificationCategories: serializeRows(classCatData),
-    rewardsCatalog: serializeRows(filteredCatalog),
-    tasks: serializeRows(allTaskRows),
-    wallets: serializeRows(walletData),
-    coinTransactions: serializeRows(coinTxData),
-    userBadges: serializeRows(badgeData),
-    userRewards: serializeRows(userRewardData),
-    taskPatterns: serializeRows(patternData),
-    taskCollaborators: serializeRows(collabData),
-    classificationContributions: serializeRows(contribData),
-    classificationConfirmations: serializeRows(confirmData),
-    passwordResetTokens: [],
-    securityLogs: [],
-  };
+    const data: Record<string, Record<string, unknown>[]> = {
+      users: serializeRows([
+        sanitizeUserRowForExport(userData as Record<string, unknown>, userId, adminMode),
+      ]),
+      userBillingProfiles: adminMode ? serializeRows(billingProfileData) : [],
+      userClassificationCategories: serializeRows(classCatData),
+      rewardsCatalog: serializeRows(filteredCatalog),
+      tasks: serializeRows(allTaskRows),
+      wallets: serializeRows(walletData),
+      coinTransactions: serializeRows(coinTxData),
+      userBadges: serializeRows(badgeData),
+      userRewards: serializeRows(userRewardData),
+      taskPatterns: serializeRows(patternData),
+      taskCollaborators: serializeRows(collabData),
+      classificationContributions: serializeRows(contribData),
+      classificationConfirmations: serializeRows(confirmData),
+      passwordResetTokens: [],
+      securityLogs: [],
+    };
 
-  const tableCounts: Record<string, number> = {};
-  for (const [key, rows] of Object.entries(data)) {
-    tableCounts[key] = rows.length;
-  }
+    const tableCounts: Record<string, number> = {};
+    for (const [key, rows] of Object.entries(data)) {
+      tableCounts[key] = rows.length;
+    }
 
-  return {
-    metadata: {
-      schemaVersion: 1,
-      exportedAt: new Date().toISOString(),
-      exportMode: "user",
-      includesPrivilegedUserData: adminMode,
-      sourceEnvironment: process.env.REPL_SLUG || process.env.REPLIT_DEV_DOMAIN || "unknown",
-      userId,
-      tableCounts,
-    },
-    data,
-  };
+    return {
+      metadata: {
+        schemaVersion: 1,
+        exportedAt: new Date().toISOString(),
+        exportMode: "user",
+        includesPrivilegedUserData: adminMode,
+        sourceEnvironment: process.env.REPL_SLUG || process.env.REPLIT_DEV_DOMAIN || "unknown",
+        userId,
+        tableCounts,
+      },
+      data,
+    };
+  });
 }

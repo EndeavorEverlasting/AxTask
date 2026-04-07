@@ -3,6 +3,18 @@ import { apiFetch } from "@/lib/queryClient";
 
 export type LiveClassificationSuggestion = { label: string; confidence: number; source: string };
 
+function dedupeSuggestions(items: LiveClassificationSuggestion[]): LiveClassificationSuggestion[] {
+  const seen = new Set<string>();
+  const out: LiveClassificationSuggestion[] = [];
+  for (const s of items) {
+    const k = `${s.label}-${s.source}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
 const SSE_RECONNECT_BASE_MS = 1000;
 const SSE_RECONNECT_MAX_MS = 30_000;
 
@@ -83,7 +95,7 @@ export function useLiveClassificationStream(options: {
           };
           if (d.type === "suggestions" && Array.isArray(d.suggestions)) {
             if (typeof d.seq === "number" && d.seq < seqRef.current) return;
-            setSuggestions(d.suggestions.slice(0, 4));
+            setSuggestions(dedupeSuggestions(d.suggestions).slice(0, 4));
             setLoading(false);
           }
         } catch {
@@ -149,7 +161,7 @@ export function useLiveClassificationStream(options: {
             }
             const data = (await res.json()) as { suggestions?: LiveClassificationSuggestion[] };
             if (seq === seqRef.current) {
-              setSuggestions((data.suggestions ?? []).slice(0, 4));
+              setSuggestions(dedupeSuggestions(data.suggestions ?? []).slice(0, 4));
               setLoading(false);
             }
           } catch {

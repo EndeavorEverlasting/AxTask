@@ -405,7 +405,7 @@ export default function RewardsPage() {
                         </Button>
                         <Button
                           size="sm"
-                          disabled={boostAvatarMutation.isPending}
+                          disabled={boostAvatarMutation.isPending || (wallet?.balance ?? 0) < 25}
                           onClick={() => boostAvatarMutation.mutate({ avatarKey: av.avatarKey, coins: 25 })}
                         >
                           Spend 25 Coins

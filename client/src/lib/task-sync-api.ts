@@ -93,7 +93,7 @@ async function withOfflineDrainLock(run: () => Promise<void>): Promise<void> {
       throw err;
     }
   }
-  await run();
+  throw new Error("failed to acquire offline drain lock");
 }
 
 /** User chose server / review during conflict — caller should not toast success. */

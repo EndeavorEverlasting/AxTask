@@ -211,7 +211,6 @@ export async function manualCreateTaskWithImportFingerprintClaim(
   const fp = computeTaskFingerprint(validatedData);
   const now = new Date();
   const taskRow: typeof tasks.$inferInsert = {
-    ...rest,
     id,
     userId,
     priority: "Low",
@@ -220,6 +219,7 @@ export async function manualCreateTaskWithImportFingerprintClaim(
     isRepeated: false,
     createdAt: now,
     updatedAt: now,
+    ...rest,
   };
 
   return db.transaction(async (tx) => {

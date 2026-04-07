@@ -26,6 +26,17 @@ export function normalizeCategoryName(name: string): string {
   return name.trim().replace(/\s+/g, " ");
 }
 
+/** Canonical stored form so (userId, name) unique index matches case-insensitive intent. */
+export function formatCategoryNameForStorage(raw: string): string {
+  const t = normalizeCategoryName(raw);
+  if (!t) return t;
+  return t
+    .toLowerCase()
+    .split(" ")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
 export function isGeneralClassification(label: string): boolean {
   return label.trim().toLowerCase() === "general";
 }

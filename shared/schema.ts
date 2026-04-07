@@ -1049,7 +1049,9 @@ export const userClassificationCategories = pgTable(
   },
   (table) => [
     index("idx_user_classification_categories_user").on(table.userId),
-    uniqueIndex("idx_user_classification_categories_user_name").on(table.userId, sql`lower(${table.name})`),
+    // Column-only: drizzle-kit cannot serialize SQL in unique indexes (Zod null expression on push).
+    // Case-insensitive uniqueness is enforced via formatCategoryNameForStorage + storage duplicate checks.
+    uniqueIndex("idx_user_classification_categories_user_name").on(table.userId, table.name),
   ],
 );
 

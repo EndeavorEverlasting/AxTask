@@ -103,7 +103,11 @@ function isValidClientTaskUuid(id: string): boolean {
   return CLIENT_TASK_ID_UUID_RE.test(id);
 }
 import { maskE164ForDisplay } from "@shared/phone";
-import { isBuiltInClassification, normalizeCategoryName } from "@shared/classification-catalog";
+import {
+  isBuiltInClassification,
+  normalizeCategoryName,
+  formatCategoryNameForStorage,
+} from "@shared/classification-catalog";
 import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
 import { computeLazyAvatarXp } from "./services/gamification/lazy-avatar-xp";
 
@@ -265,20 +269,19 @@ export async function updateUserAccountProfile(
   userId: string,
   patch: { displayName?: string | null; birthDate?: string | null },
 ): Promise<SafeUser | undefined> {
-  const updates: Record<string, unknown> = {};
-  if (patch.displayName !== undefined) updates.displayName = patch.displayName;
+  if (patch.displayName !== undefined) {
+    await db.update(users).set({ displayName: patch.displayName }).where(eq(users.id, userId));
+  }
   if (patch.birthDate !== undefined) {
-    const existing = await getAccountOwnerProfileFields(userId);
-    const prior = existing?.birthDate;
-    const hasPrior = prior != null && String(prior).trim() !== "";
-    if (hasPrior) {
+    const [row] = await db
+      .update(users)
+      .set({ birthDate: patch.birthDate })
+      .where(and(eq(users.id, userId), isNull(users.birthDate)))
+      .returning({ id: users.id });
+    if (!row) {
       console.warn("[storage] updateUserAccountProfile: ignoring birthDate change (already set)");
-    } else {
-      updates.birthDate = patch.birthDate;
     }
   }
-  if (Object.keys(updates).length === 0) return getUserById(userId);
-  await db.update(users).set(updates as Partial<User>).where(eq(users.id, userId));
   return getUserById(userId);
 }
 
@@ -1265,6 +1268,8 @@ export async function analyzeAndCreateSecurityAlerts(): Promise<{ created: numbe
 
 export interface IStorage {
   getTasks(userId: string): Promise<Task[]>;
+  /** Most recently updated tasks (for probes); avoids loading the full list when only a few snippets are needed. */
+  getRecentTasksByUpdatedAt(userId: string, limit: number): Promise<Task[]>;
   getTask(userId: string, id: string): Promise<Task | undefined>;
   /** True if this user already has a task with this primary key (Phase C client-provisioned ids). */
   /** True if any task row exists with this primary key (global uniqueness). */
@@ -1297,6 +1302,16 @@ export class DatabaseStorage implements IStorage {
       .from(tasks)
       .where(eq(tasks.userId, userId))
       .orderBy(asc(tasks.sortOrder));
+  }
+
+  async getRecentTasksByUpdatedAt(userId: string, limit: number): Promise<Task[]> {
+    const cap = Math.min(Math.max(Math.floor(limit), 1), 50);
+    return db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.userId, userId))
+      .orderBy(desc(tasks.updatedAt))
+      .limit(cap);
   }
 
   async getTask(userId: string, id: string): Promise<Task | undefined> {
@@ -2879,15 +2894,70 @@ export async function grantAdminLifetimePremium(input: {
     grantedAt: new Date().toISOString(),
     source: "admin_grant",
   };
-  const row = await upsertPremiumSubscription({
-    userId: input.targetUserId,
-    product: input.product,
-    planKey,
-    status: "active",
-    graceUntil: null,
-    endsAt: null,
-    metadata,
+  const { row, retired } = await db.transaction(async (tx) => {
+    const now = new Date();
+    const retirees = await tx
+      .select()
+      .from(premiumSubscriptions)
+      .where(
+        and(
+          eq(premiumSubscriptions.userId, input.targetUserId),
+          eq(premiumSubscriptions.product, input.product),
+          notInArray(premiumSubscriptions.planKey, LIFETIME_PLAN_KEY_LIST),
+          or(eq(premiumSubscriptions.status, "active"), eq(premiumSubscriptions.status, "grace")),
+          or(isNull(premiumSubscriptions.endsAt), gt(premiumSubscriptions.endsAt, now)),
+        ),
+      );
+    for (const sub of retirees) {
+      let priorMeta: Record<string, unknown> = {};
+      if (sub.metadataJson) {
+        try {
+          priorMeta = JSON.parse(sub.metadataJson) as Record<string, unknown>;
+        } catch {
+          priorMeta = {};
+        }
+      }
+      await tx
+        .update(premiumSubscriptions)
+        .set({
+          status: "inactive",
+          updatedAt: now,
+          endsAt: now,
+          metadataJson: JSON.stringify({
+            ...priorMeta,
+            retiredForLifetimeAt: now.toISOString(),
+            retiredForLifetimeBy: input.grantedByUserId,
+            retiredForLifetimeReason: trimmedReason,
+            grantType: input.grantType,
+          }),
+        })
+        .where(eq(premiumSubscriptions.id, sub.id));
+    }
+    const row = await upsertPremiumSubscriptionWithDb(tx as DbLike, {
+      userId: input.targetUserId,
+      product: input.product,
+      planKey,
+      status: "active",
+      graceUntil: null,
+      endsAt: null,
+      metadata,
+    });
+    return { row, retired: retirees };
   });
+  for (const sub of retired) {
+    await trackPremiumEvent({
+      userId: input.targetUserId,
+      eventName: "admin_subscription_retired_for_lifetime",
+      product: sub.product,
+      planKey: sub.planKey,
+      metadata: {
+        subscriptionId: sub.id,
+        replacedByLifetimePlan: planKey,
+        grantedBy: input.grantedByUserId,
+        reason: trimmedReason,
+      },
+    });
+  }
   await trackPremiumEvent({
     userId: input.targetUserId,
     eventName: "admin_lifetime_granted",
@@ -4247,7 +4317,7 @@ export async function createUserClassificationCategory(
   userId: string,
   input: { name: string; coinReward?: number },
 ): Promise<{ ok: true; row: UserClassificationCategory } | { ok: false; message: string }> {
-  const name = normalizeCategoryName(input.name);
+  const name = formatCategoryNameForStorage(input.name);
   if (name.length < 2 || name.length > 48) {
     return { ok: false, message: "Category name must be between 2 and 48 characters." };
   }

@@ -118,9 +118,12 @@ function migrateQueueBetweenKeys(prevKey: string, nextKey: string): void {
     const merged = [...prevOps, ...nextExisting];
     const lastIdx = new Map<string, number>();
     merged.forEach((op, i) => lastIdx.set(op.opId, i));
-    const deduped = merged
+    let deduped = merged
       .filter((op, i) => lastIdx.get(op.opId) === i)
       .sort((a, b) => a.enqueuedAt - b.enqueuedAt);
+    if (deduped.length > MAX_QUEUE) {
+      deduped = deduped.slice(-MAX_QUEUE);
+    }
     const outcome = persistQueueForKey(nextKey, deduped);
     if (outcome.persistedToStorage) {
       memoryFallbackQueues.delete(prevKey);
@@ -142,12 +145,8 @@ export function setOfflineQueueUserScope(userId: string | null): void {
   const prevKey = storageKey();
   offlineQueueScopeUserId = userId;
   const nextKey = storageKey();
-  if (prevKey !== nextKey) {
-    if (mayMergeOfflineQueueScopes(prevKey, nextKey)) {
-      migrateQueueBetweenKeys(prevKey, nextKey);
-    } else {
-      clearOfflineQueueStorageKey(prevKey);
-    }
+  if (prevKey !== nextKey && mayMergeOfflineQueueScopes(prevKey, nextKey)) {
+    migrateQueueBetweenKeys(prevKey, nextKey);
   }
 }
 
@@ -263,18 +262,19 @@ function readQueue(): OfflineTaskOp[] {
 
 /** Persists the queue; no lock — callers must hold `withQueueKeyLock` when mutating. */
 function persistQueueForKey(key: string, ops: OfflineTaskOp[]): WriteQueueOutcome {
-  const overflowed = ops.length > MAX_QUEUE;
-  /** Keep newest ops when over limit; oldest are dropped. */
-  const truncated = ops.slice(-MAX_QUEUE);
+  if (ops.length > MAX_QUEUE) {
+    listeners.forEach((l) => l());
+    return { persistedToStorage: true, usingMemoryFallback: memoryFallbackQueues.has(key), overflowed: true };
+  }
   try {
-    localStorage.setItem(key, JSON.stringify(truncated));
+    localStorage.setItem(key, JSON.stringify(ops));
     memoryFallbackQueues.delete(key);
     listeners.forEach((l) => l());
-    return { persistedToStorage: true, usingMemoryFallback: false, overflowed };
+    return { persistedToStorage: true, usingMemoryFallback: false, overflowed: false };
   } catch {
-    memoryFallbackQueues.set(key, truncated.slice());
+    memoryFallbackQueues.set(key, ops.slice());
     listeners.forEach((l) => l());
-    return { persistedToStorage: false, usingMemoryFallback: true, overflowed };
+    return { persistedToStorage: false, usingMemoryFallback: true, overflowed: false };
   }
 }
 
@@ -285,7 +285,19 @@ function writeQueue(ops: OfflineTaskOp[]): WriteQueueOutcome {
 
 function mutateCurrentQueue(updater: (q: OfflineTaskOp[]) => OfflineTaskOp[]): WriteQueueOutcome {
   const k = queueStorageKey();
-  return withQueueKeyLock(k, () => persistQueueForKey(k, updater(readQueueForKey(k))));
+  return withQueueKeyLock(k, () => {
+    const q = readQueueForKey(k);
+    const next = updater(q);
+    if (next.length > MAX_QUEUE) {
+      listeners.forEach((l) => l());
+      return {
+        persistedToStorage: true,
+        usingMemoryFallback: memoryFallbackQueues.has(k),
+        overflowed: true,
+      };
+    }
+    return persistQueueForKey(k, next);
+  });
 }
 
 /** Remove a task from reorder ops; drop create/update/delete ops targeting taskId. */
@@ -608,7 +620,8 @@ export function refreshQueuedUpdateBasesForTask(taskId: string, newBaseUpdatedAt
 
 /** Replace entire queue (used after conflict resolution / bulk retry). */
 export function replaceOfflineQueue(ops: OfflineTaskOp[]): WriteQueueOutcome {
-  return writeQueue(ops);
+  const capped = ops.length > MAX_QUEUE ? ops.slice(-MAX_QUEUE) : ops;
+  return writeQueue(capped);
 }
 
 /**

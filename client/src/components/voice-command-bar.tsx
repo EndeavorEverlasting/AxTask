@@ -131,9 +131,9 @@ export function VoiceCommandBar() {
                   {liveTopicLoading && (
                     <span className="text-[10px] text-gray-500 dark:text-gray-400">Analyzing…</span>
                   )}
-                  {liveTopicSuggestions.map((s) => (
+                  {liveTopicSuggestions.map((s, i) => (
                     <span
-                      key={`${s.label}-${s.source}`}
+                      key={`${s.label}-${s.source}-${i}`}
                       className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100/90 text-amber-900 dark:bg-amber-900/35 dark:text-amber-200 tabular-nums"
                       title={
                         s.source === "nodeweaver"

@@ -1575,11 +1575,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { format } = parsed.data;
       const userId = req.user!.id;
-      const tasks = await storage.getTasks(userId);
       const cost = getTasksSpreadsheetExportCost();
-      const buf = format === "csv" ? tasksToCsvBuffer(tasks) : tasksToXlsxBuffer(tasks);
       const ok = await debitProductivityExport(res, userId, cost, `export:tasks_spreadsheet:${format}`);
       if (!ok) return;
+      const tasks = await storage.getTasks(userId);
+      const buf = format === "csv" ? tasksToCsvBuffer(tasks) : tasksToXlsxBuffer(tasks);
       const day = new Date().toISOString().slice(0, 10);
       if (format === "csv") {
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
