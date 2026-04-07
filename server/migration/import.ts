@@ -356,7 +356,6 @@ const USER_OWNED_TABLES = new Set<string>([
   "userClassificationCategories",
   "userEntourage",
   "avatarProfiles",
-  "rewardsCatalog",
   "wallets",
   "coinTransactions",
   "userBadges",
@@ -799,9 +798,13 @@ export async function importBundle(
               const fkVal = originalRow[rule.field];
               if (fkVal === null || fkVal === undefined) continue;
               const refIds = bundleIdSets[rule.refTable];
-              if (refIds && !refIds.has(String(fkVal)) && !rule.nullable) {
-                hasUnresolvable = true;
-                break;
+              if (refIds && !refIds.has(String(fkVal))) {
+                if (rule.nullable) {
+                  row[rule.field] = null;
+                } else {
+                  hasUnresolvable = true;
+                  break;
+                }
               }
             }
             if (hasUnresolvable) {
@@ -1061,7 +1064,7 @@ export async function importUserBundle(
   function hasUnresolvableFks(row: BundleRow, tableName: TableName): boolean {
     const fkRules = FK_RULES[tableName];
     for (const rule of fkRules) {
-      if (skipTables.has(rule.refTable)) continue;
+      if (skipTables.has(rule.refTable) && rule.refTable !== "users") continue;
       const val = row[rule.field];
       if (val) {
         const fkKey = remapKey(rule.refTable, String(val));
@@ -1177,6 +1180,12 @@ export async function importUserBundle(
           const rawRow = rows[i];
 
           if (hasUnresolvableFks(rawRow, tableName)) {
+            const pkFieldUnres = PK_FIELD[tableName];
+            const pkOrigUnres = rawRow[pkFieldUnres];
+            trackSkippedIdUserBundle(
+              tableName,
+              pkOrigUnres !== undefined && pkOrigUnres !== null ? String(pkOrigUnres) : undefined,
+            );
             validation.warnings.push({
               table: tableName, rowIndex: i, field: "fk",
               message: `Skipped row — references external data not in this user bundle`,

@@ -2743,9 +2743,9 @@ export async function getPremiumEntitlements(userId: string): Promise<PremiumEnt
   const subs = await listPremiumSubscriptions(userId);
   const now = new Date();
   const activeOrGrace = subs.filter((sub) => {
+    if (sub.status === "grace" && sub.graceUntil && new Date(sub.graceUntil) > now) return true;
     if (!premiumSubscriptionIsTimeValid(sub, now)) return false;
     if (sub.status === "active") return true;
-    if (sub.status === "grace" && sub.graceUntil && new Date(sub.graceUntil) > now) return true;
     return false;
   });
 
@@ -2768,7 +2768,7 @@ export async function getPremiumEntitlements(userId: string): Promise<PremiumEnt
   };
 }
 
-export async function upsertPremiumSubscription(input: {
+type PremiumUpsertInput = {
   userId: string;
   product: "axtask" | "nodeweaver" | "bundle";
   planKey: string;
@@ -2776,14 +2776,21 @@ export async function upsertPremiumSubscription(input: {
   graceUntil?: Date | null;
   endsAt?: Date | null;
   metadata?: Record<string, unknown>;
-}): Promise<PremiumSubscription> {
-  const [existing] = await db.select().from(premiumSubscriptions).where(and(
+};
+
+type DbLike = Pick<typeof db, "select" | "insert" | "update">;
+
+async function upsertPremiumSubscriptionWithDb(
+  d: DbLike,
+  input: PremiumUpsertInput,
+): Promise<PremiumSubscription> {
+  const [existing] = await d.select().from(premiumSubscriptions).where(and(
     eq(premiumSubscriptions.userId, input.userId),
     eq(premiumSubscriptions.product, input.product),
     eq(premiumSubscriptions.planKey, input.planKey),
   ));
   if (existing) {
-    const [updated] = await db.update(premiumSubscriptions).set({
+    const [updated] = await d.update(premiumSubscriptions).set({
       status: input.status,
       graceUntil: input.graceUntil !== undefined ? input.graceUntil : existing.graceUntil,
       endsAt: input.endsAt !== undefined ? input.endsAt : existing.endsAt,
@@ -2793,7 +2800,7 @@ export async function upsertPremiumSubscription(input: {
     }).where(eq(premiumSubscriptions.id, existing.id)).returning();
     return updated;
   }
-  const [created] = await db.insert(premiumSubscriptions).values({
+  const [created] = await d.insert(premiumSubscriptions).values({
     id: randomUUID(),
     userId: input.userId,
     product: input.product,
@@ -2806,6 +2813,10 @@ export async function upsertPremiumSubscription(input: {
     metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
   }).returning();
   return created;
+}
+
+export async function upsertPremiumSubscription(input: PremiumUpsertInput): Promise<PremiumSubscription> {
+  return upsertPremiumSubscriptionWithDb(db, input);
 }
 
 export async function listActiveLifetimePremiumGrants(): Promise<
@@ -3257,21 +3268,13 @@ export async function addCollaborator(
   if (!COLLABORATOR_ROLES.has(role)) {
     throw new Error("Invalid collaborator role");
   }
-  const existing = await db
-    .select()
-    .from(taskCollaborators)
-    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)));
-  if (existing.length > 0) {
-    const [updated] = await db
-      .update(taskCollaborators)
-      .set({ role })
-      .where(eq(taskCollaborators.id, existing[0].id))
-      .returning();
-    return updated;
-  }
   const [collab] = await db
     .insert(taskCollaborators)
     .values({ id: randomUUID(), taskId, userId, role, invitedBy })
+    .onConflictDoUpdate({
+      target: [taskCollaborators.taskId, taskCollaborators.userId],
+      set: { role, invitedBy },
+    })
     .returning();
   return collab;
 }
@@ -3662,24 +3665,26 @@ export async function changePremiumPlanForUser(
     throw new Error("Plan key does not match product");
   }
 
-  await db
-    .update(premiumSubscriptions)
-    .set({ status: "inactive", updatedAt: new Date() })
-    .where(
-      and(
-        eq(premiumSubscriptions.userId, userId),
-        eq(premiumSubscriptions.product, product),
-        notInArray(premiumSubscriptions.planKey, LIFETIME_PLAN_KEY_LIST),
-      ),
-    );
+  const row = await db.transaction(async (tx) => {
+    await tx
+      .update(premiumSubscriptions)
+      .set({ status: "inactive", updatedAt: new Date() })
+      .where(
+        and(
+          eq(premiumSubscriptions.userId, userId),
+          eq(premiumSubscriptions.product, product),
+          notInArray(premiumSubscriptions.planKey, LIFETIME_PLAN_KEY_LIST),
+        ),
+      );
 
-  const row = await upsertPremiumSubscription({
-    userId,
-    product,
-    planKey,
-    status: "active",
-    graceUntil: null,
-    endsAt: null,
+    return upsertPremiumSubscriptionWithDb(tx, {
+      userId,
+      product,
+      planKey,
+      status: "active",
+      graceUntil: null,
+      endsAt: null,
+    });
   });
   await trackPremiumEvent({
     userId,
@@ -4443,14 +4448,20 @@ export async function awardCoinsForConfirmationAtomic(
       if (!contrib) continue;
       const bonus = computeCompoundContributorBonus(contrib.baseCoinsAwarded, contrib.confirmationCount);
       const compoundPeriod = Math.min(contrib.confirmationCount + 1, getMaxCompoundPeriods());
+      await tx
+        .update(classificationContributions)
+        .set(
+          bonus > 0
+            ? {
+                confirmationCount: sql`${classificationContributions.confirmationCount} + 1`,
+                totalCoinsEarned: sql`${classificationContributions.totalCoinsEarned} + ${bonus}`,
+              }
+            : {
+                confirmationCount: sql`${classificationContributions.confirmationCount} + 1`,
+              },
+        )
+        .where(eq(classificationContributions.id, contrib.id));
       if (bonus > 0) {
-        await tx
-          .update(classificationContributions)
-          .set({
-            confirmationCount: sql`${classificationContributions.confirmationCount} + 1`,
-            totalCoinsEarned: sql`${classificationContributions.totalCoinsEarned} + ${bonus}`,
-          })
-          .where(eq(classificationContributions.id, contrib.id));
         await addCoinsInTx(
           tx,
           contrib.userId,

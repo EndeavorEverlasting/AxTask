@@ -345,9 +345,9 @@ export const updateTaskSchema = insertTaskSchema.partial().extend({
   /** Phase C: user chose to overwrite after a conflict. */
   forceOverwrite: z.boolean().optional(),
   /** Ignored if present — use community publish API with MFA. */
-  visibility: z.never().optional(),
-  communityPublishedAt: z.never().optional(),
-  communityShowNotes: z.never().optional(),
+  visibility: z.unknown().optional().transform(() => undefined),
+  communityPublishedAt: z.unknown().optional().transform(() => undefined),
+  communityShowNotes: z.unknown().optional().transform(() => undefined),
 });
 
 export const reorderTasksSchema = z.object({

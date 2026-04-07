@@ -30,6 +30,7 @@ async function main() {
     console.log("Options:");
     console.log("  --output  Output file path (default: axtask-export-<date>.json)");
     console.log("  --user    Export only a specific user's data");
+    console.log("  --include-security-tables  Full export only: include password_reset_tokens (active) + security_logs");
     console.log("  --file    Input file path for import");
     console.log("  --dry-run Validate without writing to database");
     console.log("  --mode    Import mode: 'preserve' keeps original IDs (default), 'remap' generates new IDs");
@@ -47,6 +48,7 @@ async function main() {
 
   if (command === "export") {
     const userId = getArg("user");
+    const includeSecurityTables = args.includes("--include-security-tables");
     const output = getArg("output") || `axtask-export-${userId ? "user" : "full"}-${new Date().toISOString().slice(0, 10)}.json`;
 
     console.log(userId ? `Exporting data for user: ${userId}` : "Exporting full database...");
@@ -54,7 +56,7 @@ async function main() {
     try {
       const bundle = userId
         ? await exportUserData(userId)
-        : await exportFullDatabase();
+        : await exportFullDatabase({ includeSecurityTables });
 
       const rawTc = bundle.metadata?.tableCounts;
       const tcExport: Record<string, unknown> =

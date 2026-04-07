@@ -57,13 +57,14 @@ export async function assertMfaChallengeCreateAllowed(
   }
 
   if (purpose === MFA_PURPOSES.INVOICE_ISSUE || purpose === MFA_PURPOSES.INVOICE_CONFIRM_PAYMENT) {
-    await requireExistingUser(userId);
     const invId = ctx.invoiceId?.trim();
-    if (invId) {
-      const inv = await getInvoiceForUser(invId, userId);
-      if (!inv) {
-        throw new Error("Invoice not found or access denied for MFA challenge");
-      }
+    if (!invId) {
+      throw new Error("invoiceId is required for invoice MFA challenges");
+    }
+    await requireExistingUser(userId);
+    const inv = await getInvoiceForUser(invId, userId);
+    if (!inv) {
+      throw new Error("Invoice not found or access denied for MFA challenge");
     }
     return;
   }

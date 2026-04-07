@@ -207,19 +207,28 @@ export function useCollaboration(taskId: string | null) {
   }, [taskId, sendJoinTaskIfNeeded]);
 
   const focusField = useCallback((field: string, cursorPosition?: number) => {
-    wsRef.current?.send(JSON.stringify({ type: "focus_field", field, cursorPosition }));
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "focus_field", field, cursorPosition }));
   }, []);
 
   const blurField = useCallback(() => {
-    wsRef.current?.send(JSON.stringify({ type: "blur_field" }));
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "blur_field" }));
   }, []);
 
   const sendFieldEdit = useCallback((field: string, value: string) => {
-    wsRef.current?.send(JSON.stringify({ type: "field_edit", field, value }));
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "field_edit", field, value }));
   }, []);
 
   const leaveTask = useCallback(() => {
-    wsRef.current?.send(JSON.stringify({ type: "leave_task" }));
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "leave_task" }));
+    }
     setState(s => ({ ...s, users: [], role: "owner" }));
   }, []);
 

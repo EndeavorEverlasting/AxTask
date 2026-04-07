@@ -26,6 +26,10 @@ function run(label, command, args, options = {}) {
     shell: isWin,
     ...options,
   });
+  if (r.error) {
+    console.error(`[docker:cleanup] spawn failed (${label}): ${r.error.message}`);
+    return 1;
+  }
   return r.status ?? 1;
 }
 

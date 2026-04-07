@@ -2065,7 +2065,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!access.canAccess) {
         return res.status(404).json({ message: "Task not found" });
       }
-      if (access.role === "viewer") {
+      if (access.role === "viewer" || access.role === "commenter") {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const taskRow = await getTaskRowById(req.params.id);
@@ -2179,7 +2179,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!access.canAccess) {
         return res.status(404).json({ message: "Task not found" });
       }
-      if (access.role === "viewer") {
+      if (access.role === "viewer" || access.role === "commenter") {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const taskRow = await getTaskRowById(req.params.id);
@@ -2772,6 +2772,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         taskId: string;
         success: boolean;
         error?: string;
+        retryable?: boolean;
         serverTask?: Task;
         expectedBaseUpdatedAt?: string;
       }> = [];
@@ -2914,7 +2915,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               results.push({ taskId: action.taskId, success: false, error: "Unknown action type" });
           }
         } catch (err) {
-          results.push({ taskId: safeTaskId, success: false, error: "Processing error" });
+          results.push({ taskId: safeTaskId, success: false, error: "Processing error", retryable: true });
         }
       }
 
@@ -4372,7 +4373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const accessCheck = await canAccessTask(userId, taskId);
       if (!accessCheck.canAccess) return res.status(403).json({ message: "Access denied" });
-      if (accessCheck.role === "viewer") {
+      if (accessCheck.role === "viewer" || accessCheck.role === "commenter") {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -5094,10 +5095,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/export", requireAdmin, migrationLimiter, async (req, res) => {
     try {
-      const { userId } = req.body;
+      const { userId, includeSecurityTables } = req.body as {
+        userId?: string;
+        includeSecurityTables?: boolean;
+      };
       const bundle = userId
         ? await exportUserData(userId, { adminMode: true })
-        : await exportFullDatabase();
+        : await exportFullDatabase({
+            includeSecurityTables: includeSecurityTables === true,
+          });
 
       await logSecurityEvent(
         "data_export",

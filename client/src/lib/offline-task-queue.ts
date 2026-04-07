@@ -68,6 +68,25 @@ function withQueueKeyLock<T>(queueKey: string, fn: () => T): T {
   return fn();
 }
 
+/** Hold locks on two queue keys in canonical order to avoid deadlocks. */
+function withTwoQueueKeyLocks<T>(keyA: string, keyB: string, fn: () => T): T {
+  if (keyA === keyB) return withQueueKeyLock(keyA, fn);
+  const [first, second] = keyA < keyB ? [keyA, keyB] : [keyB, keyA];
+  return withQueueKeyLock(first, () => withQueueKeyLock(second, fn));
+}
+
+function clearOfflineQueueStorageKey(key: string): void {
+  withQueueKeyLock(key, () => {
+    memoryFallbackQueues.delete(key);
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* */
+    }
+    listeners.forEach((l) => l());
+  });
+}
+
 /** `null` = anonymous bucket; non-null = authenticated user id from the storage key. */
 function userIdFromOfflineStorageKey(key: string): string | null {
   if (key === `${OFFLINE_QUEUE_KEY_PREFIX}:anonymous`) return null;
@@ -89,12 +108,12 @@ function mayMergeOfflineQueueScopes(prevKey: string, nextKey: string): boolean {
 
 function migrateQueueBetweenKeys(prevKey: string, nextKey: string): void {
   if (prevKey === nextKey) return;
-  const prevOps = readQueueForKey(prevKey);
-  if (prevOps.length === 0 || !mayMergeOfflineQueueScopes(prevKey, nextKey)) {
-    listeners.forEach((l) => l());
-    return;
-  }
-  const outcome = withQueueKeyLock(nextKey, () => {
+  withTwoQueueKeyLocks(prevKey, nextKey, () => {
+    const prevOps = readQueueForKey(prevKey);
+    if (prevOps.length === 0 || !mayMergeOfflineQueueScopes(prevKey, nextKey)) {
+      listeners.forEach((l) => l());
+      return;
+    }
     const nextExisting = readQueueForKey(nextKey);
     const merged = [...prevOps, ...nextExisting];
     const lastIdx = new Map<string, number>();
@@ -102,16 +121,16 @@ function migrateQueueBetweenKeys(prevKey: string, nextKey: string): void {
     const deduped = merged
       .filter((op, i) => lastIdx.get(op.opId) === i)
       .sort((a, b) => a.enqueuedAt - b.enqueuedAt);
-    return persistQueueForKey(nextKey, deduped);
-  });
-  if (outcome.persistedToStorage) {
-    memoryFallbackQueues.delete(prevKey);
-    try {
-      localStorage.removeItem(prevKey);
-    } catch {
-      /* */
+    const outcome = persistQueueForKey(nextKey, deduped);
+    if (outcome.persistedToStorage) {
+      memoryFallbackQueues.delete(prevKey);
+      try {
+        localStorage.removeItem(prevKey);
+      } catch {
+        /* */
+      }
     }
-  }
+  });
 }
 
 export function setOfflineQueueUserScope(userId: string | null): void {
@@ -124,7 +143,11 @@ export function setOfflineQueueUserScope(userId: string | null): void {
   offlineQueueScopeUserId = userId;
   const nextKey = storageKey();
   if (prevKey !== nextKey) {
-    migrateQueueBetweenKeys(prevKey, nextKey);
+    if (mayMergeOfflineQueueScopes(prevKey, nextKey)) {
+      migrateQueueBetweenKeys(prevKey, nextKey);
+    } else {
+      clearOfflineQueueStorageKey(prevKey);
+    }
   }
 }
 

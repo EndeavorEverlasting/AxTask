@@ -14,7 +14,7 @@ import {
   offlineGenerators, offlineSkillNodes, userOfflineSkills,
   usageSnapshots, storagePolicies,
 } from "@shared/schema";
-import { and, asc, eq, getTableColumns, gt, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, gt, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
 
 export interface ExportMetadata {
@@ -117,7 +117,13 @@ function mergeByPrimaryKey(
   return [...map.values()];
 }
 
-export async function exportFullDatabase(): Promise<ExportBundle> {
+export type ExportFullDatabaseOptions = {
+  /** When true, include password reset tokens (active only) and security logs. Default false. */
+  includeSecurityTables?: boolean;
+};
+
+export async function exportFullDatabase(opts?: ExportFullDatabaseOptions): Promise<ExportBundle> {
+  const includeSecurityTables = opts?.includeSecurityTables === true;
   const [
     usersData,
     userBillingProfilesData,
@@ -155,8 +161,6 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
     taskCollaboratorsData,
     classContribData,
     classConfirmData,
-    passwordResetTokensData,
-    securityLogsData,
   ] = await Promise.all([
     queryChunked(users),
     queryChunked(userBillingProfiles),
@@ -194,9 +198,20 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
     queryChunked(taskCollaborators),
     queryChunked(classificationContributions),
     queryChunked(classificationConfirmations),
-    queryChunked(passwordResetTokens),
-    queryChunked(securityLogs),
   ]);
+
+  let passwordResetTokensData: Record<string, unknown>[] = [];
+  let securityLogsData: Record<string, unknown>[] = [];
+  if (includeSecurityTables) {
+    const now = new Date();
+    [passwordResetTokensData, securityLogsData] = await Promise.all([
+      queryChunked(
+        passwordResetTokens,
+        and(isNull(passwordResetTokens.usedAt), gt(passwordResetTokens.expiresAt, now)),
+      ),
+      queryChunked(securityLogs),
+    ]);
+  }
 
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows(usersData),
@@ -235,9 +250,11 @@ export async function exportFullDatabase(): Promise<ExportBundle> {
     taskCollaborators: serializeRows(taskCollaboratorsData),
     classificationContributions: serializeRows(classContribData),
     classificationConfirmations: serializeRows(classConfirmData),
-    passwordResetTokens: serializeRows(passwordResetTokensData),
-    securityLogs: serializeRows(securityLogsData),
   };
+  if (includeSecurityTables) {
+    data.passwordResetTokens = serializeRows(passwordResetTokensData);
+    data.securityLogs = serializeRows(securityLogsData);
+  }
 
   const tableCounts: Record<string, number> = {};
   for (const [key, rows] of Object.entries(data)) {

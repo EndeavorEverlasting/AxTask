@@ -29,7 +29,24 @@ async function withOfflineDrainLock(run: () => Promise<void>): Promise<void> {
   }
   const owner = randomUuid();
   const until = Date.now() + 120_000;
+  const HEARTBEAT_MS = 25_000;
+  const EXTEND_MS = 120_000;
   const payload = JSON.stringify({ owner, until });
+
+  function releaseDrainLockIfOwner(): void {
+    try {
+      if (typeof localStorage === "undefined") return;
+      const raw = localStorage.getItem(DRAIN_LS_MUTEX_KEY);
+      if (!raw) return;
+      const o = JSON.parse(raw) as { owner?: string };
+      if (o.owner === owner) {
+        localStorage.removeItem(DRAIN_LS_MUTEX_KEY);
+      }
+    } catch {
+      /* */
+    }
+  }
+
   for (let i = 0; i < 200; i++) {
     try {
       if (typeof localStorage !== "undefined") {
@@ -48,16 +65,28 @@ async function withOfflineDrainLock(run: () => Promise<void>): Promise<void> {
         localStorage.setItem(DRAIN_LS_MUTEX_KEY, payload);
         if (localStorage.getItem(DRAIN_LS_MUTEX_KEY) !== payload) continue;
       }
+      let hb: ReturnType<typeof setInterval> | undefined;
       try {
+        if (typeof localStorage !== "undefined") {
+          hb = setInterval(() => {
+            try {
+              const raw2 = localStorage.getItem(DRAIN_LS_MUTEX_KEY);
+              if (!raw2) return;
+              const o2 = JSON.parse(raw2) as { owner?: string };
+              if (o2.owner !== owner) return;
+              localStorage.setItem(
+                DRAIN_LS_MUTEX_KEY,
+                JSON.stringify({ owner, until: Date.now() + EXTEND_MS }),
+              );
+            } catch {
+              /* */
+            }
+          }, HEARTBEAT_MS);
+        }
         await run();
       } finally {
-        try {
-          if (typeof localStorage !== "undefined" && localStorage.getItem(DRAIN_LS_MUTEX_KEY) === payload) {
-            localStorage.removeItem(DRAIN_LS_MUTEX_KEY);
-          }
-        } catch {
-          /* */
-        }
+        if (hb !== undefined) clearInterval(hb);
+        releaseDrainLockIfOwner();
       }
       return;
     } catch {
@@ -94,6 +123,15 @@ function reviewApplyFailedActionIndices(json: unknown): number[] {
     if (r && r.success === false) out.push(i);
   });
   return out;
+}
+
+function reviewApplyFailureIsRetryable(result: {
+  error?: string;
+  retryable?: boolean;
+}): boolean {
+  if (result.retryable === true) return true;
+  if (result.retryable === false) return false;
+  return result.error === "Processing error";
 }
 
 function safeJsonParse(text: string): unknown {
@@ -668,18 +706,33 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
               if (failedIdx.length > 0) {
                 const bodyObj = op.body as Record<string, unknown> | null | undefined;
                 const actions = Array.isArray(bodyObj?.actions) ? (bodyObj.actions as unknown[]) : [];
-                removeOfflineOp(op.opId);
-                shouldRemoveOp = false;
-                const retryActions = failedIdx.map((i) => actions[i]).filter((x) => x !== undefined && x !== null);
-                if (retryActions.length > 0) {
-                  const retryBody =
-                    bodyObj && typeof bodyObj === "object" && !Array.isArray(bodyObj)
-                      ? { ...bodyObj, actions: retryActions }
-                      : { actions: retryActions };
-                  assertEnqueueOk(
-                    enqueueHttpMutation(op.method, op.path, retryBody),
-                    "enqueueHttpMutation reviewApplyRetry",
+                const resultsArr = (parsed as { results?: unknown[] }).results;
+                const retryIndices = failedIdx.filter((i) => {
+                  const r = Array.isArray(resultsArr) ? resultsArr[i] : undefined;
+                  return (
+                    r &&
+                    typeof r === "object" &&
+                    reviewApplyFailureIsRetryable(r as { error?: string; retryable?: boolean })
                   );
+                });
+                shouldRemoveOp = false;
+                if (retryIndices.length === 0) {
+                  removeOfflineOp(op.opId);
+                } else {
+                  removeOfflineOp(op.opId);
+                  const retryActions = retryIndices
+                    .map((i) => actions[i])
+                    .filter((x) => x !== undefined && x !== null);
+                  if (retryActions.length > 0) {
+                    const retryBody =
+                      bodyObj && typeof bodyObj === "object" && !Array.isArray(bodyObj)
+                        ? { ...bodyObj, actions: retryActions }
+                        : { actions: retryActions };
+                    assertEnqueueOk(
+                      enqueueHttpMutation(op.method, op.path, retryBody),
+                      "enqueueHttpMutation reviewApplyRetry",
+                    );
+                  }
                 }
                 await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
                 await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
@@ -696,7 +749,6 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
             break;
         }
         if (syncAborted) {
-          removeOfflineOp(op.opId);
           drainStoppedEarly = true;
           break;
         }
