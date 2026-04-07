@@ -1,14 +1,16 @@
 # NodeWeaver (AxTask integration)
 
-NodeWeaver is the **Python classification service** for AxTask. Its source lives **inside this repository** at **`upstream/`** (vendored copy of [NodeWeaver](https://github.com/EndeavorEverlasting/NodeWeaver)) so you get **one clone**, **no submodules**, and **one Docker Compose stack** when you enable the profile.
+NodeWeaver is the **Python classification service** for AxTask. Its source lives **inside this repository** at **`NodeWeaver/`** (vendored copy of [NodeWeaver](https://github.com/EndeavorEverlasting/NodeWeaver)) so you get **one clone**, **no submodules**, and **one Docker Compose stack** when you enable the profile.
 
 ## Layout
 
-- **`upstream/`** — full NodeWeaver app (`Dockerfile`, `app.py` / `main.py`, etc.). Treat edits here as AxTask-owned unless you are syncing from the upstream GitHub project on purpose.
+- **`NodeWeaver/`** — full NodeWeaver app (`Dockerfile`, `main.py`, etc.). Treat edits here as AxTask-owned unless you are syncing from the upstream GitHub project on purpose.
+
+This **`services/nodeweaver/`** folder holds integration docs only (no Python app).
 
 ## After clone
 
-No manual step. **`npm install`** runs **`postinstall`**, which verifies `services/nodeweaver/upstream` and (outside CI, if **`uv`** is on your PATH) syncs the Python env when `uv.lock` / `pyproject.toml` change. **`npm run dev`** runs the same check via **`predev`** first.
+No manual step. **`npm install`** runs **`postinstall`**, which verifies **`NodeWeaver/Dockerfile`** and (outside CI, if **`uv`** is on your PATH) syncs the Python env when `uv.lock` / `pyproject.toml` change. **`npm run dev`** runs the same check via **`predev`** first.
 
 Optional: **`npm run submodule:init`** runs the same bootstrap script (legacy script name).
 
@@ -16,7 +18,7 @@ Set **`AXTASK_SKIP_NODEWEAVER_PY=1`** to skip the optional `uv sync` (AxTask doe
 
 ## Refreshing from the standalone NodeWeaver repo
 
-If you maintain a separate NodeWeaver checkout, copy its contents **into** `services/nodeweaver/upstream` **without** the `.git` directory so AxTask stays a single git root.
+If you maintain a separate NodeWeaver checkout, copy its contents **into** **`NodeWeaver/`** **without** the nested `.git` directory so AxTask stays a single git root.
 
 ## Docker Compose (profile `nodeweaver`)
 

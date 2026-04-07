@@ -15,6 +15,7 @@ import { parseCookieSecureFlag, parseForceHttps, parseNodeIsDev } from "./lib/lo
 import { AXTASK_CSRF_COOKIE, AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import { initVapidAtBoot } from "./services/vapid-runtime";
 import { startWebPushDispatchScheduler } from "./services/web-push-dispatch";
+import { startPlaystyleCohortScheduler } from "./services/playstyle-cohort-scheduler";
 
 const app = express();
 
@@ -283,6 +284,7 @@ app.use((req, res, next) => {
     () => {
       log(`serving on port ${port}`);
       startWebPushDispatchScheduler();
+      startPlaystyleCohortScheduler();
     },
   );
 })();

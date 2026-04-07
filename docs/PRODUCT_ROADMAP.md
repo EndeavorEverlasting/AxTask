@@ -16,7 +16,9 @@
 | [SPREADSHEET_TEMPLATE_UX.md](./SPREADSHEET_TEMPLATE_UX.md) | Top entry zone, embedded formulas vs Apps Script, sync phases |
 | [CALENDAR_SYNC.md](./CALENDAR_SYNC.md) | External calendar sync (planned) |
 | COMMUNITY_MODERATION.md (planned) | Community moderation; doc not added to the repo yet |
-| [FLOWCHARTS.md](./FLOWCHARTS.md) | User flowcharts (planned) |
+| [FLOWCHARTS.md](./FLOWCHARTS.md) | Gantt (priority) + Mermaid / flow exports; coin tiers |
+| [AGENT_ECOSYSTEM.md](./AGENT_ECOSYSTEM.md) | Multi-agent vision: entourage vs systemic agents, council, RAG promotion |
+| [PRODUCTIVITY_ARTIFACTS.md](./PRODUCTIVITY_ARTIFACTS.md) | Coins, offline generator, exports, disputes, avatar↔skills target |
 | [BRANDING.md](./BRANDING.md) | Logo / favicon paths |
 | [VERSION_1.3.0_PLAN.md](./VERSION_1.3.0_PLAN.md) | Soft delete, recycle bin, DnD, etc. |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture |
@@ -44,6 +46,7 @@
 | 14 | **`npm run check`** baseline | No new errors in `client/`; server debt listed. | [TYPESCRIPT_BASELINE.md](./TYPESCRIPT_BASELINE.md) |
 | 15 | **README branding** | Canonical **AxTask** naming + subtitle. | [README.md](../README.md), [BRANDING.md](./BRANDING.md) |
 | 16 | **Engines** | Dispatcher + per-plane engines. | [ENGINES.md](./ENGINES.md) |
+| 17 | **Agent disputes + productivity exports** | Gantt engine first; Mermaid premium; steady generator cadence; optional council / vote / coin unlock ([PRODUCTIVITY_ARTIFACTS.md](./PRODUCTIVITY_ARTIFACTS.md), [AGENT_ECOSYSTEM.md](./AGENT_ECOSYSTEM.md)). | [FLOWCHARTS.md](./FLOWCHARTS.md), gamification routes in `server/routes.ts` |
 
 ## Ship protocol
 

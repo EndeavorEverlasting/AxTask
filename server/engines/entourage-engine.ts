@@ -9,6 +9,7 @@ import {
   getOrCreateWallet,
   getUserEntourageRow,
   upsertUserEntourageRow,
+  getUserNotificationPreference,
 } from "../storage";
 
 const ENT_CACHE_MS = 60 * 60 * 1000;
@@ -29,7 +30,7 @@ export async function getOrRecomputeEntourage(userId: string, force = false): Pr
   return payload;
 }
 
-export type EntourageSlot = "mood" | "archetype" | "productivity" | "social";
+export type EntourageSlot = "mood" | "archetype" | "productivity" | "social" | "lazy";
 
 export type EntourageCompanion = {
   slot: EntourageSlot;
@@ -68,6 +69,50 @@ const SOC = {
   connector: { key: "connector", label: "Connector", description: "You share tasks and show up for others." },
   catalyst: { key: "catalyst", label: "Catalyst", description: "Heavy social signal — classifying and collaborating." },
 } as const;
+
+async function lazyCompanionFromSignals(
+  userId: string,
+  openCount: number,
+  completed: number,
+): Promise<EntourageCompanion> {
+  const pref = await getUserNotificationPreference(userId);
+  const intensity = pref.intensity ?? 50;
+
+  if (openCount >= 18) {
+    return {
+      slot: "lazy",
+      key: "triage_buddy",
+      label: "Triage Buddy",
+      description: "Big queue — pick one humane next step, breathe, then the next.",
+      tier: tierFromScore(openCount, 45),
+    };
+  }
+  if (intensity >= 72) {
+    return {
+      slot: "lazy",
+      key: "unplug_nudge",
+      label: "Unplug Nudge",
+      description: "Pings are cranked up; gratitude lands softer. Ease the notification slider when you can.",
+      tier: 3,
+    };
+  }
+  if (intensity <= 40) {
+    return {
+      slot: "lazy",
+      key: "slow_lane",
+      label: "Slow Lane Sage",
+      description: "Gentle notification pace — perfect for savoring what you already finished.",
+      tier: 4,
+    };
+  }
+  return {
+    slot: "lazy",
+    key: "gratitude_guide",
+    label: "Lazy Lou",
+    description: "Talk through priorities, tough calls, and what you are thankful for — rest counts.",
+    tier: tierFromScore(completed, 60),
+  };
+}
 
 function tierFromScore(score: number, max: number): number {
   if (max <= 0) return 1;
@@ -146,11 +191,14 @@ export async function computeEntouragePayload(userId: string): Promise<Entourage
   const streak = wallet.currentStreak ?? 0;
   const longest = wallet.longestStreak ?? 0;
 
+  const lazy = await lazyCompanionFromSignals(userId, openCount, completed);
+
   const companions: EntourageCompanion[] = [
     moodFromSignals(patterns, streak, openCount, completed),
     archetypeFromClassification(dominant, completed),
     productivityFromCounts(completed, streak, longest),
     socialFromStats(stats, collabCount),
+    lazy,
   ];
 
   return {

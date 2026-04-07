@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Runs on postinstall, predev (before npm run dev), and npm run submodule:init.
- * - Verifies vendored NodeWeaver at services/nodeweaver/upstream.
+ * - Verifies vendored NodeWeaver at NodeWeaver/.
  * - Outside CI: if `uv` is on PATH and uv.lock exists, runs `uv sync` when lock/pyproject changed (fingerprint in .local/).
  */
 import { spawnSync } from "node:child_process";
@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..", "..");
 const isWin = process.platform === "win32";
-const nwUpstream = path.join(projectRoot, "services", "nodeweaver", "upstream");
+const nwUpstream = path.join(projectRoot, "NodeWeaver");
 const nwDockerfile = path.join(nwUpstream, "Dockerfile");
 const nwUvLock = path.join(nwUpstream, "uv.lock");
 const nwPyProject = path.join(nwUpstream, "pyproject.toml");
@@ -35,7 +35,7 @@ function verifyNodeweaver() {
   }
   if (!fs.existsSync(nwDockerfile)) {
     console.error(
-      "[axtask:bootstrap] Missing services/nodeweaver/upstream/Dockerfile. Restore NodeWeaver sources from git or copy the app into that folder (exclude .git).",
+      "[axtask:bootstrap] Missing NodeWeaver/Dockerfile. Restore NodeWeaver sources from git or copy the app into that folder (exclude .git).",
     );
     process.exit(1);
   }

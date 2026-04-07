@@ -458,7 +458,7 @@ export type UserEntourage = typeof userEntourage.$inferSelect;
 export const avatarProfiles = pgTable("avatar_profiles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  avatarKey: text("avatar_key").notNull(), // mood | archetype | productivity | social
+  avatarKey: text("avatar_key").notNull(), // mood | archetype | productivity | social | lazy
   archetypeKey: text("archetype_key").notNull(),
   displayName: text("display_name").notNull(),
   level: integer("level").notNull().default(1),
@@ -490,6 +490,48 @@ export const avatarXpEvents = pgTable("avatar_xp_events", {
 ]);
 
 export type AvatarXpEvent = typeof avatarXpEvents.$inferSelect;
+
+/**
+ * Latest server-wide playstyle cohort mix (no user identifiers).
+ * Derived from how people “play” the app: avatar XP sources, tasks, social, classification, coins.
+ */
+export const playstyleCohortRollups = pgTable(
+  "playstyle_cohort_rollups",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    cohortKey: text("cohort_key").notNull(),
+    memberCount: integer("member_count").notNull(),
+    /** Mean of normalized signals for this cohort (JSON) — for “formulaic inevitability” tracking. */
+    signalsMeanJson: text("signals_mean_json").notNull(),
+    assignmentVersion: text("assignment_version").notNull().default("playstyle_v1"),
+    computedAt: timestamp("computed_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_playstyle_cohort_rollups_computed").on(table.computedAt),
+    uniqueIndex("ux_playstyle_cohort_rollups_key_version").on(table.cohortKey, table.assignmentVersion),
+  ],
+);
+
+export type PlaystyleCohortRollup = typeof playstyleCohortRollups.$inferSelect;
+
+/**
+ * Internal assignment for recomputing rollups only — not exposed in user-facing APIs.
+ */
+export const userPlaystyleAssignments = pgTable(
+  "user_playstyle_assignments",
+  {
+    userId: varchar("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cohortKey: text("cohort_key").notNull(),
+    signalsJson: text("signals_json").notNull(),
+    assignmentVersion: text("assignment_version").notNull().default("playstyle_v1"),
+    computedAt: timestamp("computed_at").notNull().defaultNow(),
+  },
+  (table) => [index("idx_user_playstyle_assignments_cohort").on(table.cohortKey)],
+);
+
+export type UserPlaystyleAssignment = typeof userPlaystyleAssignments.$inferSelect;
 
 export const updateAccountProfileSchema = z.object({
   displayName: z.union([z.string().min(1).max(120), z.null()]).optional(),

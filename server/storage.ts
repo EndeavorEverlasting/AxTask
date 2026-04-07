@@ -101,6 +101,7 @@ function isValidClientTaskUuid(id: string): boolean {
 import { maskE164ForDisplay } from "@shared/phone";
 import { isBuiltInClassification, normalizeCategoryName } from "@shared/classification-catalog";
 import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
+import { computeLazyAvatarXp } from "./services/gamification/lazy-avatar-xp";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
 function normalizeText(value: string): string {
@@ -3652,7 +3653,7 @@ export async function cancelPremiumSubscriptionForUser(
 }
 
 export type AvatarCompanionInput = {
-  slot: "mood" | "archetype" | "productivity" | "social";
+  slot: "mood" | "archetype" | "productivity" | "social" | "lazy";
   key: string;
   label: string;
 };
@@ -3679,6 +3680,18 @@ function missionTextForAvatar(profile: AvatarProfile): string {
   }
   if (profile.avatarKey === "social") {
     return "Post constructive feedback or a social update to grow your social companion.";
+  }
+  if (profile.avatarKey === "lazy") {
+    if (archetype === "triage_buddy") {
+      return "Name the single next step you will do first, then jot one thing you are grateful is already true. Big lists shrink one breath at a time.";
+    }
+    if (archetype === "unplug_nudge") {
+      return "Slide notification intensity down a notch when you can, then note one win worth savoring. Less ping, more presence.";
+    }
+    if (archetype === "slow_lane") {
+      return "Your pace matches a softer inbox — stretch, enjoy what you have, and log a tiny gratitude line on a task or feedback.";
+    }
+    return "Talk through what to do first, a tough trade-off, or something you are thankful for. Rest and clarity are XP.";
   }
   return "Log a meaningful task or feedback update to improve your mood companion.";
 }
@@ -3824,6 +3837,8 @@ export async function awardAvatarProgressFromContent(
     .where(eq(avatarProfiles.userId, userId));
   const normalized = normalizeText(text || "");
   const rewards: Array<{ avatarKey: string; xp: number; coins: number }> = [];
+  const notifPref = await getUserNotificationPreference(userId);
+  const notificationIntensity = notifPref.intensity ?? 50;
 
   const computeXp = (p: AvatarProfile): number => {
     if (p.avatarKey === "archetype") {
@@ -3840,6 +3855,14 @@ export async function awardAvatarProgressFromContent(
     if (p.avatarKey === "mood") {
       return sourceType === "task" || sourceType === "feedback" ? 12 : 0;
     }
+    if (p.avatarKey === "lazy") {
+      return computeLazyAvatarXp({
+        sourceType,
+        completed,
+        text,
+        notificationIntensity,
+      });
+    }
     return 0;
   };
 
@@ -3850,6 +3873,7 @@ export async function awardAvatarProgressFromContent(
     const result = await awardAvatarXp(userId, p.avatarKey, sourceType, sourceRef, xp, coins, {
       completed,
       archetype: p.archetypeKey,
+      notificationIntensity,
     });
     if (result.awarded) {
       rewards.push({ avatarKey: p.avatarKey, xp, coins });
@@ -3874,6 +3898,8 @@ export async function engageAvatarWithContent(
   if (!profile) return { awarded: false, xp: 0, coins: 0 };
 
   const normalized = normalizeText(text || "");
+  const notifPref = await getUserNotificationPreference(userId);
+  const notificationIntensity = notifPref.intensity ?? 50;
   let xp = 0;
   if (profile.avatarKey === "archetype") {
     const keyNorm = normalizeText(profile.archetypeKey.replace(/_/g, " "));
@@ -3884,6 +3910,13 @@ export async function engageAvatarWithContent(
     xp = sourceType === "feedback" || sourceType === "post" ? 30 : 0;
   } else if (profile.avatarKey === "mood") {
     xp = sourceType === "task" || sourceType === "feedback" ? 12 : 0;
+  } else if (profile.avatarKey === "lazy") {
+    xp = computeLazyAvatarXp({
+      sourceType,
+      completed,
+      text,
+      notificationIntensity,
+    });
   }
   if (xp <= 0) return { awarded: false, xp: 0, coins: 0, profile };
 
@@ -3891,6 +3924,7 @@ export async function engageAvatarWithContent(
   const result = await awardAvatarXp(userId, avatarKey, sourceType, sourceRef, xp, coins, {
     completed,
     archetype: profile.archetypeKey,
+    notificationIntensity,
   });
   return { awarded: !!result.awarded, xp, coins, profile: result.profile ?? profile };
 }

@@ -53,7 +53,7 @@ interface UserBadge {
 
 interface AvatarProfile {
   id: string;
-  avatarKey: "mood" | "archetype" | "productivity" | "social";
+  avatarKey: "mood" | "archetype" | "productivity" | "social" | "lazy";
   displayName: string;
   archetypeKey: string;
   level: number;
@@ -327,7 +327,8 @@ export default function RewardsPage() {
                   Avatar Entourage Missions
                 </h4>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Post a task or feedback related to each avatar's archetype to earn XP, level up avatars, and gain coins.
+                  Post a task or feedback related to each companion. The lazy avatar rewards gratitude, rest, prioritizing
+                  what to do first, and calmer notification pacing.
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {(avatarData?.avatars ?? []).map((av) => (
@@ -366,10 +367,15 @@ export default function RewardsPage() {
                           disabled={engageAvatarMutation.isPending}
                           onClick={() => {
                             const claimDate = new Date().toISOString().slice(0, 10);
+                            const lazyDemo =
+                              "Grateful for what shipped today. First tomorrow I'll tackle the spec review before anything else — need a short pause after.";
                             engageAvatarMutation.mutate({
                               avatarKey: av.avatarKey,
                               sourceType: "task",
-                              text: `Task related to ${av.archetypeKey}`,
+                              text:
+                                av.avatarKey === "lazy"
+                                  ? lazyDemo
+                                  : `Task related to ${av.archetypeKey}`,
                               completed: true,
                               sourceRef: `${av.avatarKey}_task_${claimDate}`,
                             });
@@ -386,7 +392,10 @@ export default function RewardsPage() {
                             engageAvatarMutation.mutate({
                               avatarKey: av.avatarKey,
                               sourceType: "feedback",
-                              text: `Feedback about ${av.archetypeKey}`,
+                              text:
+                                av.avatarKey === "lazy"
+                                  ? "Thanks for the calmer pace this week — sliding notifications down helped me breathe and enjoy what is already working."
+                                  : `Feedback about ${av.archetypeKey}`,
                               completed: true,
                               sourceRef: `${av.avatarKey}_feedback_${claimDate}`,
                             });

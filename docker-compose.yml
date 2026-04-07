@@ -60,11 +60,11 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # NodeWeaver: optional Python classifier (sources at services/nodeweaver/upstream). Not started by default.
+  # NodeWeaver: optional Python classifier (sources at NodeWeaver/). Not started by default.
   nodeweaver:
     profiles: ["nodeweaver"]
     build:
-      context: ./services/nodeweaver/upstream
+      context: ./NodeWeaver
       dockerfile: Dockerfile
       target: production
     container_name: axtask-nodeweaver

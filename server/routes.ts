@@ -98,6 +98,7 @@ import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { deliverMfaOtp, canDeliverMfaInProduction, sendWelcomeExperienceEmail } from "./services/otp-delivery";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { buildBillingSummary } from "./engines/billing-summary-engine";
+import { getLatestPlaystyleCohortRollups, recomputePlaystyleCohortRollups } from "./services/gamification/playstyle-cohorts";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
 import { processFeedbackWithEngines } from "./engines/feedback-engine";
@@ -2964,7 +2965,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!result.awarded) {
         return res.status(200).json({
           awarded: false,
-          message: "No matching archetype signal found for this avatar yet.",
+          message:
+            avatarKey === "lazy"
+              ? "Lazy Lou did not see gratitude, rest, priority, or reflection cues yet — add a fuller note."
+              : "No matching archetype signal found for this avatar yet.",
           xp: 0,
           coins: 0,
         });
@@ -4313,6 +4317,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Admin step-up failed" });
+    }
+  });
+
+  /** Anonymous playstyle cohort mix (gamification signals — no per-user payload). */
+  app.get("/api/admin/playstyle-cohorts", requireAdminRole, async (_req, res) => {
+    try {
+      const data = await getLatestPlaystyleCohortRollups();
+      res.json(data);
+    } catch (error) {
+      console.error("[admin/playstyle-cohorts]", error);
+      res.status(500).json({ message: "Failed to load playstyle cohort rollups" });
+    }
+  });
+
+  app.post("/api/admin/playstyle-cohorts/recompute", requireAdmin, async (_req, res) => {
+    try {
+      const result = await recomputePlaystyleCohortRollups();
+      res.json(result);
+    } catch (error) {
+      console.error("[admin/playstyle-cohorts/recompute]", error);
+      res.status(500).json({ message: "Failed to recompute playstyle cohorts" });
     }
   });
 

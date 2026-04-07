@@ -11,7 +11,11 @@
 
 A full-stack task management application with an intelligent priority scoring engine that automatically calculates task priorities based on content analysis. Includes hardened import deduplication, usage/storage observability, attachment upload controls, and security event monitoring.
 
-**Product roadmap and vision checklist:** [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md) (start here after cloning). **Sign-in (production, Docker, local):** [docs/SIGN_IN.md](docs/SIGN_IN.md). **Operator / admin + local testing unblock:** [docs/internal/OPERATOR_RUNBOOK.template.md](docs/internal/OPERATOR_RUNBOOK.template.md) (copy to gitignored `docs/internal/OPERATOR_RUNBOOK.md` — see [docs/internal/README.md](docs/internal/README.md)). Billing UI and account-plane APIs: [docs/BILLING_UI.md](docs/BILLING_UI.md). Engine orchestration: [docs/ENGINES.md](docs/ENGINES.md).
+**Product roadmap and vision checklist:** [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md) (start here after cloning). **Agents & productivity vision:** [docs/AGENT_ECOSYSTEM.md](docs/AGENT_ECOSYSTEM.md), [docs/PRODUCTIVITY_ARTIFACTS.md](docs/PRODUCTIVITY_ARTIFACTS.md). **Sign-in (production, Docker, local):** [docs/SIGN_IN.md](docs/SIGN_IN.md).
+
+### Gamification (Rewards, avatars, coins)
+
+The **Rewards** area includes **avatar entourage** missions, **AxCoins**, an **offline coin generator**, and a **skills tree** (see `/api/gamification/*`). The **lazy** companion rewards **gratitude**, **prioritization** language, and **rest / ease** phrasing — including natural phrases like **“kick back”**, **chill**, **take a break**, **rest**, and **unwind** (see [`server/services/gamification/lazy-avatar-xp.ts`](server/services/gamification/lazy-avatar-xp.ts)). Broader **agent roles** (security, composers, oppositional “council” flows, RAG-suggested avatars) are **not limited to the five entourage slots**; see [docs/AGENT_ECOSYSTEM.md](docs/AGENT_ECOSYSTEM.md). **Gantt and Mermaid exports**, generator cadence, and **avatar ↔ skills** progression are specified in [docs/PRODUCTIVITY_ARTIFACTS.md](docs/PRODUCTIVITY_ARTIFACTS.md). **Operator / admin + local testing unblock:** [docs/internal/OPERATOR_RUNBOOK.template.md](docs/internal/OPERATOR_RUNBOOK.template.md) (copy to gitignored `docs/internal/OPERATOR_RUNBOOK.md` — see [docs/internal/README.md](docs/internal/README.md)). Billing UI and account-plane APIs: [docs/BILLING_UI.md](docs/BILLING_UI.md). Engine orchestration: [docs/ENGINES.md](docs/ENGINES.md).
 
 ## Run locally after cloning with Docker
 
@@ -43,7 +47,7 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
    cd AxTask
    ```
 
-   Use your **fork’s URL** or **SSH** if that is how you work. **NodeWeaver** for optional `docker:up:nodeweaver` is already under `services/nodeweaver/upstream`; run **`npm run submodule:init`** if you want a quick check that `Dockerfile` is present.
+   Use your **fork’s URL** or **SSH** if that is how you work. **NodeWeaver** for optional `docker:up:nodeweaver` lives under **`NodeWeaver/`** (vendored Python app); run **`npm run submodule:init`** if you want a quick check that `Dockerfile` is present.
 
    **Check you are in the right place:** `dir package.json` (Windows CMD), `Test-Path package.json` (PowerShell), or `ls package.json` (macOS/Linux) should succeed.
 
@@ -276,7 +280,7 @@ If something ever gets out of sync, run:
 npm run deps:sync
 ```
 
-If you use a **standalone** NodeWeaver checkout (outside AxTask), run that repo’s setup script once too; the copy under `services/nodeweaver/upstream` is the one Docker builds by default.
+If you use a **standalone** NodeWeaver checkout (outside AxTask), run that repo’s setup script once too; the copy under **`NodeWeaver/`** is the one Docker builds by default.
 
 ### File Structure
 ```
