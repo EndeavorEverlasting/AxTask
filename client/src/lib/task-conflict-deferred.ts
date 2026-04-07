@@ -96,7 +96,13 @@ export function submitConflictChoice(choice: ConflictChoice): void {
 
 export function abortConflictDialog(): void {
   if (!active) return;
-  const { resolve } = active;
+  const entry = active;
+  const { resolve } = entry;
+  const fn = entryAbortCleanups.get(entry);
+  if (fn) {
+    entryAbortCleanups.delete(entry);
+    fn();
+  }
   active = null;
   resolve("aborted");
   dispatchActive();

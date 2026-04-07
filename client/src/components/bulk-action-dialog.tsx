@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { syncRawTaskRequest } from "@/lib/task-sync-api";
@@ -56,6 +56,9 @@ const ACTION_LABELS: Record<string, string> = {
   update: "Update",
 };
 
+/** Max automatic retry rounds after a partial failure (each failed item tracked by stable key). */
+const MAX_RETRIES = 1;
+
 function ConfidenceBadge({ confidence }: { confidence: number }) {
   const pct = Math.round(confidence * 100);
   const color = pct >= 80
@@ -80,6 +83,10 @@ export default function BulkActionDialog({
 }: BulkActionDialogProps) {
   const actionKey = useCallback((a: ProposedAction, i: number) => a.actionId ?? `${a.taskId}:${i}`, []);
 
+  const retryAttemptsRef = useRef<Map<string, number>>(new Map());
+  /** Parallel to each `applyMutation.mutate([...])` payload — stable keys for retry limits. */
+  const submitKeysRef = useRef<string[]>([]);
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const reducedMotion = useReducedMotion();
@@ -87,6 +94,10 @@ export default function BulkActionDialog({
   useEffect(() => {
     setSelected(new Set(actions.map((a, i) => actionKey(a, i))));
   }, [actions, actionKey]);
+
+  useEffect(() => {
+    if (open) retryAttemptsRef.current.clear();
+  }, [open]);
 
   const toggleItem = useCallback((key: string) => {
     setSelected(prev => {
@@ -114,7 +125,7 @@ export default function BulkActionDialog({
         queryClient,
       ) as Promise<{ applied: number; failed: number; results: Array<{ taskId: string; success: boolean; error?: string }> }>;
     },
-    onSuccess: (data) => {
+    onSuccess: (data, selectedActions) => {
       if (data && typeof data === "object" && "offlineQueued" in data) {
         toast({
           title: "Queued",
@@ -123,12 +134,64 @@ export default function BulkActionDialog({
         onOpenChange(false);
         return;
       }
+      const results = data.results;
+      const failedCount = data.failed || 0;
+      if (
+        failedCount > 0 &&
+        Array.isArray(results) &&
+        selectedActions.length > 0 &&
+        results.length === selectedActions.length
+      ) {
+        const keys = submitKeysRef.current;
+        const failedEntries = selectedActions
+          .map((action, i) => ({
+            action,
+            i,
+            key: keys[i] ?? actionKey(action, i),
+          }))
+          .filter(({ i }) => results[i]?.success === false);
+        const eligible = failedEntries.filter(({ key }) => (retryAttemptsRef.current.get(key) ?? 0) < MAX_RETRIES);
+        const skippedForLimit = failedEntries.filter(
+          ({ key }) => (retryAttemptsRef.current.get(key) ?? 0) >= MAX_RETRIES,
+        );
+
+        if (eligible.length > 0 && failedEntries.length < selectedActions.length) {
+          for (const { key } of eligible) {
+            retryAttemptsRef.current.set(key, (retryAttemptsRef.current.get(key) ?? 0) + 1);
+          }
+          const toRetry = eligible.map(({ action }) => action);
+          submitKeysRef.current = eligible.map(({ key }) => key);
+          if (skippedForLimit.length > 0) {
+            const labels = skippedForLimit.map(({ action }) => action.taskActivity || action.taskId).slice(0, 5);
+            const more = skippedForLimit.length > 5 ? ` (+${skippedForLimit.length - 5} more)` : "";
+            toast({
+              title: "Some changes were not retried",
+              description: `Retry limit reached for: ${labels.join(", ")}${more}`,
+              variant: "destructive",
+            });
+          }
+          toast({
+            title: "Retrying failed changes",
+            description: `${toRetry.length} update${toRetry.length !== 1 ? "s" : ""} will be retried.`,
+          });
+          applyMutation.mutate(toRetry);
+          return;
+        }
+        if (skippedForLimit.length > 0) {
+          const labels = skippedForLimit.map(({ action }) => action.taskActivity || action.taskId).slice(0, 6);
+          toast({
+            title: "Some changes were not retried",
+            description: `Retry limit reached for: ${labels.join(", ")}${skippedForLimit.length > 6 ? "…" : ""}`,
+            variant: "destructive",
+          });
+        }
+      }
+
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
 
-      const failedCount = data.failed || 0;
       if (failedCount > 0) {
         toast({
           title: "Partially applied",
@@ -153,10 +216,19 @@ export default function BulkActionDialog({
   });
 
   const handleApply = useCallback(() => {
-    const selectedActions = actions.filter((a, i) => selected.has(actionKey(a, i)));
+    const selectedActions: ProposedAction[] = [];
+    const keys: string[] = [];
+    actions.forEach((a, i) => {
+      const k = actionKey(a, i);
+      if (selected.has(k)) {
+        selectedActions.push(a);
+        keys.push(k);
+      }
+    });
     if (selectedActions.length === 0) return;
+    submitKeysRef.current = keys;
     applyMutation.mutate(selectedActions);
-  }, [actions, selected, applyMutation]);
+  }, [actions, selected, applyMutation, actionKey]);
 
   const selectedCount = selected.size;
   const totalCount = actions.length;

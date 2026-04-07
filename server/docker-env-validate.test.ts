@@ -23,4 +23,13 @@ describe("validateEnvDockerText (docker login gate)", () => {
       "placeholder",
     );
   });
+
+  it("ignores placeholders that appear only in commented lines", () => {
+    expect(
+      validateEnvDockerText(
+        "# SESSION_SECRET=replace-with-32-plus-char-secret\nSESSION_SECRET=0123456789abcdef0123456789abcdef\n",
+      ),
+    ).toBe(null);
+    expect(validateEnvDockerText("# POSTGRES_PASSWORD=replace-me\nPOSTGRES_PASSWORD=ok\n")).toBe(null);
+  });
 });

@@ -10,7 +10,6 @@ export function startPlaystyleCohortScheduler(): void {
   if (!raw) return;
 
   const intervalMs = Math.max(300_000, parseInt(raw, 10) || 0);
-  if (intervalMs <= 0) return;
 
   log(`Playstyle cohort rollup every ${intervalMs}ms`, "playstyle-cohorts");
 

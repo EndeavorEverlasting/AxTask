@@ -16,6 +16,8 @@ import {
 export type MfaVerificationPanelProps = {
   open: boolean;
   challengeId?: string;
+  /** When true, blocks OTP entry/submit (e.g. challenge not ready). */
+  codeEntryDisabled?: boolean;
   purpose?: string;
   title?: string;
   description?: string;
@@ -36,6 +38,7 @@ export type MfaVerificationPanelProps = {
 export function MfaVerificationPanel({
   open,
   challengeId,
+  codeEntryDisabled,
   purpose,
   title = "Confirm it is you",
   description = "Enter the verification code we sent to your account email.",
@@ -53,9 +56,11 @@ export function MfaVerificationPanel({
   const submittedRef = useRef(false);
   const handleCompleteRef = useRef<(code: string) => void | Promise<void>>(() => {});
 
+  const otpDisabled = Boolean(isBusy || codeEntryDisabled || !challengeId);
+
   const handleComplete = useCallback(
     async (code: string) => {
-      if (code.length !== 6 || isBusy) return;
+      if (code.length !== 6 || isBusy || codeEntryDisabled || !challengeId) return;
       consumeMfaHandoffSession();
       try {
         await onSubmitCode(code);
@@ -63,7 +68,7 @@ export function MfaVerificationPanel({
         console.error("[mfa-verification] onSubmitCode rejected", err);
       }
     },
-    [isBusy, onSubmitCode],
+    [isBusy, onSubmitCode, codeEntryDisabled, challengeId],
   );
 
   handleCompleteRef.current = handleComplete;
@@ -164,7 +169,7 @@ export function MfaVerificationPanel({
                   submittedRef.current = true;
                   void handleComplete(next);
                 }}
-                disabled={isBusy}
+                disabled={otpDisabled}
                 containerClassName="gap-1.5"
               >
                 <InputOTPGroup className="gap-1.5">

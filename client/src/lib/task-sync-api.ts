@@ -20,6 +20,54 @@ import {
 import { openConflictDialog, type ConflictChoice } from "./task-conflict-deferred";
 import { randomUuid } from "./uuid";
 
+const DRAIN_LS_MUTEX_KEY = "axtask.offline_drain_mutex";
+
+async function withOfflineDrainLock(run: () => Promise<void>): Promise<void> {
+  if (typeof navigator !== "undefined" && navigator.locks?.request) {
+    await navigator.locks.request("offline-task-drain", { mode: "exclusive" }, run);
+    return;
+  }
+  const owner = randomUuid();
+  const until = Date.now() + 120_000;
+  const payload = JSON.stringify({ owner, until });
+  for (let i = 0; i < 200; i++) {
+    try {
+      if (typeof localStorage !== "undefined") {
+        const raw = localStorage.getItem(DRAIN_LS_MUTEX_KEY);
+        if (raw) {
+          try {
+            const o = JSON.parse(raw) as { until?: number };
+            if (typeof o.until === "number" && o.until > Date.now()) {
+              await new Promise((r) => setTimeout(r, 25));
+              continue;
+            }
+          } catch {
+            /* */
+          }
+        }
+        localStorage.setItem(DRAIN_LS_MUTEX_KEY, payload);
+        if (localStorage.getItem(DRAIN_LS_MUTEX_KEY) !== payload) continue;
+      }
+      try {
+        await run();
+      } finally {
+        try {
+          if (typeof localStorage !== "undefined" && localStorage.getItem(DRAIN_LS_MUTEX_KEY) === payload) {
+            localStorage.removeItem(DRAIN_LS_MUTEX_KEY);
+          }
+        } catch {
+          /* */
+        }
+      }
+      return;
+    } catch {
+      await run();
+      return;
+    }
+  }
+  await run();
+}
+
 /** User chose server / review during conflict — caller should not toast success. */
 export class TaskSyncAbortedError extends Error {
   override name = "TaskSyncAbortedError";
@@ -37,15 +85,15 @@ function pathWithoutQuery(path: string): string {
   return i >= 0 ? path.slice(0, i) : path;
 }
 
-/** Ensures batch endpoints that return 200 with per-action failures are not treated as full success. */
-function assertReviewApplyReplaySucceeded(json: unknown): void {
-  const o = json as { failed?: number; results?: Array<{ success?: boolean }> };
-  if (typeof o.failed === "number" && o.failed > 0) {
-    throw new Error(`Review apply reported ${o.failed} failed action(s); keeping offline mutation for retry`);
-  }
-  if (Array.isArray(o.results) && o.results.some((r) => r && r.success === false)) {
-    throw new Error("Review apply returned unsuccessful actions; keeping offline mutation for retry");
-  }
+/** Indices in `results` where `success === false` (partial `/api/tasks/review/apply` responses). */
+function reviewApplyFailedActionIndices(json: unknown): number[] {
+  const o = json as { results?: Array<{ success?: boolean } | null | undefined> };
+  if (!Array.isArray(o.results)) return [];
+  const out: number[] = [];
+  o.results.forEach((r, i) => {
+    if (r && r.success === false) out.push(i);
+  });
+  return out;
 }
 
 function safeJsonParse(text: string): unknown {
@@ -150,9 +198,8 @@ async function parseHttpSyncResponse(res: Response, path: string): Promise<unkno
   }
   const base = pathWithoutQuery(path);
   if (base === "/api/tasks/review/apply") {
-    const json = await res.json();
-    assertReviewApplyReplaySucceeded(json);
-    return json;
+    const text = await res.text();
+    return safeJsonParse(text);
   }
   return res.json();
 }
@@ -305,15 +352,18 @@ export async function syncUpdateTask(
 
   let res = await apiFetch("PUT", `/api/tasks/${taskId}`, body);
   if (res.status === 409) {
-    const j = await res.json();
-    if (isTaskConflictPayload(j)) {
+    const text409 = await res.text();
+    const parsed = safeJsonParse(text409);
+    if (isTaskConflictPayload(parsed)) {
       res = await resolveUpdateConflict(
         taskId,
         { ...shallowIn },
-        j.serverTask as Task,
+        parsed.serverTask as Task,
         baseUpdatedAt,
         queryClient,
       );
+    } else {
+      throw new Error(text409 || res.statusText);
     }
   }
   if (res.status === 499) {
@@ -350,12 +400,13 @@ export async function syncDeleteTask(
 
   let res = await apiFetch("DELETE", `/api/tasks/${taskId}${qs}`);
   if (res.status === 409) {
-    const j = await res.json();
-    if (isTaskConflictPayload(j)) {
+    const text409 = await res.text();
+    const parsed = safeJsonParse(text409);
+    if (isTaskConflictPayload(parsed)) {
       const choice = await openConflictDialog({
         kind: "delete",
         taskId,
-        serverTask: j.serverTask as Task,
+        serverTask: parsed.serverTask as Task,
         baseUpdatedAt,
       });
       if (choice === "aborted") {
@@ -370,6 +421,8 @@ export async function syncDeleteTask(
           ? `?overwrite=1&baseUpdatedAt=${encodeURIComponent(baseUpdatedAt)}`
           : "?overwrite=1";
       res = await apiFetch("DELETE", `/api/tasks/${taskId}${delQs}`);
+    } else {
+      throw new Error(text409 || res.statusText);
     }
   }
   if (!res.ok && res.status !== 204) {
@@ -427,15 +480,18 @@ async function processUpdateOp(
   if (effectiveBase) body.baseUpdatedAt = effectiveBase;
   let res = await apiFetch("PUT", `/api/tasks/${op.taskId}`, body);
   if (res.status === 409) {
-    const j = await res.json();
-    if (isTaskConflictPayload(j)) {
+    const text409 = await res.text();
+    const parsed = safeJsonParse(text409);
+    if (isTaskConflictPayload(parsed)) {
       res = await resolveUpdateConflict(
         op.taskId,
         { ...op.patch },
-        j.serverTask as Task,
+        parsed.serverTask as Task,
         effectiveBase,
         queryClient,
       );
+    } else {
+      throw new Error(text409 || res.statusText);
     }
   }
   if (res.status === 499) return "aborted";
@@ -461,12 +517,13 @@ async function processDeleteOp(
       : "";
   let res = await apiFetch("DELETE", `/api/tasks/${op.taskId}${qs}`);
   if (res.status === 409) {
-    const j = await res.json();
-    if (isTaskConflictPayload(j)) {
+    const text409 = await res.text();
+    const parsed = safeJsonParse(text409);
+    if (isTaskConflictPayload(parsed)) {
       const choice = await openConflictDialog({
         kind: "delete",
         taskId: op.taskId,
-        serverTask: j.serverTask as Task,
+        serverTask: parsed.serverTask as Task,
         baseUpdatedAt: op.baseUpdatedAt,
       });
       if (choice === "aborted") {
@@ -482,6 +539,8 @@ async function processDeleteOp(
           ? `?overwrite=1&baseUpdatedAt=${encodeURIComponent(op.baseUpdatedAt)}`
           : "?overwrite=1";
       res = await apiFetch("DELETE", `/api/tasks/${op.taskId}${delQs2}`);
+    } else {
+      throw new Error(text409 || res.statusText);
     }
   }
   if (!res.ok && res.status !== 204) {
@@ -490,15 +549,13 @@ async function processDeleteOp(
   }
   removeTaskFromCache(queryClient, op.taskId);
   await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+  await queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
   return "done";
 }
 
-let drainInProgress = false;
-
 /** Flush queued ops in order; removes each op on success. Stops on first error (op left on queue). */
 export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<void> {
-  if (!isBrowserOnline() || drainInProgress) return;
-  drainInProgress = true;
+  if (!isBrowserOnline()) return;
 
   const opDrainMeta = (op: OfflineTaskOp) => {
     const base = { kind: op.kind, opId: op.opId } as Record<string, unknown>;
@@ -511,15 +568,17 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
     return base;
   };
 
-  let ops: OfflineTaskOp[] = [];
-  let drainStoppedEarly = false;
-  try {
-    beginOfflineQueueDrainScope();
-    ops = peekOfflineQueue();
-    while (ops.length > 0) {
+  await withOfflineDrainLock(async () => {
+    let ops: OfflineTaskOp[] = [];
+    let drainStoppedEarly = false;
+    try {
+      beginOfflineQueueDrainScope();
+      ops = peekOfflineQueue();
+      while (ops.length > 0) {
       const op = ops[0];
       try {
         let syncAborted = false;
+        let shouldRemoveOp = true;
         switch (op.kind) {
           case "create": {
             const res = await apiFetch("POST", "/api/tasks", {
@@ -597,7 +656,36 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
               syncAborted = true;
               break;
             }
-            await parseHttpSyncResponse(res, op.path);
+            const parsed = await parseHttpSyncResponse(res, op.path);
+            const reviewBase = pathWithoutQuery(op.path);
+            if (
+              op.method.toUpperCase() === "POST" &&
+              reviewBase === "/api/tasks/review/apply" &&
+              parsed &&
+              typeof parsed === "object"
+            ) {
+              const failedIdx = reviewApplyFailedActionIndices(parsed);
+              if (failedIdx.length > 0) {
+                const bodyObj = op.body as Record<string, unknown> | null | undefined;
+                const actions = Array.isArray(bodyObj?.actions) ? (bodyObj.actions as unknown[]) : [];
+                removeOfflineOp(op.opId);
+                shouldRemoveOp = false;
+                const retryActions = failedIdx.map((i) => actions[i]).filter((x) => x !== undefined && x !== null);
+                if (retryActions.length > 0) {
+                  const retryBody =
+                    bodyObj && typeof bodyObj === "object" && !Array.isArray(bodyObj)
+                      ? { ...bodyObj, actions: retryActions }
+                      : { actions: retryActions };
+                  assertEnqueueOk(
+                    enqueueHttpMutation(op.method, op.path, retryBody),
+                    "enqueueHttpMutation reviewApplyRetry",
+                  );
+                }
+                await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+                await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+                break;
+              }
+            }
             if (op.path.startsWith("/api/tasks")) {
               await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
               await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
@@ -608,10 +696,11 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
             break;
         }
         if (syncAborted) {
+          removeOfflineOp(op.opId);
           drainStoppedEarly = true;
           break;
         }
-        removeOfflineOp(op.opId);
+        if (shouldRemoveOp) removeOfflineOp(op.opId);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error("[offline-task-queue] drain failed", { ...opDrainMeta(op), error: message, err });
@@ -626,9 +715,9 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
       await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
     }
-  } finally {
-    endOfflineQueueDrainScope();
-    drainInProgress = false;
-  }
+    } finally {
+      endOfflineQueueDrainScope();
+    }
+  });
 }
 

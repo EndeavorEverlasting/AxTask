@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * One-time cleanup before applying uniqueIndex ux_user_rewards_user_reward on user_rewards.
- * Keeps the earliest redeemed row per (user_id, reward_id) (by redeemed_at, then id); deletes newer duplicates.
+ * Per (user_id, reward_id): keeps the row with minimum redeemed_at (NULL treated as earliest);
+ * on redeemed_at ties, keeps the row with maximum id. Matches migrations/0000_dedupe_user_rewards.sql.
  *
  * Usage: DATABASE_URL=... node scripts/migration/dedupe-user-rewards.mjs
  * Or:    npm run migration:dedupe-user-rewards
@@ -25,12 +26,12 @@ try {
         COALESCE(a.redeemed_at, '-infinity'::timestamptz) > COALESCE(b.redeemed_at, '-infinity'::timestamptz)
         OR (
           COALESCE(a.redeemed_at, '-infinity'::timestamptz) IS NOT DISTINCT FROM COALESCE(b.redeemed_at, '-infinity'::timestamptz)
-          AND a.id > b.id
+          AND a.id < b.id
         )
       )
   `);
   const n = result.rowCount ?? 0;
-  console.log(`[dedupe-user-rewards] Removed ${n} duplicate row(s); kept oldest redeemed_at per (user_id, reward_id).`);
+  console.log(`[dedupe-user-rewards] Removed ${n} duplicate row(s); per (user_id, reward_id) kept earliest redeemed_at, then highest id on ties.`);
 } catch (e) {
   console.error("[dedupe-user-rewards] Failed:", e);
   process.exit(1);

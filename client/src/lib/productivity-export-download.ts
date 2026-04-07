@@ -54,12 +54,13 @@ export async function postPaidDownload(path: string, body: object): Promise<Paid
   }
 
   if (!res.ok) {
+    const txt = await res.text().catch(() => "");
     let message: string | undefined;
     try {
-      const j = (await res.json()) as { message?: string };
-      message = j.message;
+      const j = JSON.parse(txt) as { message?: string };
+      message = typeof j?.message === "string" ? j.message : undefined;
     } catch {
-      message = (await res.text()) || res.statusText;
+      message = txt.trim() || res.statusText;
     }
     return { ok: false, status: res.status, message };
   }

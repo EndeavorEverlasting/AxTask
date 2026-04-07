@@ -14,7 +14,7 @@ import {
   offlineGenerators, offlineSkillNodes, userOfflineSkills,
   usageSnapshots, storagePolicies,
 } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import type { ExportBundle } from "./export";
 import { insertBundleTaskWithFingerprintClaimTx, reconcileBundleTaskIdMapForTasks } from "../import-task-dedupe";
@@ -213,10 +213,20 @@ interface FkRule {
   refTable: TableName;
   refField: string;
   nullable?: boolean;
+  /** Skip on insert; apply after all `users` rows exist (self-FK ordering). */
+  deferredSecondPass?: boolean;
 }
 
 const FK_RULES: Record<TableName, FkRule[]> = {
-  users: [{ field: "bannedBy", refTable: "users", refField: "id", nullable: true }],
+  users: [
+    {
+      field: "bannedBy",
+      refTable: "users",
+      refField: "id",
+      nullable: true,
+      deferredSecondPass: true,
+    },
+  ],
   userBillingProfiles: [{ field: "userId", refTable: "users", refField: "id" }],
   userClassificationCategories: [{ field: "userId", refTable: "users", refField: "id" }],
   rewardsCatalog: [],
@@ -332,14 +342,30 @@ const FK_FIELDS_BY_TABLE: Record<TableName, string[]> = {
   securityLogs: ["userId", "targetUserId"],
 };
 
-/** Tables importable via self-service `importUserBundle` (single-user state only; no shared/actor-forged rows). */
+/**
+ * Tables importable via self-service `importUserBundle` (single-user state only).
+ * Must cover tables emitted by `exportUserData` so restores are not silently dropped.
+ * The bundle `users` row is remapped to `targetUserId` separately and is not inserted via this set.
+ */
 const USER_OWNED_TABLES = new Set<string>([
   "tasks",
   "taskPatterns",
+  "taskImportFingerprints",
+  "attachmentAssets",
   "userBillingProfiles",
   "userClassificationCategories",
   "userEntourage",
   "avatarProfiles",
+  "rewardsCatalog",
+  "wallets",
+  "coinTransactions",
+  "userBadges",
+  "userRewards",
+  "taskCollaborators",
+  "classificationContributions",
+  "classificationConfirmations",
+  "passwordResetTokens",
+  "securityLogs",
 ]);
 
 const TIMESTAMP_FIELDS = [
@@ -447,6 +473,8 @@ export async function validateBundleWithDb(bundle: ExportBundle): Promise<{
   const base = validateBundle(bundle);
   const conflicts: Record<string, number> = {};
 
+  const PK_EXISTENCE_CHUNK = 500;
+
   for (const tableName of TABLE_INSERT_ORDER) {
     const rows = getBundleRows(bundle, tableName);
     if (rows.length === 0) {
@@ -456,15 +484,38 @@ export async function validateBundleWithDb(bundle: ExportBundle): Promise<{
 
     const table = TABLE_MAP[tableName];
     const pkField = PK_FIELD[tableName];
+    const pkCol = (table as unknown as Record<string, unknown>)[pkField];
     let conflictCount = 0;
 
-    for (const row of rows) {
-      const pkValue = row[pkField];
-      if (!pkValue) continue;
-      const pkCol = (table as unknown as Record<string, unknown>)[pkField];
-      if (pkCol) {
-        const [existing] = await db.select().from(table as AnyPgTable).where(eq(pkCol as AnyPgColumn, String(pkValue))).limit(1);
-        if (existing) conflictCount++;
+    if (pkCol) {
+      const uniquePkStrings = [
+        ...new Set(
+          rows
+            .map((r) => r[pkField])
+            .filter((v) => v != null && v !== "")
+            .map((v) => String(v)),
+        ),
+      ];
+
+      const existingPkSet = new Set<string>();
+      for (let o = 0; o < uniquePkStrings.length; o += PK_EXISTENCE_CHUNK) {
+        const chunk = uniquePkStrings.slice(o, o + PK_EXISTENCE_CHUNK);
+        if (chunk.length === 0) continue;
+        const found = await db
+          .select()
+          .from(table as AnyPgTable)
+          .where(inArray(pkCol as AnyPgColumn, chunk));
+        for (const ex of found) {
+          const rowObj = ex as Record<string, unknown>;
+          const v = rowObj[pkField];
+          if (v != null && v !== "") existingPkSet.add(String(v));
+        }
+      }
+
+      for (const row of rows) {
+        const pkValue = row[pkField];
+        if (!pkValue) continue;
+        if (existingPkSet.has(String(pkValue))) conflictCount++;
       }
     }
 
@@ -518,6 +569,7 @@ function remapRow(row: BundleRow, tableName: TableName, pkField: string, idMap: 
 
   const fkRules = FK_RULES[tableName];
   for (const rule of fkRules) {
+    if (rule.deferredSecondPass) continue;
     const val = out[rule.field];
     if (val) {
       const fkKey = remapKey(rule.refTable, String(val));
@@ -710,6 +762,8 @@ export async function importBundle(
 
   try {
     await db.transaction(async (tx) => {
+      const pendingUserBannedBy: { userId: string; oldBannedBy: string }[] = [];
+
       const insertRowTx = async (table: DrizzleTable, row: BundleRow): Promise<number> => {
         const inserted = await tx
           .insert(table as AnyPgTable)
@@ -788,6 +842,15 @@ export async function importBundle(
             row = remapRow(row, tableName, pkField, idMap);
           }
 
+          let pendingBannedByOldId: string | null = null;
+          if (tableName === "users") {
+            const rawBb = originalRow.bannedBy;
+            if (rawBb !== null && rawBb !== undefined && String(rawBb).length > 0) {
+              pendingBannedByOldId = String(rawBb);
+            }
+            row = { ...row, bannedBy: null };
+          }
+
           const pkValue = row[pkField];
           const pkCol = (table as unknown as Record<string, unknown>)[pkField];
 
@@ -829,6 +892,9 @@ export async function importBundle(
             const affected = await insertRowTx(table, row);
             if (affected > 0) {
               insertCount++;
+              if (tableName === "users" && pendingBannedByOldId && pkValue !== undefined && pkValue !== null) {
+                pendingUserBannedBy.push({ userId: String(pkValue), oldBannedBy: pendingBannedByOldId });
+              }
             } else {
               const pkOrig = originalRow[pkField];
               if (pkOrig !== undefined && pkOrig !== null) {
@@ -855,6 +921,19 @@ export async function importBundle(
         inserted[tableName] = insertCount;
         skipped[tableName] = skipCount;
         conflicts[tableName] = conflictCount;
+      }
+
+      for (const { userId, oldBannedBy } of pendingUserBannedBy) {
+        let nextBannedBy: string | null = null;
+        if (skippedIdsByTable.users?.has(oldBannedBy)) {
+          nextBannedBy = null;
+        } else if (mode === "remap" && idMap) {
+          const key = remapKey("users", oldBannedBy);
+          nextBannedBy = idMap.has(key) ? (idMap.get(key) as string) : oldBannedBy;
+        } else {
+          nextBannedBy = oldBannedBy;
+        }
+        await tx.update(users).set({ bannedBy: nextBannedBy }).where(eq(users.id, userId));
       }
 
       if (validation.errors.length > 0) {

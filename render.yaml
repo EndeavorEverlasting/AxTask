@@ -1,5 +1,5 @@
 # Blueprint skeleton: sync:false vars must be set in the Render dashboard (or `render secret`).
-# Full annotated checklist (no secrets): see docs/RENDER_WEB_SERVICE_PASTE_CHECKLIST.md and AxTask/.env.render.example (template in the AxTask directory).
+# Full annotated checklist (no secrets): see docs/RENDER_WEB_SERVICE_PASTE_CHECKLIST.md and .env.render.example at repo root.
 services:
   - type: web
     name: axtask-prod

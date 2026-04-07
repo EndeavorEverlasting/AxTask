@@ -396,6 +396,13 @@ export async function exportUserData(userId: string, options: { adminMode?: bool
   const rewardIdsNeeded = new Set(userRewardData.map((r) => r.rewardId as string));
   const filteredCatalog = rewardCatalog.filter((r) => rewardIdsNeeded.has(r.id as string));
 
+  // User export intentionally omits tables present in `exportFullDatabase`: cross-user or infra rows
+  // (e.g. userNotificationPreferences, userPushSubscriptions, billingPaymentMethods, invoices, invoiceEvents,
+  // appeals, appealVotes, userMilestoneGrants, userEntourage, avatarProfiles, avatarXpEvents, offlineSkillNodes,
+  // offlineGenerators, userOfflineSkills, usageSnapshots, storagePolicies, premiumSubscriptions, premiumSavedViews,
+  // premiumReviewWorkflows, premiumInsights, premiumEvents, attachmentAssets, taskImportFingerprints) and empty
+  // stubs here (passwordResetTokens, securityLogs). Keeps the bundle focused on one user's tasks + gamification core.
+
   const data: Record<string, Record<string, unknown>[]> = {
     users: serializeRows([adminMode ? (userData as Record<string, unknown>) : sanitizeUserRow(userData as Record<string, unknown>)]),
     userBillingProfiles: adminMode ? serializeRows(billingProfileData) : [],

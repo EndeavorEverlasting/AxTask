@@ -1,6 +1,6 @@
 # TypeScript baseline (`npm run check`)
 
-**Policy:** `client/` and `shared/` must stay **clean** under `tsc`. Remaining errors are **server-side** (and migration) debt tracked here. Re-run `npm run check` after changes and update this list when the set changes.
+**Policy:** `client/` and `shared/` must stay **clean** under `tsc`. This document tracks server-side and migration TypeScript diagnostics (if any) and the baseline state over time. Re-run `npm run check` after changes and update this list when the set changes.
 
 **Last verified:** 2026-04-06. **Client:** no errors reported under `client/`. **Full project:** `npm run check` exits 0 (no `tsc` diagnostics).
 

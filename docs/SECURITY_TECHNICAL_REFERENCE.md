@@ -496,7 +496,7 @@ function auditLog(event: AuditEvent) {
 ### Production Security Checklist
 
 #### Environment Security
-- [ ] All secrets stored in Replit Secrets (secure UI) — do not commit secrets to files/repo; Replit exposes them to the app as environment variables at runtime
+- [ ] All secrets in platform secrets management (e.g., Render dashboard / Replit Secrets) — use provider-managed secure storage; do not commit secrets to files/repo; platforms expose them to the app as environment variables at runtime
 - [ ] Different API keys for production vs development
 - [ ] Database credentials rotated and secured
 - [ ] HTTPS enforced with valid certificates

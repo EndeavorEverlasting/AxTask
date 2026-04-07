@@ -1577,6 +1577,9 @@ export async function spendCoins(
   reason: string,
   options?: { taskId?: string },
 ): Promise<Wallet | null> {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return null;
+  }
   await getOrCreateWallet(userId);
   return db.transaction(async (tx) => {
     const [updated] = await tx
@@ -2840,6 +2843,10 @@ export async function grantAdminLifetimePremium(input: {
   grantType: "beta_tester" | "patron" | "manual";
   reason: string;
 }): Promise<PremiumSubscription> {
+  const actor = await getUserById(input.grantedByUserId);
+  if (!actor || actor.role !== "admin") {
+    throw new Error("Only administrators may grant lifetime premium");
+  }
   const planKey = LIFETIME_PLAN_KEYS[input.product];
   const trimmedReason = input.reason.trim();
   if (trimmedReason.length < 3) {
@@ -2882,6 +2889,10 @@ export async function revokeAdminLifetimePremium(input: {
   revokedByUserId: string;
   reason: string;
 }): Promise<PremiumSubscription | null> {
+  const actor = await getUserById(input.revokedByUserId);
+  if (!actor || actor.role !== "admin") {
+    throw new Error("Only administrators may revoke lifetime premium");
+  }
   const planKey = LIFETIME_PLAN_KEYS[input.product];
   const trimmedReason = input.reason.trim();
   if (trimmedReason.length < 3) {
@@ -3235,12 +3246,17 @@ export async function getPremiumRetentionMetrics(days = 30): Promise<{
 
 // ─── Collaboration helpers ──────────────────────────────────────────────────
 
+const COLLABORATOR_ROLES = new Set(["viewer", "editor", "commenter"]);
+
 export async function addCollaborator(
   taskId: string,
   userId: string,
   role: string,
   invitedBy: string
 ): Promise<TaskCollaborator> {
+  if (!COLLABORATOR_ROLES.has(role)) {
+    throw new Error("Invalid collaborator role");
+  }
   const existing = await db
     .select()
     .from(taskCollaborators)
@@ -3287,6 +3303,9 @@ export async function getTaskCollaborators(taskId: string): Promise<(TaskCollabo
 }
 
 export async function updateCollaboratorRole(taskId: string, userId: string, role: string): Promise<TaskCollaborator | null> {
+  if (!COLLABORATOR_ROLES.has(role)) {
+    throw new Error("Invalid collaborator role");
+  }
   const [updated] = await db
     .update(taskCollaborators)
     .set({ role })
@@ -3993,6 +4012,9 @@ export async function spendCoinsForAvatarBoost(
   avatarKey: string,
   coins: number,
 ): Promise<{ ok: boolean; profile?: AvatarProfile; message?: string }> {
+  if (!Number.isFinite(coins) || coins <= 0) {
+    return { ok: false, message: "Invalid coin amount" };
+  }
   try {
     return await db.transaction(async (tx) => {
       const [profile] = await tx

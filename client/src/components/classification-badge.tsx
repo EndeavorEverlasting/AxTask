@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { syncRawTaskRequest, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
+import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,6 +67,7 @@ export function ClassificationBadge({
   const [newCategoryName, setNewCategoryName] = useState("");
   const queryClientHook = useQueryClient();
   const { toast } = useToast();
+  const { playIfEligible } = useImmersiveSounds();
 
   const categoriesQuery = useQuery({
     queryKey: ["/api/classification/categories"],
@@ -149,11 +151,13 @@ export function ClassificationBadge({
           title: `Reclassified! +${cr.coinsEarned} coins`,
           description: `Now classified as ${cr.classification}. Balance: ${cr.newBalance}`,
         });
+        playIfEligible(1);
       } else {
         toast({
           title: "Reclassified",
           description: `Task is now classified as ${r.classification}`,
         });
+        playIfEligible(3);
       }
       setOpen(false);
     },
@@ -174,6 +178,7 @@ export function ClassificationBadge({
     },
     onSuccess: (result) => {
       if (result && typeof result === "object" && "offlineQueued" in result) {
+        setNewCategoryName("");
         toast({
           title: "Queued",
           description: "New category will sync when you're online.",

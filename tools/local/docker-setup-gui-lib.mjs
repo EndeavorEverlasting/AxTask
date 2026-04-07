@@ -85,29 +85,42 @@ export function upsertEnvKey(text, key, value) {
 export function applyDockerGuiValues(baseText, values) {
   const normalizedBase = normalizeEnvText(baseText);
   const parsed = parseEnvAssignmentLines(normalizedBase);
+  const postgresPassword = String(values.POSTGRES_PASSWORD || "").trim();
+  const sessionSecret = String(values.SESSION_SECRET || "").trim();
+  const demoFlag = String(values.AXTASK_DOCKER_SEED_DEMO || "0").trim();
+  const demoEmail = String(values.DOCKER_DEMO_USER_EMAIL || "").trim();
+  const demoPassword = String(values.DOCKER_DEMO_PASSWORD || "").trim();
+  if (
+    hasForbiddenEnvChars(postgresPassword) ||
+    hasForbiddenEnvChars(sessionSecret) ||
+    hasForbiddenEnvChars(demoPassword) ||
+    hasForbiddenEnvChars(demoEmail)
+  ) {
+    throw new Error("Values cannot contain line breaks or null bytes.");
+  }
   const currentDbUrl = parsed.DATABASE_URL || "";
   const nextDbUrl = syncDatabaseUrlPassword(
     currentDbUrl,
-    values.POSTGRES_PASSWORD,
+    postgresPassword,
   );
 
   let next = normalizedBase;
-  next = upsertEnvKey(next, "POSTGRES_PASSWORD", values.POSTGRES_PASSWORD);
-  next = upsertEnvKey(next, "SESSION_SECRET", values.SESSION_SECRET);
+  next = upsertEnvKey(next, "POSTGRES_PASSWORD", postgresPassword);
+  next = upsertEnvKey(next, "SESSION_SECRET", sessionSecret);
   next = upsertEnvKey(
     next,
     "AXTASK_DOCKER_SEED_DEMO",
-    values.AXTASK_DOCKER_SEED_DEMO,
+    demoFlag,
   );
   next = upsertEnvKey(
     next,
     "DOCKER_DEMO_USER_EMAIL",
-    values.DOCKER_DEMO_USER_EMAIL,
+    demoEmail,
   );
   next = upsertEnvKey(
     next,
     "DOCKER_DEMO_PASSWORD",
-    values.DOCKER_DEMO_PASSWORD,
+    demoPassword,
   );
   if (nextDbUrl) {
     next = upsertEnvKey(next, "DATABASE_URL", nextDbUrl);

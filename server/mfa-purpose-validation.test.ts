@@ -5,6 +5,7 @@ import { MFA_PURPOSES } from "@shared/mfa-purposes";
 vi.mock("./storage", () => ({
   getUserById: vi.fn(),
   isTaskOwner: vi.fn(),
+  getInvoiceForUser: vi.fn(),
 }));
 
 import * as storage from "./storage";
@@ -14,6 +15,7 @@ describe("assertMfaChallengeCreateAllowed", () => {
   beforeEach(() => {
     vi.mocked(storage.getUserById).mockReset();
     vi.mocked(storage.isTaskOwner).mockReset();
+    vi.mocked(storage.getInvoiceForUser).mockReset();
   });
 
   it("allows admin step-up for admin users", async () => {
@@ -48,5 +50,20 @@ describe("assertMfaChallengeCreateAllowed", () => {
     await expect(
       assertMfaChallengeCreateAllowed("u1", MFA_PURPOSES.COMMUNITY_PUBLISH_TASK, { taskId: "t1" }),
     ).resolves.toBeUndefined();
+  });
+
+  it("allows account data export MFA for existing user", async () => {
+    vi.mocked(storage.getUserById).mockResolvedValue({ id: "u1", role: "user" } as SafeUser);
+    await expect(
+      assertMfaChallengeCreateAllowed("u1", MFA_PURPOSES.ACCOUNT_DATA_EXPORT, {}),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects invoice MFA when invoiceId does not belong to user", async () => {
+    vi.mocked(storage.getUserById).mockResolvedValue({ id: "u1", role: "user" } as SafeUser);
+    vi.mocked(storage.getInvoiceForUser).mockResolvedValue(undefined);
+    await expect(
+      assertMfaChallengeCreateAllowed("u1", MFA_PURPOSES.INVOICE_ISSUE, { invoiceId: "inv1" }),
+    ).rejects.toThrow(/Invoice not found/);
   });
 });

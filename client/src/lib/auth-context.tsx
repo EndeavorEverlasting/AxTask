@@ -10,6 +10,9 @@ import {
 } from "@shared/http-auth";
 import { queryClient, getCsrfToken } from "./queryClient";
 import { clearPersistOnLogout, clearQueryPersistStorageForUser } from "./query-persist-policy";
+
+/** Must match `ROUTE_STORAGE_KEY` in `App.tsx` (last visited route for restore). */
+const ROUTE_STORAGE_KEY = "axtask_last_route";
 import { clearOfflineTaskQueue, setOfflineQueueUserScope } from "./offline-task-queue";
 
 function csrfHeaders(): Record<string, string> {
@@ -21,17 +24,24 @@ function csrfHeaders(): Record<string, string> {
 
 /** Phase B: session cookie missing/expired but device refresh cookie may still work. */
 async function fetchSessionUser(): Promise<SafeUser | null> {
-  let res = await fetch(AUTH_ME_PATH, { credentials: "include" });
-  if (res.ok) return res.json();
-  if (res.status === 401) {
-    const r2 = await fetch(AUTH_REFRESH_PATH, {
-      method: "POST",
-      headers: csrfHeaders(),
-      credentials: "include",
-    });
-    if (r2.ok) return r2.json();
+  try {
+    let res = await fetch(AUTH_ME_PATH, { credentials: "include" });
+    if (res.ok) return res.json();
+    if (res.status === 401) {
+      const r2 = await fetch(AUTH_REFRESH_PATH, {
+        method: "POST",
+        headers: csrfHeaders(),
+        credentials: "include",
+      });
+      if (r2.ok) return r2.json();
+    }
+    return null;
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      console.warn("[auth] fetchSessionUser failed:", e);
+    }
+    return null;
   }
-  return null;
 }
 
 function rememberKnownAccount(data: SafeUser): void {
@@ -144,6 +154,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setOfflineQueueUserScope(null);
     clearPersistOnLogout(uid);
+    try {
+      localStorage.removeItem(ROUTE_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
     clearOfflineTaskQueue();
     queryClient.clear();
   }, [user?.id]);

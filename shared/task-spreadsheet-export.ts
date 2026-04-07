@@ -23,8 +23,9 @@ export const TASK_SPREADSHEET_HEADERS = [
 ] as const;
 
 function starRating(n: number | null | undefined): string {
-  if (!n || n < 1) return "☆☆☆☆☆";
-  return "★".repeat(n) + "☆".repeat(5 - n);
+  if (n == null || n <= 0) return "☆☆☆☆☆";
+  const c = Math.min(5, Math.max(1, Math.round(Number(n))));
+  return "★".repeat(c) + "☆".repeat(5 - c);
 }
 
 export function taskToSpreadsheetRow(task: Task): string[] {

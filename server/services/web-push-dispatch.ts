@@ -109,8 +109,12 @@ export function startWebPushDispatchScheduler(): void {
 
   log(`Web push digest scheduler every ${intervalMs}ms`, "web-push");
 
-  void runWebPushDispatchTick().catch(() => undefined);
+  void runWebPushDispatchTick().catch((e) => {
+    console.error("[web-push] initial dispatch tick failed:", e);
+  });
   setInterval(() => {
-    void runWebPushDispatchTick().catch(() => undefined);
+    void runWebPushDispatchTick().catch((e) => {
+      console.error("[web-push] scheduled dispatch tick failed:", e);
+    });
   }, intervalMs);
 }

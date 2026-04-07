@@ -209,6 +209,7 @@ export default function AdminPage() {
   const [importFileName, setImportFileName] = useState("");
   const [importMode, setImportMode] = useState<"preserve" | "remap">("preserve");
   const [importConfirmOpen, setImportConfirmOpen] = useState(false);
+  const [selectedExportUserId, setSelectedExportUserId] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [adminStepCode, setAdminStepCode] = useState("");
@@ -1620,10 +1621,12 @@ export default function AdminPage() {
                   <div className="flex gap-2">
                     <select
                       className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
-                      id="export-user-select"
-                      defaultValue=""
+                      value={selectedExportUserId}
+                      onChange={(e) => setSelectedExportUserId(e.target.value)}
                     >
-                      <option value="" disabled>Select a user...</option>
+                      <option value="" disabled>
+                        Select a user...
+                      </option>
                       {users.map((u) => (
                         <option key={u.id} value={u.id}>
                           {u.displayName || u.email} ({u.email})
@@ -1632,10 +1635,9 @@ export default function AdminPage() {
                     </select>
                     <Button
                       variant="outline"
-                      disabled={exportMutation.isPending}
+                      disabled={exportMutation.isPending || !selectedExportUserId}
                       onClick={() => {
-                        const sel = document.getElementById("export-user-select") as HTMLSelectElement;
-                        if (sel?.value) exportMutation.mutate(sel.value);
+                        if (selectedExportUserId) exportMutation.mutate(selectedExportUserId);
                       }}
                     >
                       <Download className="h-4 w-4" />

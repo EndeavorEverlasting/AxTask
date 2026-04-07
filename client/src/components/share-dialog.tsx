@@ -60,7 +60,7 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   const { data: collaborators = [] } = useQuery<Collaborator[]>({
     queryKey: ["/api/tasks", taskId, "collaborators"],
     queryFn: async () => {
-      const res = await fetch(`/api/tasks/${taskId}/collaborators`);
+      const res = await fetch(`/api/tasks/${taskId}/collaborators`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -211,19 +211,24 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   };
 
   const startUnpublishMfa = async () => {
-    const c = await requestChallenge({
-      purpose: MFA_PURPOSES.COMMUNITY_UNPUBLISH_TASK,
-      channel: "email",
-      taskId,
-    });
-    setUnpubChallenge({
-      challengeId: c.challengeId,
-      expiresAt: c.expiresAt,
-      devCode: c.devCode,
-      maskedDestination: c.maskedDestination,
-    });
-    setUnpubMfaOpen(true);
-    toast({ title: "Code sent", description: "Check your email for the verification code." });
+    try {
+      const c = await requestChallenge({
+        purpose: MFA_PURPOSES.COMMUNITY_UNPUBLISH_TASK,
+        channel: "email",
+        taskId,
+      });
+      setUnpubChallenge({
+        challengeId: c.challengeId,
+        expiresAt: c.expiresAt,
+        devCode: c.devCode,
+        maskedDestination: c.maskedDestination,
+      });
+      setUnpubMfaOpen(true);
+      toast({ title: "Code sent", description: "Check your email for the verification code." });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not send verification code";
+      toast({ title: "Unpublish verification failed", description: message, variant: "destructive" });
+    }
   };
 
   return (

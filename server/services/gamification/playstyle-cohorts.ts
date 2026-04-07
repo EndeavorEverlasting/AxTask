@@ -4,7 +4,7 @@
  * Rollups are anonymous counts + mean signal vectors for ops / capacity / inevitability modeling.
  * Individual assignments exist only to recompute rollups efficiently; do not expose in product APIs.
  */
-import { and, count, desc, eq, gte } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte } from "drizzle-orm";
 import { db } from "../../db";
 import {
   avatarXpEvents,
@@ -32,6 +32,22 @@ export {
 function clamp01(x: number): number {
   if (Number.isNaN(x) || !Number.isFinite(x)) return 0;
   return Math.max(0, Math.min(1, x));
+}
+
+function parseSignalsMeanJson(raw: string | null | undefined): Record<string, number> {
+  const s = (raw ?? "").trim();
+  if (!s) return {};
+  try {
+    const v = JSON.parse(s) as unknown;
+    if (!v || typeof v !== "object") return {};
+    const out: Record<string, number> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (typeof val === "number" && Number.isFinite(val)) out[k] = val;
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 export async function computePlaystyleSignals(
@@ -118,6 +134,7 @@ export async function recomputePlaystyleCohortRollups(): Promise<PlaystyleRecomp
     .selectDistinct({ userId: avatarXpEvents.userId })
     .from(avatarXpEvents)
     .where(gte(avatarXpEvents.createdAt, since))
+    .orderBy(asc(avatarXpEvents.userId))
     .limit(userCap);
 
   const byCohort: Record<string, PlaystyleSignals[]> = {};
@@ -154,26 +171,27 @@ export async function recomputePlaystyleCohortRollups(): Promise<PlaystyleRecomp
     byCohort[cohort].push(signals);
   }
 
-  await db.delete(playstyleCohortRollups).where(eq(playstyleCohortRollups.assignmentVersion, version));
-
   const cohortSummaries: PlaystyleRecomputeResult["cohorts"] = [];
-  for (const cohortKey of COHORT_KEYS) {
-    const members = byCohort[cohortKey] || [];
-    if (members.length === 0) continue;
-    const signalsMean = meanPlaystyleSignals(members);
-    await db.insert(playstyleCohortRollups).values({
-      cohortKey,
-      memberCount: members.length,
-      signalsMeanJson: JSON.stringify(signalsMean),
-      assignmentVersion: version,
-      computedAt: now,
-    });
-    cohortSummaries.push({
-      cohortKey,
-      memberCount: members.length,
-      signalsMean,
-    });
-  }
+  await db.transaction(async (tx) => {
+    await tx.delete(playstyleCohortRollups).where(eq(playstyleCohortRollups.assignmentVersion, version));
+    for (const cohortKey of COHORT_KEYS) {
+      const members = byCohort[cohortKey] || [];
+      if (members.length === 0) continue;
+      const signalsMean = meanPlaystyleSignals(members);
+      await tx.insert(playstyleCohortRollups).values({
+        cohortKey,
+        memberCount: members.length,
+        signalsMeanJson: JSON.stringify(signalsMean),
+        assignmentVersion: version,
+        computedAt: now,
+      });
+      cohortSummaries.push({
+        cohortKey,
+        memberCount: members.length,
+        signalsMean,
+      });
+    }
+  });
 
   cohortSummaries.sort((a, b) => b.memberCount - a.memberCount);
 
@@ -210,7 +228,7 @@ export async function getLatestPlaystyleCohortRollups(): Promise<{
   const cohorts = rows.map((r) => ({
     cohortKey: r.cohortKey,
     memberCount: r.memberCount,
-    signalsMean: JSON.parse(r.signalsMeanJson || "{}") as Record<string, number>,
+    signalsMean: parseSignalsMeanJson(r.signalsMeanJson),
   }));
 
   return { assignmentVersion: version, computedAt, cohorts };

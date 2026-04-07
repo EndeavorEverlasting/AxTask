@@ -61,8 +61,8 @@ Write-Host "pg_restore <- $BackupFile"
 $exit = 0
 try {
   & pg_restore -h $env:PGHOST -p $env:PGPORT -U $env:PGUSER -d $env:PGDATABASE --no-owner --exit-on-error $BackupFile
-} finally {
   $exit = $global:LASTEXITCODE
+} finally {
   Remove-Item Env:\PGHOST -ErrorAction SilentlyContinue
   Remove-Item Env:\PGPORT -ErrorAction SilentlyContinue
   Remove-Item Env:\PGUSER -ErrorAction SilentlyContinue

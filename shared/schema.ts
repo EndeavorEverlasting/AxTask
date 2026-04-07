@@ -1,5 +1,16 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  varchar,
+  integer,
+  timestamp,
+  boolean,
+  index,
+  uniqueIndex,
+  uuid,
+  check,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -207,6 +218,8 @@ export const userNotificationPreferences = pgTable("user_notification_preference
   intensity: integer("intensity").notNull().default(50),
   quietHoursStart: integer("quiet_hours_start"),
   quietHoursEnd: integer("quiet_hours_end"),
+  /** Account-synced immersive UI sounds (per plan; per-device scope in localStorage). */
+  immersiveSoundsEnabled: boolean("immersive_sounds_enabled").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -233,6 +246,7 @@ export const updateNotificationPreferenceSchema = z.object({
   intensity: z.number().int().min(0).max(100).optional(),
   quietHoursStart: z.number().int().min(0).max(23).nullable().optional(),
   quietHoursEnd: z.number().int().min(0).max(23).nullable().optional(),
+  immersiveSoundsEnabled: z.boolean().optional(),
 });
 
 export const createPushSubscriptionSchema = z.object({
@@ -350,16 +364,21 @@ export const taskCollaborators = pgTable("task_collaborators", {
   taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   role: text("role").notNull().default("editor"),
-  invitedBy: varchar("invited_by").references(() => users.id),
+  invitedBy: varchar("invited_by").references(() => users.id, { onDelete: "set null" }),
   invitedAt: timestamp("invited_at").defaultNow(),
 }, (table) => [
   index("idx_collab_task").on(table.taskId),
   index("idx_collab_user").on(table.userId),
   uniqueIndex("uq_task_collaborators_task_user").on(table.taskId, table.userId),
+  check("task_collaborators_role_check", sql`${table.role} IN ('viewer', 'editor', 'commenter')`),
 ]);
 
 export type TaskCollaborator = typeof taskCollaborators.$inferSelect;
-export const insertCollaboratorSchema = createInsertSchema(taskCollaborators).omit({ id: true, invitedAt: true });
+export const insertCollaboratorSchema = createInsertSchema(taskCollaborators)
+  .omit({ id: true, invitedAt: true })
+  .extend({
+    role: z.enum(["viewer", "editor", "commenter"]).optional(),
+  });
 
 // ─── Gamification: Wallets ──────────────────────────────────────────────────
 export const wallets = pgTable("wallets", {
@@ -453,6 +472,37 @@ export const userEntourage = pgTable("user_entourage", {
 });
 
 export type UserEntourage = typeof userEntourage.$inferSelect;
+
+/** Per-user cooldown and last-offered video for contextual YouTube probes (Google sign-in gate in API). */
+export const userYoutubeProbeState = pgTable("user_youtube_probe_state", {
+  userId: varchar("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  lastOfferedAt: timestamp("last_offered_at"),
+  lastVideoId: text("last_video_id"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type UserYoutubeProbeState = typeof userYoutubeProbeState.$inferSelect;
+
+/** User feedback on offered YouTube probe videos (for future tuning). */
+export const youtubeProbeFeedback = pgTable(
+  "youtube_probe_feedback",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    videoId: text("video_id").notNull(),
+    reaction: text("reaction").notNull(), // interested | not_interested | dismiss
+    probeVersion: text("probe_version").notNull().default("1"),
+    contextSnapshotJson: text("context_snapshot_json"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [index("idx_youtube_probe_feedback_user").on(table.userId)],
+);
+
+export type YoutubeProbeFeedback = typeof youtubeProbeFeedback.$inferSelect;
 
 /** Persistent avatar progression per user and avatar role. */
 export const avatarProfiles = pgTable("avatar_profiles", {
@@ -999,7 +1049,7 @@ export const userClassificationCategories = pgTable(
   },
   (table) => [
     index("idx_user_classification_categories_user").on(table.userId),
-    uniqueIndex("idx_user_classification_categories_user_name").on(table.userId, table.name),
+    uniqueIndex("idx_user_classification_categories_user_name").on(table.userId, sql`lower(${table.name})`),
   ],
 );
 

@@ -19,7 +19,7 @@ function buildTaskReportDoc(task: Task, userName?: string): PDFKit.PDFDocument {
     size: "LETTER",
     margins: { top: 50, bottom: 50, left: 50, right: 50 },
     info: {
-      Title: `${AXTASK_BRAND} Task Report — ${task.activity.slice(0, 80)}`,
+      Title: `${AXTASK_BRAND} Task Report — ${String(task.activity ?? "").slice(0, 80)}`,
       Author: AXTASK_BRAND,
       Subject: "Single task report",
       Keywords: `${AXTASK_BRAND}; ${AXTASK_TAGLINE}; task report`,

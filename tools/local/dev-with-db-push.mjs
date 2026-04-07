@@ -23,9 +23,8 @@ if (process.env.npm_lifecycle_event !== "dev") {
 
 dotenv.config({ path: path.join(projectRoot, ".env") });
 
-const skip =
-  String(process.env.SKIP_DB_PUSH_ON_START || "").trim().toLowerCase() === "true" ||
-  process.env.SKIP_DB_PUSH_ON_START === "1";
+const skipNorm = String(process.env.SKIP_DB_PUSH_ON_START ?? "").trim().toLowerCase();
+const skip = skipNorm === "true" || skipNorm === "1";
 
 if (skip) {
   console.log("[axtask:dev] SKIP_DB_PUSH_ON_START set — skipping drizzle-kit push.");

@@ -53,9 +53,27 @@ jobs:
           commit_message: "chore(ci): update TEST_ATTESTATION.md [skip ci]"
           file_pattern: docs/TEST_ATTESTATION.md
 
-  nodeweaver-pytest:
+  check-nodeweaver-file:
     runs-on: ubuntu-latest
-    if: hashFiles('NodeWeaver/pyproject.toml') != ''
+    outputs:
+      file_present: ${{ steps.check.outputs.file_present }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - id: check
+        run: |
+          if [ -f NodeWeaver/pyproject.toml ]; then
+            echo "file_present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "file_present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  nodeweaver-pytest:
+    needs: [check-nodeweaver-file]
+    runs-on: ubuntu-latest
+    if: needs.check-nodeweaver-file.outputs.file_present == 'true'
     defaults:
       run:
         working-directory: NodeWeaver

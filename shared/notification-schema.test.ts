@@ -11,6 +11,11 @@ describe("notification schemas", () => {
     expect(() => updateNotificationPreferenceSchema.parse({ intensity: -1 })).toThrow();
   });
 
+  it("accepts immersiveSoundsEnabled", () => {
+    const parsed = updateNotificationPreferenceSchema.parse({ immersiveSoundsEnabled: true });
+    expect(parsed.immersiveSoundsEnabled).toBe(true);
+  });
+
   it("accepts valid push subscriptions and requires keys", () => {
     const payload = createPushSubscriptionSchema.parse({
       endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint",

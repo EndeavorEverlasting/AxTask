@@ -65,11 +65,14 @@ export function readDockerDemoLoginFromEnvText(envDockerText) {
  * @returns {EnvDockerValidationError | null} null when valid
  */
 export function validateEnvDockerText(text) {
-  if (text.includes("replace-with-32-plus-char-secret")) {
-    return "session_secret";
-  }
-  if (text.includes("replace-me")) {
-    return "placeholder";
+  const map = parseEnvAssignmentLines(text);
+  for (const value of Object.values(map)) {
+    if (value.includes("replace-with-32-plus-char-secret")) {
+      return "session_secret";
+    }
+    if (value.includes("replace-me")) {
+      return "placeholder";
+    }
   }
   return null;
 }

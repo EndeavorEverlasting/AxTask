@@ -1,4 +1,4 @@
-﻿// @vitest-environment node
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { computeLazyAvatarXp } from './lazy-avatar-xp';
 

@@ -31,9 +31,14 @@
 
 import { randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
+import type { InsertTask, Task } from "@shared/schema";
 import { taskImportFingerprints, tasks } from "@shared/schema";
 import { db } from "./db";
 import { computeTaskFingerprint } from "./task-fingerprint";
+
+/** Match `CLIENT_TASK_ID_UUID_RE` in `storage.ts` (avoid importing storage here). */
+const CLIENT_TASK_ID_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type TaskImportFingerprintSource =
   | "bulk_import"
@@ -177,4 +182,89 @@ export async function insertBundleTaskWithFingerprintClaimTx(
   }
 
   return "inserted";
+}
+
+export type ManualCreateWithFingerprintResult =
+  | { ok: true; task: Task }
+  | { ok: false; reason: "fingerprint_duplicate"; serverTaskId?: string }
+  | { ok: false; reason: "id_taken" };
+
+/**
+ * Atomic manual create: claim import fingerprint then insert task (same race window as bundle import).
+ * Caller should run quota / isTaskIdTaken checks before calling when possible.
+ */
+export async function manualCreateTaskWithImportFingerprintClaim(
+  userId: string,
+  validatedData: InsertTask & { id?: string },
+): Promise<ManualCreateWithFingerprintResult> {
+  const { id: clientId, ...rest } = validatedData as InsertTask & { id?: string };
+  let id: string;
+  if (clientId != null && typeof clientId === "string" && clientId.length > 0) {
+    if (!CLIENT_TASK_ID_UUID_RE.test(clientId)) {
+      throw new Error("Invalid task id: client id must be a valid UUID");
+    }
+    id = clientId;
+  } else {
+    id = randomUUID();
+  }
+
+  const fp = computeTaskFingerprint(validatedData);
+  const now = new Date();
+  const taskRow: typeof tasks.$inferInsert = {
+    ...rest,
+    id,
+    userId,
+    priority: "Low",
+    priorityScore: 0,
+    classification: "General",
+    isRepeated: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  return db.transaction(async (tx) => {
+    const fpIns = await tx
+      .insert(taskImportFingerprints)
+      .values({
+        id: randomUUID(),
+        userId,
+        fingerprint: fp,
+        source: "manual_create",
+        firstTaskId: id,
+      })
+      .onConflictDoNothing()
+      .returning({ id: taskImportFingerprints.id });
+
+    if (fpIns.length === 0) {
+      const [ex] = await tx
+        .select({ firstTaskId: taskImportFingerprints.firstTaskId })
+        .from(taskImportFingerprints)
+        .where(and(eq(taskImportFingerprints.userId, userId), eq(taskImportFingerprints.fingerprint, fp)))
+        .limit(1);
+      const existingTid = ex?.firstTaskId;
+      if (existingTid && existingTid !== id) {
+        return { ok: false as const, reason: "fingerprint_duplicate" as const, serverTaskId: existingTid };
+      }
+    }
+
+    const inserted = await tx.insert(tasks).values(taskRow).onConflictDoNothing().returning();
+    if (inserted.length === 0) {
+      if (fpIns.length > 0) {
+        await tx
+          .delete(taskImportFingerprints)
+          .where(and(eq(taskImportFingerprints.userId, userId), eq(taskImportFingerprints.fingerprint, fp)));
+      }
+      const [existing] = await tx
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
+        .limit(1);
+      if (existing) {
+        return { ok: true as const, task: existing };
+      }
+      return { ok: false as const, reason: "id_taken" as const };
+    }
+
+    return { ok: true as const, task: inserted[0]! };
+  });
 }

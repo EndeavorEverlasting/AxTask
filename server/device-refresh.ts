@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { eq, desc, inArray, and, gt, or, isNotNull, gte } from "drizzle-orm";
+import { eq, desc, inArray, and, gt } from "drizzle-orm";
 import { deviceRefreshTokens } from "@shared/schema";
 import { db } from "./db";
 import { getUserById } from "./storage";
@@ -14,8 +14,6 @@ export const DEVICE_REFRESH_COOKIE = "axtask.drefresh";
 
 const MAX_TOKENS_PER_USER = 15;
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-/** Concurrent refresh: if in-place UPDATE wins elsewhere, allow issuing a new row within this window. */
-const GRACE_WINDOW_MS = 30_000;
 
 function cookieBase() {
   const secure = parseCookieSecureFlag(process.env);
@@ -136,37 +134,7 @@ export async function rotateDeviceRefreshToken(
       throw new Error("Device token rotation failed: token does not belong to this user");
     }
 
-    const graceSince = new Date(Date.now() - GRACE_WINDOW_MS);
-    const recentConditions = [
-      eq(deviceRefreshTokens.userId, userId),
-      or(
-        gte(deviceRefreshTokens.createdAt, graceSince),
-        and(isNotNull(deviceRefreshTokens.lastUsedAt), gte(deviceRefreshTokens.lastUsedAt, graceSince)),
-      ),
-    ];
-    if (ua !== null) {
-      recentConditions.push(eq(deviceRefreshTokens.userAgent, ua));
-    }
-    const recentWin = await tx
-      .select({ id: deviceRefreshTokens.id })
-      .from(deviceRefreshTokens)
-      .where(and(...recentConditions))
-      .orderBy(desc(deviceRefreshTokens.lastUsedAt), desc(deviceRefreshTokens.createdAt))
-      .limit(1);
-
-    if (recentWin.length === 0) {
-      throw new Error("Device token rotation failed: token not found or already revoked");
-    }
-
-    const fallbackPlain = generateDeviceRefreshPlainToken();
-    const fallbackHash = hashDeviceRefreshToken(fallbackPlain);
-    await tx.insert(deviceRefreshTokens).values({
-      userId,
-      tokenHash: fallbackHash,
-      expiresAt,
-      userAgent: ua,
-    });
-    return fallbackPlain;
+    throw new Error("Device token rotation failed: token reuse detected");
   });
   await pruneExcessTokens(userId);
   return plain;
@@ -231,19 +199,25 @@ export async function performAuthRefresh(req: Request, res: Response): Promise<v
       })
       .catch((e) => {
         console.error("[auth] refresh rotate:", e);
-        req.logout(() => {
-          if (req.session) {
-            req.session.destroy(() => {
-              clearDeviceRefreshCookie(res);
-              noStore();
-              res.status(401).json({ message: "Device session could not be renewed" });
+        void revokeDeviceRefreshByPlain(plain)
+          .catch((revokeErr) => {
+            console.error("[auth] refresh rotate revoke failed:", revokeErr);
+          })
+          .finally(() => {
+            req.logout(() => {
+              if (req.session) {
+                req.session.destroy(() => {
+                  clearDeviceRefreshCookie(res);
+                  noStore();
+                  res.status(401).json({ message: "Device session could not be renewed" });
+                });
+              } else {
+                clearDeviceRefreshCookie(res);
+                noStore();
+                res.status(401).json({ message: "Device session could not be renewed" });
+              }
             });
-          } else {
-            clearDeviceRefreshCookie(res);
-            noStore();
-            res.status(401).json({ message: "Device session could not be renewed" });
-          }
-        });
+          });
       });
   });
 }

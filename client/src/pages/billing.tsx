@@ -322,17 +322,6 @@ export default function BillingPage() {
         postalCode: profileForm.postalCode.trim() || null,
         country: profileForm.country.trim() || null,
       });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        let msg = text.trim() || res.statusText || `Update failed (${res.status})`;
-        try {
-          const j = JSON.parse(text) as { message?: string };
-          if (typeof j?.message === "string" && j.message.trim()) msg = j.message;
-        } catch {
-          /* use msg from body text or status */
-        }
-        throw new Error(msg);
-      }
       return res.json() as Promise<BillingProfile>;
     },
     onSuccess: () => {

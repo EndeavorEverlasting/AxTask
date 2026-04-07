@@ -25,6 +25,14 @@ interface CollabClient {
   cursorPosition: number | null;
   color: string;
   role: string | null;
+  /** Short TTL cache for `canAccessTask` to avoid repeated DB hits on edit messages. */
+  _accessCache?: { taskId: string; canAccess: boolean; role: string; expiresAt: number };
+}
+
+const COLLAB_ACCESS_CACHE_TTL_MS = 4000;
+
+function clearCollabAccessCache(client: CollabClient): void {
+  client._accessCache = undefined;
 }
 
 type CollabMessage =
@@ -195,12 +203,40 @@ export function setupCollaborationWs(server: Server) {
 
     async function assertCollabEditAccess(): Promise<boolean> {
       if (!client.taskId) return false;
+      const now = Date.now();
+      const cached = client._accessCache;
+      if (cached && cached.taskId === client.taskId && cached.expiresAt > now) {
+        if (!cached.canAccess) {
+          const oldTaskId = client.taskId;
+          client.taskId = null;
+          client.focusedField = null;
+          client.cursorPosition = null;
+          clearCollabAccessCache(client);
+          sendPresenceUpdate(oldTaskId);
+          ws.send(JSON.stringify({ type: "error", message: "Access denied" }));
+          return false;
+        }
+        client.role = cached.role;
+        if (cached.role === "viewer") {
+          ws.send(JSON.stringify({ type: "error", message: "View-only access" }));
+          return false;
+        }
+        return true;
+      }
+
       const access = await canAccessTask(client.userId, client.taskId);
+      client._accessCache = {
+        taskId: client.taskId,
+        canAccess: access.canAccess,
+        role: access.role,
+        expiresAt: now + COLLAB_ACCESS_CACHE_TTL_MS,
+      };
       if (!access.canAccess) {
         const oldTaskId = client.taskId;
         client.taskId = null;
         client.focusedField = null;
         client.cursorPosition = null;
+        clearCollabAccessCache(client);
         sendPresenceUpdate(oldTaskId);
         ws.send(JSON.stringify({ type: "error", message: "Access denied" }));
         return false;
@@ -234,9 +270,11 @@ export function setupCollaborationWs(server: Server) {
             client.taskId = null;
             client.focusedField = null;
             client.cursorPosition = null;
+            clearCollabAccessCache(client);
             sendPresenceUpdate(oldTaskId);
           }
           client.taskId = msg.taskId;
+          clearCollabAccessCache(client);
           client.role = access.role;
           sendPresenceUpdate(msg.taskId);
           ws.send(JSON.stringify({ type: "joined_task", taskId: msg.taskId, role: access.role }));
@@ -249,6 +287,7 @@ export function setupCollaborationWs(server: Server) {
             client.taskId = null;
             client.focusedField = null;
             client.cursorPosition = null;
+            clearCollabAccessCache(client);
             sendPresenceUpdate(oldTaskId);
           }
           break;
@@ -267,6 +306,7 @@ export function setupCollaborationWs(server: Server) {
             client.focusedField = null;
             client.cursorPosition = null;
             client.role = null;
+            clearCollabAccessCache(client);
             sendPresenceUpdate(oldTaskId);
             break;
           }
@@ -290,6 +330,7 @@ export function setupCollaborationWs(server: Server) {
             client.focusedField = null;
             client.cursorPosition = null;
             client.role = null;
+            clearCollabAccessCache(client);
             sendPresenceUpdate(oldTaskId);
             break;
           }

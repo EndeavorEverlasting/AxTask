@@ -173,9 +173,18 @@ async function extractTopics(userId: string, allTasks: Task[]): Promise<TaskPatt
       }
       const entry = topicMap.get(phrase)!;
       entry.count++;
-      entry.scores.push(task.priorityScore);
-      entry.classifications.add(task.classification);
-      if (entry.activities.length < 5) entry.activities.push(task.activity);
+      const ps = task.priorityScore;
+      if (typeof ps === "number" && Number.isFinite(ps)) {
+        entry.scores.push(ps);
+      }
+      const cls = task.classification;
+      if (typeof cls === "string" && cls.trim() !== "") {
+        entry.classifications.add(cls);
+      }
+      const act = task.activity;
+      if (typeof act === "string" && act.trim() !== "" && entry.activities.length < 5) {
+        entry.activities.push(act);
+      }
     }
   }
 
@@ -187,7 +196,8 @@ async function extractTopics(userId: string, allTasks: Task[]): Promise<TaskPatt
   const results: TaskPattern[] = [];
   for (const [topic, data] of Array.from(significantTopics)) {
     const confidence = Math.min(100, Math.round((data.count / allTasks.length) * 100 + data.count * 5));
-    const avgScore = data.scores.reduce((a, b) => a + b, 0) / data.scores.length;
+    const avgScore =
+      data.scores.length > 0 ? data.scores.reduce((a, b) => a + b, 0) / data.scores.length : 0;
 
     const topicData: TopicData = {
       topic,
@@ -274,7 +284,8 @@ async function detectRecurrences(userId: string, allTasks: Task[]): Promise<Task
     const confidence = Math.min(100, Math.round(group.length * 15 + (cadence !== "unknown" ? 20 : 0)));
 
     const recurrenceData: RecurrenceData = {
-      activity: group[0].activity,
+      activity:
+        group.map((t) => t.activity).find((a) => typeof a === "string" && a.trim() !== "")?.trim() || "Task",
       count: group.length,
       cadence,
       avgDays,
@@ -415,11 +426,17 @@ async function buildSimilarityClusters(userId: string, allTasks: Task[]): Promis
       if (freq > maxFreq) { maxFreq = freq; typicalDayIdx = day; }
     }
 
-    const avgPriority = cluster.tasks.reduce((s, t) => s + t.priorityScore, 0) / cluster.tasks.length;
+    const finiteScores = cluster.tasks
+      .map((t) => t.priorityScore)
+      .filter((s): s is number => typeof s === "number" && Number.isFinite(s));
+    const avgPriority = finiteScores.length > 0 ? finiteScores.reduce((s, x) => s + x, 0) / finiteScores.length : 0;
     const confidence = Math.min(100, Math.round(cluster.tasks.length * 12));
 
     const clusterData = {
-      activities: cluster.tasks.slice(0, 5).map(t => t.activity),
+      activities: cluster.tasks
+        .slice(0, 5)
+        .map((t) => t.activity)
+        .filter((a): a is string => typeof a === "string" && a.trim() !== ""),
       count: cluster.tasks.length,
       avgPriorityScore: Math.round(avgPriority * 10) / 10,
       typicalDayOfWeek: DAYS[typicalDayIdx],
@@ -681,12 +698,27 @@ export async function learnFromTask(userId: string, task: Task, allTasks: Task[]
       (t) => t.id !== task.id && tokenize(t.activity).includes(token),
     );
     if (existing.length >= 1) {
+      const finiteScores = [task, ...existing]
+        .map((t) => t.priorityScore)
+        .filter((s): s is number => typeof s === "number" && Number.isFinite(s));
+      const avgPriorityScore =
+        finiteScores.length > 0
+          ? Math.round((finiteScores.reduce((s, x) => s + x, 0) / finiteScores.length) * 10) / 10
+          : 0;
+      const classSet = new Set<string>();
+      for (const t of [...existing, task]) {
+        const c = t.classification;
+        if (typeof c === "string" && c.trim() !== "") classSet.add(c);
+      }
+      const recentActivities = [task.activity, ...existing.slice(0, 2).map((t) => t.activity)].filter(
+        (a): a is string => typeof a === "string" && a.trim() !== "",
+      );
       const topicData: TopicData = {
         topic: token,
         count: existing.length + 1,
-        avgPriorityScore: Math.round(((existing.reduce((s, t) => s + t.priorityScore, 0) + task.priorityScore) / (existing.length + 1)) * 10) / 10,
-        classifications: Array.from(new Set([...existing.map(t => t.classification), task.classification])),
-        recentActivities: [task.activity, ...existing.slice(0, 2).map(t => t.activity)],
+        avgPriorityScore,
+        classifications: Array.from(classSet),
+        recentActivities,
       };
       const confidence = Math.min(100, (existing.length + 1) * 10);
       await upsertPattern(userId, "topic", token, topicData, confidence);

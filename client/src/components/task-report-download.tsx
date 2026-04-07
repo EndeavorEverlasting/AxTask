@@ -50,8 +50,9 @@ export function TaskReportDownload({ taskId, activityPreview }: TaskReportDownlo
       const short = taskId.slice(0, 8);
       const slug = activityPreview
         .slice(0, 40)
-        .replace(/[^\w\-]+/g, "_")
-        .replace(/_+/g, "_");
+        .replace(/[^\w-]+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_+|_+$/g, "") || "report";
       const fallback =
         format === "pdf" ? `AxTask-Report-${short}-${slug}.pdf` : `AxTask-Report-${short}-${slug}.xlsx`;
       triggerBlobDownload(result.blob, fallback, result.filename);

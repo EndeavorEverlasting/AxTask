@@ -15,6 +15,59 @@ let drainScopeStorageKey: string | null = null;
 
 const SCOPED_USER_PREFIX = `${OFFLINE_QUEUE_KEY_PREFIX}:user:`;
 
+const QUEUE_MUTEX_PREFIX = "axtask.offline_queue_mutex:";
+
+/**
+ * Serialize read-modify-write for a queue storage key across tabs (sync).
+ * Falls back to running `fn` without a lock if storage is unavailable or acquisition times out.
+ */
+function withQueueKeyLock<T>(queueKey: string, fn: () => T): T {
+  if (typeof localStorage === "undefined") return fn();
+  const mutexStorageKey = `${QUEUE_MUTEX_PREFIX}${queueKey}`;
+  const owner = randomUuid();
+  const lockTtlMs = 2500;
+  const spinUntil = Date.now() + 3000;
+  const writePayload = (until: number) => JSON.stringify({ owner, until });
+
+  while (Date.now() < spinUntil) {
+    try {
+      const raw = localStorage.getItem(mutexStorageKey);
+      if (raw) {
+        try {
+          const o = JSON.parse(raw) as { owner?: string; until?: number };
+          if (typeof o.until === "number" && o.until > Date.now()) {
+            const t0 = Date.now();
+            while (Date.now() - t0 < 2) {
+              /* brief spin */
+            }
+            continue;
+          }
+        } catch {
+          /* stale */
+        }
+      }
+      const until = Date.now() + lockTtlMs;
+      const payload = writePayload(until);
+      localStorage.setItem(mutexStorageKey, payload);
+      if (localStorage.getItem(mutexStorageKey) !== payload) continue;
+      try {
+        return fn();
+      } finally {
+        try {
+          if (localStorage.getItem(mutexStorageKey) === payload) {
+            localStorage.removeItem(mutexStorageKey);
+          }
+        } catch {
+          /* */
+        }
+      }
+    } catch {
+      return fn();
+    }
+  }
+  return fn();
+}
+
 /** `null` = anonymous bucket; non-null = authenticated user id from the storage key. */
 function userIdFromOfflineStorageKey(key: string): string | null {
   if (key === `${OFFLINE_QUEUE_KEY_PREFIX}:anonymous`) return null;
@@ -41,13 +94,17 @@ function migrateQueueBetweenKeys(prevKey: string, nextKey: string): void {
     listeners.forEach((l) => l());
     return;
   }
-  const nextExisting = readQueueForKey(nextKey);
-  const merged = [...prevOps, ...nextExisting];
-  const lastIdx = new Map<string, number>();
-  merged.forEach((op, i) => lastIdx.set(op.opId, i));
-  const deduped = merged.filter((op, i) => lastIdx.get(op.opId) === i);
-  const outcome = writeQueueForKey(nextKey, deduped);
-  if (outcome.persistedToStorage || outcome.usingMemoryFallback) {
+  const outcome = withQueueKeyLock(nextKey, () => {
+    const nextExisting = readQueueForKey(nextKey);
+    const merged = [...prevOps, ...nextExisting];
+    const lastIdx = new Map<string, number>();
+    merged.forEach((op, i) => lastIdx.set(op.opId, i));
+    const deduped = merged
+      .filter((op, i) => lastIdx.get(op.opId) === i)
+      .sort((a, b) => a.enqueuedAt - b.enqueuedAt);
+    return persistQueueForKey(nextKey, deduped);
+  });
+  if (outcome.persistedToStorage) {
     memoryFallbackQueues.delete(prevKey);
     try {
       localStorage.removeItem(prevKey);
@@ -181,8 +238,8 @@ function readQueue(): OfflineTaskOp[] {
   return readQueueForKey(queueStorageKey());
 }
 
-/** Persists the queue; reports persistence, memory fallback, and whether the queue was truncated. */
-function writeQueueForKey(key: string, ops: OfflineTaskOp[]): WriteQueueOutcome {
+/** Persists the queue; no lock — callers must hold `withQueueKeyLock` when mutating. */
+function persistQueueForKey(key: string, ops: OfflineTaskOp[]): WriteQueueOutcome {
   const overflowed = ops.length > MAX_QUEUE;
   /** Keep newest ops when over limit; oldest are dropped. */
   const truncated = ops.slice(-MAX_QUEUE);
@@ -199,7 +256,13 @@ function writeQueueForKey(key: string, ops: OfflineTaskOp[]): WriteQueueOutcome 
 }
 
 function writeQueue(ops: OfflineTaskOp[]): WriteQueueOutcome {
-  return writeQueueForKey(queueStorageKey(), ops);
+  const k = queueStorageKey();
+  return withQueueKeyLock(k, () => persistQueueForKey(k, ops));
+}
+
+function mutateCurrentQueue(updater: (q: OfflineTaskOp[]) => OfflineTaskOp[]): WriteQueueOutcome {
+  const k = queueStorageKey();
+  return withQueueKeyLock(k, () => persistQueueForKey(k, updater(readQueueForKey(k))));
 }
 
 /** Remove a task from reorder ops; drop create/update/delete ops targeting taskId. */
@@ -365,14 +428,16 @@ export function getOfflineQueueLength(): number {
 
 export function clearOfflineTaskQueue(): void {
   const key = queueStorageKey();
-  memoryFallbackQueues.delete(key);
-  try {
-    localStorage.removeItem(key);
-    localStorage.removeItem(OFFLINE_TASK_QUEUE_STORAGE_KEY);
-  } catch {
-    /* */
-  }
-  listeners.forEach((l) => l());
+  withQueueKeyLock(key, () => {
+    memoryFallbackQueues.delete(key);
+    try {
+      localStorage.removeItem(key);
+      localStorage.removeItem(OFFLINE_TASK_QUEUE_STORAGE_KEY);
+    } catch {
+      /* */
+    }
+    listeners.forEach((l) => l());
+  });
 }
 
 function newOpId(): string {
@@ -385,96 +450,109 @@ export function enqueueTaskUpdate(
   patch: Record<string, unknown>,
   baseUpdatedAt: string | null,
 ): WriteQueueOutcome {
-  const q = readQueue();
-  const idx = q.findIndex((o) => o.kind === "update" && o.taskId === taskId);
-  if (idx >= 0) {
-    const prev = q[idx] as Extract<OfflineTaskOp, { kind: "update" }>;
-    const merged = { ...prev.patch, ...patch };
-    q[idx] = {
-      ...prev,
-      patch: merged,
-      baseUpdatedAt: prev.baseUpdatedAt ?? baseUpdatedAt,
-      enqueuedAt: Date.now(),
-    };
-    return writeQueue(q);
-  }
-  q.push({
-    v: 1,
-    kind: "update",
-    opId: newOpId(),
-    taskId,
-    patch,
-    baseUpdatedAt,
-    enqueuedAt: Date.now(),
+  return mutateCurrentQueue((q) => {
+    const idx = q.findIndex((o) => o.kind === "update" && o.taskId === taskId);
+    if (idx >= 0) {
+      const prev = q[idx] as Extract<OfflineTaskOp, { kind: "update" }>;
+      const merged = { ...prev.patch, ...patch };
+      const next = q.slice();
+      next[idx] = {
+        ...prev,
+        patch: merged,
+        baseUpdatedAt: prev.baseUpdatedAt ?? baseUpdatedAt,
+        enqueuedAt: Date.now(),
+      };
+      return next;
+    }
+    return [
+      ...q,
+      {
+        v: 1,
+        kind: "update",
+        opId: newOpId(),
+        taskId,
+        patch,
+        baseUpdatedAt,
+        enqueuedAt: Date.now(),
+      },
+    ];
   });
-  return writeQueue(q);
 }
 
 export function enqueueTaskCreate(clientId: string, payload: InsertTask): WriteQueueOutcome {
-  const q = readQueue();
-  const idx = q.findIndex((o) => o.kind === "create" && o.clientId === clientId);
-  if (idx >= 0) {
-    const prev = q[idx] as Extract<OfflineTaskOp, { kind: "create" }>;
-    q[idx] = {
-      ...prev,
-      payload: { ...prev.payload, ...payload, id: clientId } as InsertTask,
-      enqueuedAt: Date.now(),
-    };
-    return writeQueue(q);
-  }
-  q.push({
-    v: 1,
-    kind: "create",
-    opId: newOpId(),
-    clientId,
-    payload: { ...payload, id: clientId } as InsertTask,
-    enqueuedAt: Date.now(),
+  return mutateCurrentQueue((q) => {
+    const idx = q.findIndex((o) => o.kind === "create" && o.clientId === clientId);
+    if (idx >= 0) {
+      const prev = q[idx] as Extract<OfflineTaskOp, { kind: "create" }>;
+      const next = q.slice();
+      next[idx] = {
+        ...prev,
+        payload: { ...prev.payload, ...payload, id: clientId } as InsertTask,
+        enqueuedAt: Date.now(),
+      };
+      return next;
+    }
+    return [
+      ...q,
+      {
+        v: 1,
+        kind: "create",
+        opId: newOpId(),
+        clientId,
+        payload: { ...payload, id: clientId } as InsertTask,
+        enqueuedAt: Date.now(),
+      },
+    ];
   });
-  return writeQueue(q);
 }
 
 export function enqueueTaskDelete(taskId: string, baseUpdatedAt: string | null): WriteQueueOutcome {
-  const q0 = readQueue();
-  const removedOfflineCreate = q0.some((o) => o.kind === "create" && o.clientId === taskId);
-  const q = scrubHttpOpsForClientId(scrubQueueForDeletedTask(q0, taskId), taskId);
-  if (removedOfflineCreate) {
-    return writeQueue(q);
-  }
-  q.push({
-    v: 1,
-    kind: "delete",
-    opId: newOpId(),
-    taskId,
-    baseUpdatedAt,
-    enqueuedAt: Date.now(),
+  return mutateCurrentQueue((q0) => {
+    const removedOfflineCreate = q0.some((o) => o.kind === "create" && o.clientId === taskId);
+    let q = scrubHttpOpsForClientId(scrubQueueForDeletedTask(q0, taskId), taskId);
+    if (removedOfflineCreate) {
+      return q;
+    }
+    return [
+      ...q,
+      {
+        v: 1,
+        kind: "delete",
+        opId: newOpId(),
+        taskId,
+        baseUpdatedAt,
+        enqueuedAt: Date.now(),
+      },
+    ];
   });
-  return writeQueue(q);
 }
 
 export function enqueueTaskReorder(taskIds: string[]): WriteQueueOutcome {
-  const q = readQueue();
-  const idx = q.findIndex((o) => o.kind === "reorder");
-  if (idx >= 0) {
-    const prev = q[idx] as Extract<OfflineTaskOp, { kind: "reorder" }>;
-    q[idx] = { ...prev, taskIds, enqueuedAt: Date.now() };
-    return writeQueue(q);
-  }
-  q.push({ v: 1, kind: "reorder", opId: newOpId(), taskIds, enqueuedAt: Date.now() });
-  return writeQueue(q);
+  return mutateCurrentQueue((q) => {
+    const idx = q.findIndex((o) => o.kind === "reorder");
+    if (idx >= 0) {
+      const prev = q[idx] as Extract<OfflineTaskOp, { kind: "reorder" }>;
+      const next = q.slice();
+      next[idx] = { ...prev, taskIds, enqueuedAt: Date.now() };
+      return next;
+    }
+    return [...q, { v: 1, kind: "reorder", opId: newOpId(), taskIds, enqueuedAt: Date.now() }];
+  });
 }
 
 export function enqueueHttpMutation(method: string, path: string, body: unknown): WriteQueueOutcome {
-  const q = readQueue();
-  q.push({
-    v: 1,
-    kind: "http",
-    opId: newOpId(),
-    method: method.toUpperCase(),
-    path,
-    body,
-    enqueuedAt: Date.now(),
-  });
-  return writeQueue(q);
+  return mutateCurrentQueue((q) => [
+    ...q,
+    {
+      v: 1,
+      kind: "http",
+      opId: newOpId(),
+      method: method.toUpperCase(),
+      path,
+      body,
+      enqueuedAt: Date.now(),
+    },
+  ]);
 }
 
 export function peekOfflineQueue(): OfflineTaskOp[] {
@@ -483,25 +561,26 @@ export function peekOfflineQueue(): OfflineTaskOp[] {
 
 /** Drop one op by opId (after successful sync or user discard). */
 export function removeOfflineOp(opId: string): WriteQueueOutcome {
-  return writeQueue(readQueue().filter((o) => o.opId !== opId));
+  return mutateCurrentQueue((q) => q.filter((o) => o.opId !== opId));
 }
 
 /** After a successful server update, align remaining queued updates for this task with the new concurrency base. */
 export function refreshQueuedUpdateBasesForTask(taskId: string, newBaseUpdatedAt: string | null): boolean {
-  const q = readQueue();
-  let changed = false;
-  const next = q.map((o) => {
-    if ((o.kind === "update" || o.kind === "delete") && o.taskId === taskId) {
-      changed = true;
-      return { ...o, baseUpdatedAt: newBaseUpdatedAt };
-    }
-    return o;
-  });
-  if (changed) {
-    const o = writeQueue(next);
+  const k = queueStorageKey();
+  return withQueueKeyLock(k, () => {
+    const q = readQueueForKey(k);
+    let changed = false;
+    const next = q.map((op) => {
+      if ((op.kind === "update" || op.kind === "delete") && op.taskId === taskId) {
+        changed = true;
+        return { ...op, baseUpdatedAt: newBaseUpdatedAt };
+      }
+      return op;
+    });
+    if (!changed) return true;
+    const o = persistQueueForKey(k, next);
     return o.persistedToStorage || o.usingMemoryFallback;
-  }
-  return true;
+  });
 }
 
 /** Replace entire queue (used after conflict resolution / bulk retry). */
@@ -515,36 +594,36 @@ export function replaceOfflineQueue(ops: OfflineTaskOp[]): WriteQueueOutcome {
  * drop queued ops that still target the client id so the drain does not stick.
  */
 export function remapOrRemoveQueuedOpsForClientId(clientId: string, serverId: string | null): boolean {
-  const q = readQueue();
-  if (serverId) {
-    const next: OfflineTaskOp[] = [];
-    for (const o of q) {
-      if (o.kind === "update" && o.taskId === clientId) {
-        next.push({ ...o, taskId: serverId });
-        continue;
+  const w = mutateCurrentQueue((q) => {
+    if (serverId) {
+      const next: OfflineTaskOp[] = [];
+      for (const o of q) {
+        if (o.kind === "update" && o.taskId === clientId) {
+          next.push({ ...o, taskId: serverId });
+          continue;
+        }
+        if (o.kind === "delete" && o.taskId === clientId) {
+          next.push({ ...o, taskId: serverId });
+          continue;
+        }
+        if (o.kind === "reorder") {
+          const taskIds = o.taskIds.map((id) => (id === clientId ? serverId : id));
+          if (taskIds.every((id, i) => id === o.taskIds[i])) next.push(o);
+          else next.push({ ...o, taskIds, enqueuedAt: Date.now() });
+          continue;
+        }
+        if (o.kind === "http") {
+          const r = remapHttpOpForClientId(o, clientId, serverId);
+          if (r) next.push(r);
+          continue;
+        }
+        next.push(o);
       }
-      if (o.kind === "delete" && o.taskId === clientId) {
-        next.push({ ...o, taskId: serverId });
-        continue;
-      }
-      if (o.kind === "reorder") {
-        const taskIds = o.taskIds.map((id) => (id === clientId ? serverId : id));
-        if (taskIds.every((id, i) => id === o.taskIds[i])) next.push(o);
-        else next.push({ ...o, taskIds, enqueuedAt: Date.now() });
-        continue;
-      }
-      if (o.kind === "http") {
-        const r = remapHttpOpForClientId(o, clientId, serverId);
-        if (r) next.push(r);
-        continue;
-      }
-      next.push(o);
+      return next;
     }
-    const w = writeQueue(next);
-    return w.persistedToStorage || w.usingMemoryFallback;
-  }
-  let scrubbed = scrubQueueForDeletedTask(q, clientId);
-  scrubbed = scrubHttpOpsForClientId(scrubbed, clientId);
-  const w = writeQueue(scrubbed);
+    let scrubbed = scrubQueueForDeletedTask(q, clientId);
+    scrubbed = scrubHttpOpsForClientId(scrubbed, clientId);
+    return scrubbed;
+  });
   return w.persistedToStorage || w.usingMemoryFallback;
 }

@@ -48,6 +48,8 @@ const REQUIRED_TABLES = [
   "user_billing_profiles",
   "user_classification_categories",
   "user_entourage",
+  "user_youtube_probe_state",
+  "youtube_probe_feedback",
   "user_milestone_grants",
   "user_notification_preferences",
   "user_offline_skills",

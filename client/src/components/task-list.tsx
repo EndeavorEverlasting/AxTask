@@ -1,4 +1,12 @@
-import { useState, useMemo, useCallback, useEffect, useRef, memo, type TouchEvent as ReactTouchEvent } from "react";
+import {
+  useState,
+  useMemo,
+  useCallback,
+  useEffect,
+  useRef,
+  memo,
+  type TouchEvent as ReactTouchEvent,
+} from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
 import {
@@ -10,6 +18,7 @@ import {
   TaskSyncAbortedError,
 } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
+import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useVoice } from "@/hooks/use-voice";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -559,6 +568,58 @@ function MobileTaskCard({
   );
 }
 
+function MobileVirtualizedTaskList({
+  getScrollElement,
+  tasks,
+  updatingTaskIds,
+  deletingTaskIds,
+  onEdit,
+  onToggleStatus,
+  onDelete,
+}: {
+  getScrollElement: () => HTMLElement | null;
+  tasks: Task[];
+  updatingTaskIds: Set<string>;
+  deletingTaskIds: Set<string>;
+  onEdit: (task: Task) => void;
+  onToggleStatus: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const rowHeight = 118;
+  const virtualizer = useVirtualizer({
+    count: tasks.length,
+    getScrollElement,
+    estimateSize: () => rowHeight,
+    overscan: 10,
+  });
+  const items = virtualizer.getVirtualItems();
+  return (
+    <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+      {items.map((vi) => {
+        const task = tasks[vi.index];
+        return (
+          <div
+            key={task.id}
+            className="absolute left-0 top-0 w-full"
+            style={{ transform: `translateY(${vi.start}px)` }}
+          >
+            <div className="pb-3">
+              <MobileTaskCard
+                task={task}
+                onEdit={onEdit}
+                onToggleStatus={onToggleStatus}
+                onDelete={onDelete}
+                isUpdating={updatingTaskIds.has(task.id)}
+                isDeleting={deletingTaskIds.has(task.id)}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function usePullToRefresh(onRefresh: () => Promise<void>, scrollEl: HTMLElement | null) {
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -640,6 +701,7 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollEl: HTMLElement 
 
 export function TaskList() {
   const { toast } = useToast();
+  const { playIfEligible } = useImmersiveSounds();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
@@ -762,11 +824,13 @@ export function TaskList() {
           title: `+${cr.coinsEarned} AxCoins earned!`,
           description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${badgeText}`,
         });
+        playIfEligible(1);
       } else {
         toast({
           title: "Task updated",
           description: "Task status has been updated successfully.",
         });
+        playIfEligible(3);
       }
     },
     onError: (e: unknown) => {
@@ -1072,17 +1136,29 @@ export function TaskList() {
               </div>
             )}
             <div className="space-y-3">
-              {filteredAndSortedTasks.map((task: Task) => (
-                <MobileTaskCard
-                  key={task.id}
-                  task={task}
+              {filteredAndSortedTasks.length > VIRTUALIZE_THRESHOLD ? (
+                <MobileVirtualizedTaskList
+                  getScrollElement={() => pullScrollEl}
+                  tasks={filteredAndSortedTasks}
+                  updatingTaskIds={updatingTaskIds}
+                  deletingTaskIds={deletingTaskIds}
                   onEdit={handleEdit}
                   onToggleStatus={handleToggleStatus}
                   onDelete={handleDelete}
-                  isUpdating={updatingTaskIds.has(task.id)}
-                  isDeleting={deletingTaskIds.has(task.id)}
                 />
-              ))}
+              ) : (
+                filteredAndSortedTasks.map((task: Task) => (
+                  <MobileTaskCard
+                    key={task.id}
+                    task={task}
+                    onEdit={handleEdit}
+                    onToggleStatus={handleToggleStatus}
+                    onDelete={handleDelete}
+                    isUpdating={updatingTaskIds.has(task.id)}
+                    isDeleting={deletingTaskIds.has(task.id)}
+                  />
+                ))
+              )}
             </div>
           </div>
         ) : (
