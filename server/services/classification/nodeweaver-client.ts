@@ -1,9 +1,9 @@
 /**
  * AxTask-side NodeWeaver integration (HTTP client only).
  *
- * The NodeWeaver inference service is not vendored inside this repository; it runs as a
- * separate deployable. Point `NODEWEAVER_URL` at that service. This module is the in-app
- * integration surface. Batch is used for single-task calls too.
+ * Runtime inference is always via HTTP: point `NODEWEAVER_URL` at a running NodeWeaver
+ * (Compose profile `nodeweaver` builds from the **`NodeWeaver/` git submodule**, or use any
+ * compatible deployment). This module is the in-app client only. Batch is used for single-task calls too.
  */
 
 const NODEWEAVER_DEFAULT_TIMEOUT_MS = 2000;

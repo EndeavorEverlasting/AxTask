@@ -1,0 +1,3 @@
+[submodule "NodeWeaver"]
+	path = NodeWeaver
+	url = https://github.com/EndeavorEverlasting/NodeWeaver.git

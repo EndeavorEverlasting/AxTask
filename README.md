@@ -43,11 +43,13 @@ The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run l
    **Project root** is the folder that contains **`package.json`** and **`docker-compose.yml`**. Run every `npm run …` command in this guide from that directory (your shell prompt should show that folder name after `cd`).
 
    ```bash
-   git clone https://github.com/EndeavorEverlasting/AxTask.git
+   git clone --recurse-submodules https://github.com/EndeavorEverlasting/AxTask.git
    cd AxTask
    ```
 
-   Use your **fork’s URL** or **SSH** if that is how you work. **NodeWeaver** for optional `docker:up:nodeweaver` lives under **`NodeWeaver/`** (vendored Python app); run **`npm run submodule:init`** if you want a quick check that `Dockerfile` is present.
+   If you already cloned without submodules: **`git submodule update --init --recursive`**.
+
+   Use your **fork’s URL** or **SSH** if that is how you work. **NodeWeaver** (optional `docker:up:nodeweaver`) is a **git submodule** at **`NodeWeaver/`** ([upstream repo](https://github.com/EndeavorEverlasting/NodeWeaver)). After a fresh clone, **`npm run submodule:init`** (or **`npm install`**, which runs **`postinstall`**) verifies **`NodeWeaver/Dockerfile`** and may run **`uv sync`** when **`uv`** is on your PATH.
 
    **Check you are in the right place:** `dir package.json` (Windows CMD), `Test-Path package.json` (PowerShell), or `ls package.json` (macOS/Linux) should succeed.
 
@@ -132,7 +134,7 @@ Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run
 
 Use this when you prefer to run the app with `tsx` against your own Postgres (not the Docker Compose stack).
 
-**Clone and `cd`:** same as [Run locally after cloning with Docker](#run-locally-after-cloning-with-docker) — step **2** (`git clone …`, `cd AxTask`).
+**Clone and `cd`:** same as [Run locally after cloning with Docker](#run-locally-after-cloning-with-docker) — step **2** (`git clone --recurse-submodules …`, `cd AxTask`).
 
 From the **project root**:
 
@@ -280,7 +282,7 @@ If something ever gets out of sync, run:
 npm run deps:sync
 ```
 
-If you use a **standalone** NodeWeaver checkout (outside AxTask), run that repo’s setup script once too; the copy under **`NodeWeaver/`** is the one Docker builds by default.
+For **Docker Compose** with the `nodeweaver` profile, the image builds from the **`NodeWeaver/` submodule**. You can still point `NODEWEAVER_URL` at any other compatible NodeWeaver URL instead.
 
 ### File Structure
 ```

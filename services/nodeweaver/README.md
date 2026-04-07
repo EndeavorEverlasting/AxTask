@@ -1,24 +1,30 @@
 # NodeWeaver (AxTask integration)
 
-NodeWeaver is the **Python classification service** for AxTask. Its source lives **inside this repository** at **`NodeWeaver/`** (vendored copy of [NodeWeaver](https://github.com/EndeavorEverlasting/NodeWeaver)) so you get **one clone**, **no submodules**, and **one Docker Compose stack** when you enable the profile.
+NodeWeaver is the **Python classification service** for AxTask. It is included as a **git submodule** at **`NodeWeaver/`**, tracking [github.com/EndeavorEverlasting/NodeWeaver](https://github.com/EndeavorEverlasting/NodeWeaver). You get **one AxTask clone** plus an explicit upstream pointer, and **one Docker Compose stack** when you enable the profile.
+
+## Clone and submodule
+
+- **Recommended:** `git clone --recurse-submodules <AxTask-url>` then `cd AxTask`.
+- **Existing clone without submodules:** `git submodule update --init --recursive`.
+- **Update NodeWeaver to the commit recorded by AxTask:** `git submodule update --init NodeWeaver` (or `git pull` in `NodeWeaver/` after AxTask bumps the submodule).
 
 ## Layout
 
-- **`NodeWeaver/`** — full NodeWeaver app (`Dockerfile`, `main.py`, etc.). Treat edits here as AxTask-owned unless you are syncing from the upstream GitHub project on purpose.
+- **`NodeWeaver/`** — submodule checkout (`Dockerfile`, `main.py`, etc.). Contribute changes via the **NodeWeaver** repository (or a fork), then bump the submodule commit in AxTask when integrating.
 
 This **`services/nodeweaver/`** folder holds integration docs only (no Python app).
 
 ## After clone
 
-No manual step. **`npm install`** runs **`postinstall`**, which verifies **`NodeWeaver/Dockerfile`** and (outside CI, if **`uv`** is on your PATH) syncs the Python env when `uv.lock` / `pyproject.toml` change. **`npm run dev`** runs the same check via **`predev`** first.
+**`npm install`** runs **`postinstall`**, which verifies **`NodeWeaver/Dockerfile`** and (outside CI, if **`uv`** is on your PATH) syncs the Python env when `uv.lock` / `pyproject.toml` change. **`npm run dev`** runs the same check via **`predev`** first.
 
 Optional: **`npm run submodule:init`** runs the same bootstrap script (legacy script name).
 
-Set **`AXTASK_SKIP_NODEWEAVER_PY=1`** to skip the optional `uv sync` (AxTask does not require local Python). CI skips `uv` automatically.
+Set **`AXTASK_SKIP_NODEWEAVER_PY=1`** to skip the optional `uv sync` (AxTask does not require local Python).
 
-## Refreshing from the standalone NodeWeaver repo
+## Working without the submodule (advanced)
 
-If you maintain a separate NodeWeaver checkout, copy its contents **into** **`NodeWeaver/`** **without** the nested `.git` directory so AxTask stays a single git root.
+If you intentionally omit the submodule (e.g. minimal checkout), Docker profile **`nodeweaver`** and local **`uv sync`** will not find sources until you run **`git submodule update --init --recursive`**. Do not copy a standalone NodeWeaver tree **on top of** the submodule path without git knowing—use submodule commands instead.
 
 ## Docker Compose (profile `nodeweaver`)
 
