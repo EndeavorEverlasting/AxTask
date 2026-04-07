@@ -4417,7 +4417,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let classificationReward = null;
       if (!isGeneralClassification(classification)) {
         try {
-          classificationReward = await awardCoinsForClassification(userId, task);
+          classificationReward = await awardCoinsForClassification(ownerId, task);
         } catch (awardErr) {
           console.error("[tasks] reclassify awardCoinsForClassification:", awardErr);
           classificationReward = null;

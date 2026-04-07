@@ -136,12 +136,22 @@ export default function BulkActionDialog({
       }
       const results = data.results;
       const failedCount = data.failed || 0;
-      if (
-        failedCount > 0 &&
-        Array.isArray(results) &&
-        selectedActions.length > 0 &&
-        results.length === selectedActions.length
-      ) {
+      const resultByTaskId = new Map<string, { success: boolean; error?: string }>();
+      if (Array.isArray(results)) {
+        for (const r of results) {
+          if (!r || typeof r.taskId !== "string") continue;
+          const prev = resultByTaskId.get(r.taskId);
+          if (!prev) {
+            resultByTaskId.set(r.taskId, { success: r.success !== false, error: r.error });
+          } else {
+            resultByTaskId.set(r.taskId, {
+              success: prev.success && r.success !== false,
+              error: r.error ?? prev.error,
+            });
+          }
+        }
+      }
+      if (failedCount > 0 && Array.isArray(results) && selectedActions.length > 0) {
         const keys = submitKeysRef.current;
         const failedEntries = selectedActions
           .map((action, i) => ({
@@ -149,7 +159,10 @@ export default function BulkActionDialog({
             i,
             key: keys[i] ?? actionKey(action, i),
           }))
-          .filter(({ i }) => results[i]?.success === false);
+          .filter(({ action }) => {
+            const r = resultByTaskId.get(action.taskId);
+            return !r || r.success === false;
+          });
         const eligible = failedEntries.filter(({ key }) => (retryAttemptsRef.current.get(key) ?? 0) < MAX_RETRIES);
         const skippedForLimit = failedEntries.filter(
           ({ key }) => (retryAttemptsRef.current.get(key) ?? 0) >= MAX_RETRIES,

@@ -4,6 +4,7 @@
  * Docker Compose: set SKIP_DB_PUSH_ON_START=true on the app container when a migrate job already ran.
  */
 import { spawn, spawnSync } from "child_process";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
@@ -35,6 +36,16 @@ if (skip) {
 }
 
 const entry = path.join(projectRoot, "dist", "index.js");
+if (!fs.existsSync(entry)) {
+  console.error(
+    "[axtask:start] Missing server bundle at",
+    entry,
+    "— run npm run build in the image or check COPY stages.",
+  );
+  process.exit(1);
+}
+
+console.log("[axtask:start] Starting server:", entry);
 const child = spawn(process.execPath, [entry], {
   cwd: projectRoot,
   stdio: "inherit",
@@ -45,4 +56,9 @@ child.on("error", (err) => {
   console.error("[axtask:start] failed to spawn server process:", err);
   process.exit(1);
 });
-child.on("exit", (code) => process.exit(code ?? 0));
+child.on("exit", (code, signal) => {
+  if (code !== 0 && code !== null) {
+    console.error(`[axtask:start] server exited with code ${code}${signal ? ` (signal ${signal})` : ""}`);
+  }
+  process.exit(code ?? 1);
+});

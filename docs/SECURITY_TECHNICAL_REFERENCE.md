@@ -323,15 +323,22 @@ Use the **`Content-Security-Policy`** header as the primary modern XSS mitigatio
 
 ### CORS Configuration
 ```typescript
-// Secure CORS setup
+// Secure CORS setup — do not use glob strings like 'https://*.replit.app' (the `cors` package matches literally).
+const replitAppOrigin = /^https:\/\/[^/]+\.replit\.app$/;
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-domain.com']
-    : ['http://localhost:3000', 'https://*.replit.app'],
+  origin:
+    process.env.NODE_ENV === "production"
+      ? ["https://your-domain.com"]
+      : (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+          if (!origin) return cb(null, true);
+          if (origin === "http://localhost:3000") return cb(null, true);
+          if (replitAppOrigin.test(origin)) return cb(null, true);
+          cb(new Error("Not allowed by CORS"));
+        },
   credentials: true,
   optionsSuccessStatus: 200,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token']
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
 };
 
 app.use(cors(corsOptions));

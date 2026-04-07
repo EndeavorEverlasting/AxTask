@@ -38,7 +38,7 @@ const SENSITIVE_ROOT_PREFIXES = [
 ] as const;
 
 function sanitizeUserIdForStorageKey(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return encodeURIComponent(id);
 }
 
 export function getQueryPersistStorageKeyForUser(userId: string | null | undefined): string {

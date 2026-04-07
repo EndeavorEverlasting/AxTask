@@ -260,7 +260,16 @@ export async function manualCreateTaskWithImportFingerprintClaim(
         .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
         .limit(1);
       if (existing) {
-        return { ok: true as const, task: existing };
+        const existingFp = computeTaskFingerprint({
+          date: existing.date ?? "",
+          time: existing.time ?? null,
+          activity: existing.activity ?? null,
+          notes: existing.notes ?? null,
+        });
+        if (existingFp === fp) {
+          return { ok: true as const, task: existing };
+        }
+        return { ok: false as const, reason: "id_taken" as const };
       }
       return { ok: false as const, reason: "id_taken" as const };
     }

@@ -360,9 +360,6 @@ const USER_OWNED_TABLES = new Set<string>([
   "coinTransactions",
   "userBadges",
   "userRewards",
-  "taskCollaborators",
-  "classificationContributions",
-  "classificationConfirmations",
   "passwordResetTokens",
   "securityLogs",
 ]);
@@ -1100,6 +1097,12 @@ export async function importUserBundle(
       let wouldConflict = 0;
       for (const row of rows) {
         if (hasUnresolvableFks(row, tableName)) {
+          const pkFieldUnres = PK_FIELD[tableName];
+          const pkOrigUnres = row[pkFieldUnres];
+          trackSkippedIdUserBundle(
+            tableName,
+            pkOrigUnres !== undefined && pkOrigUnres !== null ? String(pkOrigUnres) : undefined,
+          );
           wouldSkip++;
           continue;
         }

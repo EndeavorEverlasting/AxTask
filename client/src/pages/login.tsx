@@ -771,7 +771,11 @@ export default function LoginPage() {
             <form
               onSubmit={handleSubmit}
               className="space-y-4"
-              id={mode === "login" ? "login-help-password-cta" : undefined}
+              id={
+                (mode === "login" && showForm) || mode === "register"
+                  ? "login-help-password-cta"
+                  : undefined
+              }
             >
               {mode === "register" && (
                 <div>

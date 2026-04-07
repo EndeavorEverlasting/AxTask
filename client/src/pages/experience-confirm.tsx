@@ -58,6 +58,7 @@ export default function ExperienceConfirmPage() {
   }, []);
 
   useEffect(() => {
+    let t: number | undefined;
     if (mode === "mfa" && challengeId && code && purpose) {
       emitMfaHandoff({ challengeId, code, purpose });
       setSent(true);
@@ -67,11 +68,17 @@ export default function ExperienceConfirmPage() {
       url.searchParams.delete("purpose");
       const next = url.pathname + (url.search ? url.search : "");
       window.history.replaceState({}, "", next);
+      t = window.setTimeout(() => {
+        window.location.href = "/";
+      }, 1400);
+    } else if (mode !== "mfa") {
+      t = window.setTimeout(() => {
+        window.location.href = "/";
+      }, 2600);
     }
-    const t = window.setTimeout(() => {
-      window.location.href = "/";
-    }, mode === "mfa" ? 1400 : 2600);
-    return () => window.clearTimeout(t);
+    return () => {
+      if (t !== undefined) window.clearTimeout(t);
+    };
   }, [mode, challengeId, code, purpose]);
 
   const title =

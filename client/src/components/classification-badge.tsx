@@ -248,9 +248,9 @@ export function ClassificationBadge({
               <p className="text-[11px] text-gray-500 dark:text-gray-400">No alternate suggestions.</p>
             )}
             <div className="flex flex-wrap gap-1">
-              {topSuggestions.map((s) => (
+              {topSuggestions.map((s, idx) => (
                 <Button
-                  key={`${s.label}-${s.source}`}
+                  key={`${s.label}-${s.source}-${idx}`}
                   type="button"
                   variant="secondary"
                   size="sm"

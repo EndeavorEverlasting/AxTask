@@ -85,7 +85,7 @@ import {
   type AvatarProfile,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, or, asc, lt, gt, count, avg, sql, desc, inArray, notInArray, isNull } from "drizzle-orm";
+import { eq, and, ilike, or, asc, lt, gt, gte, count, avg, sql, desc, inArray, notInArray, isNull } from "drizzle-orm";
 import { computeAppealVoteThreshold, evaluateAppealOutcome } from "./lib/appeal-vote-rules";
 import { computeCompoundContributorBonus, getMaxCompoundPeriods } from "./lib/classification-compound";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -267,7 +267,16 @@ export async function updateUserAccountProfile(
 ): Promise<SafeUser | undefined> {
   const updates: Record<string, unknown> = {};
   if (patch.displayName !== undefined) updates.displayName = patch.displayName;
-  if (patch.birthDate !== undefined) updates.birthDate = patch.birthDate;
+  if (patch.birthDate !== undefined) {
+    const existing = await getAccountOwnerProfileFields(userId);
+    const prior = existing?.birthDate;
+    const hasPrior = prior != null && String(prior).trim() !== "";
+    if (hasPrior) {
+      console.warn("[storage] updateUserAccountProfile: ignoring birthDate change (already set)");
+    } else {
+      updates.birthDate = patch.birthDate;
+    }
+  }
   if (Object.keys(updates).length === 0) return getUserById(userId);
   await db.update(users).set(updates as Partial<User>).where(eq(users.id, userId));
   return getUserById(userId);
@@ -4094,16 +4103,55 @@ export async function spendCoinsForAvatarBoost(
 
 // ─── Pattern Learning Storage ────────────────────────────────────────────────
 
+export type TaskPatternRebuildRow = {
+  patternType: string;
+  patternKey: string;
+  data: unknown;
+  confidence: number;
+  occurrences: number;
+};
+
+/** Replace all learned patterns for a user in one transaction (full rebuild). */
+export async function replaceUserTaskPatterns(
+  userId: string,
+  rows: TaskPatternRebuildRow[],
+): Promise<void> {
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.delete(taskPatterns).where(eq(taskPatterns.userId, userId));
+    const CHUNK = 150;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const slice = rows.slice(i, i + CHUNK);
+      if (slice.length === 0) continue;
+      await tx.insert(taskPatterns).values(
+        slice.map((r) => ({
+          id: randomUUID(),
+          userId,
+          patternType: r.patternType,
+          patternKey: r.patternKey,
+          data: JSON.stringify(r.data),
+          confidence: r.confidence,
+          occurrences: Math.max(1, Math.floor(Number(r.occurrences)) || 1),
+          lastSeen: now,
+          createdAt: now,
+        })),
+      );
+    }
+  });
+}
+
 export async function upsertPattern(
   userId: string,
   patternType: string,
   patternKey: string,
   data: unknown,
-  confidence: number
+  confidence: number,
+  occurrences: number = 1,
 ): Promise<TaskPattern> {
   const now = new Date();
   const dataStr = JSON.stringify(data);
   const id = randomUUID();
+  const occ = Math.max(1, Math.floor(Number(occurrences)) || 1);
   const [row] = await db
     .insert(taskPatterns)
     .values({
@@ -4113,7 +4161,7 @@ export async function upsertPattern(
       patternKey,
       data: dataStr,
       confidence,
-      occurrences: 1,
+      occurrences: occ,
       lastSeen: now,
       createdAt: now,
     })
@@ -4122,7 +4170,7 @@ export async function upsertPattern(
       set: {
         data: dataStr,
         confidence,
-        occurrences: sql`${taskPatterns.occurrences} + 1`,
+        occurrences: occ,
         lastSeen: now,
       },
     })
@@ -4564,11 +4612,18 @@ export async function updateContributionEarnings(contributionId: string, additio
     .where(eq(classificationContributions.id, contributionId));
 }
 
-export async function getUserClassificationStats(userId: string): Promise<{
+export async function getUserClassificationStats(
+  userId: string,
+  since?: Date,
+): Promise<{
   totalClassifications: number;
   totalConfirmationsReceived: number;
   totalClassificationCoins: number;
 }> {
+  const conds = [eq(classificationContributions.userId, userId)];
+  if (since) {
+    conds.push(gte(classificationContributions.createdAt, since));
+  }
   const [classRow] = await db
     .select({
       total: count(),
@@ -4576,7 +4631,7 @@ export async function getUserClassificationStats(userId: string): Promise<{
       totalConfirmations: sql<number>`COALESCE(SUM(${classificationContributions.confirmationCount}), 0)`,
     })
     .from(classificationContributions)
-    .where(eq(classificationContributions.userId, userId));
+    .where(and(...conds));
 
   return {
     totalClassifications: Number(classRow?.total) || 0,

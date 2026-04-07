@@ -69,6 +69,7 @@ export function GuidedTourOverlay({
   const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
   const stackRef = useRef<HTMLDivElement>(null);
   const glowTargetElRef = useRef<HTMLElement | null>(null);
+  const glowGenerationRef = useRef(0);
   const preTourFocusRef = useRef<HTMLElement | null>(null);
   const tourWasActiveRef = useRef(false);
 
@@ -126,7 +127,19 @@ export function GuidedTourOverlay({
     }
 
     setFadeIn(false);
+
+    const prevGlowEl = glowTargetElRef.current;
+    if (prevGlowEl) {
+      prevGlowEl.classList.remove(glowCls);
+      for (const c of LEGACY_GLOW_CLEANUP) {
+        if (c !== glowCls) prevGlowEl.classList.remove(c);
+      }
+    }
+    glowTargetElRef.current = null;
+
+    const gen = ++glowGenerationRef.current;
     const timer = setTimeout(() => {
+      if (gen !== glowGenerationRef.current) return;
       refreshTargetRect();
       const resolved = findTarget();
       glowTargetElRef.current = resolved;
@@ -141,6 +154,7 @@ export function GuidedTourOverlay({
 
     return () => {
       clearTimeout(timer);
+      if (gen !== glowGenerationRef.current) return;
       const el = glowTargetElRef.current;
       glowTargetElRef.current = null;
       if (el) {

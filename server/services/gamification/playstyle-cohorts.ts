@@ -4,7 +4,7 @@
  * Rollups are anonymous counts + mean signal vectors for ops / capacity / inevitability modeling.
  * Individual assignments exist only to recompute rollups efficiently; do not expose in product APIs.
  */
-import { and, asc, count, desc, eq, gte } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   avatarXpEvents,
@@ -93,7 +93,7 @@ export async function computePlaystyleSignals(
     .where(and(eq(coinTransactions.userId, userId), gte(coinTransactions.createdAt, since)));
   const coinEvents = Number(coinRow?.n) || 0;
 
-  const classStats = await getUserClassificationStats(userId);
+  const classStats = await getUserClassificationStats(userId, since);
   const classificationScore = clamp01(Math.log1p(classStats.totalClassifications) / Math.log1p(80));
 
   return {
@@ -142,33 +142,46 @@ export async function recomputePlaystyleCohortRollups(): Promise<PlaystyleRecomp
   const now = new Date();
 
   let scanned = 0;
-  for (const row of distinctUsers) {
-    const userId = row.userId;
-    const signals = await computePlaystyleSignals(userId, windowDays);
-    const cohort = assignPlaystyleCohort(signals);
-    scanned += 1;
+  const BATCH = 48;
+  for (let b = 0; b < distinctUsers.length; b += BATCH) {
+    const slice = distinctUsers.slice(b, b + BATCH);
+    const signalRows = await Promise.all(
+      slice.map(async (row) => {
+        const userId = row.userId;
+        const signals = await computePlaystyleSignals(userId, windowDays);
+        const cohort = assignPlaystyleCohort(signals);
+        return { userId, signals, cohort };
+      }),
+    );
 
-    await db
-      .insert(userPlaystyleAssignments)
-      .values({
-        userId,
-        cohortKey: cohort,
-        signalsJson: JSON.stringify(signals),
-        assignmentVersion: version,
-        computedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: userPlaystyleAssignments.userId,
-        set: {
-          cohortKey: cohort,
-          signalsJson: JSON.stringify(signals),
-          assignmentVersion: version,
-          computedAt: now,
-        },
-      });
+    if (signalRows.length > 0) {
+      await db
+        .insert(userPlaystyleAssignments)
+        .values(
+          signalRows.map(({ userId, signals, cohort }) => ({
+            userId,
+            cohortKey: cohort,
+            signalsJson: JSON.stringify(signals),
+            assignmentVersion: version,
+            computedAt: now,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: userPlaystyleAssignments.userId,
+          set: {
+            cohortKey: sql`excluded.cohort_key`,
+            signalsJson: sql`excluded.signals_json`,
+            assignmentVersion: sql`excluded.assignment_version`,
+            computedAt: sql`excluded.computed_at`,
+          },
+        });
+    }
 
-    if (!byCohort[cohort]) byCohort[cohort] = [];
-    byCohort[cohort].push(signals);
+    for (const { signals, cohort } of signalRows) {
+      scanned += 1;
+      if (!byCohort[cohort]) byCohort[cohort] = [];
+      byCohort[cohort].push(signals);
+    }
   }
 
   const cohortSummaries: PlaystyleRecomputeResult["cohorts"] = [];

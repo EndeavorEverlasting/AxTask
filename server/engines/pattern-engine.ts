@@ -1,6 +1,12 @@
 import type { Task, TaskPattern } from "@shared/schema";
 import { daysBetween } from "../lib/days";
-import { upsertPattern, clearPatterns } from "../storage";
+import {
+  upsertPattern,
+  clearPatterns,
+  replaceUserTaskPatterns,
+  getPatterns,
+  type TaskPatternRebuildRow,
+} from "../storage";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -130,8 +136,6 @@ export async function analyzeTaskHistory(userId: string, allTasks: Task[]): Prom
     return [];
   }
 
-  await clearPatterns(userId);
-
   const sorted = [...allTasks].sort((a, b) => {
     const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
     const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -139,24 +143,18 @@ export async function analyzeTaskHistory(userId: string, allTasks: Task[]): Prom
   });
   const recentTasks = sorted.slice(0, MAX_TASKS_FOR_ANALYSIS);
 
-  const results: TaskPattern[] = [];
+  const rows: TaskPatternRebuildRow[] = [
+    ...collectTopicPatternRows(recentTasks),
+    ...collectRecurrencePatternRows(recentTasks),
+    ...collectDeadlineRhythmPatternRows(recentTasks),
+    ...collectSimilarityClusterPatternRows(recentTasks),
+  ];
 
-  const topicPatterns = await extractTopics(userId, recentTasks);
-  results.push(...topicPatterns);
-
-  const recurrencePatterns = await detectRecurrences(userId, recentTasks);
-  results.push(...recurrencePatterns);
-
-  const rhythmPatterns = await detectDeadlineRhythms(userId, recentTasks);
-  results.push(...rhythmPatterns);
-
-  const clusterPatterns = await buildSimilarityClusters(userId, recentTasks);
-  results.push(...clusterPatterns);
-
-  return results;
+  await replaceUserTaskPatterns(userId, rows);
+  return getPatterns(userId);
 }
 
-async function extractTopics(userId: string, allTasks: Task[]): Promise<TaskPattern[]> {
+function collectTopicPatternRows(allTasks: Task[]): TaskPatternRebuildRow[] {
   const topicMap = new Map<string, { count: number; scores: number[]; classifications: Set<string>; activities: string[] }>();
 
   for (const task of allTasks) {
@@ -193,7 +191,7 @@ async function extractTopics(userId: string, allTasks: Task[]): Promise<TaskPatt
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 50);
 
-  const results: TaskPattern[] = [];
+  const results: TaskPatternRebuildRow[] = [];
   for (const [topic, data] of Array.from(significantTopics)) {
     const confidence = Math.min(100, Math.round((data.count / allTasks.length) * 100 + data.count * 5));
     const avgScore =
@@ -207,14 +205,19 @@ async function extractTopics(userId: string, allTasks: Task[]): Promise<TaskPatt
       recentActivities: data.activities.slice(0, 3),
     };
 
-    const pattern = await upsertPattern(userId, "topic", topic, topicData, confidence);
-    results.push(pattern);
+    results.push({
+      patternType: "topic",
+      patternKey: topic,
+      data: topicData,
+      confidence,
+      occurrences: data.count,
+    });
   }
 
   return results;
 }
 
-async function detectRecurrences(userId: string, allTasks: Task[]): Promise<TaskPattern[]> {
+function collectRecurrencePatternRows(allTasks: Task[]): TaskPatternRebuildRow[] {
   const groups = new Map<string, Task[]>();
 
   for (const task of allTasks) {
@@ -235,7 +238,7 @@ async function detectRecurrences(userId: string, allTasks: Task[]): Promise<Task
     }
   }
 
-  const results: TaskPattern[] = [];
+  const results: TaskPatternRebuildRow[] = [];
 
   for (const [key, group] of Array.from(groups.entries())) {
     if (group.length < 2) continue;
@@ -295,14 +298,19 @@ async function detectRecurrences(userId: string, allTasks: Task[]): Promise<Task
       nextExpectedDate: nextExpectedStr,
     };
 
-    const pattern = await upsertPattern(userId, "recurrence", key, recurrenceData, confidence);
-    results.push(pattern);
+    results.push({
+      patternType: "recurrence",
+      patternKey: key,
+      data: recurrenceData,
+      confidence,
+      occurrences: group.length,
+    });
   }
 
   return results;
 }
 
-async function detectDeadlineRhythms(userId: string, allTasks: Task[]): Promise<TaskPattern[]> {
+function collectDeadlineRhythmPatternRows(allTasks: Task[]): TaskPatternRebuildRow[] {
   const classGroups = new Map<string, Task[]>();
 
   for (const task of allTasks) {
@@ -312,7 +320,7 @@ async function detectDeadlineRhythms(userId: string, allTasks: Task[]): Promise<
     classGroups.get(cls)!.push(task);
   }
 
-  const results: TaskPattern[] = [];
+  const results: TaskPatternRebuildRow[] = [];
 
   for (const [cls, group] of Array.from(classGroups.entries())) {
     if (group.length < 3) continue;
@@ -368,14 +376,19 @@ async function detectDeadlineRhythms(userId: string, allTasks: Task[]): Promise<
       dates: sorted.slice(-5).map(t => t.date!).filter(Boolean) as string[],
     };
 
-    const pattern = await upsertPattern(userId, "deadline_rhythm", `rhythm:${cls.toLowerCase()}`, rhythmData, confidence);
-    results.push(pattern);
+    results.push({
+      patternType: "deadline_rhythm",
+      patternKey: `rhythm:${cls.toLowerCase()}`,
+      data: rhythmData,
+      confidence,
+      occurrences: group.length,
+    });
   }
 
   return results;
 }
 
-async function buildSimilarityClusters(userId: string, allTasks: Task[]): Promise<TaskPattern[]> {
+function collectSimilarityClusterPatternRows(allTasks: Task[]): TaskPatternRebuildRow[] {
   const clusters: { centroid: string[]; tasks: Task[] }[] = [];
 
   for (const task of allTasks) {
@@ -397,7 +410,7 @@ async function buildSimilarityClusters(userId: string, allTasks: Task[]): Promis
     }
   }
 
-  const results: TaskPattern[] = [];
+  const results: TaskPatternRebuildRow[] = [];
 
   for (const cluster of clusters) {
     if (cluster.tasks.length < 2) continue;
@@ -445,8 +458,13 @@ async function buildSimilarityClusters(userId: string, allTasks: Task[]): Promis
     };
 
     const clusterKey = `cluster:${cluster.centroid.slice(0, 3).join("_")}`;
-    const pattern = await upsertPattern(userId, "similarity_cluster", clusterKey, clusterData, confidence);
-    results.push(pattern);
+    results.push({
+      patternType: "similarity_cluster",
+      patternKey: clusterKey,
+      data: clusterData,
+      confidence,
+      occurrences: cluster.tasks.length,
+    });
   }
 
   return results;
@@ -721,7 +739,7 @@ export async function learnFromTask(userId: string, task: Task, allTasks: Task[]
         recentActivities,
       };
       const confidence = Math.min(100, (existing.length + 1) * 10);
-      await upsertPattern(userId, "topic", token, topicData, confidence);
+      await upsertPattern(userId, "topic", token, topicData, confidence, topicData.count);
     }
   }
 
@@ -777,7 +795,14 @@ export async function learnFromTask(userId: string, task: Task, allTasks: Task[]
       };
 
       const confidence = Math.min(100, allInstances.length * 15 + (cadence !== "unknown" ? 20 : 0));
-      await upsertPattern(userId, "recurrence", normalizeText(task.activity), recurrenceData, confidence);
+      await upsertPattern(
+        userId,
+        "recurrence",
+        normalizeText(task.activity),
+        recurrenceData,
+        confidence,
+        recurrenceData.count,
+      );
     }
   }
 }

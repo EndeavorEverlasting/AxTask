@@ -89,9 +89,8 @@ async function withOfflineDrainLock(run: () => Promise<void>): Promise<void> {
         releaseDrainLockIfOwner();
       }
       return;
-    } catch {
-      await run();
-      return;
+    } catch (err) {
+      throw err;
     }
   }
   await run();

@@ -25,6 +25,10 @@ export async function debitProductivityExport(
   if (productivityExportsFreeInDev() || cost === 0) {
     return true;
   }
+  if (!Number.isFinite(cost) || cost <= 0) {
+    res.status(400).json({ code: "INVALID_COST", message: "Export cost must be a positive number." });
+    return false;
+  }
   const wallet = await spendCoins(userId, cost, reason, options);
   if (!wallet) {
     const w = await getOrCreateWallet(userId);

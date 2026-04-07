@@ -21,6 +21,7 @@ import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 
 function ImmersiveSoundsSettingsCard() {
   const { isLoading: notifPrefsLoading } = useNotificationMode();
+  const { toast } = useToast();
   const {
     deviceScope,
     effectiveEnabled,
@@ -58,6 +59,13 @@ function ImmersiveSoundsSettingsCard() {
               void (async () => {
                 try {
                   await setSoundsEnabled(checked);
+                } catch (e) {
+                  console.error("[account] setSoundsEnabled failed:", e);
+                  toast({
+                    title: "Could not update sounds",
+                    description: e instanceof Error ? e.message : "Please try again.",
+                    variant: "destructive",
+                  });
                 } finally {
                   setPending(false);
                 }
@@ -77,6 +85,13 @@ function ImmersiveSoundsSettingsCard() {
               void (async () => {
                 try {
                   await setScope(v);
+                } catch (e) {
+                  console.error("[account] setScope failed:", e);
+                  toast({
+                    title: "Could not update sound scope",
+                    description: e instanceof Error ? e.message : "Please try again.",
+                    variant: "destructive",
+                  });
                 } finally {
                   setPending(false);
                 }

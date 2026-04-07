@@ -29,8 +29,11 @@ describe("query-persist-policy", () => {
       expect(getQueryPersistStorageKeyForUser(undefined)).toBe("axtask.react-query.v1.u.anon");
       expect(getQueryPersistStorageKeyForUser("")).toBe("axtask.react-query.v1.u.anon");
     });
-    it("sanitizes user id for the key", () => {
-      expect(getQueryPersistStorageKeyForUser("user/1")).toBe("axtask.react-query.v1.u.user_1");
+    it("encodes user id for a collision-free key", () => {
+      expect(getQueryPersistStorageKeyForUser("user/1")).toBe(
+        `axtask.react-query.v1.u.${encodeURIComponent("user/1")}`,
+      );
+      expect(getQueryPersistStorageKeyForUser("a.b")).not.toBe(getQueryPersistStorageKeyForUser("a/b"));
     });
   });
 
