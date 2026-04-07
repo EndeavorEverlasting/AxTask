@@ -22,6 +22,12 @@ declare module "express-session" {
     adminStepUpExpiresAt?: number;
     /** Unix ms; self-service account export/import allowed until this time (production MFA step-up). */
     accountDataExportStepUpExpiresAt?: number;
+    /** JSON backup import ownership quiz (bound to tasks fingerprint). */
+    importOwnershipQuiz?: {
+      expiresAt: number;
+      tasksFingerprint: string;
+      expected: { id: string; correctIndex: number; choiceCount: number }[];
+    };
   }
 }
 

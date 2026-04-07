@@ -6,7 +6,7 @@ import { useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
-import { apiRequest } from "@/lib/queryClient";
+import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useMfaChallenge } from "@/hooks/use-mfa-challenge";
 import { MfaVerificationPanel } from "@/components/mfa/mfa-verification-panel";
 import { formatAxTaskCsvAttribution } from "@shared/attribution";
@@ -15,8 +15,17 @@ import { postPaidDownload, triggerBlobDownload, type ProductivityExportPrices } 
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
@@ -54,6 +63,16 @@ interface AccountImportApiResult {
   warnings?: { table: string; field: string; message: string }[];
 }
 
+type ImportOwnershipAnswerPayload = { questionId: string; selectedIndex: number };
+
+interface AccountImportChallengeResponse {
+  ownershipQuizRequired: boolean;
+  tasksFingerprint: string;
+  questionCount: number;
+  questions: { id: string; prompt: string; choices: string[] }[];
+  message?: string;
+}
+
 export default function ImportExport() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -83,6 +102,13 @@ export default function ImportExport() {
   const [jsonFileName, setJsonFileName] = useState("");
   const [jsonExportBusy, setJsonExportBusy] = useState(false);
   const [jsonAccountResult, setJsonAccountResult] = useState<AccountImportApiResult | null>(null);
+  const [importOwnershipQuizOpen, setImportOwnershipQuizOpen] = useState(false);
+  const [importOwnershipQuizQuestions, setImportOwnershipQuizQuestions] = useState<
+    AccountImportChallengeResponse["questions"]
+  >([]);
+  const [importOwnershipQuizAnswers, setImportOwnershipQuizAnswers] = useState<Record<string, number>>({});
+  const [importOwnershipQuizPendingDryRun, setImportOwnershipQuizPendingDryRun] = useState(true);
+  const [importChallengeBusy, setImportChallengeBusy] = useState(false);
   const [spreadsheetExportBusy, setSpreadsheetExportBusy] = useState<"csv" | "xlsx" | null>(null);
 
   const { data: tasks = [] } = useQuery<Task[]>({
@@ -162,17 +188,21 @@ export default function ImportExport() {
   }
 
   const accountJsonMutation = useMutation({
-    mutationFn: async (dryRun: boolean) => {
+    mutationFn: async (opts: { dryRun: boolean; importOwnershipAnswers?: ImportOwnershipAnswerPayload[] }) => {
       if (!jsonBundle) throw new Error("No backup loaded");
       if (accountDataStepUpBlocks) {
         throw new Error("Verify your identity first (email code) before importing a JSON backup.");
       }
-      const res = await apiRequest("POST", "/api/account/import", { bundle: jsonBundle, dryRun });
+      const body: Record<string, unknown> = { bundle: jsonBundle, dryRun: opts.dryRun };
+      if (opts.importOwnershipAnswers && opts.importOwnershipAnswers.length > 0) {
+        body.importOwnershipAnswers = opts.importOwnershipAnswers;
+      }
+      const res = await apiRequest("POST", "/api/account/import", body);
       return (await res.json()) as AccountImportApiResult;
     },
-    onSuccess: (data, dryRun) => {
+    onSuccess: (data, opts) => {
       setJsonAccountResult(data);
-      if (!dryRun && data.success) {
+      if (!opts.dryRun && data.success) {
         invalidateAfterAccountImport();
         setJsonBundle(null);
         setJsonFileName("");
@@ -181,13 +211,13 @@ export default function ImportExport() {
           title: "Backup import finished",
           description: "Your account data from the JSON file has been merged.",
         });
-      } else if (!dryRun && !data.success) {
+      } else if (!opts.dryRun && !data.success) {
         toast({
           title: "Backup import failed",
           description: data.errors?.[0]?.message ?? "See details below.",
           variant: "destructive",
         });
-      } else if (dryRun) {
+      } else if (opts.dryRun) {
         toast({
           title: data.success ? "Dry run OK" : "Dry run reported issues",
           description: data.success
@@ -201,6 +231,68 @@ export default function ImportExport() {
       toast({ title: "JSON import failed", description: err.message, variant: "destructive" });
     },
   });
+
+  const beginJsonAccountImport = async (dryRun: boolean) => {
+    if (!jsonBundle) return;
+    if (accountDataStepUpBlocks) {
+      toast({
+        title: "Verification required",
+        description: "Request a code and confirm your email before importing a JSON backup.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setJsonAccountResult(null);
+    setImportChallengeBusy(true);
+    try {
+      const chRes = await apiFetch("POST", "/api/account/import/challenge", { bundle: jsonBundle });
+      let ch: AccountImportChallengeResponse;
+      try {
+        ch = (await chRes.json()) as AccountImportChallengeResponse;
+      } catch {
+        throw new Error(`Challenge failed (${chRes.status})`);
+      }
+      if (!chRes.ok) {
+        throw new Error(ch.message || `Challenge failed (${chRes.status})`);
+      }
+      if (ch.ownershipQuizRequired && ch.questions.length > 0) {
+        setImportOwnershipQuizQuestions(ch.questions);
+        setImportOwnershipQuizAnswers({});
+        setImportOwnershipQuizPendingDryRun(dryRun);
+        setImportOwnershipQuizOpen(true);
+        return;
+      }
+      accountJsonMutation.mutate({ dryRun });
+    } catch (e) {
+      toast({
+        title: "Could not start import",
+        description: e instanceof Error ? e.message : "Try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setImportChallengeBusy(false);
+    }
+  };
+
+  const submitImportOwnershipQuiz = () => {
+    const answers: ImportOwnershipAnswerPayload[] = importOwnershipQuizQuestions.map((q) => ({
+      questionId: q.id,
+      selectedIndex: importOwnershipQuizAnswers[q.id] ?? -1,
+    }));
+    if (answers.some((a) => a.selectedIndex < 0)) {
+      toast({
+        title: "Answer every question",
+        description: "Pick one option for each task detail before continuing.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setImportOwnershipQuizOpen(false);
+    accountJsonMutation.mutate({
+      dryRun: importOwnershipQuizPendingDryRun,
+      importOwnershipAnswers: answers,
+    });
+  };
 
   const handleExportJsonBundle = async () => {
     if (accountDataStepUpBlocks) {
@@ -271,6 +363,9 @@ export default function ImportExport() {
         }
         setJsonBundle(parsed);
         setJsonFileName(file.name);
+        setImportOwnershipQuizOpen(false);
+        setImportOwnershipQuizQuestions([]);
+        setImportOwnershipQuizAnswers({});
         const tc = parsed.metadata.tableCounts?.tasks;
         toast({
           title: "Backup loaded",
@@ -498,6 +593,7 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
       <MfaVerificationPanel
         open={dataExportMfaOpen}
         challengeId={dataExportChallenge?.challengeId}
+        codeEntryDisabled={!dataExportChallenge?.challengeId}
         purpose={MFA_PURPOSES.ACCOUNT_DATA_EXPORT}
         title="Verify for account backup"
         description={
@@ -514,13 +610,69 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
         }}
         onResend={() => void startDataExportVerification()}
         onSubmitCode={async (code) => {
-          if (!dataExportChallenge?.challengeId) return;
-          await verifyDataExportStepUpMutation.mutateAsync({
-            challengeId: dataExportChallenge.challengeId,
-            code,
-          });
+          const challengeId = dataExportChallenge?.challengeId;
+          if (!challengeId) {
+            toast({
+              title: "Verification not ready",
+              description: "Request a new code and try again.",
+              variant: "destructive",
+            });
+            return;
+          }
+          await verifyDataExportStepUpMutation.mutateAsync({ challengeId, code });
         }}
       />
+
+      <Dialog open={importOwnershipQuizOpen} onOpenChange={setImportOwnershipQuizOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Confirm this backup is yours</DialogTitle>
+            <DialogDescription>
+              Pick the missing detail for each task. Imports need at least 80% correct to proceed (wrong file or guesswork
+              should fail).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-2">
+            {importOwnershipQuizQuestions.map((q, qi) => (
+              <div key={q.id} className="space-y-3">
+                <p className="text-sm font-medium text-foreground">
+                  Question {qi + 1} of {importOwnershipQuizQuestions.length}
+                </p>
+                <pre className="text-xs whitespace-pre-wrap font-sans text-muted-foreground bg-muted/50 rounded-md p-3 border">
+                  {q.prompt}
+                </pre>
+                <RadioGroup
+                  value={
+                    importOwnershipQuizAnswers[q.id] !== undefined
+                      ? String(importOwnershipQuizAnswers[q.id])
+                      : undefined
+                  }
+                  onValueChange={(v) =>
+                    setImportOwnershipQuizAnswers((prev) => ({ ...prev, [q.id]: Number.parseInt(v, 10) }))
+                  }
+                >
+                  {q.choices.map((choice, ci) => (
+                    <div key={ci} className="flex items-start gap-2 rounded-md border p-2">
+                      <RadioGroupItem value={String(ci)} id={`${q.id}-${ci}`} className="mt-0.5" />
+                      <Label htmlFor={`${q.id}-${ci}`} className="text-sm font-normal cursor-pointer flex-1">
+                        {choice}
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              </div>
+            ))}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setImportOwnershipQuizOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={submitImportOwnershipQuiz}>
+              Continue import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {accountDataStepUpBlocks ? (
         <div className="rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 p-4 text-sm">
@@ -765,7 +917,9 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
             <div className="space-y-3">
               <Label className="text-sm font-semibold">Full account backup (JSON)</Label>
               <p className="text-xs text-muted-foreground">
-                Use the same format as &quot;Download JSON backup&quot;. Run a dry run first; large files (many thousands of tasks) can take a minute.
+                Use the same format as &quot;Download JSON backup&quot;. If the file includes tasks, you will answer 1–3
+                quick multiple-choice questions about those tasks before dry run or import. Backups with no tasks skip
+                that step. Large files can take a minute.
               </p>
               <div className="space-y-2">
                 <Label htmlFor="json-backup-file" className="text-xs font-normal text-muted-foreground">
@@ -793,10 +947,15 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
                   type="button"
                   variant="secondary"
                   size="sm"
-                  disabled={!jsonBundle || accountJsonMutation.isPending || accountDataStepUpBlocks}
-                  onClick={() => accountJsonMutation.mutate(true)}
+                  disabled={
+                    !jsonBundle
+                    || accountJsonMutation.isPending
+                    || importChallengeBusy
+                    || accountDataStepUpBlocks
+                  }
+                  onClick={() => void beginJsonAccountImport(true)}
                 >
-                  {accountJsonMutation.isPending ? (
+                  {accountJsonMutation.isPending || importChallengeBusy ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : null}
                   Dry run
@@ -804,8 +963,13 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
                 <Button
                   type="button"
                   size="sm"
-                  disabled={!jsonBundle || accountJsonMutation.isPending || accountDataStepUpBlocks}
-                  onClick={() => accountJsonMutation.mutate(false)}
+                  disabled={
+                    !jsonBundle
+                    || accountJsonMutation.isPending
+                    || importChallengeBusy
+                    || accountDataStepUpBlocks
+                  }
+                  onClick={() => void beginJsonAccountImport(false)}
                 >
                   Import JSON backup
                 </Button>

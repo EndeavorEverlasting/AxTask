@@ -133,7 +133,12 @@ if (!isDev) {
 }
 
 app.use(cookieParser());
-const LARGE_BODY_PATHS = ["/api/admin/import", "/api/account/import", "/api/admin/import/validate"];
+const LARGE_BODY_PATHS = [
+  "/api/admin/import",
+  "/api/account/import",
+  "/api/account/import/challenge",
+  "/api/admin/import/validate",
+];
 const largeJsonParser = express.json({ limit: "50mb" });
 const defaultJsonParser = express.json({ limit: "2mb" });
 app.use((req, res, next) => {

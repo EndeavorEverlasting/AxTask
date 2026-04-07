@@ -1,12 +1,21 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { createHmac, createHash, timingSafeEqual } from "crypto";
-import { computeTaskFingerprint } from "./import-task-dedupe";
+import { computeTaskFingerprint, manualCreateTaskWithImportFingerprintClaim } from "./import-task-dedupe";
 import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
 import { exportFullDatabase, exportUserData } from "./migration/export";
 import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
+import {
+  buildImportOwnershipChallenge,
+  computeTasksFingerprint,
+  gradeOwnershipQuiz,
+  IMPORT_OWNERSHIP_QUIZ_TTL_MS,
+  ownershipQuizExpectedFromSecrets,
+  questionCountForImportTaskRows,
+  stripOwnershipQuizSecrets,
+} from "./account-import-challenge";
 import {
   storage, createUser, getUserByEmail, recordFailedLogin, resetFailedLogins,
   createResetToken, verifyResetToken, consumeResetToken,
@@ -136,6 +145,7 @@ import {
 } from "./services/classification/classification-stream-registry";
 import { callNodeWeaverBatchClassify, notifyNodeWeaverCorrection } from "./services/classification/nodeweaver-client";
 import { getNextYoutubeProbe, recordYoutubeProbeFeedback } from "./services/youtube-probe";
+import { isValidCalendarDateString } from "@shared/calendar-date";
 import { BUILT_IN_CLASSIFICATIONS, isGeneralClassification } from "@shared/classification-catalog";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
 import { getVapidPublicKey } from "./services/vapid-runtime";
@@ -604,32 +614,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (emailParsed.success && req.body && typeof req.body === "object") {
         (req.body as { email?: string }).email = emailParsed.data;
       }
-      if (emailRaw.length > 0) {
-        if (emailParsed.success) {
-          const banStatus = await isUserBanned(email);
-          if (banStatus.banned) {
-            await logSecurityEvent(
-              "login_banned_attempt",
-              undefined,
-              undefined,
-              req.ip,
-              `Banned user tried to login: ${hashEmailForAuthAudit(email)}`,
-            );
-            return res.status(403).json({
-              message: "This account has been suspended. Contact an administrator for assistance.",
-            });
-          }
-
-          const dbUser = await getUserByEmail(email);
-          if (dbUser?.lockedUntil && new Date(dbUser.lockedUntil) > new Date()) {
-            const mins = Math.ceil((new Date(dbUser.lockedUntil).getTime() - Date.now()) / 60000);
-            return res.status(423).json({
-              message: `Account locked due to too many failed attempts. Try again in ${mins} minute(s).`,
-            });
-          }
-        }
-      }
-
       passport.authenticate("local", async (err: any, user: any, info: any) => {
         if (err) return next(err);
         if (!user) {
@@ -659,6 +643,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           return res.status(401).json({ message: info?.message || "Invalid credentials" });
         }
+
+        if (emailParsed.success) {
+          const banStatus = await isUserBanned(emailParsed.data);
+          if (banStatus.banned) {
+            await logSecurityEvent(
+              "login_banned_attempt",
+              undefined,
+              undefined,
+              req.ip,
+              `Banned user tried to login: ${hashEmailForAuthAudit(emailParsed.data)}`,
+            );
+            await appendSecurityEvent({
+              eventType: "auth_login_failed",
+              route: req.path,
+              method: req.method,
+              statusCode: 401,
+              ipAddress: req.ip,
+              userAgent: req.get("user-agent") || undefined,
+              payload: {
+                email: hashEmailForAuthAudit(emailParsed.data),
+                reason: "banned_account",
+                xForwardedFor: req.get("x-forwarded-for") || undefined,
+                cfConnectingIp: req.get("cf-connecting-ip") || undefined,
+              },
+            });
+            return res.status(401).json({ message: info?.message || "Invalid credentials" });
+          }
+        }
+
+        const postAuthUser = await getUserByEmail(user.email);
+        if (postAuthUser?.lockedUntil && new Date(postAuthUser.lockedUntil) > new Date()) {
+          await appendSecurityEvent({
+            eventType: "auth_login_failed",
+            route: req.path,
+            method: req.method,
+            statusCode: 401,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+            payload: {
+              email: hashEmailForAuthAudit(user.email),
+              reason: "account_locked",
+              xForwardedFor: req.get("x-forwarded-for") || undefined,
+              cfConnectingIp: req.get("cf-connecting-ip") || undefined,
+            },
+          });
+          return res.status(401).json({ message: info?.message || "Invalid credentials" });
+        }
+
         await resetFailedLogins(user.email);
         await logSecurityEvent("login_success", user.id, undefined, req.ip);
         await appendSecurityEvent({
@@ -1718,6 +1750,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/tasks/shared", requireAuth, async (req, res) => {
+    try {
+      const shared = await getSharedTasks(req.user!.id);
+      res.json(shared);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch shared tasks" });
+    }
+  });
+
   // Get task by ID
   app.get("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
@@ -1923,19 +1964,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!quota.ok) {
         return res.status(413).json({ message: quota.message });
       }
-      const fingerprint = computeTaskFingerprint(validatedData);
-      if (await hasImportFingerprint(userId, fingerprint)) {
-        const tid = await getTaskIdForImportFingerprint(userId, fingerprint);
-        const serverTask = tid ? await storage.getTask(userId, tid) : undefined;
-        return res.status(409).json({
-          message: "A matching task already exists.",
-          ...(serverTask ? { serverTask } : {}),
-        });
-      }
 
       let task: Task;
       try {
-        task = await storage.createTask(userId, validatedData);
+        const created = await manualCreateTaskWithImportFingerprintClaim(userId, validatedData);
+        if (!created.ok) {
+          if (created.reason === "fingerprint_duplicate") {
+            const serverTask = created.serverTaskId
+              ? await storage.getTask(userId, created.serverTaskId)
+              : undefined;
+            return res.status(409).json({
+              message: "A matching task already exists.",
+              ...(serverTask ? { serverTask } : {}),
+            });
+          }
+          const id = validatedData.id;
+          const serverTask = id ? await storage.getTask(userId, id) : undefined;
+          return res.status(409).json({
+            message: "A task with this id already exists",
+            ...(serverTask ? { serverTask } : {}),
+          });
+        }
+        task = created.task;
       } catch (e) {
         if (isPgUniqueViolation(e)) {
           const id = validatedData.id;
@@ -1947,7 +1997,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         throw e;
       }
-      await recordImportFingerprint(userId, fingerprint, "manual_create", task.id);
 
       const allTasks = await storage.getTasks(userId);
       const priorityResult = await PriorityEngine.calculatePriority(
@@ -2728,7 +2777,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }> = [];
 
       for (const action of actions as ReviewAction[]) {
+        const safeTaskId =
+          action && typeof action === "object" && "taskId" in action && typeof action.taskId === "string"
+            ? action.taskId
+            : "unknown";
         try {
+          if (!action || typeof action !== "object") {
+            results.push({ taskId: "unknown", success: false, error: "Invalid action" });
+            continue;
+          }
           if (!action.taskId || !action.type) {
             results.push({ taskId: action.taskId || "unknown", success: false, error: "Invalid action" });
             continue;
@@ -2787,7 +2844,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
             case "reschedule": {
               const newDate = action.details?.newDate;
-              if (typeof newDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+              if (typeof newDate === "string" && isValidCalendarDateString(newDate)) {
                 const updatedTask = await storage.updateTask(
                   userId,
                   { id: action.taskId, date: newDate },
@@ -2857,7 +2914,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               results.push({ taskId: action.taskId, success: false, error: "Unknown action type" });
           }
         } catch (err) {
-          results.push({ taskId: action.taskId, success: false, error: "Processing error" });
+          results.push({ taskId: safeTaskId, success: false, error: "Processing error" });
         }
       }
 
@@ -3064,7 +3121,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ message: "YouTube probes are available when you sign in with Google." });
     }
     try {
-      const payload = await getNextYoutubeProbe(req.user!.id);
+      const shareTaskText =
+        req.query.shareTaskText === "1" ||
+        req.query.shareTaskText === "true" ||
+        String(req.query.shareTaskText || "").toLowerCase() === "yes";
+      const payload = await getNextYoutubeProbe(req.user!.id, { shareTaskText });
       res.json(payload);
     } catch (error) {
       console.error("[probes/youtube/next]", error);
@@ -3706,6 +3767,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     channel: z.enum(["email", "sms"]).optional().default("email"),
     phoneE164: z.string().optional(),
     taskId: z.string().min(1).optional(),
+    invoiceId: z.string().min(1).optional(),
   });
 
   const postMfaChallenge = async (req: Request, res: Response) => {
@@ -3727,7 +3789,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let smsDestinationE164: string | null = null;
 
-      await assertMfaChallengeCreateAllowed(req.user!.id, body.purpose, { taskId: body.taskId });
+      await assertMfaChallengeCreateAllowed(req.user!.id, body.purpose, {
+        taskId: body.taskId,
+        invoiceId: body.invoiceId,
+      });
 
       if (channel === "sms") {
         if (body.purpose === MFA_PURPOSES.ACCOUNT_VERIFY_PHONE) {
@@ -5230,6 +5295,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/account/import/challenge", requireAuth, migrationLimiter, async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === "production") {
+        const exp = req.session.accountDataExportStepUpExpiresAt;
+        if (!exp || Date.now() >= exp) {
+          return res.status(403).json({
+            message: "Verify your identity before importing account data (request a code, then confirm).",
+            code: "ACCOUNT_DATA_STEP_UP_REQUIRED",
+          });
+        }
+      }
+      const { bundle } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+      if (bundle.metadata.exportMode !== "user") {
+        return res.status(400).json({
+          message: "Only user-level export bundles can be imported via self-service. Full database imports require admin access.",
+        });
+      }
+      if (bundle.metadata.includesPrivilegedUserData === true) {
+        return res.status(400).json({
+          message: "This bundle was exported with admin-only fields and cannot be imported via self-service.",
+        });
+      }
+      const billingRows = bundle.data?.userBillingProfiles;
+      if (Array.isArray(billingRows) && billingRows.length > 0) {
+        return res.status(400).json({
+          message: "Self-service import only accepts user exports without billing profile rows.",
+        });
+      }
+
+      const taskRows = Array.isArray(bundle.data?.tasks) ? bundle.data.tasks : [];
+      const built = buildImportOwnershipChallenge(taskRows);
+      if (!built.ok) {
+        return res.status(400).json({ message: built.error });
+      }
+
+      delete req.session.importOwnershipQuiz;
+      if (built.questions.length > 0) {
+        req.session.importOwnershipQuiz = {
+          expiresAt: Date.now() + IMPORT_OWNERSHIP_QUIZ_TTL_MS,
+          tasksFingerprint: built.fingerprint,
+          expected: ownershipQuizExpectedFromSecrets(built.questions),
+        };
+      }
+
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error("[account] session save after import challenge:", saveErr);
+          return res.status(500).json({ message: "Session update failed" });
+        }
+        res.json({
+          ownershipQuizRequired: built.questions.length > 0,
+          tasksFingerprint: built.fingerprint,
+          questionCount: built.questions.length,
+          questions: stripOwnershipQuizSecrets(built.questions),
+        });
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Challenge failed" });
+    }
+  });
+
   app.post("/api/account/import", requireAuth, migrationLimiter, async (req, res) => {
     try {
       if (process.env.NODE_ENV === "production") {
@@ -5241,7 +5370,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
       }
-      const { bundle, dryRun } = req.body;
+      const { bundle, dryRun, importOwnershipAnswers } = req.body;
       if (!bundle || !bundle.metadata || !bundle.data) {
         return res.status(400).json({ message: "Invalid export bundle format" });
       }
@@ -5259,6 +5388,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({
           message: "Self-service import only accepts user exports without billing profile rows.",
         });
+      }
+
+      const taskRows = Array.isArray(bundle.data?.tasks) ? bundle.data.tasks : [];
+      const needOwnershipQuiz = questionCountForImportTaskRows(taskRows.length) > 0;
+      if (!needOwnershipQuiz) {
+        delete req.session.importOwnershipQuiz;
+      } else {
+        const fp = computeTasksFingerprint(taskRows);
+        const quiz = req.session.importOwnershipQuiz;
+        if (!quiz || Date.now() >= quiz.expiresAt || quiz.tasksFingerprint !== fp) {
+          return res.status(403).json({
+            message: "Start a fresh backup ownership quiz (your session expired or the file changed).",
+            code: "IMPORT_OWNERSHIP_QUIZ_EXPIRED",
+          });
+        }
+        if (!Array.isArray(importOwnershipAnswers)) {
+          return res.status(403).json({
+            message: "Answer the backup ownership quiz before importing.",
+            code: "IMPORT_OWNERSHIP_QUIZ_REQUIRED",
+          });
+        }
+        if (!gradeOwnershipQuiz(quiz.expected, importOwnershipAnswers)) {
+          delete req.session.importOwnershipQuiz;
+          req.session.save((saveErr) => {
+            if (saveErr) {
+              console.error("[account] session save after quiz fail:", saveErr);
+            }
+            res.status(403).json({
+              message: "Ownership quiz failed. You need at least 80% correct to import this backup.",
+              code: "IMPORT_OWNERSHIP_QUIZ_FAILED",
+            });
+          });
+          return;
+        }
+        delete req.session.importOwnershipQuiz;
       }
 
       const validation = validateBundle(bundle);
@@ -5287,15 +5451,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ─── Collaboration routes ──────────────────────────────────────────────────
 
-  app.get("/api/tasks/shared", requireAuth, async (req, res) => {
-    try {
-      const shared = await getSharedTasks(req.user!.id);
-      res.json(shared);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch shared tasks" });
-    }
-  });
-
   app.get("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
     try {
       const access = await canAccessTask(req.user!.id, req.params.id);
@@ -5313,7 +5468,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!ownerCheck) return res.status(403).json({ message: "Only task owner can add collaborators" });
       const { email, role } = req.body;
       if (!email) return res.status(400).json({ message: "Email is required" });
-      const validRoles = ["editor", "viewer"];
+      const validRoles = ["editor", "viewer", "commenter"];
       if (role && !validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
       const user = await getUserByEmail(email);
       if (!user || user.id === req.user!.id) {
@@ -5331,7 +5486,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
       if (!ownerCheck) return res.status(403).json({ message: "Only task owner can change roles" });
       const { role } = req.body;
-      const validRoles = ["editor", "viewer"];
+      const validRoles = ["editor", "viewer", "commenter"];
       if (!validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
       const updated = await updateCollaboratorRole(req.params.id, req.params.userId, role);
       if (!updated) return res.status(404).json({ message: "Collaborator not found" });
