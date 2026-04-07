@@ -11,6 +11,7 @@ import {
 } from "@/lib/task-sync-api";
 import { PriorityEngine } from "@/lib/priority-engine";
 import { useToast } from "@/hooks/use-toast";
+import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useAuth } from "@/lib/auth-context";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
@@ -19,6 +20,7 @@ import { useVoice } from "@/hooks/use-voice";
 import { useCollaboration } from "@/hooks/use-collaboration";
 import { MicButton } from "@/components/mic-button";
 import { ShareDialog } from "@/components/share-dialog";
+import { TaskReportDownload } from "@/components/task-report-download";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -82,6 +84,7 @@ function clearDraft(key: string) {
 
 export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { toast } = useToast();
+  const { playIfEligible } = useImmersiveSounds();
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
@@ -315,11 +318,14 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
           title: `${task ? "Task updated" : "Task created"} — +${cr.coinsEarned} AxCoins!`,
           description: `Classified as ${cr.classification}. New balance: ${cr.newBalance}`,
         });
+        playIfEligible(1);
       } else {
         toast({
           title: task ? "Task updated" : "Task created",
           description: task ? "Your task has been updated successfully." : "Your task has been added successfully.",
         });
+        if (d?.coinReward) playIfEligible(1);
+        else playIfEligible(3);
       }
 
       if (!task) {
@@ -560,12 +566,15 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
               </div>
             )}
             {isEditing && (
-              <ShareDialog
-                taskId={task!.id}
-                isOwner={isOwner}
-                visibility={task!.visibility}
-                communityShowNotes={task!.communityShowNotes}
-              />
+              <div className="flex flex-wrap items-center gap-2 justify-end">
+                <TaskReportDownload taskId={task!.id} activityPreview={task!.activity || "task"} />
+                <ShareDialog
+                  taskId={task!.id}
+                  isOwner={isOwner}
+                  visibility={task!.visibility}
+                  communityShowNotes={task!.communityShowNotes}
+                />
+              </div>
             )}
             </div>
             {speech.status === "listening" && (liveTopicLoading || liveTopicSuggestions.length > 0) && (

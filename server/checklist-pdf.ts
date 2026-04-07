@@ -1,3 +1,5 @@
+import { PassThrough } from "node:stream";
+import { finished } from "node:stream/promises";
 import PDFDocument from "pdfkit";
 import type { Task } from "@shared/schema";
 import { AXTASK_BRAND, AXTASK_TAGLINE } from "@shared/attribution";
@@ -204,4 +206,15 @@ function drawTaskRow(doc: PDFKit.PDFDocument, task: Task, num: number, pageWidth
 
   doc.moveTo(50, doc.y + 2).lineTo(562, doc.y + 2).strokeColor("#f3f4f6").lineWidth(0.5).stroke();
   doc.moveDown(0.5);
+}
+
+export async function generateChecklistPdfBuffer(tasks: Task[], date: string, userName?: string): Promise<Buffer> {
+  const doc = generateChecklistPDF(tasks, date, userName);
+  const chunks: Buffer[] = [];
+  const stream = new PassThrough();
+  stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+  doc.pipe(stream);
+  doc.end();
+  await finished(stream);
+  return Buffer.concat(chunks);
 }

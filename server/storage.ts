@@ -14,6 +14,8 @@ import {
   userRewards,
   userMilestoneGrants,
   userEntourage,
+  userYoutubeProbeState,
+  youtubeProbeFeedback,
   avatarProfiles,
   avatarXpEvents,
   taskCollaborators,
@@ -78,6 +80,8 @@ import {
   type UserPushSubscription,
   type Appeal,
   type UserEntourage,
+  type UserYoutubeProbeState,
+  type YoutubeProbeFeedback,
   type AvatarProfile,
 } from "@shared/schema";
 import { db } from "./db";
@@ -286,6 +290,7 @@ function normalizeNotificationPreference(
     intensity: clampNotificationIntensity(row?.intensity ?? DEFAULT_NOTIFICATION_INTENSITY),
     quietHoursStart: row?.quietHoursStart ?? null,
     quietHoursEnd: row?.quietHoursEnd ?? null,
+    immersiveSoundsEnabled: row?.immersiveSoundsEnabled ?? false,
     createdAt: row?.createdAt ?? now,
     updatedAt: row?.updatedAt ?? now,
   };
@@ -305,6 +310,7 @@ export async function upsertUserNotificationPreference(input: {
   intensity?: number;
   quietHoursStart?: number | null;
   quietHoursEnd?: number | null;
+  immersiveSoundsEnabled?: boolean;
 }): Promise<UserNotificationPreference> {
   const existing = await getUserNotificationPreference(input.userId);
   const [updated] = await db
@@ -315,6 +321,7 @@ export async function upsertUserNotificationPreference(input: {
       intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
       quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
       quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
+      immersiveSoundsEnabled: input.immersiveSoundsEnabled ?? existing.immersiveSoundsEnabled,
       createdAt: existing.createdAt,
       updatedAt: new Date(),
     })
@@ -325,6 +332,7 @@ export async function upsertUserNotificationPreference(input: {
         intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
         quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
         quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
+        immersiveSoundsEnabled: input.immersiveSoundsEnabled ?? existing.immersiveSoundsEnabled,
         updatedAt: new Date(),
       },
     })
@@ -1563,7 +1571,12 @@ export async function hasTaskBeenAwarded(userId: string, taskId: string): Promis
   return (Number(row?.value) || 0) > 0;
 }
 
-export async function spendCoins(userId: string, amount: number, reason: string): Promise<Wallet | null> {
+export async function spendCoins(
+  userId: string,
+  amount: number,
+  reason: string,
+  options?: { taskId?: string },
+): Promise<Wallet | null> {
   await getOrCreateWallet(userId);
   return db.transaction(async (tx) => {
     const [updated] = await tx
@@ -1572,7 +1585,13 @@ export async function spendCoins(userId: string, amount: number, reason: string)
       .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${amount}`))
       .returning();
     if (!updated) return null;
-    await tx.insert(coinTransactions).values({ id: randomUUID(), userId, amount: -amount, reason });
+    await tx.insert(coinTransactions).values({
+      id: randomUUID(),
+      userId,
+      amount: -amount,
+      reason,
+      ...(options?.taskId ? { taskId: options.taskId } : {}),
+    });
     return updated;
   });
 }
@@ -3559,6 +3578,46 @@ export async function upsertUserEntourageRow(userId: string, payloadJson: string
       target: userEntourage.userId,
       set: { payloadJson, computedAt: now },
     });
+}
+
+export async function getUserYoutubeProbeState(userId: string): Promise<UserYoutubeProbeState | undefined> {
+  const [row] = await db.select().from(userYoutubeProbeState).where(eq(userYoutubeProbeState.userId, userId));
+  return row;
+}
+
+export async function upsertUserYoutubeProbeState(
+  userId: string,
+  lastVideoId: string,
+  lastOfferedAt: Date,
+): Promise<void> {
+  await db
+    .insert(userYoutubeProbeState)
+    .values({ userId, lastVideoId, lastOfferedAt, updatedAt: lastOfferedAt })
+    .onConflictDoUpdate({
+      target: userYoutubeProbeState.userId,
+      set: { lastVideoId, lastOfferedAt, updatedAt: lastOfferedAt },
+    });
+}
+
+export async function insertYoutubeProbeFeedback(opts: {
+  userId: string;
+  videoId: string;
+  reaction: string;
+  probeVersion: string;
+  contextSnapshotJson: string | null;
+}): Promise<YoutubeProbeFeedback> {
+  const [row] = await db
+    .insert(youtubeProbeFeedback)
+    .values({
+      userId: opts.userId,
+      videoId: opts.videoId,
+      reaction: opts.reaction,
+      probeVersion: opts.probeVersion,
+      contextSnapshotJson: opts.contextSnapshotJson,
+    })
+    .returning();
+  if (!row) throw new Error("insertYoutubeProbeFeedback: no row returned");
+  return row;
 }
 
 export async function changePremiumPlanForUser(

@@ -1,6 +1,6 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { formatAxTaskCsvAttribution } from '@shared/attribution';
+import { buildTasksCsvExport } from '@shared/task-spreadsheet-export';
 
 function excelDateToString(serial: number): string {
   if (!serial || typeof serial !== 'number' || serial < 1) return '';
@@ -333,44 +333,7 @@ export function parseTasksFromCSV(csvText: string): any[] {
 
 export function tasksToCSV(tasks: any[]): string {
   if (tasks.length === 0) return '';
-
-  const headers = [
-    'Date',
-    'Priority',
-    'Result',
-    'Activity',
-    'Notes',
-    'Urgency',
-    'Impact',
-    'Effort',
-    'Pre-Reqs',
-    'Sub-Priority',
-    'Time Start',
-    'Time End',
-    'Subtypes',
-  ];
-
-  const rows = tasks.map(task => [
-    task.date || '',
-    task.priority || '',
-    task.status === 'completed' ? 'TRUE' : 'FALSE',
-    task.activity || '',
-    task.notes || '',
-    task.urgency ? '★'.repeat(task.urgency) + '☆'.repeat(5 - task.urgency) : '☆☆☆☆☆',
-    task.impact ? '★'.repeat(task.impact) + '☆'.repeat(5 - task.impact) : '☆☆☆☆☆',
-    task.effort ? '★'.repeat(task.effort) + '☆'.repeat(5 - task.effort) : '☆☆☆☆☆',
-    task.prerequisites || '',
-    '',
-    '',
-    '',
-    '',
-  ]);
-
-  const body = Papa.unparse({
-    fields: headers,
-    data: rows,
-  });
-  return `${formatAxTaskCsvAttribution()}\n${body}`;
+  return buildTasksCsvExport(tasks);
 }
 
 export function downloadCSV(csvContent: string, filename: string) {

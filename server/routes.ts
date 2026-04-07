@@ -106,7 +106,18 @@ import { processTaskReview, type ReviewAction } from "./engines/review-engine";
 import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from "./engines/pattern-engine";
 import { getOrRecomputeEntourage } from "./engines/entourage-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
-import { generateChecklistPDF } from "./checklist-pdf";
+import { generateChecklistPdfBuffer } from "./checklist-pdf";
+import { debitProductivityExport } from "./productivity-export-debit";
+import {
+  getChecklistPdfExportCost,
+  getTasksSpreadsheetExportCost,
+  getTaskReportPdfCost,
+  getTaskReportXlsxCost,
+  productivityExportsFreeInDev,
+} from "./productivity-export-pricing";
+import { tasksToCsvBuffer, tasksToXlsxBuffer } from "./tasks-spreadsheet-buffers";
+import { generateTaskReportPdfBuffer } from "./task-report-pdf";
+import { generateTaskReportXlsxBuffer } from "./task-report-xlsx";
 import { processChecklistImage } from "./ocr-processor";
 import { requireAuth, requireAuthAllowSuspended } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
@@ -124,6 +135,7 @@ import {
   hasClassificationSse,
 } from "./services/classification/classification-stream-registry";
 import { callNodeWeaverBatchClassify, notifyNodeWeaverCorrection } from "./services/classification/nodeweaver-client";
+import { getNextYoutubeProbe, recordYoutubeProbeFeedback } from "./services/youtube-probe";
 import { BUILT_IN_CLASSIFICATIONS, isGeneralClassification } from "@shared/classification-catalog";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
 import { getVapidPublicKey } from "./services/vapid-runtime";
@@ -413,6 +425,12 @@ const publicContactLimiter = rateLimit({
   message: { message: "Too many contact submissions — try again later" },
 });
 
+const youtubeProbeFeedbackBodySchema = z.object({
+  videoId: z.string().min(1).max(32),
+  reaction: z.enum(["interested", "not_interested", "dismiss"]),
+  contextSnapshot: z.any().optional(),
+});
+
 
 // ── Invite-code / registration gate ─────────────────────────────────────────
 // In production, set REGISTRATION_MODE=invite in .env and provide INVITE_CODE.
@@ -590,7 +608,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (emailParsed.success) {
           const banStatus = await isUserBanned(email);
           if (banStatus.banned) {
-            await logSecurityEvent("login_banned_attempt", undefined, undefined, req.ip, `Banned user tried to login: ${email}`);
+            await logSecurityEvent(
+              "login_banned_attempt",
+              undefined,
+              undefined,
+              req.ip,
+              `Banned user tried to login: ${hashEmailForAuthAudit(email)}`,
+            );
             return res.status(403).json({
               message: "This account has been suspended. Contact an administrator for assistance.",
             });
@@ -1433,6 +1457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intensity: payload.intensity,
         quietHoursStart: payload.quietHoursStart,
         quietHoursEnd: payload.quietHoursEnd,
+        immersiveSoundsEnabled: payload.immersiveSoundsEnabled,
       });
       return res.json({
         ...preference,
@@ -1505,6 +1530,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch task stats" });
+    }
+  });
+
+  const spreadsheetExportSchema = z.object({ format: z.enum(["csv", "xlsx"]) });
+
+  app.post("/api/tasks/export/spreadsheet", requireAuth, async (req, res) => {
+    try {
+      const parsed = spreadsheetExportSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
+      }
+      const { format } = parsed.data;
+      const userId = req.user!.id;
+      const tasks = await storage.getTasks(userId);
+      const cost = getTasksSpreadsheetExportCost();
+      const buf = format === "csv" ? tasksToCsvBuffer(tasks) : tasksToXlsxBuffer(tasks);
+      const ok = await debitProductivityExport(res, userId, cost, `export:tasks_spreadsheet:${format}`);
+      if (!ok) return;
+      const day = new Date().toISOString().slice(0, 10);
+      if (format === "csv") {
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="axtask-tasks-${day}.csv"`);
+      } else {
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="axtask-tasks-${day}.xlsx"`);
+      }
+      res.setHeader("Cache-Control", "no-store, private");
+      res.send(buf);
+    } catch (error) {
+      console.error("[tasks/export/spreadsheet]", error);
+      res.status(500).json({ message: "Export failed" });
     }
   });
 
@@ -1681,6 +1737,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(row);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch task" });
+    }
+  });
+
+  const taskReportSchema = z.object({ format: z.enum(["pdf", "xlsx"]) });
+
+  app.post("/api/tasks/:id/report", requireAuth, async (req, res) => {
+    try {
+      const parsed = taskReportSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
+      }
+      const taskId = req.params.id;
+      const row = await getTaskRowById(taskId);
+      if (!row) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const access = await canAccessTask(req.user!.id, taskId);
+      if (!access.canAccess) {
+        if (row.visibility === "community") {
+          return res.status(403).json({
+            message: "This task is public under Community — open the community browser or sign in as a collaborator.",
+          });
+        }
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const { format } = parsed.data;
+      const cost = format === "pdf" ? getTaskReportPdfCost() : getTaskReportXlsxCost();
+      const userName = req.user!.displayName || req.user!.email || undefined;
+      const buf =
+        format === "pdf"
+          ? await generateTaskReportPdfBuffer(row, userName)
+          : generateTaskReportXlsxBuffer(row);
+      const ok = await debitProductivityExport(res, req.user!.id, cost, `export:task_report:${format}:${taskId}`, {
+        taskId,
+      });
+      if (!ok) return;
+      const safeSlug = row.activity
+        .slice(0, 40)
+        .replace(/[^\w\-]+/g, "_")
+        .replace(/_+/g, "_");
+      const shortId = taskId.slice(0, 8);
+      if (format === "pdf") {
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="AxTask-Report-${shortId}-${safeSlug}.pdf"`);
+      } else {
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="AxTask-Report-${shortId}-${safeSlug}.xlsx"`);
+      }
+      res.setHeader("Cache-Control", "no-store, private");
+      res.send(buf);
+    } catch (error) {
+      console.error("[tasks/:id/report]", error);
+      res.status(500).json({ message: "Failed to generate report" });
     }
   });
 
@@ -2346,24 +2455,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })).min(1).max(500),
   });
 
-  app.get("/api/checklist/:date", requireAuth, async (req, res) => {
+  app.post("/api/checklist/:date/download", requireAuth, async (req, res) => {
     try {
       const { date } = req.params;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
       }
 
-      const allTasks = await storage.getTasks(req.user!.id);
-      const dayTasks = allTasks.filter(t => t.date === date);
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const dayTasks = allTasks.filter((t) => t.date === date);
 
-      const userName = req.user!.displayName || req.user!.email;
-      const pdfDoc = generateChecklistPDF(dayTasks, date, userName);
+      const userName = req.user!.displayName || req.user!.email || undefined;
+      const cost = getChecklistPdfExportCost();
+      const buf = await generateChecklistPdfBuffer(dayTasks, date, userName);
+      const ok = await debitProductivityExport(res, userId, cost, `export:checklist_pdf:${date}`);
+      if (!ok) return;
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="AxTask-Checklist-${date}.pdf"`);
-
-      pdfDoc.pipe(res);
-      pdfDoc.end();
+      res.setHeader("Cache-Control", "no-store, private");
+      res.send(buf);
     } catch (error) {
       console.error("Checklist PDF error:", error);
       res.status(500).json({ message: "Failed to generate checklist" });
@@ -2843,6 +2955,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/gamification/productivity-export-prices", requireAuth, async (_req, res) => {
+    try {
+      res.json({
+        checklistPdf: getChecklistPdfExportCost(),
+        tasksSpreadsheet: getTasksSpreadsheetExportCost(),
+        taskReportPdf: getTaskReportPdfCost(),
+        taskReportXlsx: getTaskReportXlsxCost(),
+        freeInDev: productivityExportsFreeInDev(),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load export prices" });
+    }
+  });
+
   app.get("/api/gamification/transactions", requireAuth, async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
@@ -2930,6 +3056,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[gamification/entourage]", error);
       res.status(500).json({ message: "Failed to load entourage" });
+    }
+  });
+
+  app.get("/api/probes/youtube/next", requireAuth, async (req, res) => {
+    if (req.user!.authProvider !== "google") {
+      return res.status(403).json({ message: "YouTube probes are available when you sign in with Google." });
+    }
+    try {
+      const payload = await getNextYoutubeProbe(req.user!.id);
+      res.json(payload);
+    } catch (error) {
+      console.error("[probes/youtube/next]", error);
+      res.status(500).json({ message: "Failed to load YouTube probe" });
+    }
+  });
+
+  app.post("/api/probes/youtube/feedback", requireAuth, async (req, res) => {
+    if (req.user!.authProvider !== "google") {
+      return res.status(403).json({ message: "YouTube probes are available when you sign in with Google." });
+    }
+    const parsed = youtubeProbeFeedbackBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid feedback payload", issues: parsed.error.flatten() });
+    }
+    try {
+      await recordYoutubeProbeFeedback({
+        userId: req.user!.id,
+        videoId: parsed.data.videoId,
+        reaction: parsed.data.reaction,
+        contextSnapshot:
+          parsed.data.contextSnapshot !== undefined && parsed.data.contextSnapshot !== null
+            ? (parsed.data.contextSnapshot as Record<string, unknown>)
+            : null,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[probes/youtube/feedback]", error);
+      res.status(500).json({ message: "Failed to record feedback" });
     }
   });
 

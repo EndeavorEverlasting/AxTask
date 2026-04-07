@@ -10,7 +10,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { useMfaChallenge } from "@/hooks/use-mfa-challenge";
 import { MfaVerificationPanel } from "@/components/mfa/mfa-verification-panel";
 import { formatAxTaskCsvAttribution } from "@shared/attribution";
-import { tasksToCSV, parseTasksFromCSV, downloadCSV, parseExcelSheetInfo } from "@/lib/csv-utils";
+import { parseTasksFromCSV, downloadCSV, parseExcelSheetInfo } from "@/lib/csv-utils";
+import { postPaidDownload, triggerBlobDownload, type ProductivityExportPrices } from "@/lib/productivity-export-download";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { Upload, Download, FileText, AlertCircle, CheckCircle2, Loader2, FileCode } from "lucide-react";
+import { Upload, Download, FileText, AlertCircle, CheckCircle2, Loader2, FileCode, Coins, Sheet } from "lucide-react";
 
 interface SheetInfo {
   sheetName: string;
@@ -82,9 +83,14 @@ export default function ImportExport() {
   const [jsonFileName, setJsonFileName] = useState("");
   const [jsonExportBusy, setJsonExportBusy] = useState(false);
   const [jsonAccountResult, setJsonAccountResult] = useState<AccountImportApiResult | null>(null);
+  const [spreadsheetExportBusy, setSpreadsheetExportBusy] = useState<"csv" | "xlsx" | null>(null);
 
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
+  });
+
+  const { data: exportPrices } = useQuery<ProductivityExportPrices>({
+    queryKey: ["/api/gamification/productivity-export-prices"],
   });
 
   const { data: dataExportStepUp } = useQuery({
@@ -287,7 +293,7 @@ export default function ImportExport() {
     reader.readAsText(file);
   };
 
-  const handleExport = () => {
+  const handleSpreadsheetExport = async (format: "csv" | "xlsx") => {
     if (tasks.length === 0) {
       toast({
         title: "No tasks to export",
@@ -296,22 +302,44 @@ export default function ImportExport() {
       });
       return;
     }
-
+    setSpreadsheetExportBusy(format);
     try {
-      const csvContent = tasksToCSV(tasks);
-      const filename = `tasks-export-${new Date().toISOString().split('T')[0]}.csv`;
-      downloadCSV(csvContent, filename);
-      
+      const result = await postPaidDownload("/api/tasks/export/spreadsheet", { format });
+      if (!result.ok) {
+        if (result.insufficientCoins) {
+          toast({
+            title: "Not enough AxCoins",
+            description:
+              result.insufficientCoins.message
+              ?? `Need ${result.insufficientCoins.required} coins (balance ${result.insufficientCoins.balance}).`,
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Export failed",
+            description: result.message || "Could not export tasks.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+      const day = new Date().toISOString().split("T")[0];
+      const fallback = format === "csv" ? `axtask-tasks-${day}.csv` : `axtask-tasks-${day}.xlsx`;
+      triggerBlobDownload(result.blob, fallback, result.filename);
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
       toast({
         title: "Export successful",
-        description: `Downloaded ${tasks.length} tasks to ${filename}`,
+        description: `Downloaded ${tasks.length} tasks (${format.toUpperCase()}).`,
       });
-    } catch (error) {
+    } catch {
       toast({
         title: "Export failed",
         description: "Failed to export tasks. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setSpreadsheetExportBusy(null);
     }
   };
 
@@ -517,7 +545,8 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
               Export Tasks
             </CardTitle>
             <CardDescription>
-              CSV for spreadsheets, or JSON for a full portable backup (tasks, wallet, badges, patterns, and more).
+              Spreadsheet export (CSV or Excel) uses AxCoins per download. JSON backup is a separate full account export
+              (tasks, wallet, badges, patterns, and more).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -528,10 +557,39 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
                   {tasks.length} tasks ready for export
                 </span>
               </div>
+              {exportPrices?.freeInDev ? (
+                <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-2">Spreadsheet export is free in local dev.</p>
+              ) : (
+                <p className="text-xs text-blue-800/90 dark:text-blue-200/90 mt-2 inline-flex items-center gap-1">
+                  <Coins className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                  Each spreadsheet download costs {exportPrices?.tasksSpreadsheet ?? "…"} AxCoins.
+                </p>
+              )}
             </div>
-            <Button onClick={handleExport} className="w-full" disabled={tasks.length === 0}>
-              <Download className="mr-2 h-4 w-4" />
+            <Button
+              onClick={() => void handleSpreadsheetExport("csv")}
+              className="w-full"
+              disabled={tasks.length === 0 || spreadsheetExportBusy !== null}
+            >
+              {spreadsheetExportBusy === "csv" ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
               Export to CSV
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void handleSpreadsheetExport("xlsx")}
+              className="w-full"
+              disabled={tasks.length === 0 || spreadsheetExportBusy !== null}
+            >
+              {spreadsheetExportBusy === "xlsx" ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sheet className="mr-2 h-4 w-4" />
+              )}
+              Export to Excel (.xlsx)
             </Button>
             <Button
               variant="outline"
