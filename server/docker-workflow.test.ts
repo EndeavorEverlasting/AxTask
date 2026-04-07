@@ -88,4 +88,20 @@ describe("docker workflow assets", () => {
     expect(windowsStatus).toContain("docker compose --env-file .env.docker ps");
     expect(windowsStop).toContain("docker compose --env-file .env.docker down");
   });
+
+  it("Dockerfile deps stage runs postinstall with bootstrap script before npm install", () => {
+    const dockerfile = fs.readFileSync(path.join(projectRoot, "Dockerfile"), "utf8");
+    const bootstrapCopy = dockerfile.indexOf("COPY tools/local/repo-bootstrap.mjs tools/local/repo-bootstrap.mjs");
+    const runNpmInstall = dockerfile.indexOf("RUN npm install");
+    expect(bootstrapCopy).toBeGreaterThan(-1);
+    expect(runNpmInstall).toBeGreaterThan(-1);
+    expect(bootstrapCopy).toBeLessThan(runNpmInstall);
+    expect(dockerfile).toContain("ENV AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER=1");
+  });
+
+  it("repo-bootstrap honors AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER for slim Docker context", () => {
+    const src = fs.readFileSync(path.join(projectRoot, "tools", "local", "repo-bootstrap.mjs"), "utf8");
+    expect(src).toContain("AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER");
+    expect(src).toContain("process.env.AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER");
+  });
 });

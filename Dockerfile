@@ -1,6 +1,9 @@
 FROM node:20-bookworm-slim AS deps
 WORKDIR /app
 COPY package*.json ./
+COPY tools/local/repo-bootstrap.mjs tools/local/repo-bootstrap.mjs
+ENV AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER=1
+# npm ci can fail here when package-lock.json omits optional platform packages (esbuild); npm install still respects the lockfile.
 RUN npm install
 
 FROM deps AS build

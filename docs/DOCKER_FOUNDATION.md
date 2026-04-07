@@ -107,6 +107,14 @@ Health endpoints:
 - `GET /health`
 - `GET /ready`
 
+## Dockerfile image build (`deps` layer vs full clone)
+
+The root multi-stage **`Dockerfile`** installs npm dependencies in a **`deps`** stage that initially copies only **`package*.json`** plus **`tools/local/repo-bootstrap.mjs`**. That is required because **`npm install`** runs the repo’s **`postinstall`** script, which executes **`repo-bootstrap.mjs`**. The image uses **`npm install`** (not **`npm ci`**) in that stage because a strict clean install can fail when optional platform packages (for example **esbuild** variants) are not fully enumerated in **`package-lock.json`** for the Linux build target.
+
+**`NodeWeaver/`** is intentionally omitted from the Docker build context (see **`.dockerignore`**). During that slim install, the Dockerfile sets **`AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER=1`** so **`repo-bootstrap.mjs`** skips the strict **NodeWeaver/Dockerfile** check. Do not set that variable on a normal developer machine unless you are deliberately reproducing a slim image context; use **`git submodule update --init`** so **NodeWeaver** is present locally.
+
+This differs from a **Render “native Node”** deploy in **`render.yaml`**, which runs **`npm ci && npm run build`** against a full checkout (and optional submodules), not the Dockerfile’s minimal **`deps`** layer.
+
 ## Offline Phase A: read cache and rebuilds
 
 The browser SPA **persists successful read-query data** in `localStorage` (except `/api/auth`, `/api/admin`, and `/api/billing`) so the UI can still show the last good data when the network drops. That behavior is documented for the app as a whole in **[OFFLINE_PHASE_A.md](./OFFLINE_PHASE_A.md)**.

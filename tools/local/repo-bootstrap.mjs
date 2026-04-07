@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Runs on postinstall, predev (before npm run dev), and npm run submodule:init.
- * - Verifies vendored NodeWeaver at NodeWeaver/.
+ * - Verifies vendored NodeWeaver at NodeWeaver/ (unless AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER=1, e.g. Dockerfile deps stage where NodeWeaver is .dockerignore'd).
  * - Outside CI: if `uv` is on PATH and uv.lock exists, runs `uv sync` when lock/pyproject changed (fingerprint in .local/).
  */
 import { spawnSync } from "node:child_process";
@@ -34,6 +34,12 @@ function verifyNodeweaver() {
     process.exit(1);
   }
   if (!fs.existsSync(nwDockerfile)) {
+    if (truthyEnv(process.env.AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER)) {
+      console.log(
+        "[axtask:bootstrap] NodeWeaver/Dockerfile not present — skipping check (AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER).",
+      );
+      return;
+    }
     console.error(
       "[axtask:bootstrap] Missing NodeWeaver/Dockerfile. Restore NodeWeaver sources from git or copy the app into that folder (exclude .git).",
     );
