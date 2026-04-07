@@ -1805,15 +1805,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { format } = parsed.data;
       const cost = format === "pdf" ? getTaskReportPdfCost() : getTaskReportXlsxCost();
+      const ok = await debitProductivityExport(res, req.user!.id, cost, `export:task_report:${format}:${taskId}`, {
+        taskId,
+      });
+      if (!ok) return;
       const userName = req.user!.displayName || req.user!.email || undefined;
       const buf =
         format === "pdf"
           ? await generateTaskReportPdfBuffer(row, userName)
           : generateTaskReportXlsxBuffer(row);
-      const ok = await debitProductivityExport(res, req.user!.id, cost, `export:task_report:${format}:${taskId}`, {
-        taskId,
-      });
-      if (!ok) return;
       const safeSlug = row.activity
         .slice(0, 40)
         .replace(/[^\w\-]+/g, "_")
@@ -2931,6 +2931,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ════════════════════════════════════════════════════════════════════════
   //  Pattern Learning routes (protected)
   // ════════════════════════════════════════════════════════════════════════
+
+  app.use("/api/patterns", apiLimiter);
 
   app.get("/api/patterns/insights", requireAuth, async (req, res) => {
     try {
@@ -4551,7 +4553,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   /** Anonymous playstyle cohort mix (gamification signals — no per-user payload). */
-  app.get("/api/admin/playstyle-cohorts", requireAdminRole, async (_req, res) => {
+  app.get("/api/admin/playstyle-cohorts", requireAdmin, async (_req, res) => {
     try {
       const data = await getLatestPlaystyleCohortRollups();
       res.json(data);

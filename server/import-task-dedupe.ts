@@ -120,6 +120,35 @@ export async function reconcileBundleTaskIdMapForTasks(options: {
 
 type BundleImportTx = Pick<typeof db, "insert" | "select" | "delete">;
 
+async function ensureTaskImportFingerprintBindingTx(
+  tx: BundleImportTx,
+  input: {
+    userId: string;
+    fingerprint: string;
+    source: TaskImportFingerprintSource;
+    taskId: string;
+  },
+): Promise<void> {
+  const [hit] = await tx
+    .select({ id: taskImportFingerprints.id })
+    .from(taskImportFingerprints)
+    .where(
+      and(eq(taskImportFingerprints.userId, input.userId), eq(taskImportFingerprints.fingerprint, input.fingerprint)),
+    )
+    .limit(1);
+  if (hit) return;
+  await tx
+    .insert(taskImportFingerprints)
+    .values({
+      id: randomUUID(),
+      userId: input.userId,
+      fingerprint: input.fingerprint,
+      source: input.source,
+      firstTaskId: input.taskId,
+    })
+    .onConflictDoNothing({ target: [taskImportFingerprints.userId, taskImportFingerprints.fingerprint] });
+}
+
 /**
  * Claims the import fingerprint row before inserting the task so concurrent imports cannot
  * both miss the index and insert duplicate logical tasks. Rolls back a freshly claimed
@@ -177,6 +206,22 @@ export async function insertBundleTaskWithFingerprintClaimTx(
         .where(
           and(eq(taskImportFingerprints.userId, targetUserId), eq(taskImportFingerprints.fingerprint, fp)),
         );
+    }
+    const [existing] = await tx
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.id, taskPk), eq(tasks.userId, targetUserId)))
+      .limit(1);
+    if (existing) {
+      const rowFp = fingerprintFromBundleTaskRow(fingerprintRow);
+      if (rowFp === fp) {
+        await ensureTaskImportFingerprintBindingTx(tx, {
+          userId: targetUserId,
+          fingerprint: fp,
+          source: fingerprintSource,
+          taskId: existing.id,
+        });
+      }
     }
     return "skipped_pk_conflict";
   }
@@ -267,6 +312,12 @@ export async function manualCreateTaskWithImportFingerprintClaim(
           notes: existing.notes ?? null,
         });
         if (existingFp === fp) {
+          await ensureTaskImportFingerprintBindingTx(tx, {
+            userId,
+            fingerprint: fp,
+            source: "manual_create",
+            taskId: existing.id,
+          });
           return { ok: true as const, task: existing };
         }
         return { ok: false as const, reason: "id_taken" as const };

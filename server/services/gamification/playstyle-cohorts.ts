@@ -4,7 +4,7 @@
  * Rollups are anonymous counts + mean signal vectors for ops / capacity / inevitability modeling.
  * Individual assignments exist only to recompute rollups efficiently; do not expose in product APIs.
  */
-import { and, asc, count, desc, eq, gte, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, max, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   avatarXpEvents,
@@ -131,10 +131,14 @@ export async function recomputePlaystyleCohortRollups(): Promise<PlaystyleRecomp
   const since = new Date(Date.now() - windowDays * 86400000);
 
   const distinctUsers = await db
-    .selectDistinct({ userId: avatarXpEvents.userId })
+    .select({
+      userId: avatarXpEvents.userId,
+      lastAt: max(avatarXpEvents.createdAt),
+    })
     .from(avatarXpEvents)
     .where(gte(avatarXpEvents.createdAt, since))
-    .orderBy(asc(avatarXpEvents.userId))
+    .groupBy(avatarXpEvents.userId)
+    .orderBy(desc(max(avatarXpEvents.createdAt)))
     .limit(userCap);
 
   const byCohort: Record<string, PlaystyleSignals[]> = {};

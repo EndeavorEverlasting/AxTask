@@ -639,8 +639,8 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
                   if (t?.id) serverId = t.id;
                 }
               }
-              remapOrRemoveQueuedOpsForClientId(op.clientId, serverId);
               if (serverId) {
+                remapOrRemoveQueuedOpsForClientId(op.clientId, serverId);
                 const getRes = await apiFetch("GET", `/api/tasks/${encodeURIComponent(serverId)}`);
                 if (getRes.ok) {
                   const t = (await getRes.json()) as Task;
@@ -653,6 +653,8 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
                   void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
                   void queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
                 }
+              } else {
+                shouldRemoveOp = false;
               }
               break;
             }

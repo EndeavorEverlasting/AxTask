@@ -262,19 +262,17 @@ function readQueue(): OfflineTaskOp[] {
 
 /** Persists the queue; no lock — callers must hold `withQueueKeyLock` when mutating. */
 function persistQueueForKey(key: string, ops: OfflineTaskOp[]): WriteQueueOutcome {
-  if (ops.length > MAX_QUEUE) {
-    listeners.forEach((l) => l());
-    return { persistedToStorage: true, usingMemoryFallback: memoryFallbackQueues.has(key), overflowed: true };
-  }
+  const overflowed = ops.length > MAX_QUEUE;
+  const toStore = overflowed ? ops.slice(-MAX_QUEUE) : ops;
   try {
-    localStorage.setItem(key, JSON.stringify(ops));
+    localStorage.setItem(key, JSON.stringify(toStore));
     memoryFallbackQueues.delete(key);
     listeners.forEach((l) => l());
-    return { persistedToStorage: true, usingMemoryFallback: false, overflowed: false };
+    return { persistedToStorage: true, usingMemoryFallback: false, overflowed };
   } catch {
-    memoryFallbackQueues.set(key, ops.slice());
+    memoryFallbackQueues.set(key, toStore.slice());
     listeners.forEach((l) => l());
-    return { persistedToStorage: false, usingMemoryFallback: true, overflowed: false };
+    return { persistedToStorage: false, usingMemoryFallback: true, overflowed };
   }
 }
 
@@ -288,14 +286,6 @@ function mutateCurrentQueue(updater: (q: OfflineTaskOp[]) => OfflineTaskOp[]): W
   return withQueueKeyLock(k, () => {
     const q = readQueueForKey(k);
     const next = updater(q);
-    if (next.length > MAX_QUEUE) {
-      listeners.forEach((l) => l());
-      return {
-        persistedToStorage: true,
-        usingMemoryFallback: memoryFallbackQueues.has(k),
-        overflowed: true,
-      };
-    }
     return persistQueueForKey(k, next);
   });
 }

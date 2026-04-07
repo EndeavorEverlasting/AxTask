@@ -1,5 +1,5 @@
 import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
-import { apiRequest, getCsrfToken } from "./queryClient";
+import { getCsrfToken } from "./queryClient";
 
 export interface GoogleAuthTokens {
   accessToken: string;

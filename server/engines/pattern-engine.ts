@@ -44,7 +44,7 @@ function formatUtcYmd(ms: number): string {
 }
 
 function normalizeText(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+  return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").trim();
 }
 
 function tokenize(text: string): string[] {

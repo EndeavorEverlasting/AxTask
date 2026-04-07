@@ -29,6 +29,7 @@ COPY --from=build /app/package*.json ./
 COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
 # Migrate service runs `db:push:and-seed-docker` → only this script is needed at runtime (not dev-only post-merge.sh).
 COPY --from=build /app/scripts/docker-seed-demo.mjs ./scripts/docker-seed-demo.mjs
+COPY --from=build /app/scripts/pre-db-push-kit-workarounds.mjs ./scripts/pre-db-push-kit-workarounds.mjs
 COPY --from=build /app/scripts/start-with-db-push.mjs ./scripts/start-with-db-push.mjs
 
 USER axtask

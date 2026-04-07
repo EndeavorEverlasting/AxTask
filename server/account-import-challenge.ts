@@ -210,7 +210,6 @@ export function buildImportOwnershipChallenge(taskRows: unknown[]): BuildChallen
 
   const pool = [...rows];
   shuffleInPlace(pool);
-  const picked = pool.slice(0, targetN);
 
   const questions: OwnershipQuizQuestionSecret[] = [];
   const builders: Array<(t: BundleTaskRow, o: BundleTaskRow[]) => OwnershipQuizQuestionSecret | null> = [
@@ -220,25 +219,28 @@ export function buildImportOwnershipChallenge(taskRows: unknown[]): BuildChallen
     (t, o) => buildActivityQuestion(t, o, randomUUID()),
   ];
 
-  for (let i = 0; i < picked.length; i++) {
-    const task = picked[i]!;
+  let poolIdx = 0;
+  while (questions.length < targetN && poolIdx < pool.length) {
+    const task = pool[poolIdx++]!;
     const others = rows.filter((r) => r !== task);
     let q: OwnershipQuizQuestionSecret | null = null;
+    const startB = questions.length % builders.length;
     for (let b = 0; b < builders.length; b++) {
-      const fn = builders[(i + b) % builders.length]!;
+      const fn = builders[(startB + b) % builders.length]!;
       q = fn(task, others);
       if (q) break;
     }
     if (!q) {
       q = buildActivityQuestion(task, others, randomUUID());
     }
-    if (!q) {
-      return {
-        ok: false,
-        error: "Could not build ownership verification questions from this backup (tasks may be too sparse).",
-      };
-    }
-    questions.push(q);
+    if (q) questions.push(q);
+  }
+
+  if (questions.length < targetN) {
+    return {
+      ok: false,
+      error: "Could not build ownership verification questions from this backup (tasks may be too sparse).",
+    };
   }
 
   return { ok: true, fingerprint, questions };

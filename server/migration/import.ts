@@ -844,9 +844,9 @@ export async function importBundle(
 
           let pendingBannedByOldId: string | null = null;
           if (tableName === "users") {
-            const rawBb = originalRow.bannedBy;
-            if (rawBb !== null && rawBb !== undefined && String(rawBb).length > 0) {
-              pendingBannedByOldId = String(rawBb);
+            const rb = row.bannedBy;
+            if (rb !== null && rb !== undefined && String(rb).length > 0) {
+              pendingBannedByOldId = String(rb);
             }
             row = { ...row, bannedBy: null };
           }
