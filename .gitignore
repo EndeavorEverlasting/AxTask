@@ -44,3 +44,6 @@ Desktop.ini
 .idea/
 *.log
 .eslintcache
+
+# Local NodeWeaver submodule backup (keep out of PRs / publish)
+NodeWeaver._pre_submodule_backup/
