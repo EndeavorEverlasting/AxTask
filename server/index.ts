@@ -279,12 +279,15 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  const port = parseInt(process.env.PORT || '5000', 10);
+  const port = parseInt(process.env.PORT || "5000", 10);
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    console.error("[axtask:fatal] HTTP server listen error:", err?.message || err);
+    process.exit(1);
+  });
   server.listen(
     {
       port,
       host: "0.0.0.0",
-      ...(process.platform !== "win32" && { reusePort: true }),
     },
     () => {
       log(`serving on port ${port}`);
@@ -292,4 +295,7 @@ app.use((req, res, next) => {
       startPlaystyleCohortScheduler();
     },
   );
-})();
+})().catch((err: unknown) => {
+  console.error("[axtask:fatal] Server bootstrap failed:", err instanceof Error ? err.stack || err.message : err);
+  process.exit(1);
+});
