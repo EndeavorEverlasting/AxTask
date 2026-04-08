@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, billingPaymentMethods, idempotencyKeys, premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents, userNotificationPreferences, userPushSubscriptions, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent, type BillingPaymentMethod, type PremiumSubscription, type PremiumSavedView, type PremiumReviewWorkflow, type PremiumInsight, type PremiumEvent, type UserNotificationPreference, type UserPushSubscription } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, billingPaymentMethods, idempotencyKeys, premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents, userNotificationPreferences, userPushSubscriptions, studyDecks, studyCards, studySessions, studyReviewEvents, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent, type BillingPaymentMethod, type PremiumSubscription, type PremiumSavedView, type PremiumReviewWorkflow, type PremiumInsight, type PremiumEvent, type UserNotificationPreference, type UserPushSubscription, type StudyDeck, type StudyCard, type StudySession, type StudyReviewEvent, type CreateStudyDeckInput, type CreateStudyCardInput, type StartStudySessionInput, type SubmitStudyAnswerInput } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -1086,6 +1086,190 @@ export class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
+
+// ─── Study mini-game storage ─────────────────────────────────────────────────
+export async function listStudyDecks(userId: string): Promise<StudyDeck[]> {
+  return db
+    .select()
+    .from(studyDecks)
+    .where(eq(studyDecks.userId, userId))
+    .orderBy(desc(studyDecks.updatedAt));
+}
+
+export async function createStudyDeck(userId: string, input: CreateStudyDeckInput): Promise<StudyDeck> {
+  const [deck] = await db.insert(studyDecks).values({
+    id: randomUUID(),
+    userId,
+    title: input.title,
+    description: input.description || null,
+    sourceType: input.sourceType || "manual",
+    sourceRef: input.sourceRef || null,
+    cardLimitPerSession: input.cardLimitPerSession ?? 10,
+    sessionDurationMinutes: input.sessionDurationMinutes ?? 5,
+    updatedAt: new Date(),
+  }).returning();
+  return deck;
+}
+
+export async function listStudyCards(userId: string, deckId: string): Promise<StudyCard[]> {
+  return db
+    .select()
+    .from(studyCards)
+    .where(and(eq(studyCards.userId, userId), eq(studyCards.deckId, deckId)))
+    .orderBy(asc(studyCards.createdAt));
+}
+
+export async function createStudyCard(
+  userId: string,
+  deckId: string,
+  input: CreateStudyCardInput,
+): Promise<StudyCard> {
+  const [card] = await db.insert(studyCards).values({
+    id: randomUUID(),
+    deckId,
+    userId,
+    prompt: input.prompt,
+    answer: input.answer,
+    topic: input.topic || null,
+    tagsJson: input.tagsJson || null,
+    sourceTaskId: input.sourceTaskId || null,
+    updatedAt: new Date(),
+  }).returning();
+  await db.update(studyDecks).set({ updatedAt: new Date() }).where(and(
+    eq(studyDecks.id, deckId),
+    eq(studyDecks.userId, userId),
+  ));
+  return card;
+}
+
+export async function startStudySession(userId: string, input: StartStudySessionInput): Promise<StudySession> {
+  const cards = await listStudyCards(userId, input.deckId);
+  const [session] = await db.insert(studySessions).values({
+    id: randomUUID(),
+    userId,
+    deckId: input.deckId,
+    gameType: input.gameType || "flashcard_sprint",
+    status: "active",
+    totalCards: cards.length,
+    updatedAt: new Date(),
+  }).returning();
+  return session;
+}
+
+function gradeToCorrect(grade: SubmitStudyAnswerInput["grade"]): boolean {
+  return grade === "good" || grade === "easy";
+}
+
+export async function submitStudyAnswer(
+  userId: string,
+  sessionId: string,
+  input: SubmitStudyAnswerInput,
+): Promise<{ session: StudySession; event: StudyReviewEvent; awardedCoins: number }> {
+  const [session] = await db.select().from(studySessions).where(and(
+    eq(studySessions.id, sessionId),
+    eq(studySessions.userId, userId),
+  ));
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  if (session.status !== "active") {
+    throw new Error("Session is not active");
+  }
+
+  const isCorrect = gradeToCorrect(input.grade);
+  const [event] = await db.insert(studyReviewEvents).values({
+    id: randomUUID(),
+    userId,
+    sessionId,
+    cardId: input.cardId,
+    grade: input.grade,
+    isCorrect,
+    responseMs: input.responseMs ?? null,
+  }).returning();
+
+  const allEvents = await db
+    .select()
+    .from(studyReviewEvents)
+    .where(eq(studyReviewEvents.sessionId, sessionId));
+  const answeredCards = allEvents.length;
+  const correctCards = allEvents.filter((row) => row.isCorrect).length;
+  const scorePercent = answeredCards > 0 ? Math.round((correctCards / answeredCards) * 100) : 0;
+  const avgResponseMs = allEvents.length > 0
+    ? Math.round(allEvents.reduce((sum, row) => sum + (row.responseMs || 0), 0) / allEvents.length)
+    : null;
+
+  const weakTopicRows = await db
+    .select({ topic: studyCards.topic, isCorrect: studyReviewEvents.isCorrect })
+    .from(studyReviewEvents)
+    .innerJoin(studyCards, eq(studyReviewEvents.cardId, studyCards.id))
+    .where(eq(studyReviewEvents.sessionId, sessionId));
+  const topicCounts = new Map<string, { total: number; correct: number }>();
+  for (const row of weakTopicRows) {
+    const topic = (row.topic || "general").trim().toLowerCase();
+    const entry = topicCounts.get(topic) || { total: 0, correct: 0 };
+    entry.total += 1;
+    if (row.isCorrect) entry.correct += 1;
+    topicCounts.set(topic, entry);
+  }
+  const weakTopics = Array.from(topicCounts.entries())
+    .filter(([, value]) => value.total > 0 && (value.correct / value.total) < 0.5)
+    .map(([topic]) => topic);
+
+  let status: StudySession["status"] = "active";
+  let endedAt: Date | null = null;
+  let awardedCoins = 0;
+  const totalCardsForCompletion = Math.max(session.totalCards, answeredCards);
+  if (answeredCards >= totalCardsForCompletion) {
+    status = "completed";
+    endedAt = new Date();
+    awardedCoins = Math.max(5, Math.min(25, Math.round(scorePercent / 5)));
+    await addCoins(
+      userId,
+      awardedCoins,
+      "study_session_completed",
+      `Flashcard Sprint completed (${scorePercent}% accuracy)`,
+    );
+  }
+
+  const [updated] = await db.update(studySessions).set({
+    status,
+    endedAt,
+    answeredCards,
+    correctCards,
+    scorePercent,
+    avgResponseMs,
+    weakTopicsJson: JSON.stringify(weakTopics),
+    rewardCoins: status === "completed" ? awardedCoins : session.rewardCoins,
+    updatedAt: new Date(),
+  }).where(and(eq(studySessions.id, sessionId), eq(studySessions.userId, userId))).returning();
+
+  return { session: updated, event, awardedCoins };
+}
+
+export async function getStudySessionSummary(userId: string, sessionId: string): Promise<StudySession | undefined> {
+  const [session] = await db.select().from(studySessions).where(and(
+    eq(studySessions.id, sessionId),
+    eq(studySessions.userId, userId),
+  ));
+  return session || undefined;
+}
+
+export async function getStudyStats(userId: string): Promise<{
+  totalSessions: number;
+  completedSessions: number;
+  avgScorePercent: number;
+  totalCardsReviewed: number;
+}> {
+  const sessions = await db.select().from(studySessions).where(eq(studySessions.userId, userId));
+  const totalSessions = sessions.length;
+  const completed = sessions.filter((row) => row.status === "completed");
+  const completedSessions = completed.length;
+  const avgScorePercent = completedSessions > 0
+    ? Math.round(completed.reduce((sum, row) => sum + (row.scorePercent || 0), 0) / completedSessions)
+    : 0;
+  const totalCardsReviewed = sessions.reduce((sum, row) => sum + (row.answeredCards || 0), 0);
+  return { totalSessions, completedSessions, avgScorePercent, totalCardsReviewed };
+}
 
 // ─── Gamification Storage ────────────────────────────────────────────────────
 

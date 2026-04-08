@@ -49,10 +49,18 @@ import {
   listUserPushSubscriptions,
   upsertUserPushSubscription,
   deleteUserPushSubscription,
+  listStudyDecks,
+  createStudyDeck,
+  listStudyCards,
+  createStudyCard,
+  startStudySession,
+  submitStudyAnswer,
+  getStudySessionSummary,
+  getStudyStats,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, type UpdateTask, type Task } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task } from "@shared/schema";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
@@ -2050,6 +2058,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Planner Q&A error:", error);
       res.status(500).json({ message: "Failed to answer question" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Study mini-games routes (protected)
+  // ════════════════════════════════════════════════════════════════════════
+  app.use("/api/study", apiLimiter);
+
+  app.get("/api/study/decks", requireAuth, async (req, res) => {
+    try {
+      const decks = await listStudyDecks(req.user!.id);
+      res.json(decks);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch study decks" });
+    }
+  });
+
+  app.post("/api/study/decks", requireAuth, async (req, res) => {
+    try {
+      const payload = createStudyDeckSchema.parse(req.body);
+      const deck = await createStudyDeck(req.user!.id, payload);
+      res.status(201).json(deck);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to create study deck" });
+    }
+  });
+
+  app.get("/api/study/decks/:id/cards", requireAuth, async (req, res) => {
+    try {
+      const cards = await listStudyCards(req.user!.id, req.params.id);
+      res.json(cards);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch deck cards" });
+    }
+  });
+
+  app.post("/api/study/decks/:id/cards", requireAuth, async (req, res) => {
+    try {
+      const payload = createStudyCardSchema.parse({ ...req.body, deckId: req.params.id });
+      const card = await createStudyCard(req.user!.id, req.params.id, payload);
+      res.status(201).json(card);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to create card" });
+    }
+  });
+
+  app.post("/api/study/sessions/start", requireAuth, async (req, res) => {
+    try {
+      const payload = startStudySessionSchema.parse(req.body);
+      const session = await startStudySession(req.user!.id, payload);
+      res.status(201).json(session);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to start study session" });
+    }
+  });
+
+  app.post("/api/study/sessions/:id/answer", requireAuth, async (req, res) => {
+    try {
+      const payload = submitStudyAnswerSchema.parse(req.body);
+      const result = await submitStudyAnswer(req.user!.id, req.params.id, payload);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to submit study answer" });
+    }
+  });
+
+  app.get("/api/study/sessions/:id/summary", requireAuth, async (req, res) => {
+    try {
+      const summary = await getStudySessionSummary(req.user!.id, req.params.id);
+      if (!summary) return res.status(404).json({ message: "Session not found" });
+      res.json(summary);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch study summary" });
+    }
+  });
+
+  app.get("/api/study/stats", requireAuth, async (req, res) => {
+    try {
+      const stats = await getStudyStats(req.user!.id);
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch study stats" });
     }
   });
 
