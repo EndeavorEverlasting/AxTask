@@ -4,15 +4,19 @@ import { getUserRowById } from "./storage";
 
 const PENDING_TOTP_MS = 5 * 60 * 1000;
 
+/** Called after Passport session login succeeds (`err` is always null when invoked). */
+export type AfterOAuthLogin = (err?: Error | null) => void | Promise<void>;
+
 /**
  * If the user has TOTP enabled, store pending login and redirect to the login TOTP step.
- * Otherwise call `req.login` with the provided callback.
+ * Otherwise completes `req.login`, then runs `onLoggedIn` so async work (e.g. audit log + redirect)
+ * stays inside the route's try/catch.
  */
 export async function loginOrPendingTotp(
   req: Request,
   res: Response,
   user: SafeUser,
-  onLoggedIn: (err?: Error | null) => void,
+  onLoggedIn: AfterOAuthLogin,
 ): Promise<void> {
   const row = await getUserRowById(user.id);
   if (row?.totpEnabledAt && row.totpSecretCiphertext) {
@@ -26,5 +30,13 @@ export async function loginOrPendingTotp(
     res.redirect("/login?step=totp");
     return;
   }
-  req.login(user, onLoggedIn);
+
+  await new Promise<void>((resolve, reject) => {
+    req.login(user, (err) => (err ? reject(err) : resolve()));
+  });
+
+  const maybePromise = onLoggedIn(null);
+  if (maybePromise != null && typeof (maybePromise as Promise<void>).then === "function") {
+    await maybePromise;
+  }
 }

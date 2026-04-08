@@ -34,6 +34,7 @@ function isLocalHost(host: string): boolean {
   return host === "localhost" || host === "127.0.0.1";
 }
 
+// Production custom domain (e.g. axtask.app): set CANONICAL_HOST and/or ADDITIONAL_ALLOWED_HOSTS so host checks pass behind the proxy.
 const extraAllowedHosts = parseCsvEnv(process.env.ADDITIONAL_ALLOWED_HOSTS);
 const allowedHosts = new Set<string>(
   [canonicalHost, replitFallbackHost, ...extraAllowedHosts].filter(Boolean),
