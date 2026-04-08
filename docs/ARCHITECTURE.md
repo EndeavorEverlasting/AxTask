@@ -7,9 +7,14 @@ AxTask is built using modern web development practices with a focus on type safe
 ## Monorepo Guardrails
 
 - AxTask should be treated as a monorepo-style codebase for delivery workflows.
-- NodeWeaver integration is expected under `services/nodeweaver/upstream` when present.
+- NodeWeaver is hybrid: internal at `services/nodeweaver/upstream` when vendored, or external service mode when deployment profile requires it.
+- Classification ownership is shared: NodeWeaver provides engine primitives while AxTask owns fallback/orchestration policy.
 - Legacy backup path `NodeWeaver._pre_submodule_backup` is not an active architecture component.
 - Avoid submodule-coupled workflow assumptions unless a dedicated architecture decision reintroduces them.
+
+## NodeWeaver engines and classifier contracts
+
+Treat classifier outputs (source, fallback layer, confidence) as the foundation for higher-level engines, agents, and product features. The short-term active boundary is: universal classifier plus feedback engine plus AxTask fallback orchestration. Mid-term work should extend those contract points rather than adding parallel, unsynchronized classification paths.
 
 ## High-Level Architecture
 

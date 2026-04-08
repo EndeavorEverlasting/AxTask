@@ -1,5 +1,8 @@
 # AxTask Zero-Downtime Cutover Runbook
 
+> Status: Transitional runbook.  
+> Canonical architecture/policy references: `docs/ACTIVE_LEGACY_INDEX.md`, `docs/ARCHITECTURE.md`, `docs/PR_SEGMENTATION.md`.
+
 This runbook keeps Replit online as hot fallback while shifting primary traffic to a new host.
 
 ## 1) Preconditions

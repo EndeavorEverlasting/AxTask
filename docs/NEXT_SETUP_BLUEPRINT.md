@@ -1,5 +1,8 @@
 # AxTask Next Setup Blueprint (Host + DB + Domain + Product Hooks)
 
+> Status: Transitional runbook.  
+> Canonical architecture/policy references: `docs/ACTIVE_LEGACY_INDEX.md`, `docs/ARCHITECTURE.md`, `docs/PR_SEGMENTATION.md`.
+
 **Date:** 2026-04-03  
 **Purpose:** Lay the groundwork for the next production setup with transparent billing, reliable uptime, and a single future infrastructure point for AxTask + NodeWeaver.
 

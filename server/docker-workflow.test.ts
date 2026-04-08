@@ -6,6 +6,28 @@ import { describe, expect, it } from "vitest";
 const projectRoot = path.resolve(__dirname, "..");
 
 describe("docker workflow assets", () => {
+  it("keeps CI docker-build verification aligned with runtime image layout", () => {
+    const workflowPath = path.join(
+      projectRoot,
+      ".github",
+      "workflows",
+      "test-and-attest.yml",
+    );
+    const workflow = fs.readFileSync(workflowPath, "utf8");
+    expect(workflow).toContain("Verify runtime image has bundled app assets");
+    expect(workflow).toContain("dist/index.js");
+    expect(workflow).toContain("dist/public/index.html");
+    expect(workflow).toContain("package.json");
+    expect(workflow).toContain("drizzle.config.ts");
+
+    const dockerfile = fs.readFileSync(
+      path.join(projectRoot, "Dockerfile"),
+      "utf8",
+    );
+    expect(dockerfile).toContain("COPY --from=build /app/dist ./dist");
+    expect(dockerfile).toContain('CMD ["node", "dist/index.js"]');
+  });
+
   it("keeps docker npm scripts wired to .env.docker", () => {
     const packageJsonPath = path.join(projectRoot, "package.json");
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));

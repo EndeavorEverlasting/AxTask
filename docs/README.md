@@ -245,7 +245,10 @@ npm run dev          # Start development server
 
 AxTask no longer depends on active git submodules for NodeWeaver integration.
 
-- Expected active vendored path: `services/nodeweaver/upstream`
+- NodeWeaver runs in hybrid mode:
+  - Internal-first vendored path: `services/nodeweaver/upstream`
+  - Optional external service mode for deployment profiles that require separation
+- Classification ownership is shared across NodeWeaver engine core and AxTask fallback/orchestration.
 - Legacy path `NodeWeaver._pre_submodule_backup` is archival-only and excluded from active development/deployment scope
 - Do not reintroduce submodule assumptions in CI checkout or local bootstrap scripts without an explicit migration decision
 
@@ -268,6 +271,14 @@ Suggested mini-games PR sequence:
 2. Server storage/routes + server tests
 3. Client mini-games page/hooks/nav + UI tests
 4. Documentation/process and CI workflow updates
+
+### Document Authority Map
+
+- Canonical index: `docs/ACTIVE_LEGACY_INDEX.md`
+- Canonical architecture contract: `docs/ARCHITECTURE.md`
+- Deployment-impact test sweep and debugging patterns: `docs/DEBUGGING_REFERENCE.md`
+- Canonical PR/deployment slicing policy: `docs/PR_SEGMENTATION.md`
+- Migration/cutover runbooks are transitional and should not override canonical architecture policy.
 
 ### Engine APIs
 - `POST /api/feedback/process` — process message text through feedback engines (classification, sentiment, priority, tags, actions)

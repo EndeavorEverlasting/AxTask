@@ -167,6 +167,8 @@ npm run pr:factor
 ### Monorepo Note
 
 - AxTask should be operated as a monorepo-style repository for CI and release workflows.
+- NodeWeaver runs in hybrid mode: internal vendored component by default, optional external service mode when deployment profile requires it.
+- Classification ownership is shared: NodeWeaver engine core + AxTask fallback/orchestration policy.
 - `NodeWeaver._pre_submodule_backup` is a legacy backup path and is excluded from active tracking/runtime flows.
 - If NodeWeaver is required for local/CI integration, use the vendored `services/nodeweaver/upstream` path.
 
@@ -219,7 +221,7 @@ If something ever gets out of sync, run:
 npm run deps:sync
 ```
 
-For matching behavior in `NodeWeaver`, run that repo's setup script once too.
+For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/upstream`) or the selected external service profile.
 
 ### File Structure
 ```
@@ -233,14 +235,16 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
 ## Documentation
 
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - Technical architecture details
+- **[Active/Legacy Index](docs/ACTIVE_LEGACY_INDEX.md)** - Canonical active vs transitional vs legacy classification
+- **[Debugging Reference](docs/DEBUGGING_REFERENCE.md)** - Deployment-impact test sweep checklist and common fixes
 - **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
 - **[Security Guidelines](docs/SECURITY.md)** - Security best practices
 - **[Version History](VERSION.md)** - Release notes and changelog
-- **[Deployment Migration Plan](docs/DEPLOYMENT_MIGRATION_PLAN.md)** - 48-hour cutover and rollback guardrails
-- **[Next Setup Blueprint](docs/NEXT_SETUP_BLUEPRINT.md)** - Host/DB/domain and integration groundwork
-- **[Cutover Runbook](docs/CUTOVER_RUNBOOK.md)** - Zero-downtime DNS cutover with Replit fallback
-- **[Morning New-Box Migration Guide](docs/MORNING_NEW_BOX_MIGRATION_GUIDE.md)** - Fresh-machine checklist with vendor/domain decisions
-- **[Morning Migration Checklist](docs/MORNING_NEW_BOX_MIGRATION_CHECKLIST.md)** - Execution-only checklist for fast cutover
+- **[Deployment Migration Plan](docs/DEPLOYMENT_MIGRATION_PLAN.md)** - Transitional runbook: 48-hour cutover and rollback guardrails
+- **[Next Setup Blueprint](docs/NEXT_SETUP_BLUEPRINT.md)** - Transitional runbook: host/DB/domain and integration groundwork
+- **[Cutover Runbook](docs/CUTOVER_RUNBOOK.md)** - Transitional runbook: zero-downtime DNS cutover with Replit fallback
+- **[Morning New-Box Migration Guide](docs/MORNING_NEW_BOX_MIGRATION_GUIDE.md)** - Transitional runbook: fresh-machine checklist with vendor/domain decisions
+- **[Morning Migration Checklist](docs/MORNING_NEW_BOX_MIGRATION_CHECKLIST.md)** - Transitional runbook: execution-only checklist for fast cutover
 - **[Branding and Fallback Modularity](docs/BRANDING.md)** - Logo paths and host-pivot guardrails
 - **[Per-Time Activity Association Test Plan](docs/PER_TIME_ACTIVITY_ASSOCIATION_TEST_PLAN.md)** - Active-user gating metrics and premium-affinity validation fixtures
 - **[Docker-First Accessibility Path](docs/DOCKER_ACCESSIBILITY_PATH.md)** - Step-by-step path to make startup and updates easy for non-technical users

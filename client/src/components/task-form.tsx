@@ -129,29 +129,43 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const draftKey = getDraftKey(user?.id, draftContext);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const freshDefaults: InsertTask = task ? {
-    date: task.date,
-    time: task.time || "",
-    activity: task.activity,
-    notes: task.notes || "",
-    urgency: task.urgency || undefined,
-    impact: task.impact || undefined,
-    effort: task.effort || undefined,
-    prerequisites: task.prerequisites || "",
-    recurrence: (task.recurrence as "none" | "daily" | "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly") || "none",
-    status: (task.status as "pending" | "in-progress" | "completed"),
-  } : {
-    date: defaultDate || new Date().toISOString().split('T')[0],
-    time: "",
-    activity: "",
-    notes: "",
-    urgency: undefined,
-    impact: undefined,
-    effort: undefined,
-    prerequisites: "",
-    recurrence: "none" as const,
-    status: "pending",
-  };
+  const freshDefaults: InsertTask = task
+    ? {
+        date: task.date,
+        time: task.time || "",
+        activity: task.activity,
+        notes: task.notes || "",
+        urgency: task.urgency || undefined,
+        impact: task.impact || undefined,
+        effort: task.effort || undefined,
+        prerequisites: task.prerequisites || "",
+        recurrence:
+          (task.recurrence as
+            | "none"
+            | "daily"
+            | "weekly"
+            | "biweekly"
+            | "monthly"
+            | "quarterly"
+            | "yearly") || "none",
+        status: task.status as "pending" | "in-progress" | "completed",
+        visibility: (task.visibility as "private" | "public") ?? "private",
+        communityShowNotes: Boolean(task.communityShowNotes),
+      }
+    : {
+        date: defaultDate || new Date().toISOString().split("T")[0],
+        time: "",
+        activity: "",
+        notes: "",
+        urgency: undefined,
+        impact: undefined,
+        effort: undefined,
+        prerequisites: "",
+        recurrence: "none" as const,
+        status: "pending",
+        visibility: "private",
+        communityShowNotes: false,
+      };
 
   const draft = !task ? loadDraft(draftKey) : null;
   const mergedDefaults = draft ? { ...freshDefaults, ...draft } : freshDefaults;

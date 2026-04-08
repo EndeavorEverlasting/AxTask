@@ -1,5 +1,8 @@
 # AxTask + NodeWeaver Emergency Publishing Plan (Off Replit)
 
+> Status: Transitional runbook.  
+> Canonical architecture/policy references: `docs/ACTIVE_LEGACY_INDEX.md`, `docs/ARCHITECTURE.md`, `docs/PR_SEGMENTATION.md`.
+
 **Date:** 2026-04-03  
 **Timeline:** Start today, cutover in 48 hours  
 **Primary goal:** Keep AxTask continuously available for you and technicians with transparent billing controls.

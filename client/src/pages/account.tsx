@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Smartphone, ShieldCheck, Cake, Mail, Volume2 } from "lucide-react";
+import { ArrowLeft, Smartphone, ShieldCheck, Cake, Mail, Volume2, KeyRound } from "lucide-react";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { normalizeToE164 } from "@shared/phone";
 import { useAuth } from "@/lib/auth-context";
@@ -154,6 +154,17 @@ export default function AccountPage() {
     maskedDestination?: string;
   } | null>(null);
 
+  const [totpEnroll, setTotpEnroll] = useState<{ secretBase32: string; otpauthUrl: string } | null>(null);
+  const [totpConfirmCode, setTotpConfirmCode] = useState("");
+  const [totpDisablePassword, setTotpDisablePassword] = useState("");
+  const [totpDisableOpen, setTotpDisableOpen] = useState(false);
+  const [totpDisableChallenge, setTotpDisableChallenge] = useState<{
+    challengeId: string;
+    expiresAt: string;
+    devCode?: string;
+    maskedDestination?: string;
+  } | null>(null);
+
   const sendCodeMutation = useMutation({
     mutationFn: async () => {
       const normalized = normalizeToE164(phoneInput);
@@ -196,6 +207,74 @@ export default function AccountPage() {
     },
     onError: (e: Error) =>
       toast({ title: "Verification failed", description: e.message, variant: "destructive" }),
+  });
+
+  const startTotpEnrollMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/account/totp/enrollment/start");
+      return res.json() as Promise<{ secretBase32: string; otpauthUrl: string }>;
+    },
+    onSuccess: (data) => {
+      setTotpEnroll(data);
+      setTotpConfirmCode("");
+      toast({
+        title: "Add account to your app",
+        description: "Scan or paste the secret, then enter a 6-digit code to confirm.",
+      });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Could not start setup", description: e.message, variant: "destructive" }),
+  });
+
+  const confirmTotpEnrollMutation = useMutation({
+    mutationFn: async (code: string) => {
+      const res = await apiRequest("POST", "/api/account/totp/enrollment/confirm", {
+        code: code.replace(/\D/g, "").slice(0, 6),
+      });
+      return res.json();
+    },
+    onSuccess: async () => {
+      setTotpEnroll(null);
+      setTotpConfirmCode("");
+      await refreshUser();
+      toast({ title: "Authenticator enabled", description: "You will need a code when you sign in." });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Confirmation failed", description: e.message, variant: "destructive" }),
+  });
+
+  const sendTotpDisableEmailMutation = useMutation({
+    mutationFn: async () => {
+      return requestChallenge({ purpose: MFA_PURPOSES.ACCOUNT_DISABLE_TOTP, channel: "email" });
+    },
+    onSuccess: (c) => {
+      setTotpDisableChallenge({
+        challengeId: c.challengeId,
+        expiresAt: c.expiresAt,
+        devCode: c.devCode,
+        maskedDestination: c.maskedDestination,
+      });
+      setTotpDisableOpen(true);
+      toast({ title: "Code sent", description: "Check your email for the verification code." });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Could not send code", description: e.message, variant: "destructive" }),
+  });
+
+  const disableTotpMutation = useMutation({
+    mutationFn: async (body: { password?: string; challengeId?: string; code?: string }) => {
+      const res = await apiRequest("POST", "/api/account/totp/disable", body);
+      return res.json();
+    },
+    onSuccess: async () => {
+      setTotpDisablePassword("");
+      setTotpDisableOpen(false);
+      setTotpDisableChallenge(null);
+      await refreshUser();
+      toast({ title: "Authenticator removed" });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Could not remove authenticator", description: e.message, variant: "destructive" }),
   });
 
   const { data: ownerProfile } = useQuery({
@@ -333,6 +412,143 @@ export default function AccountPage() {
       </Card>
 
       <ImmersiveSoundsSettingsCard />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <KeyRound className="h-5 w-5" />
+            Authenticator app
+          </CardTitle>
+          <CardDescription>
+            Time-based codes (TOTP) work with Google Authenticator, Microsoft Authenticator, and other standard apps. Use
+            the same secret in any of them — not OAuth sign-in.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {user?.totpEnabled ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Status: <span className="font-medium text-emerald-600 dark:text-emerald-400">On</span> — sign-in and
+                sensitive steps can use a 6-digit app code instead of email when you choose.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="totp-disable-pw">Remove authenticator</Label>
+                {user.authProvider === "local" ? (
+                  <>
+                    <Input
+                      id="totp-disable-pw"
+                      type="password"
+                      autoComplete="current-password"
+                      placeholder="Current password"
+                      value={totpDisablePassword}
+                      onChange={(e) => setTotpDisablePassword(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      disabled={!totpDisablePassword.trim() || disableTotpMutation.isPending}
+                      onClick={() => disableTotpMutation.mutate({ password: totpDisablePassword })}
+                    >
+                      {disableTotpMutation.isPending ? "Removing…" : "Remove authenticator"}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      We&apos;ll email you a one-time code to confirm removal (password sign-in is not set for this
+                      account).
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={sendTotpDisableEmailMutation.isPending}
+                      onClick={() => void sendTotpDisableEmailMutation.mutateAsync()}
+                    >
+                      {sendTotpDisableEmailMutation.isPending ? "Sending…" : "Email me a code"}
+                    </Button>
+                    <MfaVerificationPanel
+                      open={totpDisableOpen}
+                      challengeId={totpDisableChallenge?.challengeId}
+                      purpose={MFA_PURPOSES.ACCOUNT_DISABLE_TOTP}
+                      title="Confirm removal"
+                      description={
+                        totpDisableChallenge?.maskedDestination
+                          ? `Enter the code sent to ${totpDisableChallenge.maskedDestination}.`
+                          : "Enter the code we sent to your email."
+                      }
+                      expiresAt={totpDisableChallenge?.expiresAt}
+                      devCode={totpDisableChallenge?.devCode ?? null}
+                      isBusy={disableTotpMutation.isPending}
+                      onDismiss={() => {
+                        setTotpDisableOpen(false);
+                        setTotpDisableChallenge(null);
+                      }}
+                      onResend={() => void sendTotpDisableEmailMutation.mutateAsync()}
+                      onSubmitCode={async (code) => {
+                        if (!totpDisableChallenge) return;
+                        await disableTotpMutation.mutateAsync({
+                          challengeId: totpDisableChallenge.challengeId,
+                          code,
+                        });
+                      }}
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Add a second factor for sign-in and billing-style confirmations. You can still use email codes anytime.
+              </p>
+              {!totpEnroll ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void startTotpEnrollMutation.mutateAsync()}
+                  disabled={startTotpEnrollMutation.isPending}
+                >
+                  {startTotpEnrollMutation.isPending ? "Starting…" : "Set up authenticator"}
+                </Button>
+              ) : (
+                <div className="space-y-3 rounded-lg border border-border p-3">
+                  <p className="text-xs text-muted-foreground break-all font-mono select-all">{totpEnroll.secretBase32}</p>
+                  <p className="text-xs text-muted-foreground break-all">{totpEnroll.otpauthUrl}</p>
+                  <Label htmlFor="totp-confirm">6-digit code from the app</Label>
+                  <Input
+                    id="totp-confirm"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    placeholder="000000"
+                    value={totpConfirmCode}
+                    onChange={(e) => setTotpConfirmCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      disabled={totpConfirmCode.length !== 6 || confirmTotpEnrollMutation.isPending}
+                      onClick={() => void confirmTotpEnrollMutation.mutateAsync(totpConfirmCode)}
+                    >
+                      {confirmTotpEnrollMutation.isPending ? "Confirming…" : "Confirm"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setTotpEnroll(null);
+                        setTotpConfirmCode("");
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

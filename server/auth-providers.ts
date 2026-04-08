@@ -13,6 +13,7 @@ import { WorkOS } from "@workos-inc/node";
 import * as oidcClient from "openid-client";
 import type { Express, Request, Response } from "express";
 import { findOrCreateOAuthUser, isUserBanned, logSecurityEvent } from "./storage";
+import { loginOrPendingTotp } from "./auth-totp-login";
 import { randomBytes } from "crypto";
 import memoize from "memoizee";
 
@@ -130,7 +131,7 @@ export function registerOAuthRoutes(app: Express) {
         return res.redirect("/?error=account_suspended");
       }
 
-      req.login(user, async (err) => {
+      await loginOrPendingTotp(req, res, user, async (err) => {
         if (err) {
           console.error("[auth] Session creation error:", err);
           return res.redirect("/?error=session_failed");
@@ -220,7 +221,7 @@ export function registerOAuthRoutes(app: Express) {
         return res.redirect("/?error=account_suspended");
       }
 
-      req.login(user, async (err) => {
+      await loginOrPendingTotp(req, res, user, async (err) => {
         if (err) return res.redirect("/?error=session_failed");
         await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "Google OAuth login");
         res.redirect("/");
@@ -314,7 +315,7 @@ export function registerOAuthRoutes(app: Express) {
         return res.redirect("/?error=account_suspended");
       }
 
-      req.login(user, async (err) => {
+      await loginOrPendingTotp(req, res, user, async (err) => {
         if (err) {
           console.error("[auth] Replit session error:", err);
           return res.redirect("/?error=session_failed");

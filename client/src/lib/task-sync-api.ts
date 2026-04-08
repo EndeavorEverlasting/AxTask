@@ -265,7 +265,7 @@ export function taskUpdatedAtIso(task: Task | undefined): string | null {
 }
 
 export function optimisticTaskFromInsert(data: InsertTask, id: string, userId: string): Task {
-  const now = new Date().toISOString();
+  const now = new Date();
   return {
     id,
     userId,
@@ -288,7 +288,7 @@ export function optimisticTaskFromInsert(data: InsertTask, id: string, userId: s
     communityShowNotes: false,
     createdAt: now,
     updatedAt: now,
-  } as unknown as Task;
+  };
 }
 
 export function mergeTaskInCache(queryClient: QueryClient, taskId: string, patch: Record<string, unknown>): void {
@@ -621,11 +621,11 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
       beginOfflineQueueDrainScope();
       ops = peekOfflineQueue();
       while (ops.length > 0) {
-      const op = ops[0];
-      try {
-        let syncAborted = false;
-        let shouldRemoveOp = true;
-        switch (op.kind) {
+        const op = ops[0];
+        try {
+          let syncAborted = false;
+          let shouldRemoveOp = true;
+          switch (op.kind) {
           case "create": {
             const res = await apiFetch("POST", "/api/tasks", {
               ...op.payload,
@@ -665,6 +665,7 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
               } else {
                 shouldRemoveOp = false;
                 drainStoppedEarly = true;
+                syncAborted = true;
               }
               break;
             }
@@ -737,6 +738,7 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
                 shouldRemoveOp = false;
                 if (hasConflict) {
                   drainStoppedEarly = true;
+                  syncAborted = true;
                 }
                 if (transientRetryIndices.length > 0 && !hasConflict) {
                   removeOfflineOp(op.opId);
@@ -767,22 +769,22 @@ export async function drainOfflineTaskQueue(queryClient: QueryClient): Promise<v
             }
             break;
           }
-          default:
+            default:
+              break;
+          }
+          if (syncAborted) {
+            drainStoppedEarly = true;
             break;
-        }
-        if (syncAborted) {
+          }
+          if (shouldRemoveOp) removeOfflineOp(op.opId);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error("[offline-task-queue] drain failed", { ...opDrainMeta(op), error: message, err });
           drainStoppedEarly = true;
           break;
         }
-        if (shouldRemoveOp) removeOfflineOp(op.opId);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error("[offline-task-queue] drain failed", { ...opDrainMeta(op), error: message, err });
-        drainStoppedEarly = true;
-        break;
+        ops = peekOfflineQueue();
       }
-      ops = peekOfflineQueue();
-    }
 
     if (!drainStoppedEarly && peekOfflineQueue().length === 0) {
       await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });

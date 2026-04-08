@@ -1,5 +1,8 @@
 # Morning Migration Checklist (Execution-Only)
 
+> Status: Transitional runbook.  
+> Canonical architecture/policy references: `docs/ACTIVE_LEGACY_INDEX.md`, `docs/ARCHITECTURE.md`, `docs/PR_SEGMENTATION.md`.
+
 Use this on a fresh machine to execute quickly and safely.
 
 ## 0) Confirm branches

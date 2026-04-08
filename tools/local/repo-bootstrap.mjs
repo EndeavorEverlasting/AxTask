@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Runs on postinstall, predev (before npm run dev), and npm run submodule:init.
+ * Runs on postinstall and predev (before npm run dev).
  * - Verifies vendored NodeWeaver at services/nodeweaver/upstream (unless AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER=1, e.g. Dockerfile deps stage where sources are .dockerignore'd).
  * - Outside CI: if `uv` is on PATH and uv.lock exists, runs `uv sync` when lock/pyproject changed (fingerprint in .local/).
  */

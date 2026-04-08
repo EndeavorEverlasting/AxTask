@@ -233,21 +233,15 @@ export function useCollaboration(taskId: string | null) {
   }, []);
 
   const consumeFieldEdit = useCallback((field: string): FieldEdit | undefined => {
-    let removed: FieldEdit | undefined;
-    setFieldEdits((prev) => {
-      const idx = prev.findIndex((e) => e.field === field);
-      if (idx < 0) {
-        fieldEditsRef.current = prev;
-        removed = undefined;
-        return prev;
-      }
-      removed = prev[idx];
-      const next = [...prev.slice(0, idx), ...prev.slice(idx + 1)];
-      fieldEditsRef.current = next;
-      return next;
-    });
+    const prev = fieldEditsRef.current;
+    const idx = prev.findIndex((e) => e.field === field);
+    if (idx < 0) return undefined;
+    const removed = prev[idx];
+    const next = [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+    fieldEditsRef.current = next;
+    setFieldEdits(next);
     return removed;
-  }, []);
+  }, [setFieldEdits, fieldEditsRef]);
 
   return {
     ...state,

@@ -4,6 +4,8 @@
 
 Keep PRs reviewable for automated reviewers and humans by splitting large work into focused slices.
 
+Canonical matrix reference: `docs/ACTIVE_LEGACY_INDEX.md`.
+
 ## Default Limits
 
 - Hard CI cap: `300` files (`.github/workflows/pr-file-limit.yml`)
@@ -105,3 +107,11 @@ Validation:
 
 - `NodeWeaver._pre_submodule_backup` was a stale gitlink artifact and has been removed from active tracking.
 - Do not use it as runtime source in monorepo flows.
+
+## Dirty-File Curation Policy
+
+When preparing deployment branches with existing dirty files, apply this filter in order:
+
+1. Include files required for active runtime correctness (mini-games, NodeWeaver classifier contract, fallback orchestration).
+2. Include files required for policy/tooling integrity (CI gates, segmentation tools, canonical docs).
+3. Exclude unrelated feature work or legacy noise to a follow-up branch.

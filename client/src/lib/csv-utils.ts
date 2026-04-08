@@ -1,6 +1,7 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { buildTasksCsvExport } from '@shared/task-spreadsheet-export';
+import { formatAxTaskCsvAttribution } from "@shared/attribution";
+import { buildTasksCsvExport } from "@shared/task-spreadsheet-export";
 
 function excelDateToString(serial: number): string {
   if (!serial || typeof serial !== 'number' || serial < 1) return '';
@@ -332,8 +333,8 @@ export function parseTasksFromCSV(csvText: string): any[] {
 }
 
 export function tasksToCSV(tasks: any[]): string {
-  if (tasks.length === 0) return '';
-  return buildTasksCsvExport(tasks);
+  if (tasks.length === 0) return "";
+  return `${formatAxTaskCsvAttribution()}\n${buildTasksCsvExport(tasks)}`;
 }
 
 export function downloadCSV(csvContent: string, filename: string) {

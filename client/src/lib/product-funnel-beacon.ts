@@ -1,4 +1,5 @@
 import type { ProductFunnelClientEvent } from "@shared/product-funnel-events";
+import { getCsrfToken } from "./queryClient";
 
 const SESSION_KEY: Record<ProductFunnelClientEvent, string> = {
   planner_viewed: "axtask_funnel_planner_viewed",
@@ -20,9 +21,13 @@ export function sendProductFunnelBeacon(
   } catch {
     return;
   }
+  const csrfToken = getCsrfToken();
   void fetch("/api/analytics/funnel", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
+    },
     credentials: "include",
     body: JSON.stringify(meta && Object.keys(meta).length > 0 ? { event, meta } : { event }),
   })

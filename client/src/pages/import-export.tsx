@@ -306,6 +306,16 @@ export default function ImportExport() {
     setJsonExportBusy(true);
     try {
       const res = await apiRequest("GET", "/api/account/export");
+      if (!res.ok) {
+        let detail = "";
+        try {
+          detail = await res.text();
+        } catch {
+          detail = "";
+        }
+        const message = detail || `Export failed (${res.status})`;
+        throw new Error(message);
+      }
       const bundle = await res.json();
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
       let url: string | undefined;

@@ -26,6 +26,9 @@ export const users = pgTable("users", {
   /** E.164 (+15551234567). Omitted from SafeUser; use phoneMasked in API responses. */
   phoneE164: text("phone_e164"),
   phoneVerifiedAt: timestamp("phone_verified_at"),
+  /** AES-GCM payload (iv+ciphertext) for RFC 6238 TOTP shared secret; never exposed in SafeUser. */
+  totpSecretCiphertext: text("totp_secret_ciphertext"),
+  totpEnabledAt: timestamp("totp_enabled_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -128,9 +131,12 @@ export type SafeUser = Omit<
   | "googleId"
   | "replitId"
   | "phoneE164"
+  | "totpSecretCiphertext"
+  | "totpEnabledAt"
 > & {
   phoneMasked: string | null;
   phoneVerified: boolean;
+  totpEnabled: boolean;
 };
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type SecurityLog = typeof securityLogs.$inferSelect;

@@ -1,5 +1,7 @@
 # AxTask Debugging Reference
 
+Canonical policy map: [docs/ACTIVE_LEGACY_INDEX.md](ACTIVE_LEGACY_INDEX.md) (active vs transitional vs legacy, dirty-file curation for deployment branches).
+
 ## Overview
 
 This document provides solutions to common bugs and debugging patterns encountered during AxTask development. Keep this updated as new issues are discovered and resolved.

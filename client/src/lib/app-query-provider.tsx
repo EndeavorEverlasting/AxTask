@@ -1,4 +1,5 @@
 import { useEffect, useMemo, type ReactNode } from "react";
+import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { queryClient } from "./queryClient";
@@ -17,7 +18,7 @@ function buildPersistOptions(storageKey: string) {
   const persister = createAsyncStoragePersister({
     storage: window.localStorage,
     key: storageKey,
-    serialize: (client) => serializePersistedClientWithSizeCap(client),
+    serialize: (client: PersistedClient) => serializePersistedClientWithSizeCap(client),
   });
 
   return {

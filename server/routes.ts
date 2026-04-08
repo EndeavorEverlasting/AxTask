@@ -18,6 +18,7 @@ import {
   createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
   listBillingPaymentMethodsForUser, createBillingPaymentMethod,
   deleteMfaChallengeById, getUserContactForMfa, setUserVerifiedPhone, getUserById,
+  getUserRowById, setUserTotpSecret, clearUserTotp, verifyPassword,
   appendSecurityEvent, getSecurityEvents, getSecurityAlerts, analyzeAndCreateSecurityAlerts,
   listFeedbackInbox,
   getFeedbackInsightsForUser,
@@ -64,6 +65,14 @@ import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema,
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
+import { verifyMfaChallengeOrTotp } from "./services/mfa-totp";
+import {
+  buildTotpKeyUri,
+  encryptTotpSecretBase32,
+  generateTotpSecretBase32,
+  verifyUserTotpFromCiphertext,
+  verifyTotpCode,
+} from "./services/totp";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
@@ -317,6 +326,14 @@ const authLimiter = rateLimit({
   // use default keyGenerator (handles IPv6 correctly)
 });
 
+const totpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many authenticator attempts — try again shortly" },
+});
+
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 3,
@@ -479,6 +496,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(401).json({ message: info?.message || "Invalid credentials" });
         }
         await resetFailedLogins(user.email);
+        const row = await getUserRowById(user.id);
+        if (row?.totpEnabledAt && row.totpSecretCiphertext) {
+          req.session.pendingTotpLogin = {
+            userId: user.id,
+            expiresAt: Date.now() + 5 * 60 * 1000,
+          };
+          await appendSecurityEvent({
+            eventType: "auth_login_totp_pending",
+            actorUserId: user.id,
+            route: req.path,
+            method: req.method,
+            statusCode: 200,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+          });
+          return req.session.save((saveErr) => {
+            if (saveErr) return next(saveErr);
+            res.json({
+              needsTotp: true,
+              emailMask: maskEmailForOtp(user.email),
+            });
+          });
+        }
         await logSecurityEvent("login_success", user.id, undefined, req.ip);
         await appendSecurityEvent({
           eventType: "auth_login_success",
@@ -555,6 +595,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
       loginUrl: loginUrls[authProvider] || "",
       providers,
     });
+  });
+
+  app.get("/api/auth/totp/pending", async (req: Request, res: Response) => {
+    const p = req.session.pendingTotpLogin;
+    if (!p || p.expiresAt < Date.now()) {
+      delete req.session.pendingTotpLogin;
+      return res.json({ pending: false });
+    }
+    const row = await getUserRowById(p.userId);
+    const email = row?.email;
+    res.json({
+      pending: true,
+      emailMask: email ? maskEmailForOtp(email) : undefined,
+    });
+  });
+
+  app.post("/api/auth/totp/verify", totpVerifyLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { code } = z.object({
+        code: z.string().length(6).regex(/^\d{6}$/),
+      }).parse(req.body);
+      const pending = req.session.pendingTotpLogin;
+      if (!pending || pending.expiresAt < Date.now()) {
+        delete req.session.pendingTotpLogin;
+        return res.status(401).json({ message: "Login session expired — sign in again" });
+      }
+      const row = await getUserRowById(pending.userId);
+      if (!row?.totpSecretCiphertext || !row.totpEnabledAt) {
+        delete req.session.pendingTotpLogin;
+        return res.status(400).json({ message: "Authenticator is not enabled for this account" });
+      }
+      if (!verifyUserTotpFromCiphertext(row.totpSecretCiphertext, code)) {
+        await appendSecurityEvent({
+          eventType: "auth_totp_verify_failed",
+          actorUserId: row.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 401,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        return res.status(401).json({ message: "Invalid authenticator code" });
+      }
+      const safe = await getUserById(row.id);
+      if (!safe) {
+        delete req.session.pendingTotpLogin;
+        return res.status(401).json({ message: "Account not found" });
+      }
+      delete req.session.pendingTotpLogin;
+      req.login(safe, (err) => {
+        if (err) return next(err);
+        void appendSecurityEvent({
+          eventType: "auth_totp_login_success",
+          actorUserId: safe.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 200,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        res.json(safe);
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      next(error);
+    }
   });
 
   // ════════════════════════════════════════════════════════════════════════
@@ -2719,7 +2825,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         code: z.string().length(6),
       }).parse(req.body);
 
-      const validMfa = await verifyMfaChallenge(req.user!.id, challengeId, code, MFA_PURPOSES.INVOICE_ISSUE);
+      const validMfa = await verifyMfaChallengeOrTotp(req.user!.id, challengeId, code, MFA_PURPOSES.INVOICE_ISSUE);
       if (!validMfa) {
         await appendSecurityEvent({
           eventType: "mfa_verify_failed",
@@ -2761,7 +2867,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         externalReference: z.string().max(255).optional(),
       }).parse(req.body);
 
-      const validMfa = await verifyMfaChallenge(req.user!.id, challengeId, code, MFA_PURPOSES.INVOICE_CONFIRM_PAYMENT);
+      const validMfa = await verifyMfaChallengeOrTotp(req.user!.id, challengeId, code, MFA_PURPOSES.INVOICE_CONFIRM_PAYMENT);
       if (!validMfa) {
         await appendSecurityEvent({
           eventType: "mfa_verify_failed",
@@ -2842,7 +2948,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Card appears expired" });
       }
 
-      const validMfa = await verifyMfaChallenge(
+      const validMfa = await verifyMfaChallengeOrTotp(
         req.user!.id,
         parsed.challengeId,
         parsed.code,
@@ -2886,6 +2992,133 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to save payment method" });
+    }
+  });
+
+  app.get("/api/account/totp/status", requireAuth, async (req, res) => {
+    try {
+      const row = await getUserRowById(req.user!.id);
+      const enr = req.session.totpEnrollment;
+      const enrollmentPending = Boolean(
+        enr && enr.userId === req.user!.id && enr.expiresAt > Date.now(),
+      );
+      res.json({
+        totpEnabled: Boolean(row?.totpEnabledAt && row?.totpSecretCiphertext),
+        enrollmentPending,
+      });
+    } catch {
+      res.status(500).json({ message: "Failed to load authenticator status" });
+    }
+  });
+
+  app.post("/api/account/totp/enrollment/start", requireAuth, async (req, res) => {
+    try {
+      const row = await getUserRowById(req.user!.id);
+      if (!row) return res.status(404).json({ message: "User not found" });
+      if (row.totpEnabledAt && row.totpSecretCiphertext) {
+        return res.status(400).json({ message: "Authenticator is already enabled" });
+      }
+      const secretBase32 = generateTotpSecretBase32();
+      req.session.totpEnrollment = {
+        userId: req.user!.id,
+        secretBase32,
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      };
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
+      const otpauthUrl = buildTotpKeyUri(row.email, secretBase32);
+      res.json({ secretBase32, otpauthUrl });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to start enrollment" });
+    }
+  });
+
+  app.post("/api/account/totp/enrollment/confirm", requireAuth, async (req, res) => {
+    try {
+      const { code } = z.object({
+        code: z.string().length(6).regex(/^\d{6}$/),
+      }).parse(req.body);
+      const enr = req.session.totpEnrollment;
+      if (!enr || enr.userId !== req.user!.id || enr.expiresAt < Date.now()) {
+        delete req.session.totpEnrollment;
+        return res.status(400).json({ message: "Enrollment expired — start again" });
+      }
+      if (!verifyTotpCode(enr.secretBase32, code)) {
+        return res.status(401).json({ message: "Invalid code — check the clock on your device" });
+      }
+      const ciphertext = encryptTotpSecretBase32(enr.secretBase32);
+      await setUserTotpSecret(req.user!.id, ciphertext, new Date());
+      delete req.session.totpEnrollment;
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
+      const fresh = await getUserById(req.user!.id);
+      await appendSecurityEvent({
+        eventType: "totp_enabled",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+      res.json({ message: "Authenticator enabled", user: fresh });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to confirm enrollment" });
+    }
+  });
+
+  app.post("/api/account/totp/disable", requireAuth, async (req, res) => {
+    try {
+      const row = await getUserRowById(req.user!.id);
+      if (!row?.totpEnabledAt || !row.totpSecretCiphertext) {
+        return res.status(400).json({ message: "Authenticator is not enabled" });
+      }
+
+      const body = req.body as Record<string, unknown>;
+      if (row.passwordHash) {
+        const password = typeof body.password === "string" ? body.password : "";
+        if (!password) {
+          return res.status(400).json({ message: "Password is required to disable authenticator" });
+        }
+        const ok = await verifyPassword(password, row.passwordHash);
+        if (!ok) {
+          return res.status(403).json({ message: "Invalid password" });
+        }
+      } else {
+        const parsed = z.object({
+          challengeId: z.string().min(1),
+          code: z.string().length(6).regex(/^\d{6}$/),
+        }).parse(req.body);
+        const ok = await verifyMfaChallenge(
+          req.user!.id,
+          parsed.challengeId,
+          parsed.code,
+          MFA_PURPOSES.ACCOUNT_DISABLE_TOTP,
+        );
+        if (!ok) {
+          return res.status(403).json({ message: "Invalid or expired email verification code" });
+        }
+      }
+
+      await clearUserTotp(req.user!.id);
+      const fresh = await getUserById(req.user!.id);
+      await appendSecurityEvent({
+        eventType: "totp_disabled",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+      res.json({ message: "Authenticator removed", user: fresh });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to disable authenticator" });
     }
   });
 

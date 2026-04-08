@@ -1,5 +1,8 @@
 # Morning Migration Guide (Safe + Reversible)
 
+> Status: Transitional runbook.  
+> Canonical architecture/policy references: `docs/ACTIVE_LEGACY_INDEX.md`, `docs/ARCHITECTURE.md`, `docs/PR_SEGMENTATION.md`.
+
 **Date prepared:** 2026-04-03  
 **AxTask branch:** `main`  
 **NodeWeaver branch for deployment:** `feature/axtask-contract-hardening`

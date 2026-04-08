@@ -65,6 +65,14 @@ export default function ContactPage() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!canSubmit) return;
+            submitMutation.mutate();
+          }}
+        >
         {user ? (
           <p className="text-sm text-muted-foreground">
             You&apos;re signed in — we&apos;ll link this message to your account. For screenshots, use{" "}
@@ -127,14 +135,14 @@ export default function ContactPage() {
           />
         </div>
         <Button
-          type="button"
+          type="submit"
           className="w-full sm:w-auto"
           disabled={!canSubmit}
-          onClick={() => submitMutation.mutate()}
         >
           <Send className="mr-2 h-4 w-4" />
           {submitMutation.isPending ? "Sending…" : "Send to team"}
         </Button>
+        </form>
       </CardContent>
     </Card>
   );

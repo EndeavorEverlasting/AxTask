@@ -10,10 +10,10 @@ import {
 } from "@shared/http-auth";
 import { queryClient, getCsrfToken } from "./queryClient";
 import { clearPersistOnLogout, clearQueryPersistStorageForUser } from "./query-persist-policy";
+import { clearOfflineTaskQueue, setOfflineQueueUserScope } from "./offline-task-queue";
 
 /** Must match `ROUTE_STORAGE_KEY` in `App.tsx` (last visited route for restore). */
 const ROUTE_STORAGE_KEY = "axtask_last_route";
-import { clearOfflineTaskQueue, setOfflineQueueUserScope } from "./offline-task-queue";
 
 function csrfHeaders(): Record<string, string> {
   const token = getCsrfToken();
@@ -69,10 +69,16 @@ function rememberKnownAccount(data: SafeUser): void {
   }
 }
 
+export type LoginOutcome =
+  | { status: "authenticated"; user: SafeUser }
+  | { status: "totp_required"; emailMask?: string };
+
 interface AuthContextType {
   user: SafeUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<LoginOutcome>;
+  /** Complete sign-in after password step when `login` returned `totp_required`. */
+  completeTotpLogin: (code: string) => Promise<SafeUser>;
   register: (email: string, password: string, displayName?: string, inviteCode?: string) => Promise<void>;
   logout: () => Promise<void>;
   /** Reload session user from GET /api/auth/me (e.g. after phone verification). */
@@ -108,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string): Promise<LoginOutcome> => {
     const res = await fetch(AUTH_LOGIN_PATH, {
       method: "POST",
       headers: csrfHeaders(),
@@ -119,11 +125,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const err = await res.json();
       throw new Error(err.message || "Login failed");
     }
-    const data = await res.json();
+    const data = (await res.json()) as { needsTotp?: boolean; emailMask?: string } & Partial<SafeUser>;
+    if (data.needsTotp) {
+      return { status: "totp_required", emailMask: data.emailMask };
+    }
+    const user = data as SafeUser;
     clearQueryPersistStorageForUser(null);
-    setUser(data);
-    setOfflineQueueUserScope(data?.id ?? null);
-    rememberKnownAccount(data);
+    setUser(user);
+    setOfflineQueueUserScope(user?.id ?? null);
+    rememberKnownAccount(user);
+    return { status: "authenticated", user };
+  }, []);
+
+  const completeTotpLogin = useCallback(async (code: string) => {
+    const res = await fetch("/api/auth/totp/verify", {
+      method: "POST",
+      headers: csrfHeaders(),
+      credentials: "include",
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as { message?: string }).message || "Verification failed");
+    }
+    const user = (await res.json()) as SafeUser;
+    clearQueryPersistStorageForUser(null);
+    setUser(user);
+    setOfflineQueueUserScope(user?.id ?? null);
+    rememberKnownAccount(user);
+    return user;
   }, []);
 
   const register = useCallback(async (email: string, password: string, displayName?: string, inviteCode?: string) => {
@@ -171,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, completeTotpLogin, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

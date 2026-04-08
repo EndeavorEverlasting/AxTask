@@ -20,12 +20,15 @@ function toSafeUser(user: User): SafeUser {
     googleId,
     replitId,
     phoneE164,
+    totpSecretCiphertext,
+    totpEnabledAt,
     ...rest
   } = user;
   return {
     ...rest,
     phoneMasked: maskE164ForDisplay(phoneE164),
     phoneVerified: !!user.phoneVerifiedAt,
+    totpEnabled: Boolean(totpEnabledAt && totpSecretCiphertext),
   };
 }
 
@@ -145,6 +148,32 @@ export async function getUserByEmail(email: string): Promise<User | undefined> {
 export async function getUserById(id: string): Promise<SafeUser | undefined> {
   const [user] = await db.select().from(users).where(eq(users.id, id));
   return user ? toSafeUser(user) : undefined;
+}
+
+/** Full row for server-only auth (TOTP ciphertext, etc.). */
+export async function getUserRowById(id: string): Promise<User | undefined> {
+  const [user] = await db.select().from(users).where(eq(users.id, id));
+  return user || undefined;
+}
+
+export async function setUserTotpSecret(userId: string, ciphertext: string, enabledAt: Date): Promise<void> {
+  await db
+    .update(users)
+    .set({
+      totpSecretCiphertext: ciphertext,
+      totpEnabledAt: enabledAt,
+    })
+    .where(eq(users.id, userId));
+}
+
+export async function clearUserTotp(userId: string): Promise<void> {
+  await db
+    .update(users)
+    .set({
+      totpSecretCiphertext: null,
+      totpEnabledAt: null,
+    })
+    .where(eq(users.id, userId));
 }
 
 const DEFAULT_NOTIFICATION_INTENSITY = 50;

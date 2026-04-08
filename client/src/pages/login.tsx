@@ -21,6 +21,7 @@ import { LoginHelpOverlay } from "@/components/login-help-overlay";
 import { Input } from "@/components/ui/input";
 import { SecureInput } from "@/components/ui/secure-input";
 import { Label } from "@/components/ui/label";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import {
   CheckSquare, Loader2, ShieldCheck, ShieldAlert,
   Eye, EyeOff, User, Clock, X, KeyRound, HelpCircle, ShieldQuestion,
@@ -145,7 +146,7 @@ function providerLabel(p: string) {
 }
 
 export default function LoginPage() {
-  const { login, register } = useAuth();
+  const { login, register, completeTotpLogin } = useAuth();
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [showForm, setShowForm] = useState(false);
   const [email, setEmail] = useState("");
@@ -176,6 +177,9 @@ export default function LoginPage() {
   const [loginHelpOpen, setLoginHelpOpen] = useState(false);
   const [loginPretext, setLoginPretext] = useState<string | null>(null);
   const [oauthCallbackErrorCode, setOauthCallbackErrorCode] = useState<string | null>(null);
+  const [totpStep, setTotpStep] = useState(false);
+  const [totpEmailMask, setTotpEmailMask] = useState<string | undefined>(undefined);
+  const [totpCode, setTotpCode] = useState("");
   const lastEmail = getLastEmail();
   const lastProvider = getLastProvider();
 
@@ -197,6 +201,22 @@ export default function LoginPage() {
       }
       setError(messages[oauthError] || `Authentication error: ${oauthError}`);
       window.history.replaceState({}, "", "/");
+      return;
+    }
+    if (params.get("step") === "totp") {
+      void fetch("/api/auth/totp/pending", { credentials: "include" })
+        .then((r) => r.json())
+        .then((d: { pending?: boolean; emailMask?: string }) => {
+          if (d.pending) {
+            setMode("login");
+            setShowForm(true);
+            setTotpStep(true);
+            setTotpEmailMask(d.emailMask);
+          }
+        })
+        .catch(() => {});
+      window.history.replaceState({}, "", "/");
+      return;
     }
     const token = params.get("reset_token");
     if (token) {
@@ -282,12 +302,33 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       if (mode === "login") {
-        await login(email, password);
+        const outcome = await login(email, password);
+        if (outcome.status === "totp_required") {
+          setTotpStep(true);
+          setTotpEmailMask(outcome.emailMask);
+          setTotpCode("");
+        }
       } else {
         await register(email, password, displayName || undefined, regMode === "invite" ? inviteCode : undefined);
       }
     } catch (err: any) {
       setError(err.message || "Something went wrong");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitTotpCode = async (code: string) => {
+    const c = code.replace(/\D/g, "").slice(0, 6);
+    if (c.length !== 6) return;
+    setError("");
+    setSubmitting(true);
+    try {
+      await completeTotpLogin(c);
+      setTotpStep(false);
+      setTotpCode("");
+    } catch (err: any) {
+      setError(err.message || "Invalid code");
     } finally {
       setSubmitting(false);
     }
@@ -439,6 +480,70 @@ export default function LoginPage() {
           id="login-help-card"
           className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-8"
         >
+          {totpStep && mode === "login" ? (
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Authenticator code</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+                Enter the 6-digit code from Google Authenticator or Microsoft Authenticator
+                {totpEmailMask ? (
+                  <>
+                    {" "}
+                    for <span className="font-medium text-foreground">{totpEmailMask}</span>
+                  </>
+                ) : null}
+                .
+              </p>
+              <div className="flex justify-center py-2">
+                <InputOTP
+                  maxLength={6}
+                  value={totpCode}
+                  onChange={(v) => {
+                    const next = v.replace(/\D/g, "").slice(0, 6);
+                    setTotpCode(next);
+                    if (next.length === 6) void submitTotpCode(next);
+                  }}
+                  disabled={submitting}
+                  containerClassName="gap-1.5"
+                >
+                  <InputOTPGroup className="gap-1.5">
+                    {[0, 1, 2, 3, 4, 5].map((i) => (
+                      <InputOTPSlot
+                        key={i}
+                        index={i}
+                        className="h-11 w-10 rounded-md border-gray-200 dark:border-gray-600"
+                      />
+                    ))}
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+              {error ? (
+                <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
+                  {error}
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                className="w-full"
+                disabled={submitting || totpCode.replace(/\D/g, "").length !== 6}
+                onClick={() => void submitTotpCode(totpCode)}
+              >
+                {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Verify and continue
+              </Button>
+              <button
+                type="button"
+                className="w-full text-center text-sm text-gray-500 dark:text-gray-400 hover:text-primary"
+                onClick={() => {
+                  setTotpStep(false);
+                  setTotpCode("");
+                  setError("");
+                }}
+              >
+                ← Back to password
+              </button>
+            </div>
+          ) : (
+          <>
           {mode === "login" && showSsoDownBanner ? (
             <div
               id="login-help-sso-banner"
@@ -991,6 +1096,9 @@ export default function LoginPage() {
                 </button>
               )}
             </div>
+          )}
+
+          </>
           )}
 
           <div className="mt-6 flex flex-col items-center gap-3 text-center text-sm text-gray-500 dark:text-gray-400">
