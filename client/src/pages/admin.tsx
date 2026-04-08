@@ -5,9 +5,33 @@ import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { useCountUp } from "@/hooks/use-count-up";
 import type { SafeUser, SecurityLog } from "@shared/schema";
+import { MFA_PURPOSES } from "@shared/mfa-purposes";
+
+type LifetimePremiumGrant = { userId: string; product: string; planKey: string };
+type AdminUserRow = SafeUser & { lifetimePremiumGrants: LifetimePremiumGrant[] };
+
+type AdminAppealRow = {
+  id: string;
+  appellantUserId: string;
+  subjectType: string;
+  subjectRef: string;
+  title: string;
+  body: string;
+  status: string;
+  resolution: string | null;
+  adminCountAtOpen: number | null;
+  resolvedAt: string | null;
+  resolvedByUserId: string | null;
+  createdAt: string | null;
+  grantVotes: number;
+  denyVotes: number;
+  threshold: { adminCount: number; grantNeeded: number; denyNeeded: number; ruleLabel: string };
+};
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -37,12 +61,20 @@ import {
   Users,
   Wallet,
   X,
+  Download,
+  Upload,
+  Database,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  Gavel,
 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import {
   applyFeedbackFilters,
   buildFeedbackCsv,
   type FeedbackInboxItem,
+  feedbackChannelLabel,
   type FeedbackPriorityFilter,
   type FeedbackReviewedFilter,
   type FeedbackReviewerFilter,
@@ -148,6 +180,13 @@ export default function AdminPage() {
   const { toast } = useToast();
   const [banTarget, setBanTarget] = useState<SafeUser | null>(null);
   const [banReason, setBanReason] = useState("");
+  const [lifetimeGrantUser, setLifetimeGrantUser] = useState<AdminUserRow | null>(null);
+  const [grantProduct, setGrantProduct] = useState<"axtask" | "nodeweaver" | "bundle">("axtask");
+  const [grantType, setGrantType] = useState<"beta_tester" | "patron" | "manual">("beta_tester");
+  const [grantReason, setGrantReason] = useState("");
+  const [lifetimeRevokeUser, setLifetimeRevokeUser] = useState<AdminUserRow | null>(null);
+  const [revokeProduct, setRevokeProduct] = useState<"axtask" | "nodeweaver" | "bundle">("axtask");
+  const [revokeReason, setRevokeReason] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceAmount, setInvoiceAmount] = useState("0");
@@ -165,50 +204,87 @@ export default function AdminPage() {
 
   const FEEDBACK_PRESETS_KEY = "axtask.feedbackInbox.presets";
 
-  const { data: users = [], isLoading: usersLoading } = useQuery<SafeUser[]>({
-    queryKey: ["/api/admin/users"],
+  const [importResult, setImportResult] = useState<any>(null);
+  const [importBundle, setImportBundle] = useState<any>(null);
+  const [importFileName, setImportFileName] = useState("");
+  const [importMode, setImportMode] = useState<"preserve" | "remap">("preserve");
+  const [importConfirmOpen, setImportConfirmOpen] = useState(false);
+  const [selectedExportUserId, setSelectedExportUserId] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [adminStepCode, setAdminStepCode] = useState("");
+  const [adminStepChallengeId, setAdminStepChallengeId] = useState<string | null>(null);
+  const [adminStepMasked, setAdminStepMasked] = useState<string | null>(null);
+
+  const stepUpQuery = useQuery<{
+    stepUpRequired: boolean;
+    stepUpSatisfied: boolean;
+    expiresAt: number | null;
+  }>({
+    queryKey: ["/api/admin/step-up-status"],
     enabled: user?.role === "admin",
+  });
+  const { data: stepUpStatus, isPending: stepUpPending, isSuccess: stepUpSuccess, isError: stepUpError } =
+    stepUpQuery;
+
+  const stepUpResolved = user?.role !== "admin" || (!stepUpPending && (stepUpSuccess || stepUpError));
+
+  const adminApiEnabled =
+    user?.role === "admin" &&
+    stepUpResolved &&
+    !stepUpError &&
+    !!stepUpStatus &&
+    (!stepUpStatus.stepUpRequired || stepUpStatus.stepUpSatisfied);
+
+  const { data: users = [], isLoading: usersLoading } = useQuery<AdminUserRow[]>({
+    queryKey: ["/api/admin/users"],
+    enabled: adminApiEnabled,
   });
 
   const { data: logs = [], isLoading: logsLoading } = useQuery<SecurityLog[]>({
     queryKey: ["/api/admin/security-logs"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
   const { data: usage } = useQuery<UsageOverview>({
     queryKey: ["/api/admin/usage"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
   const { data: storage } = useQuery<StorageOverview>({
     queryKey: ["/api/admin/storage"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
   const { data: invoices = [] } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
   const { data: securityEvents = [] } = useQuery<SecurityEventRow[]>({
     queryKey: ["/api/admin/security-events"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
     refetchInterval: 15000,
   });
 
   const { data: securityAlerts = [] } = useQuery<SecurityAlertRow[]>({
     queryKey: ["/api/admin/security-alerts"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
   const { data: feedbackInbox = [] } = useQuery<FeedbackInboxItem[]>({
     queryKey: ["/api/admin/feedback-inbox"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
+  });
+
+  const { data: adminAppeals = [], isLoading: appealsLoading } = useQuery<AdminAppealRow[]>({
+    queryKey: ["/api/admin/appeals"],
+    enabled: adminApiEnabled,
   });
 
   const { data: liveAnalytics } = useQuery<AdminAnalyticsOverview>({
     queryKey: ["/api/admin/analytics/overview"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
     refetchInterval: 15000,
   });
 
@@ -293,6 +369,30 @@ export default function AdminPage() {
     },
     onError: (err: Error) =>
       toast({ title: "Update failed", description: err.message, variant: "destructive" }),
+  });
+
+  const appealVoteMutation = useMutation({
+    mutationFn: async (payload: { appealId: string; decision: "grant" | "deny" }) => {
+      const res = await apiRequest("POST", `/api/admin/appeals/${payload.appealId}/vote`, {
+        decision: payload.decision,
+      });
+      return res.json() as Promise<{
+        status: string;
+        outcome?: string;
+        autoUnbanned?: boolean;
+      }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/appeals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      const desc =
+        data.outcome && data.outcome !== "pending"
+          ? `Appeal ${data.outcome}${data.autoUnbanned ? " · account unbanned" : ""}`
+          : "Awaiting further admin votes.";
+      toast({ title: "Vote recorded", description: desc });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Vote failed", description: err.message, variant: "destructive" }),
   });
 
   const feedbackBulkReviewMutation = useMutation({
@@ -381,19 +481,190 @@ export default function AdminPage() {
     },
   });
 
-  if (user?.role !== "admin") {
-    return (
-      <div className="p-6 flex items-center justify-center min-h-[60vh]">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center">
-            <AlertTriangle className="h-12 w-12 mx-auto text-yellow-500 mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
-            <p className="text-muted-foreground">You need administrator privileges to view this page.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  const lifetimeGrantMutation = useMutation({
+    mutationFn: async (payload: {
+      userId: string;
+      product: "axtask" | "nodeweaver" | "bundle";
+      grantType: "beta_tester" | "patron" | "manual";
+      reason: string;
+    }) => {
+      const res = await apiRequest("POST", `/api/admin/users/${payload.userId}/premium/lifetime-grant`, {
+        product: payload.product,
+        grantType: payload.grantType,
+        reason: payload.reason,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/security-logs"] });
+      setLifetimeGrantUser(null);
+      setGrantReason("");
+      toast({ title: "Lifetime access granted", description: "Logged to premium_events and security log." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Grant failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const lifetimeRevokeMutation = useMutation({
+    mutationFn: async (payload: {
+      userId: string;
+      product: "axtask" | "nodeweaver" | "bundle";
+      reason: string;
+    }) => {
+      const res = await apiRequest("POST", `/api/admin/users/${payload.userId}/premium/lifetime-revoke`, {
+        product: payload.product,
+        reason: payload.reason,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/security-logs"] });
+      setLifetimeRevokeUser(null);
+      setRevokeReason("");
+      toast({ title: "Lifetime access revoked", description: "Logged to premium_events and security log." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Revoke failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const exportMutation = useMutation({
+    mutationFn: async (userId?: string) => {
+      const res = await apiRequest("POST", "/api/admin/export", userId ? { userId } : {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const mode = data.metadata?.exportMode === "user" ? "user" : "full";
+      a.href = url;
+      a.download = `axtask-export-${mode}-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Export complete", description: `${Object.values(data.metadata.tableCounts as Record<string, number>).reduce((a: number, b: number) => a + b, 0)} records exported` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const importMutation = useMutation({
+    mutationFn: async ({ bundle, dryRun, mode }: { bundle: any; dryRun: boolean; mode?: string }) => {
+      const res = await apiRequest("POST", "/api/admin/import", { bundle, dryRun, mode: mode || "preserve" });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setImportResult(data);
+      if (!data.dryRun && data.success) {
+        toast({ title: "Import complete", description: `${Object.values(data.inserted as Record<string, number>).reduce((a: number, b: number) => a + b, 0)} records imported` });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/security-logs"] });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Import failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const adminStepUpSendMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/mfa/challenge", {
+        purpose: MFA_PURPOSES.ADMIN_STEP_UP,
+        channel: "email",
+      });
+      return res.json() as Promise<{
+        challengeId: string;
+        maskedDestination?: string;
+        devCode?: string;
+      }>;
+    },
+    onSuccess: (data) => {
+      setAdminStepChallengeId(data.challengeId);
+      setAdminStepMasked(data.maskedDestination ?? null);
+      setAdminStepCode("");
+      toast({
+        title: "Code sent",
+        description: data.devCode
+          ? `Dev code: ${data.devCode}`
+          : `Check ${data.maskedDestination ?? "your email"} for a 6-digit code.`,
+      });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Could not send code", description: err.message, variant: "destructive" }),
+  });
+
+  const adminStepUpVerifyMutation = useMutation({
+    mutationFn: async () => {
+      if (!adminStepChallengeId) throw new Error("Request a code first");
+      const res = await apiRequest("POST", "/api/admin/step-up", {
+        challengeId: adminStepChallengeId,
+        code: adminStepCode.trim(),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/step-up-status"] });
+      setAdminStepChallengeId(null);
+      setAdminStepCode("");
+      setAdminStepMasked(null);
+      toast({ title: "Verified", description: "Admin session is active for one hour." });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Verification failed", description: err.message, variant: "destructive" }),
+  });
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    setImportResult(null);
+
+    const reader = new FileReader();
+    reader.onerror = () => {
+      console.error("[admin] import file read failed", reader.error);
+      setImportBundle(null);
+      toast({
+        title: "Could not read file",
+        description: reader.error?.message || "The file could not be read (permission, missing file, or disk error).",
+        variant: "destructive",
+      });
+    };
+    reader.onload = (evt) => {
+      try {
+        const parsed = JSON.parse(evt.target?.result as string);
+        if (!parsed.metadata || !parsed.data) {
+          toast({ title: "Invalid file", description: "This doesn't look like an AxTask export file", variant: "destructive" });
+          setImportBundle(null);
+          return;
+        }
+        setImportBundle(parsed);
+        toast({ title: "File loaded", description: `${file.name} ready for import. Run a dry-run first to validate.` });
+      } catch {
+        toast({ title: "Parse error", description: "Could not parse JSON file", variant: "destructive" });
+        setImportBundle(null);
+      }
+    };
+    reader.readAsText(file);
   }
+
+  useEffect(() => {
+    if (!lifetimeRevokeUser) return;
+    const g = lifetimeRevokeUser.lifetimePremiumGrants?.[0];
+    if (g && (g.product === "axtask" || g.product === "nodeweaver" || g.product === "bundle")) {
+      setRevokeProduct(g.product);
+    }
+    setRevokeReason("");
+  }, [lifetimeRevokeUser]);
+
+  useEffect(() => {
+    if (lifetimeGrantUser) {
+      setGrantReason("");
+    }
+  }, [lifetimeGrantUser]);
 
   const filteredUsers = users.filter(
     (u) =>
@@ -485,6 +756,121 @@ export default function AdminPage() {
     );
   };
 
+  if (user?.role !== "admin") {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertTriangle className="h-12 w-12 mx-auto text-yellow-500 mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
+            <p className="text-muted-foreground">You need administrator privileges to view this page.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (stepUpPending) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center min-h-[50vh] gap-3">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Checking admin session…</p>
+      </div>
+    );
+  }
+
+  if (stepUpError) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md w-full border-destructive/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-destructive" />
+              Admin session check failed
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              We could not load step-up status for this admin session. Refresh the page or sign out and sign back in, then open /admin again.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Button type="button" variant="secondary" className="w-full" onClick={() => window.location.reload()}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (stepUpStatus?.stepUpRequired && !stepUpStatus.stepUpSatisfied) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md w-full border-primary/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Confirm admin access
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Production requires a one-time email code before admin tools load. This expires after one hour.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Button
+              type="button"
+              className="w-full"
+              variant="secondary"
+              disabled={adminStepUpSendMutation.isPending}
+              onClick={() => adminStepUpSendMutation.mutate()}
+            >
+              {adminStepUpSendMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                "Email me a code"
+              )}
+            </Button>
+            {adminStepMasked ? (
+              <p className="text-xs text-muted-foreground text-center">Sent to {adminStepMasked}</p>
+            ) : null}
+            <div>
+              <Label htmlFor="admin-step-code">6-digit code</Label>
+              <Input
+                id="admin-step-code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={adminStepCode}
+                onChange={(e) => setAdminStepCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="mt-1 font-mono tracking-widest"
+                placeholder="000000"
+              />
+            </div>
+            <Button
+              type="button"
+              className="w-full"
+              disabled={
+                adminStepUpVerifyMutation.isPending || adminStepCode.length !== 6 || !adminStepChallengeId
+              }
+              onClick={() => adminStepUpVerifyMutation.mutate()}
+            >
+              {adminStepUpVerifyMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Verifying…
+                </>
+              ) : (
+                "Verify and continue"
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       <div className="flex items-center gap-3">
@@ -533,9 +919,11 @@ export default function AdminPage() {
           <TabsTrigger value="usage">Usage & Storage</TabsTrigger>
           <TabsTrigger value="intel">Security Intelligence</TabsTrigger>
           <TabsTrigger value="feedback">Feedback Inbox</TabsTrigger>
+          <TabsTrigger value="appeals">Appeals</TabsTrigger>
           <TabsTrigger value="invoices">Invoicing</TabsTrigger>
           <TabsTrigger value="users">User Management</TabsTrigger>
           <TabsTrigger value="logs">Security Logs</TabsTrigger>
+          <TabsTrigger value="migration">Data Migration</TabsTrigger>
         </TabsList>
 
         <TabsContent value="live" className="space-y-4">
@@ -952,6 +1340,11 @@ export default function AdminPage() {
                     </Badge>
                     <Badge variant="outline">{item.classification}</Badge>
                     <Badge variant="outline">{item.sentiment}</Badge>
+                    {item.channel ? (
+                      <Badge variant="outline" className="font-normal">
+                        {feedbackChannelLabel(item.channel)}
+                      </Badge>
+                    ) : null}
                     <span className="text-xs text-muted-foreground">
                       {item.createdAt ? new Date(item.createdAt).toLocaleString() : "n/a"}
                     </span>
@@ -962,8 +1355,24 @@ export default function AdminPage() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    user: {item.actorUserId || "unknown"} · message chars: {item.messageLength} · attachments: {item.attachments}
+                    user: {item.actorUserId || (item.channel === "public_contact" ? "anonymous" : "unknown")} · message
+                    chars: {item.messageLength} · attachments: {item.attachments}
+                    {item.reporterEmail ? (
+                      <>
+                        {" "}
+                        · reply-to: <span className="font-mono">{item.reporterEmail}</span>
+                      </>
+                    ) : null}
+                    {item.reporterName ? (
+                      <>
+                        {" "}
+                        · name: {item.reporterName}
+                      </>
+                    ) : null}
                   </p>
+                  {item.message ? (
+                    <p className="text-sm whitespace-pre-wrap rounded-md border bg-muted/30 p-3">{item.message}</p>
+                  ) : null}
                   {item.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {item.tags.map((tag) => (
@@ -1010,6 +1419,71 @@ export default function AdminPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="appeals" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Gavel className="h-5 w-5" />
+                Appeals queue
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Voting rules: one admin decides alone; two admins must agree (unanimous); three or more require a
+                two-thirds supermajority to grant or deny. Granting a ban appeal lifts the suspension automatically.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {appealsLoading ? (
+                <p className="text-sm text-muted-foreground">Loading appeals…</p>
+              ) : adminAppeals.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No appeals yet.</p>
+              ) : (
+                adminAppeals.map((a) => (
+                  <div key={a.id} className="rounded-lg border p-4 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{a.title}</span>
+                      <Badge variant="outline">{a.subjectType}</Badge>
+                      <Badge variant={a.status === "open" ? "default" : "secondary"}>{a.status}</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono">{a.id}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Appellant: <span className="font-mono">{a.appellantUserId}</span> · ref:{" "}
+                      <span className="font-mono break-all">{a.subjectRef}</span>
+                    </p>
+                    <p className="text-sm whitespace-pre-wrap">{a.body}</p>
+                    <p className="text-xs text-muted-foreground">{a.threshold.ruleLabel}</p>
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      <Badge variant="secondary">Grant votes: {a.grantVotes} / {a.threshold.grantNeeded}</Badge>
+                      <Badge variant="secondary">Deny votes: {a.denyVotes} / {a.threshold.denyNeeded}</Badge>
+                    </div>
+                    {a.status === "open" ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          disabled={appealVoteMutation.isPending}
+                          onClick={() => appealVoteMutation.mutate({ appealId: a.id, decision: "grant" })}
+                        >
+                          Vote grant
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={appealVoteMutation.isPending}
+                          onClick={() => appealVoteMutation.mutate({ appealId: a.id, decision: "deny" })}
+                        >
+                          Vote deny
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{a.resolution || "Resolved."}</p>
+                    )}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="users" className="space-y-4">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1027,16 +1501,47 @@ export default function AdminPage() {
             <div className="space-y-2">
               {filteredUsers.map((u) => (
                 <Card key={u.id} className={u.isBanned ? "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/20" : ""}>
-                  <CardContent className="py-4 flex items-center justify-between">
+                  <CardContent className="py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium truncate dark:text-white">{u.displayName || u.email}</p>
                         <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-xs">{u.role}</Badge>
                         {u.isBanned && <Badge variant="destructive" className="text-xs">Banned</Badge>}
                       </div>
                       <p className="text-sm text-muted-foreground truncate">{u.email}</p>
+                      {(u.lifetimePremiumGrants ?? []).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {(u.lifetimePremiumGrants ?? []).map((g) => (
+                            <Badge key={`${u.id}-${g.planKey}`} variant="outline" className="text-xs border-amber-500/50 text-amber-800 dark:text-amber-200">
+                              {g.product} · lifetime
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setGrantProduct("axtask");
+                          setGrantType("beta_tester");
+                          setLifetimeGrantUser(u);
+                        }}
+                        disabled={lifetimeGrantMutation.isPending}
+                      >
+                        Grant lifetime…
+                      </Button>
+                      {(u.lifetimePremiumGrants ?? []).length > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setLifetimeRevokeUser(u)}
+                          disabled={lifetimeRevokeMutation.isPending}
+                        >
+                          Revoke lifetime…
+                        </Button>
+                      )}
                       {u.role !== "admin" && u.id !== user?.id && (
                         u.isBanned ? (
                           <Button size="sm" variant="outline" onClick={() => unbanMutation.mutate(u.id)} disabled={unbanMutation.isPending}>Unban</Button>
@@ -1064,12 +1569,242 @@ export default function AdminPage() {
                   <Badge variant={log.eventType.includes("failed") ? "destructive" : "secondary"} className="text-xs shrink-0 mt-0.5">{log.eventType}</Badge>
                   <div className="min-w-0 flex-1">
                     {log.details && <p className="text-muted-foreground truncate">{log.details}</p>}
-                    <p className="text-xs text-muted-foreground">{log.createdAt ? new Date(log.createdAt).toLocaleString() : "—"}{log.ipAddress && ` · ${log.ipAddress}`}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {log.createdAt ? new Date(log.createdAt).toLocaleString() : "—"}
+                      {log.ipAddress && ` · ${log.ipAddress}`}
+                    </p>
                   </div>
                 </div>
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="migration" className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Download className="h-5 w-5 text-blue-500" />
+                  Export Data
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Download a complete backup of all database tables as a portable JSON file.
+                  Includes users, tasks, rewards, patterns, classifications, and all related data.
+                </p>
+                <div className="flex flex-col gap-2">
+                  <Button
+                    onClick={() => exportMutation.mutate(undefined)}
+                    disabled={exportMutation.isPending}
+                    className="w-full"
+                  >
+                    {exportMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Database className="h-4 w-4 mr-2" />
+                    )}
+                    Export Full Database
+                  </Button>
+                </div>
+                <div className="border-t pt-4 dark:border-gray-700">
+                  <p className="text-sm font-medium mb-2 dark:text-white">Export Single User</p>
+                  <div className="flex gap-2">
+                    <select
+                      className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                      value={selectedExportUserId}
+                      onChange={(e) => setSelectedExportUserId(e.target.value)}
+                    >
+                      <option value="" disabled>
+                        Select a user...
+                      </option>
+                      {users.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.displayName || u.email} ({u.email})
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      variant="outline"
+                      disabled={exportMutation.isPending || !selectedExportUserId}
+                      onClick={() => {
+                        if (selectedExportUserId) exportMutation.mutate(selectedExportUserId);
+                      }}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Upload className="h-5 w-5 text-green-500" />
+                  Import Data
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Restore data from an export file. Existing records with matching IDs will be skipped.
+                  Always run a dry-run first to validate the data before importing.
+                </p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  {importFileName || "Choose Export File (.json)"}
+                </Button>
+
+                {importBundle && (
+                  <div className="space-y-3">
+                    <div className="rounded-md bg-muted/50 dark:bg-gray-800 p-3 text-sm space-y-1">
+                      <p className="font-medium dark:text-white">
+                        {importBundle.metadata.exportMode === "user" ? "User Export" : "Full Database Export"}
+                      </p>
+                      <p className="text-muted-foreground">
+                        Exported: {new Date(importBundle.metadata.exportedAt).toLocaleString()}
+                      </p>
+                      <p className="text-muted-foreground">
+                        Total records: {Object.values(importBundle.metadata.tableCounts as Record<string, number>).reduce((a: number, b: number) => a + b, 0)}
+                      </p>
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {Object.entries(importBundle.metadata.tableCounts as Record<string, number>)
+                          .filter(([, v]) => (v as number) > 0)
+                          .map(([k, v]) => (
+                            <Badge key={k} variant="secondary" className="text-xs">
+                              {k}: {v as number}
+                            </Badge>
+                          ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <label className="text-sm font-medium dark:text-white">Import Mode:</label>
+                        <select
+                          value={importMode}
+                          onChange={(e) => setImportMode(e.target.value as "preserve" | "remap")}
+                          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                        >
+                          <option value="preserve">Preserve IDs (skip existing)</option>
+                          <option value="remap">Remap IDs (generate new)</option>
+                        </select>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {importMode === "preserve"
+                          ? "Records with matching IDs in the database will be skipped."
+                          : "All records get new IDs. Use this to duplicate data or import into a populated database."}
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        disabled={importMutation.isPending}
+                        onClick={() => importMutation.mutate({ bundle: importBundle, dryRun: true, mode: importMode })}
+                      >
+                        {importMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                        )}
+                        Dry Run (Validate)
+                      </Button>
+                      <Button
+                        className="flex-1"
+                        disabled={importMutation.isPending}
+                        onClick={() => setImportConfirmOpen(true)}
+                      >
+                        {importMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Upload className="h-4 w-4 mr-2" />
+                        )}
+                        Import Now
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {importResult && (
+                  <div className={`rounded-md p-3 text-sm border ${
+                    importResult.success
+                      ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
+                      : "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+                  }`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      {importResult.success ? (
+                        <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      )}
+                      <p className="font-medium dark:text-white">
+                        {importResult.dryRun ? "Dry Run Result" : "Import Result"}
+                        {importResult.success ? " — Passed" : " — Issues Found"}
+                      </p>
+                    </div>
+
+                    {Object.keys(importResult.inserted || {}).length > 0 && (
+                      <div className="space-y-0.5 mb-2">
+                        {Object.entries(importResult.inserted as Record<string, number>)
+                          .filter(([, v]) => (v as number) > 0)
+                          .map(([k, v]) => (
+                            <p key={k} className="text-muted-foreground">
+                              {k}: <span className="text-green-600 dark:text-green-400">{v as number} {importResult.dryRun ? "would be inserted" : "inserted"}</span>
+                              {importResult.skipped?.[k] > 0 && (
+                                <span className="text-yellow-600 dark:text-yellow-400 ml-2">({importResult.skipped[k]} skipped)</span>
+                              )}
+                            </p>
+                          ))}
+                      </div>
+                    )}
+
+                    {importResult.errors?.length > 0 && (
+                      <div className="mt-2">
+                        <p className="font-medium text-red-600 dark:text-red-400 mb-1">Errors ({importResult.errors.length}):</p>
+                        <div className="max-h-32 overflow-y-auto space-y-0.5">
+                          {importResult.errors.slice(0, 20).map((err: any, i: number) => (
+                            <p key={i} className="text-xs text-red-600 dark:text-red-400">
+                              [{err.table}#{err.rowIndex}] {err.field}: {err.message}
+                            </p>
+                          ))}
+                          {importResult.errors.length > 20 && (
+                            <p className="text-xs text-muted-foreground">...and {importResult.errors.length - 20} more</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {importResult.warnings?.length > 0 && (
+                      <div className="mt-2">
+                        <p className="font-medium text-yellow-600 dark:text-yellow-400 mb-1">Warnings ({importResult.warnings.length}):</p>
+                        <div className="max-h-24 overflow-y-auto space-y-0.5">
+                          {importResult.warnings.slice(0, 10).map((w: any, i: number) => (
+                            <p key={i} className="text-xs text-yellow-600 dark:text-yellow-400">
+                              [{w.table}#{w.rowIndex}] {w.field}: {w.message}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -1175,6 +1910,163 @@ export default function AdminPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setBanTarget(null)}>Cancel</Button>
             <Button variant="destructive" disabled={banReason.trim().length < 3 || banMutation.isPending} onClick={() => banTarget && banMutation.mutate({ userId: banTarget.id, reason: banReason })}>Confirm Ban</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!lifetimeGrantUser} onOpenChange={(open) => !open && setLifetimeGrantUser(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Grant lifetime premium</DialogTitle>
+            <DialogDescription>
+              Creates an active complimentary subscription (no end date). Logged in <code className="text-xs">premium_events</code> as{" "}
+              <code className="text-xs">admin_lifetime_granted</code> and in the security log.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm font-medium dark:text-white">
+              {lifetimeGrantUser?.displayName || lifetimeGrantUser?.email}
+            </p>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="grant-product">Product</label>
+              <select
+                id="grant-product"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                value={grantProduct}
+                onChange={(e) => setGrantProduct(e.target.value as "axtask" | "nodeweaver" | "bundle")}
+              >
+                <option value="axtask">AxTask</option>
+                <option value="nodeweaver">NodeWeaver</option>
+                <option value="bundle">Power Bundle</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="grant-type">Grant type</label>
+              <select
+                id="grant-type"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                value={grantType}
+                onChange={(e) => setGrantType(e.target.value as "beta_tester" | "patron" | "manual")}
+              >
+                <option value="beta_tester">Beta tester</option>
+                <option value="patron">Patron / supporter</option>
+                <option value="manual">Manual / other</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="grant-reason">Reason (audit trail)</label>
+              <Textarea
+                id="grant-reason"
+                placeholder="e.g. Early Docker beta feedback, referral from X, comp for outage…"
+                value={grantReason}
+                onChange={(e) => setGrantReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLifetimeGrantUser(null)}>Cancel</Button>
+            <Button
+              disabled={grantReason.trim().length < 3 || !lifetimeGrantUser || lifetimeGrantMutation.isPending}
+              onClick={() =>
+                lifetimeGrantUser &&
+                lifetimeGrantMutation.mutate({
+                  userId: lifetimeGrantUser.id,
+                  product: grantProduct,
+                  grantType,
+                  reason: grantReason.trim(),
+                })
+              }
+            >
+              Grant access
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!lifetimeRevokeUser} onOpenChange={(open) => !open && setLifetimeRevokeUser(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Revoke lifetime premium</DialogTitle>
+            <DialogDescription>
+              Marks the lifetime plan inactive. Logged as <code className="text-xs">admin_lifetime_revoked</code>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm font-medium dark:text-white">
+              {lifetimeRevokeUser?.displayName || lifetimeRevokeUser?.email}
+            </p>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="revoke-product">Product</label>
+              <select
+                id="revoke-product"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                value={revokeProduct}
+                onChange={(e) => setRevokeProduct(e.target.value as "axtask" | "nodeweaver" | "bundle")}
+              >
+                {(lifetimeRevokeUser?.lifetimePremiumGrants ?? []).map((g) => (
+                  <option key={g.planKey} value={g.product}>
+                    {g.product} ({g.planKey})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="revoke-reason">Reason (required)</label>
+              <Textarea
+                id="revoke-reason"
+                placeholder="Why access is being removed…"
+                value={revokeReason}
+                onChange={(e) => setRevokeReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLifetimeRevokeUser(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={revokeReason.trim().length < 3 || !lifetimeRevokeUser || lifetimeRevokeMutation.isPending}
+              onClick={() =>
+                lifetimeRevokeUser &&
+                lifetimeRevokeMutation.mutate({
+                  userId: lifetimeRevokeUser.id,
+                  product: revokeProduct,
+                  reason: revokeReason.trim(),
+                })
+              }
+            >
+              Revoke access
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={importConfirmOpen} onOpenChange={setImportConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Run database import?</DialogTitle>
+            <DialogDescription>
+              This writes to the database. Rows whose IDs already exist will be skipped. Use &quot;Dry Run&quot; first if
+              you are unsure.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setImportConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!importBundle || importMutation.isPending}
+              onClick={() => {
+                setImportConfirmOpen(false);
+                if (importBundle) {
+                  importMutation.mutate({ bundle: importBundle, dryRun: false, mode: importMode });
+                }
+              }}
+            >
+              Import now
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

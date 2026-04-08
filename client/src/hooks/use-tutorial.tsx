@@ -1,61 +1,96 @@
-import { useState, useCallback, useEffect, createContext, useContext } from "react";
+import { useState, useCallback, createContext, useContext } from "react";
+import type { TutorialStep } from "@/lib/tutorial-types";
+import { KBD, SHORTCUT_FOCUS_NOTE } from "@/lib/keyboard-shortcuts";
 
-export interface TutorialStep {
-  id: string;
-  title: string;
-  description: string;
-  targetSelector?: string;
-  targetId?: string;
-  page?: string;
-  position?: "top" | "bottom" | "left" | "right";
-}
+export type { TutorialStep };
 
 const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "welcome",
     title: "Welcome to AxTask",
-    description: "Let's walk through the key features. This intelligent task manager uses AI-powered priority scoring to help you stay organized.",
+    description: "Let's walk through the key features. This intelligent task manager uses AI-powered priority scoring, gamification with AxCoins, voice commands, and real-time collaboration to keep you productive.",
     position: "bottom",
   },
   {
     id: "dashboard",
     title: "Your Dashboard",
-    description: "This is your home base. It shows task statistics, upcoming deadlines, and your overall productivity at a glance.",
+    description: "Your home base — see task statistics, upcoming deadlines, productivity metrics, and your AxCoin balance all in one view.",
     page: "/",
     targetId: "sidebar-link-/",
     position: "right",
-  },
-  {
-    id: "task-form",
-    title: "Creating a Task",
-    description: "Fill in the activity field and the system automatically calculates priority. The blue glow guides you through each field in order.",
-    page: "/tasks",
-    targetId: "sidebar-link-/tasks",
-    position: "right",
-  },
-  {
-    id: "calendar",
-    title: "Calendar View",
-    description: "See all your tasks laid out on a calendar. Click any date to add a task for that day.",
-    page: "/calendar",
-    targetId: "sidebar-link-/calendar",
-    position: "right",
+    glowClass: "field-glow-tutorial",
   },
   {
     id: "planner",
     title: "AI Planner",
-    description: "Your intelligent planning assistant. Get daily briefings, see top recommended tasks, a weekly load overview, and ask questions about your schedule.",
+    description: "Your intelligent planning assistant. Get daily briefings, top recommended tasks, a weekly load overview, and ask questions about your schedule using the AI chat.",
     page: "/planner",
     targetId: "sidebar-link-/planner",
     position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "task-form",
+    title: "Creating & Editing Tasks",
+    description: "Use Quick Task Entry on the dashboard or open Tasks from the sidebar. Priority is auto-calculated from urgency, impact, and effort. Yellow glows highlight empty fields, and the RAG engine suggests deadlines based on your patterns.",
+    page: "/",
+    targetId: "tutorial-task-form",
+    position: "right",
+    glowClass: "field-glow-tutorial-success",
+  },
+  {
+    id: "voice-commands",
+    title: "Voice Commands",
+    description: `Tap the microphone icon or press ${KBD.voice} (${KBD.voiceMac} on Mac) for global voice control — with focus in the page, not the address bar. Try "Take me to the calendar", "Add a new task", "Search for a task", or "What's due today?". On task forms, you can also dictate into Activity or Notes ("urgency 4", "due tomorrow").`,
+    page: "/",
+    targetId: "tutorial-task-form",
+    position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "classification",
+    title: "Classification & Compound Interest",
+    description: "Every task gets a classification (Crisis, Research, Development, etc.) that earns you AxCoins. When others confirm your classification, you earn 8% compound interest per confirmation — your classifications are investments!",
+    page: "/",
+    targetId: "tutorial-task-form",
+    position: "right",
+    glowClass: "field-glow-tutorial-success",
+  },
+  {
+    id: "calendar",
+    title: "Calendar View",
+    description: "See all your tasks on a calendar. Click any date to add a task for that day, and drag tasks to reschedule them.",
+    page: "/calendar",
+    targetId: "sidebar-link-/calendar",
+    position: "right",
+    glowClass: "field-glow-tutorial",
   },
   {
     id: "analytics",
     title: "Analytics & Insights",
-    description: "Track your productivity trends, see priority distributions, and monitor completion rates over time.",
+    description: "Track productivity trends, view priority and classification distributions, and monitor completion rates over time with interactive charts.",
     page: "/analytics",
     targetId: "sidebar-link-/analytics",
     position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "community",
+    title: "Community feed",
+    description: "Browse tasks other members have published (MFA-gated when publishing your own). Great for inspiration and public accountability — open Community from the sidebar anytime.",
+    page: "/community",
+    targetId: "sidebar-link-/community",
+    position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "rewards",
+    title: "Rewards Shop & AxCoins",
+    description: "Earn AxCoins by completing tasks, maintaining streaks, and classifying tasks. Spend coins in the Shop on themes, badges, and titles. Check the Investments tab to see your compound interest earnings grow!",
+    page: "/rewards",
+    targetId: "sidebar-link-/rewards",
+    position: "right",
+    glowClass: "field-glow-tutorial-success",
   },
   {
     id: "checklist",
@@ -64,12 +99,38 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     page: "/checklist",
     targetId: "sidebar-link-/checklist",
     position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "import-export",
+    title: "Import & Export",
+    description: "Back up your tasks or migrate data between accounts. Export includes all related records (comments, shares, classifications) and import validates everything before applying changes.",
+    page: "/import-export",
+    targetId: "sidebar-link-/import-export",
+    position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "google-sheets",
+    title: "Google Sheets Sync",
+    description: "Connect your Google Sheets to sync tasks between AxTask and your spreadsheets for flexible reporting and bulk management.",
+    page: "/google-sheets",
+    targetId: "sidebar-link-/google-sheets",
+    position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "shortcuts",
+    title: "Keyboard Shortcuts & Sidebar",
+    description: `Power user tips: ${KBD.sidebar} (${KBD.sidebarMac}) toggles the sidebar, ${KBD.hotkeyHelp} (${KBD.hotkeyHelpMac}) opens the shortcut reference, ${KBD.voice} (${KBD.voiceMac}) starts voice input, ${KBD.submitTask} (${KBD.submitTaskMac}) submits the task form, and ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) toggles this tutorial. ${SHORTCUT_FOCUS_NOTE}`,
+    position: "bottom",
   },
   {
     id: "complete",
     title: "You're All Set!",
-    description: "You can restart this tutorial anytime from the sidebar. Enjoy using AxTask to stay on top of your tasks!",
+    description: `You now know every corner of AxTask. Restart this tutorial anytime with ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) or from the sidebar. Happy tasking!`,
     position: "bottom",
+    glowClass: "field-glow-tutorial-success",
   },
 ];
 
@@ -82,6 +143,8 @@ interface TutorialContextValue {
   stopTutorial: () => void;
   nextStep: () => void;
   prevStep: () => void;
+  /** Jump to a step by `TutorialStep.id` and activate the overlay. Returns false if id is unknown. */
+  jumpToStepById: (stepId: string) => boolean;
   hasCompleted: boolean;
 }
 
@@ -108,21 +171,6 @@ function useTutorialEngine(): TutorialContextValue {
     } catch {}
   }, []);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "t") {
-        e.preventDefault();
-        if (isActive) {
-          stopTutorial();
-        } else {
-          startTutorial();
-        }
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isActive, startTutorial, stopTutorial]);
-
   const nextStep = useCallback(() => {
     if (stepIndex < TUTORIAL_STEPS.length - 1) {
       setStepIndex(i => i + 1);
@@ -135,6 +183,14 @@ function useTutorialEngine(): TutorialContextValue {
     if (stepIndex > 0) setStepIndex(i => i - 1);
   }, [stepIndex]);
 
+  const jumpToStepById = useCallback((stepId: string) => {
+    const idx = TUTORIAL_STEPS.findIndex((s) => s.id === stepId);
+    if (idx < 0) return false;
+    setStepIndex(idx);
+    setIsActive(true);
+    return true;
+  }, []);
+
   return {
     isActive,
     currentStep: isActive ? TUTORIAL_STEPS[stepIndex] : null,
@@ -144,6 +200,7 @@ function useTutorialEngine(): TutorialContextValue {
     stopTutorial,
     nextStep,
     prevStep,
+    jumpToStepById,
     hasCompleted,
   };
 }

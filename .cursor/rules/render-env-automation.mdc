@@ -1,0 +1,15 @@
+---
+description: Render / production env files — automation vs secrets (AxTask)
+globs:
+  - tools/render/**/*
+  - .env.render.example
+  - render.yaml
+---
+
+# Render environment automation
+
+- **Never commit** filled Render env files, dashboard exports, or anything containing `DATABASE_URL`, `SESSION_SECRET`, `AUTH_AUDIT_PEPPER`, OAuth secrets, or API keys. Root `.gitignore` covers `.env.render*` and `*EnvFromRender.env`-style dumps.
+- **Human / real deploy:** `npm run render:env-bootstrap -- --domain=HOST [--invite] [--force]` writes gitignored `.env.render` with cryptographically random `SESSION_SECRET` and `AUTH_AUDIT_PEPPER`.
+- **Agents / CI / no secrets:** `npm run render:env-placeholder -- --domain=HOST` (or `render:env-bootstrap -- --placeholders-only --force`) writes the same shape using **placeholders** from [`.env.render.example`](.env.render.example) only — safe when you cannot access production secrets.
+- **Rotate app-generated secrets in an existing file:** `npm run render:env-bootstrap -- --refresh-secrets-only --force` refreshes `SESSION_SECRET`, `AUTH_AUDIT_PEPPER`, and `INVITE_CODE` if present; then sync values to Render → Environment.
+- Do **not** echo or paste real secret values into chat, PRs, or logs. Operational messages from the script go to stderr.

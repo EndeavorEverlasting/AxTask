@@ -1,4 +1,5 @@
 import { useVoice } from "@/hooks/use-voice";
+import { KBD } from "@/lib/keyboard-shortcuts";
 import { AnimatePresence, motion } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import {
@@ -12,6 +13,10 @@ import {
   CalendarDays,
   Brain,
   Search,
+  Sparkles,
+  HelpCircle,
+  GraduationCap,
+  BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -22,6 +27,9 @@ const INTENT_ICONS: Record<string, typeof Mic> = {
   calendar_command: CalendarDays,
   planner_query: Brain,
   search: Search,
+  help: HelpCircle,
+  tutorial: GraduationCap,
+  module_guide: BookOpen,
 };
 
 const INTENT_COLORS: Record<string, string> = {
@@ -30,6 +38,9 @@ const INTENT_COLORS: Record<string, string> = {
   calendar_command: "text-orange-500",
   planner_query: "text-purple-500",
   search: "text-gray-500",
+  help: "text-cyan-500",
+  tutorial: "text-violet-500",
+  module_guide: "text-amber-600",
 };
 
 export function VoiceCommandBar() {
@@ -44,6 +55,8 @@ export function VoiceCommandBar() {
     toggleListening,
     closeBar,
     clearResponse,
+    liveTopicSuggestions,
+    liveTopicLoading,
   } = useVoice();
 
   const reducedMotion = useReducedMotion();
@@ -102,7 +115,9 @@ export function VoiceCommandBar() {
                 </div>
               ) : (
                 <p className="text-sm text-gray-400 dark:text-gray-500">
-                  {lastResponse ? "" : "Press the mic or say a command..."}
+                  {lastResponse
+                    ? ""
+                    : `Try “Take me to the calendar”, “Add a new task”, or “Search for a task” — ${KBD.voice} / ${KBD.voiceMac}`}
                 </p>
               )}
 
@@ -116,6 +131,34 @@ export function VoiceCommandBar() {
                 <p className="text-sm text-gray-700 dark:text-gray-200 truncate">
                   "{transcript}"
                 </p>
+              )}
+
+              {status === "listening" && (liveTopicLoading || liveTopicSuggestions.length > 0) && (
+                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <span className="text-[10px] font-semibold text-amber-700/90 dark:text-amber-400/90 flex items-center gap-0.5 shrink-0">
+                    <Sparkles className="h-3 w-3" />
+                    Topic
+                  </span>
+                  {liveTopicLoading && (
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400">Analyzing…</span>
+                  )}
+                  {liveTopicSuggestions.map((s, i) => (
+                    <span
+                      key={`${s.label}-${s.source}-${i}`}
+                      className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100/90 text-amber-900 dark:bg-amber-900/35 dark:text-amber-200 tabular-nums"
+                      title={
+                        s.source === "nodeweaver"
+                          ? "NodeWeaver"
+                          : s.source === "catalog"
+                            ? "Your categories"
+                            : "AxTask classifier"
+                      }
+                    >
+                      {s.label}
+                      <span className="opacity-70 ml-0.5">{Math.round(s.confidence * 100)}%</span>
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
 
@@ -173,7 +216,9 @@ export function VoiceCommandBar() {
 
           <div className="px-4 pb-2 flex items-center justify-between">
             <div className="flex gap-2 text-[10px] text-gray-400 dark:text-gray-500">
-              <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">Ctrl+M</span>
+              <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">
+                {KBD.voice}/{KBD.voiceMac}
+              </span>
               <span>toggle mic</span>
               <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">Esc</span>
               <span>close</span>
@@ -199,7 +244,7 @@ export function VoiceBarTrigger() {
           ? "bg-red-500/10 text-red-500 animate-pulse"
           : "text-gray-400 hover:text-purple-500 hover:bg-purple-500/10"
       )}
-      title="Voice Commands (Ctrl+M)"
+      title={`Voice commands (${KBD.voice} / ${KBD.voiceMac}, with focus in the page)`}
     >
       <Mic className="h-4 w-4" />
     </button>

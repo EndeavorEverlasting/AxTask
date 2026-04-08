@@ -39,6 +39,22 @@ export function ZoomProvider({ children }: { children: React.ReactNode }) {
     setZoom((prev) => Math.max(prev - ZOOM_STEP, ZOOM_MIN));
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+        if (e.key === "+" || e.key === "=") {
+          e.preventDefault();
+          zoomIn();
+        } else if (e.key === "-" || e.key === "_") {
+          e.preventDefault();
+          zoomOut();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [zoomIn, zoomOut]);
+
   const resetZoom = useCallback(() => {
     setZoom(ZOOM_DEFAULT);
   }, []);

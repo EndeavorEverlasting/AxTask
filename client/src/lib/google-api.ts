@@ -1,4 +1,5 @@
-import { apiRequest, getCsrfToken } from "./queryClient";
+import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
+import { getCsrfToken } from "./queryClient";
 
 export interface GoogleAuthTokens {
   accessToken: string;
@@ -55,7 +56,7 @@ export class GoogleSheetsClient {
   private postHeaders(): Record<string, string> {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
     const csrf = getCsrfToken();
-    if (csrf) h['x-csrf-token'] = csrf;
+    if (csrf) h[AXTASK_CSRF_HEADER] = csrf;
     return h;
   }
 
@@ -73,11 +74,33 @@ export class GoogleSheetsClient {
     };
   }
 
-  // Get spreadsheet information
+  // Get spreadsheet information (POST so tokens are not in the URL)
   async getSpreadsheetInfo(spreadsheetId: string, tokens: GoogleAuthTokens) {
-    const response = await fetch(
-      `/api/google-sheets/spreadsheet/${spreadsheetId}?accessToken=${tokens.accessToken}&refreshToken=${tokens.refreshToken}`
-    );
+    const response = await fetch(`/api/google-sheets/spreadsheet/${spreadsheetId}`, {
+      method: "POST",
+      headers: this.postHeaders(),
+      body: JSON.stringify({
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      }),
+    });
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const ct = response.headers.get("content-type") || "";
+        if (ct.includes("application/json")) {
+          const j = await response.json();
+          detail = typeof j?.message === "string" ? j.message : JSON.stringify(j);
+        } else {
+          detail = (await response.text()).slice(0, 500);
+        }
+      } catch {
+        detail = response.statusText;
+      }
+      throw new Error(
+        `getSpreadsheetInfo failed: HTTP ${response.status}${detail ? ` — ${detail}` : ""}`,
+      );
+    }
     return await response.json();
   }
 
@@ -191,8 +214,25 @@ export const googleAuthUtils = {
 
   // Retrieve stored tokens
   getStoredTokens: (): GoogleAuthTokens | null => {
-    const stored = localStorage.getItem('google_auth_tokens');
-    return stored ? JSON.parse(stored) : null;
+    const stored = localStorage.getItem("google_auth_tokens");
+    if (!stored) return null;
+    try {
+      const parsed = JSON.parse(stored) as unknown;
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        typeof (parsed as GoogleAuthTokens).accessToken === "string" &&
+        typeof (parsed as GoogleAuthTokens).refreshToken === "string"
+      ) {
+        return parsed as GoogleAuthTokens;
+      }
+      localStorage.removeItem("google_auth_tokens");
+      return null;
+    } catch {
+      console.warn("[google-api] Removing corrupt google_auth_tokens from localStorage");
+      localStorage.removeItem("google_auth_tokens");
+      return null;
+    }
   },
 
   // Clear stored tokens

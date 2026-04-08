@@ -45,6 +45,15 @@ Do thing,Some note`;
       const today = new Date().toISOString().split("T")[0];
       expect(tasks[0].date).toBe(today);
     });
+
+    it("parseTasksFromCSV ignores leading AxTask attribution line", () => {
+      const body = `date,activity,notes,status
+2025-06-15,Fix bug,Critical,pending`;
+      const csv = `# AxTask — test — exported 2025-01-01T00:00:00.000Z\n${body}`;
+      const tasks = parseTasksFromCSV(csv);
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].activity).toBe("Fix bug");
+    });
   });
 
   describe("tasksToCSV", () => {
@@ -71,6 +80,7 @@ Do thing,Some note`;
       ];
 
       const csv = tasksToCSV(tasks as any);
+      expect(csv.split("\n")[0]).toMatch(/^# AxTask —/);
       expect(csv).toContain("Fix bug");
       expect(csv).toContain("2025-06-15");
       expect(csv).toContain("Critical");

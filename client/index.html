@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AxTask</title>
     <meta name="theme-color" content="#2563eb" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -12,7 +12,22 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <!-- This is a replit script which adds a banner on the top of the page when opened in development mode outside the replit environment -->
-    <script type="text/javascript" src="https://replit.com/public/js/replit-dev-banner.js"></script>
+    <script>
+      (function () {
+        var h = location.hostname;
+        if (!/\.replit\.dev$/i.test(h) && !/\.replit\.app$/i.test(h)) return;
+        var s = document.createElement("script");
+        s.src = "https://replit.com/public/js/replit-dev-banner.js";
+        s.async = true;
+        /* SRI sha384 — verified 2026-04-07 against https://replit.com/public/js/replit-dev-banner.js */
+        s.integrity =
+          "sha384-Ot/Tu9WFHBmxe79uTL9kRtiU415hQIn1LnPczUWhACVAUsgp4rgHLuP+D6egBdmV";
+        s.crossOrigin = "anonymous";
+        s.onerror = function () {
+          console.warn("[axtask] Replit dev banner script failed to load or SRI mismatch");
+        };
+        document.body.appendChild(s);
+      })();
+    </script>
   </body>
 </html>

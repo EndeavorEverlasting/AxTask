@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User } from "lucide-react";
+import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 
@@ -51,6 +51,17 @@ interface UserBadge {
   earnedAt: string;
 }
 
+interface AvatarProfile {
+  id: string;
+  avatarKey: "mood" | "archetype" | "productivity" | "social" | "lazy";
+  displayName: string;
+  archetypeKey: string;
+  level: number;
+  xp: number;
+  totalXp: number;
+  mission: string;
+}
+
 export default function RewardsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -62,6 +73,14 @@ export default function RewardsPage() {
   const { data: transactions = [] } = useQuery<Transaction[]>({ queryKey: ["/api/gamification/transactions"] });
   const { data: badgeData } = useQuery<{ earned: UserBadge[]; definitions: Record<string, BadgeDefinition> }>({
     queryKey: ["/api/gamification/badges"],
+  });
+  const { data: classificationStats } = useQuery<{
+    totalClassifications: number;
+    totalConfirmationsReceived: number;
+    totalClassificationCoins: number;
+  }>({ queryKey: ["/api/gamification/classification-stats"] });
+  const { data: avatarData } = useQuery<{ avatars: AvatarProfile[] }>({
+    queryKey: ["/api/gamification/avatars"],
   });
 
   const animatedBalance = useCountUp(wallet?.balance ?? 0);
@@ -82,6 +101,59 @@ export default function RewardsPage() {
     },
   });
 
+  const engageAvatarMutation = useMutation({
+    mutationFn: async (payload: {
+      avatarKey: string;
+      sourceType: "task" | "feedback" | "post";
+      text: string;
+      completed?: boolean;
+      sourceRef: string;
+    }) => {
+      const res = await apiRequest("POST", `/api/gamification/avatars/${payload.avatarKey}/engage`, {
+        sourceType: payload.sourceType,
+        sourceRef: payload.sourceRef,
+        text: payload.text,
+        completed: payload.completed ?? false,
+      });
+      return res.json() as Promise<{ awarded: boolean; xp?: number; coins?: number; message?: string }>;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/avatars"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      if (result.awarded) {
+        toast({
+          title: "Avatar leveled up progress",
+          description: `Mission complete: +${result.xp ?? 0} XP and +${result.coins ?? 0} coins`,
+        });
+      } else {
+        toast({
+          title: "No mission credit yet",
+          description: result.message || "Try a more archetype-focused task or feedback note.",
+        });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Avatar mission failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const boostAvatarMutation = useMutation({
+    mutationFn: async ({ avatarKey, coins }: { avatarKey: string; coins: number }) => {
+      const res = await apiRequest("POST", `/api/gamification/avatars/${avatarKey}/spend`, { coins });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/avatars"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      toast({ title: "Avatar boosted", description: "Coins spent for avatar XP boost." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Boost failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const ownedRewardIds = new Set(myRewards.map(r => r.rewardId));
 
   const groupedRewards = {
@@ -91,11 +163,11 @@ export default function RewardsPage() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-            <ShoppingBag className="h-7 w-7 text-amber-500" />
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <ShoppingBag className="h-6 w-6 md:h-7 md:w-7 text-amber-500" />
             Rewards Shop
           </h2>
           <p className="text-gray-600 dark:text-gray-400">Spend your AxCoins on themes, badges, and titles</p>
@@ -162,6 +234,7 @@ export default function RewardsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="investments">Investments</TabsTrigger>
           <TabsTrigger value="shop">Shop</TabsTrigger>
           <TabsTrigger value="badges">Badges</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
@@ -246,6 +319,157 @@ export default function RewardsPage() {
                     })}
                   </div>
                 )}
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-emerald-500" />
+                  Avatar Entourage Missions
+                </h4>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Post a task or feedback related to each companion. The lazy avatar rewards gratitude, rest, prioritizing
+                  what to do first, and calmer notification pacing.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {(avatarData?.avatars ?? []).map((av) => (
+                    <div key={av.id} className="p-4 rounded-xl border bg-gradient-to-br from-slate-50 to-white dark:from-slate-900/40 dark:to-slate-900/10">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="font-semibold">{av.displayName}</p>
+                          <p className="text-xs text-muted-foreground capitalize">
+                            {av.avatarKey} archetype: {av.archetypeKey}
+                          </p>
+                        </div>
+                        <Badge>Lvl {av.level}</Badge>
+                      </div>
+                      <p className="text-xs mt-2 text-muted-foreground">{av.mission}</p>
+                      <div className="mt-2 h-2 rounded bg-muted overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500 transition-all"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              (() => {
+                                const nextThreshold = 100 + (av.level - 1) * 25;
+                                return nextThreshold > 0 ? (av.xp / nextThreshold) * 100 : 0;
+                              })(),
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="text-[11px] mt-1 text-muted-foreground">
+                        XP: {av.xp} (total {av.totalXp})
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={engageAvatarMutation.isPending}
+                          onClick={() => {
+                            const claimDate = new Date().toISOString().slice(0, 10);
+                            const lazyDemo =
+                              "Grateful for what shipped today. First tomorrow I'll tackle the spec review before anything else — need a short pause after.";
+                            engageAvatarMutation.mutate({
+                              avatarKey: av.avatarKey,
+                              sourceType: "task",
+                              text:
+                                av.avatarKey === "lazy"
+                                  ? lazyDemo
+                                  : `Task related to ${av.archetypeKey}`,
+                              completed: true,
+                              sourceRef: `${av.avatarKey}_task_${claimDate}`,
+                            });
+                          }}
+                        >
+                          Claim Task Mission
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={engageAvatarMutation.isPending}
+                          onClick={() => {
+                            const claimDate = new Date().toISOString().slice(0, 10);
+                            engageAvatarMutation.mutate({
+                              avatarKey: av.avatarKey,
+                              sourceType: "feedback",
+                              text:
+                                av.avatarKey === "lazy"
+                                  ? "Thanks for the calmer pace this week — sliding notifications down helped me breathe and enjoy what is already working."
+                                  : `Feedback about ${av.archetypeKey}`,
+                              completed: true,
+                              sourceRef: `${av.avatarKey}_feedback_${claimDate}`,
+                            });
+                          }}
+                        >
+                          Claim Feedback Mission
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={boostAvatarMutation.isPending || (wallet?.balance ?? 0) < 25}
+                          onClick={() => boostAvatarMutation.mutate({ avatarKey: av.avatarKey, coins: 25 })}
+                        >
+                          Spend 25 Coins
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="investments" className="mt-4 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-amber-500" />
+                Classification Investments
+              </CardTitle>
+              <CardDescription>
+                Earn coins by classifying tasks. When others confirm your classifications,
+                you earn compounding interest — like an investment that grows with each confirmation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 mb-1">
+                    <Sparkles className="h-4 w-4" />
+                    <span className="text-sm font-medium">Classifications Made</span>
+                  </div>
+                  <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
+                    {classificationStats?.totalClassifications ?? 0}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400 mb-1">
+                    <ThumbsUp className="h-4 w-4" />
+                    <span className="text-sm font-medium">Confirmations Received</span>
+                  </div>
+                  <p className="text-3xl font-bold text-green-900 dark:text-green-100">
+                    {classificationStats?.totalConfirmationsReceived ?? 0}
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 mb-1">
+                    <Coins className="h-4 w-4" />
+                    <span className="text-sm font-medium">Total Classification Coins</span>
+                  </div>
+                  <p className="text-3xl font-bold text-amber-900 dark:text-amber-100">
+                    {classificationStats?.totalClassificationCoins ?? 0}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 p-4 rounded-xl bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/10 dark:to-yellow-900/10 border border-amber-200 dark:border-amber-800">
+                <h4 className="font-semibold text-amber-800 dark:text-amber-300 mb-2">How Compound Interest Works</h4>
+                <div className="text-sm text-amber-700 dark:text-amber-400 space-y-1">
+                  <p>1. Classify a task to earn base coins (5-15 depending on category)</p>
+                  <p>2. Each time someone confirms your classification, you earn compound interest at 8% per confirmation</p>
+                  <p>3. The formula: <code className="bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-xs">base × (1.08)^n</code> where n = number of confirmations</p>
+                  <p>4. Confirmers also earn 3 coins for each confirmation they give</p>
+                </div>
               </div>
             </CardContent>
           </Card>

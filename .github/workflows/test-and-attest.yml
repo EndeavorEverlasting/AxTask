@@ -1,0 +1,112 @@
+# Runs tests on main/master and updates docs/TEST_ATTESTATION.md when green.
+name: test-and-attest
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: test-and-attest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-attest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Update test attestation
+        if: success() && github.event_name == 'push'
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: node scripts/ci/update-test-attestation.mjs
+
+      - name: Commit attestation
+        if: success() && github.event_name == 'push'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(ci): update TEST_ATTESTATION.md [skip ci]"
+          file_pattern: docs/TEST_ATTESTATION.md
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Docker build (root Dockerfile)
+        run: docker build -t axtask-ci:check .
+      - name: Verify runtime image has SQL migration assets
+        run: docker run --rm axtask-ci:check sh -c 'test -f scripts/run-sql-migrations.mjs && test -d migrations && ls migrations/*.sql >/dev/null'
+
+  check-nodeweaver-file:
+    runs-on: ubuntu-latest
+    outputs:
+      file_present: ${{ steps.check.outputs.file_present }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - id: check
+        run: |
+          if [ -f services/nodeweaver/upstream/pyproject.toml ]; then
+            echo "file_present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "file_present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  nodeweaver-pytest:
+    needs: [check-nodeweaver-file]
+    runs-on: ubuntu-latest
+    if: needs.check-nodeweaver-file.outputs.file_present == 'true'
+    defaults:
+      run:
+        working-directory: services/nodeweaver/upstream
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps (align with NodeWeaver Dockerfile)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ libasound2-dev portaudio19-dev libsndfile1-dev ffmpeg
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "services/nodeweaver/upstream/uv.lock"
+
+      - name: Sync Python env and run pytest
+        run: |
+          uv sync --frozen --extra dev
+          uv run python -m pytest

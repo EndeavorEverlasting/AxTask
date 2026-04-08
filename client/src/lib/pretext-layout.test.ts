@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { estimateTextLayout, prepareText, layoutPreparedText } from "./pretext-layout";
+import {
+  estimateTextLayout,
+  prepareText,
+  layoutPreparedText,
+  wrapTextToLines,
+  splitSentencesForBubbles,
+} from "./pretext-layout";
 
 describe("pretext-layout", () => {
   it("prepares text segments", () => {
@@ -18,5 +24,17 @@ describe("pretext-layout", () => {
   it("estimates layout with helper", () => {
     const result = estimateTextLayout("short text", 200);
     expect(result.lines).toBeGreaterThanOrEqual(1);
+  });
+
+  it("wrapTextToLines respects max width", () => {
+    const lines = wrapTextToLines("hello world wide content here", 40, "14px monospace");
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+    expect(lines.join(" ").replace(/\s+/g, " ").trim()).toContain("hello");
+  });
+
+  it("splitSentencesForBubbles splits on sentence boundaries", () => {
+    const parts = splitSentencesForBubbles("First. Second! Third?", 3);
+    expect(parts.length).toBe(3);
+    expect(parts[0]).toContain("First");
   });
 });

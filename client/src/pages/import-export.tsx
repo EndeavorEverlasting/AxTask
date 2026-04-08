@@ -1,17 +1,35 @@
-import { useState, useRef, useEffect } from "react";
+/**
+ * Import/Export UI: **spreadsheet (CSV/Excel) and JSON backup are both required product surfaces.**
+ * Server-side dedupe and anti–double-task rules live in `server/import-task-dedupe.ts` (see `.cursor/rules/axtask-import-dedupe.mdc`).
+ */
+import { useState, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type Task, type InsertTask } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
-import { tasksToCSV, parseTasksFromCSV, downloadCSV, parseExcelSheetInfo } from "@/lib/csv-utils";
+import { type Task } from "@shared/schema";
+import { MFA_PURPOSES } from "@shared/mfa-purposes";
+import { apiFetch, apiRequest } from "@/lib/queryClient";
+import { useMfaChallenge } from "@/hooks/use-mfa-challenge";
+import { MfaVerificationPanel } from "@/components/mfa/mfa-verification-panel";
+import { formatAxTaskCsvAttribution } from "@shared/attribution";
+import { parseTasksFromCSV, downloadCSV, parseExcelSheetInfo } from "@/lib/csv-utils";
+import { postPaidDownload, triggerBlobDownload, type ProductivityExportPrices } from "@/lib/productivity-export-download";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Upload, Download, FileText, AlertCircle, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Upload, Download, FileText, AlertCircle, CheckCircle2, Loader2, FileCode, Coins, Sheet } from "lucide-react";
 
 interface SheetInfo {
   sheetName: string;
@@ -20,9 +38,52 @@ interface SheetInfo {
   selected: boolean;
 }
 
+type UserExportBundle = {
+  metadata: { exportMode?: string; exportedAt?: string; tableCounts?: Record<string, number> };
+  data: Record<string, unknown[]>;
+};
+
+function isUserExportBundle(parsed: unknown): parsed is UserExportBundle {
+  if (!parsed || typeof parsed !== "object") return false;
+  const p = parsed as Record<string, unknown>;
+  const m = p.metadata;
+  const d = p.data;
+  if (!m || typeof m !== "object") return false;
+  if (!d || typeof d !== "object") return false;
+  return (m as Record<string, unknown>).exportMode === "user";
+}
+
+interface AccountImportApiResult {
+  success: boolean;
+  dryRun: boolean;
+  inserted: Record<string, number>;
+  skipped: Record<string, number>;
+  conflicts: Record<string, number>;
+  errors?: { table: string; field: string; message: string }[];
+  warnings?: { table: string; field: string; message: string }[];
+}
+
+type ImportOwnershipAnswerPayload = { questionId: string; selectedIndex: number };
+
+interface AccountImportChallengeResponse {
+  ownershipQuizRequired: boolean;
+  tasksFingerprint: string;
+  questionCount: number;
+  questions: { id: string; prompt: string; choices: string[] }[];
+  message?: string;
+}
+
 export default function ImportExport() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { requestChallenge: requestDataExportChallenge, isRequesting: dataExportCodeSending } = useMfaChallenge();
+  const [dataExportMfaOpen, setDataExportMfaOpen] = useState(false);
+  const [dataExportChallenge, setDataExportChallenge] = useState<{
+    challengeId: string;
+    expiresAt: string;
+    devCode?: string;
+    maskedDestination?: string;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
@@ -36,11 +97,298 @@ export default function ImportExport() {
     total: number;
   } | null>(null);
 
+  const jsonInputRef = useRef<HTMLInputElement>(null);
+  const [jsonBundle, setJsonBundle] = useState<UserExportBundle | null>(null);
+  const [jsonFileName, setJsonFileName] = useState("");
+  const [jsonExportBusy, setJsonExportBusy] = useState(false);
+  const [jsonAccountResult, setJsonAccountResult] = useState<AccountImportApiResult | null>(null);
+  const [importOwnershipQuizOpen, setImportOwnershipQuizOpen] = useState(false);
+  const [importOwnershipQuizQuestions, setImportOwnershipQuizQuestions] = useState<
+    AccountImportChallengeResponse["questions"]
+  >([]);
+  const [importOwnershipQuizAnswers, setImportOwnershipQuizAnswers] = useState<Record<string, number>>({});
+  const [importOwnershipQuizPendingDryRun, setImportOwnershipQuizPendingDryRun] = useState(true);
+  const [importChallengeBusy, setImportChallengeBusy] = useState(false);
+  const [spreadsheetExportBusy, setSpreadsheetExportBusy] = useState<"csv" | "xlsx" | null>(null);
+
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
   });
 
-  const handleExport = () => {
+  const { data: exportPrices } = useQuery<ProductivityExportPrices>({
+    queryKey: ["/api/gamification/productivity-export-prices"],
+  });
+
+  const { data: dataExportStepUp } = useQuery({
+    queryKey: ["/api/account/data-export-step-up-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/account/data-export-step-up-status", { credentials: "include" });
+      if (!res.ok) throw new Error("Could not load verification status");
+      return res.json() as Promise<{
+        stepUpRequired: boolean;
+        stepUpSatisfied: boolean;
+        expiresAt: number | null;
+      }>;
+    },
+    staleTime: 15_000,
+  });
+
+  const accountDataStepUpBlocks =
+    Boolean(dataExportStepUp?.stepUpRequired) && !dataExportStepUp?.stepUpSatisfied;
+
+  const verifyDataExportStepUpMutation = useMutation({
+    mutationFn: async (payload: { challengeId: string; code: string }) => {
+      const res = await apiRequest("POST", "/api/account/data-export-step-up", payload);
+      return res.json() as Promise<{ ok?: boolean }>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/account/data-export-step-up-status"] });
+      setDataExportMfaOpen(false);
+      setDataExportChallenge(null);
+      toast({
+        title: "Verified",
+        description: "You can download or import your JSON account backup for the next hour.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Verification failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const startDataExportVerification = async () => {
+    try {
+      const c = await requestDataExportChallenge(MFA_PURPOSES.ACCOUNT_DATA_EXPORT);
+      setDataExportChallenge({
+        challengeId: c.challengeId,
+        expiresAt: c.expiresAt,
+        devCode: c.devCode,
+        maskedDestination: c.maskedDestination,
+      });
+      setDataExportMfaOpen(true);
+      toast({ title: "Code sent", description: "Check your email for the verification code." });
+    } catch (e) {
+      toast({
+        title: "Could not send code",
+        description: e instanceof Error ? e.message : "Try again later.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  function invalidateAfterAccountImport() {
+    void queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/classification/categories"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/account/profile"] });
+  }
+
+  const accountJsonMutation = useMutation({
+    mutationFn: async (opts: { dryRun: boolean; importOwnershipAnswers?: ImportOwnershipAnswerPayload[] }) => {
+      if (!jsonBundle) throw new Error("No backup loaded");
+      if (accountDataStepUpBlocks) {
+        throw new Error("Verify your identity first (email code) before importing a JSON backup.");
+      }
+      const body: Record<string, unknown> = { bundle: jsonBundle, dryRun: opts.dryRun };
+      if (opts.importOwnershipAnswers && opts.importOwnershipAnswers.length > 0) {
+        body.importOwnershipAnswers = opts.importOwnershipAnswers;
+      }
+      const res = await apiRequest("POST", "/api/account/import", body);
+      return (await res.json()) as AccountImportApiResult;
+    },
+    onSuccess: (data, opts) => {
+      setJsonAccountResult(data);
+      if (!opts.dryRun && data.success) {
+        invalidateAfterAccountImport();
+        setJsonBundle(null);
+        setJsonFileName("");
+        if (jsonInputRef.current) jsonInputRef.current.value = "";
+        toast({
+          title: "Backup import finished",
+          description: "Your account data from the JSON file has been merged.",
+        });
+      } else if (!opts.dryRun && !data.success) {
+        toast({
+          title: "Backup import failed",
+          description: data.errors?.[0]?.message ?? "See details below.",
+          variant: "destructive",
+        });
+      } else if (opts.dryRun) {
+        toast({
+          title: data.success ? "Dry run OK" : "Dry run reported issues",
+          description: data.success
+            ? "Review counts below, then run a real import if it looks right."
+            : (data.errors?.[0]?.message ?? "Check errors below."),
+          variant: data.success ? "default" : "destructive",
+        });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "JSON import failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const beginJsonAccountImport = async (dryRun: boolean) => {
+    if (!jsonBundle) return;
+    if (accountDataStepUpBlocks) {
+      toast({
+        title: "Verification required",
+        description: "Request a code and confirm your email before importing a JSON backup.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setJsonAccountResult(null);
+    setImportChallengeBusy(true);
+    try {
+      const chRes = await apiFetch("POST", "/api/account/import/challenge", { bundle: jsonBundle });
+      let ch: AccountImportChallengeResponse;
+      try {
+        ch = (await chRes.json()) as AccountImportChallengeResponse;
+      } catch {
+        throw new Error(`Challenge failed (${chRes.status})`);
+      }
+      if (!chRes.ok) {
+        throw new Error(ch.message || `Challenge failed (${chRes.status})`);
+      }
+      if (ch.ownershipQuizRequired && ch.questions.length > 0) {
+        setImportOwnershipQuizQuestions(ch.questions);
+        setImportOwnershipQuizAnswers({});
+        setImportOwnershipQuizPendingDryRun(dryRun);
+        setImportOwnershipQuizOpen(true);
+        return;
+      }
+      accountJsonMutation.mutate({ dryRun });
+    } catch (e) {
+      toast({
+        title: "Could not start import",
+        description: e instanceof Error ? e.message : "Try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setImportChallengeBusy(false);
+    }
+  };
+
+  const submitImportOwnershipQuiz = () => {
+    const answers: ImportOwnershipAnswerPayload[] = importOwnershipQuizQuestions.map((q) => ({
+      questionId: q.id,
+      selectedIndex: importOwnershipQuizAnswers[q.id] ?? -1,
+    }));
+    if (answers.some((a) => a.selectedIndex < 0)) {
+      toast({
+        title: "Answer every question",
+        description: "Pick one option for each task detail before continuing.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setImportOwnershipQuizOpen(false);
+    accountJsonMutation.mutate({
+      dryRun: importOwnershipQuizPendingDryRun,
+      importOwnershipAnswers: answers,
+    });
+  };
+
+  const handleExportJsonBundle = async () => {
+    if (accountDataStepUpBlocks) {
+      toast({
+        title: "Verification required",
+        description: "Request a code and confirm your email before downloading your JSON backup.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setJsonExportBusy(true);
+    try {
+      const res = await apiRequest("GET", "/api/account/export");
+      const bundle = await res.json();
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+      let url: string | undefined;
+      try {
+        url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `my-axtask-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        toast({
+          title: "JSON backup downloaded",
+          description: "Includes tasks, wallet, badges, and related data for restore or portability.",
+        });
+      } finally {
+        if (url) URL.revokeObjectURL(url);
+      }
+    } catch (e) {
+      toast({
+        title: "Export failed",
+        description: e instanceof Error ? e.message : "Could not download backup.",
+        variant: "destructive",
+      });
+    } finally {
+      setJsonExportBusy(false);
+    }
+  };
+
+  const handleJsonFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setJsonAccountResult(null);
+    const reader = new FileReader();
+    reader.onerror = () => {
+      const detail = reader.error?.message?.trim() || "Could not read this file.";
+      toast({
+        title: "Could not read file",
+        description: detail,
+        variant: "destructive",
+      });
+      setJsonBundle(null);
+      setJsonFileName("");
+    };
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || ""));
+        if (!isUserExportBundle(parsed)) {
+          toast({
+            title: "Not a user backup",
+            description: "Use an AxTask JSON export with exportMode \"user\" (Download JSON backup).",
+            variant: "destructive",
+          });
+          setJsonBundle(null);
+          setJsonFileName("");
+          return;
+        }
+        setJsonBundle(parsed);
+        setJsonFileName(file.name);
+        setImportOwnershipQuizOpen(false);
+        setImportOwnershipQuizQuestions([]);
+        setImportOwnershipQuizAnswers({});
+        const tc = parsed.metadata.tableCounts?.tasks;
+        toast({
+          title: "Backup loaded",
+          description:
+            typeof tc === "number"
+              ? `${file.name} — ${tc.toLocaleString()} tasks in file. Run a dry run before importing.`
+              : `${file.name} ready. Run a dry run before importing.`,
+        });
+      } catch (e) {
+        const detail = e instanceof Error && e.message ? e.message : "Could not parse this file.";
+        toast({
+          title: "Invalid JSON",
+          description: detail,
+          variant: "destructive",
+        });
+        setJsonBundle(null);
+        setJsonFileName("");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleSpreadsheetExport = async (format: "csv" | "xlsx") => {
     if (tasks.length === 0) {
       toast({
         title: "No tasks to export",
@@ -49,22 +397,44 @@ export default function ImportExport() {
       });
       return;
     }
-
+    setSpreadsheetExportBusy(format);
     try {
-      const csvContent = tasksToCSV(tasks);
-      const filename = `tasks-export-${new Date().toISOString().split('T')[0]}.csv`;
-      downloadCSV(csvContent, filename);
-      
+      const result = await postPaidDownload("/api/tasks/export/spreadsheet", { format });
+      if (!result.ok) {
+        if (result.insufficientCoins) {
+          toast({
+            title: "Not enough AxCoins",
+            description:
+              result.insufficientCoins.message
+              ?? `Need ${result.insufficientCoins.required} coins (balance ${result.insufficientCoins.balance}).`,
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Export failed",
+            description: result.message || "Could not export tasks.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+      const day = new Date().toISOString().split("T")[0];
+      const fallback = format === "csv" ? `axtask-tasks-${day}.csv` : `axtask-tasks-${day}.xlsx`;
+      triggerBlobDownload(result.blob, fallback, result.filename);
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
       toast({
         title: "Export successful",
-        description: `Downloaded ${tasks.length} tasks to ${filename}`,
+        description: `Downloaded ${tasks.length} tasks (${format.toUpperCase()}).`,
       });
-    } catch (error) {
+    } catch {
       toast({
         title: "Export failed",
         description: "Failed to export tasks. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setSpreadsheetExportBusy(null);
     }
   };
 
@@ -197,7 +567,8 @@ export default function ImportExport() {
 
   const totalSelected = sheets.filter(s => s.selected).reduce((sum, s) => sum + s.rowCount, 0);
 
-  const csvTemplate = `Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
+  const csvTemplate = `${formatAxTaskCsvAttribution()}
+Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
 2025-07-30,"Deploy new version","@urgent deployment needed",4,5,3,"Testing completed",pending
 2025-07-30,"Team meeting","Weekly standup #meeting",,,,,"pending"
 2025-07-29,"Fix bug in authentication","Error in login flow #blocker",5,4,2,"Bug report received",in-progress`;
@@ -211,13 +582,114 @@ export default function ImportExport() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Import/Export</h2>
-        <p className="text-gray-600 dark:text-gray-400">Sync your tasks with Google Sheets or other tools</p>
+        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Import/Export</h2>
+        <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">
+          Google Sheets–friendly CSV/Excel plus a full JSON backup. Same task (date, time, activity, notes) is deduplicated across both.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <MfaVerificationPanel
+        open={dataExportMfaOpen}
+        challengeId={dataExportChallenge?.challengeId}
+        codeEntryDisabled={!dataExportChallenge?.challengeId}
+        purpose={MFA_PURPOSES.ACCOUNT_DATA_EXPORT}
+        title="Verify for account backup"
+        description={
+          dataExportChallenge?.maskedDestination
+            ? `Code sent to ${dataExportChallenge.maskedDestination}`
+            : "Enter the code we email you."
+        }
+        expiresAt={dataExportChallenge?.expiresAt}
+        devCode={dataExportChallenge?.devCode ?? null}
+        isBusy={verifyDataExportStepUpMutation.isPending}
+        onDismiss={() => {
+          setDataExportMfaOpen(false);
+          setDataExportChallenge(null);
+        }}
+        onResend={() => void startDataExportVerification()}
+        onSubmitCode={async (code) => {
+          const challengeId = dataExportChallenge?.challengeId;
+          if (!challengeId) {
+            toast({
+              title: "Verification not ready",
+              description: "Request a new code and try again.",
+              variant: "destructive",
+            });
+            return;
+          }
+          await verifyDataExportStepUpMutation.mutateAsync({ challengeId, code });
+        }}
+      />
+
+      <Dialog open={importOwnershipQuizOpen} onOpenChange={setImportOwnershipQuizOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Confirm this backup is yours</DialogTitle>
+            <DialogDescription>
+              Pick the missing detail for each task. Imports need at least 80% correct to proceed (wrong file or guesswork
+              should fail).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-2">
+            {importOwnershipQuizQuestions.map((q, qi) => (
+              <div key={q.id} className="space-y-3">
+                <p className="text-sm font-medium text-foreground">
+                  Question {qi + 1} of {importOwnershipQuizQuestions.length}
+                </p>
+                <pre className="text-xs whitespace-pre-wrap font-sans text-muted-foreground bg-muted/50 rounded-md p-3 border">
+                  {q.prompt}
+                </pre>
+                <RadioGroup
+                  value={
+                    importOwnershipQuizAnswers[q.id] !== undefined
+                      ? String(importOwnershipQuizAnswers[q.id])
+                      : undefined
+                  }
+                  onValueChange={(v) =>
+                    setImportOwnershipQuizAnswers((prev) => ({ ...prev, [q.id]: Number.parseInt(v, 10) }))
+                  }
+                >
+                  {q.choices.map((choice, ci) => (
+                    <div key={ci} className="flex items-start gap-2 rounded-md border p-2">
+                      <RadioGroupItem value={String(ci)} id={`${q.id}-${ci}`} className="mt-0.5" />
+                      <Label htmlFor={`${q.id}-${ci}`} className="text-sm font-normal cursor-pointer flex-1">
+                        {choice}
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              </div>
+            ))}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setImportOwnershipQuizOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={submitImportOwnershipQuiz}>
+              Continue import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {accountDataStepUpBlocks ? (
+        <div className="rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 p-4 text-sm">
+          <p className="font-medium text-amber-950 dark:text-amber-100 mb-2">
+            Email verification required for JSON account backup
+          </p>
+          <p className="text-amber-900/90 dark:text-amber-200/90 mb-3">
+            In production, downloading or importing your full JSON backup requires a one-time code (same idea as billing
+            verification).
+          </p>
+          <Button type="button" size="sm" onClick={() => void startDataExportVerification()} disabled={dataExportCodeSending}>
+            {dataExportCodeSending ? "Sending…" : "Email me a code"}
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center">
@@ -225,7 +697,8 @@ export default function ImportExport() {
               Export Tasks
             </CardTitle>
             <CardDescription>
-              Download your tasks as a CSV file for use in Google Sheets or other applications.
+              Spreadsheet export (CSV or Excel) uses AxCoins per download. JSON backup is a separate full account export
+              (tasks, wallet, badges, patterns, and more).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -236,10 +709,52 @@ export default function ImportExport() {
                   {tasks.length} tasks ready for export
                 </span>
               </div>
+              {exportPrices?.freeInDev ? (
+                <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-2">Spreadsheet export is free in local dev.</p>
+              ) : (
+                <p className="text-xs text-blue-800/90 dark:text-blue-200/90 mt-2 inline-flex items-center gap-1">
+                  <Coins className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                  Each spreadsheet download costs {exportPrices?.tasksSpreadsheet ?? "…"} AxCoins.
+                </p>
+              )}
             </div>
-            <Button onClick={handleExport} className="w-full" disabled={tasks.length === 0}>
-              <Download className="mr-2 h-4 w-4" />
+            <Button
+              onClick={() => void handleSpreadsheetExport("csv")}
+              className="w-full"
+              disabled={tasks.length === 0 || spreadsheetExportBusy !== null}
+            >
+              {spreadsheetExportBusy === "csv" ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
               Export to CSV
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void handleSpreadsheetExport("xlsx")}
+              className="w-full"
+              disabled={tasks.length === 0 || spreadsheetExportBusy !== null}
+            >
+              {spreadsheetExportBusy === "xlsx" ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sheet className="mr-2 h-4 w-4" />
+              )}
+              Export to Excel (.xlsx)
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => void handleExportJsonBundle()}
+              disabled={jsonExportBusy || accountDataStepUpBlocks}
+            >
+              {jsonExportBusy ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileCode className="mr-2 h-4 w-4" />
+              )}
+              Download JSON backup
             </Button>
           </CardContent>
         </Card>
@@ -251,19 +766,25 @@ export default function ImportExport() {
               Import Tasks
             </CardTitle>
             <CardDescription>
-              Upload a CSV or Excel file to import tasks. Supports your Google Sheets task tracker format.
+              Import from a spreadsheet, from a JSON backup, or both—overlapping tasks match on date, time, activity, and notes.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="csv-file">Choose File</Label>
+              <div>
+                <div className="text-sm font-semibold">Spreadsheet (CSV / Excel)</div>
+                <p className="text-xs text-muted-foreground">Google Sheets export or CSV template</p>
+              </div>
+              <Label htmlFor="csv-file" className="sr-only">
+                Spreadsheet file
+              </Label>
               <Input
                 id="csv-file"
                 ref={fileInputRef}
                 type="file"
                 accept=".csv,.xlsx,.xls"
                 onChange={handleFileSelect}
-                disabled={isImporting || isParsing}
+                disabled={isImporting || isParsing || accountJsonMutation.isPending}
               />
             </div>
 
@@ -374,6 +895,9 @@ export default function ImportExport() {
                     <li>Excel (.xlsx) with sheets: Daily Planner 2026, Archives, Vault</li>
                     <li>CSV with columns: Date, Activity, Notes, Urgency, Impact, Effort</li>
                     <li>Priority and classification are auto-calculated after import</li>
+                    <li>
+                      JSON backup and spreadsheet imports share the same task fingerprint; order does not matter for duplicate tasks
+                    </li>
                   </ul>
                 </div>
               </div>
@@ -387,6 +911,111 @@ export default function ImportExport() {
               <FileText className="mr-2 h-4 w-4" />
               Download Template
             </Button>
+
+            <Separator className="my-2" />
+
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">Full account backup (JSON)</Label>
+              <p className="text-xs text-muted-foreground">
+                Use the same format as &quot;Download JSON backup&quot;. If the file includes tasks, you will answer 1–3
+                quick multiple-choice questions about those tasks before dry run or import. Backups with no tasks skip
+                that step. Large files can take a minute.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="json-backup-file" className="text-xs font-normal text-muted-foreground">
+                  AxTask user export (.json)
+                </Label>
+                <Input
+                  id="json-backup-file"
+                  ref={jsonInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleJsonFileSelect}
+                  disabled={isImporting || isParsing || accountJsonMutation.isPending || accountDataStepUpBlocks}
+                />
+              </div>
+              {jsonFileName ? (
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  Loaded: <span className="font-medium">{jsonFileName}</span>
+                  {jsonBundle?.metadata.tableCounts?.tasks != null
+                    ? ` — ${Number(jsonBundle.metadata.tableCounts.tasks).toLocaleString()} tasks in bundle`
+                    : ""}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={
+                    !jsonBundle
+                    || accountJsonMutation.isPending
+                    || importChallengeBusy
+                    || accountDataStepUpBlocks
+                  }
+                  onClick={() => void beginJsonAccountImport(true)}
+                >
+                  {accountJsonMutation.isPending || importChallengeBusy ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Dry run
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={
+                    !jsonBundle
+                    || accountJsonMutation.isPending
+                    || importChallengeBusy
+                    || accountDataStepUpBlocks
+                  }
+                  onClick={() => void beginJsonAccountImport(false)}
+                >
+                  Import JSON backup
+                </Button>
+              </div>
+              {jsonAccountResult ? (
+                <div
+                  className={`rounded-lg border p-3 text-xs space-y-2 ${
+                    jsonAccountResult.success
+                      ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
+                      : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                  }`}
+                >
+                  <div className="font-medium">
+                    {jsonAccountResult.dryRun ? "Dry run" : "Import"} —{" "}
+                    {jsonAccountResult.success ? "completed" : "see errors"}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {Object.entries(jsonAccountResult.inserted || {}).map(([k, v]) => (
+                      <div key={`ins-${k}`}>
+                        <span className="text-muted-foreground">{k}: </span>
+                        <span className="font-mono">{String(v)}</span>{" "}
+                        {jsonAccountResult.dryRun ? "would insert" : "inserted"}
+                      </div>
+                    ))}
+                    {Object.entries(jsonAccountResult.skipped || {}).some(([, v]) => v > 0) ? (
+                      <div className="col-span-full text-amber-800 dark:text-amber-200">
+                        Skipped rows (already present or unresolved links):{" "}
+                        {Object.entries(jsonAccountResult.skipped || {})
+                          .filter(([, v]) => v > 0)
+                          .map(([k, v]) => `${k}: ${v}`)
+                          .join(", ")}
+                      </div>
+                    ) : null}
+                  </div>
+                  {jsonAccountResult.errors?.length ? (
+                    <ul className="list-disc list-inside text-red-700 dark:text-red-300 max-h-32 overflow-y-auto">
+                      {jsonAccountResult.errors.slice(0, 8).map((e, i) => (
+                        <li key={i}>
+                          {e.table} — {e.message}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -420,10 +1049,14 @@ export default function ImportExport() {
               </ol>
             </div>
 
-            <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+            <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg space-y-2">
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 <strong>Tip:</strong> The priority scoring engine from your Google Apps Script 
                 is built into AxTask, so your tasks will have consistent priority scoring.
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                <strong>JSON + Sheets:</strong> Keep using your repo spreadsheet for day-to-day capture; use JSON for full backups.
+                Import either first; matching rows are merged by task content, not by row position.
               </p>
             </div>
           </div>

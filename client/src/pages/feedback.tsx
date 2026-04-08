@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
+import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -71,7 +72,7 @@ export default function FeedbackPage() {
           "Content-Type": file.type,
         };
         const csrf = getCsrfToken();
-        if (csrf) headers["x-csrf-token"] = csrf;
+        if (csrf) headers[AXTASK_CSRF_HEADER] = csrf;
 
         const putRes = await fetch(uploadInfo.uploadUrl, {
           method: "PUT",

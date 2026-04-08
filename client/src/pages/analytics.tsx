@@ -54,16 +54,18 @@ export default function Analytics() {
 
   if (isLoading || !data) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
-          <p className="text-gray-600 dark:text-gray-400">Agent-driven productivity and feedback insights</p>
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
+          <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">
+            Agent-driven productivity, feedback insights, and task performance metrics
+          </p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           {[1, 2, 3, 4].map((i) => (
             <Card key={i}>
-              <CardContent className="p-6">
-                <div className="h-40 bg-gray-200 dark:bg-gray-700 animate-pulse rounded" />
+              <CardContent className="p-4 md:p-6">
+                <div className="h-32 md:h-40 bg-gray-200 dark:bg-gray-700 animate-pulse rounded" />
               </CardContent>
             </Card>
           ))}
@@ -76,15 +78,15 @@ export default function Analytics() {
   const feedbackPriorityData = Object.entries(data.feedbackInsights.byPriority).map(([name, value]) => ({ name, value }));
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
-        <p className="text-gray-600 dark:text-gray-400">
-          Completed tasks flow into a web graph, with agent-classified graph parameters and feedback prioritization.
+        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
+        <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">
+          Completed tasks flow into a web graph, with agent-classified parameters, feedback prioritization, and performance metrics.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Completion Rate</CardTitle>

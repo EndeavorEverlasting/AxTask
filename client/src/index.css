@@ -53,9 +53,81 @@
     @apply border-border;
   }
 
+  html,
+  body {
+    height: 100%;
+    min-height: 100dvh;
+    margin: 0;
+  }
+
+  #root {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
+}
+
+/* Tutorial speech-bubble tail (points toward highlighted target) */
+.tutorial-bubble-tail--left::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 24px;
+  border: 8px solid transparent;
+  border-right-color: white;
+}
+
+.dark .tutorial-bubble-tail--left::before {
+  border-right-color: rgb(31 41 55);
+}
+
+.tutorial-bubble-tail--right::before {
+  content: "";
+  position: absolute;
+  right: -8px;
+  top: 24px;
+  border: 8px solid transparent;
+  border-left-color: white;
+}
+
+.dark .tutorial-bubble-tail--right::before {
+  border-left-color: rgb(31 41 55);
+}
+
+.tutorial-bubble-tail--bottom::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-top-color: white;
+}
+
+.dark .tutorial-bubble-tail--bottom::before {
+  border-top-color: rgb(31 41 55);
+}
+
+.tutorial-bubble-tail--top::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-bottom-color: white;
+}
+
+.dark .tutorial-bubble-tail--top::before {
+  border-bottom-color: rgb(31 41 55);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* Focus flow glow — guides users to the next field */
@@ -110,19 +182,45 @@
   animation: none;
 }
 
-/* Tutorial glow — guides users through interactive tutorial */
-@keyframes field-glow-tutorial-pulse {
+/* Success glow — universal green highlight for completed actions */
+@keyframes field-glow-success-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 hsla(270, 76%, 55%, 0);
+    box-shadow: 0 0 0 0 hsla(142, 71%, 45%, 0);
   }
   50% {
-    box-shadow: 0 0 12px 3px hsla(270, 76%, 55%, 0.35);
+    box-shadow: 0 0 8px 2px hsla(142, 71%, 45%, 0.3);
+  }
+}
+
+.field-glow-success {
+  animation: field-glow-success-pulse 2s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.5) !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.dark .field-glow-success {
+  animation: field-glow-success-pulse 2s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.4) !important;
+}
+
+.field-glow-success:focus,
+.field-glow-success:focus-within {
+  animation: none;
+}
+
+/* Tutorial glow — yellow pulsing highlight to guide users */
+@keyframes field-glow-tutorial-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsla(45, 93%, 47%, 0);
+  }
+  50% {
+    box-shadow: 0 0 14px 4px hsla(45, 93%, 47%, 0.4);
   }
 }
 
 .field-glow-tutorial {
   animation: field-glow-tutorial-pulse 1.5s ease-in-out infinite;
-  border-color: hsla(270, 76%, 55%, 0.5) !important;
+  border-color: hsla(45, 93%, 47%, 0.55) !important;
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
   position: relative;
   z-index: 10;
@@ -130,12 +228,40 @@
 
 .dark .field-glow-tutorial {
   animation: field-glow-tutorial-pulse 1.5s ease-in-out infinite;
-  border-color: hsla(270, 76%, 55%, 0.45) !important;
+  border-color: hsla(45, 93%, 47%, 0.45) !important;
 }
 
 .field-glow-tutorial:focus,
 .field-glow-tutorial:focus-within {
   animation: field-glow-tutorial-pulse 1.5s ease-in-out infinite;
+}
+
+/* Tutorial success glow — green pulse for action/completion targets */
+@keyframes field-glow-tutorial-success-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsla(142, 71%, 45%, 0);
+  }
+  50% {
+    box-shadow: 0 0 14px 4px hsla(142, 71%, 45%, 0.4);
+  }
+}
+
+.field-glow-tutorial-success {
+  animation: field-glow-tutorial-success-pulse 1.5s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.55) !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
+  z-index: 10;
+}
+
+.dark .field-glow-tutorial-success {
+  animation: field-glow-tutorial-success-pulse 1.5s ease-in-out infinite;
+  border-color: hsla(142, 71%, 45%, 0.45) !important;
+}
+
+.field-glow-tutorial-success:focus,
+.field-glow-tutorial-success:focus-within {
+  animation: field-glow-tutorial-success-pulse 1.5s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -151,8 +277,18 @@
   }
   .field-glow-tutorial {
     animation: none;
-    border-color: hsla(270, 76%, 55%, 0.6) !important;
-    box-shadow: 0 0 0 2px hsla(270, 76%, 55%, 0.3);
+    border-color: hsla(45, 93%, 47%, 0.6) !important;
+    box-shadow: 0 0 0 2px hsla(45, 93%, 47%, 0.3);
+  }
+  .field-glow-tutorial-success {
+    animation: none;
+    border-color: hsla(142, 71%, 45%, 0.6) !important;
+    box-shadow: 0 0 0 2px hsla(142, 71%, 45%, 0.3);
+  }
+  .field-glow-success {
+    animation: none;
+    border-color: hsla(142, 71%, 45%, 0.5) !important;
+    box-shadow: 0 0 0 2px hsla(142, 71%, 45%, 0.25);
   }
 }
 

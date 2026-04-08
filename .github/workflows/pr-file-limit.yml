@@ -1,0 +1,25 @@
+name: pr-file-limit
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-file-limit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enforce PR file count limit
+        env:
+          PR_FILE_LIMIT: "300"
+        run: node tools/ci/check-pr-file-count.mjs

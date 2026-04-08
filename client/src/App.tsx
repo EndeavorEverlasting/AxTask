@@ -1,7 +1,7 @@
 import { Switch, Route, useLocation } from "wouter";
-import { useCallback, useEffect } from "react";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useTutorial } from "@/hooks/use-tutorial";
+import { PersistedQueryLayer } from "./lib/app-query-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -9,12 +9,17 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { useZoom, ZoomProvider } from "@/hooks/use-zoom";
 import { TutorialProvider } from "@/hooks/use-tutorial";
 import { NotificationModeProvider } from "@/hooks/use-notification-mode";
-import { VoiceProvider } from "@/hooks/use-voice";
+import { VoiceProvider, useVoice } from "@/hooks/use-voice";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TutorialOverlay } from "@/components/tutorial-overlay";
 import { TutorialInteractionGuide } from "@/components/tutorial-interaction-guide";
 import { VoiceCommandBar } from "@/components/voice-command-bar";
 import { InstallCtaBanner } from "@/components/install-cta-banner";
+import { OfflineDataBanner } from "@/components/offline-data-banner";
+import { TaskOfflineSyncProvider } from "@/components/task-offline-sync-provider";
+import BulkActionDialog from "@/components/bulk-action-dialog";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { LayoutDashboard, List, CalendarDays, Brain, Mic } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
 import Analytics from "@/pages/analytics";
@@ -28,10 +33,17 @@ import RewardsPage from "@/pages/rewards";
 import PremiumPage from "@/pages/premium";
 import BillingPage from "@/pages/billing";
 import AccountPage from "@/pages/account";
+import AppealsPage from "@/pages/appeals";
 import FeedbackPage from "@/pages/feedback";
+import CommunityPage from "@/pages/community";
+import ExperienceConfirmPage from "@/pages/experience-confirm";
 import LoginPage from "@/pages/login";
+import ContactPage from "@/pages/contact";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
+import { Link } from "wouter";
+import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
+import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
 
 function Router() {
   return (
@@ -45,25 +57,178 @@ function Router() {
       <Route path="/checklist" component={ChecklistPage} />
       <Route path="/planner" component={PlannerPage} />
       <Route path="/feedback" component={FeedbackPage} />
+      <Route path="/community" component={CommunityPage} />
       <Route path="/admin" component={AdminPage} />
       <Route path="/rewards" component={RewardsPage} />
       <Route path="/premium" component={PremiumPage} />
       <Route path="/billing" component={BillingPage} />
       <Route path="/account" component={AccountPage} />
+      <Route path="/appeals" component={AppealsPage} />
+      <Route path="/contact" component={ContactPage} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
+/** Ctrl+Shift+Y / Cmd+Shift+Y toggles tutorial (avoids Ctrl/Cmd+T and Ctrl/Cmd+Shift+T reserved for browser tabs). */
+function TutorialHotkeys() {
+  const { isActive, startTutorial, stopTutorial } = useTutorial();
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      if (e.shiftKey && (e.ctrlKey || e.metaKey) && k === "y") {
+        e.preventDefault();
+        if (isActive) stopTutorial();
+        else startTutorial();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isActive, startTutorial, stopTutorial]);
+  return null;
+}
+
+function ReviewDialogBridge() {
+  const { reviewProposal, clearReviewProposal } = useVoice();
+  if (!reviewProposal) return null;
+  return (
+    <BulkActionDialog
+      open={!!reviewProposal}
+      onOpenChange={(open) => { if (!open) clearReviewProposal(); }}
+      actions={reviewProposal.actions}
+      message={reviewProposal.message}
+      unmatched={reviewProposal.unmatched}
+    />
+  );
+}
+
+const BOTTOM_NAV_ITEMS = [
+  { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { path: "/tasks", icon: List, label: "Tasks" },
+  { path: "/calendar", icon: CalendarDays, label: "Calendar" },
+  { path: "/planner", icon: Brain, label: "Planner" },
+];
+
+function MobileBottomNav() {
+  const [location] = useLocation();
+
+  const isActive = (path: string) => {
+    if (path === "/") return location === "/";
+    return location === path || location.startsWith(`${path}/`);
+  };
+
+  return (
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 safe-area-bottom">
+      <div className="flex items-center justify-around h-14">
+        {BOTTOM_NAV_ITEMS.map(({ path, icon: Icon, label }) => (
+          <Link
+            key={path}
+            href={path}
+            className={`flex flex-col items-center justify-center flex-1 h-full min-w-[64px] min-h-[44px] transition-colors no-underline ${
+              isActive(path)
+                ? "text-primary"
+                : "text-gray-400 dark:text-gray-500"
+            }`}
+          >
+            <Icon className="h-5 w-5" />
+            <span className="text-[10px] mt-0.5 font-medium">{label}</span>
+          </Link>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+function MobileVoiceFAB() {
+  const { openBar, isSupported } = useVoice();
+  if (!isSupported) return null;
+
+  return (
+    <button
+      className="md:hidden fixed right-4 bottom-20 z-50 w-14 h-14 rounded-full bg-primary text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform"
+      onClick={openBar}
+      aria-label="Voice command"
+    >
+      <Mic className="h-6 w-6" />
+    </button>
+  );
+}
+
+const ROUTE_STORAGE_KEY = "axtask_last_route";
+/** Keep aligned with `<Router>` paths so last-route persistence matches real routes. */
+const VALID_ROUTES = [
+  "/",
+  "/tasks",
+  "/calendar",
+  "/analytics",
+  "/import-export",
+  "/google-sheets",
+  "/checklist",
+  "/planner",
+  "/feedback",
+  "/community",
+  "/admin",
+  "/rewards",
+  "/premium",
+  "/billing",
+  "/account",
+  "/appeals",
+  "/contact",
+];
+
+function useRoutePersistence() {
+  const [location, setLocation] = useLocation();
+  const restoredRef = useRef(false);
+
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    const pathname = window.location.pathname;
+    if (pathname === "/" || pathname === "") {
+      const saved = localStorage.getItem(ROUTE_STORAGE_KEY);
+      if (saved && saved !== "/" && VALID_ROUTES.includes(saved)) {
+        setLocation(saved);
+      }
+    }
+  }, [setLocation]);
+
+  useEffect(() => {
+    if (location && location !== "/" && VALID_ROUTES.includes(location)) {
+      localStorage.setItem(ROUTE_STORAGE_KEY, location);
+    }
+  }, [location]);
+}
+
 function AuthenticatedApp() {
   const { user, loading } = useAuth();
   const { zoom } = useZoom();
-  const scale = zoom / 100;
-  const [, setLocation] = useLocation();
+  const isMobile = useIsMobile();
+  const scale = isMobile ? 1 : zoom / 100;
+  const [location, setLocation] = useLocation();
+
+  useRoutePersistence();
+
+  if (location === "/mfa/confirm" || location === "/welcome-confirm") {
+    return <ExperienceConfirmPage />;
+  }
 
   const handleNavigate = useCallback((path: string) => {
     setLocation(path);
   }, [setLocation]);
+
+  const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user || loading) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "Slash") {
+        e.preventDefault();
+        setHotkeyHelpOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [user, loading]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -78,48 +243,65 @@ function AuthenticatedApp() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="h-full min-h-0 overflow-y-auto flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
   if (!user) {
+    if (location === "/contact") {
+      return <ContactPage />;
+    }
     return <LoginPage />;
   }
 
   return (
+    <ImmersiveShellProvider>
     <VoiceProvider onNavigate={handleNavigate}>
-      <div className="h-screen flex bg-gray-50 dark:bg-gray-900 overflow-hidden">
+      <TaskOfflineSyncProvider>
+      <div className="h-dvh min-h-0 flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-hidden">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <OfflineDataBanner />
           <InstallCtaBanner userId={user.id} />
           <div
-            className="h-full overflow-auto"
-            style={{
-              transform: `scale(${scale})`,
-              transformOrigin: "top left",
-              width: `${100 / scale}%`,
-              height: `${100 / scale}%`,
-            }}
+            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0 [scrollbar-gutter:stable]"
+            style={
+              scale !== 1
+                ? {
+                    transform: `scale(${scale})`,
+                    transformOrigin: "top left",
+                    width: `${100 / scale}%`,
+                    height: `${100 / scale}%`,
+                  }
+                : undefined
+            }
           >
             <Router />
           </div>
         </main>
+        <MobileBottomNav />
+        <MobileVoiceFAB />
+        <TutorialHotkeys />
+        {user ? <HotkeyHelpDialog open={hotkeyHelpOpen} onOpenChange={setHotkeyHelpOpen} /> : null}
         <TutorialOverlay />
         <TutorialInteractionGuide />
         <VoiceCommandBar />
+        <ReviewDialogBridge />
       </div>
+      </TaskOfflineSyncProvider>
     </VoiceProvider>
+    </ImmersiveShellProvider>
   );
 }
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <TooltipProvider>
-          <AuthProvider>
+    <ThemeProvider>
+      <TooltipProvider>
+        <AuthProvider>
+          <PersistedQueryLayer>
             <ZoomProvider>
               <TutorialProvider>
                 <NotificationModeProvider>
@@ -127,11 +309,11 @@ function App() {
                 </NotificationModeProvider>
               </TutorialProvider>
             </ZoomProvider>
-          </AuthProvider>
-          <Toaster />
-        </TooltipProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+          </PersistedQueryLayer>
+        </AuthProvider>
+        <Toaster />
+      </TooltipProvider>
+    </ThemeProvider>
   );
 }
 

@@ -1,16 +1,26 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { apiFetch } from "@/lib/queryClient";
+import {
+  syncCreateTask,
+  syncUpdateTask,
+  TaskSyncAbortedError,
+} from "@/lib/task-sync-api";
 import { PriorityEngine } from "@/lib/priority-engine";
 import { useToast } from "@/hooks/use-toast";
+import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useAuth } from "@/lib/auth-context";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { parseVoiceCommands, stripCommandText } from "@/lib/voice-commands";
 import { useVoice } from "@/hooks/use-voice";
+import { useCollaboration } from "@/hooks/use-collaboration";
 import { MicButton } from "@/components/mic-button";
+import { ShareDialog } from "@/components/share-dialog";
+import { TaskReportDownload } from "@/components/task-report-download";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,12 +29,14 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PriorityBadge } from "./priority-badge";
 import { ClockTimePicker } from "@/components/ui/clock-time-picker";
-import { Plus, CalendarIcon } from "lucide-react";
+import { Plus, CalendarIcon, Lightbulb, Save, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
 import { useFieldFlow } from "@/hooks/use-field-flow";
+import { useLiveClassificationStream } from "@/hooks/use-live-classification-stream";
 
 interface TaskFormProps {
   task?: Task;
@@ -72,13 +84,46 @@ function clearDraft(key: string) {
 
 export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { toast } = useToast();
+  const { playIfEligible } = useImmersiveSounds();
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
   const { onFieldBlur, isHinted } = useFieldFlow();
   const [warningFields, setWarningFields] = useState<Set<string>>(new Set());
   const warningTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const [voiceTarget, setVoiceTarget] = useState<"activity" | "notes">("activity");
+  const [voiceTarget, setVoiceTarget] = useState<"activity" | "notes" | "prerequisites">("activity");
+  const [debouncedActivity, setDebouncedActivity] = useState("");
+  const [deadlineSuggestion, setDeadlineSuggestion] = useState<{
+    suggestedDate: string;
+    reason: string;
+    confidence: number;
+  } | null>(null);
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+  const liveClassificationPushRef = useRef<(activity: string, notes: string) => void>(() => {});
+
+  const collab = useCollaboration(task?.id ?? null);
+  const isEditing = !!task;
+  const isOwner = !task || task.userId === user?.id;
+
+  const getCollabFieldStyle = useCallback((fieldName: string): string => {
+    if (!collab.connected || !task) return "";
+    const editing = collab.users.find(u => u.focusedField === fieldName && u.userId !== user?.id);
+    if (editing) return `ring-2 ring-offset-1`;
+    return "";
+  }, [collab.users, collab.connected, task, user?.id]);
+
+  const getCollabFieldColor = useCallback((fieldName: string): string | undefined => {
+    if (!collab.connected || !task) return undefined;
+    const editing = collab.users.find(u => u.focusedField === fieldName && u.userId !== user?.id);
+    return editing?.color;
+  }, [collab.users, collab.connected, task, user?.id]);
+
+  const getCollabFieldUser = useCallback((fieldName: string): string | undefined => {
+    if (!collab.connected || !task) return undefined;
+    const editing = collab.users.find(u => u.focusedField === fieldName && u.userId !== user?.id);
+    return editing ? (editing.displayName || editing.userId) : undefined;
+  }, [collab.users, collab.connected, task, user?.id]);
 
   const draftContext = task ? `edit_${task.id}` : defaultDate ? `date_${defaultDate}` : "new";
   const draftKey = getDraftKey(user?.id, draftContext);
@@ -93,6 +138,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     impact: task.impact || undefined,
     effort: task.effort || undefined,
     prerequisites: task.prerequisites || "",
+    recurrence: (task.recurrence as "none" | "daily" | "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly") || "none",
     status: (task.status as "pending" | "in-progress" | "completed"),
   } : {
     date: defaultDate || new Date().toISOString().split('T')[0],
@@ -103,6 +149,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     impact: undefined,
     effort: undefined,
     prerequisites: "",
+    recurrence: "none" as const,
     status: "pending",
   };
 
@@ -114,21 +161,23 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     defaultValues: mergedDefaults,
   });
 
-  const addWarning = useCallback((fieldName: string) => {
+  const addWarning = useCallback((fieldName: string, autoExpire = false) => {
     const existing = warningTimers.current.get(fieldName);
     if (existing) clearTimeout(existing);
 
     setWarningFields(prev => new Set(prev).add(fieldName));
 
-    const timer = setTimeout(() => {
-      setWarningFields(prev => {
-        const next = new Set(prev);
-        next.delete(fieldName);
-        return next;
-      });
-      warningTimers.current.delete(fieldName);
-    }, 5000);
-    warningTimers.current.set(fieldName, timer);
+    if (autoExpire) {
+      const timer = setTimeout(() => {
+        setWarningFields(prev => {
+          const next = new Set(prev);
+          next.delete(fieldName);
+          return next;
+        });
+        warningTimers.current.delete(fieldName);
+      }, 5000);
+      warningTimers.current.set(fieldName, timer);
+    }
   }, []);
 
   const clearWarning = useCallback((fieldName: string) => {
@@ -174,7 +223,33 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const speech = useSpeechRecognition({
     continuous: true,
     onResult: handleVoiceResult,
+    onLiveText: (combined) => {
+      const target = voiceTarget;
+      const activityVal = form.getValues("activity") || "";
+      const notesVal = form.getValues("notes") || "";
+      const prereqVal = form.getValues("prerequisites") || "";
+      if (target === "activity") {
+        liveClassificationPushRef.current(combined, notesVal);
+      } else if (target === "notes") {
+        liveClassificationPushRef.current(activityVal, combined);
+      } else {
+        const notesSide = [notesVal, prereqVal, combined].filter(Boolean).join("\n");
+        liveClassificationPushRef.current(activityVal, notesSide);
+      }
+    },
   });
+
+  const {
+    suggestions: liveTopicSuggestions,
+    loading: liveTopicLoading,
+    pushLiveText,
+  } = useLiveClassificationStream({
+    enabled: speech.status === "listening",
+  });
+
+  useEffect(() => {
+    liveClassificationPushRef.current = (activity, notes) => pushLiveText(activity, notes);
+  }, [pushLiveText]);
 
   useEffect(() => {
     if (speech.error) {
@@ -197,30 +272,85 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const createTaskMutation = useMutation({
     mutationFn: async (taskData: InsertTask) => {
       if (task) {
-        const response = await apiRequest("PUT", `/api/tasks/${task.id}`, taskData);
-        return response.json();
-      } else {
-        const response = await apiRequest("POST", "/api/tasks", taskData);
-        return response.json();
+        return syncUpdateTask(task.id, taskData as Record<string, unknown>, task, queryClient);
       }
+      return syncCreateTask(taskData, queryClient, user?.id ?? "");
     },
-    onSuccess: () => {
+    onSuccess: (data: unknown) => {
+      const d = data as { offlineQueued?: boolean; classificationReward?: unknown; coinReward?: unknown };
+      if (d?.offlineQueued) {
+        toast({
+          title: "Saved offline",
+          description: "Will sync when you're back online.",
+        });
+        if (!task) {
+          form.reset({
+            date: defaultDate || new Date().toISOString().split("T")[0],
+            time: "",
+            activity: "",
+            notes: "",
+            urgency: undefined,
+            impact: undefined,
+            effort: undefined,
+            prerequisites: "",
+            recurrence: "none",
+            status: "pending",
+          });
+          clearDraft(draftKey);
+        }
+        onSuccess?.();
+        return;
+      }
+
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-      toast({
-        title: task ? "Task updated" : "Task created",
-        description: task ? "Your task has been updated successfully." : "Your task has been added successfully.",
-      });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+
+      if (d?.coinReward || d?.classificationReward) {
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
+      }
+
+      if (d?.classificationReward) {
+        const cr = d.classificationReward as { coinsEarned: number; classification: string; newBalance: number };
+        toast({
+          title: `${task ? "Task updated" : "Task created"} — +${cr.coinsEarned} AxCoins!`,
+          description: `Classified as ${cr.classification}. New balance: ${cr.newBalance}`,
+        });
+        playIfEligible(1);
+      } else {
+        toast({
+          title: task ? "Task updated" : "Task created",
+          description: task ? "Your task has been updated successfully." : "Your task has been added successfully.",
+        });
+        if (d?.coinReward) playIfEligible(1);
+        else playIfEligible(3);
+      }
+
       if (!task) {
-        form.reset();
+        form.reset({
+          date: defaultDate || new Date().toISOString().split("T")[0],
+          time: "",
+          activity: "",
+          notes: "",
+          urgency: undefined,
+          impact: undefined,
+          effort: undefined,
+          prerequisites: "",
+          recurrence: "none",
+          status: "pending",
+        });
         clearDraft(draftKey);
       }
       onSuccess?.();
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
+      if (error instanceof TaskSyncAbortedError) return;
+      const message = error instanceof Error ? error.message : "Failed to save task";
       toast({
         title: "Error",
-        description: error.message || "Failed to create task",
+        description: message,
         variant: "destructive",
       });
     },
@@ -250,6 +380,76 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [form, draftKey, task]);
+
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (task) return;
+    const sub = form.watch((values) => {
+      const activity = values.activity || "";
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      if (activity.length >= 3) {
+        debounceTimerRef.current = setTimeout(() => setDebouncedActivity(activity), 600);
+      } else {
+        setDebouncedActivity("");
+        setDeadlineSuggestion(null);
+      }
+    });
+    return () => {
+      sub.unsubscribe();
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [form, task]);
+
+  useEffect(() => {
+    if (!debouncedActivity || debouncedActivity.length < 3 || task) return;
+    let cancelled = false;
+    const ac = new AbortController();
+
+    apiFetch("POST", "/api/patterns/suggest-deadline", { activity: debouncedActivity }, undefined, ac.signal)
+      .then(async (res) => {
+        if (ac.signal.aborted) return;
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          console.warn("[task-form] suggest-deadline failed:", res.status, t || res.statusText);
+          if (!cancelled && !ac.signal.aborted) setDeadlineSuggestion(null);
+          return;
+        }
+        return res.json() as Promise<{ suggestion?: unknown }>;
+      })
+      .then((data) => {
+        if (!data || cancelled || ac.signal.aborted) return;
+        const s = data.suggestion;
+        if (
+          s &&
+          typeof s === "object" &&
+          typeof (s as { suggestedDate?: unknown }).suggestedDate === "string" &&
+          typeof (s as { reason?: unknown }).reason === "string" &&
+          typeof (s as { confidence?: unknown }).confidence === "number"
+        ) {
+          const suggestedDate = (s as { suggestedDate: string }).suggestedDate.trim();
+          const ymd = /^\d{4}-\d{2}-\d{2}$/;
+          const parsed = ymd.test(suggestedDate) ? Date.parse(`${suggestedDate}T12:00:00.000Z`) : Date.parse(suggestedDate);
+          if (!Number.isFinite(parsed)) {
+            setDeadlineSuggestion(null);
+            return;
+          }
+          setDeadlineSuggestion(s as { suggestedDate: string; reason: string; confidence: number });
+          setSuggestionDismissed(false);
+        } else {
+          setDeadlineSuggestion(null);
+        }
+      })
+      .catch((e: unknown) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        console.warn("[task-form] suggest-deadline error:", e);
+        if (!cancelled && !ac.signal.aborted) setDeadlineSuggestion(null);
+      });
+
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [debouncedActivity, task]);
 
   useEffect(() => {
     return () => {
@@ -301,6 +501,12 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       });
     }
 
+    if (!values.prerequisites || values.prerequisites.trim() === "") {
+      addWarning("prerequisites", true);
+    } else {
+      clearWarning("prerequisites");
+    }
+
     form.handleSubmit(onSubmit)();
   }, [form, addWarning, clearWarning, toast, onSubmit]);
 
@@ -315,6 +521,18 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     }
   }, [consumeTaskPrefill, form, task]);
 
+  // Intentionally mount-only: one-time yellow hints for a fresh composer, not re-run when task/form changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+  useEffect(() => {
+    if (task) return;
+    const values = form.getValues();
+    const emptyRequired: string[] = [];
+    if (!values.activity || values.activity.trim() === "") emptyRequired.push("activity");
+    if (!values.time || values.time.trim() === "") emptyRequired.push("time");
+    if (!values.notes || values.notes.trim() === "") emptyRequired.push("notes");
+    emptyRequired.forEach(f => addWarning(f));
+  }, []);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
@@ -327,25 +545,95 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   }, [handleSubmitWithWarnings]);
 
   return (
-    <Card>
+    <Card id="tutorial-task-form">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Quick Task Entry</CardTitle>
+            <CardTitle>{task ? "Edit Task" : "Quick Task Entry"}</CardTitle>
             <CardDescription>
-              Add a new task with automatic priority calculation
+              {task ? "Update this task's details" : "Add a new task with automatic priority calculation"}
             </CardDescription>
           </div>
-          {speech.status === "listening" && (
-            <div className="flex items-center gap-2 text-sm text-red-500 font-medium animate-pulse">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
-              </span>
-              Listening ({voiceTarget})
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex items-center gap-2">
+            {speech.status === "listening" && (
+              <div className="flex items-center gap-2 text-sm text-red-500 font-medium animate-pulse">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                </span>
+                Listening ({voiceTarget})
+              </div>
+            )}
+            {isEditing && (
+              <div className="flex flex-wrap items-center gap-2 justify-end">
+                <TaskReportDownload taskId={task!.id} activityPreview={task!.activity || "task"} />
+                <ShareDialog
+                  taskId={task!.id}
+                  isOwner={isOwner}
+                  visibility={task!.visibility}
+                  communityShowNotes={task!.communityShowNotes}
+                />
+              </div>
+            )}
             </div>
-          )}
+            {speech.status === "listening" && (liveTopicLoading || liveTopicSuggestions.length > 0) && (
+              <div className="flex flex-wrap items-end justify-end gap-1.5 max-w-[min(100%,20rem)]">
+                <span className="text-[11px] font-medium text-amber-700/90 dark:text-amber-400/90 flex items-center gap-1 shrink-0">
+                  <Sparkles className="h-3 w-3" />
+                  Topic
+                </span>
+                {liveTopicLoading && (
+                  <span className="text-[11px] text-muted-foreground">Analyzing…</span>
+                )}
+                {liveTopicSuggestions.map((s) => (
+                  <span
+                    key={`${s.label}-${s.source}`}
+                    className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100/90 text-amber-900 dark:bg-amber-900/35 dark:text-amber-200 tabular-nums"
+                    title={
+                      s.source === "nodeweaver"
+                        ? "NodeWeaver"
+                        : s.source === "catalog"
+                          ? "Your categories"
+                          : "AxTask classifier"
+                    }
+                  >
+                    {s.label}
+                    <span className="opacity-70 ml-1">{Math.round(s.confidence * 100)}%</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
+        {collab.connected && collab.users.length > 1 && (
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs text-muted-foreground">Editing with:</span>
+            <TooltipProvider>
+              <div className="flex -space-x-2">
+                {collab.users
+                  .filter(u => u.userId !== user?.id)
+                  .map(u => (
+                    <Tooltip key={u.userId}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold border-2 border-white dark:border-gray-900 cursor-default"
+                          style={{ backgroundColor: u.color }}
+                        >
+                          {(u.displayName || u.userId).charAt(0).toUpperCase()}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{u.displayName || u.userId}</p>
+                        {u.focusedField && <p className="text-xs opacity-70">Editing: {u.focusedField}</p>}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+              </div>
+            </TooltipProvider>
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -361,45 +649,91 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   return (
                     <FormItem className="flex flex-col">
                       <FormLabel>Date <span className="text-red-400">*</span></FormLabel>
-                      <Popover modal={true}>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                "w-full pl-3 text-left font-normal",
-                                !field.value && "text-muted-foreground",
-                                getFieldClass("date")
-                              )}
-                              onBlur={() => onFieldBlur("date", field.value)}
-                            >
-                              {field.value
-                                ? format(dateValue!, "PPP")
-                                : "Pick a date"}
-                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={dateValue}
-                            onSelect={(day) => {
-                              if (day) {
-                                field.onChange(format(day, "yyyy-MM-dd"));
+                      {isMobile ? (
+                        <FormControl>
+                          <Input
+                            type="date"
+                            value={field.value || ""}
+                            onChange={(e) => {
+                              field.onChange(e.target.value);
+                              if (e.target.value) {
                                 clearWarning("date");
-                                onFieldBlur("date", format(day, "yyyy-MM-dd"));
+                                onFieldBlur("date", e.target.value);
                               }
                             }}
-                            initialFocus
+                            className={cn("min-h-[44px]", getFieldClass("date"))}
                           />
-                        </PopoverContent>
-                      </Popover>
+                        </FormControl>
+                      ) : (
+                        <Popover modal={true}>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant="outline"
+                                className={cn(
+                                  "w-full pl-3 text-left font-normal min-h-[44px]",
+                                  !field.value && "text-muted-foreground",
+                                  getFieldClass("date")
+                                )}
+                                onBlur={() => onFieldBlur("date", field.value)}
+                              >
+                                {field.value
+                                  ? format(dateValue!, "PPP")
+                                  : "Pick a date"}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={dateValue}
+                              onSelect={(day) => {
+                                if (day) {
+                                  field.onChange(format(day, "yyyy-MM-dd"));
+                                  clearWarning("date");
+                                  onFieldBlur("date", format(day, "yyyy-MM-dd"));
+                                }
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      )}
                       <FormMessage />
                     </FormItem>
                   );
                 }}
               />
+
+              {deadlineSuggestion && !suggestionDismissed && !task && (
+                <div className="col-span-1 lg:col-span-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-sm">
+                  <Lightbulb className="h-4 w-4 text-emerald-500 shrink-0" />
+                  <span className="text-emerald-700 dark:text-emerald-300 flex-1">
+                    {deadlineSuggestion.reason}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
+                    onClick={() => {
+                      form.setValue("date", deadlineSuggestion.suggestedDate);
+                      clearWarning("date");
+                      setDeadlineSuggestion(null);
+                    }}
+                  >
+                    Use {(() => { const d = new Date(deadlineSuggestion.suggestedDate + "T12:00:00"); return isNaN(d.getTime()) ? (deadlineSuggestion.suggestedDate || "No date") : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); })()}
+                  </Button>
+                  <button
+                    type="button"
+                    className="text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-200 text-xs"
+                    onClick={() => setSuggestionDismissed(true)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
 
               <FormField
                 control={form.control}
@@ -408,25 +742,40 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   <FormItem className="flex flex-col">
                     <FormLabel>Time</FormLabel>
                     <FormControl>
-                      <div
-                        className={cn(
-                          "rounded-md",
-                          isHinted("time") && "field-glow-hint",
-                          isWarned("time") && "field-glow-warning"
-                        )}
-                        onBlur={() => onFieldBlur("time", field.value)}
-                      >
-                        <ClockTimePicker
-                          value={field.value || undefined}
-                          onChange={(t) => {
-                            field.onChange(t);
-                            if (t) {
-                              onFieldBlur("time", t);
+                      {isMobile ? (
+                        <Input
+                          type="time"
+                          value={field.value || ""}
+                          onChange={(e) => {
+                            field.onChange(e.target.value);
+                            if (e.target.value) {
+                              onFieldBlur("time", e.target.value);
                               clearWarning("time");
                             }
                           }}
+                          className={cn("min-h-[44px]", getFieldClass("time"))}
                         />
-                      </div>
+                      ) : (
+                        <div
+                          className={cn(
+                            "rounded-md",
+                            isHinted("time") && "field-glow-hint",
+                            isWarned("time") && "field-glow-warning"
+                          )}
+                          onBlur={() => onFieldBlur("time", field.value)}
+                        >
+                          <ClockTimePicker
+                            value={field.value || undefined}
+                            onChange={(t) => {
+                              field.onChange(t);
+                              if (t) {
+                                onFieldBlur("time", t);
+                                clearWarning("time");
+                              }
+                            }}
+                          />
+                        </div>
+                      )}
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -445,7 +794,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger
-                          className={getFieldClass("status")}
+                          className={cn("min-h-[44px]", getFieldClass("status"))}
                         >
                           <SelectValue placeholder="Select status" />
                         </SelectTrigger>
@@ -470,21 +819,31 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       <FormLabel>Activity <span className="text-red-400">*</span></FormLabel>
                       <FormControl>
                         <div className="flex gap-2 items-center">
-                          <Input
-                            placeholder="Enter task activity or use the mic..."
-                            {...field}
-                            className={cn(getFieldClass("activity"), "flex-1")}
-                            onFocus={() => setVoiceTarget("activity")}
-                            onBlur={(e) => {
-                              field.onBlur();
-                              onFieldBlur("activity", e.target.value);
-                              if (e.target.value.trim()) clearWarning("activity");
-                            }}
-                            onChange={(e) => {
-                              field.onChange(e);
-                              if (e.target.value.trim()) clearWarning("activity");
-                            }}
-                          />
+                          <div className="relative flex-1">
+                            <Input
+                              placeholder="Enter task activity or use the mic..."
+                              {...field}
+                              className={cn("min-h-[44px]", getFieldClass("activity"), getCollabFieldStyle("activity"), "w-full")}
+                              style={getCollabFieldColor("activity") ? { "--tw-ring-color": getCollabFieldColor("activity") } as React.CSSProperties : undefined}
+                              onFocus={() => { setVoiceTarget("activity"); collab.focusField("activity"); }}
+                              onBlur={(e) => {
+                                field.onBlur();
+                                onFieldBlur("activity", e.target.value);
+                                if (e.target.value.trim()) clearWarning("activity");
+                                collab.blurField();
+                              }}
+                              onChange={(e) => {
+                                field.onChange(e);
+                                if (e.target.value.trim()) clearWarning("activity");
+                                collab.sendFieldEdit("activity", e.target.value);
+                              }}
+                            />
+                            {getCollabFieldUser("activity") && (
+                              <span className="absolute -top-5 right-0 text-xs px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCollabFieldColor("activity") }}>
+                                {getCollabFieldUser("activity")}
+                              </span>
+                            )}
+                          </div>
                           <MicButton
                             status={voiceTarget === "activity" ? speech.status : "idle"}
                             isSupported={speech.isSupported}
@@ -516,18 +875,27 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
                         <div className="flex gap-2 items-start">
-                          <Textarea
-                            rows={3}
-                            placeholder="Add detailed notes, tags (@urgent, #blocker), or dictate with mic..."
-                            {...field}
-                            className={cn(getFieldClass("notes"), "flex-1")}
-                            onFocus={() => setVoiceTarget("notes")}
-                            onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); }}
-                            onChange={(e) => {
-                              field.onChange(e);
-                              if (e.target.value.trim()) clearWarning("notes");
-                            }}
-                          />
+                          <div className="relative flex-1">
+                            <Textarea
+                              rows={3}
+                              placeholder="Add detailed notes, tags (@urgent, #blocker), or dictate with mic..."
+                              {...field}
+                              className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full")}
+                              style={getCollabFieldColor("notes") ? { "--tw-ring-color": getCollabFieldColor("notes") } as React.CSSProperties : undefined}
+                              onFocus={() => { setVoiceTarget("notes"); collab.focusField("notes"); }}
+                              onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); collab.blurField(); }}
+                              onChange={(e) => {
+                                field.onChange(e);
+                                if (e.target.value.trim()) clearWarning("notes");
+                                collab.sendFieldEdit("notes", e.target.value);
+                              }}
+                            />
+                            {getCollabFieldUser("notes") && (
+                              <span className="absolute -top-5 right-0 text-xs px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCollabFieldColor("notes") }}>
+                                {getCollabFieldUser("notes")}
+                              </span>
+                            )}
+                          </div>
                           <MicButton
                             status={voiceTarget === "notes" ? speech.status : "idle"}
                             isSupported={speech.isSupported}
@@ -567,7 +935,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger
-                          className={getFieldClass("urgency")}
+                          className={cn("min-h-[44px]", getFieldClass("urgency"))}
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -602,7 +970,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger
-                          className={getFieldClass("impact")}
+                          className={cn("min-h-[44px]", getFieldClass("impact"))}
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -637,7 +1005,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger
-                          className={getFieldClass("effort")}
+                          className={cn("min-h-[44px]", getFieldClass("effort"))}
                         >
                           <SelectValue placeholder="Auto-calculate" />
                         </SelectTrigger>
@@ -658,17 +1026,77 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
 
               <FormField
                 control={form.control}
+                name="recurrence"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Recurrence</FormLabel>
+                    <Select
+                      onValueChange={(v) => field.onChange(v)}
+                      value={field.value || "none"}
+                    >
+                      <FormControl>
+                        <SelectTrigger className={cn("min-h-[44px]", getFieldClass("recurrence"))}>
+                          <SelectValue placeholder="No recurrence" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">No recurrence</SelectItem>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="biweekly">Biweekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="quarterly">Quarterly</SelectItem>
+                        <SelectItem value="yearly">Yearly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name="prerequisites"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Prerequisites</FormLabel>
                     <FormControl>
-                      <Input
-                        placeholder="Dependencies or prerequisites..."
-                        {...field}
-                        className={getFieldClass("prerequisites")}
-                        onBlur={(e) => { field.onBlur(); onFieldBlur("prerequisites", e.target.value); }}
-                      />
+                      <div className="flex gap-2 items-center">
+                        <div className="relative flex-1">
+                          <Input
+                            placeholder="Dependencies or prerequisites..."
+                            {...field}
+                            className={cn("min-h-[44px]", getFieldClass("prerequisites"), getCollabFieldStyle("prerequisites"), "w-full")}
+                            style={getCollabFieldColor("prerequisites") ? { "--tw-ring-color": getCollabFieldColor("prerequisites") } as React.CSSProperties : undefined}
+                            onFocus={() => { setVoiceTarget("prerequisites"); collab.focusField("prerequisites"); }}
+                            onBlur={(e) => {
+                              field.onBlur();
+                              onFieldBlur("prerequisites", e.target.value);
+                              if (e.target.value.trim()) clearWarning("prerequisites");
+                              collab.blurField();
+                            }}
+                            onChange={(e) => {
+                              field.onChange(e);
+                              if (e.target.value.trim()) clearWarning("prerequisites");
+                              collab.sendFieldEdit("prerequisites", e.target.value);
+                            }}
+                          />
+                          {getCollabFieldUser("prerequisites") && (
+                            <span className="absolute -top-5 right-0 text-xs px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCollabFieldColor("prerequisites") }}>
+                              {getCollabFieldUser("prerequisites")}
+                            </span>
+                          )}
+                        </div>
+                        <MicButton
+                          status={voiceTarget === "prerequisites" ? speech.status : "idle"}
+                          isSupported={speech.isSupported}
+                          onClick={() => {
+                            setVoiceTarget("prerequisites");
+                            speech.toggle();
+                          }}
+                          error={speech.error}
+                        />
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -685,17 +1113,28 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
               <div className="flex space-x-3">
                 <Button 
                   type="button" 
-                  variant="outline" 
+                  variant="outline"
+                  className="min-h-[44px]"
                   onClick={() => { form.reset(freshDefaults); clearDraft(draftKey); }}
                 >
                   Clear
                 </Button>
-                <Button type="submit" disabled={createTaskMutation.isPending} title="Submit (Ctrl+Enter)">
-                  <Plus className="mr-2 h-4 w-4" />
+                <Button 
+                  type="submit" 
+                  disabled={createTaskMutation.isPending} 
+                  title="Submit (Ctrl+Enter / Cmd+Enter — focus in the page)" 
+                  className={cn(
+                    "min-h-[44px]",
+                    task 
+                      ? "bg-blue-600 hover:bg-blue-700 text-white" 
+                      : "bg-green-600 hover:bg-green-700 text-white field-glow-success"
+                  )}
+                >
+                  {task ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
                   {createTaskMutation.isPending 
-            ? (task ? "Updating..." : "Adding...") 
-            : (task ? "Update Task" : "Add Task")
-          }
+                    ? (task ? "Updating..." : "Adding...") 
+                    : (task ? "Update Task" : "+ Add Task")
+                  }
                   <kbd className="ml-2 hidden sm:inline-flex items-center gap-0.5 rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-mono opacity-70">⌃↵</kbd>
                 </Button>
               </div>

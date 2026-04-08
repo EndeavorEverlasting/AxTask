@@ -1,7 +1,9 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, getCsrfToken } from "@/lib/queryClient";
+import { getCsrfToken } from "@/lib/queryClient";
+import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
+import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,8 +21,11 @@ import {
   ScanLine,
   ChevronLeft,
   ChevronRight,
+  Coins,
 } from "lucide-react";
+import { postPaidDownload, triggerBlobDownload, type ProductivityExportPrices } from "@/lib/productivity-export-download";
 import type { Task } from "@shared/schema";
+import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import { format, addDays, subDays } from "date-fns";
 
 interface ScanResult {
@@ -36,6 +41,7 @@ interface ScanResult {
 
 export default function ChecklistPage() {
   const { toast } = useToast();
+  const { playIfEligible } = useImmersiveSounds();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -50,6 +56,14 @@ export default function ChecklistPage() {
     queryKey: ["/api/tasks"],
   });
 
+  const { data: exportPrices } = useQuery<ProductivityExportPrices>({
+    queryKey: ["/api/gamification/productivity-export-prices"],
+  });
+
+  const { data: wallet } = useQuery<{ balance: number }>({
+    queryKey: ["/api/gamification/wallet"],
+  });
+
   const dayTasks = tasks.filter((t) => t.date === selectedDate);
   const pendingCount = dayTasks.filter((t) => t.status !== "completed").length;
   const completedCount = dayTasks.filter((t) => t.status === "completed").length;
@@ -62,7 +76,7 @@ export default function ChecklistPage() {
 
       const csrfToken = getCsrfToken();
       const headers: Record<string, string> = {};
-      if (csrfToken) headers["x-csrf-token"] = csrfToken;
+      if (csrfToken) headers[AXTASK_CSRF_HEADER] = csrfToken;
 
       const res = await fetch("/api/checklist/scan", {
         method: "POST",
@@ -101,18 +115,26 @@ export default function ChecklistPage() {
 
   const applyMutation = useMutation({
     mutationFn: async (updates: { taskId: string; status: string }[]) => {
-      const res = await apiRequest("POST", "/api/checklist/apply", { updates });
-      return res.json();
+      return syncRawTaskRequest("POST", "/api/checklist/apply", { updates }, queryClient);
     },
     onSuccess: (data) => {
+      if (data && typeof data === "object" && "offlineQueued" in data) {
+        toast({
+          title: "Queued",
+          description: "Checklist updates will apply when you're online.",
+        });
+        return;
+      }
+      const d = data as { updated: number };
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       setScanResult(null);
       setTaskUpdates({});
       toast({
         title: "Tasks updated!",
-        description: `${data.updated} task(s) marked as completed.`,
+        description: `${d.updated} task(s) marked as completed.`,
       });
+      playIfEligible(2);
     },
     onError: () => {
       toast({
@@ -126,21 +148,27 @@ export default function ChecklistPage() {
   const handleDownload = useCallback(async () => {
     setIsDownloading(true);
     try {
-      const res = await fetch(`/api/checklist/${selectedDate}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Download failed");
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `AxTask-Checklist-${selectedDate}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
+      const result = await postPaidDownload(`/api/checklist/${selectedDate}/download`, {});
+      if (!result.ok) {
+        if (result.insufficientCoins) {
+          toast({
+            title: "Not enough AxCoins",
+            description: result.insufficientCoins.message
+              ?? `Need ${result.insufficientCoins.required} coins (balance ${result.insufficientCoins.balance}). Visit Rewards to earn more.`,
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Download failed",
+            description: result.message || "Could not generate the checklist PDF.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+      triggerBlobDownload(result.blob, `AxTask-Checklist-${selectedDate}.pdf`, result.filename);
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
       toast({
         title: "Checklist downloaded!",
         description: "Print it out and check off your tasks as you go.",
@@ -154,7 +182,7 @@ export default function ChecklistPage() {
     } finally {
       setIsDownloading(false);
     }
-  }, [selectedDate, toast]);
+  }, [selectedDate, toast, queryClient]);
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -188,14 +216,23 @@ export default function ChecklistPage() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6 max-w-4xl mx-auto">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">
           Print Checklist
         </h2>
         <p className="text-gray-600 dark:text-gray-400">
           Download a printable daily checklist, then scan it back to update your
-          tasks
+          tasks.{" "}
+          {exportPrices?.freeInDev ? (
+            <span className="text-emerald-600 dark:text-emerald-400">PDF export is free in local dev.</span>
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <Coins className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              PDF download costs {exportPrices?.checklistPdf ?? "…"} AxCoins
+              {wallet != null ? ` · you have ${wallet.balance}` : ""}.
+            </span>
+          )}
         </p>
       </div>
 

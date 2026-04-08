@@ -1,5 +1,6 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
+import { buildTasksCsvExport } from '@shared/task-spreadsheet-export';
 
 function excelDateToString(serial: number): string {
   if (!serial || typeof serial !== 'number' || serial < 1) return '';
@@ -245,9 +246,19 @@ function parseVaultRows(rows: any[][], headers: string[]): any[] {
   return tasks;
 }
 
+/** Removes leading # comment lines (before the header row) so CSV re-import after export stays clean. */
+export function stripCsvAttributionLines(csvText: string): string {
+  const lines = csvText.split("\n");
+  let i = 0;
+  while (i < lines.length && /^\s*#/.test(lines[i] ?? "")) {
+    i += 1;
+  }
+  return lines.slice(i).join("\n");
+}
+
 export function parseTasksFromCSV(csvText: string): any[] {
   try {
-    const result = Papa.parse(csvText, {
+    const result = Papa.parse(stripCsvAttributionLines(csvText), {
       header: true,
       skipEmptyLines: true,
       transformHeader: (header: string) => header.trim().toLowerCase()
@@ -322,45 +333,7 @@ export function parseTasksFromCSV(csvText: string): any[] {
 
 export function tasksToCSV(tasks: any[]): string {
   if (tasks.length === 0) return '';
-
-  const headers = [
-    'Date',
-    'Priority',
-    'Result',
-    'Activity',
-    'Notes',
-    'Urgency',
-    'Impact',
-    'Effort',
-    'Pre-Reqs',
-    'Sub-Priority',
-    'Impact',
-    'Time Start',
-    'Time End',
-    'Subtypes'
-  ];
-
-  const rows = tasks.map(task => [
-    task.date || '',
-    task.priority || '',
-    task.status === 'completed' ? 'TRUE' : 'FALSE',
-    task.activity || '',
-    task.notes || '',
-    task.urgency ? '★'.repeat(task.urgency) + '☆'.repeat(5 - task.urgency) : '☆☆☆☆☆',
-    task.impact ? '★'.repeat(task.impact) + '☆'.repeat(5 - task.impact) : '☆☆☆☆☆',
-    task.effort ? '★'.repeat(task.effort) + '☆'.repeat(5 - task.effort) : '☆☆☆☆☆',
-    task.prerequisites || '',
-    '',
-    '',
-    '',
-    '',
-    ''
-  ]);
-
-  return Papa.unparse({
-    fields: headers,
-    data: rows
-  });
+  return buildTasksCsvExport(tasks);
 }
 
 export function downloadCSV(csvContent: string, filename: string) {

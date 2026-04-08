@@ -11,7 +11,6 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..", "..");
 const isWin = process.platform === "win32";
 
-const envExamplePath = path.join(projectRoot, ".env.example");
 const envPath = path.join(projectRoot, ".env");
 const localStateDir = path.join(projectRoot, ".local");
 const stateFilePath = path.join(localStateDir, "smart-start-state.json");
@@ -30,21 +29,14 @@ function runStep(stepLabel, command, args) {
   return result.status ?? 1;
 }
 
-function ensureEnvFile() {
-  if (fs.existsSync(envPath)) {
-    console.log("[offline:start] Found .env");
-    return;
+function ensureLocalEnvInit() {
+  const code = runStep("Local environment (.env + SESSION_SECRET)", "npm", [
+    "run",
+    "local:env-init",
+  ]);
+  if (code !== 0) {
+    process.exit(code);
   }
-
-  if (!fs.existsSync(envExamplePath)) {
-    console.error(
-      "[offline:start] Missing .env.example. Cannot auto-bootstrap local config.",
-    );
-    process.exit(1);
-  }
-
-  fs.copyFileSync(envExamplePath, envPath);
-  console.log("[offline:start] Created .env from .env.example");
 }
 
 function ensureNodeModules() {
@@ -154,10 +146,12 @@ function ensureSchemaApplied(state) {
 
 function startDevServer() {
   console.log("\n[offline:start] Starting dev server on http://localhost:5000");
-  const child = spawn("npm", ["run", "dev"], {
+  // Spawn tsx directly so we do not chain through `npm run dev` (which runs db:push again).
+  const child = spawn("npx", ["tsx", "server/index.ts"], {
     cwd: projectRoot,
     stdio: "inherit",
-    shell: isWin,
+    shell: true,
+    env: { ...process.env, NODE_ENV: "development" },
   });
 
   child.on("exit", (code) => {
@@ -166,9 +160,16 @@ function startDevServer() {
 }
 
 console.log("[offline:start] Bootstrapping local offline workflow");
+const bootstrap = spawnSync(process.execPath, [path.join(__dirname, "repo-bootstrap.mjs")], {
+  cwd: projectRoot,
+  stdio: "inherit",
+  shell: isWin,
+});
+if ((bootstrap.status ?? 1) !== 0) process.exit(bootstrap.status ?? 1);
+
 const previousState = readState();
+ensureLocalEnvInit();
 ensureNodeModules();
-ensureEnvFile();
 validateLocalEnv();
 const dependencyFingerprint = ensureDependenciesSynced(previousState);
 const schemaFingerprint = ensureSchemaApplied(previousState);

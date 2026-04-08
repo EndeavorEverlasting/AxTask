@@ -9,6 +9,7 @@ type NotificationPreference = {
   intensity: number;
   quietHoursStart: number | null;
   quietHoursEnd: number | null;
+  immersiveSoundsEnabled: boolean;
   createdAt: string | Date;
   updatedAt: string | Date;
 };
@@ -19,11 +20,15 @@ type NotificationModeContextValue = {
   isLoading: boolean;
   enabled: boolean;
   intensity: number;
+  immersiveSoundsEnabled: boolean;
   pushStatus: PushSupportStatus;
   canUsePush: boolean;
   toggleNotificationMode: () => Promise<void>;
   setLocalIntensity: (value: number) => void;
   saveIntensity: (value: number) => Promise<void>;
+  saveNotificationPreferences: (
+    payload: Partial<Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled">>,
+  ) => Promise<void>;
 };
 
 const NotificationModeContext = createContext<NotificationModeContextValue | null>(null);
@@ -50,9 +55,25 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
-async function patchPreferences(payload: Partial<Pick<NotificationPreference, "enabled" | "intensity">>) {
+async function patchPreferences(
+  payload: Partial<Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled">>,
+) {
   const res = await apiRequest("PATCH", "/api/notifications/preferences", payload);
   return res.json();
+}
+
+async function resolveVapidPublicKey(): Promise<string | null> {
+  const envKey = (import.meta.env.VITE_VAPID_PUBLIC_KEY || "").trim();
+  if (envKey) return envKey;
+  try {
+    const res = await fetch("/api/notifications/push-public-config", { credentials: "include" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { configured?: boolean; publicKey?: string };
+    if (data.configured && data.publicKey?.trim()) return data.publicKey.trim();
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 export function NotificationModeProvider({ children }: { children: React.ReactNode }) {
@@ -105,11 +126,11 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
 
   const ensureSubscription = useCallback(async () => {
     if (!("serviceWorker" in navigator)) return;
-    const vapidPublicKey = (import.meta.env.VITE_VAPID_PUBLIC_KEY || "").trim();
+    const vapidPublicKey = await resolveVapidPublicKey();
     if (!vapidPublicKey) {
       toast({
         title: "Push key missing",
-        description: "VAPID public key is not configured, so browser push is unavailable.",
+        description: "The server has not published a VAPID key yet. Ensure the database is migrated (npm run db:push) and CANONICAL_HOST or VAPID_SUBJECT is set in production.",
         variant: "destructive",
       });
       throw new Error("VAPID public key not configured");
@@ -195,16 +216,33 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     run();
   }, [ensureSubscription, preferenceQuery.data?.enabled]);
 
+  const saveNotificationPreferences = useCallback(async (
+    payload: Partial<Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled">>,
+  ) => {
+    await savePreferenceMutation.mutateAsync(payload);
+  }, [savePreferenceMutation]);
+
   const value = useMemo<NotificationModeContextValue>(() => ({
     isLoading: preferenceQuery.isLoading,
     enabled: Boolean(preferenceQuery.data?.enabled),
     intensity: localIntensity,
+    immersiveSoundsEnabled: Boolean(preferenceQuery.data?.immersiveSoundsEnabled),
     pushStatus,
     canUsePush: pushStatus !== "unsupported" && pushStatus !== "denied",
     toggleNotificationMode,
     setLocalIntensity: (value: number) => setLocalIntensity(clampIntensity(value)),
     saveIntensity,
-  }), [localIntensity, preferenceQuery.data?.enabled, preferenceQuery.isLoading, pushStatus, saveIntensity, toggleNotificationMode]);
+    saveNotificationPreferences,
+  }), [
+    localIntensity,
+    preferenceQuery.data?.enabled,
+    preferenceQuery.data?.immersiveSoundsEnabled,
+    preferenceQuery.isLoading,
+    pushStatus,
+    saveIntensity,
+    saveNotificationPreferences,
+    toggleNotificationMode,
+  ]);
 
   return (
     <NotificationModeContext.Provider value={value}>

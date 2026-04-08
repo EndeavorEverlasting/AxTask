@@ -1,12 +1,24 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { cn } from "@/lib/utils";
+import {
+  consumeMfaHandoffSession,
+  MFA_HANDOFF_CHANNEL,
+  MFA_HANDOFF_STORAGE_KEY,
+  parseMfaHandoff,
+  parseMfaHandoffMessage,
+  type MfaHandoffPayload,
+} from "@/lib/mfa-handoff";
 
 export type MfaVerificationPanelProps = {
   open: boolean;
+  challengeId?: string;
+  /** When true, blocks OTP entry/submit (e.g. challenge not ready). */
+  codeEntryDisabled?: boolean;
+  purpose?: string;
   title?: string;
   description?: string;
   expiresAt?: string | null;
@@ -25,6 +37,9 @@ export type MfaVerificationPanelProps = {
  */
 export function MfaVerificationPanel({
   open,
+  challengeId,
+  codeEntryDisabled,
+  purpose,
   title = "Confirm it is you",
   description = "Enter the verification code we sent to your account email.",
   expiresAt,
@@ -37,15 +52,71 @@ export function MfaVerificationPanel({
   className,
 }: MfaVerificationPanelProps) {
   const [value, setValue] = useState("");
+  const handoffAppliedRef = useRef(false);
+  const submittedRef = useRef(false);
+  const handleCompleteRef = useRef<(code: string) => void | Promise<void>>(() => {});
+
+  const otpDisabled = Boolean(isBusy || codeEntryDisabled || !challengeId);
+
+  const handleComplete = useCallback(
+    async (code: string) => {
+      if (code.length !== 6 || isBusy || codeEntryDisabled || !challengeId) return;
+      consumeMfaHandoffSession();
+      try {
+        await onSubmitCode(code);
+      } catch (err) {
+        console.error("[mfa-verification] onSubmitCode rejected", err);
+      }
+    },
+    [isBusy, onSubmitCode, codeEntryDisabled, challengeId],
+  );
+
+  handleCompleteRef.current = handleComplete;
 
   useEffect(() => {
-    if (!open) setValue("");
+    if (!open) {
+      setValue("");
+      submittedRef.current = false;
+    }
   }, [open]);
 
-  const handleComplete = async (code: string) => {
-    if (code.length !== 6 || isBusy) return;
-    await onSubmitCode(code);
-  };
+  useEffect(() => {
+    if (!open || !challengeId) return;
+
+    handoffAppliedRef.current = false;
+    submittedRef.current = false;
+
+    const applyHandoff = (parsed: MfaHandoffPayload | null) => {
+      if (handoffAppliedRef.current) return;
+      if (!parsed || parsed.challengeId !== challengeId) return;
+      if (purpose && parsed.purpose !== purpose) return;
+      const code = String(parsed.code || "").replace(/\D/g, "").slice(0, 6);
+      if (code.length !== 6) return;
+      if (submittedRef.current) return;
+      handoffAppliedRef.current = true;
+      submittedRef.current = true;
+      setValue(code);
+      void handleCompleteRef.current(code);
+    };
+
+    let bc: BroadcastChannel | null = null;
+    if ("BroadcastChannel" in window) {
+      bc = new BroadcastChannel(MFA_HANDOFF_CHANNEL);
+      bc.onmessage = (ev: MessageEvent) => {
+        applyHandoff(parseMfaHandoffMessage(ev.data));
+      };
+    }
+
+    try {
+      applyHandoff(parseMfaHandoff(sessionStorage.getItem(MFA_HANDOFF_STORAGE_KEY)));
+    } catch {
+      // ignore
+    }
+
+    return () => {
+      if (bc) bc.close();
+    };
+  }, [open, challengeId, purpose]);
 
   return (
     <AnimatePresence>
@@ -90,9 +161,15 @@ export function MfaVerificationPanel({
                 onChange={(v) => {
                   const next = v.replace(/\D/g, "").slice(0, 6);
                   setValue(next);
-                  if (next.length === 6) void handleComplete(next);
+                  if (next.length < 6) {
+                    submittedRef.current = false;
+                    return;
+                  }
+                  if (submittedRef.current) return;
+                  submittedRef.current = true;
+                  void handleComplete(next);
                 }}
-                disabled={isBusy}
+                disabled={otpDisabled}
                 containerClassName="gap-1.5"
               >
                 <InputOTPGroup className="gap-1.5">

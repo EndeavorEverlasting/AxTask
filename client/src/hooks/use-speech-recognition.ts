@@ -64,19 +64,24 @@ export function useSpeechRecognition(options?: {
   continuous?: boolean;
   language?: string;
   onResult?: (transcript: string) => void;
+  /** Fired on each recognition event with full text so far plus any interim chunk (live classification / topic). */
+  onLiveText?: (combinedTranscript: string) => void;
   onEnd?: () => void;
 }): SpeechRecognitionHook {
-  const { continuous = true, language = "en-US", onResult, onEnd } = options || {};
+  const { continuous = true, language = "en-US", onResult, onLiveText, onEnd } = options || {};
 
   const [status, setStatus] = useState<SpeechStatus>("idle");
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(null);
+  const transcriptAccumRef = useRef("");
   const onResultRef = useRef(onResult);
+  const onLiveTextRef = useRef(onLiveText);
   const onEndRef = useRef(onEnd);
 
   onResultRef.current = onResult;
+  onLiveTextRef.current = onLiveText;
   onEndRef.current = onEnd;
 
   const isSupported = !!SpeechRecognitionAPI;
@@ -105,6 +110,7 @@ export function useSpeechRecognition(options?: {
     setError(null);
     setTranscript("");
     setInterimTranscript("");
+    transcriptAccumRef.current = "";
 
     const recognition = new SpeechRecognitionAPI();
     recognition.continuous = continuous;
@@ -129,13 +135,20 @@ export function useSpeechRecognition(options?: {
       }
 
       if (final) {
-        setTranscript(prev => {
-          const newTranscript = prev ? `${prev} ${final}` : final;
-          onResultRef.current?.(final.trim());
-          return newTranscript;
-        });
+        const piece = final.trim();
+        if (piece) {
+          transcriptAccumRef.current = transcriptAccumRef.current
+            ? `${transcriptAccumRef.current} ${piece}`.trim()
+            : piece;
+          setTranscript(transcriptAccumRef.current);
+          onResultRef.current?.(piece);
+        }
       }
       setInterimTranscript(interim);
+      const live = interim.trim()
+        ? `${transcriptAccumRef.current} ${interim.trim()}`.trim()
+        : transcriptAccumRef.current;
+      onLiveTextRef.current?.(live);
     };
 
     recognition.onerror = (event: BrowserSpeechRecognitionErrorEvent) => {
@@ -182,6 +195,7 @@ export function useSpeechRecognition(options?: {
   const resetTranscript = useCallback(() => {
     setTranscript("");
     setInterimTranscript("");
+    transcriptAccumRef.current = "";
   }, []);
 
   useEffect(() => {

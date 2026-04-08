@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Crown, Sparkles, RefreshCw, Radar, Route, ShieldAlert } from "lucide-react";
+import { Crown, Sparkles, RefreshCw, Radar, Route, ShieldAlert, Youtube } from "lucide-react";
+import { DonateCta } from "@/components/donate-cta";
+import { useAuth } from "@/lib/auth-context";
 
 type PremiumCatalog = {
   plans: Array<{
@@ -72,9 +74,31 @@ type ReactivationPayload = {
   prompts: string[];
 };
 
+type YoutubeProbeNext =
+  | {
+      available: true;
+      video: {
+        videoId: string;
+        title: string;
+        channelTitle: string;
+        thumbnailUrl: string;
+        watchUrl: string;
+      };
+      probeContext: string;
+      probeVersion: string;
+      contextSnapshot: Record<string, unknown>;
+    }
+  | {
+      available: false;
+      reason: "cooldown" | "unconfigured" | "youtube_error" | "no_results";
+      message?: string;
+      cooldownUntil?: string;
+    };
+
 export default function PremiumPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const [savedViewName, setSavedViewName] = useState("My Smart View");
   const [savedViewFilters, setSavedViewFilters] = useState(JSON.stringify({ status: "pending", priority: ["High", "Highest"] }));
@@ -91,6 +115,25 @@ export default function PremiumPage() {
   const { data: workflows = [] } = useQuery<ReviewWorkflow[]>({ queryKey: ["/api/premium/review-workflows"] });
   const { data: insights = [] } = useQuery<PremiumInsight[]>({ queryKey: ["/api/premium/insights"] });
   const { data: reactivation } = useQuery<ReactivationPayload>({ queryKey: ["/api/premium/reactivation-prompts"] });
+
+  const isGoogleUser = user?.authProvider === "google";
+  const { data: youtubeProbe, isLoading: youtubeProbeLoading } = useQuery<YoutubeProbeNext>({
+    queryKey: ["/api/probes/youtube/next"],
+    enabled: isGoogleUser,
+  });
+
+  const youtubeFeedbackMutation = useMutation({
+    mutationFn: async (body: { videoId: string; reaction: string; contextSnapshot?: Record<string, unknown> }) => {
+      const res = await apiRequest("POST", "/api/probes/youtube/feedback", body);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/probes/youtube/next"] });
+      toast({ title: "Thanks", description: "Your feedback helps tune future picks." });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Could not save feedback", description: err.message, variant: "destructive" }),
+  });
 
   const entitlements = entitlementsData?.entitlements;
 
@@ -265,10 +308,13 @@ export default function PremiumPage() {
           </h2>
           <p className="text-gray-600 dark:text-gray-400">Manage premium features, retention workflows, and bundle automation.</p>
         </div>
-        <Button variant="outline" onClick={refreshPremiumQueries}>
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <DonateCta />
+          <Button variant="outline" onClick={refreshPremiumQueries}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -290,6 +336,116 @@ export default function PremiumPage() {
           )}
         </CardContent>
       </Card>
+
+      {isGoogleUser && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Youtube className="h-5 w-5 text-red-600" />
+              Contextual video probe
+            </CardTitle>
+            <CardDescription>
+              A pick based on your AxTask mood, work style, and task themes (public YouTube search). Tell us if it lands.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {youtubeProbeLoading && <p className="text-sm text-muted-foreground">Loading suggestion…</p>}
+            {!youtubeProbeLoading && youtubeProbe && !youtubeProbe.available && (
+              <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
+                {youtubeProbe.reason === "cooldown" && youtubeProbe.cooldownUntil && (
+                  <p>
+                    Next suggestion after{" "}
+                    <span className="font-medium">{new Date(youtubeProbe.cooldownUntil).toLocaleString()}</span>.
+                  </p>
+                )}
+                {youtubeProbe.reason === "unconfigured" && (
+                  <p>{youtubeProbe.message || "YouTube search is not configured on this server (set YOUTUBE_API_KEY)."}</p>
+                )}
+                {youtubeProbe.reason === "no_results" && <p>{youtubeProbe.message || "Not enough signal for a pick yet."}</p>}
+                {youtubeProbe.reason === "youtube_error" && (
+                  <p className="text-destructive">{youtubeProbe.message || "YouTube lookup failed."}</p>
+                )}
+              </div>
+            )}
+            {!youtubeProbeLoading && youtubeProbe?.available && (
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <a
+                  href={youtubeProbe.video.watchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 block overflow-hidden rounded-md border border-border bg-muted/30"
+                >
+                  <img
+                    src={youtubeProbe.video.thumbnailUrl}
+                    alt={
+                      youtubeProbe.video.title?.trim()
+                        ? `Video thumbnail: ${youtubeProbe.video.title.trim()}`
+                        : "Video thumbnail"
+                    }
+                    className="h-36 w-full max-w-xs object-cover sm:h-32 sm:w-56"
+                  />
+                </a>
+                <div className="min-w-0 flex-1 space-y-3">
+                  <p className="text-sm text-muted-foreground">{youtubeProbe.probeContext}</p>
+                  <div>
+                    <p className="font-medium leading-snug">{youtubeProbe.video.title}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{youtubeProbe.video.channelTitle}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="default" asChild>
+                      <a href={youtubeProbe.video.watchUrl} target="_blank" rel="noopener noreferrer">
+                        Open on YouTube
+                      </a>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={youtubeFeedbackMutation.isPending}
+                      onClick={() =>
+                        youtubeFeedbackMutation.mutate({
+                          videoId: youtubeProbe.video.videoId,
+                          reaction: "interested",
+                          contextSnapshot: youtubeProbe.contextSnapshot,
+                        })
+                      }
+                    >
+                      Interested
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={youtubeFeedbackMutation.isPending}
+                      onClick={() =>
+                        youtubeFeedbackMutation.mutate({
+                          videoId: youtubeProbe.video.videoId,
+                          reaction: "not_interested",
+                          contextSnapshot: youtubeProbe.contextSnapshot,
+                        })
+                      }
+                    >
+                      Not for me
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={youtubeFeedbackMutation.isPending}
+                      onClick={() =>
+                        youtubeFeedbackMutation.mutate({
+                          videoId: youtubeProbe.video.videoId,
+                          reaction: "dismiss",
+                          contextSnapshot: youtubeProbe.contextSnapshot,
+                        })
+                      }
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="plans">
         <TabsList>
