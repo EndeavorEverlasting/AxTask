@@ -199,12 +199,15 @@ export const tasks = pgTable("tasks", {
   impact: integer("impact"),
   effort: integer("effort"),
   prerequisites: text("prerequisites").default(""),
+  recurrence: text("recurrence").notNull().default("none"),
   priority: text("priority").notNull(),
   priorityScore: integer("priority_score").notNull(),
   classification: text("classification").notNull(),
   status: text("status").notNull().default("pending"),
   isRepeated: boolean("is_repeated").default(false),
   sortOrder: integer("sort_order").default(0),
+  visibility: text("visibility").notNull().default("private"),
+  communityShowNotes: boolean("community_show_notes").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -232,7 +235,12 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   impact: z.number().min(1).max(5).optional(),
   effort: z.number().min(1).max(5).optional(),
   prerequisites: z.string().max(1000, "Prerequisites must be under 1000 characters").optional(),
+  recurrence: z
+    .enum(["none", "daily", "weekly", "biweekly", "monthly", "quarterly", "yearly"])
+    .default("none"),
   status: z.enum(["pending", "in-progress", "completed"]).default("pending"),
+  visibility: z.enum(["private", "public"]).default("private"),
+  communityShowNotes: z.boolean().default(false),
 });
 
 export const updateTaskSchema = insertTaskSchema.partial().extend({
@@ -251,6 +259,125 @@ export const reorderTasksSchema = z.object({
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type UpdateTask = z.infer<typeof updateTaskSchema>;
 export type Task = typeof tasks.$inferSelect;
+
+// ─── Study Mini-Games ───────────────────────────────────────────────────────
+export const studyDecks = pgTable("study_decks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  sourceType: text("source_type").notNull().default("manual"), // manual | tasks | planner
+  sourceRef: text("source_ref"),
+  cardLimitPerSession: integer("card_limit_per_session").notNull().default(10),
+  sessionDurationMinutes: integer("session_duration_minutes").notNull().default(5),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_study_decks_user").on(table.userId),
+  index("idx_study_decks_source").on(table.sourceType),
+]);
+
+export const studyCards = pgTable("study_cards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  deckId: varchar("deck_id").notNull().references(() => studyDecks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  prompt: text("prompt").notNull(),
+  answer: text("answer").notNull(),
+  topic: text("topic"),
+  tagsJson: text("tags_json"),
+  sourceTaskId: varchar("source_task_id").references(() => tasks.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_study_cards_deck").on(table.deckId),
+  index("idx_study_cards_user").on(table.userId),
+  index("idx_study_cards_source_task").on(table.sourceTaskId),
+]);
+
+export const studySessions = pgTable("study_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  deckId: varchar("deck_id").notNull().references(() => studyDecks.id, { onDelete: "cascade" }),
+  gameType: text("game_type").notNull().default("flashcard_sprint"),
+  status: text("status").notNull().default("active"), // active | completed | abandoned
+  startedAt: timestamp("started_at").defaultNow(),
+  endedAt: timestamp("ended_at"),
+  totalCards: integer("total_cards").notNull().default(0),
+  answeredCards: integer("answered_cards").notNull().default(0),
+  correctCards: integer("correct_cards").notNull().default(0),
+  scorePercent: integer("score_percent").notNull().default(0),
+  avgResponseMs: integer("avg_response_ms"),
+  weakTopicsJson: text("weak_topics_json"),
+  rewardCoins: integer("reward_coins").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_study_sessions_user").on(table.userId),
+  index("idx_study_sessions_deck").on(table.deckId),
+  index("idx_study_sessions_status").on(table.status),
+]);
+
+export const studyReviewEvents = pgTable("study_review_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  sessionId: varchar("session_id").notNull().references(() => studySessions.id, { onDelete: "cascade" }),
+  cardId: varchar("card_id").notNull().references(() => studyCards.id, { onDelete: "cascade" }),
+  grade: text("grade").notNull(), // again | hard | good | easy
+  isCorrect: boolean("is_correct").notNull().default(false),
+  responseMs: integer("response_ms"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_study_events_user").on(table.userId),
+  index("idx_study_events_session").on(table.sessionId),
+  index("idx_study_events_card").on(table.cardId),
+  uniqueIndex("ux_study_events_session_card_created").on(table.sessionId, table.cardId, table.createdAt),
+]);
+
+export const createStudyDeckSchema = createInsertSchema(studyDecks).omit({
+  id: true,
+  userId: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  title: z.string().min(2).max(120),
+  description: z.string().max(500).optional(),
+  sourceType: z.enum(["manual", "tasks", "planner"]).default("manual"),
+  sourceRef: z.string().max(200).optional(),
+  cardLimitPerSession: z.number().int().min(3).max(100).default(10),
+  sessionDurationMinutes: z.number().int().min(1).max(30).default(5),
+});
+
+export const createStudyCardSchema = createInsertSchema(studyCards).omit({
+  id: true,
+  userId: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  prompt: z.string().min(2).max(500),
+  answer: z.string().min(1).max(2000),
+  topic: z.string().max(120).optional(),
+  tagsJson: z.string().max(2000).optional(),
+});
+
+export const startStudySessionSchema = z.object({
+  deckId: z.string().min(1),
+  gameType: z.enum(["flashcard_sprint"]).default("flashcard_sprint"),
+});
+
+export const submitStudyAnswerSchema = z.object({
+  cardId: z.string().min(1),
+  grade: z.enum(["again", "hard", "good", "easy"]),
+  responseMs: z.number().int().min(0).max(600000).optional(),
+});
+
+export type StudyDeck = typeof studyDecks.$inferSelect;
+export type StudyCard = typeof studyCards.$inferSelect;
+export type StudySession = typeof studySessions.$inferSelect;
+export type StudyReviewEvent = typeof studyReviewEvents.$inferSelect;
+export type CreateStudyDeckInput = z.infer<typeof createStudyDeckSchema>;
+export type CreateStudyCardInput = z.infer<typeof createStudyCardSchema>;
+export type StartStudySessionInput = z.infer<typeof startStudySessionSchema>;
+export type SubmitStudyAnswerInput = z.infer<typeof submitStudyAnswerSchema>;
 
 // ─── Gamification: Wallets ──────────────────────────────────────────────────
 export const wallets = pgTable("wallets", {
