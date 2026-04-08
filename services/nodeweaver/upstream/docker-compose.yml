@@ -1,0 +1,102 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database with pgvector extension
+  database:
+    image: pgvector/pgvector:pg15
+    container_name: nodeweaver-db
+    environment:
+      POSTGRES_DB: nodeweaver
+      POSTGRES_USER: rag_user
+      POSTGRES_PASSWORD: rag_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag_user -d nodeweaver"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nodeweaver-network
+
+  # NodeWeaver application
+  app:
+    build:
+      context: .
+      target: production
+    container_name: nodeweaver-app
+    environment:
+      DATABASE_URL: postgresql://rag_user:rag_pass@database:5432/nodeweaver
+      SESSION_SECRET: your-production-secret-key-change-this
+      LOG_LEVEL: INFO
+      EMBEDDING_MODEL: all-MiniLM-L6-v2
+      VECTOR_DIMENSION: 384
+      CONVERGENCE_THRESHOLD: 0.7
+      MIN_CLUSTER_SIZE: 3
+      COHERENCE_THRESHOLD: 0.6
+      MAX_INPUT_LENGTH: 10000
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./uploaded_audio:/app/uploaded_audio
+      - ./logs:/app/logs
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - nodeweaver-network
+    restart: unless-stopped
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: nodeweaver-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nodeweaver-network
+    restart: unless-stopped
+
+  # Nginx reverse proxy (optional for production)
+  nginx:
+    image: nginx:alpine
+    container_name: nodeweaver-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - app
+    networks:
+      - nodeweaver-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  nodeweaver-network:
+    driver: bridge

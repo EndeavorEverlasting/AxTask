@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="text-center mb-5">
+            <h1 class="display-4 fw-bold">
+                <i class="fas fa-brain text-primary me-3"></i>NodeWeaver
+            </h1>
+            <p class="lead">
+                Intelligent RAG-powered classifier for automatic task categorization
+            </p>
+            <p class="text-muted">
+                Integrates seamlessly with AxTask and Google Sheets for productivity automation
+            </p>
+        </div>
+
+        <div class="row g-4 mb-5">
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-tags fa-3x text-primary mb-3"></i>
+                        <h5 class="card-title">Auto-Classification</h5>
+                        <p class="card-text">
+                            Automatically categorize tasks into personal, work, academic, and more
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-microphone-alt fa-3x text-warning mb-3"></i>
+                        <h5 class="card-title">Live Audio</h5>
+                        <p class="card-text">
+                            Real-time topic detection from debates, meetings, or any audio content
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-project-diagram fa-3x text-success mb-3"></i>
+                        <h5 class="card-title">Topic Emergence</h5>
+                        <p class="card-text">
+                            Discover new topics through weighted node convergence algorithms
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-plug fa-3x text-info mb-3"></i>
+                        <h5 class="card-title">Easy Integration</h5>
+                        <p class="card-text">
+                            RESTful API compatible with AxTask, Google Sheets, and more
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-rocket me-2"></i>Quick Start
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <h6><i class="fas fa-microphone me-2"></i>Live Audio Topics</h6>
+                        <p class="mb-3">Analyze debates, meetings, or uploaded files:</p>
+                        <a href="{{ url_for('live_audio') }}" class="btn btn-warning">
+                            <i class="fas fa-microphone-alt me-2"></i>Live Audio Interface
+                        </a>
+                    </div>
+                    <div class="col-md-4">
+                        <h6><i class="fas fa-play-circle me-2"></i>Test Classifier</h6>
+                        <p class="mb-3">Test the classifier with sample text:</p>
+                        <a href="{{ url_for('test_interface') }}" class="btn btn-primary">
+                            <i class="fas fa-test-tube me-2"></i>Test Interface
+                        </a>
+                    </div>
+                    <div class="col-md-4">
+                        <h6><i class="fas fa-code me-2"></i>API Integration</h6>
+                        <p class="mb-3">Integrate with your applications:</p>
+                        <a href="{{ url_for('api_docs') }}" class="btn btn-outline-primary">
+                            <i class="fas fa-book me-2"></i>API Documentation
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-chart-bar me-2"></i>System Status
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="systemStats">
+                            <div class="text-center">
+                                <div class="spinner-border spinner-border-sm" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="mb-0 mt-2">Loading system statistics...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-list me-2"></i>Available Categories
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="categories">
+                            <div class="text-center">
+                                <div class="spinner-border spinner-border-sm" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="mb-0 mt-2">Loading categories...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>Integration Examples
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fab fa-google me-2"></i>Google Sheets</h6>
+                        <p class="small text-muted mb-2">
+                            Add automatic categorization to your spreadsheets
+                        </p>
+                        <pre class="bg-dark p-2 rounded"><code class="text-light">function classifyTask(text) {
+  // See integration folder for full code
+}</code></pre>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-tasks me-2"></i>AxTask Integration</h6>
+                        <p class="small text-muted mb-2">
+                            Seamless integration with AxTask
+                        </p>
+                        <pre class="bg-dark p-2 rounded"><code class="text-light">import axtask_client
+client.classify_task(task_text)</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Load system statistics
+    fetch('/api/v1/stats')
+        .then(response => response.json())
+        .then(data => {
+            const statsHtml = `
+                <div class="row text-center">
+                    <div class="col-4">
+                        <div class="h4 text-primary">${data.total_topics || 0}</div>
+                        <div class="small text-muted">Topics</div>
+                    </div>
+                    <div class="col-4">
+                        <div class="h4 text-success">${data.total_nodes || 0}</div>
+                        <div class="small text-muted">Nodes</div>
+                    </div>
+                    <div class="col-4">
+                        <div class="h4 text-info">${data.total_documents || 0}</div>
+                        <div class="small text-muted">Documents</div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('systemStats').innerHTML = statsHtml;
+        })
+        .catch(error => {
+            document.getElementById('systemStats').innerHTML = `
+                <div class="text-center text-muted">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Unable to load statistics
+                </div>
+            `;
+        });
+    
+    // Load categories
+    fetch('/api/v1/categories')
+        .then(response => response.json())
+        .then(data => {
+            const categoriesHtml = data.categories.map(cat => 
+                `<span class="badge bg-secondary me-1 mb-1">${cat}</span>`
+            ).join('');
+            document.getElementById('categories').innerHTML = categoriesHtml;
+        })
+        .catch(error => {
+            document.getElementById('categories').innerHTML = `
+                <div class="text-center text-muted">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Unable to load categories
+                </div>
+            `;
+        });
+});
+</script>
+{% endblock %}

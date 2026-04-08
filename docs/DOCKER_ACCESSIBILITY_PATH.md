@@ -16,7 +16,7 @@ Goal: One-command start and stop with stable local data.
 - Provide a one-click launcher script for Windows and macOS/Linux.
 
 Implementation (current):
-- `npm run docker:start|stop|status|logs`
+- `npm run docker:start`, `npm run docker:stop`, `npm run docker:status`, `npm run docker:logs`
 - Windows one-click scripts: `start-docker.cmd`, `stop-docker.cmd`, `status-docker.cmd`
 - macOS/Linux scripts: `start-docker.sh`, `stop-docker.sh`, `status-docker.sh`
 - compose sequencing: `database` -> `migrate (db:push)` -> `app`

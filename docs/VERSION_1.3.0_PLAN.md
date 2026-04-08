@@ -4,6 +4,10 @@
 **Status**: Planning Phase  
 **Type**: Minor Release
 
+## Prioritization
+
+Do **not** treat the sections below as a fixed sequence. Once per month, run the **Roadmap triage** steps in [PRODUCT_ROADMAP.md](./PRODUCT_ROADMAP.md) (funnel aggregates + five JTBD questions). Use `product_funnel_events` trends and interview themes to decide whether v1.3 work should **lead**, **trail**, or **split** relative to calendar sync ([CALENDAR_SYNC.md](./CALENDAR_SYNC.md)) and diagram exports ([FLOWCHARTS.md](./FLOWCHARTS.md)). Note the outcome here when scope changes.
+
 ## Overview
 
 Version 1.3.0 focuses on expanding drag-and-drop capabilities across all calendar views, implementing a soft delete system with recycle bin, and adding Replit Auth for Google authentication with world-class security using Replit Secrets.

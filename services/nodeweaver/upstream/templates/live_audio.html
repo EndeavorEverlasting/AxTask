@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TopicSense - Live Audio Topic Detection</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .topic-display {
+            background: var(--bs-dark);
+            border: 2px solid var(--bs-primary);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 10px 0;
+            transition: all 0.3s ease;
+        }
+        
+        .topic-active {
+            border-color: var(--bs-success);
+            background: rgba(25, 135, 84, 0.1);
+        }
+        
+        .confidence-bar {
+            height: 8px;
+            background: var(--bs-secondary);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--bs-danger), var(--bs-warning), var(--bs-success));
+            transition: width 0.3s ease;
+        }
+        
+        .audio-controls {
+            background: var(--bs-gray-800);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .status-active { background: var(--bs-success); }
+        .status-inactive { background: var(--bs-secondary); }
+        .status-processing { background: var(--bs-warning); animation: pulse 1.5s infinite; }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        .transcription-box {
+            background: var(--bs-gray-900);
+            border: 1px solid var(--bs-gray-700);
+            border-radius: 8px;
+            padding: 15px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        
+        .topic-history-item {
+            border-left: 4px solid var(--bs-primary);
+            padding: 10px 15px;
+            margin: 5px 0;
+            background: var(--bs-gray-800);
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .file-upload-area {
+            border: 2px dashed var(--bs-gray-600);
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            transition: border-color 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .file-upload-area:hover {
+            border-color: var(--bs-primary);
+        }
+        
+        .file-upload-area.dragover {
+            border-color: var(--bs-success);
+            background: rgba(25, 135, 84, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-4">
+        <div class="row">
+            <div class="col-12">
+                <h1 class="text-center mb-4">
+                    <i class="fas fa-microphone-alt text-primary"></i>
+                    TopicSense Live Audio
+                </h1>
+                <p class="text-center text-muted">
+                    Real-time topic detection from microphone, files, or YouTube videos
+                </p>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Audio Controls -->
+            <div class="col-md-4">
+                <div class="audio-controls">
+                    <h4><i class="fas fa-sliders-h"></i> Audio Source</h4>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Source Type</label>
+                        <select id="sourceType" class="form-select">
+                            <option value="microphone">Microphone</option>
+                            <option value="file">Upload File</option>
+                            <option value="url">YouTube URL</option>
+                        </select>
+                    </div>
+                    
+                    <div id="microphoneControls" class="source-controls">
+                        <p class="text-muted">
+                            <i class="fas fa-info-circle"></i>
+                            Click start to begin listening to your microphone
+                        </p>
+                    </div>
+                    
+                    <div id="fileControls" class="source-controls d-none">
+                        <div class="file-upload-area" id="fileUploadArea">
+                            <i class="fas fa-upload fa-2x text-muted mb-3"></i>
+                            <p>Drop audio file here or click to select</p>
+                            <small class="text-muted">Supports MP3, MP4, WAV, M4A</small>
+                            <input type="file" id="audioFileInput" accept="audio/*,video/*" style="display: none;">
+                        </div>
+                    </div>
+                    
+                    <div id="urlControls" class="source-controls d-none">
+                        <div class="mb-3">
+                            <label class="form-label">YouTube URL</label>
+                            <input type="url" id="youtubeUrl" class="form-control" placeholder="https://youtube.com/watch?v=...">
+                        </div>
+                        <p class="text-muted">
+                            <i class="fas fa-info-circle"></i>
+                            Enter a YouTube URL to analyze its audio
+                        </p>
+                    </div>
+                    
+                    <div class="d-grid gap-2 mt-4">
+                        <button id="startBtn" class="btn btn-success btn-lg">
+                            <i class="fas fa-play"></i> Start Processing
+                        </button>
+                        <button id="stopBtn" class="btn btn-danger btn-lg" disabled>
+                            <i class="fas fa-stop"></i> Stop Processing
+                        </button>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <div class="d-flex align-items-center">
+                            <span class="status-indicator status-inactive" id="statusIndicator"></span>
+                            <span id="statusText">Ready</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Current Topics Display -->
+            <div class="col-md-8">
+                <div class="row">
+                    <div class="col-12">
+                        <h4><i class="fas fa-tags"></i> Current Topics</h4>
+                        <div id="currentTopics">
+                            <div class="text-center text-muted py-5">
+                                <i class="fas fa-ear-listen fa-3x mb-3"></i>
+                                <p>Start audio processing to see live topics</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <h5><i class="fas fa-closed-captioning"></i> Live Transcription</h5>
+                        <div id="transcriptionBox" class="transcription-box">
+                            <div class="text-muted">Transcribed text will appear here...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mt-4">
+            <div class="col-12">
+                <h4><i class="fas fa-history"></i> Topic History</h4>
+                <div id="topicHistory" class="mb-4">
+                    <div class="text-center text-muted py-3">
+                        <p>Topic detection history will appear here</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class LiveAudioProcessor {
+            constructor() {
+                this.isProcessing = false;
+                this.pollInterval = null;
+                this.setupEventListeners();
+                this.updateStatus();
+            }
+            
+            setupEventListeners() {
+                // Source type change
+                document.getElementById('sourceType').addEventListener('change', (e) => {
+                    this.showSourceControls(e.target.value);
+                });
+                
+                // Start/Stop buttons
+                document.getElementById('startBtn').addEventListener('click', () => {
+                    this.startProcessing();
+                });
+                
+                document.getElementById('stopBtn').addEventListener('click', () => {
+                    this.stopProcessing();
+                });
+                
+                // File upload
+                const fileInput = document.getElementById('audioFileInput');
+                const uploadArea = document.getElementById('fileUploadArea');
+                
+                uploadArea.addEventListener('click', () => fileInput.click());
+                fileInput.addEventListener('change', (e) => {
+                    if (e.target.files.length > 0) {
+                        this.uploadFile(e.target.files[0]);
+                    }
+                });
+                
+                // Drag and drop
+                uploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.add('dragover');
+                });
+                
+                uploadArea.addEventListener('dragleave', () => {
+                    uploadArea.classList.remove('dragover');
+                });
+                
+                uploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.remove('dragover');
+                    if (e.dataTransfer.files.length > 0) {
+                        this.uploadFile(e.dataTransfer.files[0]);
+                    }
+                });
+            }
+            
+            showSourceControls(sourceType) {
+                // Hide all controls
+                document.querySelectorAll('.source-controls').forEach(el => {
+                    el.classList.add('d-none');
+                });
+                
+                // Show selected control
+                document.getElementById(sourceType + 'Controls').classList.remove('d-none');
+            }
+            
+            async startProcessing() {
+                const sourceType = document.getElementById('sourceType').value;
+                let sourcePath = null;
+                
+                if (sourceType === 'url') {
+                    sourcePath = document.getElementById('youtubeUrl').value;
+                    if (!sourcePath) {
+                        alert('Please enter a YouTube URL');
+                        return;
+                    }
+                }
+                
+                try {
+                    const response = await fetch('/api/v1/audio/start', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            source_type: sourceType,
+                            source_path: sourcePath
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        this.isProcessing = true;
+                        this.updateUIState();
+                        this.startPolling();
+                        this.showStatus('Processing started', 'processing');
+                    } else {
+                        alert('Error: ' + result.error);
+                    }
+                } catch (error) {
+                    console.error('Start processing error:', error);
+                    alert('Failed to start processing');
+                }
+            }
+            
+            async stopProcessing() {
+                try {
+                    const response = await fetch('/api/v1/audio/stop', {
+                        method: 'POST'
+                    });
+                    
+                    if (response.ok) {
+                        this.isProcessing = false;
+                        this.updateUIState();
+                        this.stopPolling();
+                        this.showStatus('Stopped', 'inactive');
+                    }
+                } catch (error) {
+                    console.error('Stop processing error:', error);
+                }
+            }
+            
+            async uploadFile(file) {
+                const formData = new FormData();
+                formData.append('audio_file', file);
+                
+                try {
+                    this.showStatus('Uploading...', 'processing');
+                    
+                    const response = await fetch('/api/v1/audio/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        this.isProcessing = true;
+                        this.updateUIState();
+                        this.startPolling();
+                        this.showStatus('Processing uploaded file', 'processing');
+                    } else {
+                        alert('Upload error: ' + result.error);
+                        this.showStatus('Upload failed', 'inactive');
+                    }
+                } catch (error) {
+                    console.error('Upload error:', error);
+                    alert('Failed to upload file');
+                    this.showStatus('Upload failed', 'inactive');
+                }
+            }
+            
+            updateUIState() {
+                document.getElementById('startBtn').disabled = this.isProcessing;
+                document.getElementById('stopBtn').disabled = !this.isProcessing;
+                document.getElementById('sourceType').disabled = this.isProcessing;
+            }
+            
+            showStatus(text, type) {
+                document.getElementById('statusText').textContent = text;
+                const indicator = document.getElementById('statusIndicator');
+                indicator.className = `status-indicator status-${type}`;
+            }
+            
+            startPolling() {
+                this.pollInterval = setInterval(() => {
+                    this.updateCurrentTopics();
+                    this.updateResults();
+                    this.updateStatus();
+                }, 2000); // Poll every 2 seconds
+            }
+            
+            stopPolling() {
+                if (this.pollInterval) {
+                    clearInterval(this.pollInterval);
+                    this.pollInterval = null;
+                }
+            }
+            
+            async updateCurrentTopics() {
+                try {
+                    const response = await fetch('/api/v1/audio/topics/current');
+                    const data = await response.json();
+                    
+                    if (response.ok && data.current_topics) {
+                        this.displayCurrentTopics(data.current_topics);
+                    }
+                } catch (error) {
+                    console.error('Update topics error:', error);
+                }
+            }
+            
+            async updateResults() {
+                try {
+                    const response = await fetch('/api/v1/audio/results?limit=5');
+                    const data = await response.json();
+                    
+                    if (response.ok && data.results) {
+                        this.displayTranscription(data.results);
+                        this.displayTopicHistory(data.results);
+                    }
+                } catch (error) {
+                    console.error('Update results error:', error);
+                }
+            }
+            
+            async updateStatus() {
+                try {
+                    const response = await fetch('/api/v1/audio/status');
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        if (data.is_processing && !this.isProcessing) {
+                            this.isProcessing = true;
+                            this.updateUIState();
+                            this.startPolling();
+                            this.showStatus('Processing', 'processing');
+                        } else if (!data.is_processing && this.isProcessing) {
+                            this.isProcessing = false;
+                            this.updateUIState();
+                            this.stopPolling();
+                            this.showStatus('Ready', 'inactive');
+                        }
+                    }
+                } catch (error) {
+                    console.error('Update status error:', error);
+                }
+            }
+            
+            displayCurrentTopics(topics) {
+                const container = document.getElementById('currentTopics');
+                
+                if (topics.length === 0) {
+                    container.innerHTML = `
+                        <div class="text-center text-muted py-5">
+                            <i class="fas fa-ear-listen fa-3x mb-3"></i>
+                            <p>Listening for topics...</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                container.innerHTML = topics.map(topic => `
+                    <div class="topic-display topic-active">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h5 class="mb-0">
+                                <i class="fas fa-tag text-primary"></i>
+                                ${topic.category || 'Unknown'}
+                            </h5>
+                            <span class="badge bg-primary">${Math.round((topic.confidence || 0) * 100)}%</span>
+                        </div>
+                        <div class="confidence-bar mb-2">
+                            <div class="confidence-fill" style="width: ${(topic.confidence || 0) * 100}%"></div>
+                        </div>
+                        <p class="text-muted mb-0">"${topic.text_snippet}"</p>
+                        <small class="text-muted">
+                            <i class="fas fa-clock"></i>
+                            ${new Date(topic.timestamp).toLocaleTimeString()}
+                        </small>
+                    </div>
+                `).join('');
+            }
+            
+            displayTranscription(results) {
+                const box = document.getElementById('transcriptionBox');
+                
+                if (results.length === 0) return;
+                
+                const latestTranscriptions = results
+                    .filter(r => r.transcription)
+                    .slice(-10) // Last 10 transcriptions
+                    .map(r => `
+                        <div class="mb-2">
+                            <small class="text-primary">[${new Date(r.timestamp).toLocaleTimeString()}]</small>
+                            ${r.transcription}
+                        </div>
+                    `).join('');
+                
+                box.innerHTML = latestTranscriptions || '<div class="text-muted">Waiting for transcription...</div>';
+                box.scrollTop = box.scrollHeight; // Auto-scroll to bottom
+            }
+            
+            displayTopicHistory(results) {
+                const container = document.getElementById('topicHistory');
+                
+                if (results.length === 0) return;
+                
+                const historyItems = results
+                    .filter(r => r.classification)
+                    .slice(-20) // Last 20 results
+                    .reverse() // Most recent first
+                    .map(r => `
+                        <div class="topic-history-item">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <strong>${r.classification.predicted_category || 'Unknown'}</strong>
+                                <span class="badge bg-secondary">${Math.round((r.classification.confidence_score || 0) * 100)}%</span>
+                            </div>
+                            <p class="mb-1 text-muted">"${r.transcription.substring(0, 100)}..."</p>
+                            <small class="text-muted">
+                                <i class="fas fa-clock"></i>
+                                ${new Date(r.timestamp).toLocaleString()}
+                            </small>
+                        </div>
+                    `).join('');
+                
+                container.innerHTML = historyItems || `
+                    <div class="text-center text-muted py-3">
+                        <p>Topic detection history will appear here</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new LiveAudioProcessor();
+        });
+    </script>
+</body>
+</html>

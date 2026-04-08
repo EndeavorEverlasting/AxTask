@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+set -eu
+
+if command -v python3 >/dev/null 2>&1; then
+  python3 scripts/check_no_axios.py
+elif command -v python >/dev/null 2>&1; then
+  python scripts/check_no_axios.py
+elif command -v py >/dev/null 2>&1; then
+  py -3 scripts/check_no_axios.py
+else
+  echo "Python 3 is required to run Axios security guard." >&2
+  exit 1
+fi

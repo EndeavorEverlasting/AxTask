@@ -183,6 +183,6 @@ If pushing NodeWeaver deployment prep, keep branch as:
 
 ---
 
-## 9) Optional Cleanup: NodeWeaver Nested Folder
+## 9) Vendored NodeWeaver: `services/nodeweaver/upstream`
 
-If your local machine still has a nested `NodeWeaver/NodeWeaver` layout, flatten only when not under time pressure. It is safe to postpone until after production cutover. The migration itself is not blocked by that layout as long as you run commands from the actual repo root (the directory containing `.git`).
+AxTask vendors NodeWeaver at **`services/nodeweaver/upstream/`**. Docker Compose (`nodeweaver` profile), **`npm install`** bootstrap, and CI pytest use that path. Remove any leftover **`NodeWeaver/`** folder at repo root from older clones so you do not maintain two copies.

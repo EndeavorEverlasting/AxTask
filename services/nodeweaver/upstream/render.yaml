@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: nodeweaver-prod
+    env: python
+    plan: starter
+    rootDir: .
+    buildCommand: pip install -e .
+    startCommand: gunicorn -w 2 -k gthread --threads 4 --timeout 120 --bind 0.0.0.0:$PORT app:app
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: PORT
+        value: 5000
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_DEBUG
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: LOG_LEVEL
+        sync: false
+      - key: EMBEDDING_MODEL
+        sync: false
+      - key: VECTOR_DIMENSION
+        sync: false

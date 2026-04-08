@@ -1,6 +1,8 @@
 # OTP / MFA delivery (email and SMS)
 
-AxTask sends one-time codes for step-up MFA (billing, invoice actions, phone verification). Delivery is **channel-aware**: `email` or `sms` on `POST /api/mfa/challenge`.
+AxTask sends one-time codes for **step-up MFA** after you are logged in (billing, invoice actions, phone verification). Delivery is **channel-aware**: `email` or `sms` on `POST /api/mfa/challenge`.
+
+**Planned (separate from this doc’s API):** verification during **new account registration** to reduce abuse — see [`MFA_SIGNUP_VERIFICATION.md`](./MFA_SIGNUP_VERIFICATION.md). That work targets **sign-up only**; existing users keep normal login and only see OTP when a sensitive flow already requires it.
 
 ## Development
 
@@ -19,7 +21,7 @@ AxTask sends one-time codes for step-up MFA (billing, invoice actions, phone ver
 | `RESEND_API_KEY` | Yes (for email OTP) | API key |
 | `RESEND_FROM` | No | From address, e.g. `AxTask <billing@yourdomain.com>` |
 
-Verified domain in Resend is required for arbitrary `from` addresses.
+**Verified domain in Resend** is required for the **exact domain** in the From address (see [Resend: Managing Domains](https://resend.com/docs/dashboard/domains/introduction)). Verifying the **apex** (e.g. `yourdomain.com`) does **not** authorize `*@notifications.yourdomain.com` until you add **that subdomain** as its own domain in Resend and complete its SPF/DKIM records—or set `RESEND_FROM` to an address on the already-verified domain (e.g. `no-reply@yourdomain.com`). A Resend **403** mentioning “domain is not verified” almost always means `RESEND_FROM`’s domain does not match a **Verified** row in the Resend dashboard.
 
 ### SMS (Twilio)
 

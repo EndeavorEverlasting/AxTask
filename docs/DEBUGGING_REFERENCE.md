@@ -337,4 +337,10 @@ const schema = insertTaskSchema.extend({
 
 ---
 
+## TypeScript `npm run check` baseline
+
+Server-only `tsc` debt and the policy (“no new errors under `client/`”) are tracked in **[TYPESCRIPT_BASELINE.md](./TYPESCRIPT_BASELINE.md)**. Update that file when the error set changes.
+
+---
+
 *Remember: Debugging is a systematic process. Start with the most specific error, fix it completely, then move to the next issue.*

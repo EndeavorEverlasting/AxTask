@@ -1,0 +1,421 @@
+{% extends "base.html" %}
+
+{% block title %}API Documentation - NodeWeaver{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <div class="text-center mb-4">
+            <h2>
+                <i class="fas fa-book me-2"></i>API Documentation
+            </h2>
+            <p class="text-muted">
+                Complete reference for the NodeWeaver RAG Classifier API
+            </p>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>API Overview
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Base URL</h6>
+                        <code class="d-block p-2 bg-dark text-light rounded mb-3">
+                            https://your-domain.com/api/v1
+                        </code>
+                        
+                        <h6>Content Type</h6>
+                        <code class="d-block p-2 bg-dark text-light rounded mb-3">
+                            application/json
+                        </code>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Response Format</h6>
+                        <p class="mb-2">All responses are in JSON format</p>
+                        
+                        <h6>Rate Limiting</h6>
+                        <p class="mb-2">Currently no rate limiting implemented</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Classification Endpoints -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-tags me-2"></i>Classification Endpoints
+                </h5>
+            </div>
+            <div class="card-body">
+                
+                <!-- Single Classification -->
+                <div class="border-bottom pb-3 mb-4">
+                    <h6 class="text-primary">POST /classify</h6>
+                    <p>Classify a single text input</p>
+                    
+                    <h6>Request Body:</h6>
+                    <pre class="bg-dark p-3 rounded"><code class="text-light">{
+  "text": "Schedule dentist appointment for next Tuesday",
+  "metadata": {
+    "source": "user_input",
+    "priority": "medium"
+  }
+}</code></pre>
+                    
+                    <h6>Response:</h6>
+                    <pre class="bg-dark p-3 rounded"><code class="text-light">{
+  "predicted_category": "personal",
+  "confidence_score": 0.85,
+  "similar_topics": [
+    {
+      "topic_id": 1,
+      "label": "Personal: Health appointments",
+      "category": "personal",
+      "similarity": 0.92
+    }
+  ],
+  "similar_nodes": [
+    {
+      "node_id": 15,
+      "content": "Book doctor appointment",
+      "category": "personal",
+      "similarity": 0.88
+    }
+  ],
+  "document_id": 123,
+  "processing_time": 0.145
+}</code></pre>
+                </div>
+
+                <!-- Batch Classification -->
+                <div class="border-bottom pb-3 mb-4">
+                    <h6 class="text-primary">POST /classify/batch</h6>
+                    <p>Classify multiple texts in a single request (max 100)</p>
+                    
+                    <h6>Request Body:</h6>
+                    <pre class="bg-dark p-3 rounded"><code class="text-light">{
+  "texts": [
+    "Buy groceries",
+    "Prepare quarterly report",
+    "Study for chemistry exam"
+  ]
+}</code></pre>
+                    
+                    <h6>Response:</h6>
+                    <pre class="bg-dark p-3 rounded"><code class="text-light">{
+  "results": [
+    {
+      "predicted_category": "personal",
+      "confidence_score": 0.78,
+      "similar_topics": [...],
+      "similar_nodes": [...]
+    },
+    {
+      "predicted_category": "work",
+      "confidence_score": 0.91,
+      "similar_topics": [...],
+      "similar_nodes": [...]
+    }
+  ],
+  "batch_size": 3,
+  "processing_time": 0.234
+}</code></pre>
+                </div>
+
+                <!-- Get Categories -->
+                <div class="border-bottom pb-3 mb-4">
+                    <h6 class="text-primary">GET /categories</h6>
+                    <p>Get available classification categories</p>
+                    
+                    <h6>Response:</h6>
+                    <pre class="bg-dark p-3 rounded"><code class="text-light">{
+  "categories": [
+    "personal",
+    "work",
+    "academic",
+    "political",
+    "health",
+    "finance",
+    "entertainment",
+    "travel",
+    "shopping",
+    "technology",
+    "other"
+  ],
+  "total": 11
+}</code></pre>
+                </div>
+
+                <!-- Training -->
+                <div class="pb-3 mb-4">
+                    <h6 class="text-primary">POST /train</h6>
+                    <p>Add training data to improve classification accuracy</p>
+                    
+                    <h6>Request Body:</h6>
+                    <pre class="bg-dark p-3 rounded"><code class="text-light">{
+  "training_data": [
+    {
+      "text": "Schedule team meeting for project review",
+      "category": "work",
+      "metadata": {"department": "engineering"}
+    },
+    {
+      "text": "Buy birthday gift for mom",
+      "category": "personal",
+      "metadata": {"priority": "high"}
+    }
+  ]
+}</code></pre>
+                    
+                    <h6>Response:</h6>
+                    <pre class="bg-dark p-3 rounded"><code class="text-light">{
+  "message": "Training completed successfully",
+  "training_samples": 2,
+  "emerging_topics": 1
+}</code></pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- Topic Endpoints -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-project-diagram me-2"></i>Topic Management Endpoints
+                </h5>
+            </div>
+            <div class="card-body">
+                
+                <!-- Get Topics -->
+                <div class="border-bottom pb-3 mb-4">
+                    <h6 class="text-primary">GET /topics</h6>
+                    <p>Get all topics with optional filtering and pagination</p>
+                    
+                    <h6>Query Parameters:</h6>
+                    <ul>
+                        <li><code>category</code> - Filter by category</li>
+                        <li><code>min_weight</code> - Minimum topic weight</li>
+                        <li><code>min_coherence</code> - Minimum coherence score</li>
+                        <li><code>page</code> - Page number (default: 1)</li>
+                        <li><code>per_page</code> - Items per page (default: 20, max: 100)</li>
+                    </ul>
+                    
+                    <h6>Example Request:</h6>
+                    <code class="d-block p-2 bg-dark text-light rounded mb-3">
+                        GET /api/v1/topics?category=work&min_weight=2.0&page=1&per_page=10
+                    </code>
+                </div>
+
+                <!-- Detect Topics -->
+                <div class="border-bottom pb-3 mb-4">
+                    <h6 class="text-primary">POST /topics/detect</h6>
+                    <p>Trigger topic detection algorithm to find emerging topics</p>
+                    
+                    <h6>Response:</h6>
+                    <pre class="bg-dark p-3 rounded"><code class="text-light">{
+  "message": "Topic detection completed",
+  "emerging_topics": 3,
+  "topics": [
+    {
+      "topic_id": 25,
+      "label": "Work: Project management tasks",
+      "category": "work",
+      "total_weight": 4.2,
+      "coherence_score": 0.78,
+      "origin_node_ids": [45, 67, 89, 102]
+    }
+  ]
+}</code></pre>
+                </div>
+
+                <!-- Find Similar Topics -->
+                <div class="pb-3 mb-4">
+                    <h6 class="text-primary">POST /topics/similar</h6>
+                    <p>Find topics similar to input text</p>
+                    
+                    <h6>Request Body:</h6>
+                    <pre class="bg-dark p-3 rounded"><code class="text-light">{
+  "text": "Plan marketing campaign",
+  "limit": 5,
+  "threshold": 0.6
+}</code></pre>
+                    
+                    <h6>Response:</h6>
+                    <pre class="bg-dark p-3 rounded"><code class="text-light">{
+  "input_text": "Plan marketing campaign",
+  "similar_topics": [
+    {
+      "topic_id": 12,
+      "label": "Work: Marketing activities",
+      "category": "work",
+      "similarity": 0.89,
+      "total_weight": 3.4
+    }
+  ],
+  "count": 1
+}</code></pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- Integration Examples -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-code me-2"></i>Integration Examples
+                </h5>
+            </div>
+            <div class="card-body">
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fab fa-js-square me-2"></i>JavaScript</h6>
+                        <pre class="bg-dark p-3 rounded"><code class="text-light">// Classify text
+async function classifyText(text) {
+  const response = await fetch('/api/v1/classify', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ text: text })
+  });
+  
+  const result = await response.json();
+  return result.predicted_category;
+}</code></pre>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6><i class="fab fa-python me-2"></i>Python</h6>
+                        <pre class="bg-dark p-3 rounded"><code class="text-light">import requests
+
+def classify_text(text):
+    response = requests.post(
+        'https://your-domain.com/api/v1/classify',
+        json={'text': text}
+    )
+    
+    result = response.json()
+    return result['predicted_category']
+
+# Example usage
+category = classify_text("Schedule team meeting")
+print(f"Category: {category}")</code></pre>
+                    </div>
+                </div>
+
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-terminal me-2"></i>cURL</h6>
+                        <pre class="bg-dark p-3 rounded"><code class="text-light">curl -X POST "https://your-domain.com/api/v1/classify" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Buy groceries and cook dinner",
+    "metadata": {"source": "todo_app"}
+  }'</code></pre>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6><i class="fab fa-google me-2"></i>Google Apps Script</h6>
+                        <pre class="bg-dark p-3 rounded"><code class="text-light">function classifyTask(text) {
+  const response = UrlFetchApp.fetch(
+    'https://your-domain.com/api/v1/classify',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      payload: JSON.stringify({text: text})
+    }
+  );
+  
+  const result = JSON.parse(response.getContentText());
+  return result.predicted_category;
+}</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error Codes -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-exclamation-triangle me-2"></i>Error Codes
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Status</th>
+                                <th>Description</th>
+                                <th>Example Response</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>400</td>
+                                <td>Bad Request</td>
+                                <td>Invalid input data</td>
+                                <td><code>{"error": "Missing required field: text"}</code></td>
+                            </tr>
+                            <tr>
+                                <td>404</td>
+                                <td>Not Found</td>
+                                <td>Endpoint not found</td>
+                                <td><code>{"error": "Endpoint not found"}</code></td>
+                            </tr>
+                            <tr>
+                                <td>413</td>
+                                <td>Payload Too Large</td>
+                                <td>Input text too long</td>
+                                <td><code>{"error": "Text exceeds maximum length"}</code></td>
+                            </tr>
+                            <tr>
+                                <td>500</td>
+                                <td>Internal Server Error</td>
+                                <td>Server processing error</td>
+                                <td><code>{"error": "Classification failed", "details": "..."}</code></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Add syntax highlighting or interactive features if needed
+document.addEventListener('DOMContentLoaded', function() {
+    // Copy code functionality
+    const codeBlocks = document.querySelectorAll('pre code');
+    codeBlocks.forEach(block => {
+        block.addEventListener('click', function() {
+            navigator.clipboard.writeText(this.textContent).then(() => {
+                // Show brief feedback
+                const originalContent = this.innerHTML;
+                this.innerHTML = '<span class="text-success">✓ Copied to clipboard!</span>';
+                setTimeout(() => {
+                    this.innerHTML = originalContent;
+                }, 1000);
+            });
+        });
+        
+        // Add copy cursor
+        block.style.cursor = 'pointer';
+        block.title = 'Click to copy';
+    });
+});
+</script>
+{% endblock %}

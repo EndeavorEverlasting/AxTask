@@ -1,0 +1,41 @@
+name: Security - Axios Guard
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  block-axios:
+    name: Block Axios Introduction
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+      - name: Fail on axios usage or direct dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Scanning repository for axios imports/usages..."
+          if rg -n -i --glob '!docs/**' --glob '!**/*.md' --glob '!**/*.mdx' --glob '!**/node_modules/**' --glob '!**/dist/**' '(from\s+["'\'']axios["'\'']|require\(\s*["'\'']axios["'\'']\s*\)|\baxios\.)' .; then
+            echo "::error::Axios usage detected. Do not invoke axios in this project."
+            exit 1
+          fi
+
+          echo "Scanning JavaScript package manifests for direct axios dependency..."
+          if rg -n -i '"axios"\s*:' package.json package-lock.json yarn.lock pnpm-lock.yaml 2>/dev/null; then
+            echo "::error::Direct axios dependency detected in JavaScript manifests/locks."
+            exit 1
+          fi
+
+          echo "Axios guard passed."

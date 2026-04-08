@@ -1,5 +1,16 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  varchar,
+  integer,
+  timestamp,
+  boolean,
+  index,
+  uniqueIndex,
+  uuid,
+  check,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -26,6 +37,8 @@ export const users = pgTable("users", {
   /** E.164 (+15551234567). Omitted from SafeUser; use phoneMasked in API responses. */
   phoneE164: text("phone_e164"),
   phoneVerifiedAt: timestamp("phone_verified_at"),
+  /** Optional ISO date YYYY-MM-DD for birthday rewards (owner-only in API). */
+  birthDate: text("birth_date"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -39,6 +52,36 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+/** Phase B: long-lived opaque refresh tokens (hashed); httpOnly cookie holds plaintext. */
+export const deviceRefreshTokens = pgTable(
+  "device_refresh_tokens",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at").notNull(),
+    lastUsedAt: timestamp("last_used_at"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_device_refresh_tokens_user").on(table.userId),
+    index("idx_device_refresh_tokens_expires").on(table.expiresAt),
+  ],
+);
+
+export type DeviceRefreshToken = typeof deviceRefreshTokens.$inferSelect;
+
+/** Tracks applied `migrations/*.sql` files (see `scripts/run-sql-migrations.mjs`). */
+export const appliedSqlMigrations = pgTable("applied_sql_migrations", {
+  filename: text("filename").primaryKey(),
+  appliedAt: timestamp("applied_at").notNull().defaultNow(),
+});
+
+export type AppliedSqlMigration = typeof appliedSqlMigrations.$inferSelect;
 
 // ─── Security Audit Logs ─────────────────────────────────────────────────────
 export const securityLogs = pgTable("security_logs", {
@@ -96,6 +139,46 @@ export const securityAlerts = pgTable("security_alerts", {
 
 export type SecurityAlert = typeof securityAlerts.$inferSelect;
 
+// ─── Appeals (moderation / account / feedback disputes) ─────────────────────
+/** open → granted | denied | withdrawn */
+export const appeals = pgTable("appeals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  appellantUserId: varchar("appellant_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** account_ban | feedback_dispute | other */
+  subjectType: text("subject_type").notNull(),
+  /** For account_ban: appellant user id; for feedback_dispute: security_events.id of feedback_processed */
+  subjectRef: text("subject_ref").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  status: text("status").notNull().default("open"),
+  resolution: text("resolution"),
+  /** Snapshot when created (informational; votes use live admin count). */
+  adminCountAtOpen: integer("admin_count_at_open"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedByUserId: varchar("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_appeals_status").on(table.status),
+  index("idx_appeals_appellant").on(table.appellantUserId),
+  index("idx_appeals_created_at").on(table.createdAt),
+]);
+
+export const appealVotes = pgTable("appeal_votes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  appealId: varchar("appeal_id").notNull().references(() => appeals.id, { onDelete: "cascade" }),
+  adminUserId: varchar("admin_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** grant = side with appellant; deny = uphold original action */
+  decision: text("decision").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_appeal_votes_appeal_admin").on(table.appealId, table.adminUserId),
+  index("idx_appeal_votes_appeal").on(table.appealId),
+]);
+
+export type Appeal = typeof appeals.$inferSelect;
+export type AppealVote = typeof appealVotes.$inferSelect;
+
 // Strong password: ≥8 chars, uppercase, lowercase, digit, special character
 const strongPassword = z
   .string()
@@ -128,6 +211,7 @@ export type SafeUser = Omit<
   | "googleId"
   | "replitId"
   | "phoneE164"
+  | "birthDate"
 > & {
   phoneMasked: string | null;
   phoneVerified: boolean;
@@ -142,6 +226,8 @@ export const userNotificationPreferences = pgTable("user_notification_preference
   intensity: integer("intensity").notNull().default(50),
   quietHoursStart: integer("quiet_hours_start"),
   quietHoursEnd: integer("quiet_hours_end"),
+  /** Account-synced immersive UI sounds (per plan; per-device scope in localStorage). */
+  immersiveSoundsEnabled: boolean("immersive_sounds_enabled").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -168,6 +254,7 @@ export const updateNotificationPreferenceSchema = z.object({
   intensity: z.number().int().min(0).max(100).optional(),
   quietHoursStart: z.number().int().min(0).max(23).nullable().optional(),
   quietHoursEnd: z.number().int().min(0).max(23).nullable().optional(),
+  immersiveSoundsEnabled: z.boolean().optional(),
 });
 
 export const createPushSubscriptionSchema = z.object({
@@ -187,6 +274,13 @@ export const deletePushSubscriptionSchema = z.object({
 export type UserNotificationPreference = typeof userNotificationPreferences.$inferSelect;
 export type UserPushSubscription = typeof userPushSubscriptions.$inferSelect;
 
+/** Server-managed key/value rows (e.g. auto-generated Web Push VAPID keypair). Not user-scoped. */
+export const appRuntimeSecrets = pgTable("app_runtime_secrets", {
+  key: varchar("key", { length: 128 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -199,18 +293,24 @@ export const tasks = pgTable("tasks", {
   impact: integer("impact"),
   effort: integer("effort"),
   prerequisites: text("prerequisites").default(""),
+  recurrence: text("recurrence").default("none"),
   priority: text("priority").notNull(),
   priorityScore: integer("priority_score").notNull(),
   classification: text("classification").notNull(),
   status: text("status").notNull().default("pending"),
   isRepeated: boolean("is_repeated").default(false),
   sortOrder: integer("sort_order").default(0),
+  /** private | community — use MFA-gated routes to set community. */
+  visibility: text("visibility").notNull().default("private"),
+  communityPublishedAt: timestamp("community_published_at"),
+  communityShowNotes: boolean("community_show_notes").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_tasks_user_status").on(table.userId, table.status),
   index("idx_tasks_user_priority").on(table.userId, table.priority),
   index("idx_tasks_user_sort_order").on(table.userId, table.sortOrder),
+  index("idx_tasks_community_published").on(table.visibility, table.communityPublishedAt),
 ]);
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({
@@ -221,6 +321,9 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   classification: true,
   isRepeated: true,
   sortOrder: true,
+  visibility: true,
+  communityPublishedAt: true,
+  communityShowNotes: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
@@ -232,7 +335,10 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   impact: z.number().min(1).max(5).optional(),
   effort: z.number().min(1).max(5).optional(),
   prerequisites: z.string().max(1000, "Prerequisites must be under 1000 characters").optional(),
+  recurrence: z.enum(["none", "daily", "weekly", "biweekly", "monthly", "quarterly", "yearly"]).default("none"),
   status: z.enum(["pending", "in-progress", "completed"]).default("pending"),
+  /** Phase C: optional client UUID for offline-first create replay (must not collide in DB). */
+  id: z.string().uuid().optional(),
 });
 
 export const updateTaskSchema = insertTaskSchema.partial().extend({
@@ -242,6 +348,14 @@ export const updateTaskSchema = insertTaskSchema.partial().extend({
   classification: z.string().optional(),
   isRepeated: z.boolean().optional(),
   sortOrder: z.number().optional(),
+  /** Phase C: last known server `updatedAt` (ISO) before this edit; mismatch → 409 conflict. */
+  baseUpdatedAt: z.string().optional(),
+  /** Phase C: user chose to overwrite after a conflict. */
+  forceOverwrite: z.boolean().optional(),
+  /** Ignored if present — use community publish API with MFA. */
+  visibility: z.unknown().optional().transform(() => undefined),
+  communityPublishedAt: z.unknown().optional().transform(() => undefined),
+  communityShowNotes: z.unknown().optional().transform(() => undefined),
 });
 
 export const reorderTasksSchema = z.object({
@@ -251,6 +365,28 @@ export const reorderTasksSchema = z.object({
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type UpdateTask = z.infer<typeof updateTaskSchema>;
 export type Task = typeof tasks.$inferSelect;
+
+// ─── Task Collaborators ─────────────────────────────────────────────────────
+export const taskCollaborators = pgTable("task_collaborators", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("editor"),
+  invitedBy: varchar("invited_by").references(() => users.id, { onDelete: "set null" }),
+  invitedAt: timestamp("invited_at").defaultNow(),
+}, (table) => [
+  index("idx_collab_task").on(table.taskId),
+  index("idx_collab_user").on(table.userId),
+  uniqueIndex("uq_task_collaborators_task_user").on(table.taskId, table.userId),
+  check("task_collaborators_role_check", sql`${table.role} IN ('viewer', 'editor', 'commenter')`),
+]);
+
+export type TaskCollaborator = typeof taskCollaborators.$inferSelect;
+export const insertCollaboratorSchema = createInsertSchema(taskCollaborators)
+  .omit({ id: true, invitedAt: true })
+  .extend({
+    role: z.enum(["viewer", "editor", "commenter"]).optional(),
+  });
 
 // ─── Gamification: Wallets ──────────────────────────────────────────────────
 export const wallets = pgTable("wallets", {
@@ -315,9 +451,185 @@ export const userRewards = pgTable("user_rewards", {
   isActive: boolean("is_active").notNull().default(true),
 }, (table) => [
   index("idx_user_rewards_user").on(table.userId),
+  // One row per (user, catalog reward). If `db:push` fails on ux_user_rewards_user_reward, run
+  // `migrations/0000_dedupe_user_rewards.sql` once (transactional, idempotent), then push again.
+  uniqueIndex("ux_user_rewards_user_reward").on(table.userId, table.rewardId),
 ]);
 
 export type UserReward = typeof userRewards.$inferSelect;
+
+/** Idempotent milestone grants (birthday, account anniversary). */
+export const userMilestoneGrants = pgTable("user_milestone_grants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  milestoneKey: text("milestone_key").notNull(),
+  coinsGranted: integer("coins_granted").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_user_milestone_grants_user_key").on(table.userId, table.milestoneKey),
+  index("idx_user_milestone_grants_user").on(table.userId),
+]);
+
+export type UserMilestoneGrant = typeof userMilestoneGrants.$inferSelect;
+
+/** Cached entourage companion personas (derived from usage). */
+export const userEntourage = pgTable("user_entourage", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  payloadJson: text("payload_json").notNull(),
+  computedAt: timestamp("computed_at").notNull(),
+});
+
+export type UserEntourage = typeof userEntourage.$inferSelect;
+
+/** Per-user cooldown and last-offered video for contextual YouTube probes (Google sign-in gate in API). */
+export const userYoutubeProbeState = pgTable("user_youtube_probe_state", {
+  userId: varchar("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  lastOfferedAt: timestamp("last_offered_at"),
+  lastVideoId: text("last_video_id"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type UserYoutubeProbeState = typeof userYoutubeProbeState.$inferSelect;
+
+/** User feedback on offered YouTube probe videos (for future tuning). */
+export const youtubeProbeFeedback = pgTable(
+  "youtube_probe_feedback",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    videoId: text("video_id").notNull(),
+    reaction: text("reaction").notNull(), // interested | not_interested | dismiss
+    probeVersion: text("probe_version").notNull().default("1"),
+    contextSnapshotJson: text("context_snapshot_json"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [index("idx_youtube_probe_feedback_user").on(table.userId)],
+);
+
+export type YoutubeProbeFeedback = typeof youtubeProbeFeedback.$inferSelect;
+
+/** Persistent avatar progression per user and avatar role. */
+export const avatarProfiles = pgTable("avatar_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  avatarKey: text("avatar_key").notNull(), // mood | archetype | productivity | social | lazy
+  archetypeKey: text("archetype_key").notNull(),
+  displayName: text("display_name").notNull(),
+  level: integer("level").notNull().default(1),
+  xp: integer("xp").notNull().default(0),
+  totalXp: integer("total_xp").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_avatar_profiles_user_key").on(table.userId, table.avatarKey),
+  index("idx_avatar_profiles_user").on(table.userId),
+]);
+
+export type AvatarProfile = typeof avatarProfiles.$inferSelect;
+
+/** Idempotent avatar XP awards from tasks/feedback/posts. */
+export const avatarXpEvents = pgTable("avatar_xp_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  avatarKey: text("avatar_key").notNull(),
+  sourceType: text("source_type").notNull(), // task | feedback | post
+  sourceRef: text("source_ref").notNull(),
+  xpAwarded: integer("xp_awarded").notNull().default(0),
+  coinsAwarded: integer("coins_awarded").notNull().default(0),
+  metadataJson: text("metadata_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_avatar_xp_events_unique_source").on(table.userId, table.avatarKey, table.sourceType, table.sourceRef),
+  index("idx_avatar_xp_events_user").on(table.userId),
+]);
+
+export type AvatarXpEvent = typeof avatarXpEvents.$inferSelect;
+
+/**
+ * Latest server-wide playstyle cohort mix (no user identifiers).
+ * Derived from how people “play” the app: avatar XP sources, tasks, social, classification, coins.
+ */
+export const playstyleCohortRollups = pgTable(
+  "playstyle_cohort_rollups",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    cohortKey: text("cohort_key").notNull(),
+    memberCount: integer("member_count").notNull(),
+    /** Mean of normalized signals for this cohort (JSON) — for “formulaic inevitability” tracking. */
+    signalsMeanJson: text("signals_mean_json").notNull(),
+    assignmentVersion: text("assignment_version").notNull().default("playstyle_v1"),
+    computedAt: timestamp("computed_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_playstyle_cohort_rollups_computed").on(table.computedAt),
+    uniqueIndex("ux_playstyle_cohort_rollups_key_version").on(table.cohortKey, table.assignmentVersion),
+  ],
+);
+
+export type PlaystyleCohortRollup = typeof playstyleCohortRollups.$inferSelect;
+
+/**
+ * Internal assignment for recomputing rollups only — not exposed in user-facing APIs.
+ */
+export const userPlaystyleAssignments = pgTable(
+  "user_playstyle_assignments",
+  {
+    userId: varchar("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cohortKey: text("cohort_key").notNull(),
+    signalsJson: text("signals_json").notNull(),
+    assignmentVersion: text("assignment_version").notNull().default("playstyle_v1"),
+    computedAt: timestamp("computed_at").notNull().defaultNow(),
+  },
+  (table) => [index("idx_user_playstyle_assignments_cohort").on(table.cohortKey)],
+);
+
+export type UserPlaystyleAssignment = typeof userPlaystyleAssignments.$inferSelect;
+
+export const updateAccountProfileSchema = z.object({
+  displayName: z.union([z.string().min(1).max(120), z.null()]).optional(),
+  birthDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional()
+    .superRefine((val, ctx) => {
+      if (val == null || val === undefined) return;
+      const parts = val.split("-").map((p) => Number(p));
+      if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid calendar date" });
+        return;
+      }
+      const [y, m, d] = parts;
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid calendar date" });
+        return;
+      }
+      const today = new Date();
+      const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+      const parsedUtc = Date.UTC(y, m - 1, d);
+      if (parsedUtc > todayUtc) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Birth date cannot be in the future" });
+      }
+    }),
+});
+
+export type UpdateAccountProfile = z.infer<typeof updateAccountProfileSchema>;
+
+export const avatarEngagementSchema = z.object({
+  sourceType: z.enum(["task", "feedback", "post"]),
+  sourceRef: z.string().min(1).max(120),
+  text: z.string().max(5000).optional().default(""),
+  completed: z.boolean().optional().default(false),
+});
+
+export type AvatarEngagementInput = z.infer<typeof avatarEngagementSchema>;
 
 // ─── Gamification: Offline Generator ─────────────────────────────────────────
 export const offlineGenerators = pgTable("offline_generators", {
@@ -386,6 +698,24 @@ export const usageSnapshots = pgTable("usage_snapshots", {
 ]);
 
 export type UsageSnapshot = typeof usageSnapshots.$inferSelect;
+
+/** Lightweight product funnel rows for roadmap triage (not the tamper-evident security_events ledger). */
+export const productFunnelEvents = pgTable(
+  "product_funnel_events",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+    eventName: text("event_name").notNull(),
+    metaJson: text("meta_json"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_product_funnel_events_name_created").on(table.eventName, table.createdAt),
+    index("idx_product_funnel_events_user_created").on(table.userId, table.createdAt),
+  ],
+);
+
+export type ProductFunnelEvent = typeof productFunnelEvents.$inferSelect;
 
 export const storagePolicies = pgTable("storage_policies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -510,6 +840,23 @@ export const billingPaymentMethods = pgTable("billing_payment_methods", {
 
 export type BillingPaymentMethod = typeof billingPaymentMethods.$inferSelect;
 
+/** Receipt / legal billing identity (account plane; separate from community profile). */
+export const userBillingProfiles = pgTable("user_billing_profiles", {
+  userId: varchar("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  legalName: text("legal_name"),
+  line1: text("line1"),
+  line2: text("line2"),
+  city: text("city"),
+  region: text("region"),
+  postalCode: text("postal_code"),
+  country: text("country"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type UserBillingProfile = typeof userBillingProfiles.$inferSelect;
+
 export const idempotencyKeys = pgTable("idempotency_keys", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   key: text("key").notNull(),
@@ -550,7 +897,7 @@ export const premiumSubscriptions = pgTable("premium_subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   product: text("product").notNull(), // axtask | nodeweaver | bundle
-  planKey: text("plan_key").notNull(), // pro_monthly | pro_yearly | bundle_monthly
+  planKey: text("plan_key").notNull(), // pro_monthly | pro_yearly | bundle_monthly | *_lifetime (admin-granted)
   status: text("status").notNull().default("active"), // active | grace | inactive
   startsAt: timestamp("starts_at").defaultNow(),
   endsAt: timestamp("ends_at"),
@@ -665,3 +1012,81 @@ export const createPremiumReviewWorkflowSchema = createInsertSchema(premiumRevie
   templateJson: z.string().min(2).max(4000),
   isActive: z.boolean().default(true),
 });
+
+// ─── Pattern Learning (replit-published line; union with experimental) ───────
+export const taskPatterns = pgTable("task_patterns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  patternType: text("pattern_type").notNull(),
+  patternKey: text("pattern_key").notNull(),
+  data: text("data").notNull().default("{}"),
+  confidence: integer("confidence").notNull().default(0),
+  occurrences: integer("occurrences").notNull().default(1),
+  lastSeen: timestamp("last_seen").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_patterns_user").on(table.userId),
+  index("idx_patterns_user_type").on(table.userId, table.patternType),
+  index("idx_patterns_user_key").on(table.userId, table.patternKey),
+  uniqueIndex("idx_patterns_user_type_key").on(table.userId, table.patternType, table.patternKey),
+]);
+
+export type TaskPattern = typeof taskPatterns.$inferSelect;
+export type InsertTaskPattern = typeof taskPatterns.$inferInsert;
+
+// ─── Classification Contributions ───────────────────────────────────────────
+export const classificationContributions = pgTable("classification_contributions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  classification: text("classification").notNull(),
+  baseCoinsAwarded: integer("base_coins_awarded").notNull().default(0),
+  totalCoinsEarned: integer("total_coins_earned").notNull().default(0),
+  confirmationCount: integer("confirmation_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_class_contrib_task").on(table.taskId),
+  index("idx_class_contrib_user").on(table.userId),
+  uniqueIndex("idx_class_contrib_task_user").on(table.taskId, table.userId),
+]);
+
+export type ClassificationContribution = typeof classificationContributions.$inferSelect;
+
+// ─── Classification Confirmations ───────────────────────────────────────────
+export const classificationConfirmations = pgTable("classification_confirmations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contributionId: varchar("contribution_id").notNull().references(() => classificationContributions.id, { onDelete: "cascade" }),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  coinsAwarded: integer("coins_awarded").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_class_confirm_contrib").on(table.contributionId),
+  index("idx_class_confirm_task").on(table.taskId),
+  uniqueIndex("idx_class_confirm_task_user").on(table.taskId, table.userId),
+]);
+
+export type ClassificationConfirmation = typeof classificationConfirmations.$inferSelect;
+
+// ─── User-defined classification categories (NodeWeaver / gamification) ─────
+export const userClassificationCategories = pgTable(
+  "user_classification_categories",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    coinReward: integer("coin_reward").notNull().default(5),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_user_classification_categories_user").on(table.userId),
+    // Column-only: drizzle-kit cannot serialize SQL in unique indexes (Zod null expression on push).
+    // Case-insensitive uniqueness is enforced via formatCategoryNameForStorage + storage duplicate checks.
+    uniqueIndex("idx_user_classification_categories_user_name").on(table.userId, table.name),
+  ],
+);
+
+export type UserClassificationCategory = typeof userClassificationCategories.$inferSelect;
+export type InsertUserClassificationCategory = typeof userClassificationCategories.$inferInsert;

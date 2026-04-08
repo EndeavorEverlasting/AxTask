@@ -1,0 +1,528 @@
+{% extends "base.html" %}
+
+{% block title %}Test Interface - TopicSense{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <div class="text-center mb-4">
+            <h2>
+                <i class="fas fa-test-tube me-2"></i>Test Interface
+            </h2>
+            <p class="text-muted">
+                Test the TopicSense classifier with your own text
+            </p>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-edit me-2"></i>Input Text
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="classifyForm">
+                            <div class="mb-3">
+                                <label for="inputText" class="form-label">Text to Classify</label>
+                                <textarea class="form-control" id="inputText" rows="6" 
+                                    placeholder="Enter the text you want to classify (e.g., 'Schedule dentist appointment', 'Prepare quarterly report', 'Study for chemistry exam')"></textarea>
+                                <div class="form-text">
+                                    Enter any task, note, or text you want to categorize
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="metadata" class="form-label">Metadata (Optional)</label>
+                                <textarea class="form-control" id="metadata" rows="3" 
+                                    placeholder='{"source": "manual_test", "priority": "high"}'></textarea>
+                                <div class="form-text">
+                                    Optional JSON metadata to include with the classification
+                                </div>
+                            </div>
+                            
+                            <div class="d-grid gap-2">
+                                <button type="submit" class="btn btn-primary" id="classifyBtn">
+                                    <i class="fas fa-magic me-2"></i>Classify Text
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary" id="loadExampleBtn">
+                                    <i class="fas fa-lightbulb me-2"></i>Load Example
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-layer-group me-2"></i>Batch Classification
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <form id="batchForm">
+                            <div class="mb-3">
+                                <label for="batchText" class="form-label">Multiple Texts (One per line)</label>
+                                <textarea class="form-control" id="batchText" rows="8" 
+                                    placeholder="Buy groceries&#10;Meeting with client at 3pm&#10;Review research paper&#10;Call mom&#10;Backup important files"></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-list me-2"></i>Classify Batch
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chart-pie me-2"></i>Classification Results
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="results">
+                            <div class="text-center text-muted py-5">
+                                <i class="fas fa-arrow-left fa-2x mb-3"></i>
+                                <p>Enter text and click "Classify Text" to see results</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-history me-2"></i>Recent Classifications
+                        </h6>
+                    </div>
+                    <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                        <div id="recentClassifications">
+                            <div class="text-center text-muted">
+                                <div class="spinner-border spinner-border-sm" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="mb-0 mt-2">Loading recent classifications...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-project-diagram me-2"></i>Topic Management
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <button class="btn btn-info me-2" id="detectTopicsBtn">
+                                    <i class="fas fa-search me-2"></i>Detect New Topics
+                                </button>
+                                <button class="btn btn-outline-info" id="viewTopicsBtn">
+                                    <i class="fas fa-list me-2"></i>View All Topics
+                                </button>
+                            </div>
+                            <div class="col-md-6">
+                                <div id="topicStatus" class="text-end">
+                                    <small class="text-muted">Ready for topic detection</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="topicResults" class="mt-3" style="display: none;">
+                            <!-- Topic detection results will appear here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Topics Modal -->
+<div class="modal fade" id="topicsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-project-diagram me-2"></i>All Topics
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="topicsContent">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const examples = [
+        "Schedule dentist appointment for next Tuesday",
+        "Prepare quarterly financial report for board meeting",
+        "Study molecular biology chapter 6 for midterm exam",
+        "Call senator's office about healthcare legislation",
+        "Plan weekend hiking trip to Blue Ridge Mountains",
+        "Review and approve marketing budget proposal",
+        "Research graduate school applications deadline",
+        "Attend city council meeting about zoning changes"
+    ];
+
+    // Load example text
+    document.getElementById('loadExampleBtn').addEventListener('click', function() {
+        const randomExample = examples[Math.floor(Math.random() * examples.length)];
+        document.getElementById('inputText').value = randomExample;
+    });
+
+    // Handle single text classification
+    document.getElementById('classifyForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const text = document.getElementById('inputText').value.trim();
+        if (!text) {
+            alert('Please enter some text to classify');
+            return;
+        }
+
+        const btn = document.getElementById('classifyBtn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Classifying...';
+        btn.disabled = true;
+
+        let metadata = {};
+        const metadataText = document.getElementById('metadata').value.trim();
+        if (metadataText) {
+            try {
+                metadata = JSON.parse(metadataText);
+            } catch (e) {
+                alert('Invalid JSON in metadata field');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                return;
+            }
+        }
+
+        fetch('/api/v1/classify', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ text: text, metadata: metadata })
+        })
+        .then(response => response.json())
+        .then(data => {
+            displayResults(data, text);
+            loadRecentClassifications();
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('results').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Classification failed: ${error.message}
+                </div>
+            `;
+        })
+        .finally(() => {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        });
+    });
+
+    // Handle batch classification
+    document.getElementById('batchForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const batchText = document.getElementById('batchText').value.trim();
+        if (!batchText) {
+            alert('Please enter texts to classify (one per line)');
+            return;
+        }
+
+        const texts = batchText.split('\n').filter(line => line.trim());
+        if (texts.length === 0) {
+            alert('No valid texts found');
+            return;
+        }
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Classifying...';
+        btn.disabled = true;
+
+        fetch('/api/v1/classify/batch', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ texts: texts })
+        })
+        .then(response => response.json())
+        .then(data => {
+            displayBatchResults(data);
+            loadRecentClassifications();
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('results').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Batch classification failed: ${error.message}
+                </div>
+            `;
+        })
+        .finally(() => {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        });
+    });
+
+    // Topic detection
+    document.getElementById('detectTopicsBtn').addEventListener('click', function() {
+        const btn = this;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Detecting...';
+        btn.disabled = true;
+
+        document.getElementById('topicStatus').innerHTML = '<small class="text-info">Analyzing nodes for topic emergence...</small>';
+
+        fetch('/api/v1/topics/detect', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('topicStatus').innerHTML = `<small class="text-success">Found ${data.emerging_topics} new topics</small>`;
+            
+            if (data.topics && data.topics.length > 0) {
+                const topicResults = document.getElementById('topicResults');
+                topicResults.style.display = 'block';
+                topicResults.innerHTML = `
+                    <h6>Newly Detected Topics:</h6>
+                    ${data.topics.map(topic => `
+                        <div class="card mb-2">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>${topic.label}</strong>
+                                        <span class="badge bg-secondary ms-2">${topic.category}</span>
+                                    </div>
+                                    <div class="text-end">
+                                        <small class="text-muted">
+                                            Weight: ${topic.total_weight.toFixed(2)} | 
+                                            Coherence: ${topic.coherence_score.toFixed(2)}
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                `;
+            }
+        })
+        .catch(error => {
+            document.getElementById('topicStatus').innerHTML = '<small class="text-danger">Topic detection failed</small>';
+            console.error('Error:', error);
+        })
+        .finally(() => {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        });
+    });
+
+    // View all topics
+    document.getElementById('viewTopicsBtn').addEventListener('click', function() {
+        const modal = new bootstrap.Modal(document.getElementById('topicsModal'));
+        
+        fetch('/api/v1/topics')
+            .then(response => response.json())
+            .then(data => {
+                const content = document.getElementById('topicsContent');
+                if (data.topics && data.topics.length > 0) {
+                    content.innerHTML = data.topics.map(topic => `
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <h6 class="card-title">${topic.label}</h6>
+                                        <span class="badge bg-primary">${topic.category}</span>
+                                        <p class="card-text mt-2">
+                                            <small class="text-muted">
+                                                Nodes: ${topic.origin_node_ids ? topic.origin_node_ids.length : 0} | 
+                                                Weight: ${topic.total_weight ? topic.total_weight.toFixed(2) : 'N/A'} | 
+                                                Coherence: ${topic.coherence_score ? topic.coherence_score.toFixed(2) : 'N/A'}
+                                            </small>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    content.innerHTML = '<div class="text-center text-muted">No topics found</div>';
+                }
+            })
+            .catch(error => {
+                document.getElementById('topicsContent').innerHTML = '<div class="alert alert-danger">Failed to load topics</div>';
+            });
+        
+        modal.show();
+    });
+
+    // Load recent classifications on page load
+    loadRecentClassifications();
+
+    function displayResults(data, inputText) {
+        const confidence = data.confidence_score || 0;
+        const confidenceClass = confidence > 0.8 ? 'success' : confidence > 0.5 ? 'warning' : 'danger';
+        
+        const resultsHtml = `
+            <div class="alert alert-${confidenceClass} mb-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="mb-1">
+                            <i class="fas fa-tag me-2"></i>Category: 
+                            <span class="fw-bold">${data.predicted_category || 'unknown'}</span>
+                        </h6>
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar" role="progressbar" style="width: ${confidence * 100}%">
+                                Confidence: ${(confidence * 100).toFixed(1)}%
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <h6><i class="fas fa-quote-left me-2"></i>Input Text:</h6>
+                <div class="bg-dark p-3 rounded">
+                    <code class="text-light">${inputText}</code>
+                </div>
+            </div>
+            
+            ${data.similar_topics && data.similar_topics.length > 0 ? `
+                <div class="mb-3">
+                    <h6><i class="fas fa-project-diagram me-2"></i>Similar Topics:</h6>
+                    ${data.similar_topics.slice(0, 3).map(topic => `
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="badge bg-info">${topic.label}</span>
+                            <small class="text-muted">${(topic.similarity * 100).toFixed(1)}% similar</small>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+            
+            ${data.similar_nodes && data.similar_nodes.length > 0 ? `
+                <div class="mb-3">
+                    <h6><i class="fas fa-circle-nodes me-2"></i>Similar Nodes:</h6>
+                    ${data.similar_nodes.slice(0, 3).map(node => `
+                        <div class="mb-2">
+                            <div class="d-flex justify-content-between">
+                                <small class="text-truncate me-2" style="max-width: 70%;">${node.content}</small>
+                                <small class="text-muted">${(node.similarity * 100).toFixed(1)}%</small>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+            
+            <div class="text-muted">
+                <small>
+                    <i class="fas fa-clock me-1"></i>Processing time: ${data.processing_time ? (data.processing_time * 1000).toFixed(0) : 'N/A'}ms
+                </small>
+            </div>
+        `;
+        
+        document.getElementById('results').innerHTML = resultsHtml;
+    }
+
+    function displayBatchResults(data) {
+        const resultsHtml = `
+            <div class="alert alert-info mb-3">
+                <h6 class="mb-1">
+                    <i class="fas fa-layer-group me-2"></i>Batch Classification Complete
+                </h6>
+                <p class="mb-0">
+                    Processed ${data.batch_size} texts in ${(data.processing_time * 1000).toFixed(0)}ms
+                </p>
+            </div>
+            
+            <div style="max-height: 400px; overflow-y: auto;">
+                ${data.results.map((result, index) => `
+                    <div class="border-bottom pb-2 mb-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="badge bg-secondary">#${index + 1}</span>
+                            ${result.error ? 
+                                `<span class="badge bg-danger">Error</span>` :
+                                `<span class="badge bg-primary">${result.predicted_category || 'unknown'}</span>`
+                            }
+                        </div>
+                        ${result.error ? 
+                            `<div class="text-danger mt-1"><small>${result.error}</small></div>` :
+                            `<div class="progress mt-1" style="height: 15px;">
+                                <div class="progress-bar" style="width: ${(result.confidence_score || 0) * 100}%">
+                                    ${((result.confidence_score || 0) * 100).toFixed(1)}%
+                                </div>
+                            </div>`
+                        }
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        
+        document.getElementById('results').innerHTML = resultsHtml;
+    }
+
+    function loadRecentClassifications() {
+        fetch('/api/v1/logs?per_page=5')
+            .then(response => response.json())
+            .then(data => {
+                const recentHtml = data.logs && data.logs.length > 0 ? 
+                    data.logs.map(log => `
+                        <div class="border-bottom pb-2 mb-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="badge bg-primary">${log.predicted_category || 'unknown'}</span>
+                                <small class="text-muted">${new Date(log.created_at).toLocaleTimeString()}</small>
+                            </div>
+                            <div class="text-truncate mt-1" style="max-width: 100%;">
+                                <small>${log.input_text}</small>
+                            </div>
+                            <div class="progress mt-1" style="height: 10px;">
+                                <div class="progress-bar" style="width: ${(log.confidence_score || 0) * 100}%"></div>
+                            </div>
+                        </div>
+                    `).join('') : 
+                    '<div class="text-center text-muted">No recent classifications</div>';
+                
+                document.getElementById('recentClassifications').innerHTML = recentHtml;
+            })
+            .catch(error => {
+                document.getElementById('recentClassifications').innerHTML = `
+                    <div class="text-center text-muted">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Unable to load recent classifications
+                    </div>
+                `;
+            });
+    }
+});
+</script>
+{% endblock %}

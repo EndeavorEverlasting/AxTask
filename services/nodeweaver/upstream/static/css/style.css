@@ -1,0 +1,267 @@
+/* TopicSense Custom Styles */
+:root {
+    --bs-primary: #007bff;
+    --bs-success: #28a745;
+    --bs-info: #17a2b8;
+    --bs-warning: #ffc107;
+    --bs-danger: #dc3545;
+}
+
+/* Dark theme consistency */
+[data-bs-theme="dark"] {
+    background-color: #1a1a1a !important;
+    color: #ffffff !important;
+}
+
+/* Card enhancements */
+.card {
+    border: 1px solid var(--bs-border-color);
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.2);
+    transition: box-shadow 0.15s ease-in-out;
+}
+
+.card:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.3);
+}
+
+/* Code blocks */
+pre {
+    position: relative;
+}
+
+pre code {
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+/* Progress bars */
+.progress {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Badges */
+.badge {
+    font-size: 0.75em;
+}
+
+/* API documentation specific styles */
+.api-endpoint {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 1.1em;
+    font-weight: 600;
+}
+
+/* Test interface specific styles */
+#results {
+    min-height: 200px;
+}
+
+.text-truncate-custom {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    
+    .card-body {
+        padding: 1rem;
+    }
+    
+    pre {
+        font-size: 0.8rem;
+    }
+}
+
+/* Loading states */
+.loading-spinner {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid var(--bs-secondary);
+    border-top-color: var(--bs-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Status indicators */
+.status-online {
+    color: var(--bs-success);
+}
+
+.status-offline {
+    color: var(--bs-danger);
+}
+
+.status-warning {
+    color: var(--bs-warning);
+}
+
+/* Confidence score visualization */
+.confidence-high {
+    background: linear-gradient(90deg, var(--bs-success) 0%, var(--bs-success) 100%);
+}
+
+.confidence-medium {
+    background: linear-gradient(90deg, var(--bs-warning) 0%, var(--bs-warning) 100%);
+}
+
+.confidence-low {
+    background: linear-gradient(90deg, var(--bs-danger) 0%, var(--bs-danger) 100%);
+}
+
+/* Navbar enhancements */
+.navbar-brand {
+    font-weight: 600;
+    font-size: 1.5rem;
+}
+
+.navbar-nav .nav-link {
+    font-weight: 500;
+    transition: color 0.2s ease-in-out;
+}
+
+.navbar-nav .nav-link:hover {
+    color: var(--bs-primary) !important;
+}
+
+/* Footer */
+footer {
+    margin-top: auto;
+}
+
+/* Form enhancements */
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--bs-primary);
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* Button enhancements */
+.btn {
+    font-weight: 500;
+    transition: all 0.2s ease-in-out;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+}
+
+/* Table enhancements */
+.table-dark {
+    --bs-table-bg: #2d3748;
+    --bs-table-striped-bg: #374151;
+}
+
+/* Modal enhancements */
+.modal-content {
+    border: none;
+    box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.3);
+}
+
+/* Scrollbar styling for webkit browsers */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bs-dark);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--bs-secondary);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--bs-light);
+}
+
+/* Animation utilities */
+.fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.slide-up {
+    animation: slideUp 0.3s ease-in-out;
+}
+
+@keyframes slideUp {
+    from { 
+        opacity: 0; 
+        transform: translateY(20px); 
+    }
+    to { 
+        opacity: 1; 
+        transform: translateY(0); 
+    }
+}
+
+/* Print styles */
+@media print {
+    .navbar,
+    .btn,
+    footer {
+        display: none !important;
+    }
+    
+    .card {
+        border: 1px solid #000 !important;
+        box-shadow: none !important;
+    }
+    
+    pre {
+        border: 1px solid #000;
+        page-break-inside: avoid;
+    }
+}
+
+/* Accessibility improvements */
+.visually-hidden-focusable:not(:focus):not(:focus-within) {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .card {
+        border: 2px solid;
+    }
+    
+    .btn {
+        border: 2px solid;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}

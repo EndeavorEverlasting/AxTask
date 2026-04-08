@@ -1,3 +1,19 @@
+# AxTask documentation
+
+**Canonical handoff:** [PRODUCT_ROADMAP.md](./PRODUCT_ROADMAP.md) — vision checklist, doc map, and ship protocol.
+
+**Sign-in (production, Docker, local dev):** [SIGN_IN.md](./SIGN_IN.md).
+
+## Documentation visibility and planning
+
+- **`docs/` as a whole** has the same visibility as the rest of the repository (public if the remote is public, private if the remote is private). There is no separate “hidden docs” layer inside the tree.
+- **Keep in-repo:** runbooks, templates, architecture notes, and checklists that **do not embed secrets** — for example [RENDER_WEB_SERVICE_PASTE_CHECKLIST.md](./RENDER_WEB_SERVICE_PASTE_CHECKLIST.md) (names and steps only; real values live in gitignored `.env.render` and provider dashboards) and [SIGN_IN.md](./SIGN_IN.md) (end-user login; no operator SQL or privileged URLs).
+- **Keep outside the public tree:** living strategic plans, sensitive prioritization, incident postmortems with confidential detail, and other narratives that should not ship with a public clone. Maintain those in a **private internal wiki or doc system**, not as the source of truth in a public Git branch.
+- **Operator / admin procedures:** committed **[`internal/OPERATOR_RUNBOOK.template.md`](./internal/OPERATOR_RUNBOOK.template.md)** (placeholders only); filled copies as **[`internal/OPERATOR_RUNBOOK.md`](./internal/OPERATOR_RUNBOOK.md)** are **gitignored** — or mirror the template into a private wiki. See **[`internal/README.md`](./internal/README.md)**.
+- **Cursor `.cursor/plans/`** is gitignored so IDE-generated plan drafts stay local. That is intentional: the *infrastructure* (that teams may use Cursor, that `docs/` holds operational guides) is visible; the *plan bodies* you care to protect are not committed here.
+
+---
+
 # AxTask - Intelligent Task Management System
 
 **Version:** 1.0.0  
@@ -222,6 +238,8 @@ npm run db:push      # Sync database schema
 npm run dev          # Start development server
 ```
 
+Create `.env` first: **`npm run local:env-init`** (any OS), or copy from `.env.example` — on **Windows Command Prompt** do not use Unix `cp` (see root [README.md](../README.md#shells-windows-command-prompt-vs-git-bash--macos--linux)).
+
 ### One-Click Startup (Recommended for non-technical users)
 - Windows users: double-click `start-offline.cmd`
 - CLI users: run `npm run offline:start`
@@ -240,6 +258,23 @@ npm run dev          # Start development server
 - Keep `.env` with local values (`DATABASE_URL`, `SESSION_SECRET`, `NODE_ENV=development`)
 - Make app/code changes offline
 - Commit locally, then push when you are back online
+
+### Offline Phase A (read cache + UI)
+- Persisted TanStack Query reads to `localStorage`, with sensitive API roots excluded; logout clears persisted buckets. Per-user keys and extra safeguards are in **[OFFLINE_PHASE_D.md](./OFFLINE_PHASE_D.md)**. See **[OFFLINE_PHASE_A.md](./OFFLINE_PHASE_A.md)** for behavior, `VITE_QUERY_PERSIST_BUSTER`, and the short **task conflict policy** for future sync phases.
+- **Docker:** `VITE_QUERY_PERSIST_BUSTER` is applied at **image build** via Compose (`.env.docker`); rebuild after bumping it — **[DOCKER_FOUNDATION.md](./DOCKER_FOUNDATION.md#offline-phase-a-read-cache-and-rebuilds)**.
+
+### Offline Phase B (device refresh session)
+- HttpOnly `axtask.drefresh` + `POST /api/auth/refresh` restores Passport when the session cookie is gone but the device token is valid. Requires `device_refresh_tokens` table (`npm run db:push`). See **[OFFLINE_PHASE_B.md](./OFFLINE_PHASE_B.md)**.
+- **Docker:** the **`migrate`** service runs `db:push` (includes `device_refresh_tokens`). Details — **[DOCKER_FOUNDATION.md](./DOCKER_FOUNDATION.md#offline-phase-b-device-refresh-database)**.
+
+### Offline Phase C (task mutation queue + conflicts)
+- Offline-first **task** creates/updates/deletes/reorder plus queued **raw** API calls for checklist, review apply, classification, sharing, etc. Server **`baseUpdatedAt`** / **`409 task_conflict`** with resolution dialog. See **[OFFLINE_PHASE_C.md](./OFFLINE_PHASE_C.md)**.
+
+### Offline Phase D (safe query persistence)
+- Per-user `localStorage` keys, broader persist denylist, bounded serialization, and one-time legacy key migration. See **[OFFLINE_PHASE_D.md](./OFFLINE_PHASE_D.md)**.
+
+### Local secrets and account transition
+- **`npm run local:env-init`** / **`npm run local:secrets-bootstrap`**: auto-fill `SESSION_SECRET` in `.env` without printing it. See **[LOCAL_ACCOUNT_TRANSITION.md](./LOCAL_ACCOUNT_TRANSITION.md)** for moving from seed dev users to a real email on local Postgres.
 
 ### Engine APIs
 - `POST /api/feedback/process` — process message text through feedback engines (classification, sentiment, priority, tags, actions)
@@ -280,6 +315,12 @@ PGPASSWORD=password
 ```
 
 ## Deployment
+
+### Database migration (production)
+
+- **[PRODUCTION_DB_MIGRATION_STRATEGY.md](./PRODUCTION_DB_MIGRATION_STRATEGY.md)** — overview and links (branch **U**, backups, verify-schema, cutover).
+- **[MIGRATION_AUTOMATION.md](./MIGRATION_AUTOMATION.md)** — npm scripts and PowerShell backup/restore.
+- **[STAGING_CUTOVER_RUNBOOK.md](./STAGING_CUTOVER_RUNBOOK.md)** — staging validation and production cutover steps.
 
 ### Production Build
 ```bash
