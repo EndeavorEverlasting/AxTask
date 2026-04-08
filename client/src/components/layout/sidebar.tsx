@@ -30,6 +30,7 @@ import {
   CheckSquare,
   Mail,
   Globe2,
+  Gamepad2,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -139,6 +140,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     { path: "/calendar", icon: CalendarDays, label: "Calendar" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
     { path: "/community", icon: Globe2, label: "Community" },
+    { path: "/mini-games", icon: Gamepad2, label: "Mini-Games" },
     { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
     { path: "/premium", icon: Crown, label: "Premium" },
     { path: "/billing", icon: CreditCard, label: "Billing" },

@@ -19,7 +19,7 @@ import { OfflineDataBanner } from "@/components/offline-data-banner";
 import { TaskOfflineSyncProvider } from "@/components/task-offline-sync-provider";
 import BulkActionDialog from "@/components/bulk-action-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { LayoutDashboard, List, CalendarDays, Brain, Mic } from "lucide-react";
+import { LayoutDashboard, List, CalendarDays, Brain, Mic, Gamepad2 } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
 import Analytics from "@/pages/analytics";
@@ -28,6 +28,7 @@ import ImportExport from "@/pages/import-export";
 import GoogleSheetsSyncPage from "@/pages/google-sheets-sync";
 import ChecklistPage from "@/pages/checklist";
 import PlannerPage from "@/pages/planner";
+import MiniGamesPage from "@/pages/mini-games";
 import AdminPage from "@/pages/admin";
 import RewardsPage from "@/pages/rewards";
 import PremiumPage from "@/pages/premium";
@@ -56,6 +57,7 @@ function Router() {
       <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
       <Route path="/checklist" component={ChecklistPage} />
       <Route path="/planner" component={PlannerPage} />
+      <Route path="/mini-games" component={MiniGamesPage} />
       <Route path="/feedback" component={FeedbackPage} />
       <Route path="/community" component={CommunityPage} />
       <Route path="/admin" component={AdminPage} />
@@ -107,6 +109,7 @@ const BOTTOM_NAV_ITEMS = [
   { path: "/tasks", icon: List, label: "Tasks" },
   { path: "/calendar", icon: CalendarDays, label: "Calendar" },
   { path: "/planner", icon: Brain, label: "Planner" },
+  { path: "/mini-games", icon: Gamepad2, label: "Games" },
 ];
 
 function MobileBottomNav() {
@@ -165,6 +168,7 @@ const VALID_ROUTES = [
   "/google-sheets",
   "/checklist",
   "/planner",
+  "/mini-games",
   "/feedback",
   "/community",
   "/admin",
