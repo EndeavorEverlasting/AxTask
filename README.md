@@ -167,9 +167,10 @@ npm run pr:factor
 ### Monorepo Note
 
 - AxTask should be operated as a monorepo-style repository for CI and release workflows.
+- **NodeWeaver** (standalone universal classifier; also used by AxTask) is **vendored** at `services/nodeweaver/upstream`—not a git submodule. See [`docs/NODEWEAVER.md`](docs/NODEWEAVER.md).
 - NodeWeaver runs in hybrid mode: internal vendored component by default, optional external service mode when deployment profile requires it.
 - Classification ownership is shared: NodeWeaver engine core + AxTask fallback/orchestration policy.
-- `NodeWeaver._pre_submodule_backup` is a legacy backup path and is excluded from active tracking/runtime flows.
+- The old path `NodeWeaver._pre_submodule_backup` is no longer tracked in git (legacy submodule gitlink removed); ignore any local leftover folder.
 - If NodeWeaver is required for local/CI integration, use the vendored `services/nodeweaver/upstream` path.
 
 ### Deployment-Impact Test Sweep Policy
@@ -221,7 +222,7 @@ If something ever gets out of sync, run:
 npm run deps:sync
 ```
 
-For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/upstream`) or the selected external service profile.
+For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/upstream`) or the selected external service profile ([`docs/NODEWEAVER.md`](docs/NODEWEAVER.md)).
 
 ### File Structure
 ```
@@ -235,6 +236,7 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
 ## Documentation
 
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - Technical architecture details
+- **[NodeWeaver in this repo](docs/NODEWEAVER.md)** - Standalone classifier vs vendored monorepo path (`services/nodeweaver/upstream`)
 - **[Active/Legacy Index](docs/ACTIVE_LEGACY_INDEX.md)** - Canonical active vs transitional vs legacy classification
 - **[Debugging Reference](docs/DEBUGGING_REFERENCE.md)** - Deployment-impact test sweep checklist and common fixes
 - **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide

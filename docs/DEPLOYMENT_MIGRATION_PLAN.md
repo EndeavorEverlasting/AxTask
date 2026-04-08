@@ -12,7 +12,7 @@
 Because uptime is urgent and NodeWeaver is not yet published, execute this sequence:
 
 1. **Today:** move/publish **AxTask** to a non-Replit host you control.
-2. **Within 24-48 hours:** publish **NodeWeaver** as a separate service from its GitHub repo.
+2. **Within 24-48 hours:** publish **NodeWeaver** as a separate service from its GitHub repo (standalone classifier; AxTask also vendors it under `services/nodeweaver/upstream` for integrated development — [`docs/NODEWEAVER.md`](NODEWEAVER.md)).
 3. **After stability:** evaluate Option B integration (single runtime) using real cost + reliability data.
 
 This keeps downtime risk low while still moving quickly away from Replit billing surprises.

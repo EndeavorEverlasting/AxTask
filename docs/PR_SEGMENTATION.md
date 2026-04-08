@@ -105,8 +105,8 @@ Validation:
 
 ## Notes on Legacy NodeWeaver Backup Path
 
-- `NodeWeaver._pre_submodule_backup` was a stale gitlink artifact and has been removed from active tracking.
-- Do not use it as runtime source in monorepo flows.
+- `NodeWeaver._pre_submodule_backup` was a stale submodule gitlink; it has been **removed from the git index**. PR tooling may still exclude the path pattern for safety.
+- Runtime source for integrated development is `services/nodeweaver/upstream` ([`docs/NODEWEAVER.md`](NODEWEAVER.md)).
 
 ## Dirty-File Curation Policy
 

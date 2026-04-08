@@ -14,8 +14,8 @@ Use this on a fresh machine to execute quickly and safely.
 
 - [ ] Install Git, Node.js 20+, npm, Python 3.11+
 - [ ] Clone AxTask repo
-- [ ] Clone NodeWeaver repo
-- [ ] Verify `git branch --show-current` in each repo
+- [ ] Clone NodeWeaver repo (only if you deploy or hack the **standalone** service; integrated work uses `services/nodeweaver/upstream` in the AxTask monorepo — see [`docs/NODEWEAVER.md`](NODEWEAVER.md))
+- [ ] Verify `git branch --show-current` in each repo you use
 
 ## 2) Pick vendors (once)
 

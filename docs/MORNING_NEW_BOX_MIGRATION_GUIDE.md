@@ -48,6 +48,8 @@ cd NodeWeaver
 git checkout feature/axtask-contract-hardening
 ```
 
+**Monorepo note:** For integrated AxTask development, NodeWeaver is **vendored** inside this repo at `services/nodeweaver/upstream` (not a submodule). You only need a **separate** NodeWeaver clone when deploying or developing the standalone classifier service from its own repository. See [`docs/NODEWEAVER.md`](NODEWEAVER.md).
+
 ## Verify branches
 
 ```bash
@@ -188,4 +190,4 @@ If pushing NodeWeaver deployment prep, keep branch as:
 
 ## 9) Optional Cleanup: NodeWeaver Nested Folder
 
-If your local machine still has a nested `NodeWeaver/NodeWeaver` layout, flatten only when not under time pressure. It is safe to postpone until after production cutover. The migration itself is not blocked by that layout as long as you run commands from the actual repo root (the directory containing `.git`).
+Integrated AxTask + NodeWeaver work uses the **vendored** tree under `services/nodeweaver/upstream` ([`docs/NODEWEAVER.md`](NODEWEAVER.md)). If your local machine still has a nested `NodeWeaver/NodeWeaver` layout from older clones, flatten only when not under time pressure. It is safe to postpone until after production cutover. The migration itself is not blocked by that layout as long as you run commands from the actual repo root (the directory containing `.git`).

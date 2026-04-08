@@ -241,16 +241,14 @@ npm run dev          # Start development server
 - Make app/code changes offline
 - Commit locally, then push when you are back online
 
-### Monorepo and Legacy Backup Paths
+### Monorepo and NodeWeaver
 
-AxTask no longer depends on active git submodules for NodeWeaver integration.
+AxTask does **not** use git submodules for NodeWeaver. See [`NODEWEAVER.md`](NODEWEAVER.md).
 
-- NodeWeaver runs in hybrid mode:
-  - Internal-first vendored path: `services/nodeweaver/upstream`
-  - Optional external service mode for deployment profiles that require separation
+- NodeWeaver is a standalone classifier product; in this repo it is **vendored** at `services/nodeweaver/upstream`.
+- It runs in hybrid mode: internal-first vendored path, or optional external service URL for deployment profiles that require separation.
 - Classification ownership is shared across NodeWeaver engine core and AxTask fallback/orchestration.
-- Legacy path `NodeWeaver._pre_submodule_backup` is archival-only and excluded from active development/deployment scope
-- Do not reintroduce submodule assumptions in CI checkout or local bootstrap scripts without an explicit migration decision
+- The old `NodeWeaver._pre_submodule_backup` gitlink has been removed from the repository; do not restore it as a submodule.
 
 ### PR Segmentation for Review Tools
 

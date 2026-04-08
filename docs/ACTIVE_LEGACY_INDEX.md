@@ -11,6 +11,7 @@ This index is the canonical architecture-cleanup map for AxTask and NodeWeaver i
 ## Active (authoritative)
 
 - `README.md`
+- `docs/NODEWEAVER.md` (NodeWeaver standalone product vs vendored monorepo path)
 - `docs/ARCHITECTURE.md`
 - `docs/DEBUGGING_REFERENCE.md` (deployment-impact test sweep and debugging patterns)
 - `docs/PR_SEGMENTATION.md`
@@ -40,7 +41,7 @@ This index is the canonical architecture-cleanup map for AxTask and NodeWeaver i
 
 ## Legacy (non-authoritative / quarantine)
 
-- `NodeWeaver._pre_submodule_backup`
+- `NodeWeaver._pre_submodule_backup` — **removed from git** (was a stale submodule gitlink; `.gitignore` may still ignore a local folder name). Do not re-add as a submodule. Canonical NodeWeaver path: `services/nodeweaver/upstream` ([`docs/NODEWEAVER.md`](NODEWEAVER.md)).
 - `docs/VERSION_1.3.0_PLAN.md`
 
 ## Dirty-File Curation Rule (deployment branches)
