@@ -28,6 +28,29 @@ describe("feedback inbox storage", () => {
     expect(parsed?.classifierFallbackLayer).toBe(2);
   });
 
+  it("parses optional message and channel for contact / inbox display", () => {
+    const parsed = parseFeedbackPayload(
+      JSON.stringify({
+        message: "Hello from a visitor",
+        channel: "public_contact",
+        reporterEmail: "a@b.co",
+        messageLength: 21,
+        attachments: 0,
+        analysis: {
+          classification: "Support",
+          priority: "low",
+          sentiment: "neutral",
+          tags: ["public-contact"],
+          recommendedActions: ["Queue for normal feedback review."],
+          classifier: { source: "keyword_fallback", fallbackLayer: 1, confidence: 0.5 },
+        },
+      }),
+    );
+    expect(parsed?.message).toBe("Hello from a visitor");
+    expect(parsed?.channel).toBe("public_contact");
+    expect(parsed?.reporterEmail).toBe("•@b.co");
+  });
+
   it("parses feedback review payload JSON", () => {
     const parsed = parseFeedbackReviewPayload(
       JSON.stringify({

@@ -1,0 +1,99 @@
+<#
+.SYNOPSIS
+  Restore pg_dump custom-format backup into target database.
+
+  Passing the full connection URL as a single argument exposes the password in process
+  listings. This script parses DATABASE_URL and sets PGHOST, PGPORT, PGUSER, PGPASSWORD,
+  PGDATABASE, then invokes pg_restore with discrete flags. For production, prefer a .pgpass
+  file or IAM auth instead of URLs with embedded passwords.
+
+.PARAMETER DatabaseUrl
+  Target empty database URL (postgresql://...).
+
+.PARAMETER BackupFile
+  Path to .dump from pg-backup.ps1
+
+.EXAMPLE
+  .\scripts\migration\pg-restore.ps1 -DatabaseUrl "postgresql://user:pass@host:5432/axtask_staging" -BackupFile .\axtask-backup.dump
+#>
+param(
+  [Parameter(Mandatory = $true)]
+  [string]$DatabaseUrl,
+  [Parameter(Mandatory = $true)]
+  [string]$BackupFile
+)
+
+$ErrorActionPreference = "Stop"
+if (-not (Test-Path $BackupFile)) {
+  throw "Backup file not found: $BackupFile"
+}
+
+$pgRestoreCmd = Get-Command 'pg_restore' -ErrorAction SilentlyContinue
+if (-not $pgRestoreCmd) {
+  throw "pg_restore not found. Install PostgreSQL client tools."
+}
+
+$normalized = $DatabaseUrl -replace '^postgres(ql)?://', 'https://'
+try {
+  $uri = [Uri]$normalized
+} catch {
+  throw "Invalid DATABASE_URL: $_"
+}
+
+$env:PGHOST = $uri.Host
+$port = $uri.Port
+if ($port -lt 0) { $port = 5432 }
+$env:PGPORT = "$port"
+$userInfo = $uri.UserInfo
+if ($userInfo) {
+  $ci = $userInfo.IndexOf(':')
+  if ($ci -ge 0) {
+    $env:PGUSER = [Uri]::UnescapeDataString($userInfo.Substring(0, $ci))
+    $env:PGPASSWORD = [Uri]::UnescapeDataString($userInfo.Substring($ci + 1))
+  } else {
+    $env:PGUSER = [Uri]::UnescapeDataString($userInfo)
+  }
+}
+$env:PGDATABASE = $uri.AbsolutePath.TrimStart('/')
+
+$query = $uri.Query.TrimStart('?')
+if ($query) {
+  foreach ($pair in $query.Split([char[]]@('&'), [StringSplitOptions]::RemoveEmptyEntries)) {
+    $eq = $pair.IndexOf('=')
+    $rawK = if ($eq -ge 0) { $pair.Substring(0, $eq) } else { $pair }
+    $rawV = if ($eq -ge 0) { $pair.Substring($eq + 1) } else { '' }
+    $k = [Uri]::UnescapeDataString($rawK).Trim().ToLowerInvariant()
+    $v = if ($eq -ge 0) { [Uri]::UnescapeDataString($rawV) } else { '' }
+    if (-not $v) { continue }
+    switch ($k) {
+      'sslmode' { if (-not $env:PGSSLMODE) { $env:PGSSLMODE = $v } }
+      'sslrootcert' { if (-not $env:PGSSLROOTCERT) { $env:PGSSLROOTCERT = $v } }
+      'sslcert' { if (-not $env:PGSSLCERT) { $env:PGSSLCERT = $v } }
+      'sslkey' { if (-not $env:PGSSLKEY) { $env:PGSSLKEY = $v } }
+      'sslcrl' { if (-not $env:PGSSLCRL) { $env:PGSSLCRL = $v } }
+      'sslsni' { if (-not $env:PGSSLSNI) { $env:PGSSLSNI = $v } }
+    }
+  }
+}
+
+Write-Host "pg_restore <- $BackupFile"
+# --no-owner --role=... optional; target must be empty or use --clean (destructive)
+$exit = 0
+try {
+  & pg_restore -h $env:PGHOST -p $env:PGPORT -U $env:PGUSER -d $env:PGDATABASE --no-owner --exit-on-error $BackupFile
+  $exit = $global:LASTEXITCODE
+} finally {
+  Remove-Item Env:\PGHOST -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGPORT -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGUSER -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGDATABASE -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLMODE -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLROOTCERT -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLCERT -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLKEY -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLCRL -ErrorAction SilentlyContinue
+  Remove-Item Env:\PGSSLSNI -ErrorAction SilentlyContinue
+}
+if ($exit -ne 0) { exit $exit }
+Write-Host "Restore complete. Then: npm run db:push (from integration/migration-unified) and npm run migration:verify-schema"

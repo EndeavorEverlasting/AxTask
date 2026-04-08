@@ -1,0 +1,98 @@
+<#
+.SYNOPSIS
+  Logical backup of AxTask Postgres using pg_dump (custom format).
+
+  For sensitive environments, avoid putting credentials on the process command line:
+  use PGPASSWORD (set below from the URL) and PG* env vars, or a .pgpass file.
+
+.PARAMETER DatabaseUrl
+  Full DATABASE_URL (postgresql://...). If omitted, reads env DATABASE_URL.
+
+.PARAMETER OutFile
+  Output path, e.g. C:\backups\axtask-2026-04-04.dump
+
+.EXAMPLE
+  $env:DATABASE_URL = "postgresql://..."
+  .\scripts\migration\pg-backup.ps1 -OutFile .\axtask-backup.dump
+#>
+param(
+  [string]$DatabaseUrl = $env:DATABASE_URL,
+  [Parameter(Mandatory = $true)]
+  [string]$OutFile
+)
+
+$ErrorActionPreference = "Stop"
+if (-not $DatabaseUrl) {
+  throw "DATABASE_URL not set and -DatabaseUrl not provided."
+}
+
+# Parse URL without passing it as a pg_dump argument (hides password from process listings).
+$normalized = $DatabaseUrl -replace '^postgres(ql)?://', 'https://'
+try {
+  $uri = [Uri]$normalized
+} catch {
+  throw "Invalid DATABASE_URL: $_"
+}
+
+$pgDumpCmd = Get-Command 'pg_dump' -ErrorAction SilentlyContinue
+if (-not $pgDumpCmd) {
+  throw "pg_dump not found. Install PostgreSQL client tools and ensure pg_dump is on PATH."
+}
+
+$dir = Split-Path -Parent $OutFile
+if ($dir -and -not (Test-Path $dir)) {
+  New-Item -ItemType Directory -Path $dir -Force | Out-Null
+}
+
+$env:PGHOST = $uri.Host
+$port = $uri.Port
+if ($port -lt 0) { $port = 5432 }
+$env:PGPORT = "$port"
+$userInfo = $uri.UserInfo
+if ($userInfo) {
+  $ci = $userInfo.IndexOf(':')
+  if ($ci -ge 0) {
+    $env:PGUSER = [Uri]::UnescapeDataString($userInfo.Substring(0, $ci))
+    $env:PGPASSWORD = [Uri]::UnescapeDataString($userInfo.Substring($ci + 1))
+  } else {
+    $env:PGUSER = [Uri]::UnescapeDataString($userInfo)
+  }
+}
+$env:PGDATABASE = $uri.AbsolutePath.TrimStart('/')
+
+$queryRaw = $uri.Query.TrimStart('?')
+if ($queryRaw) {
+  foreach ($part in $queryRaw -split '&') {
+    if (-not $part) { continue }
+    $kv = $part -split '=', 2
+    $key = [Uri]::UnescapeDataString($kv[0]).Trim().ToLowerInvariant()
+    $val = if ($kv.Length -gt 1) { [Uri]::UnescapeDataString($kv[1]) } else { '' }
+    switch ($key) {
+      'sslmode' { $env:PGSSLMODE = $val }
+      'sslrootcert' { $env:PGSSLROOTCERT = $val }
+      'sslcert' { $env:PGSSLCERT = $val }
+      'sslkey' { $env:PGSSLKEY = $val }
+      'application_name' { $env:PGAPPNAME = $val }
+      'connect_timeout' { $env:PGCONNECT_TIMEOUT = $val }
+      'channel_binding' { $env:PGCHANNELBINDING = $val }
+    }
+  }
+}
+
+# -Fc custom format for pg_restore; --no-owner helps cross-host restore
+Write-Host "pg_dump -> $OutFile"
+$exit = 0
+try {
+  & pg_dump -Fc -f $OutFile --no-owner
+  $exit = $LASTEXITCODE
+} finally {
+  foreach ($k in @(
+      "PGHOST", "PGPORT", "PGUSER", "PGDATABASE", "PGPASSWORD",
+      "PGSSLMODE", "PGSSLKEY", "PGSSLCERT", "PGSSLROOTCERT",
+      "PGAPPNAME", "PGCONNECT_TIMEOUT", "PGCHANNELBINDING"
+    )) {
+    Remove-Item "Env:\$k" -ErrorAction SilentlyContinue
+  }
+}
+if ($exit -ne 0) { exit $exit }
+Write-Host "Backup complete."

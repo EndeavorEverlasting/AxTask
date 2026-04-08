@@ -5,6 +5,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { getUserByEmail, getUserById, verifyPassword } from "./storage";
+import { parseCookieSecureFlag } from "./lib/login-env-policy";
 import type { Express, Request, Response, NextFunction } from "express";
 import type { SafeUser } from "@shared/schema";
 
@@ -12,6 +13,21 @@ import type { SafeUser } from "@shared/schema";
 declare global {
   namespace Express {
     interface User extends SafeUser {}
+  }
+}
+
+declare module "express-session" {
+  interface SessionData {
+    /** Unix ms; admin API access allowed until this time (production MFA step-up). */
+    adminStepUpExpiresAt?: number;
+    /** Unix ms; self-service account export/import allowed until this time (production MFA step-up). */
+    accountDataExportStepUpExpiresAt?: number;
+    /** JSON backup import ownership quiz (bound to tasks fingerprint). */
+    importOwnershipQuiz?: {
+      expiresAt: number;
+      tasksFingerprint: string;
+      expected: { id: string; correctIndex: number; choiceCount: number }[];
+    };
   }
 }
 
@@ -42,24 +58,28 @@ function resolveSessionSecret(): string {
 
 export function setupAuth(app: Express) {
   const sessionSecret = resolveSessionSecret();
+  const sessionCookieSecure = parseCookieSecureFlag(process.env);
 
   // ── Session store backed by PostgreSQL ──────────────────────────────────
   const PgStore = connectPgSimple(session);
 
+  const sessionStore = new PgStore({
+    pool: pool as any,
+    createTableIfMissing: true,
+  });
+  (global as { __sessionStore?: InstanceType<typeof PgStore> }).__sessionStore = sessionStore;
+
   app.use(
     session({
-      store: new PgStore({
-        pool: pool as any, // Neon Pool is compatible
-        createTableIfMissing: true,
-      }),
+      store: sessionStore,
       secret: sessionSecret,
-      name: "axtask.sid",        // non-default name — hides framework identity
+      name: "axtask.sid",
       resave: false,
       saveUninitialized: false,
       cookie: {
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: sessionCookieSecure,
         sameSite: "lax",
       },
     })
@@ -115,6 +135,14 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if ((req.user as any)?.isBanned) {
     req.logout(() => {});
     return res.status(403).json({ message: "This account has been suspended." });
+  }
+  next();
+}
+
+/** Same session validation as requireAuth, but does not reject suspended accounts (e.g. ban appeals). */
+export function requireAuthAllowSuspended(req: Request, res: Response, next: NextFunction) {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ message: "Not authenticated" });
   }
   next();
 }

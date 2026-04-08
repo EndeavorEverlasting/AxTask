@@ -4,14 +4,50 @@ dist
 .local/
 node_modules
 server/public
-*.tar.gzattached_assets/
+*.tar.gz
 vite.config.ts.*
 .env
+.env.local
+.env.*.local
 .env.docker
-e
+# Render env scaffolds (secrets). Generator scripts under tools/render/ stay in git.
+.env.render
+.env.render.bak
+.env.render.backup
+.env.render.*.local
+# Dashboard / CLI exports that snapshot live Render env (DATABASE_URL, OAuth, etc.)
+AxTaskEnvFromRender.env
+*EnvFromRender.env
 pics/
+
+# Never commit credential-bearing plan copies (any path)
+*.secrets.md
+
+# Cursor IDE — local workspace, plans, caches (git add -f .cursor/rules/... if sharing team rules)
+.cursor/
 
 # Local planning artifacts
 docs/AxTask_Migration_Master_Plan.md
 docs/AxTask_Robust_Hosting_Migration_Plan_*.docx
 .security/local-node-provenance.json
+
+# Filled operator runbook (may contain real emails / hostnames) — template stays in git
+docs/internal/OPERATOR_RUNBOOK.md
+
+# Test / typecheck artifacts (keep out of PRs and accidental commits)
+coverage/
+.nyc_output/
+.vitest/
+test-results/
+*.tsbuildinfo
+
+# OS / editor noise
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.idea/
+*.log
+.eslintcache
+
+# Local NodeWeaver submodule backup (keep out of PRs / publish)
+NodeWeaver._pre_submodule_backup/

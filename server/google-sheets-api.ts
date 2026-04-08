@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { type Task } from '@shared/schema';
+import { axTaskAboutSheetRows } from '@shared/attribution';
 
 export interface GoogleSheetsCredentials {
   apiKey: string;
@@ -27,6 +28,17 @@ export interface SpreadsheetInfo {
     rowCount: number;
     columnCount: number;
   }>;
+}
+
+/** RowData for spreadsheets.batchUpdate updateCells from a string matrix (e.g. axTaskAboutSheetRows). */
+function sheetRowsFromStringMatrix(
+  matrix: string[][],
+): Array<{ values: Array<{ userEnteredValue: { stringValue: string } }> }> {
+  return matrix.map((row) => ({
+    values: row.map((cell) => ({
+      userEnteredValue: { stringValue: cell },
+    })),
+  }));
 }
 
 export class GoogleSheetsAPI {
@@ -118,68 +130,127 @@ export class GoogleSheetsAPI {
     }
   }
 
-  // Create a new spreadsheet with task template
+  /**
+   * Creates a minimal task sheet: headers in row 1, data from row 2.
+   * Adds document title suffix “· AxTask”, a second tab “About AxTask” with branding, and a generation timestamp.
+   * Planned: frozen top “entry band” + formula-driven IDs/dates per docs/SPREADSHEET_TEMPLATE_UX.md (requires import/export range updates).
+   */
   async createTaskSpreadsheet(title: string): Promise<string> {
+    const aboutSheetTitle = "About AxTask";
     try {
       const response = await this.sheets.spreadsheets.create({
         requestBody: {
           properties: {
-            title: title
+            title: `${title} · AxTask`,
           },
-          sheets: [{
-            properties: {
-              title: 'Tasks',
-              gridProperties: {
-                rowCount: 1000,
-                columnCount: 12
-              }
-            }
-          }]
-        }
+          sheets: [
+            {
+              properties: {
+                title: "Tasks",
+                gridProperties: {
+                  rowCount: 1000,
+                  columnCount: 12,
+                },
+              },
+            },
+            {
+              properties: {
+                title: aboutSheetTitle,
+                gridProperties: { rowCount: 20, columnCount: 6 },
+              },
+            },
+          ],
+        },
       });
 
       const spreadsheetId = response.data.spreadsheetId!;
+      const sheets = response.data.sheets ?? [];
+      const tasksMeta = sheets.find((s: { properties?: { title?: string; sheetId?: number } }) => s.properties?.title === "Tasks");
+      const aboutMeta = sheets.find((s: { properties?: { title?: string; sheetId?: number } }) => s.properties?.title === aboutSheetTitle);
+      const tasksSheetId = tasksMeta?.properties?.sheetId;
+      const aboutSheetId = aboutMeta?.properties?.sheetId;
+      if (tasksSheetId === undefined || tasksSheetId === null) {
+        throw new Error("Create spreadsheet: Tasks sheet id missing from API response");
+      }
+      if (aboutSheetId === undefined || aboutSheetId === null) {
+        throw new Error(
+          `Create spreadsheet: "${aboutSheetTitle}" sheet id missing from API response`,
+        );
+      }
 
-      // Add headers
+      // Column contract for **Google Sheets** is separate from CSV/XLSX export headers in
+      // `shared/task-spreadsheet-export.ts` (`TASK_SPREADSHEET_HEADERS`). Do not merge without
+      // a migration plan: existing user spreadsheets and the Sheets API row shape depend on this order.
       const headers = [
-        'Date', 'Activity', 'Notes', 'Priority', 'Classification', 
-        'Score', 'Urgency', 'Impact', 'Effort', 'Prerequisites', 
-        'Status', 'Last Updated'
+        "Date",
+        "Activity",
+        "Notes",
+        "Priority",
+        "Classification",
+        "Score",
+        "Urgency",
+        "Impact",
+        "Effort",
+        "Prerequisites",
+        "Status",
+        "Last Updated",
       ];
 
-      await this.sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: 'Tasks!A1:L1',
-        valueInputOption: 'RAW',
-        requestBody: {
-          values: [headers]
-        }
-      });
+      const aboutRows = sheetRowsFromStringMatrix(axTaskAboutSheetRows());
 
-      // Format header row
       await this.sheets.spreadsheets.batchUpdate({
         spreadsheetId,
         requestBody: {
-          requests: [{
-            repeatCell: {
-              range: {
-                sheetId: 0,
-                startRowIndex: 0,
-                endRowIndex: 1
+          requests: [
+            {
+              updateCells: {
+                start: {
+                  sheetId: tasksSheetId,
+                  rowIndex: 0,
+                  columnIndex: 0,
+                },
+                rows: [
+                  {
+                    values: headers.map((h) => ({
+                      userEnteredValue: { stringValue: h },
+                    })),
+                  },
+                ],
+                fields: "userEnteredValue",
               },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.2, green: 0.4, blue: 0.8 },
-                  textFormat: { 
-                    bold: true, 
-                    foregroundColor: { red: 1, green: 1, blue: 1 }
-                  }
-                }
+            },
+            {
+              repeatCell: {
+                range: {
+                  sheetId: tasksSheetId,
+                  startRowIndex: 0,
+                  endRowIndex: 1,
+                },
+                cell: {
+                  userEnteredFormat: {
+                    backgroundColor: { red: 0.2, green: 0.4, blue: 0.8 },
+                    textFormat: {
+                      bold: true,
+                      foregroundColor: { red: 1, green: 1, blue: 1 },
+                    },
+                  },
+                },
+                fields: "userEnteredFormat(backgroundColor,textFormat)",
               },
-              fields: 'userEnteredFormat(backgroundColor,textFormat)'
-            }
-          }]
-        }
+            },
+            {
+              updateCells: {
+                start: {
+                  sheetId: aboutSheetId,
+                  rowIndex: 0,
+                  columnIndex: 0,
+                },
+                rows: aboutRows,
+                fields: "userEnteredValue",
+              },
+            },
+          ],
+        },
       });
 
       return spreadsheetId;

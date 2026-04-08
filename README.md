@@ -1,75 +1,185 @@
 
-# Priority Engine Task Management System
+# AxTask
+
+**Priority engine task management** — intelligent scoring, calendar workflows, offline-ready client, and hardened security foundations.
 
 **Version:** 1.2.0 (Robustness + Security Hardening)  
-**Status:** Production Ready  
-**Last Updated:** April 3rd, 2026
+**Status:** Production-Ready  
+**Last Updated:** April 5th, 2026
 
 ## Overview
 
 A full-stack task management application with an intelligent priority scoring engine that automatically calculates task priorities based on content analysis. Includes hardened import deduplication, usage/storage observability, attachment upload controls, and security event monitoring.
 
-## Quick Start
+**Product roadmap and vision checklist:** [docs/PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md) (start here after cloning). **Agents & productivity vision:** [docs/AGENT_ECOSYSTEM.md](docs/AGENT_ECOSYSTEM.md), [docs/PRODUCTIVITY_ARTIFACTS.md](docs/PRODUCTIVITY_ARTIFACTS.md). **Sign-in (production, Docker, local):** [docs/SIGN_IN.md](docs/SIGN_IN.md).
 
-```bash
-npm install
-cp .env.example .env
-npm run db:push
-npm run dev
-```
+### Gamification (Rewards, avatars, coins)
 
-Visit `http://localhost:5000` to access the application.
+The **Rewards** area includes **avatar entourage** missions, **AxCoins**, an **offline coin generator**, and a **skills tree** (see `/api/gamification/*`). The **lazy** companion rewards **gratitude**, **prioritization** language, and **rest / ease** phrasing — including natural phrases like **“kick back”**, **chill**, **take a break**, **rest**, and **unwind** (see [`server/services/gamification/lazy-avatar-xp.ts`](server/services/gamification/lazy-avatar-xp.ts)). Broader **agent roles** (security, composers, oppositional “council” flows, RAG-suggested avatars) are **not limited to the five entourage slots**; see [docs/AGENT_ECOSYSTEM.md](docs/AGENT_ECOSYSTEM.md). **Gantt and Mermaid exports**, generator cadence, and **avatar ↔ skills** progression are specified in [docs/PRODUCTIVITY_ARTIFACTS.md](docs/PRODUCTIVITY_ARTIFACTS.md). **Operator / admin + local testing unblock:** [docs/internal/OPERATOR_RUNBOOK.template.md](docs/internal/OPERATOR_RUNBOOK.template.md) (copy to gitignored `docs/internal/OPERATOR_RUNBOOK.md` — see [docs/internal/README.md](docs/internal/README.md)). Billing UI and account-plane APIs: [docs/BILLING_UI.md](docs/BILLING_UI.md). Engine orchestration: [docs/ENGINES.md](docs/ENGINES.md).
 
-## Docker Quick Start (Recommended for Workstations)
+## Run locally after cloning with Docker
 
-Prerequisite on each machine:
-- Docker Desktop (Windows/macOS), or Docker Engine + Docker Compose plugin (Linux/server)
+This is the fastest way to get a full stack (app + PostgreSQL) on your machine after you clone the repo.
 
-First run:
+### Shells: Windows Command Prompt vs Git Bash / macOS / Linux
 
-```bash
-cp .env.docker.example .env.docker
-# Set strong values for POSTGRES_PASSWORD and SESSION_SECRET
-npm run docker:start
-```
+Documentation often shows the Unix `cp` command. **Windows Command Prompt (`cmd.exe`) does not include `cp`** — you will see `'cp' is not recognized as an internal or external command`. Use any of these instead:
 
-Then open `http://localhost:5000`.
+- **`npm run docker:env-init`** — creates `.env.docker` from the example (same on every OS).
+- **`npm run submodule:init`** — legacy name for the automatic bootstrap (NodeWeaver vendor check + optional `uv sync`); usually unnecessary because **`npm install`** runs **`postinstall`** and **`npm run dev`** runs **`predev`** first.
+- **Windows CMD:** `copy .env.docker.example .env.docker`
+- **Windows PowerShell:** `Copy-Item .env.docker.example .env.docker`
+- **Git Bash, WSL, macOS, Linux:** `cp .env.docker.example .env.docker`
 
-### One-click Docker startup
+The same idea applies to **`.env`** for non-Docker Quick Start: use **`npm run local:env-init`** or `copy` / `Copy-Item` / `cp` as appropriate.
 
-- Windows: double-click `start-docker.cmd`
-- macOS/Linux: run `bash ./start-docker.sh`
-- Stop: `stop-docker.cmd` or `bash ./stop-docker.sh`
-- Status: `status-docker.cmd` or `bash ./status-docker.sh`
-- Logs: `npm run docker:logs`
-- New machine walkthrough (Docker Desktop): see `docs/DOCKER_FOUNDATION.md` -> "Docker Desktop setup (Windows/macOS)"
+1. **Install Docker** on the machine that will run AxTask:
+   - **Windows / macOS:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   - **Linux / server:** Docker Engine + Docker Compose v2 plugin  
+   Step-by-step: [`docs/DOCKER_FOUNDATION.md`](docs/DOCKER_FOUNDATION.md)
+
+2. **Clone the repo and work from the project root**
+
+   **Project root** is the folder that contains **`package.json`** and **`docker-compose.yml`**. Run every `npm run …` command in this guide from that directory (your shell prompt should show that folder name after `cd`).
+
+   ```bash
+   git clone https://github.com/EndeavorEverlasting/AxTask.git
+   cd AxTask
+   ```
+
+   Use your **fork’s URL** or **SSH** if that is how you work. **NodeWeaver** (optional `docker:up:nodeweaver`) is **vendored** at **`services/nodeweaver/upstream/`**; canonical upstream development is [github.com/EndeavorEverlasting/NodeWeaver](https://github.com/EndeavorEverlasting/NodeWeaver). After a fresh clone, **`npm install`** (which runs **`postinstall`**) verifies **`services/nodeweaver/upstream/Dockerfile`** and may run **`uv sync`** there when **`uv`** is on your PATH.
+
+   **Check you are in the right place:** `dir package.json` (Windows CMD), `Test-Path package.json` (PowerShell), or `ls package.json` (macOS/Linux) should succeed.
+
+   **PowerShell quick check (copy/paste):**
+
+   ```powershell
+   cd C:\path\to\AxTask
+   Test-Path .\package.json
+   npm run docker:env-init
+   ```
+
+   `Test-Path .\package.json` should print `True`. If you see `npm error Missing script: "docker:env-init"`, you are not in the `AxTask` folder yet.
+
+3. **Create and edit `.env.docker`**
+
+   **Guided GUI path (recommended for non-technical setup):**
+   - Run `npm run docker:setup`
+   - A local browser wizard opens, writes `.env.docker`, and can run `docker:up` directly
+
+   From the project root, pick one (all create the file only if it is missing):
+
+   - **Any OS (recommended):** `npm run docker:env-init`
+   - **macOS / Linux:** `cp .env.docker.example .env.docker`
+   - **Windows Command Prompt:** `copy .env.docker.example .env.docker`
+   - **Windows PowerShell:** `Copy-Item .env.docker.example .env.docker`
+
+   You can also run `npm run docker:up` once without a `.env.docker` file: it copies from `.env.docker.example` automatically, then stops with a clear error until you replace the placeholders and run it again.
+
+   **Novice/zero-edit local path:** you can keep `.env.docker.example` defaults for local-only testing and run `npm run docker:up` immediately.
+
+   If you customize `.env.docker`, ensure:
+   - **`POSTGRES_PASSWORD`** and the password inside **`DATABASE_URL`** match exactly
+   - **`SESSION_SECRET`** is a long random secret (32+ characters) for non-demo use
+   - Optional — **`VITE_QUERY_PERSIST_BUSTER`** in `.env.docker`: bump and **rebuild** the image after a breaking API change so browsers reset persisted read caches (Phase A). See [Docker foundation — Offline Phase A](docs/DOCKER_FOUNDATION.md#offline-phase-a-read-cache-and-rebuilds).
+   - **Phase B (device refresh)** needs the **`device_refresh_tokens`** table; the stack’s **migrate** step applies it automatically. See [Docker foundation — Offline Phase B](docs/DOCKER_FOUNDATION.md#offline-phase-b-device-refresh-database) and [`docs/OFFLINE_PHASE_B.md`](docs/OFFLINE_PHASE_B.md).
+   - **Docker demo login** — when **`AXTASK_DOCKER_SEED_DEMO=1`** (default in `.env.docker.example`), the **migrate** step creates/updates **`DOCKER_DEMO_USER_EMAIL`** / **`DOCKER_DEMO_PASSWORD`**. After **`npm run docker:up`**, the same credentials are **printed again in your terminal** for convenience. Turn **`AXTASK_DOCKER_SEED_DEMO=0`** and use strong secrets before any internet-exposed deployment.
+
+4. **Start the stack**
+
+   - **Any OS (from project root):** `npm run docker:up`
+   - **Windows:** double-click **`start-docker.cmd`** (runs `npm run docker:up` when Node.js / npm are installed)
+
+   `npm run docker:up` creates `.env.docker` from `.env.docker.example` if the file is missing, refuses to start if secrets are still placeholders, waits for the Docker engine, and on **Windows** / **macOS** tries to start **Docker Desktop** when it is installed but not running. If Docker is already up and you only want Compose without that logic, use `npm run docker:start`.
+
+5. **Open the app:** [http://localhost:5000](http://localhost:5000)  
+   **Sign in:** use the **demo email/password** echoed by `docker:up` (from `.env.docker`) or click **Register** if demo seed is off. Full guide: [docs/SIGN_IN.md](docs/SIGN_IN.md).  
+   Check containers: `npm run docker:status` · Stop: `npm run docker:stop` · Logs: `npm run docker:logs`
+
+Cleanup modes (clear separation):
+- **Safe cleanup (default, preserves DB/storage data):** `npm run docker:cleanup`
+- **Destructive reset (deletes Docker volumes/data):** `npm run docker:reset`
+
+If `migrate` fails with `password authentication failed for user "axtask"`:
+- Confirm `.env.docker` has matching values for `POSTGRES_PASSWORD` and the password inside `DATABASE_URL`.
+- If they already match, reset stale local DB state (this deletes local Docker Postgres data):
+
+  ```bash
+  docker compose --env-file .env.docker down -v
+  ```
+
+  then rerun `npm run docker:up`.
+
+### Local demo defaults vs real account security
+
+- **Local-only demo:** keeping `.env.docker.example` defaults is acceptable for offline/local machine testing.
+- **Any shared or internet-exposed environment:** replace defaults, use strong secrets, and disable demo seeding.
+- **Authentication boundary:** sync/integration actions should require authenticated account sessions.
+- **MFA boundary (recommended):** require step-up MFA for high-risk actions (billing, external account linking, and sync authorization). See [docs/MFA_SIGNUP_VERIFICATION.md](docs/MFA_SIGNUP_VERIFICATION.md).
+- **Production OTP:** **Layer 1 — email** via **Resend** (`RESEND_*`) is the primary path; configure and verify your sending domain first. **Layer 2 — SMS** via **Twilio** is optional and can be added later. Neither uses “Render API keys.” Guide: [docs/RENDER_WEB_SERVICE_PASTE_CHECKLIST.md](docs/RENDER_WEB_SERVICE_PASTE_CHECKLIST.md) (**B** intro, **B2**, **B12**).
+
+### Optional: NodeWeaver in the same Compose stack
+
+Classification can call a **NodeWeaver** HTTP service (`NODEWEAVER_URL`). To run it **next to AxTask** in Docker: set `NODEWEAVER_URL=http://nodeweaver:5000` in `.env.docker`, then start with **`npm run docker:up:nodeweaver`** (or `node tools/local/docker-start.mjs --with-nodeweaver`). The default `npm run docker:up` does **not** start NodeWeaver. Full steps: [`services/nodeweaver/README.md`](services/nodeweaver/README.md).
+
+### One-click Docker scripts
+
+- **Windows:** `start-docker.cmd` · **macOS/Linux:** `bash ./start-docker.sh` (both use `npm run docker:up`)
+- **Guided setup GUI:** `npm run docker:setup` (local wizard for `.env.docker` + optional one-click start)
+- **Stop / status:** `stop-docker.cmd` or `bash ./stop-docker.sh` · `status-docker.cmd` or `bash ./status-docker.sh`
+
+## Quick Start (Node.js + local PostgreSQL)
+
+Use this when you prefer to run the app with `tsx` against your own Postgres (not the Docker Compose stack).
+
+**Clone and `cd`:** same as [Run locally after cloning with Docker](#run-locally-after-cloning-with-docker) — step **2** (`git clone --recurse-submodules …`, `cd AxTask`).
+
+From the **project root**:
+
+**Recommended (one flow):** **`npm run local:start`** (alias: **`npm run offline:start`** / **`npm run dev:smart`**) does, in order: **`npm run local:env-init`** (creates `.env` from `.env.example` when needed and bootstraps **`SESSION_SECRET`** without printing it), dependency install/sync, **`npm run db`** (schema push) when the schema fingerprint changes, then starts the dev server via **`tsx`** with **`NODE_ENV=development`** (not `npm run dev`, so schema is not pushed twice) — **ephemeral development accounts** (emails and passwords) are printed in **that server terminal** on each start; use them on the login page. Details: [docs/SIGN_IN.md](docs/SIGN_IN.md).
+
+Before the first successful run, edit **`.env`** after `local:env-init` and set **`DATABASE_URL`** to a reachable PostgreSQL URL (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
+
+**Manual equivalent:** `npm run local:env-init`, then `npm install`, then **`npm run dev`** — which runs **`npm run migrate:sql`** (numbered files in `migrations/`) then **`drizzle-kit push`** automatically before the dev server (use **`npm run dev:raw`** to skip that step). The **`npm run db`** script remains a shortcut for `npm run db:push` if you only want to sync SQL + schema.
+
+If you prefer not to run `local:env-init`, create `.env` manually: **Windows CMD:** `copy .env.example .env` · **PowerShell:** `Copy-Item .env.example .env` · **macOS/Linux/Git Bash:** `cp .env.example .env` — then run **`npm run local:secrets-bootstrap`** so session signing works.
+
+Visit `http://localhost:5000` to access the application and sign in (see [docs/SIGN_IN.md](docs/SIGN_IN.md)).
 
 ### One-click local/offline startup
 
-- Windows: double-click `start-offline.cmd`
-- Any OS with Node/npm: run `npm run offline:start` (same as `npm run dev:smart`)
+- Windows: double-click `start-offline.cmd` (smart: schema push only when `shared/schema.ts` / Drizzle config changed) or `start-dev.bat` (simple: `npm run dev` with a schema push every time)
+- Any OS with Node/npm: run **`npm run local:start`** (same as **`npm run offline:start`** / **`npm run dev:smart`**)
 - Optional (Windows): run `npm run offline:shortcut` once to create a Desktop shortcut named `Start AxTask Offline`
 - In-app: use `Install App Shortcut` in the left sidebar to install on desktop/mobile home screen (or show setup steps if browser prompt is unavailable)
 - First-login CTA: users also see a top install banner with `Dismiss` and `Don't show again` controls
 
-This flow automatically installs dependencies (first run), creates `.env` from `.env.example` if missing, runs `db:push`, and starts the app.
+This flow automatically runs **`local:env-init`**, installs dependencies when needed, runs **`db:push`** when the schema changes, and starts the dev server with **`NODE_ENV=development`**.
 
 ## Local + Offline Workflow
 
 You can run AxTask fully local (including when offline) as long as your PostgreSQL database is also local.
 
-1. Create your local env file:
-   - macOS/Linux: `cp .env.example .env`
-   - Windows PowerShell: `Copy-Item .env.example .env`
-2. Ensure `.env` has a local `DATABASE_URL` (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
-3. Run from the AxTask project directory:
-   - `npm install`
-   - `npm run db:push`
-   - `npm run dev`
-4. Work offline as needed, then commit and push changes later when back online.
+1. Ensure **`.env`** has a local **`DATABASE_URL`** (use **`npm run local:env-init`** first if you do not have `.env` yet).
+2. From the project directory: **`npm run local:start`** (or the manual chain: **`npm install`**, **`npm run dev`** — SQL migrations + schema push are included unless you use **`npm run dev:raw`**).
+3. Work offline as needed, then commit and push changes later when back online.
+
+### Cached reads and offline UI (Phase A)
+
+The SPA **persists TanStack Query read caches** to `localStorage` (except auth, admin, and billing API keys) so the last successful data can appear when the network drops. An **offline / stale banner** explains when you are viewing cached data. Logout clears the persisted cache. Details, security notes, and the **task conflict policy** for future sync work: [`docs/OFFLINE_PHASE_A.md`](docs/OFFLINE_PHASE_A.md).
+
+**Phase B (device refresh):** httpOnly device cookie + `POST /api/auth/refresh` can restore a Passport session when the session cookie expired but the device token is still valid. See [`docs/OFFLINE_PHASE_B.md`](docs/OFFLINE_PHASE_B.md). Schema updates apply automatically when you **`npm run dev`** or **`npm start`** (and Docker Compose still runs a dedicated **migrate** job before the app — [`docs/DOCKER_FOUNDATION.md`](docs/DOCKER_FOUNDATION.md#offline-phase-b-device-refresh-database)).
+
+**Phase C (offline task writes):** queued mutations in the browser, optimistic concurrency on `PUT`/`DELETE` tasks, and a conflict dialog. See [`docs/OFFLINE_PHASE_C.md`](docs/OFFLINE_PHASE_C.md).
+
+**Local accounts:** Seeded development accounts and passwords appear in the **dev server terminal** only. To use a **real email** on the same local database, register through the UI; task merge from seed users is not automatic — see [`docs/SIGN_IN.md`](docs/SIGN_IN.md) and [`docs/LOCAL_ACCOUNT_TRANSITION.md`](docs/LOCAL_ACCOUNT_TRANSITION.md).
 
 ### Why local runs fail most often
 
+- **`'cp' is not recognized`** (Windows **cmd**)  
+  Use **`npm run local:env-init`** or **`npm run docker:env-init`**, or the **`copy`** / **`Copy-Item`** commands shown above — not Unix `cp`.
+- **`npm error Missing script: "docker:env-init"`**  
+  You ran the command outside the AxTask project root. `cd AxTask` first, then re-run `npm run docker:env-init`.
 - `npm error Missing script: "db:push"`  
   You ran the command outside the AxTask folder. Run it from `AxTask`.
 - `DATABASE_URL, ensure the database is provisioned`  
@@ -132,18 +242,25 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 ## Development
 
 ### Scripts
-- `npm run dev` - Start development server
-- `npm run dev:smart` - Smart local startup: sync deps only if lockfile changed, run `db:push` only if schema changed, then start dev server
+- `npm run dev` - Run `drizzle-kit push` against `DATABASE_URL`, then start the dev server (`tsx`). Set **`SKIP_DB_PUSH_ON_START=true`** to skip the push (or use **`npm run dev:raw`** for tsx only).
+- `npm run dev:raw` - Start development server without an automatic schema push
+- `npm run dev:smart` - Smart local startup: sync deps only if lockfile changed, run `db:push` only if schema changed, then start dev server (tsx directly — no second push)
 - `npm run deps:sync` - Sync dependencies from lockfile (`npm ci` fallback to `npm install`)
-- `npm run docker:start` - Build/start Docker app + Postgres stack
+- `npm run docker:up` - Smart Docker startup: `.env.docker` bootstrap, placeholder checks, wait for engine (optionally start Docker Desktop on Windows/macOS), then compose up
+- `npm run docker:start` - Direct `docker compose up -d --build` (engine must already be running)
 - `npm run docker:stop` - Stop Docker stack (preserves named-volume data)
+- `npm run docker:cleanup` - Safe cleanup: remove containers/networks/orphans + dangling images (preserves named-volume data)
+- `npm run docker:reset` - Destructive cleanup: `docker:cleanup` + volume wipe (deletes local Docker DB/storage data)
 - `npm run docker:status` - Show container status
 - `npm run docker:logs` - Show recent Docker logs
 - `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run db:push` - Sync database schema
+- `npm run start` - Run **`migrate:sql`** then **`drizzle-kit push`**, then **`node dist/index.js`** (set **`SKIP_DB_PUSH_ON_START=true`** to skip both, or **`npm run start:raw`** for the server only)
+- `npm run start:raw` - Start production server without an automatic schema push
+- `npm run db:push` - Apply pending `migrations/*.sql` then sync schema with Drizzle (also invoked automatically by `dev` / `start` unless skipped)
 - `npm run test` - Run the full compendium of unit/integration/sweep tests (includes local login and Docker workflow guardrails)
 - `npm run check` - Run TypeScript checks
+- `npm run pr:files` - Check changed-file count against the PR limit (default 300; supports `--max-files` and `--base`)
+- `npm run pr:split` - Generate balanced PR split manifests and copy/paste branch commands when a branch is too large
 
 ### Auto-sync dependencies after pull
 
@@ -165,7 +282,7 @@ If something ever gets out of sync, run:
 npm run deps:sync
 ```
 
-For matching behavior in `NodeWeaver`, run that repo's setup script once too.
+For **Docker Compose** with the `nodeweaver` profile, the image builds from **`services/nodeweaver/upstream`**. You can still point `NODEWEAVER_URL` at any other compatible NodeWeaver URL instead.
 
 ### File Structure
 ```
@@ -178,10 +295,18 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
 
 ## Documentation
 
+- **[Docker foundation](docs/DOCKER_FOUNDATION.md)** - Install Docker, env file, compose stack (companion to **Run locally after cloning** above)
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - Technical architecture details
 - **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
-- **[Security Guidelines](docs/SECURITY.md)** - Security best practices
+- **[Security policy](docs/SECURITY.md)** — vulnerability reporting and expectations (start here)
+- **[Security technical reference](docs/SECURITY_TECHNICAL_REFERENCE.md)** — contributor-level architecture notes (**also public** if the repo is public; optional to remove for less exposure)
+- **[Sign-up verification (planned)](docs/MFA_SIGNUP_VERIFICATION.md)** - OTP/MFA at **new** account creation to reduce abuse; existing users keep normal login (step-up MFA only for sensitive actions)
 - **[Version History](VERSION.md)** - Release notes and changelog
+- **[Production migration branch report](docs/PRODUCTION_MIGRATION_BRANCH_REPORT.md)** - Compare `main` / `experimental/next` vs Replit publish lines and `baseline/published` before DB cutover
+- **[Unified migration log](docs/MIGRATION_UNIFIED_LOG.md)** - Replit SHAs `008a8b0` / `afe5210`, deploy **D**, and integration tip **U**
+- **[Production DB migration strategy](docs/PRODUCTION_DB_MIGRATION_STRATEGY.md)** - Overview: branch **U**, automation, staging/cutover links, risks (no secrets)
+- **[Staging and cutover runbook](docs/STAGING_CUTOVER_RUNBOOK.md)** - Restore staging DB, `db:push`, attachments, production cutover
+- **[Migration automation](docs/MIGRATION_AUTOMATION.md)** - `migration:verify-schema`, smoke API, pg backup/restore scripts
 - **[Deployment Migration Plan](docs/DEPLOYMENT_MIGRATION_PLAN.md)** - 48-hour cutover and rollback guardrails
 - **[Next Setup Blueprint](docs/NEXT_SETUP_BLUEPRINT.md)** - Host/DB/domain and integration groundwork
 - **[Cutover Runbook](docs/CUTOVER_RUNBOOK.md)** - Zero-downtime DNS cutover with Replit fallback
@@ -266,6 +391,7 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
 - Toggleable notification mode in the sidebar with a `0-100` intensity slider.
 - Browser push permission is requested when enabling notifications.
 - Preferences persist per account via server-backed APIs:
+  - `GET /api/notifications/push-public-config` (public; VAPID public key for subscribe when not build-inlined)
   - `GET /api/notifications/preferences`
   - `PATCH /api/notifications/preferences`
   - `GET /api/notifications/subscriptions`
@@ -277,20 +403,30 @@ For matching behavior in `NodeWeaver`, run that repo's setup script once too.
   - `31-70`: Balanced
   - `71-100`: Frequent
 
-Required env for browser push subscription:
+**Default (no manual key generation):** On startup the server ensures a VAPID keypair exists — it uses `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` (or `VITE_VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY`) if you set **both**, otherwise it **creates and stores** a pair in Postgres (`app_runtime_secrets`). The public key is exposed at `GET /api/notifications/push-public-config`, and the client uses that whenever `VITE_VAPID_PUBLIC_KEY` is not set at build time, so **Enable notifications** works once the DB schema exists (including `app_runtime_secrets`) without `npx web-push`.
+
+**VAPID contact URI (`subject`):** Resolved automatically from, in order: `VAPID_SUBJECT`, `BASE_URL` (https origin), `CANONICAL_HOST` (as `https://…`), or in non-production `mailto:axtask-local@localhost`. Production needs at least one of the first three so the server can complete Web Push setup.
+
+**Optional overrides** (bring your own keys, or CDN-only static build with inlined public key):
+
 ```env
-VITE_VAPID_PUBLIC_KEY=...
+# Optional build-time inlining (client skips the public-config fetch when set)
+# VITE_VAPID_PUBLIC_KEY=...
+# VAPID_PRIVATE_KEY=...   # must match the pair when using explicit public key
+# VAPID_PUBLIC_KEY=...    # Node-only public override (else VITE_* is read)
+# VAPID_SUBJECT=mailto:you@yourdomain.com
+# DISABLE_PUSH_DISPATCH=true
+# PUSH_DISPATCH_INTERVAL_MS=120000
 ```
 
-After pulling these changes, run:
-```bash
-npm run db:push
-```
+After pulling schema changes, run **`npm run dev`** or **`npm start`** once (they apply the schema automatically), or run **`npm run db:push`** manually if you prefer.
+
 - Admin retention metrics:
   - `GET /api/admin/premium/retention?days=30`
 
 ## Security
 
+- **OPSEC sprint (immersive checklist + CI test receipt):** [docs/OPSEC_IMMERSIVE_SPRINT.md](docs/OPSEC_IMMERSIVE_SPRINT.md) · auto-updated [docs/TEST_ATTESTATION.md](docs/TEST_ATTESTATION.md) when `main` tests pass in GitHub Actions
 - Input validation with Zod schemas
 - SQL injection protection via parameterized queries
 - Environment-based configuration
@@ -325,10 +461,21 @@ Docker assets included:
 Important:
 - Dockerizing on your machine does not automatically Dockerize other machines.
 - Every workstation/server that will run AxTask must have Docker runtime installed and configured.
-- If deploying to a server, install Docker Engine + Docker Compose plugin there, copy project/env, then run `npm run docker:start` (or `docker compose up -d --build`).
+- If deploying to a server, install Docker Engine + Compose plugin there, copy project/env, then run `npm run docker:up` or `npm run docker:start` (or `docker compose up -d --build`).
 
 For a migration path away from Replit with cost-control guardrails, see [`docs/DEPLOYMENT_MIGRATION_PLAN.md`](docs/DEPLOYMENT_MIGRATION_PLAN.md).
 For a step-by-step zero-downtime procedure, use [`docs/CUTOVER_RUNBOOK.md`](docs/CUTOVER_RUNBOOK.md).
+
+### Replit and GitHub safety
+
+Replit Agent and hosted workflows can push commits or run hooks without your intent. The repo cannot fully block that; combine **GitHub settings**, **secrets isolation**, and the **`post-merge` script** below.
+
+1. **Branch protection (GitHub)** — On the default branch (e.g. `main`): require pull requests, require approvals (or CODEOWNERS), block force-push, and avoid granting broad write tokens to Replit when a protected branch would reject the push anyway.
+2. **Database isolation** — Do not point a Repl used for experiments at **production** `DATABASE_URL`. Prefer staging-only secrets on Replit; deploy production from a host you control (Render, Docker, etc.).
+3. **Post-merge `db:push` is opt-in** — After a merge, Replit runs [`scripts/post-merge.sh`](scripts/post-merge.sh), which runs `npm install` and only runs **`npm run db:push`** when **`AXTASK_POST_MERGE_DB_PUSH=1`** is set (e.g. in Replit Secrets). Default is **skip**, so schema sync does not run automatically against whatever database the Repl has configured.
+4. **Fork or non-production branch** — Connect Replit to a fork or a branch other than production’s deploy branch; merge to production via PR from your machine or CI.
+
+See also [`AGENTS.md`](AGENTS.md) for assistant/automation guardrails and [`replit.md`](replit.md) for workspace notes.
 
 ## Pending / Not Yet Implemented
 

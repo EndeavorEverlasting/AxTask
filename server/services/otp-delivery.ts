@@ -19,12 +19,46 @@ export function canDeliverMfaInProduction(channel: MfaDeliveryChannel): boolean 
 
 export type DeliverMfaParams = {
   channel: MfaDeliveryChannel;
+  challengeId: string;
   code: string;
   purpose: string;
   email: string;
   /** Required when channel is sms */
   phoneE164: string | null;
 };
+
+function appBaseUrl(): string {
+  const explicit =
+    process.env.BASE_URL?.trim() ||
+    process.env.APP_BASE_URL?.trim() ||
+    process.env.PUBLIC_APP_URL?.trim();
+  if (explicit) return explicit.replace(/\/+$/, "");
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Set BASE_URL, APP_BASE_URL, or PUBLIC_APP_URL in production so MFA and email links use the correct app origin.",
+    );
+  }
+  return "http://localhost:5173";
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildMfaHandoffUrl(params: { challengeId: string; code: string; purpose: string }): string {
+  const base = appBaseUrl();
+  const q = new URLSearchParams({
+    challengeId: params.challengeId,
+    code: params.code,
+    purpose: params.purpose,
+  });
+  return `${base}/mfa/confirm?${q.toString()}`;
+}
 
 async function sendResendEmail(to: string, subject: string, html: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const key = process.env.RESEND_API_KEY?.trim();
@@ -37,7 +71,12 @@ async function sendResendEmail(to: string, subject: string, html: string): Promi
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    return { ok: false, error: `Resend error ${res.status}: ${text.slice(0, 200)}` };
+    let err = `Resend error ${res.status}: ${text.slice(0, 200)}`;
+    if (res.status === 403 && /domain.*not verified|verify your domain/i.test(text)) {
+      err +=
+        " — Verify the sending domain for RESEND_FROM at https://resend.com/domains or use a verified From address.";
+    }
+    return { ok: false, error: err };
   }
   return { ok: true };
 }
@@ -74,7 +113,7 @@ async function sendTwilioSms(to: string, body: string): Promise<{ ok: true } | {
 }
 
 export async function deliverMfaOtp(params: DeliverMfaParams): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { channel, code, purpose, email, phoneE164 } = params;
+  const { channel, challengeId, code, purpose, email, phoneE164 } = params;
 
   if (process.env.NODE_ENV !== "production") {
     const dest = channel === "email" ? email : phoneE164;
@@ -83,7 +122,18 @@ export async function deliverMfaOtp(params: DeliverMfaParams): Promise<{ ok: tru
   }
 
   if (channel === "email") {
-    const html = `<p>Your AxTask verification code is <strong>${code}</strong>.</p><p>If you did not request this, you can ignore this email.</p>`;
+    const handoffUrl = buildMfaHandoffUrl({ challengeId, code, purpose });
+    const handoffUrlHref = escapeHtml(handoffUrl);
+    const html = `
+      <div style="font-family:Inter,Segoe UI,Arial,sans-serif;line-height:1.5;color:#111827">
+        <h2 style="margin:0 0 10px 0">Confirm it's you</h2>
+        <p style="margin:0 0 8px 0">Your AxTask verification code is <strong style="font-size:20px;letter-spacing:2px">${escapeHtml(code)}</strong>.</p>
+        <p style="margin:0 0 14px 0;color:#4b5563">For a seamless handoff, open the button below and AxTask will attempt to auto-load the active flow.</p>
+        <p style="margin:0 0 16px 0">
+          <a href="${handoffUrlHref}" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#0f172a;color:#fff;text-decoration:none;font-weight:600">Open AxTask confirmation</a>
+        </p>
+        <p style="margin:0;color:#6b7280;font-size:12px">If you did not request this, you can ignore this email.</p>
+      </div>`;
     return sendResendEmail(email, "Your AxTask verification code", html);
   }
 
@@ -91,4 +141,30 @@ export async function deliverMfaOtp(params: DeliverMfaParams): Promise<{ ok: tru
     return { ok: false, error: "No phone number for SMS delivery" };
   }
   return sendTwilioSms(phoneE164, `AxTask code: ${code}`);
+}
+
+export async function sendWelcomeExperienceEmail(params: {
+  email: string;
+  displayName?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const first = params.displayName?.trim() || "there";
+  const firstSafe = escapeHtml(first);
+  const url = `${appBaseUrl()}/welcome-confirm`;
+  const urlSafe = escapeHtml(url);
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[WELCOME] email=${params.email} url=${url}`);
+    return { ok: true };
+  }
+  const html = `
+    <div style="font-family:Inter,Segoe UI,Arial,sans-serif;line-height:1.5;color:#111827">
+      <h1 style="margin:0 0 10px 0;font-size:24px">Welcome to AxTask, ${firstSafe}.</h1>
+      <p style="margin:0 0 14px 0;color:#374151">Your workspace is ready. We'll auto-load the AxTask experience when you open this page.</p>
+      <p style="margin:0 0 16px 0">
+        <a href="${urlSafe}" style="display:inline-block;padding:11px 16px;border-radius:12px;background:linear-gradient(120deg,#0ea5e9,#8b5cf6);color:#fff;text-decoration:none;font-weight:700">
+          ✓ Launch My AxTask Adventure
+        </a>
+      </p>
+      <p style="margin:0;color:#6b7280;font-size:12px">If it doesn't load automatically, use the button above or this direct link: <a href="${urlSafe}">${urlSafe}</a>.</p>
+    </div>`;
+  return sendResendEmail(params.email, "Welcome to AxTask - your workspace is ready", html);
 }

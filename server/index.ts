@@ -8,15 +8,25 @@ import { setupAuth } from "./auth";
 import { registerOAuthRoutes } from "./auth-providers";
 import { seedDevAccounts } from "./seed-dev";
 import { pool } from "./db";
+import { setupCollaborationWs } from "./collaboration";
+import { isLocalBrowserHostname } from "./lib/browser-origin";
+import { createApiWriteOriginGuard } from "./lib/api-write-origin-guard";
+import { parseCookieSecureFlag, parseForceHttps, parseNodeIsDev } from "./lib/login-env-policy";
+import { assertProductionAuthAuditPepper } from "./lib/production-bootstrap-env";
+import { AXTASK_CSRF_COOKIE, AXTASK_CSRF_HEADER } from "@shared/http-auth";
+import { initVapidAtBoot } from "./services/vapid-runtime";
+import { startWebPushDispatchScheduler } from "./services/web-push-dispatch";
+import { startPlaystyleCohortScheduler } from "./services/playstyle-cohort-scheduler";
 
 const app = express();
 
 app.set("trust proxy", 1);
 
-const isDev = process.env.NODE_ENV !== "production";
+const isDev = parseNodeIsDev(process.env);
 const canonicalHost = (process.env.CANONICAL_HOST || "").trim().toLowerCase();
 const replitFallbackHost = (process.env.REPLIT_FALLBACK_HOST || "axtask.replit.app").trim().toLowerCase();
-const forceHttps = process.env.FORCE_HTTPS !== "false";
+const forceHttps = parseForceHttps(process.env);
+const cookieSecure = parseCookieSecureFlag(process.env);
 
 function parseCsvEnv(value?: string): string[] {
   if (!value) return [];
@@ -30,10 +40,6 @@ function normalizeHost(hostHeader: string): string {
   return hostHeader.split(":")[0].trim().toLowerCase();
 }
 
-function isLocalHost(host: string): boolean {
-  return host === "localhost" || host === "127.0.0.1";
-}
-
 const extraAllowedHosts = parseCsvEnv(process.env.ADDITIONAL_ALLOWED_HOSTS);
 const allowedHosts = new Set<string>(
   [canonicalHost, replitFallbackHost, ...extraAllowedHosts].filter(Boolean),
@@ -41,7 +47,7 @@ const allowedHosts = new Set<string>(
 
 function isAllowedHost(hostHeader: string): boolean {
   const host = normalizeHost(hostHeader);
-  if (isLocalHost(host)) return true;
+  if (isLocalBrowserHostname(host)) return true;
   if (host.endsWith(".replit.dev")) return true;
   return allowedHosts.has(host);
 }
@@ -53,6 +59,28 @@ for (const origin of parseCsvEnv(process.env.ADDITIONAL_ALLOWED_ORIGINS)) {
   allowedOrigins.add(origin.startsWith("http") ? origin : `https://${origin}`);
 }
 
+const connectSrcDirectives = (() => {
+  const s = new Set<string>([
+    "'self'",
+    "https://accounts.google.com",
+    "https://oauth2.googleapis.com",
+  ]);
+  for (const host of allowedHosts) {
+    if (!host) continue;
+    s.add(`https://${host}`);
+    s.add(`wss://${host}`);
+  }
+  for (const origin of allowedOrigins) {
+    s.add(origin);
+    try {
+      s.add(`wss://${new URL(origin).hostname}`);
+    } catch {
+      /* ignore malformed ADDITIONAL_ALLOWED_ORIGINS entries */
+    }
+  }
+  return Array.from(s);
+})();
+
 app.use(
   helmet({
     contentSecurityPolicy: isDev ? false : {
@@ -62,7 +90,7 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'", "https://accounts.google.com", "https://oauth2.googleapis.com"],
+        connectSrc: connectSrcDirectives,
         frameSrc: ["'none'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
@@ -89,7 +117,7 @@ if (!isDev) {
     const hostHeader = req.get("host") || "";
     const host = normalizeHost(hostHeader);
 
-    if (forceHttps && req.protocol !== "https" && !isLocalHost(host)) {
+    if (forceHttps && req.protocol !== "https" && !isLocalBrowserHostname(host)) {
       const httpsHost = hostHeader || canonicalHost || replitFallbackHost;
       return res.redirect(301, `https://${httpsHost}${req.originalUrl}`);
     }
@@ -106,45 +134,35 @@ if (!isDev) {
 }
 
 app.use(cookieParser());
-app.use(express.json({ limit: "2mb" }));
+const LARGE_BODY_PATHS = [
+  "/api/admin/import",
+  "/api/account/import",
+  "/api/account/import/challenge",
+  "/api/admin/import/validate",
+];
+const largeJsonParser = express.json({ limit: "50mb" });
+const defaultJsonParser = express.json({ limit: "2mb" });
+app.use((req, res, next) => {
+  if (LARGE_BODY_PATHS.includes(req.path)) {
+    return largeJsonParser(req, res, next);
+  }
+  return defaultJsonParser(req, res, next);
+});
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 
 if (!isDev) {
-  app.use("/api", (req, res, next) => {
-    if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
-      return next();
-    }
-    const origin = req.get("origin");
-    const referer = req.get("referer");
-    if (origin && !allowedOrigins.has(origin.toLowerCase())) {
-      return res.status(403).json({ message: "Forbidden — invalid origin" });
-    }
-    if (!origin && referer) {
-      try {
-        const refererOrigin = new URL(referer).origin.toLowerCase();
-        if (!allowedOrigins.has(refererOrigin)) {
-          return res.status(403).json({ message: "Forbidden — invalid referer" });
-        }
-      } catch {
-        return res.status(403).json({ message: "Forbidden — invalid referer" });
-      }
-    }
-    next();
-  });
+  app.use("/api", createApiWriteOriginGuard(allowedOrigins, forceHttps));
 }
 
 import { randomBytes as csrfRandomBytes } from "crypto";
 
-const CSRF_COOKIE = "axtask.csrf";
-const CSRF_HEADER = "x-csrf-token";
-
 app.use("/api", (req, res, next) => {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
-    if (!req.cookies?.[CSRF_COOKIE]) {
+    if (!req.cookies?.[AXTASK_CSRF_COOKIE]) {
       const token = csrfRandomBytes(32).toString("base64url");
-      res.cookie(CSRF_COOKIE, token, {
+      res.cookie(AXTASK_CSRF_COOKIE, token, {
         httpOnly: false,
-        secure: !isDev,
+        secure: cookieSecure,
         sameSite: "lax",
         path: "/",
         maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -157,13 +175,13 @@ app.use("/api", (req, res, next) => {
     return next();
   }
 
-  const cookieToken = req.cookies?.[CSRF_COOKIE];
-  const headerToken = req.get(CSRF_HEADER);
+  const cookieToken = req.cookies?.[AXTASK_CSRF_COOKIE];
+  const headerToken = req.get(AXTASK_CSRF_HEADER);
   if (!cookieToken || !headerToken || cookieToken !== headerToken) {
     const token = csrfRandomBytes(32).toString("base64url");
-    res.cookie(CSRF_COOKIE, token, {
+    res.cookie(AXTASK_CSRF_COOKIE, token, {
       httpOnly: false,
-      secure: !isDev,
+      secure: cookieSecure,
       sameSite: "lax",
       path: "/",
       maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -236,9 +254,13 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  assertProductionAuthAuditPepper();
   await seedDevAccounts();
+  await initVapidAtBoot();
 
   const server = await registerRoutes(app);
+
+  setupCollaborationWs(server);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -259,15 +281,23 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  const port = parseInt(process.env.PORT || '5000', 10);
+  const port = parseInt(process.env.PORT || "5000", 10);
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    console.error("[axtask:fatal] HTTP server listen error:", err?.message || err);
+    process.exit(1);
+  });
   server.listen(
     {
       port,
       host: "0.0.0.0",
-      ...(process.platform !== "win32" && { reusePort: true }),
     },
     () => {
       log(`serving on port ${port}`);
+      startWebPushDispatchScheduler();
+      startPlaystyleCohortScheduler();
     },
   );
-})();
+})().catch((err: unknown) => {
+  console.error("[axtask:fatal] Server bootstrap failed:", err instanceof Error ? err.stack || err.message : err);
+  process.exit(1);
+});

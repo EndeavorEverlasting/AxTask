@@ -1,3 +1,5 @@
+# Blueprint skeleton: sync:false vars must be set in the Render dashboard (or `render secret`).
+# Full annotated checklist (no secrets): see docs/RENDER_WEB_SERVICE_PASTE_CHECKLIST.md and .env.render.example at repo root.
 services:
   - type: web
     name: axtask-prod
@@ -24,6 +26,9 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: SESSION_SECRET
+        sync: false
+      # Required in production: server bootstrap fails if missing or <16 chars (login audit HMAC).
+      - key: AUTH_AUDIT_PEPPER
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false

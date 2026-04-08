@@ -1,8 +1,27 @@
 import type { Task } from "@shared/schema";
-import { classifyCalendarIntent, processCalendarCommand, type CalendarResult } from "./calendar-engine";
-import { processPlannerQuery, type PlannerResult } from "./planner-engine";
+import {
+  hasNavigationLeadIn,
+  isMetaOnlyTaskSearchRequest,
+  matchNavigationPath,
+  tryModuleGuideIntent,
+  tryTutorialJumpStepId,
+  tryTutorialStartIntent,
+  tryVoiceHelpIntent,
+} from "@shared/voice-dispatch";
+import { classifyCalendarIntent, processCalendarCommand } from "./calendar-engine";
+import { processPlannerQuery } from "./planner-engine";
+import { processTaskReview } from "./review-engine";
 
-export type IntentType = "task_create" | "planner_query" | "calendar_command" | "navigation" | "search";
+export type IntentType =
+  | "task_create"
+  | "planner_query"
+  | "calendar_command"
+  | "navigation"
+  | "search"
+  | "task_review"
+  | "help"
+  | "tutorial"
+  | "module_guide";
 
 export interface EngineResponse {
   intent: IntentType;
@@ -19,22 +38,23 @@ interface IntentPattern {
 
 const INTENT_PATTERNS: IntentPattern[] = [
   {
-    intent: "navigation",
+    intent: "task_review",
     patterns: [
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?(?:dashboard|home)\b/i,
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?(?:tasks?|task list)\b/i,
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?calendar\b/i,
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?analytics\b/i,
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?(?:planner|ai planner)\b/i,
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?checklist\b/i,
+      /\bi\s+(?:already\s+)?(?:finished|completed|did|done with|done|checked off|knocked out|took care of)\s+/i,
+      /\bmark\s+.+?\s+(?:as\s+)?(?:completed?|done|finished)\b/i,
+      /\bi(?:'ve| have)\s+(?:already\s+)?(?:finished|completed|done)\s+/i,
+      /\bbulk\s+(?:complete|update|review)\b/i,
+      /\bi\s+(?:already\s+)?(?:took care of|handled|wrapped up|cleared)\s+/i,
+      /\bi\s+(?:finished|completed|did).+(?:and|,).+/i,
+      /\b(?:move|reschedule|push)\s+.+?\s+to\s+.+?\s+(?:and|,)\s+.+\b(?:finished|completed|done|closed|marked)\b/i,
     ],
-    priority: 10,
+    priority: 8,
   },
   {
     intent: "task_create",
     patterns: [
       /\b(?:create|add|new|make)\s+(?:a\s+)?(?:new\s+)?task\b/i,
-      /\b(?:remind me to|i need to|don't forget to|add)\s+/i,
+      /\b(?:remind me to|i need to|don't forget to)\s+/i,
     ],
     priority: 5,
   },
@@ -63,22 +83,30 @@ const INTENT_PATTERNS: IntentPattern[] = [
   },
   {
     intent: "search",
-    patterns: [
-      /\b(?:find|search|look for|where is|show)\s+/i,
-    ],
+    patterns: [/\b(?:find|search|look for|where is|show)\s+/i],
     priority: 1,
   },
 ];
 
-function extractNavigationTarget(text: string): string {
-  const lower = text.toLowerCase();
-  if (/(?:dashboard|home)\b/.test(lower)) return "/";
-  if (/(?:tasks?|task list)\b/.test(lower)) return "/tasks";
-  if (/\bcalendar\b/.test(lower)) return "/calendar";
-  if (/\banalytics\b/.test(lower)) return "/analytics";
-  if (/\b(?:planner|ai planner)\b/.test(lower)) return "/planner";
-  if (/\bchecklist\b/.test(lower)) return "/checklist";
-  return "/";
+function navigationPageLabel(path: string): string {
+  const labels: Record<string, string> = {
+    "/": "Dashboard",
+    "/tasks": "Tasks",
+    "/calendar": "Calendar",
+    "/analytics": "Analytics",
+    "/planner": "Planner",
+    "/checklist": "Checklist",
+    "/import-export": "Import/Export",
+    "/google-sheets": "Google Sheets",
+    "/rewards": "Rewards",
+    "/premium": "Premium",
+    "/billing": "Billing",
+    "/account": "Account",
+    "/feedback": "Feedback",
+    "/contact": "Contact",
+    "/admin": "Admin",
+  };
+  return labels[path] || path.replace(/^\//, "").replace(/-/g, " ");
 }
 
 function extractTaskDetails(text: string): { activity: string; date?: string; time?: string } {
@@ -128,12 +156,18 @@ function extractTaskDetails(text: string): { activity: string; date?: string; ti
 function extractSearchQuery(text: string): string {
   let query = text;
   query = query.replace(/\b(?:find|search|look for|where is|show)\s*/i, "");
+  query = query.replace(/^\s*for\s+/i, "");
   query = query.replace(/\b(?:tasks?\s+(?:about|called|named|with|containing))\s*/i, "");
   return query.trim();
 }
 
 export function classifyIntent(text: string): IntentType {
   const lower = text.toLowerCase().trim();
+
+  if (hasNavigationLeadIn(lower)) {
+    const path = matchNavigationPath(lower);
+    if (path !== null) return "navigation";
+  }
 
   let bestIntent: IntentType = "search";
   let bestPriority = -1;
@@ -156,16 +190,55 @@ export function classifyIntent(text: string): IntentType {
 export async function dispatchVoiceCommand(
   transcript: string,
   tasks: Task[],
-  userId: string,
+  _userId: string,
   todayStr: string,
   now: Date
 ): Promise<EngineResponse> {
+  const help = tryVoiceHelpIntent(transcript);
+  if (help) {
+    return {
+      intent: "help",
+      action: "show_help",
+      payload: {},
+      message: help.message,
+    };
+  }
+
+  if (tryTutorialStartIntent(transcript)) {
+    return {
+      intent: "tutorial",
+      action: "tutorial_start",
+      payload: {},
+      message: "Starting the guided tour.",
+    };
+  }
+
+  const tutorialStep = tryTutorialJumpStepId(transcript);
+  if (tutorialStep) {
+    return {
+      intent: "tutorial",
+      action: "tutorial_jump",
+      payload: { stepId: tutorialStep },
+      message: `Opening the ${tutorialStep.replace(/-/g, " ")} tutorial step.`,
+    };
+  }
+
+  const guide = tryModuleGuideIntent(transcript);
+  if (guide) {
+    return {
+      intent: "module_guide",
+      action: "show_answer",
+      payload: { answer: guide.message, relatedTasks: [] },
+      message: guide.message,
+    };
+  }
+
   const intent = classifyIntent(transcript);
 
   switch (intent) {
     case "navigation": {
-      const target = extractNavigationTarget(transcript);
-      const pageName = target === "/" ? "Dashboard" : target.slice(1).charAt(0).toUpperCase() + target.slice(2);
+      const target = matchNavigationPath(transcript) || "/";
+      const pageName = navigationPageLabel(target);
       return {
         intent: "navigation",
         action: "navigate",
@@ -178,7 +251,7 @@ export async function dispatchVoiceCommand(
       const details = extractTaskDetails(transcript);
       return {
         intent: "task_create",
-        action: "prefill_task",
+        action: "open_new_task",
         payload: {
           activity: details.activity,
           date: details.date || todayStr,
@@ -186,7 +259,7 @@ export async function dispatchVoiceCommand(
         },
         message: details.activity
           ? `Ready to create task: "${details.activity}"`
-          : "Opening task form for you.",
+          : "Opening new task.",
       };
     }
 
@@ -219,21 +292,44 @@ export async function dispatchVoiceCommand(
       };
     }
 
+    case "task_review": {
+      const reviewResult = processTaskReview(transcript, tasks, now);
+      return {
+        intent: "task_review",
+        action: "show_review",
+        payload: {
+          actions: reviewResult.actions,
+          unmatched: reviewResult.unmatched,
+        },
+        message: reviewResult.message,
+      };
+    }
+
     case "search":
     default: {
+      if (isMetaOnlyTaskSearchRequest(transcript)) {
+        return {
+          intent: "search",
+          action: "prepare_task_search",
+          payload: {},
+          message: "Opening task search. Say what you're looking for.",
+        };
+      }
       const query = extractSearchQuery(transcript);
       const pendingTasks = tasks.filter(t => t.status !== "completed");
-      const matches = pendingTasks.filter(t =>
-        t.activity.toLowerCase().includes(query.toLowerCase()) ||
-        (t.notes || "").toLowerCase().includes(query.toLowerCase())
+      const matches = pendingTasks.filter(
+        t =>
+          t.activity.toLowerCase().includes(query.toLowerCase()) ||
+          (t.notes || "").toLowerCase().includes(query.toLowerCase())
       );
       return {
         intent: "search",
         action: "show_results",
         payload: { query, results: matches.slice(0, 5) },
-        message: matches.length > 0
-          ? `Found ${matches.length} task${matches.length !== 1 ? "s" : ""} matching "${query}".`
-          : `No tasks found matching "${query}".`,
+        message:
+          matches.length > 0
+            ? `Found ${matches.length} task${matches.length !== 1 ? "s" : ""} matching "${query}".`
+            : `No tasks found matching "${query}".`,
       };
     }
   }

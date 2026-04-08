@@ -1,6 +1,8 @@
 node_modules
 npm-debug.log
 dist
+# NodeWeaver (separate Compose service); never bake it into the AxTask image.
+services/nodeweaver/upstream
 .git
 .github
 .cursor

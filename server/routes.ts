@@ -1,22 +1,38 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { timingSafeEqual, createHash } from "crypto";
+import { createHmac, createHash, timingSafeEqual } from "crypto";
+import { computeTaskFingerprint, manualCreateTaskWithImportFingerprintClaim } from "./import-task-dedupe";
 import rateLimit from "express-rate-limit";
+import { userOrIpKey, trustedIpKey } from "./lib/rate-limit-keys";
+import { assertProductionAuthAuditPepper } from "./lib/production-bootstrap-env";
 import passport from "passport";
 import multer from "multer";
+import { exportFullDatabase, exportUserData } from "./migration/export";
+import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
+import {
+  buildImportOwnershipChallenge,
+  computeTasksFingerprint,
+  gradeOwnershipQuiz,
+  IMPORT_OWNERSHIP_QUIZ_TTL_MS,
+  ownershipQuizExpectedFromSecrets,
+  questionCountForImportTaskRows,
+  stripOwnershipQuizSecrets,
+} from "./account-import-challenge";
 import {
   storage, createUser, getUserByEmail, recordFailedLogin, resetFailedLogins,
   createResetToken, verifyResetToken, consumeResetToken,
   setSecurityQuestion, getSecurityQuestion, verifySecurityAnswer,
   adminResetPassword,
-  banUser, unbanUser, getAllUsers, isUserBanned,
+  banUser, unbanUser, demoteAdminUser, getAllUsers, isUserBanned,
+  createAppeal, listAppealsForUser, listAppealsForAdmin, withdrawAppeal, castAppealVote, isAppealSubjectType,
   logSecurityEvent, getSecurityLogs,
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage,
-  hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
+  hasImportFingerprint, getTaskIdForImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoicesForUser, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
-  listBillingPaymentMethodsForUser, createBillingPaymentMethod,
+  listBillingPaymentMethodsForUser, createBillingPaymentMethod, deleteBillingPaymentMethodForUser,
+  getUserBillingProfile, upsertUserBillingProfile, getInvoiceForUser,
   deleteMfaChallengeById, getUserContactForMfa, setUserVerifiedPhone, getUserById,
   appendSecurityEvent, getSecurityEvents, getSecurityAlerts, analyzeAndCreateSecurityAlerts,
   listFeedbackInbox,
@@ -43,34 +59,118 @@ import {
   resolvePremiumInsight,
   buildWeeklyPremiumDigest,
   trackPremiumEvent,
+  grantAdminLifetimePremium,
+  revokeAdminLifetimePremium,
+  listPremiumEventsForUser,
+  listActiveLifetimePremiumGrants,
   getPremiumRetentionMetrics,
   getUserNotificationPreference,
   upsertUserNotificationPreference,
   listUserPushSubscriptions,
   upsertUserPushSubscription,
   deleteUserPushSubscription,
+  addCollaborator, removeCollaborator, getTaskCollaborators, updateCollaboratorRole,
+  getSharedTasks, canAccessTask, isTaskOwner, isPgUniqueViolation,
+  resetStreak,
+  getPatterns, getPatternsByType,
+  getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution,
+  listUserClassificationCategories, createUserClassificationCategory,
+  updateUserAccountProfile,
+  getAccountOwnerProfileFields,
+  listPublicCommunityTasks,
+  getPublicCommunityTaskById,
+  toCommunityTaskPublicDto,
+  publishTaskToCommunity,
+  unpublishTaskFromCommunity,
+  getTaskRowById,
+  processUserMilestoneGrants,
+  ensureAvatarProfilesFromEntourage,
+  getAvatarProfilesForUser,
+  awardAvatarProgressFromContent,
+  engageAvatarWithContent,
+  spendCoinsForAvatarBoost,
+  changePremiumPlanForUser,
+  cancelPremiumSubscriptionForUser,
+  recordProductFunnelEvent,
+  getProductFunnelSummary,
 } from "./storage";
+import {
+  grantDeviceRefreshForUser,
+  performAuthRefresh,
+  revokeDeviceRefreshFromRequest,
+  clearDeviceRefreshCookie,
+} from "./device-refresh";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
-import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, type UpdateTask, type Task } from "@shared/schema";
+import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
+import { z, ZodError } from "zod";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, updateAccountProfileSchema, avatarEngagementSchema, type UpdateTask, type Task } from "@shared/schema";
+import { TASK_CONFLICT_CODE } from "@shared/offline-sync";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
+import { assertMfaChallengeCreateAllowed } from "./mfa-purpose-validation";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
-import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
+import { deliverMfaOtp, canDeliverMfaInProduction, sendWelcomeExperienceEmail } from "./services/otp-delivery";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
+import { buildBillingSummary } from "./engines/billing-summary-engine";
+import { getLatestPlaystyleCohortRollups, recomputePlaystyleCohortRollups } from "./services/gamification/playstyle-cohorts";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
+import { productFunnelClientPostSchema } from "./product-funnel-events";
 import { processPlannerQuery } from "./engines/planner-engine";
 import { processFeedbackWithEngines } from "./engines/feedback-engine";
+import { processTaskReview, type ReviewAction } from "./engines/review-engine";
+import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from "./engines/pattern-engine";
+import { getOrRecomputeEntourage } from "./engines/entourage-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
-import { generateChecklistPDF } from "./checklist-pdf";
+import { generateChecklistPdfBuffer } from "./checklist-pdf";
+import { debitProductivityExport } from "./productivity-export-debit";
+import {
+  getChecklistPdfExportCost,
+  getTasksSpreadsheetExportCost,
+  getTaskReportPdfCost,
+  getTaskReportXlsxCost,
+  productivityExportsFreeInDev,
+} from "./productivity-export-pricing";
+import { tasksToCsvBuffer, tasksToXlsxBuffer } from "./tasks-spreadsheet-buffers";
+import { generateTaskReportPdfBuffer } from "./task-report-pdf";
+import { generateTaskReportXlsxBuffer } from "./task-report-xlsx";
 import { processChecklistImage } from "./ocr-processor";
-import { requireAuth } from "./auth";
+import { requireAuth, requireAuthAllowSuspended } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
 import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./services/usage-service";
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
 import { classifyWithFallback } from "./services/classification/universal-classifier";
+import { buildCategorySuggestions } from "./services/classification/category-suggestions";
+import {
+  broadcastClassificationEvent,
+  classificationSseCount,
+  CLASSIFICATION_SSE_MAX_PER_USER,
+  registerClassificationSse,
+  hasClassificationSse,
+} from "./services/classification/classification-stream-registry";
+import { callNodeWeaverBatchClassify, notifyNodeWeaverCorrection } from "./services/classification/nodeweaver-client";
+import { getNextYoutubeProbe, recordYoutubeProbeFeedback } from "./services/youtube-probe";
+import { isValidCalendarDateString } from "@shared/calendar-date";
+import { BUILT_IN_CLASSIFICATIONS, isGeneralClassification } from "@shared/classification-catalog";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
+import { getVapidPublicKey } from "./services/vapid-runtime";
+import { maskReporterEmailForPrivacy, maskReporterNameForPrivacy } from "./services/feedback-inbox-parser";
+
+/**
+ * Maps voice review priority labels to stored `priority_score` (~10× the engine’s numeric score; see task routes).
+ *
+ * For labels produced by `PriorityEngine.scoreToPriority` (client `priority-engine.ts`), each band’s **midpoint on the
+ * 0–10 scale × 10**: Low [0,2)→10, Medium [2,4)→30, Medium-High [4,6)→50, High [6,8)→70, Highest [8,10]→90 (9×10).
+ * `Lowest` is **not** returned by `scoreToPriority`; it is voice-only and uses 5 (= 0.5×10), below the Low band.
+ */
+const VOICE_REVIEW_PRIORITY_TO_SCORE: Record<string, number> = {
+  Lowest: 5,
+  Low: 10,
+  Medium: 30,
+  "Medium-High": 50,
+  High: 70,
+  Highest: 90,
+};
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
 function safeEqual(a: string, b: string): boolean {
@@ -81,25 +181,6 @@ function safeEqual(a: string, b: string): boolean {
     return false;
   }
   return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
-}
-
-function normalizeForFingerprint(value?: string | null): string {
-  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function computeTaskFingerprint(task: {
-  date?: string;
-  time?: string | null;
-  activity?: string | null;
-  notes?: string | null;
-}): string {
-  const base = [
-    normalizeForFingerprint(task.date || ""),
-    normalizeForFingerprint(task.time || ""),
-    normalizeForFingerprint(task.activity || ""),
-    normalizeForFingerprint(task.notes || ""),
-  ].join("|");
-  return createHash("sha256").update(base).digest("hex");
 }
 
 function getUploadSigningSecret(): string {
@@ -119,29 +200,6 @@ async function classifyTaskWithFallback(activity: string, notes: string, preferE
 
 function hasFeature(entitlements: { features: string[] }, feature: string): boolean {
   return entitlements.features.includes(feature);
-}
-
-async function callNodeWeaverBatchClassify(items: Array<{ id: string; activity: string; notes?: string }>) {
-  const baseUrl = process.env.NODEWEAVER_URL;
-  if (!baseUrl) {
-    throw new Error("NODEWEAVER_URL is not configured");
-  }
-  const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/v1/classify/batch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tasks: items.map((item) => ({
-        activity: item.activity,
-        notes: item.notes || "",
-        metadata: { classification_profile: "axtask" },
-      })),
-      metadata: { classification_profile: "axtask" },
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`NodeWeaver classify failed with status ${response.status}`);
-  }
-  return response.json();
 }
 
 function toIsoDate(date: Date): string {
@@ -317,13 +375,6 @@ const registerLimiter = rateLimit({
   message: { message: "Too many registration attempts — try again in 1 hour" },
 });
 
-function userOrIpKey(req: Request): string {
-  if (req.user?.id) return `user:${req.user.id}`;
-  const forwarded = req.headers["x-forwarded-for"];
-  const addr = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.socket?.remoteAddress;
-  return addr || "unknown";
-}
-
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
@@ -342,6 +393,50 @@ const voiceLimiter = rateLimit({
   message: { message: "Too many voice requests — try again shortly" },
 });
 
+const migrationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: trustedIpKey,
+  message: { message: "Too many migration requests — try again later" },
+});
+
+const publicCommunityLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Too many community requests — slow down" },
+});
+
+/** Public /contact form — tighter cap for anonymous IPs; logged-in users key off user id. */
+const publicContactLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Too many contact submissions — try again later" },
+});
+
+/** Session-scoped UI beacons for product funnel (planner / community views). */
+const funnelBeaconLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Too many funnel beacons — try again later" },
+});
+
+const youtubeProbeFeedbackBodySchema = z.object({
+  videoId: z.string().min(1).max(32),
+  reaction: z.enum(["interested", "not_interested", "dismiss"]),
+  contextSnapshot: z.any().optional(),
+});
+
 
 // ── Invite-code / registration gate ─────────────────────────────────────────
 // In production, set REGISTRATION_MODE=invite in .env and provide INVITE_CODE.
@@ -355,7 +450,26 @@ function maskEmailForOtp(email: string): string {
   return `${u.slice(0, 2)}•••@${dom}`;
 }
 
+/**
+ * One-way identifier for failed-login audit rows (do not store plaintext email in security_events).
+ * Uses HMAC-SHA256 with AUTH_AUDIT_PEPPER so offline guessing is impractical. Rotate the pepper
+ * (and optionally key id in env) if the secret may be compromised; historical audit rows keep old digests.
+ */
+function hashEmailForAuthAudit(email: string): string {
+  const raw = process.env.AUTH_AUDIT_PEPPER?.trim();
+  const pepper =
+    process.env.NODE_ENV === "production"
+      ? (raw ?? "")
+      : raw || "dev-only-insecure-auth-audit-pepper";
+  if (!pepper) {
+    throw new Error("AUTH_AUDIT_PEPPER must be set for auth audit hashing");
+  }
+  return createHmac("sha256", pepper).update(email.trim().toLowerCase()).digest("hex");
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  assertProductionAuthAuditPepper();
+
   app.use("/api", (req, res, next) => {
     const startedAt = Date.now();
     const actorUserId = req.user?.id;
@@ -380,6 +494,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     });
     next();
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Public community task discovery (no auth)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/public/community/tasks", publicCommunityLimiter, async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || "20"), 10) || 20, 1), 50);
+      const curAt = typeof req.query.cursorAt === "string" ? req.query.cursorAt : "";
+      const curIdRaw = typeof req.query.cursorId === "string" ? req.query.cursorId : "";
+      const curId = curIdRaw.trim();
+      const atMs = curAt ? Date.parse(curAt) : NaN;
+      const curCreatedRaw = typeof req.query.cursorCreatedAt === "string" ? req.query.cursorCreatedAt : "";
+      const createdMs = curCreatedRaw ? Date.parse(curCreatedRaw) : NaN;
+      const cursorCreatedAt = curCreatedRaw && !Number.isNaN(createdMs) ? new Date(createdMs) : undefined;
+      const cursor =
+        curId && !Number.isNaN(atMs)
+          ? { publishedAt: new Date(atMs), id: curId, createdAt: cursorCreatedAt }
+          : null;
+      const { items, nextCursor } = await listPublicCommunityTasks(limit, cursor);
+      res.json({
+        tasks: items.map(toCommunityTaskPublicDto),
+        nextCursor,
+      });
+    } catch (error) {
+      console.error("[public/community/tasks]", error);
+      res.status(500).json({ message: "Failed to list community tasks" });
+    }
+  });
+
+  app.get("/api/public/community/tasks/:id", publicCommunityLimiter, async (req, res) => {
+    try {
+      const task = await getPublicCommunityTaskById(req.params.id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      res.json(toCommunityTaskPublicDto(task));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load community task" });
+    }
   });
 
   // ════════════════════════════════════════════════════════════════════════
@@ -418,8 +573,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userAgent: req.get("user-agent") || undefined,
       });
       // Auto-login after registration
-      req.login(user, (err) => {
+      req.login(user, async (err) => {
         if (err) return res.status(500).json({ message: "Registration succeeded but login failed" });
+        try {
+          await grantDeviceRefreshForUser(req, res, user.id);
+        } catch (e) {
+          console.error("[auth] device token after register:", e);
+        }
+        sendWelcomeExperienceEmail({ email: user.email, displayName: user.displayName }).catch((e) => {
+          console.error("[auth] welcome email error:", e);
+        });
         res.status(201).json(user);
       });
     } catch (error) {
@@ -433,31 +596,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/login", authLimiter, async (req: Request, res: Response, next) => {
     try {
-      const { email } = req.body;
-      if (email) {
-        const banStatus = await isUserBanned(email);
-        if (banStatus.banned) {
-          await logSecurityEvent("login_banned_attempt", undefined, undefined, req.ip, `Banned user tried to login: ${email}`);
-          return res.status(403).json({
-            message: "This account has been suspended. Contact an administrator for assistance.",
-          });
-        }
-
-        const dbUser = await getUserByEmail(email);
-        if (dbUser?.lockedUntil && new Date(dbUser.lockedUntil) > new Date()) {
-          const mins = Math.ceil((new Date(dbUser.lockedUntil).getTime() - Date.now()) / 60000);
-          return res.status(423).json({
-            message: `Account locked due to too many failed attempts. Try again in ${mins} minute(s).`,
-          });
-        }
+      const rawBody = req.body as { email?: unknown } | undefined;
+      const emailRaw = typeof rawBody?.email === "string" ? rawBody.email.trim() : "";
+      const emailParsed = z.string().email().safeParse(emailRaw);
+      const email = emailParsed.success ? emailParsed.data : emailRaw;
+      if (emailParsed.success && req.body && typeof req.body === "object") {
+        (req.body as { email?: string }).email = emailParsed.data;
       }
-
       passport.authenticate("local", async (err: any, user: any, info: any) => {
         if (err) return next(err);
         if (!user) {
-          if (email) {
-            await recordFailedLogin(email, req.ip);
-            await logSecurityEvent("login_failed", undefined, undefined, req.ip, `Failed login for: ${email}`);
+          if (emailRaw.length > 0) {
+            try {
+              if (emailParsed.success) {
+                await recordFailedLogin(emailParsed.data, req.ip);
+              }
+              await logSecurityEvent("login_failed", undefined, undefined, req.ip, `Failed login attempt (${emailParsed.success ? "user" : "invalid email shape"})`);
+              const auditEmail = emailParsed.success ? hashEmailForAuthAudit(emailParsed.data) : "[invalid_email]";
+              await appendSecurityEvent({
+                eventType: "auth_login_failed",
+                route: req.path,
+                method: req.method,
+                statusCode: 401,
+                ipAddress: req.ip,
+                userAgent: req.get("user-agent") || undefined,
+                payload: {
+                  email: auditEmail,
+                  xForwardedFor: req.get("x-forwarded-for") || undefined,
+                  cfConnectingIp: req.get("cf-connecting-ip") || undefined,
+                },
+              });
+            } catch (auditErr) {
+              console.error("[auth] login_failed audit:", auditErr);
+            }
+          }
+          return res.status(401).json({ message: info?.message || "Invalid credentials" });
+        }
+
+        if (emailParsed.success) {
+          const banStatus = await isUserBanned(emailParsed.data);
+          if (banStatus.banned) {
+            await logSecurityEvent(
+              "login_banned_attempt",
+              undefined,
+              undefined,
+              req.ip,
+              `Banned user tried to login: ${hashEmailForAuthAudit(emailParsed.data)}`,
+            );
             await appendSecurityEvent({
               eventType: "auth_login_failed",
               route: req.path,
@@ -465,11 +650,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
               statusCode: 401,
               ipAddress: req.ip,
               userAgent: req.get("user-agent") || undefined,
-              payload: { email },
+              payload: {
+                email: hashEmailForAuthAudit(emailParsed.data),
+                reason: "banned_account",
+                xForwardedFor: req.get("x-forwarded-for") || undefined,
+                cfConnectingIp: req.get("cf-connecting-ip") || undefined,
+              },
             });
+            return res.status(401).json({ message: info?.message || "Invalid credentials" });
           }
+        }
+
+        const postAuthUser = await getUserByEmail(user.email);
+        if (postAuthUser?.lockedUntil && new Date(postAuthUser.lockedUntil) > new Date()) {
+          await appendSecurityEvent({
+            eventType: "auth_login_failed",
+            route: req.path,
+            method: req.method,
+            statusCode: 401,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+            payload: {
+              email: hashEmailForAuthAudit(user.email),
+              reason: "account_locked",
+              xForwardedFor: req.get("x-forwarded-for") || undefined,
+              cfConnectingIp: req.get("cf-connecting-ip") || undefined,
+            },
+          });
           return res.status(401).json({ message: info?.message || "Invalid credentials" });
         }
+
         await resetFailedLogins(user.email);
         await logSecurityEvent("login_success", user.id, undefined, req.ip);
         await appendSecurityEvent({
@@ -480,9 +690,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           statusCode: 200,
           ipAddress: req.ip,
           userAgent: req.get("user-agent") || undefined,
+          payload: {
+            xForwardedFor: req.get("x-forwarded-for") || undefined,
+            cfConnectingIp: req.get("cf-connecting-ip") || undefined,
+          },
         });
-        req.login(user, (err) => {
+        req.login(user, async (err) => {
           if (err) return next(err);
+          try {
+            await grantDeviceRefreshForUser(req, res, user.id);
+          } catch (e) {
+            console.error("[auth] device token after login:", e);
+          }
           res.json(user);
         });
       })(req, res, next);
@@ -491,8 +710,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/logout", (req: Request, res: Response) => {
+  app.post("/api/auth/refresh", authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await performAuthRefresh(req, res);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post("/api/auth/logout", async (req: Request, res: Response) => {
     const actorUserId = req.user?.id;
+    try {
+      await revokeDeviceRefreshFromRequest(req);
+    } catch (e) {
+      console.error("[auth] revoke device refresh:", e);
+    }
+    clearDeviceRefreshCookie(res);
     req.logout((err) => {
       if (err) return res.status(500).json({ message: "Logout failed" });
       // Destroy the session entirely so back-button can't restore it
@@ -541,11 +774,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       replit: "/api/auth/replit/login",
       local: "",
     };
+    const loginPretext =
+      process.env.NODE_ENV === "development"
+        ? (process.env.AXTASK_LOGIN_PRETEXT || "").trim() || null
+        : null;
+
     res.json({
       registrationMode: REGISTRATION_MODE,
       authProvider,
       loginUrl: loginUrls[authProvider] || "",
       providers,
+      donateUrl: (process.env.DONATE_URL || "").trim(),
+      loginPretext,
     });
   });
 
@@ -835,6 +1075,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/premium/subscriptions/change-plan", requireAuth, async (req, res) => {
+    try {
+      const payload = z
+        .object({
+          product: z.enum(["axtask", "nodeweaver", "bundle"]),
+          planKey: z.string().min(3).max(120),
+        })
+        .parse(req.body || {});
+      const updated = await changePremiumPlanForUser(req.user!.id, payload.product, payload.planKey);
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to change plan" });
+    }
+  });
+
+  app.post("/api/premium/subscriptions/cancel", requireAuth, async (req, res) => {
+    try {
+      const payload = z
+        .object({
+          product: z.enum(["axtask", "nodeweaver", "bundle"]),
+        })
+        .parse(req.body || {});
+      const updated = await cancelPremiumSubscriptionForUser(req.user!.id, payload.product);
+      if (!updated) {
+        return res.status(404).json({ message: "No cancellable subscription for this product" });
+      }
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to cancel subscription" });
+    }
+  });
+
   app.get("/api/premium/saved-views", requireAuth, async (req, res) => {
     await requirePremiumFeature(req, res, async () => {
       const views = await listPremiumSavedViews(req.user!.id);
@@ -1048,6 +1322,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/premium/bundle/reclassify-backlog", requireAuth, async (req, res) => {
     await requirePremiumFeature(req, res, async () => {
+      const backlogOpts = z
+        .object({ learnOnNodeWeaver: z.boolean().optional() })
+        .optional()
+        .parse(req.body ?? {});
+      const rawLearn = backlogOpts?.learnOnNodeWeaver;
+      const learnOnNodeWeaver =
+        Boolean(process.env.NODEWEAVER_URL) &&
+        (rawLearn === true || (rawLearn !== false && process.env.NODEWEAVER_BACKLOG_LEARN === "true"));
+
       const allTasks = await storage.getTasks(req.user!.id);
       const pending = allTasks.filter((task) => task.status !== "completed").slice(0, 100);
       if (pending.length === 0) {
@@ -1055,14 +1338,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const batchResponse = await callNodeWeaverBatchClassify(
         pending.map((task) => ({ id: task.id, activity: task.activity, notes: task.notes || "" })),
-      );
-      const results = Array.isArray(batchResponse?.results) ? batchResponse.results : [];
+      ) as { results?: unknown[] };
+      const results = Array.isArray(batchResponse.results) ? batchResponse.results : [];
       const updates: UpdateTask[] = [];
+      const nodeWeaverCorrections: Array<{ text: string; newCat: string; oldCat: string }> = [];
       for (let i = 0; i < pending.length; i++) {
-        const result = results[i];
+        const result = results[i] as { predicted_category?: unknown; confidence_score?: unknown } | undefined;
         const category = typeof result?.predicted_category === "string" ? result.predicted_category : undefined;
         const confidence = typeof result?.confidence_score === "number" ? result.confidence_score : undefined;
         if (!category) continue;
+        const prevClass = (pending[i].classification || "General").trim() || "General";
+        if (learnOnNodeWeaver && category !== prevClass) {
+          const text = `${pending[i].activity} ${pending[i].notes || ""}`.trim();
+          if (text) {
+            nodeWeaverCorrections.push({ text, newCat: category, oldCat: prevClass });
+          }
+        }
         updates.push({
           id: pending[i].id,
           classification: category,
@@ -1092,6 +1383,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         metadata: { scanned: pending.length, updated: updates.length },
       });
       res.json({ scanned: pending.length, updated: updates.length });
+
+      if (learnOnNodeWeaver && nodeWeaverCorrections.length > 0) {
+        const gapMs = Math.max(
+          50,
+          Number.parseInt(process.env.NODEWEAVER_BACKLOG_LEARN_MS || "250", 10) || 250,
+        );
+        void (async () => {
+          for (const c of nodeWeaverCorrections) {
+            try {
+              await notifyNodeWeaverCorrection(c.text, c.newCat, { previousCategory: c.oldCat });
+            } catch {
+              /* best-effort */
+            }
+            await new Promise((r) => setTimeout(r, gapMs));
+          }
+        })();
+      }
     }, "bundle_auto_reprioritize", true);
   });
 
@@ -1104,12 +1412,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pending = allTasks.filter((task) => task.status !== "completed").slice(0, 100);
       const batchResponse = await callNodeWeaverBatchClassify(
         pending.map((task) => ({ id: task.id, activity: task.activity, notes: task.notes || "" })),
-      );
-      const results = Array.isArray(batchResponse?.results) ? batchResponse.results : [];
+      ) as { results?: unknown[] };
+      const results = Array.isArray(batchResponse.results) ? batchResponse.results : [];
       const updates: UpdateTask[] = [];
 
       for (let i = 0; i < pending.length; i++) {
-        const confidence = Number(results[i]?.confidence_score);
+        const row = results[i] as { confidence_score?: unknown } | undefined;
+        const confidence = Number(row?.confidence_score);
         if (!Number.isFinite(confidence) || confidence >= body.lowConfidenceThreshold) continue;
         updates.push({
           id: pending[i].id,
@@ -1134,6 +1443,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         threshold: body.lowConfidenceThreshold,
       });
     }, "bundle_auto_reprioritize", true);
+  });
+
+  app.get("/api/notifications/push-public-config", (_req, res) => {
+    const publicKey = getVapidPublicKey();
+    if (!publicKey) {
+      return res.json({ configured: false as const });
+    }
+    return res.json({ configured: true as const, publicKey });
   });
 
   app.get("/api/notifications/preferences", requireAuth, async (req, res) => {
@@ -1161,6 +1478,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intensity: payload.intensity,
         quietHoursStart: payload.quietHoursStart,
         quietHoursEnd: payload.quietHoursEnd,
+        immersiveSoundsEnabled: payload.immersiveSoundsEnabled,
       });
       return res.json({
         ...preference,
@@ -1233,6 +1551,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch task stats" });
+    }
+  });
+
+  const spreadsheetExportSchema = z.object({ format: z.enum(["csv", "xlsx"]) });
+
+  app.post("/api/tasks/export/spreadsheet", requireAuth, async (req, res) => {
+    try {
+      const parsed = spreadsheetExportSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
+      }
+      const { format } = parsed.data;
+      const userId = req.user!.id;
+      const cost = getTasksSpreadsheetExportCost();
+      const tasks = await storage.getTasks(userId);
+      const buf = format === "csv" ? tasksToCsvBuffer(tasks) : tasksToXlsxBuffer(tasks);
+      const ok = await debitProductivityExport(res, userId, cost, `export:tasks_spreadsheet:${format}`);
+      if (!ok) return;
+      const day = new Date().toISOString().slice(0, 10);
+      if (format === "csv") {
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="axtask-tasks-${day}.csv"`);
+      } else {
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="axtask-tasks-${day}.xlsx"`);
+      }
+      res.setHeader("Cache-Control", "no-store, private");
+      res.send(buf);
+    } catch (error) {
+      console.error("[tasks/export/spreadsheet]", error);
+      res.status(500).json({ message: "Export failed" });
     }
   });
 
@@ -1331,16 +1680,151 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/tasks/:id/community/publish", requireAuth, async (req, res) => {
+    try {
+      const body = z
+        .object({
+          challengeId: z.string().min(1),
+          code: z.string().min(4).max(12),
+          communityShowNotes: z.boolean().optional(),
+        })
+        .parse(req.body || {});
+      const ok = await verifyMfaChallenge(
+        req.user!.id,
+        body.challengeId,
+        body.code,
+        MFA_PURPOSES.COMMUNITY_PUBLISH_TASK,
+      );
+      if (!ok) {
+        return res.status(403).json({ message: "Invalid or expired verification code" });
+      }
+      if (!(await isTaskOwner(req.user!.id, req.params.id))) {
+        return res.status(403).json({ message: "Only the task owner can publish to the community" });
+      }
+      const task = await publishTaskToCommunity(req.user!.id, req.params.id, body.communityShowNotes ?? false);
+      if (!task) return res.status(404).json({ message: "Task not found" });
+      void recordProductFunnelEvent({
+        userId: req.user!.id,
+        eventName: "community_task_published",
+        meta: { taskId: task.id },
+      }).catch(() => {});
+      res.json(task);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to publish task" });
+    }
+  });
+
+  app.post("/api/tasks/:id/community/unpublish", requireAuth, async (req, res) => {
+    try {
+      const body = z
+        .object({
+          challengeId: z.string().min(1),
+          code: z.string().min(4).max(12),
+        })
+        .parse(req.body || {});
+      const ok = await verifyMfaChallenge(
+        req.user!.id,
+        body.challengeId,
+        body.code,
+        MFA_PURPOSES.COMMUNITY_UNPUBLISH_TASK,
+      );
+      if (!ok) {
+        return res.status(403).json({ message: "Invalid or expired verification code" });
+      }
+      if (!(await isTaskOwner(req.user!.id, req.params.id))) {
+        return res.status(403).json({ message: "Only the task owner can unpublish" });
+      }
+      const task = await unpublishTaskFromCommunity(req.user!.id, req.params.id);
+      if (!task) return res.status(404).json({ message: "Task not found" });
+      res.json(task);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to unpublish task" });
+    }
+  });
+
+  app.get("/api/tasks/shared", requireAuth, async (req, res) => {
+    try {
+      const shared = await getSharedTasks(req.user!.id);
+      res.json(shared);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch shared tasks" });
+    }
+  });
+
   // Get task by ID
   app.get("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
-      const task = await storage.getTask(req.user!.id, req.params.id);
-      if (!task) {
+      const row = await getTaskRowById(req.params.id);
+      if (!row) {
         return res.status(404).json({ message: "Task not found" });
       }
-      res.json(task);
+      const access = await canAccessTask(req.user!.id, req.params.id);
+      if (!access.canAccess) {
+        if (row.visibility === "community") {
+          return res.status(403).json({
+            message: "This task is public under Community — open the community browser or sign in as a collaborator.",
+          });
+        }
+        return res.status(404).json({ message: "Task not found" });
+      }
+      res.json(row);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch task" });
+    }
+  });
+
+  const taskReportSchema = z.object({ format: z.enum(["pdf", "xlsx"]) });
+
+  app.post("/api/tasks/:id/report", requireAuth, async (req, res) => {
+    try {
+      const parsed = taskReportSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
+      }
+      const taskId = req.params.id;
+      const row = await getTaskRowById(taskId);
+      if (!row) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const access = await canAccessTask(req.user!.id, taskId);
+      if (!access.canAccess) {
+        if (row.visibility === "community") {
+          return res.status(403).json({
+            message: "This task is public under Community — open the community browser or sign in as a collaborator.",
+          });
+        }
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const { format } = parsed.data;
+      const cost = format === "pdf" ? getTaskReportPdfCost() : getTaskReportXlsxCost();
+      const userName = req.user!.displayName || req.user!.email || undefined;
+      const buf =
+        format === "pdf"
+          ? await generateTaskReportPdfBuffer(row, userName)
+          : generateTaskReportXlsxBuffer(row);
+      const ok = await debitProductivityExport(res, req.user!.id, cost, `export:task_report:${format}:${taskId}`, {
+        taskId,
+      });
+      if (!ok) return;
+      const safeSlug = row.activity
+        .slice(0, 40)
+        .replace(/[^\w\-]+/g, "_")
+        .replace(/_+/g, "_");
+      const shortId = taskId.slice(0, 8);
+      if (format === "pdf") {
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="AxTask-Report-${shortId}-${safeSlug}.pdf"`);
+      } else {
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="AxTask-Report-${shortId}-${safeSlug}.xlsx"`);
+      }
+      res.setHeader("Cache-Control", "no-store, private");
+      res.send(buf);
+    } catch (error) {
+      console.error("[tasks/:id/report]", error);
+      res.status(500).json({ message: "Failed to generate report" });
     }
   });
 
@@ -1452,6 +1936,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           total: taskList.length,
         },
       });
+      if (inserted.length > 0) {
+        void recordProductFunnelEvent({
+          userId,
+          eventName: "spreadsheet_import_batch",
+          meta: { imported: inserted.length, total: taskList.length },
+        }).catch(() => {});
+      }
     } catch (error) {
       console.error("Bulk import error:", error);
       res.status(500).json({ message: "Failed to import tasks" });
@@ -1463,17 +1954,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertTaskSchema.parse(req.body);
       const userId = req.user!.id;
+      if (validatedData.id && (await storage.isTaskIdTaken(validatedData.id, userId))) {
+        const serverTask = await storage.getTask(userId, validatedData.id);
+        return res.status(409).json({
+          message: "A task with this id already exists",
+          ...(serverTask ? { serverTask } : {}),
+        });
+      }
       const quota = await assertCanCreateTasks(userId, 1);
       if (!quota.ok) {
         return res.status(413).json({ message: quota.message });
       }
-      const fingerprint = computeTaskFingerprint(validatedData);
-      if (await hasImportFingerprint(userId, fingerprint)) {
-        return res.status(409).json({ message: "A matching task already exists." });
-      }
 
-      let task = await storage.createTask(userId, validatedData);
-      await recordImportFingerprint(userId, fingerprint, "manual_create", task.id);
+      let task: Task;
+      try {
+        const created = await manualCreateTaskWithImportFingerprintClaim(userId, validatedData);
+        if (!created.ok) {
+          if (created.reason === "fingerprint_duplicate") {
+            const serverTask = created.serverTaskId
+              ? await storage.getTask(userId, created.serverTaskId)
+              : undefined;
+            return res.status(409).json({
+              message: "A matching task already exists.",
+              ...(serverTask ? { serverTask } : {}),
+            });
+          }
+          const id = validatedData.id;
+          const serverTask = id ? await storage.getTask(userId, id) : undefined;
+          return res.status(409).json({
+            message: "A task with this id already exists",
+            ...(serverTask ? { serverTask } : {}),
+          });
+        }
+        task = created.task;
+      } catch (e) {
+        if (isPgUniqueViolation(e)) {
+          const id = validatedData.id;
+          const serverTask = id ? await storage.getTask(userId, id) : undefined;
+          return res.status(409).json({
+            message: "A task with this id already exists",
+            ...(serverTask ? { serverTask } : {}),
+          });
+        }
+        throw e;
+      }
 
       const allTasks = await storage.getTasks(userId);
       const priorityResult = await PriorityEngine.calculatePriority(
@@ -1495,7 +2019,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isRepeated: priorityResult.isRepeated,
       }) || task;
 
-      res.status(201).json(task);
+      learnFromTask(userId, task, allTasks).catch(err =>
+        console.error("[PatternEngine] learn error:", err)
+      );
+
+      let classificationReward = null;
+      if (task.classification && !isGeneralClassification(task.classification)) {
+        try {
+          classificationReward = await awardCoinsForClassification(userId, task);
+        } catch (e) {
+          console.error("[routes] awardCoinsForClassification after task create:", e);
+        }
+      }
+
+      ensureAvatarProfilesForUser(userId)
+        .then(() =>
+          awardAvatarProgressFromContent(
+            userId,
+            "task",
+            task.id,
+            `${task.activity} ${task.notes || ""} ${task.classification || ""}`,
+            task.status === "completed",
+          ),
+        )
+        .catch((err) => console.error("[avatar] task create progress", err));
+
+      void recordProductFunnelEvent({ userId, eventName: "task_created", meta: { taskId: task.id } }).catch(
+        () => {},
+      );
+
+      res.status(201).json({ ...task, classificationReward });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
@@ -1512,44 +2065,119 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         id: req.params.id,
       });
-      const userId = req.user!.id;
+      const requesterId = req.user!.id;
+      const access = await canAccessTask(requesterId, req.params.id);
+      if (!access.canAccess) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      if (access.role === "viewer" || access.role === "commenter") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const taskRow = await getTaskRowById(req.params.id);
+      if (!taskRow?.userId) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const ownerId = taskRow.userId;
 
-      const existingTask = await storage.getTask(userId, req.params.id);
-      const previousStatus = existingTask?.status || "pending";
-
-      let task = await storage.updateTask(userId, validatedData);
-      if (!task) {
+      const existingTask = await storage.getTask(ownerId, req.params.id);
+      if (!existingTask) {
         return res.status(404).json({ message: "Task not found" });
       }
 
-      if (validatedData.activity || validatedData.notes) {
-        const allTasks = await storage.getTasks(userId);
+      const { baseUpdatedAt, forceOverwrite, ...updates } = validatedData;
+      const expectConflict =
+        !forceOverwrite && typeof baseUpdatedAt === "string" && baseUpdatedAt.length > 0;
+      const concurrencyOpts = expectConflict ? { expectUpdatedAt: baseUpdatedAt } : undefined;
+
+      const previousStatus = existingTask.status || "pending";
+
+      let mergedUpdates = updates as UpdateTask;
+      if ("activity" in validatedData || "notes" in validatedData) {
+        const allTasks = await storage.getTasks(ownerId);
+        const nextActivity =
+          validatedData.activity !== undefined ? validatedData.activity : existingTask.activity;
+        const nextNotes =
+          validatedData.notes !== undefined ? validatedData.notes : existingTask.notes ?? "";
         const priorityResult = await PriorityEngine.calculatePriority(
-          task!.activity,
-          task!.notes || "",
-          task!.urgency,
-          task!.impact,
-          task!.effort,
-          allTasks.filter(t => t.id !== task!.id)
+          nextActivity,
+          nextNotes || "",
+          existingTask.urgency,
+          existingTask.impact,
+          existingTask.effort,
+          allTasks.filter((t) => t.id !== existingTask.id),
         );
-
-        const classification = await classifyTaskWithFallback(task!.activity, task!.notes || "", true);
-
-        task = await storage.updateTask(userId, {
-          id: task!.id,
+        const classification = await classifyTaskWithFallback(nextActivity, nextNotes || "", true);
+        mergedUpdates = {
+          ...mergedUpdates,
           priority: priorityResult.priority,
           priorityScore: Math.round(priorityResult.score * 10),
           classification,
           isRepeated: priorityResult.isRepeated,
-        }) || task;
+        };
+      }
+
+      let task = await storage.updateTask(ownerId, mergedUpdates, concurrencyOpts);
+      if (!task) {
+        const cur = await storage.getTask(ownerId, req.params.id);
+        if (!cur) {
+          return res.status(404).json({ message: "Task not found" });
+        }
+        if (expectConflict) {
+          return res.status(409).json({
+            code: TASK_CONFLICT_CODE,
+            message: "This task was changed on the server or another device.",
+            serverTask: cur,
+          });
+        }
+        return res.status(404).json({ message: "Task not found" });
       }
 
       let coinReward = null;
       if (task!.status === "completed" && previousStatus !== "completed") {
-        coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
+        try {
+          coinReward = await awardCoinsForCompletion(ownerId, task!, previousStatus);
+        } catch (e) {
+          console.error("[routes] awardCoinsForCompletion after task update:", e);
+        }
       }
 
-      res.json({ ...task, coinReward });
+      let classificationReward = null;
+      const previousClassification = existingTask?.classification;
+      if (
+        task!.classification &&
+        !isGeneralClassification(task!.classification) &&
+        task!.classification !== previousClassification
+      ) {
+        try {
+          classificationReward = await awardCoinsForClassification(ownerId, task!);
+        } catch (e) {
+          console.error("[routes] awardCoinsForClassification after task update:", e);
+        }
+      }
+
+      if (task && (task.status === "completed" || task.classification !== previousClassification)) {
+        ensureAvatarProfilesForUser(ownerId)
+          .then(() =>
+            awardAvatarProgressFromContent(
+              ownerId,
+              "task",
+              task.id,
+              `${task.activity} ${task.notes || ""} ${task.classification || ""}`,
+              task.status === "completed",
+            ),
+          )
+          .catch((err) => console.error("[avatar] task update progress", err));
+      }
+
+      if (task!.status === "completed" && previousStatus !== "completed") {
+        void recordProductFunnelEvent({
+          userId: ownerId,
+          eventName: "task_completed",
+          meta: { taskId: task!.id },
+        }).catch(() => {});
+      }
+
+      res.json({ ...task, coinReward, classificationReward });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
@@ -1562,8 +2190,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete task
   app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
-      const deleted = await storage.deleteTask(req.user!.id, req.params.id);
+      const requesterId = req.user!.id;
+      const access = await canAccessTask(requesterId, req.params.id);
+      if (!access.canAccess) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      if (access.role === "viewer" || access.role === "commenter") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const taskRow = await getTaskRowById(req.params.id);
+      if (!taskRow?.userId) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const ownerId = taskRow.userId;
+      const existingTask = await storage.getTask(ownerId, req.params.id);
+      if (!existingTask) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const baseUpdatedAt = typeof req.query.baseUpdatedAt === "string" ? req.query.baseUpdatedAt : undefined;
+      const forceOverwrite =
+        req.query.overwrite === "1" ||
+        req.query.overwrite === "true" ||
+        req.query.forceOverwrite === "1";
+      const expectConflict =
+        !forceOverwrite && typeof baseUpdatedAt === "string" && baseUpdatedAt.length > 0;
+      const deleted = await storage.deleteTask(
+        ownerId,
+        req.params.id,
+        expectConflict ? { expectUpdatedAt: baseUpdatedAt } : undefined,
+      );
       if (!deleted) {
+        const cur = await storage.getTask(ownerId, req.params.id);
+        if (!cur) {
+          return res.status(404).json({ message: "Task not found" });
+        }
+        if (expectConflict) {
+          return res.status(409).json({
+            code: TASK_CONFLICT_CODE,
+            message: "This task was changed on the server or another device.",
+            serverTask: cur,
+          });
+        }
         return res.status(404).json({ message: "Task not found" });
       }
       res.status(204).send();
@@ -1658,18 +2325,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/google-sheets/spreadsheet/:id", requireAuth, async (req, res) => {
+  app.post("/api/google-sheets/spreadsheet/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { accessToken, refreshToken } = req.query;
+      const { accessToken, refreshToken } = req.body ?? {};
 
-      if (!accessToken) {
+      if (!accessToken || typeof accessToken !== "string") {
         return res.status(400).json({ message: "Access token required" });
       }
 
       const googleSheets = createGoogleSheetsAPI({
-        accessToken: accessToken as string,
-        refreshToken: refreshToken as string
+        accessToken,
+        refreshToken: typeof refreshToken === "string" ? refreshToken : undefined,
       });
 
       const info = await googleSheets.getSpreadsheetInfo(id);
@@ -1853,24 +2520,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })).min(1).max(500),
   });
 
-  app.get("/api/checklist/:date", requireAuth, async (req, res) => {
+  app.post("/api/checklist/:date/download", requireAuth, async (req, res) => {
     try {
       const { date } = req.params;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
       }
 
-      const allTasks = await storage.getTasks(req.user!.id);
-      const dayTasks = allTasks.filter(t => t.date === date);
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const dayTasks = allTasks.filter((t) => t.date === date);
 
-      const userName = req.user!.displayName || req.user!.email;
-      const pdfDoc = generateChecklistPDF(dayTasks, date, userName);
+      const userName = req.user!.displayName || req.user!.email || undefined;
+      const cost = getChecklistPdfExportCost();
+      const buf = await generateChecklistPdfBuffer(dayTasks, date, userName);
+      const ok = await debitProductivityExport(res, userId, cost, `export:checklist_pdf:${date}`);
+      if (!ok) return;
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="AxTask-Checklist-${date}.pdf"`);
-
-      pdfDoc.pipe(res);
-      pdfDoc.end();
+      res.setHeader("Cache-Control", "no-store, private");
+      res.send(buf);
     } catch (error) {
       console.error("Checklist PDF error:", error);
       res.status(500).json({ message: "Failed to generate checklist" });
@@ -1942,6 +2612,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   app.use("/api/planner", apiLimiter);
+
+  app.post("/api/analytics/funnel", funnelBeaconLimiter, requireAuth, async (req, res) => {
+    try {
+      const body = productFunnelClientPostSchema.parse(req.body || {});
+      await recordProductFunnelEvent({
+        userId: req.user!.id,
+        eventName: body.event,
+        meta: body.meta,
+      });
+      res.status(204).send();
+    } catch (e) {
+      if (e instanceof ZodError) {
+        return res.status(400).json({ message: "Invalid funnel payload", issues: e.issues });
+      }
+      console.error("[analytics/funnel]", e);
+      res.status(500).json({ message: "Failed to record funnel event" });
+    }
+  });
 
   app.get("/api/planner/briefing", requireAuth, async (req, res) => {
     try {
@@ -2070,10 +2758,277 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const todayStr = now.toISOString().split("T")[0];
 
       const result = await dispatchVoiceCommand(sanitizedTranscript, allTasks, userId, todayStr, now);
+      void recordProductFunnelEvent({
+        userId,
+        eventName: "voice_dispatch",
+        meta: { intent: result.intent, action: result.action },
+      }).catch(() => {});
       res.json(result);
     } catch (error) {
       console.error("Voice processing error:", error);
       res.status(500).json({ message: "Failed to process voice command" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Task Review routes (bulk voice-driven task management)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.post("/api/tasks/review", requireAuth, async (req, res) => {
+    try {
+      const { transcript } = req.body;
+      if (!transcript || typeof transcript !== "string") {
+        return res.status(400).json({ message: "Transcript is required" });
+      }
+      if (transcript.length > 2000) {
+        return res.status(400).json({ message: "Transcript must be under 2000 characters" });
+      }
+      const sanitized = transcript.replace(/<[^>]*>/g, "").trim();
+
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const now = new Date();
+      const result = processTaskReview(sanitized, allTasks, now);
+      res.json(result);
+    } catch (error) {
+      console.error("Task review error:", error);
+      res.status(500).json({ message: "Failed to process task review" });
+    }
+  });
+
+  app.post("/api/tasks/review/apply", requireAuth, async (req, res) => {
+    try {
+      const { actions } = req.body;
+      if (!Array.isArray(actions) || actions.length === 0) {
+        return res.status(400).json({ message: "Actions array is required" });
+      }
+      if (actions.length > 50) {
+        return res.status(400).json({ message: "Maximum 50 actions per batch" });
+      }
+
+      const userId = req.user!.id;
+      const results: Array<{
+        taskId: string;
+        success: boolean;
+        error?: string;
+        retryable?: boolean;
+        serverTask?: Task;
+        expectedBaseUpdatedAt?: string;
+      }> = [];
+
+      for (const action of actions as ReviewAction[]) {
+        const safeTaskId =
+          action && typeof action === "object" && "taskId" in action && typeof action.taskId === "string"
+            ? action.taskId
+            : "unknown";
+        try {
+          if (!action || typeof action !== "object") {
+            results.push({ taskId: "unknown", success: false, error: "Invalid action" });
+            continue;
+          }
+          if (!action.taskId || !action.type) {
+            results.push({ taskId: action.taskId || "unknown", success: false, error: "Invalid action" });
+            continue;
+          }
+
+          const access = await canAccessTask(userId, action.taskId);
+          if (!access.canAccess) {
+            results.push({ taskId: action.taskId, success: false, error: "Task not found or access denied" });
+            continue;
+          }
+          const taskRow = await getTaskRowById(action.taskId);
+          if (!taskRow?.userId) {
+            results.push({ taskId: action.taskId, success: false, error: "Task not found" });
+            continue;
+          }
+          const ownerId = taskRow.userId;
+
+          const existingTask = await storage.getTask(ownerId, action.taskId);
+          if (!existingTask) {
+            results.push({ taskId: action.taskId, success: false, error: "Task not found or access denied" });
+            continue;
+          }
+
+          const requesterRole = taskRow.userId === userId ? "owner" : access.role;
+          if (requesterRole !== "owner" && requesterRole !== "editor") {
+            results.push({ taskId: action.taskId, success: false, error: "Insufficient permissions" });
+            continue;
+          }
+
+          const d = action.details;
+          const baseUpdatedAt =
+            d && typeof d.baseUpdatedAt === "string" && d.baseUpdatedAt.length > 0 ? d.baseUpdatedAt : undefined;
+          const concurrencyOpts = baseUpdatedAt !== undefined ? { expectUpdatedAt: baseUpdatedAt } : undefined;
+
+          const previousStatus = existingTask.status;
+
+          const pushConflictOrMissing = async () => {
+            const cur = await storage.getTask(ownerId, action.taskId);
+            if (!cur) {
+              results.push({ taskId: action.taskId, success: false, error: "Task not found" });
+            } else if (baseUpdatedAt !== undefined) {
+              results.push({
+                taskId: action.taskId,
+                success: false,
+                error: "conflict",
+                serverTask: cur,
+                expectedBaseUpdatedAt: baseUpdatedAt,
+              });
+            } else {
+              results.push({ taskId: action.taskId, success: false, error: "Task not found" });
+            }
+          };
+
+          switch (action.type) {
+            case "complete": {
+              const updatedTask = await storage.updateTask(
+                ownerId,
+                { id: action.taskId, status: "completed" },
+                concurrencyOpts,
+              );
+              if (updatedTask) {
+                if (previousStatus !== "completed" && updatedTask.status === "completed") {
+                  try {
+                    await awardCoinsForCompletion(ownerId, updatedTask, previousStatus);
+                  } catch (coinErr) {
+                    console.error(`Coin award failed for task ${action.taskId}:`, coinErr);
+                  }
+                }
+                results.push({ taskId: action.taskId, success: true });
+              } else {
+                await pushConflictOrMissing();
+              }
+              break;
+            }
+            case "reschedule": {
+              const newDate = action.details?.newDate;
+              if (typeof newDate === "string" && isValidCalendarDateString(newDate)) {
+                const updatedTask = await storage.updateTask(
+                  ownerId,
+                  { id: action.taskId, date: newDate },
+                  concurrencyOpts,
+                );
+                if (updatedTask) {
+                  results.push({ taskId: action.taskId, success: true });
+                } else {
+                  await pushConflictOrMissing();
+                }
+              } else {
+                results.push({ taskId: action.taskId, success: false, error: "Invalid date" });
+              }
+              break;
+            }
+            case "update": {
+              const updatePayload: UpdateTask = { id: action.taskId };
+              const validPriorities = ["Lowest", "Low", "Medium", "Medium-High", "High", "Highest"];
+              let explicitPriorityProvided = false;
+              if (action.details?.priority && typeof action.details.priority === "string" && validPriorities.includes(action.details.priority)) {
+                updatePayload.priority = action.details.priority;
+                const ps = VOICE_REVIEW_PRIORITY_TO_SCORE[action.details.priority];
+                if (ps !== undefined) {
+                  updatePayload.priorityScore = ps;
+                }
+                explicitPriorityProvided = true;
+              }
+              let notesChanged = false;
+              const det = action.details;
+              if (det && "notes" in det && typeof det.notes === "string") {
+                updatePayload.notes = det.notes.slice(0, 2000);
+                notesChanged = true;
+              }
+              if (notesChanged) {
+                const allTasks = await storage.getTasks(ownerId);
+                const activity = existingTask.activity;
+                const notes = updatePayload.notes ?? existingTask.notes ?? "";
+                const priorityResult = await PriorityEngine.calculatePriority(
+                  activity,
+                  notes,
+                  existingTask.urgency,
+                  existingTask.impact,
+                  existingTask.effort,
+                  allTasks.filter((t) => t.id !== action.taskId),
+                );
+                const classification = await classifyTaskWithFallback(activity, notes, true);
+                if (!explicitPriorityProvided) {
+                  updatePayload.priority = priorityResult.priority;
+                  updatePayload.priorityScore = Math.round(priorityResult.score * 10);
+                }
+                updatePayload.classification = classification;
+                updatePayload.isRepeated = priorityResult.isRepeated;
+              }
+              if (Object.keys(updatePayload).length > 1) {
+                const updatedTask = await storage.updateTask(ownerId, updatePayload, concurrencyOpts);
+                if (updatedTask) {
+                  results.push({ taskId: action.taskId, success: true });
+                } else {
+                  await pushConflictOrMissing();
+                }
+              } else {
+                results.push({ taskId: action.taskId, success: false, error: "No valid updates" });
+              }
+              break;
+            }
+            default:
+              results.push({ taskId: action.taskId, success: false, error: "Unknown action type" });
+          }
+        } catch (err) {
+          results.push({ taskId: safeTaskId, success: false, error: "Processing error", retryable: true });
+        }
+      }
+
+      const applied = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      res.json({ applied, failed, results });
+    } catch (error) {
+      console.error("Task review apply error:", error);
+      res.status(500).json({ message: "Failed to apply task review" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Pattern Learning routes (protected)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.use("/api/patterns", apiLimiter);
+
+  app.get("/api/patterns/insights", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const patterns = await getPatterns(userId);
+      const insights = getInsights(patterns);
+      res.json({ insights, patternCount: patterns.length });
+    } catch (error) {
+      console.error("Pattern insights error:", error);
+      res.status(500).json({ message: "Failed to get pattern insights" });
+    }
+  });
+
+  app.post("/api/patterns/learn", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const patterns = await analyzeTaskHistory(userId, allTasks);
+      const insights = getInsights(patterns);
+      res.json({ learned: patterns.length, insights });
+    } catch (error) {
+      console.error("Pattern learning error:", error);
+      res.status(500).json({ message: "Failed to analyze patterns" });
+    }
+  });
+
+  app.post("/api/patterns/suggest-deadline", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const { activity } = req.body;
+      if (!activity || typeof activity !== "string") {
+        return res.status(400).json({ message: "Activity is required" });
+      }
+      const patterns = await getPatterns(userId);
+      const suggestion = suggestDeadline(activity, patterns);
+      res.json({ suggestion });
+    } catch (error) {
+      console.error("Deadline suggestion error:", error);
+      res.status(500).json({ message: "Failed to suggest deadline" });
     }
   });
 
@@ -2085,6 +3040,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/mfa", apiLimiter);
   app.use("/api/account", apiLimiter);
   app.use("/api/billing", apiLimiter);
+
+  const ensureAvatarProfilesForUser = async (userId: string): Promise<void> => {
+    const entourage = await getOrRecomputeEntourage(userId, false);
+    await ensureAvatarProfilesFromEntourage(
+      userId,
+      entourage.companions.map((c) => ({ slot: c.slot, key: c.key, label: c.label })),
+    );
+  };
 
   await seedRewardsCatalog();
   await seedOfflineSkillTree();
@@ -2100,11 +3063,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const diffDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
         if (diffDays > 1) {
           wallet.currentStreak = 0;
+          await resetStreak(req.user!.id);
         }
       }
       res.json(wallet);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch wallet" });
+    }
+  });
+
+  app.get("/api/gamification/productivity-export-prices", requireAuth, async (_req, res) => {
+    try {
+      res.json({
+        checklistPdf: getChecklistPdfExportCost(),
+        tasksSpreadsheet: getTasksSpreadsheetExportCost(),
+        taskReportPdf: getTaskReportPdfCost(),
+        taskReportXlsx: getTaskReportXlsxCost(),
+        freeInDev: productivityExportsFreeInDev(),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load export prices" });
     }
   });
 
@@ -2165,15 +3143,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/gamification/profile", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const [wallet, badges, rewards, txs] = await Promise.all([
+      const milestoneGrants = await processUserMilestoneGrants(userId);
+      const [wallet, badges, rewards, txs, classificationStats] = await Promise.all([
         getOrCreateWallet(userId),
         getUserBadges(userId),
         getUserRewards(userId),
         getTransactions(userId, 20),
+        getUserClassificationStats(userId),
       ]);
-      res.json({ wallet, badges, rewards, transactions: txs, definitions: BADGE_DEFINITIONS });
+      res.json({
+        wallet,
+        badges,
+        rewards,
+        transactions: txs,
+        definitions: BADGE_DEFINITIONS,
+        classificationStats,
+        milestoneGrants: milestoneGrants.grants,
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch profile" });
+    }
+  });
+
+  app.get("/api/gamification/entourage", requireAuth, async (req, res) => {
+    try {
+      const force = req.query.refresh === "1" || req.query.refresh === "true";
+      const entourage = await getOrRecomputeEntourage(req.user!.id, force);
+      res.json(entourage);
+    } catch (error) {
+      console.error("[gamification/entourage]", error);
+      res.status(500).json({ message: "Failed to load entourage" });
+    }
+  });
+
+  app.get("/api/probes/youtube/next", requireAuth, async (req, res) => {
+    if (req.user!.authProvider !== "google") {
+      return res.status(403).json({ message: "YouTube probes are available when you sign in with Google." });
+    }
+    try {
+      const shareTaskText =
+        req.query.shareTaskText === "1" ||
+        req.query.shareTaskText === "true" ||
+        String(req.query.shareTaskText || "").toLowerCase() === "yes";
+      const payload = await getNextYoutubeProbe(req.user!.id, { shareTaskText });
+      res.json(payload);
+    } catch (error) {
+      console.error("[probes/youtube/next]", error);
+      res.status(500).json({ message: "Failed to load YouTube probe" });
+    }
+  });
+
+  app.post("/api/probes/youtube/feedback", requireAuth, async (req, res) => {
+    if (req.user!.authProvider !== "google") {
+      return res.status(403).json({ message: "YouTube probes are available when you sign in with Google." });
+    }
+    const parsed = youtubeProbeFeedbackBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid feedback payload", issues: parsed.error.flatten() });
+    }
+    try {
+      await recordYoutubeProbeFeedback({
+        userId: req.user!.id,
+        videoId: parsed.data.videoId,
+        reaction: parsed.data.reaction,
+        contextSnapshot:
+          parsed.data.contextSnapshot !== undefined && parsed.data.contextSnapshot !== null
+            ? (parsed.data.contextSnapshot as Record<string, unknown>)
+            : null,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[probes/youtube/feedback]", error);
+      res.status(500).json({ message: "Failed to record feedback" });
+    }
+  });
+
+  app.get("/api/gamification/avatars", requireAuth, async (req, res) => {
+    try {
+      const entourage = await getOrRecomputeEntourage(req.user!.id, false);
+      await ensureAvatarProfilesFromEntourage(
+        req.user!.id,
+        entourage.companions.map((c) => ({ slot: c.slot, key: c.key, label: c.label })),
+      );
+      const avatars = await getAvatarProfilesForUser(req.user!.id);
+      res.json({ avatars });
+    } catch (error) {
+      console.error("[gamification/avatars]", error);
+      res.status(500).json({ message: "Failed to load avatars" });
+    }
+  });
+
+  // Rate-limited by app.use("/api/gamification", apiLimiter) above.
+  app.post("/api/gamification/avatars/:avatarKey/engage", requireAuth, async (req, res) => {
+    try {
+      await ensureAvatarProfilesForUser(req.user!.id);
+      const body = avatarEngagementSchema.parse(req.body ?? {});
+      const avatarKey = req.params.avatarKey;
+      const result = await engageAvatarWithContent(
+        req.user!.id,
+        avatarKey,
+        body.sourceType,
+        body.sourceRef,
+        body.text || "",
+        body.completed,
+      );
+      if (!result.awarded) {
+        return res.status(200).json({
+          awarded: false,
+          message:
+            avatarKey === "lazy"
+              ? "Lazy Lou did not see gratitude, rest, priority, or reflection cues yet — add a fuller note."
+              : "No matching archetype signal found for this avatar yet.",
+          xp: 0,
+          coins: 0,
+        });
+      }
+      res.json({ awarded: true, xp: result.xp, coins: result.coins, profile: result.profile });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to process avatar engagement" });
+    }
+  });
+
+  app.post("/api/gamification/avatars/:avatarKey/spend", requireAuth, async (req, res) => {
+    try {
+      await ensureAvatarProfilesForUser(req.user!.id);
+      const avatarKey = req.params.avatarKey;
+      const body = z.object({ coins: z.number().int().min(1).max(2000) }).parse(req.body ?? {});
+      const result = await spendCoinsForAvatarBoost(req.user!.id, avatarKey, body.coins);
+      if (!result.ok) {
+        return res.status(400).json({ message: result.message || "Unable to spend coins for boost" });
+      }
+      const wallet = await getOrCreateWallet(req.user!.id);
+      res.json({ message: "Avatar boosted", profile: result.profile, wallet });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to spend coins for avatar boost" });
     }
   });
 
@@ -2274,6 +3379,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/classification/categories", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const custom = await listUserClassificationCategories(userId);
+      res.json({
+        builtIn: BUILT_IN_CLASSIFICATIONS.map((c) => ({ label: c.label, coins: c.coins })),
+        custom: custom.map((r) => ({ id: r.id, label: r.name, coins: r.coinReward })),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load categories" });
+    }
+  });
+
+  const createUserCategorySchema = z.object({
+    name: z.string().trim().min(2).max(48),
+    coinReward: z.number().int().min(1).max(20).optional(),
+  });
+
+  app.post("/api/classification/categories", requireAuth, async (req, res) => {
+    try {
+      const body = createUserCategorySchema.parse(req.body);
+      const result = await createUserClassificationCategory(req.user!.id, body);
+      if (!result.ok) {
+        return res.status(400).json({ message: result.message });
+      }
+      res.status(201).json(result.row);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to create category" });
+    }
+  });
+
+  app.post("/api/classification/suggestions", requireAuth, async (req, res) => {
+    try {
+      const payload = classifySchema.parse(req.body);
+      const userId = req.user!.id;
+      const custom = await listUserClassificationCategories(userId);
+      const catalogLabels = [
+        ...BUILT_IN_CLASSIFICATIONS.map((c) => c.label),
+        ...custom.map((row) => row.name),
+      ];
+      const suggestions = await buildCategorySuggestions(payload.activity, payload.notes || "", {
+        catalogLabels,
+      });
+      res.json({ suggestions });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to build suggestions" });
+    }
+  });
+
+  const classificationStreamPushSchema = z.object({
+    activity: z.string().min(1).max(500),
+    notes: z.string().max(5000).optional().default(""),
+    preferStream: z.boolean().optional().default(false),
+    seq: z.number().int().nonnegative().optional(),
+  });
+
+  app.get("/api/classification/stream", requireAuth, (req, res) => {
+    const userId = req.user!.id;
+    if (classificationSseCount(userId) >= CLASSIFICATION_SSE_MAX_PER_USER) {
+      return res.status(429).json({ message: "Too many open classification streams. Close another tab or try again." });
+    }
+    if (!registerClassificationSse(userId, res)) {
+      return res.status(429).json({ message: "Could not open classification stream." });
+    }
+    res.status(200);
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    const flush = (res as { flushHeaders?: () => void }).flushHeaders;
+    if (typeof flush === "function") flush.call(res);
+
+    res.write("retry: 5000\n\n");
+    res.write(`data: ${JSON.stringify({ type: "ready" })}\n\n`);
+  });
+
+  app.post("/api/classification/stream/push", requireAuth, async (req, res) => {
+    try {
+      const payload = classificationStreamPushSchema.parse(req.body);
+      const userId = req.user!.id;
+      const custom = await listUserClassificationCategories(userId);
+      const catalogLabels = [
+        ...BUILT_IN_CLASSIFICATIONS.map((c) => c.label),
+        ...custom.map((row) => row.name),
+      ];
+      const suggestions = await buildCategorySuggestions(payload.activity, payload.notes || "", {
+        catalogLabels,
+      });
+      const hadListener = hasClassificationSse(userId);
+      broadcastClassificationEvent(userId, {
+        type: "suggestions",
+        suggestions,
+        seq: payload.seq ?? null,
+      });
+      if (payload.preferStream && hadListener) {
+        return res.status(202).json({ ok: true, seq: payload.seq ?? null });
+      }
+      return res.json({ suggestions, seq: payload.seq ?? null });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to push classification stream" });
+    }
+  });
+
   // ── Feedback + attachments ────────────────────────────────────────────────
   const feedbackSchema = z.object({
     message: z.string().min(5).max(5000),
@@ -2283,6 +3494,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       mimeType: z.string().min(3),
       byteSize: z.number().int().nonnegative().max(10 * 1024 * 1024),
     })).max(10).default([]),
+  });
+
+  const publicContactSchema = z.object({
+    message: z.string().min(10).max(5000).trim(),
+    email: z.string().max(255).optional(),
+    name: z.string().max(120).optional(),
+    /** Honeypot — must stay empty for real browsers. */
+    website: z.string().max(200).optional(),
   });
 
   const uploadUrlSchema = z.object({
@@ -2420,6 +3639,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const totalAttachments = createdAssets.length + linkedAssets;
       const analysis = await processFeedbackWithEngines(parsed.message, totalAttachments);
+      ensureAvatarProfilesForUser(req.user!.id)
+        .then(() =>
+          awardAvatarProgressFromContent(
+            req.user!.id,
+            "feedback",
+            `feedback:${Date.now()}`,
+            parsed.message,
+            true,
+          ),
+        )
+        .catch((err) => console.error("[avatar] feedback progress", err));
 
       await logSecurityEvent(
         "feedback_submitted",
@@ -2437,9 +3667,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
         payload: {
+          messageRedacted: true,
+          channel: "feedback_page",
           messageLength: parsed.message.length,
           attachments: totalAttachments,
-          analysis,
+          analysisSummary: {
+            classification: analysis.classification,
+            priority: analysis.priority,
+          },
         },
       });
       res.status(201).json({
@@ -2450,6 +3685,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to submit feedback" });
+    }
+  });
+
+  app.post("/api/public/contact", publicContactLimiter, async (req, res) => {
+    try {
+      const parsed = publicContactSchema.parse(req.body ?? {});
+      if (parsed.website != null && String(parsed.website).trim().length > 0) {
+        return res.status(200).json({ message: "Thanks — your message has been recorded for review." });
+      }
+
+      let reporterEmail: string | undefined;
+      if (parsed.email != null && String(parsed.email).trim().length > 0) {
+        const em = String(parsed.email).trim();
+        if (!z.string().email().safeParse(em).success) {
+          return res.status(400).json({ message: "Invalid email address" });
+        }
+        reporterEmail = em;
+      }
+      const reporterName =
+        parsed.name != null && String(parsed.name).trim().length > 0
+          ? String(parsed.name).trim().slice(0, 120)
+          : undefined;
+
+      const authed = req.isAuthenticated() && req.user;
+      const actorUserId = authed && !req.user!.isBanned ? req.user!.id : undefined;
+
+      const analysis = await processFeedbackWithEngines(parsed.message, 0);
+      if (!actorUserId) {
+        analysis.tags = Array.from(new Set([...analysis.tags, "public-contact"]));
+      } else {
+        analysis.tags = Array.from(new Set([...analysis.tags, "contact-form"]));
+      }
+
+      if (actorUserId) {
+        ensureAvatarProfilesForUser(actorUserId)
+          .then(() =>
+            awardAvatarProgressFromContent(
+              actorUserId,
+              "feedback",
+              `contact:${Date.now()}`,
+              parsed.message,
+              true,
+            ),
+          )
+          .catch((err) => console.error("[avatar] contact form progress", err));
+      }
+
+      const channel = actorUserId ? "contact_form" : "public_contact";
+      const reporterEmailStored = reporterEmail ? maskReporterEmailForPrivacy(reporterEmail) : undefined;
+      const reporterNameStored = reporterName ? maskReporterNameForPrivacy(reporterName) : undefined;
+
+      await logSecurityEvent(
+        "contact_form_submitted",
+        actorUserId,
+        undefined,
+        req.ip,
+        `${channel} · ${parsed.message.length} chars${reporterEmail ? " · reply-to set" : ""}`,
+      );
+      await appendSecurityEvent({
+        eventType: "feedback_processed",
+        actorUserId,
+        route: "/api/public/contact",
+        method: req.method,
+        statusCode: 201,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {
+          messageRedacted: true,
+          messageLength: parsed.message.length,
+          attachments: 0,
+          channel,
+          reporterEmail: reporterEmailStored,
+          reporterName: reporterNameStored,
+          analysisSummary: {
+            classification: analysis.classification,
+            priority: analysis.priority,
+          },
+        },
+      });
+
+      res.status(201).json({
+        message: "Thanks — your message has been recorded for review.",
+        analysis,
+      });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Invalid request", issues: error.issues });
+      }
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to submit contact message" });
     }
   });
 
@@ -2501,6 +3826,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     purpose: z.string().min(3).max(120),
     channel: z.enum(["email", "sms"]).optional().default("email"),
     phoneE164: z.string().optional(),
+    taskId: z.string().min(1).optional(),
+    invoiceId: z.string().min(1).optional(),
   });
 
   const postMfaChallenge = async (req: Request, res: Response) => {
@@ -2521,6 +3848,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!contact) return res.status(404).json({ message: "User not found" });
 
       let smsDestinationE164: string | null = null;
+
+      await assertMfaChallengeCreateAllowed(req.user!.id, body.purpose, {
+        taskId: body.taskId,
+        invoiceId: body.invoiceId,
+      });
 
       if (channel === "sms") {
         if (body.purpose === MFA_PURPOSES.ACCOUNT_VERIFY_PHONE) {
@@ -2549,6 +3881,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const deliver = await deliverMfaOtp({
         channel,
+        challengeId: challenge.challengeId,
         code: challenge.code,
         purpose: body.purpose,
         email: contact.email,
@@ -2700,10 +4033,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/invoices", requireAuth, async (_req, res) => {
+  app.get("/api/invoices", requireAuth, async (req, res) => {
     try {
-      const invoices = await listInvoices(200);
-      res.json(invoices);
+      const rows = await listInvoicesForUser(req.user!.id, 200);
+      res.json(rows);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch invoices" });
     }
@@ -2711,10 +4044,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/invoices/:id/events", requireAuth, async (req, res) => {
     try {
-      const events = await listInvoiceEvents(req.params.id);
+      const invoice = await getInvoiceForUser(req.params.id, req.user!.id);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+      const events = await listInvoiceEvents(invoice.id);
       res.json(events);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch invoice events" });
+    }
+  });
+
+  app.get("/api/billing/summary", requireAuth, async (req, res) => {
+    try {
+      const summary = await buildBillingSummary(req.user!.id);
+      res.json(summary);
+    } catch {
+      res.status(500).json({ message: "Failed to load billing summary" });
+    }
+  });
+
+  app.get("/api/billing/profile", requireAuth, async (req, res) => {
+    try {
+      const row = await getUserBillingProfile(req.user!.id);
+      res.json(row ?? null);
+    } catch {
+      res.status(500).json({ message: "Failed to load billing profile" });
+    }
+  });
+
+  app.patch("/api/billing/profile", requireAuth, async (req, res) => {
+    try {
+      const body = z
+        .object({
+          legalName: z.string().max(200).optional().nullable(),
+          line1: z.string().max(200).optional().nullable(),
+          line2: z.string().max(200).optional().nullable(),
+          city: z.string().max(120).optional().nullable(),
+          region: z.string().max(120).optional().nullable(),
+          postalCode: z.string().max(32).optional().nullable(),
+          country: z.string().max(64).optional().nullable(),
+        })
+        .parse(req.body ?? {});
+      const updated = await upsertUserBillingProfile(req.user!.id, body);
+      res.json(updated);
+      void appendSecurityEvent({
+        eventType: "billing_profile_updated",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      }).catch((err) => console.error("appendSecurityEvent billing_profile_updated", err));
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Validation failed", issues: error.issues });
+      }
+      res.status(500).json({ message: "Failed to update billing profile" });
     }
   });
 
@@ -2724,6 +4109,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(rows);
     } catch (error) {
       res.status(500).json({ message: "Failed to load payment methods" });
+    }
+  });
+
+  app.delete("/api/billing/payment-methods/:id", requireAuth, async (req, res) => {
+    try {
+      const ok = await deleteBillingPaymentMethodForUser(req.user!.id, req.params.id);
+      if (!ok) return res.status(404).json({ message: "Payment method not found" });
+      res.status(204).end();
+      void appendSecurityEvent({
+        eventType: "billing_payment_method_removed",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 204,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: { paymentMethodId: req.params.id },
+      }).catch((err) => console.error("appendSecurityEvent billing_payment_method_removed", err));
+    } catch {
+      res.status(500).json({ message: "Failed to remove payment method" });
     }
   });
 
@@ -2795,6 +4200,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/account/profile", requireAuth, async (req, res) => {
+    try {
+      const row = await getAccountOwnerProfileFields(req.user!.id);
+      if (!row) return res.status(404).json({ message: "User not found" });
+      res.json(row);
+    } catch (error) {
+      console.error("[account/profile GET]", error);
+      res.status(500).json({ message: "Failed to load profile" });
+    }
+  });
+
+  app.patch("/api/account/profile", requireAuth, async (req, res) => {
+    try {
+      const body = updateAccountProfileSchema.parse(req.body ?? {});
+      if (body.birthDate !== undefined && body.birthDate !== null) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(body.birthDate);
+        if (!m) {
+          return res.status(400).json({ message: "Invalid birth date" });
+        }
+        const py = Number(m[1]);
+        const pm = Number(m[2]);
+        const pd = Number(m[3]);
+        const d = new Date(`${body.birthDate}T12:00:00.000Z`);
+        if (Number.isNaN(d.getTime())) {
+          return res.status(400).json({ message: "Invalid birth date" });
+        }
+        if (d.getUTCFullYear() !== py || d.getUTCMonth() + 1 !== pm || d.getUTCDate() !== pd) {
+          return res.status(400).json({ message: "Invalid birth date" });
+        }
+        const today = new Date();
+        today.setUTCHours(23, 59, 59, 999);
+        if (d.getTime() > today.getTime()) {
+          return res.status(400).json({ message: "Birth date cannot be in the future" });
+        }
+        if (d.getUTCFullYear() < 1900) {
+          return res.status(400).json({ message: "Birth year must be 1900 or later" });
+        }
+      }
+      const updated = await updateUserAccountProfile(req.user!.id, {
+        displayName: body.displayName,
+        birthDate: body.birthDate,
+      });
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Validation failed", issues: error.issues });
+      }
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
   app.post("/api/account/phone/verify/confirm", requireAuth, async (req, res) => {
     try {
       const { challengeId, code } = z.object({
@@ -2841,13 +4299,222 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const createAppealBodySchema = z
+    .object({
+      subjectType: z.enum(["account_ban", "feedback_dispute", "other"]),
+      subjectRef: z.string().min(1).max(200).optional(),
+      title: z.string().trim().min(5).max(200),
+      body: z.string().trim().min(20).max(8000),
+    })
+    .superRefine((data, ctx) => {
+      if (data.subjectType !== "account_ban") {
+        const ref = data.subjectRef?.trim() ?? "";
+        if (!ref) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "subjectRef is required for this appeal type",
+            path: ["subjectRef"],
+          });
+        }
+      }
+    });
+
+  app.get("/api/appeals", requireAuthAllowSuspended, async (req, res) => {
+    try {
+      const rows = await listAppealsForUser(req.user!.id);
+      res.json(rows);
+    } catch {
+      res.status(500).json({ message: "Failed to load appeals" });
+    }
+  });
+
+  app.post("/api/appeals", requireAuthAllowSuspended, async (req, res) => {
+    try {
+      const body = createAppealBodySchema.parse(req.body ?? {});
+      if (!isAppealSubjectType(body.subjectType)) {
+        return res.status(400).json({ message: "Invalid subject type" });
+      }
+      let subjectRef = (body.subjectRef ?? "").trim();
+      if (body.subjectType === "account_ban") {
+        subjectRef = req.user!.id;
+      }
+      const row = await createAppeal({
+        appellantUserId: req.user!.id,
+        subjectType: body.subjectType,
+        subjectRef,
+        title: body.title,
+        body: body.body,
+      });
+      if (!row) {
+        return res.status(400).json({
+          message:
+            "Appeal could not be created. For a ban appeal you must be suspended. For feedback disputes, use your feedback event id.",
+        });
+      }
+      res.status(201).json(row);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Validation failed", issues: error.issues });
+      }
+      res.status(500).json({ message: "Failed to create appeal" });
+    }
+  });
+
+  app.post("/api/appeals/:appealId/withdraw", requireAuthAllowSuspended, async (req, res) => {
+    try {
+      const ok = await withdrawAppeal(req.params.appealId, req.user!.id);
+      if (!ok) return res.status(400).json({ message: "Cannot withdraw this appeal" });
+      res.json({ message: "Appeal withdrawn" });
+    } catch {
+      res.status(500).json({ message: "Failed to withdraw appeal" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Classification Contribution & Confirmation routes
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/tasks/:id/classifications", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const taskId = req.params.id;
+
+      const { canAccess } = await canAccessTask(userId, taskId);
+      if (!canAccess) return res.status(403).json({ message: "Access denied" });
+
+      const [contributions, hasConfirmed] = await Promise.all([
+        getContributionsForTask(taskId),
+        hasUserConfirmedTask(taskId, userId),
+      ]);
+      const isContributor = contributions.some(c => c.userId === userId);
+      res.json({ contributions, hasConfirmed, isContributor });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch classifications" });
+    }
+  });
+
+  app.post("/api/tasks/:id/confirm-classification", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const taskId = req.params.id;
+
+      const { canAccess } = await canAccessTask(userId, taskId);
+      if (!canAccess) return res.status(403).json({ message: "Access denied" });
+
+      const result = await awardCoinsForConfirmation(userId, taskId);
+      if (!result) {
+        return res.status(400).json({ message: "Already confirmed or you are the original classifier" });
+      }
+
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to confirm classification" });
+    }
+  });
+
+  const reclassifyBodySchema = z.object({
+    classification: z.string().trim().min(2).max(60),
+    baseUpdatedAt: z.string().optional(),
+  });
+
+  app.post("/api/tasks/:id/reclassify", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const taskId = req.params.id;
+      const parsed = reclassifyBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid classification (2–60 characters)." });
+      }
+      const classification = parsed.data.classification;
+      const baseUpdatedAt = parsed.data.baseUpdatedAt;
+      const concurrencyOpts =
+        typeof baseUpdatedAt === "string" && baseUpdatedAt.length > 0 ? { expectUpdatedAt: baseUpdatedAt } : undefined;
+
+      const accessCheck = await canAccessTask(userId, taskId);
+      if (!accessCheck.canAccess) return res.status(403).json({ message: "Access denied" });
+      if (accessCheck.role === "viewer" || accessCheck.role === "commenter") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const existingTask = await getTaskRowById(taskId);
+      if (!existingTask) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      if (existingTask.classification === classification) {
+        return res.status(400).json({ message: "Task is already classified as " + classification });
+      }
+
+      const ownerId = existingTask.userId;
+      if (!ownerId) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const task = await storage.updateTask(
+        ownerId,
+        {
+          id: taskId,
+          classification,
+        },
+        concurrencyOpts,
+      );
+
+      if (!task) {
+        const cur = await storage.getTask(ownerId, taskId);
+        if (!cur) {
+          return res.status(404).json({ message: "Task not found" });
+        }
+        if (concurrencyOpts) {
+          return res.status(409).json({
+            code: TASK_CONFLICT_CODE,
+            message: "This task was changed on the server or another device.",
+            serverTask: cur,
+          });
+        }
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      let classificationReward = null;
+      if (!isGeneralClassification(classification)) {
+        try {
+          classificationReward = await awardCoinsForClassification(ownerId, task);
+        } catch (awardErr) {
+          console.error("[tasks] reclassify awardCoinsForClassification:", awardErr);
+          classificationReward = null;
+        }
+      }
+
+      const taskText = `${existingTask.activity} ${existingTask.notes || ""}`.trim();
+      if (taskText && process.env.NODEWEAVER_URL) {
+        notifyNodeWeaverCorrection(taskText, classification, {
+          previousCategory: existingTask.classification || undefined,
+        }).catch(() => {});
+      }
+
+      res.json({ ...task, classificationReward });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to reclassify task" });
+    }
+  });
+
+  app.get("/api/gamification/classification-stats", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const stats = await getUserClassificationStats(userId);
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch classification stats" });
+    }
+  });
+
   // ════════════════════════════════════════════════════════════════════════
   //  Admin routes (protected — require admin role)
   // ════════════════════════════════════════════════════════════════════════
 
   app.use("/api/admin", apiLimiter);
 
-  function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const ADMIN_STEP_UP_TTL_MS = 60 * 60 * 1000;
+
+  function requireAdminRole(req: Request, res: Response, next: NextFunction) {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Not authenticated" });
     }
@@ -2857,12 +4524,210 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   }
 
+  function requireAdmin(req: Request, res: Response, next: NextFunction) {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    if (req.user!.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    if (process.env.NODE_ENV === "production") {
+      const exp = req.session.adminStepUpExpiresAt;
+      if (!exp || Date.now() > exp) {
+        return res.status(403).json({
+          message: "Confirm it is you with a one-time code to use admin tools.",
+          code: "ADMIN_MFA_REQUIRED",
+        });
+      }
+    }
+    next();
+  }
+
+  app.get("/api/admin/step-up-status", requireAdminRole, (req, res) => {
+    const prod = process.env.NODE_ENV === "production";
+    const exp = req.session.adminStepUpExpiresAt;
+    const valid = Boolean(exp && Date.now() < exp);
+    res.json({
+      stepUpRequired: prod,
+      stepUpSatisfied: !prod || valid,
+      expiresAt: valid ? exp : null,
+    });
+  });
+
+  app.post("/api/admin/step-up", requireAdminRole, async (req, res) => {
+    try {
+      if (process.env.NODE_ENV !== "production") {
+        return res.json({ ok: true, skipped: true, message: "Step-up not required outside production." });
+      }
+      const { challengeId, code } = z
+        .object({
+          challengeId: z.string().min(1),
+          code: z.string().length(6).regex(/^\d{6}$/),
+        })
+        .parse(req.body);
+
+      const ok = await verifyMfaChallenge(
+        req.user!.id,
+        challengeId,
+        code,
+        MFA_PURPOSES.ADMIN_STEP_UP,
+      );
+      if (!ok) {
+        await appendSecurityEvent({
+          eventType: "mfa_verify_failed",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 403,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: { context: "admin_step_up" },
+        });
+        return res.status(403).json({ message: "Invalid or expired verification code" });
+      }
+
+      req.session.adminStepUpExpiresAt = Date.now() + ADMIN_STEP_UP_TTL_MS;
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error("[admin] session save after step-up:", saveErr);
+          return res.status(500).json({ message: "Session update failed" });
+        }
+        void appendSecurityEvent({
+          eventType: "admin_step_up_success",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 200,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        res.json({ ok: true, expiresAt: req.session.adminStepUpExpiresAt });
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Admin step-up failed" });
+    }
+  });
+
+  /** Anonymous playstyle cohort mix (gamification signals — no per-user payload). */
+  app.get("/api/admin/playstyle-cohorts", requireAdmin, async (_req, res) => {
+    try {
+      const data = await getLatestPlaystyleCohortRollups();
+      res.json(data);
+    } catch (error) {
+      console.error("[admin/playstyle-cohorts]", error);
+      res.status(500).json({ message: "Failed to load playstyle cohort rollups" });
+    }
+  });
+
+  app.post("/api/admin/playstyle-cohorts/recompute", requireAdmin, async (_req, res) => {
+    try {
+      const result = await recomputePlaystyleCohortRollups();
+      res.json(result);
+    } catch (error) {
+      console.error("[admin/playstyle-cohorts/recompute]", error);
+      res.status(500).json({ message: "Failed to recompute playstyle cohorts" });
+    }
+  });
+
   app.get("/api/admin/users", requireAdmin, async (req, res) => {
     try {
       const userList = await getAllUsers();
-      res.json(userList);
+      const lifetimeRows = await listActiveLifetimePremiumGrants();
+      const byUser = new Map<string, Array<{ userId: string; product: string; planKey: string }>>();
+      for (const row of lifetimeRows) {
+        if (!byUser.has(row.userId)) byUser.set(row.userId, []);
+        byUser.get(row.userId)!.push(row);
+      }
+      res.json(
+        userList.map((u) => ({
+          ...u,
+          lifetimePremiumGrants: byUser.get(u.id) ?? [],
+        })),
+      );
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.post("/api/admin/users/:userId/premium/lifetime-grant", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { product, grantType, reason } = req.body || {};
+      const productOk = product === "axtask" || product === "nodeweaver" || product === "bundle";
+      const typeOk = grantType === "beta_tester" || grantType === "patron" || grantType === "manual";
+      if (!productOk || !typeOk || typeof reason !== "string") {
+        return res.status(400).json({ message: "Invalid product, grantType, or reason" });
+      }
+      const targetUser = await getUserById(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found", userId });
+      }
+      const row = await grantAdminLifetimePremium({
+        targetUserId: userId,
+        product,
+        grantedByUserId: req.user!.id,
+        grantType,
+        reason,
+      });
+      await logSecurityEvent(
+        "admin_lifetime_premium_granted",
+        req.user!.id,
+        userId,
+        req.ip,
+        `${product} · ${grantType}`,
+      );
+      res.json({ subscription: row });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.includes("Reason is required")) {
+        return res.status(400).json({ message: msg });
+      }
+      res.status(500).json({ message: "Failed to grant lifetime premium" });
+    }
+  });
+
+  app.post("/api/admin/users/:userId/premium/lifetime-revoke", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { product, reason } = req.body || {};
+      const productOk = product === "axtask" || product === "nodeweaver" || product === "bundle";
+      if (!productOk || typeof reason !== "string") {
+        return res.status(400).json({ message: "Invalid product or reason" });
+      }
+      const row = await revokeAdminLifetimePremium({
+        targetUserId: userId,
+        product,
+        revokedByUserId: req.user!.id,
+        reason,
+      });
+      if (!row) {
+        return res.status(404).json({ message: "No lifetime subscription found for that product" });
+      }
+      await logSecurityEvent(
+        "admin_lifetime_premium_revoked",
+        req.user!.id,
+        userId,
+        req.ip,
+        product,
+      );
+      res.json({ subscription: row });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.includes("Reason is required")) {
+        return res.status(400).json({ message: msg });
+      }
+      res.status(500).json({ message: "Failed to revoke lifetime premium" });
+    }
+  });
+
+  app.get("/api/admin/users/:userId/premium-events", requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || "50"), 10) || 50, 1), 200);
+      const events = await listPremiumEventsForUser(req.params.userId, limit);
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch premium events" });
     }
   });
 
@@ -2897,6 +4762,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "User has been unbanned" });
     } catch (error) {
       res.status(500).json({ message: "Failed to unban user" });
+    }
+  });
+
+  app.post("/api/admin/users/:userId/admin-demote", requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { reason } = req.body || {};
+      if (typeof reason !== "string" || reason.trim().length < 3) {
+        return res.status(400).json({ message: "Reason is required (min 3 characters)" });
+      }
+      const outcome = await demoteAdminUser(userId, req.user!.id, reason.trim(), req.ip);
+      if (outcome === "not_found") {
+        return res.status(404).json({ message: "User not found", userId });
+      }
+      if (outcome === "not_admin") {
+        return res.status(400).json({ message: "User is not an administrator" });
+      }
+      if (outcome === "self") {
+        return res.status(400).json({ message: "You cannot remove your own admin role here" });
+      }
+      if (outcome === "actor_not_admin") {
+        return res.status(403).json({ message: "Only administrators can demote other admins" });
+      }
+      if (outcome === "last_admin") {
+        return res.status(409).json({
+          message: "Cannot remove the last admin. Promote another admin first, or use database break-glass.",
+        });
+      }
+      const updated = await getUserById(userId);
+      res.json({ message: "Administrator privileges removed", user: updated });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update role" });
     }
   });
 
@@ -2949,6 +4846,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/admin/funnel-events/summary", requireAdmin, async (req, res) => {
+    try {
+      const raw = parseInt(String(req.query.days || "30"), 10);
+      const days = Number.isFinite(raw) ? raw : 30;
+      const rows = await getProductFunnelSummary(days);
+      res.json({ days: Math.min(90, Math.max(1, days)), rows });
+    } catch (error) {
+      console.error("[admin/funnel-events/summary]", error);
+      res.status(500).json({ message: "Failed to fetch funnel summary" });
+    }
+  });
+
   app.post("/api/admin/security-alerts/analyze", requireAdmin, async (_req, res) => {
     try {
       const result = await analyzeAndCreateSecurityAlerts();
@@ -2965,6 +4874,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(alerts);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch security alerts" });
+    }
+  });
+
+  app.get("/api/admin/appeals", requireAdmin, async (_req, res) => {
+    try {
+      const appeals = await listAppealsForAdmin(150);
+      res.json(appeals);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch appeals" });
+    }
+  });
+
+  app.post("/api/admin/appeals/:appealId/vote", requireAdmin, async (req, res) => {
+    try {
+      const { decision } = z.object({ decision: z.enum(["grant", "deny"]) }).parse(req.body ?? {});
+      const result = await castAppealVote({
+        appealId: req.params.appealId,
+        adminUserId: req.user!.id,
+        decision,
+      });
+      if (result.status === "not_admin") {
+        return res.status(403).json({ message: "Admin role required" });
+      }
+      if (result.status === "not_found") {
+        return res.status(404).json({ message: "Appeal not found" });
+      }
+      if (result.status === "not_open") {
+        return res.status(409).json({ message: "Appeal is no longer open" });
+      }
+      res.json(result);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Validation failed", issues: error.issues });
+      }
+      res.status(500).json({ message: "Failed to record vote" });
     }
   });
 
@@ -3215,6 +5159,435 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to run attachment retention" });
+    }
+  });
+
+  // ─── Data Migration (Admin) ────────────────────────────────────────────────
+
+  app.post("/api/admin/export", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const { userId, includeSecurityTables } = req.body as {
+        userId?: string;
+        includeSecurityTables?: boolean;
+      };
+      const bundle = userId
+        ? await exportUserData(userId, { adminMode: true })
+        : await exportFullDatabase({
+            includeSecurityTables: includeSecurityTables === true,
+          });
+
+      await logSecurityEvent(
+        "data_export",
+        req.user!.id,
+        userId || undefined,
+        req.ip,
+        `${userId ? "User" : "Full"} database export (${Object.values(bundle.metadata.tableCounts).reduce((a, b) => a + b, 0)} records)`
+      );
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "no-store, private");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="axtask-export-${userId ? "user-" + userId.slice(0, 8) : "full"}-${new Date().toISOString().slice(0, 10)}.json"`
+      );
+      res.json(bundle);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Export failed" });
+    }
+  });
+
+  app.get("/api/admin/export/:userId", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const bundle = await exportUserData(req.params.userId, { adminMode: true });
+
+      await logSecurityEvent(
+        "data_export",
+        req.user!.id,
+        req.params.userId,
+        req.ip,
+        `User data export for ${req.params.userId.slice(0, 8)}... (${Object.values(bundle.metadata.tableCounts).reduce((a: number, b: number) => a + b, 0)} records)`
+      );
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "no-store, private");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="axtask-user-${req.params.userId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json"`
+      );
+      res.json(bundle);
+    } catch (error: any) {
+      const msg = error.message || "Export failed";
+      const status = msg.includes("not found") ? 404 : 500;
+      res.status(status).json({ message: msg });
+    }
+  });
+
+  app.post("/api/admin/import", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const { bundle, dryRun, mode } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+
+      const importMode = mode === "remap" ? "remap" : "preserve";
+
+      if (!dryRun) {
+        const preCheck = await validateBundleWithDb(bundle);
+        if (preCheck.errors.length > 0) {
+          return res.json({
+            success: false,
+            dryRun: false,
+            mode: importMode,
+            inserted: {},
+            skipped: {},
+            conflicts: preCheck.conflicts,
+            errors: preCheck.errors,
+            warnings: preCheck.warnings,
+          });
+        }
+      }
+
+      const result = await importBundle(bundle, { dryRun: !!dryRun, mode: importMode });
+
+      if (!dryRun && result.success) {
+        const totalInserted = Object.values(result.inserted).reduce((a, b) => a + b, 0);
+        await logSecurityEvent(
+          "data_import",
+          req.user!.id,
+          undefined,
+          req.ip,
+          `Database import (${importMode}): ${totalInserted} records inserted, ${result.errors.length} errors`
+        );
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Import failed" });
+    }
+  });
+
+  app.post("/api/admin/import/validate", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const { bundle } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+      const validation = await validateBundleWithDb(bundle);
+      res.json(validation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Validation failed" });
+    }
+  });
+
+  // ─── User Self-Service Export & Import (GDPR) ──────────────────────────────
+  const ACCOUNT_DATA_STEP_UP_TTL_MS = 60 * 60 * 1000;
+
+  app.get("/api/account/data-export-step-up-status", requireAuth, (req, res) => {
+    const prod = process.env.NODE_ENV === "production";
+    const exp = req.session.accountDataExportStepUpExpiresAt;
+    const valid = Boolean(exp && Date.now() < exp);
+    res.json({
+      stepUpRequired: prod,
+      stepUpSatisfied: !prod || valid,
+      expiresAt: valid ? exp : null,
+    });
+  });
+
+  app.post("/api/account/data-export-step-up", requireAuth, async (req, res) => {
+    try {
+      if (process.env.NODE_ENV !== "production") {
+        return res.json({ ok: true, skipped: true, message: "Step-up not required outside production." });
+      }
+      const { challengeId, code } = z
+        .object({
+          challengeId: z.string().min(1),
+          code: z.string().length(6).regex(/^\d{6}$/),
+        })
+        .parse(req.body);
+
+      const ok = await verifyMfaChallenge(
+        req.user!.id,
+        challengeId,
+        code,
+        MFA_PURPOSES.ACCOUNT_DATA_EXPORT,
+      );
+      if (!ok) {
+        await appendSecurityEvent({
+          eventType: "mfa_verify_failed",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 403,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: { context: "account_data_export_step_up" },
+        });
+        return res.status(403).json({ message: "Invalid or expired verification code" });
+      }
+
+      req.session.accountDataExportStepUpExpiresAt = Date.now() + ACCOUNT_DATA_STEP_UP_TTL_MS;
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error("[account] session save after data export step-up:", saveErr);
+          return res.status(500).json({ message: "Session update failed" });
+        }
+        void appendSecurityEvent({
+          eventType: "account_data_export_step_up_success",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 200,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        res.json({ ok: true, expiresAt: req.session.accountDataExportStepUpExpiresAt });
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Account data step-up failed" });
+    }
+  });
+
+  app.get("/api/account/export", requireAuth, migrationLimiter, async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === "production") {
+        const exp = req.session.accountDataExportStepUpExpiresAt;
+        if (!exp || Date.now() >= exp) {
+          return res.status(403).json({
+            message: "Verify your identity before downloading your data (request a code, then confirm).",
+            code: "ACCOUNT_DATA_STEP_UP_REQUIRED",
+          });
+        }
+      }
+      const bundle = await exportUserData(req.user!.id);
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "no-store, private");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="my-axtask-data-${new Date().toISOString().slice(0, 10)}.json"`
+      );
+      res.json(bundle);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Export failed" });
+    }
+  });
+
+  app.post("/api/account/import/challenge", requireAuth, migrationLimiter, async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === "production") {
+        const exp = req.session.accountDataExportStepUpExpiresAt;
+        if (!exp || Date.now() >= exp) {
+          return res.status(403).json({
+            message: "Verify your identity before importing account data (request a code, then confirm).",
+            code: "ACCOUNT_DATA_STEP_UP_REQUIRED",
+          });
+        }
+      }
+      const { bundle } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+      if (bundle.metadata.exportMode !== "user") {
+        return res.status(400).json({
+          message: "Only user-level export bundles can be imported via self-service. Full database imports require admin access.",
+        });
+      }
+      if (bundle.metadata.includesPrivilegedUserData === true) {
+        return res.status(400).json({
+          message: "This bundle was exported with admin-only fields and cannot be imported via self-service.",
+        });
+      }
+      const billingRows = bundle.data?.userBillingProfiles;
+      if (Array.isArray(billingRows) && billingRows.length > 0) {
+        return res.status(400).json({
+          message: "Self-service import only accepts user exports without billing profile rows.",
+        });
+      }
+
+      const taskRows = Array.isArray(bundle.data?.tasks) ? bundle.data.tasks : [];
+      const built = buildImportOwnershipChallenge(taskRows);
+      if (!built.ok) {
+        return res.status(400).json({ message: built.error });
+      }
+
+      delete req.session.importOwnershipQuiz;
+      if (built.questions.length > 0) {
+        req.session.importOwnershipQuiz = {
+          expiresAt: Date.now() + IMPORT_OWNERSHIP_QUIZ_TTL_MS,
+          tasksFingerprint: built.fingerprint,
+          expected: ownershipQuizExpectedFromSecrets(built.questions),
+        };
+      }
+
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error("[account] session save after import challenge:", saveErr);
+          return res.status(500).json({ message: "Session update failed" });
+        }
+        res.json({
+          ownershipQuizRequired: built.questions.length > 0,
+          tasksFingerprint: built.fingerprint,
+          questionCount: built.questions.length,
+          questions: stripOwnershipQuizSecrets(built.questions),
+        });
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Challenge failed" });
+    }
+  });
+
+  app.post("/api/account/import", requireAuth, migrationLimiter, async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === "production") {
+        const exp = req.session.accountDataExportStepUpExpiresAt;
+        if (!exp || Date.now() >= exp) {
+          return res.status(403).json({
+            message: "Verify your identity before importing account data (request a code, then confirm).",
+            code: "ACCOUNT_DATA_STEP_UP_REQUIRED",
+          });
+        }
+      }
+      const { bundle, dryRun, importOwnershipAnswers } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+
+      if (bundle.metadata.exportMode !== "user") {
+        return res.status(400).json({ message: "Only user-level export bundles can be imported via self-service. Full database imports require admin access." });
+      }
+      if (bundle.metadata.includesPrivilegedUserData === true) {
+        return res.status(400).json({
+          message: "This bundle was exported with admin-only fields and cannot be imported via self-service.",
+        });
+      }
+      const billingRows = bundle.data?.userBillingProfiles;
+      if (Array.isArray(billingRows) && billingRows.length > 0) {
+        return res.status(400).json({
+          message: "Self-service import only accepts user exports without billing profile rows.",
+        });
+      }
+
+      const taskRows = Array.isArray(bundle.data?.tasks) ? bundle.data.tasks : [];
+      const needOwnershipQuiz = questionCountForImportTaskRows(taskRows.length) > 0;
+      if (!needOwnershipQuiz) {
+        delete req.session.importOwnershipQuiz;
+      } else {
+        const fp = computeTasksFingerprint(taskRows);
+        const quiz = req.session.importOwnershipQuiz;
+        if (!quiz || Date.now() >= quiz.expiresAt || quiz.tasksFingerprint !== fp) {
+          return res.status(403).json({
+            message: "Start a fresh backup ownership quiz (your session expired or the file changed).",
+            code: "IMPORT_OWNERSHIP_QUIZ_EXPIRED",
+          });
+        }
+        if (!Array.isArray(importOwnershipAnswers)) {
+          return res.status(403).json({
+            message: "Answer the backup ownership quiz before importing.",
+            code: "IMPORT_OWNERSHIP_QUIZ_REQUIRED",
+          });
+        }
+        if (!gradeOwnershipQuiz(quiz.expected, importOwnershipAnswers)) {
+          delete req.session.importOwnershipQuiz;
+          req.session.save((saveErr) => {
+            if (saveErr) {
+              console.error("[account] session save after quiz fail:", saveErr);
+            }
+            res.status(403).json({
+              message: "Ownership quiz failed. You need at least 80% correct to import this backup.",
+              code: "IMPORT_OWNERSHIP_QUIZ_FAILED",
+            });
+          });
+          return;
+        }
+        delete req.session.importOwnershipQuiz;
+      }
+
+      const validation = validateBundle(bundle);
+      if (validation.errors.length > 0) {
+        return res.status(400).json({ message: "Bundle validation failed", errors: validation.errors });
+      }
+
+      const result = await importUserBundle(bundle, req.user!.id, { dryRun: !!dryRun });
+
+      if (!dryRun && result.success) {
+        const totalInserted = Object.values(result.inserted).reduce((a, b) => a + b, 0);
+        await logSecurityEvent(
+          "user_data_import",
+          req.user!.id,
+          undefined,
+          req.ip,
+          `User self-service import: ${totalInserted} records imported`
+        );
+        void recordProductFunnelEvent({
+          userId: req.user!.id,
+          eventName: "user_backup_import",
+          meta: { recordsInserted: totalInserted },
+        }).catch(() => {});
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Import failed" });
+    }
+  });
+
+  // ─── Collaboration routes ──────────────────────────────────────────────────
+
+  app.get("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
+    try {
+      const access = await canAccessTask(req.user!.id, req.params.id);
+      if (!access.canAccess) return res.status(403).json({ message: "Access denied" });
+      const collaborators = await getTaskCollaborators(req.params.id);
+      res.json(collaborators);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch collaborators" });
+    }
+  });
+
+  app.post("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can add collaborators" });
+      const { email, role } = req.body;
+      if (!email) return res.status(400).json({ message: "Email is required" });
+      const validRoles = ["editor", "viewer", "commenter"];
+      if (role && !validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
+      const user = await getUserByEmail(email);
+      if (!user || user.id === req.user!.id) {
+        return res.status(400).json({ message: "Unable to add collaborator" });
+      }
+      const collab = await addCollaborator(req.params.id, user.id, role || "editor", req.user!.id);
+      res.json(collab);
+    } catch (error) {
+      res.status(500).json({ message: "Unable to add collaborator" });
+    }
+  });
+
+  app.put("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can change roles" });
+      const { role } = req.body;
+      const validRoles = ["editor", "viewer", "commenter"];
+      if (!validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
+      const updated = await updateCollaboratorRole(req.params.id, req.params.userId, role);
+      if (!updated) return res.status(404).json({ message: "Collaborator not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update collaborator" });
+    }
+  });
+
+  app.delete("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      const isSelf = req.params.userId === req.user!.id;
+      if (!ownerCheck && !isSelf) return res.status(403).json({ message: "Access denied" });
+      const removed = await removeCollaborator(req.params.id, req.params.userId);
+      if (!removed) return res.status(404).json({ message: "Collaborator not found" });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to remove collaborator" });
     }
   });
 

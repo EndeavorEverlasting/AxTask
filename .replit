@@ -39,7 +39,8 @@ args = "npm run dev"
 waitForPort = 5000
 
 [agent]
-integrations = ["javascript_database:1.0.0", "javascript_log_in_with_replit:2.0.0", "github:1.0.0"]
+# GitHub connector omitted so Replit Agent is less likely to push commits without explicit owner workflow.
+integrations = ["javascript_database:1.0.0", "javascript_log_in_with_replit:2.0.0"]
 
 [userenv]
 

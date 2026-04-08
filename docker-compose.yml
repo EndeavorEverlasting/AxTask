@@ -1,3 +1,9 @@
+x-axtask-image-build: &axtask-image-build
+  context: .
+  target: runtime
+  args:
+    VITE_QUERY_PERSIST_BUSTER: ${VITE_QUERY_PERSIST_BUSTER:-v1}
+
 services:
   database:
     image: postgres:16-alpine
@@ -19,26 +25,26 @@ services:
 
   migrate:
     build:
-      context: .
-      target: runtime
+      <<: *axtask-image-build
     container_name: axtask-migrate
     env_file:
       - .env.docker
     depends_on:
       database:
         condition: service_healthy
-    command: ["npm", "run", "db:push"]
+    command: ["npm", "run", "db:push:and-seed-docker"]
     restart: "no"
 
   app:
     build:
-      context: .
-      target: runtime
+      <<: *axtask-image-build
     container_name: axtask-app
     env_file:
       - .env.docker
     environment:
       NODE_ENV: production
+      # migrate service already ran db:push; avoid duplicate push on every app restart
+      SKIP_DB_PUSH_ON_START: "true"
     ports:
       - "5000:5000"
     volumes:
@@ -52,6 +58,32 @@ services:
       timeout: 5s
       retries: 8
       start_period: 30s
+    restart: unless-stopped
+
+  # NodeWeaver: optional Python classifier (vendored at services/nodeweaver/upstream). Not started by default.
+  nodeweaver:
+    profiles: ["nodeweaver"]
+    build:
+      context: ./services/nodeweaver/upstream
+      dockerfile: Dockerfile
+      target: production
+    container_name: axtask-nodeweaver
+    env_file:
+      - .env.docker
+    expose:
+      - "5000"
+    ports:
+      - "127.0.0.1:${NODEWEAVER_HOST_PORT:-5001}:5000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=5).read()\" || exit 1",
+        ]
+      interval: 20s
+      timeout: 10s
+      retries: 6
+      start_period: 120s
     restart: unless-stopped
 
 volumes:
