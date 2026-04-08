@@ -4,13 +4,15 @@ dist
 .local/
 node_modules
 server/public
-*.tar.gzattached_assets/
+*.tar.gz
 vite.config.ts.*
 .env
 .env.docker
-e
 pics/
 NodeWeaver._pre_submodule_backup/
+
+# Local Cursor IDE preferences (shared rules may live under .cursor/rules/)
+.cursor/settings.json
 
 # Local planning artifacts
 docs/AxTask_Migration_Master_Plan.md
