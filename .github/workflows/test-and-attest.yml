@@ -68,6 +68,44 @@ jobs:
       - name: Verify runtime image has bundled app assets
         run: docker run --rm axtask-ci:check sh -c 'test -f dist/index.js && test -f dist/public/index.html && test -f package.json && test -f drizzle.config.ts'
 
+  postgres-schema-check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: axtask
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d axtask"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/axtask
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync schema to empty Postgres (drizzle-kit push)
+        run: npm run db:push:ci
+
+      - name: Verify users TOTP columns exist in DB
+        run: npm run test:pg-schema
+
   check-nodeweaver-file:
     runs-on: ubuntu-latest
     outputs:

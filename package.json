@@ -25,7 +25,9 @@
     "security:axios-guard": "node tools/security/check_no_axios.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:push": "drizzle-kit push"
+    "test:pg-schema": "cross-env RUN_PG_SCHEMA_TESTS=1 vitest run server/users-schema-pg.integration.test.ts",
+    "db:push": "drizzle-kit push",
+    "db:push:ci": "drizzle-kit push --force"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

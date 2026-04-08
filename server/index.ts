@@ -8,10 +8,12 @@ import { setupAuth } from "./auth";
 import { registerOAuthRoutes } from "./auth-providers";
 import { seedDevAccounts } from "./seed-dev";
 import { pool } from "./db";
+import { installProbeSink } from "./probe-sink";
 
 const app = express();
 
 app.set("trust proxy", 1);
+installProbeSink(app);
 
 const isDev = process.env.NODE_ENV !== "production";
 const canonicalHost = (process.env.CANONICAL_HOST || "").trim().toLowerCase();
