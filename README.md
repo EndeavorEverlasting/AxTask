@@ -145,6 +145,60 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - `npm run test` - Run the full compendium of unit/integration/sweep tests (includes local login and Docker workflow guardrails)
 - `npm run check` - Run TypeScript checks
 
+### PR Size and Segmentation Policy
+
+Code review quality drops on very large PRs. Keep pull requests below the hard CI cap and prefer smaller slices for CodeRabbit review.
+
+- CI hard stop is enforced at 300 changed files by [`.github/workflows/pr-file-limit.yml`](.github/workflows/pr-file-limit.yml).
+- Recommended review target is 200 files or less for better automated feedback quality.
+- For large branches, split by concern (schema/migrations, server API, client UI, docs/tests).
+- Use [`tools/local/split-pr-helper.mjs`](tools/local/split-pr-helper.mjs) to generate split manifests and branch commands:
+
+```bash
+node tools/local/split-pr-helper.mjs --base origin/main --max-files 200
+```
+
+- Or use use-case factoring CLI:
+
+```bash
+npm run pr:factor
+```
+
+### Monorepo Note
+
+- AxTask should be operated as a monorepo-style repository for CI and release workflows.
+- `NodeWeaver._pre_submodule_backup` is a legacy backup path and is excluded from active tracking/runtime flows.
+- If NodeWeaver is required for local/CI integration, use the vendored `services/nodeweaver/upstream` path.
+
+### Deployment-Impact Test Sweep Policy
+
+If a change touches runtime behavior (API routes, storage/schema, auth, CI/CD, Docker, startup scripts), run a targeted sweep before merge:
+
+- `npm run check` (TypeScript guardrail)
+- targeted `npm test -- <path/to/test>` for each touched domain
+- migration sanity checks when SQL or shared schema changes
+- endpoint smoke checks for newly added or modified API routes
+
+Add or update unit tests when any of these apply:
+
+- new schema validation contracts
+- new route/storage behaviors
+- session/progression logic that mutates persisted state
+
+Recent mini-games push should be segmented as:
+
+1. schema + migration + schema tests
+2. server routes/storage + server tests
+3. client page/hooks/nav + UI tests
+4. docs/process updates
+
+Recommended validation per segment:
+
+- Segment 1: `npm test -- shared/study-schema.test.ts`
+- Segment 2: route/storage targeted tests (add new tests if absent for new handlers)
+- Segment 3: UI/component tests for mini-game entry and session flow
+- Segment 4: docs + CI workflow lint/sanity checks
+
 ### Auto-sync dependencies after pull
 
 Think of this like buckling a seatbelt for the app.

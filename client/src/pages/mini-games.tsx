@@ -37,6 +37,7 @@ const GAMES_REGISTRY: Array<{
     cadence: "10 cards or 5 minutes",
     grades: ["again", "hard", "good", "easy"] as FlashcardGrade[],
   },
+  { id: "multiple_choice_questions", title: "Multiple Choice Questions", status: "planned" },
   { id: "match_pairs", title: "Match Pairs", status: "planned" },
   { id: "timed_recall", title: "Timed Recall", status: "planned" },
 ];

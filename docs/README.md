@@ -241,6 +241,34 @@ npm run dev          # Start development server
 - Make app/code changes offline
 - Commit locally, then push when you are back online
 
+### Monorepo and Legacy Backup Paths
+
+AxTask no longer depends on active git submodules for NodeWeaver integration.
+
+- Expected active vendored path: `services/nodeweaver/upstream`
+- Legacy path `NodeWeaver._pre_submodule_backup` is archival-only and excluded from active development/deployment scope
+- Do not reintroduce submodule assumptions in CI checkout or local bootstrap scripts without an explicit migration decision
+
+### PR Segmentation for Review Tools
+
+To keep automated review quality high (including CodeRabbit), prefer smaller PR slices.
+
+- Hard CI limit: 300 changed files
+- Recommended target: 200 files or less
+- Split large branches by concern: schema/migrations, server API/storage, client UX, docs/tests
+- Use:
+
+```bash
+node tools/local/split-pr-helper.mjs --base origin/main --max-files 200
+```
+
+Suggested mini-games PR sequence:
+
+1. Shared schema + SQL migration + schema tests
+2. Server storage/routes + server tests
+3. Client mini-games page/hooks/nav + UI tests
+4. Documentation/process and CI workflow updates
+
 ### Engine APIs
 - `POST /api/feedback/process` — process message text through feedback engines (classification, sentiment, priority, tags, actions)
 - `POST /api/classification/classify` — universal classifier API with external + local fallback layers

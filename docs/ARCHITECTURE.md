@@ -4,6 +4,13 @@
 
 AxTask is built using modern web development practices with a focus on type safety, performance, and maintainability. This document provides technical details for developers maintaining and extending the intelligent task management system.
 
+## Monorepo Guardrails
+
+- AxTask should be treated as a monorepo-style codebase for delivery workflows.
+- NodeWeaver integration is expected under `services/nodeweaver/upstream` when present.
+- Legacy backup path `NodeWeaver._pre_submodule_backup` is not an active architecture component.
+- Avoid submodule-coupled workflow assumptions unless a dedicated architecture decision reintroduces them.
+
 ## High-Level Architecture
 
 ```

@@ -1,0 +1,107 @@
+# PR Segmentation Guide
+
+## Purpose
+
+Keep PRs reviewable for automated reviewers and humans by splitting large work into focused slices.
+
+## Default Limits
+
+- Hard CI cap: `300` files (`.github/workflows/pr-file-limit.yml`)
+- Recommended cap: `200` files per PR for better automated review quality
+
+## Helper Script
+
+Generate split manifests from current branch:
+
+```bash
+node tools/local/split-pr-helper.mjs --base origin/main --max-files 200
+```
+
+## PR-Factor CLI (Use-Case Engine)
+
+For use-case factoring with explicit classification + test advice:
+
+```bash
+# Full plan (scan + classify + plan artifacts)
+node tools/local/pr-factor.mjs plan --base origin/main --max-files 200
+
+# Stage commands (optional)
+node tools/local/pr-factor.mjs scan --base origin/main
+node tools/local/pr-factor.mjs classify --base origin/main
+node tools/local/pr-factor.mjs apply --out-dir .local/pr-factor/<timestamp>
+```
+
+Generated artifacts:
+
+- `scan.json` (changed files + hunk stats)
+- `classification.json` (bucket, confidence, rationale)
+- `plan.json` (slice ordering and manifests)
+- `test-advice.json` (per-slice validation checks)
+- `pr-plan.md`, `commands.sh`, `commands.ps1`, `part-*.txt`
+
+For the current branch, manifests were generated at:
+
+- `.local/pr-splits/20260408072627/part-1.txt`
+- `.local/pr-splits/20260408072627/part-2.txt`
+- `.local/pr-splits/20260408072627/part-3.txt`
+
+## Mini-Games Push Recommended PR Sequence
+
+### PR 1 - Study Data Contract
+
+Scope:
+
+- `shared/schema.ts`
+- `migrations/0005_study_mini_games.sql`
+- `shared/study-schema.test.ts`
+
+Validation:
+
+- `npm test -- shared/study-schema.test.ts`
+
+### PR 2 - Study API and Storage
+
+Scope:
+
+- `server/storage.ts`
+- `server/routes.ts`
+
+Validation:
+
+- Add/execute targeted server tests for new study endpoints/session transitions.
+
+### PR 3 - Client Mini-Games UX
+
+Scope:
+
+- `client/src/lib/study-api.ts`
+- `client/src/lib/study-api.test.ts`
+- `client/src/pages/mini-games.tsx`
+- `client/src/App.tsx`
+- `client/src/components/layout/sidebar.tsx`
+
+Validation:
+
+- `npm test -- client/src/lib/study-api.test.ts`
+- run additional UI tests for session interactions if route-level harness is added.
+
+### PR 4 - Process and Infra Documentation
+
+Scope:
+
+- `README.md`
+- `docs/README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/DEBUGGING_REFERENCE.md`
+- `docs/PR_SEGMENTATION.md`
+- `.github/workflows/test-and-attest.yml`
+- `.gitignore`
+
+Validation:
+
+- `node tools/ci/check-pr-file-count.mjs --base origin/main --max-files 300`
+
+## Notes on Legacy NodeWeaver Backup Path
+
+- `NodeWeaver._pre_submodule_backup` was a stale gitlink artifact and has been removed from active tracking.
+- Do not use it as runtime source in monorepo flows.

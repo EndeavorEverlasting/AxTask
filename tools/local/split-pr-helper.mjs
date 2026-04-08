@@ -56,7 +56,10 @@ function detectBaseRef(override) {
     const result = spawnSync("git", ["rev-parse", "--verify", candidate], { encoding: "utf8" });
     if ((result.status ?? 1) === 0) return candidate;
   }
-  return "origin/main";
+  throw new Error(
+    `[pr-split] Could not detect a valid base ref. Tried: ${candidates.join(", ")}. ` +
+      "Specify one explicitly with --base <ref> (example: --base origin/main).",
+  );
 }
 
 function changedFiles(baseRef) {
@@ -159,7 +162,7 @@ function main() {
     console.error("[pr-split] --max-files must be a positive number.");
     process.exit(1);
   }
-  if (!Number.isFinite(args.parts) || args.parts < 0) {
+  if (!Number.isFinite(args.parts) || args.parts < 0 || args.parts > 3) {
     console.error("[pr-split] --parts must be 0, 1, 2, or 3.");
     process.exit(1);
   }

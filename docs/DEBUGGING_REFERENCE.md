@@ -8,6 +8,23 @@ This document provides solutions to common bugs and debugging patterns encounter
 
 ---
 
+## Deployment-Impact Test Sweep Checklist
+
+When changes can affect deployment/runtime behavior (routes, storage/schema, auth, CI, Docker, startup scripts), run this checklist before merge:
+
+1. `npm run check` and confirm no newly introduced type errors in touched areas
+2. targeted `npm test -- <path>` for each modified domain
+3. migration sanity check for SQL/shared schema updates
+4. smoke-check changed API routes with representative payloads
+
+Add unit tests when introducing:
+
+- new schema validation contracts
+- new persistence/state transition logic
+- new route handlers or behavior branches
+
+---
+
 ## Common React/TypeScript Errors
 
 ### 1. Undefined Function Error: `setEditingTask is not defined`

@@ -10,6 +10,7 @@ vite.config.ts.*
 .env.docker
 e
 pics/
+NodeWeaver._pre_submodule_backup/
 
 # Local planning artifacts
 docs/AxTask_Migration_Master_Plan.md
