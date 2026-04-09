@@ -215,6 +215,13 @@ export function ClockTimePicker({
     onChange?.(to24(h, m, p));
   };
 
+  const syncFromValue = () => {
+    const p = parseTime(value);
+    setHour(p.h);
+    setMinute(p.m);
+    setPeriod(p.period);
+  };
+
   const handleHourSelect = (h: number) => {
     setHour(h);
     setMode("minute");
@@ -222,21 +229,34 @@ export function ClockTimePicker({
 
   const handleMinuteSelect = (m: number) => {
     setMinute(m);
-    emit(hour, m, period);
+  };
+
+  const handleConfirm = () => {
+    emit(hour, minute, period);
     setOpen(false);
     setMode("hour");
   };
 
-  const togglePeriod = () => {
-    const next: Period = period === "AM" ? "PM" : "AM";
-    setPeriod(next);
-    if (value) emit(hour, minute, next);
+  const handleCancel = () => {
+    setOpen(false);
+    setMode("hour");
+    syncFromValue();
   };
 
   const displayTime = value ? `${hour}:${pad(minute)} ${period}` : undefined;
 
   return (
-    <Popover modal open={open} onOpenChange={(o) => { setOpen(o); if (o) setMode("hour"); }}>
+    <Popover
+      modal
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) {
+          setMode("hour");
+          syncFromValue();
+        }
+      }}
+    >
       <PopoverTrigger asChild disabled={disabled}>
         <Button
           variant="outline"
@@ -301,9 +321,7 @@ export function ClockTimePicker({
                 size="sm"
                 variant={period === "AM" ? "default" : "outline"}
                 className="h-7 text-[10px] px-2.5 font-bold"
-                onClick={() => {
-                  if (period !== "AM") togglePeriod();
-                }}
+                onClick={() => setPeriod("AM")}
               >
                 AM
               </Button>
@@ -312,9 +330,7 @@ export function ClockTimePicker({
                 size="sm"
                 variant={period === "PM" ? "default" : "outline"}
                 className="h-7 text-[10px] px-2.5 font-bold"
-                onClick={() => {
-                  if (period !== "PM") togglePeriod();
-                }}
+                onClick={() => setPeriod("PM")}
               >
                 PM
               </Button>
@@ -352,6 +368,15 @@ export function ClockTimePicker({
                 {line}
               </p>
             ))}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 mt-2 border-t border-border/60">
+            <Button type="button" variant="outline" size="sm" onClick={handleCancel}>
+              Cancel
+            </Button>
+            <Button type="button" size="sm" onClick={handleConfirm}>
+              OK
+            </Button>
           </div>
         </div>
       </PopoverContent>

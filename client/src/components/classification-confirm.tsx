@@ -135,10 +135,10 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
           <TooltipTrigger asChild>
             <button
               type="button"
-              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all ${
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all min-h-[32px] min-w-[32px] ${
                 canConfirm
-                  ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer"
-                  : data.hasConfirmed
+                  ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer active:scale-95"
+                  : data?.hasConfirmed
                     ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
                     : "bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
               }`}
@@ -149,28 +149,18 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
               }}
               disabled={!canConfirm || confirmMutation.isPending}
             >
-              {data.hasConfirmed ? (
-                <ThumbsUp className="h-3 w-3 fill-current" />
-              ) : (
-                <ThumbsUp className="h-3 w-3" />
-              )}
-              {totalConfirmations > 0 && <span>{totalConfirmations}</span>}
+              <ThumbsUp className="h-4 w-4" />
+              {totalConfirmations > 0 && <span className="tabular-nums">{totalConfirmations}</span>}
             </button>
           </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-[250px]">
-            <div className="text-xs space-y-1">
-              <p className="font-semibold">{classification} Classification</p>
-              <p>{totalConfirmations} confirmation{totalConfirmations !== 1 ? "s" : ""}</p>
-              {canConfirm && <p className="text-amber-600">Tap to confirm &amp; earn coins!</p>}
-              {data.hasConfirmed && <p className="text-green-600">You confirmed this</p>}
-              {data.isContributor && <p className="text-blue-600">You classified this</p>}
-              {data.contributions.map(c => (
-                <div key={c.id} className="flex items-center gap-1">
-                  <TrendingUp className="h-3 w-3 text-amber-500" />
-                  <span>{c.displayName || "User"}: {c.totalCoinsEarned} coins earned</span>
-                </div>
-              ))}
-            </div>
+          <TooltipContent>
+            <p className="text-xs">
+              {data?.hasConfirmed
+                ? "You confirmed this classification"
+                : canConfirm
+                  ? "Confirm this classification is correct"
+                  : "Complete the task to confirm"}
+            </p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

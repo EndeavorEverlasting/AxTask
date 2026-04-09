@@ -39,6 +39,7 @@ import { useTutorial } from "@/hooks/use-tutorial";
 import { useNotificationMode } from "@/hooks/use-notification-mode";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useCountUp } from "@/hooks/use-count-up";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { VoiceBarTrigger } from "@/components/voice-command-bar";
@@ -394,8 +395,14 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   const { user } = useAuth();
   return (
     <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shrink-0">
-      <Button variant="ghost" size="icon" className="h-10 w-10" onClick={onMenuOpen} aria-label="Open menu">
-        <Menu className="h-5 w-5" />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-12 w-12 min-h-[48px] min-w-[48px]"
+        onClick={onMenuOpen}
+        aria-label="Open menu"
+      >
+        <Menu className="h-6 w-6" />
       </Button>
       <h1 className="text-lg font-bold text-primary flex items-center">
         <CheckSquare className="mr-2 h-5 w-5" />
@@ -405,17 +412,21 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
         <Link
           href="/account"
           className={cn(
-            "inline-flex h-10 w-10 items-center justify-center rounded-full overflow-hidden shrink-0",
+            "inline-flex h-12 w-12 min-h-[48px] min-w-[48px] items-center justify-center rounded-full overflow-hidden shrink-0",
             "text-sm font-medium hover:bg-accent hover:text-accent-foreground",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           )}
           aria-label={`Account — ${user.displayName || user.email}`}
           title="Account"
         >
-          <AccountUserAvatar user={user} className="h-9 w-9 text-xs" />
+          <Avatar className="h-full w-full">
+            <AvatarFallback className="bg-primary text-primary-foreground text-base">
+              {(user.email || "?").charAt(0).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
         </Link>
       ) : (
-        <div className="w-10" />
+        <div className="h-12 w-12" />
       )}
     </div>
   );

@@ -223,61 +223,62 @@ export function ClassificationBadge({
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-72 p-2"
+        className="w-80 p-3"
         align="start"
         side="bottom"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
-          Classify to earn coins
-        </div>
-
         {activity.trim().length > 0 && (
-          <div className="px-2 pb-2 border-b border-gray-200/80 dark:border-gray-700/80 mb-2">
-            <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700/90 dark:text-amber-400/90 mb-1.5">
-              <Sparkles className="h-3 w-3" />
-              Suggested
+          <div className="mb-2 pb-2 border-b border-gray-200 dark:border-gray-700">
+            <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
+              AI Suggestions
             </div>
             {suggestionsQuery.isLoading && (
-              <p className="text-[11px] text-gray-500 dark:text-gray-400">Loading suggestions…</p>
+              <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1">Loading suggestions…</div>
             )}
             {suggestionsQuery.isError && (
-              <p className="text-[11px] text-gray-500 dark:text-gray-400">Suggestions unavailable offline.</p>
+              <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1">Suggestions unavailable offline.</div>
             )}
             {!suggestionsQuery.isLoading && !suggestionsQuery.isError && topSuggestions.length === 0 && (
-              <p className="text-[11px] text-gray-500 dark:text-gray-400">No alternate suggestions.</p>
+              <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1">No alternate suggestions.</div>
             )}
-            <div className="flex flex-wrap gap-1">
-              {topSuggestions.map((s, idx) => (
-                <Button
-                  key={`${s.label}-${s.source}-${idx}`}
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 text-[11px] px-2"
-                  disabled={reclassifyMutation.isPending}
-                  title={
-                    s.source === "nodeweaver"
-                      ? "Suggested by NodeWeaver"
-                      : s.source === "catalog"
-                        ? "Matches your category list"
-                        : "Suggested by AxTask classifier"
-                  }
-                  onClick={() => reclassifyMutation.mutate(s.label)}
-                >
-                  {s.label}
-                  <span className="ml-1 text-[9px] opacity-70 tabular-nums">
-                    {Math.round(s.confidence * 100)}%
-                  </span>
-                </Button>
-              ))}
-            </div>
+            {topSuggestions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {topSuggestions.map((s, idx) => (
+                  <Button
+                    key={`${s.label}-${s.source}-${idx}`}
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-8 text-xs px-3 min-w-[80px] hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-700 dark:hover:text-amber-400 hover:border-amber-300 dark:hover:border-amber-700"
+                    disabled={reclassifyMutation.isPending}
+                    title={
+                      s.source === "nodeweaver"
+                        ? "Suggested by NodeWeaver AI"
+                        : s.source === "catalog"
+                          ? "From your category list"
+                          : "Suggested by AxTask classifier"
+                    }
+                    onClick={() => reclassifyMutation.mutate(s.label)}
+                  >
+                    <Sparkles className="h-3 w-3 mr-1 opacity-60" />
+                    {s.label}
+                    <span className="ml-1.5 text-[10px] opacity-60 tabular-nums">
+                      {Math.round(s.confidence * 100)}%
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        <div className="max-h-56 overflow-y-auto space-y-0.5 pr-0.5">
+        <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
+          Your Categories
+        </div>
+        <div className="max-h-[240px] overflow-y-auto space-y-0.5">
           {categoriesQuery.isLoading && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 px-2 py-2">Loading categories…</p>
+            <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-2">Loading categories...</div>
           )}
           {!categoriesQuery.isLoading &&
             categoryRows.map((cat) => (
@@ -285,22 +286,23 @@ export function ClassificationBadge({
                 key={cat.label}
                 type="button"
                 disabled={isCurrent(cat.label) || reclassifyMutation.isPending}
-                className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-sm min-h-[36px] transition-colors ${
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm min-h-[40px] transition-colors ${
                   isCurrent(cat.label)
                     ? "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-default"
-                    : "hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300 cursor-pointer"
+                    : "hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300 cursor-pointer active:bg-gray-100 dark:active:bg-gray-700"
                 }`}
                 onClick={() => reclassifyMutation.mutate(cat.label)}
               >
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2.5">
                   <span
-                    className={`inline-block w-2.5 h-2.5 rounded-full ${getClassificationColor(cat.label).split(" ")[0]}`}
+                    className={`inline-block w-3 h-3 rounded-full ${getClassificationColor(cat.label).split(" ")[0]}`}
                   />
-                  {cat.label}
+                  <span className="font-medium">{cat.label}</span>
                 </span>
                 {coinsFor(cat.label) > 0 && !isCurrent(cat.label) && (
-                  <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                    <Coins className="h-3 w-3" />+{coinsFor(cat.label)}
+                  <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-semibold tabular-nums">
+                    <Coins className="h-3.5 w-3.5" />
+                    +{coinsFor(cat.label)}
                   </span>
                 )}
               </button>

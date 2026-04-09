@@ -11,7 +11,7 @@ import {
 const STORAGE_KEY = "axtask_sidebar_width_px";
 export const DEFAULT_SIDEBAR_WIDTH = 256;
 const MIN_OPEN_WIDTH = 200;
-const MAX_WIDTH_FRAC = 0.62;
+const MAX_WIDTH_FRAC = 0.38; // Changed from 0.62 to 0.38
 const SNAP_HIDE_PX = 56;
 const PEEK_STRIP_WIDTH = 28;
 

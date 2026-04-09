@@ -1624,6 +1624,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Task not found" });
       }
 
+      console.log(`[TASK UPDATE] Task ${req.params.id}: ${previousStatus} → ${task.status}`);
+
       if (validatedData.activity || validatedData.notes) {
         const allTasks = await storage.getTasks(userId);
         const priorityResult = await PriorityEngine.calculatePriority(
@@ -1648,11 +1650,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let coinReward = null;
       if (task!.status === "completed" && previousStatus !== "completed") {
+        console.log(`[COIN REWARD] Awarding coins for task ${task.id}`);
         coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
+        console.log(`[COIN REWARD] Result:`, coinReward);
+      } else {
+        console.log(`[COIN REWARD] Skipped: status=${task.status}, prev=${previousStatus}`);
       }
 
       res.json({ ...task, coinReward });
     } catch (error) {
+      console.error("[TASK UPDATE ERROR]", error);
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
       } else {
