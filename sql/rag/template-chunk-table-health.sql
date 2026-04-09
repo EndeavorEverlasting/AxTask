@@ -1,0 +1,16 @@
+-- Template: health check for a hypothetical document-chunk table after you add RAG migrations.
+-- Replace table_name, column names, and filters with your real schema.
+
+-- Uncomment and adapt:
+--
+-- SELECT
+--   COUNT(*) AS row_count,
+--   COUNT(*) FILTER (WHERE embedding IS NULL) AS missing_embedding,
+--   MIN(created_at) AS oldest_row,
+--   MAX(created_at) AS newest_row
+-- FROM rag_document_chunks;
+--
+-- Optional: approximate index usage (requires your embedding column + index names)
+-- SELECT indexname, indexdef
+-- FROM pg_indexes
+-- WHERE schemaname = 'public' AND tablename = 'rag_document_chunks';

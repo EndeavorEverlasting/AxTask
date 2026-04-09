@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { isScannerProbePath, normalizeUrlPath } from "./probe-sink";
+import {
+  classifyScannerProbeFamily,
+  isScannerProbePath,
+  normalizeUrlPath,
+} from "./probe-sink";
 
 describe("normalizeUrlPath", () => {
   it("collapses double slashes from logs", () => {
@@ -67,5 +71,20 @@ describe("isScannerProbePath", () => {
 
   it.each(notProbes)("does not treat %s as probe", (p) => {
     expect(isScannerProbePath(normalizeUrlPath(p))).toBe(false);
+  });
+});
+
+describe("classifyScannerProbeFamily", () => {
+  it.each([
+    ["/wp-admin/setup-config.php", "wordpress_wp_admin"],
+    ["/wordpress/wp-includes/wlwmanifest.xml", "wordpress_wlwmanifest"],
+    ["/news/wp-includes/wlwmanifest.xml", "wordpress_wlwmanifest"],
+    ["/xmlrpc.php", "wordpress_xmlrpc"],
+    ["/blog/xmlrpc.php", "wordpress_xmlrpc"],
+    ["/wp-login.php", "wordpress_wp_login"],
+    ["/wp-content/themes/foo/style.css", "wordpress_wp_content"],
+    ["/wordpress/wp-admin/install.php", "wordpress_prefix"],
+  ] as const)("classifies %s as %s", (path, family) => {
+    expect(classifyScannerProbeFamily(normalizeUrlPath(path))).toBe(family);
   });
 });

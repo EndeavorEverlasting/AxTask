@@ -1,6 +1,6 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { timingSafeEqual, createHash } from "crypto";
+import { timingSafeEqual } from "crypto";
 import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
@@ -67,6 +67,11 @@ import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
 import { verifyMfaChallengeOrTotp } from "./services/mfa-totp";
 import {
+  buildUserExportBundle,
+  buildImportChallenge,
+  runAccountImport,
+} from "./account-backup";
+import {
   buildTotpKeyUri,
   encryptTotpSecretBase32,
   generateTotpSecretBase32,
@@ -100,24 +105,7 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
 }
 
-function normalizeForFingerprint(value?: string | null): string {
-  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function computeTaskFingerprint(task: {
-  date?: string;
-  time?: string | null;
-  activity?: string | null;
-  notes?: string | null;
-}): string {
-  const base = [
-    normalizeForFingerprint(task.date || ""),
-    normalizeForFingerprint(task.time || ""),
-    normalizeForFingerprint(task.activity || ""),
-    normalizeForFingerprint(task.notes || ""),
-  ].join("|");
-  return createHash("sha256").update(base).digest("hex");
-}
+import { computeTaskFingerprint } from "./task-fingerprint";
 
 function getUploadSigningSecret(): string {
   return process.env.ATTACHMENT_UPLOAD_SECRET || process.env.SESSION_SECRET || "dev-upload-secret";
@@ -2995,6 +2983,143 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const DATA_EXPORT_STEP_UP_TTL_MS = 60 * 60 * 1000;
+
+  function requireDataExportStepUp(req: Request, res: Response, next: NextFunction) {
+    if (process.env.NODE_ENV !== "production") {
+      return next();
+    }
+    const exp = req.session.dataExportStepUp?.expiresAt;
+    if (typeof exp === "number" && exp > Date.now()) {
+      return next();
+    }
+    return res.status(403).json({ message: "Verify your email before downloading or importing a JSON backup" });
+  }
+
+  app.get("/api/account/data-export-step-up-status", requireAuth, async (req, res) => {
+    try {
+      const stepUpRequired = process.env.NODE_ENV === "production";
+      const exp = req.session.dataExportStepUp?.expiresAt;
+      const stepUpSatisfied =
+        !stepUpRequired || (typeof exp === "number" && exp > Date.now());
+      const expiresAt = typeof exp === "number" && exp > Date.now() ? exp : null;
+      res.json({ stepUpRequired, stepUpSatisfied, expiresAt });
+    } catch {
+      res.status(500).json({ message: "Failed to load verification status" });
+    }
+  });
+
+  app.post("/api/account/data-export-step-up", requireAuth, async (req, res) => {
+    try {
+      const { challengeId, code } = z
+        .object({
+          challengeId: z.string().min(1),
+          code: z.string().trim().length(6),
+        })
+        .parse(req.body);
+      const ok = await verifyMfaChallengeOrTotp(
+        req.user!.id,
+        challengeId,
+        code,
+        MFA_PURPOSES.ACCOUNT_DATA_EXPORT,
+      );
+      if (!ok) {
+        await appendSecurityEvent({
+          eventType: "mfa_verify_failed",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 403,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: { context: "account_data_export_step_up" },
+        });
+        return res.status(403).json({ message: "Invalid or expired code" });
+      }
+      req.session.dataExportStepUp = { expiresAt: Date.now() + DATA_EXPORT_STEP_UP_TTL_MS };
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
+      await appendSecurityEvent({
+        eventType: "account_data_export_step_up_ok",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to verify" });
+    }
+  });
+
+  app.get("/api/account/export", requireAuth, requireDataExportStepUp, async (req, res) => {
+    try {
+      const bundle = await buildUserExportBundle(req.user!.id);
+      await appendSecurityEvent({
+        eventType: "account_json_export",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: { taskCount: bundle.data.tasks?.length ?? 0 },
+      });
+      res.json(bundle);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to export account backup" });
+    }
+  });
+
+  app.post("/api/account/import/challenge", requireAuth, requireDataExportStepUp, async (req, res) => {
+    try {
+      const ch = buildImportChallenge(req.body?.bundle);
+      if (ch.message) {
+        return res.status(400).json(ch);
+      }
+      res.json(ch);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to build import challenge" });
+    }
+  });
+
+  app.post("/api/account/import", requireAuth, requireDataExportStepUp, async (req, res) => {
+    try {
+      const body = z
+        .object({
+          bundle: z.unknown(),
+          dryRun: z.boolean(),
+          importOwnershipAnswers: z
+            .array(
+              z.object({
+                questionId: z.string(),
+                selectedIndex: z.number().int(),
+              }),
+            )
+            .optional(),
+        })
+        .parse(req.body);
+      const result = await runAccountImport({
+        userId: req.user!.id,
+        bundle: body.bundle,
+        dryRun: body.dryRun,
+        importOwnershipAnswers: body.importOwnershipAnswers,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to import account backup" });
+    }
+  });
+
   app.get("/api/account/totp/status", requireAuth, async (req, res) => {
     try {
       const row = await getUserRowById(req.user!.id);
@@ -3184,7 +3309,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   }
 
-  app.get("/api/admin/users", requireAdmin, async (req, res) => {
+  const ADMIN_STEP_UP_TTL_MS = 60 * 60 * 1000;
+
+  function requireAdminStepUp(req: Request, res: Response, next: NextFunction) {
+    if (process.env.NODE_ENV !== "production") {
+      return next();
+    }
+    const exp = req.session.adminStepUp?.expiresAt;
+    if (typeof exp === "number" && exp > Date.now()) {
+      return next();
+    }
+    return res.status(403).json({ message: "Admin step-up required" });
+  }
+
+  app.get("/api/admin/step-up-status", requireAdmin, async (req, res) => {
+    try {
+      const stepUpRequired = process.env.NODE_ENV === "production";
+      const exp = req.session.adminStepUp?.expiresAt;
+      const stepUpSatisfied =
+        !stepUpRequired || (typeof exp === "number" && exp > Date.now());
+      const expiresAt = typeof exp === "number" && exp > Date.now() ? exp : null;
+      res.json({
+        stepUpRequired,
+        stepUpSatisfied,
+        expiresAt,
+      });
+    } catch {
+      res.status(500).json({ message: "Failed to load admin step-up status" });
+    }
+  });
+
+  app.post("/api/admin/step-up", requireAdmin, async (req, res) => {
+    try {
+      const { challengeId, code } = z
+        .object({
+          challengeId: z.string().min(1),
+          code: z.string().trim().length(6),
+        })
+        .parse(req.body);
+
+      const ok = await verifyMfaChallengeOrTotp(
+        req.user!.id,
+        challengeId,
+        code,
+        MFA_PURPOSES.ADMIN_STEP_UP,
+      );
+      if (!ok) {
+        await appendSecurityEvent({
+          eventType: "mfa_verify_failed",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 403,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: { context: "admin_step_up" },
+        });
+        return res.status(403).json({ message: "Invalid or expired code" });
+      }
+
+      req.session.adminStepUp = { expiresAt: Date.now() + ADMIN_STEP_UP_TTL_MS };
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
+      await appendSecurityEvent({
+        eventType: "admin_step_up_ok",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to complete admin step-up" });
+    }
+  });
+
+  app.get("/api/admin/users", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const userList = await getAllUsers();
       res.json(userList);
@@ -3193,7 +3397,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/users/:userId/ban", requireAdmin, async (req, res) => {
+  app.post("/api/admin/users/:userId/ban", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const { userId } = req.params;
       const { reason } = req.body;
@@ -3214,7 +3418,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/users/:userId/unban", requireAdmin, async (req, res) => {
+  app.post("/api/admin/users/:userId/unban", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const { userId } = req.params;
       const success = await unbanUser(userId, req.user!.id, req.ip);
@@ -3227,7 +3431,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/ban/:userId", requireAdmin, async (req, res) => {
+  app.post("/api/admin/ban/:userId", requireAdmin, requireAdminStepUp, async (req, res) => {
     const { userId } = req.params;
     const { reason } = req.body;
     if (!reason || typeof reason !== "string" || reason.trim().length < 3) {
@@ -3245,7 +3449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/unban/:userId", requireAdmin, async (req, res) => {
+  app.post("/api/admin/unban/:userId", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const { userId } = req.params;
       const success = await unbanUser(userId, req.user!.id, req.ip);
@@ -3256,7 +3460,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/security-logs", requireAdmin, async (req, res) => {
+  app.get("/api/admin/security-logs", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
       const logs = await getSecurityLogs(limit);
@@ -3266,7 +3470,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/security-events", requireAdmin, async (req, res) => {
+  app.get("/api/admin/security-events", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 200, 1000);
       const events = await getSecurityEvents(limit);
@@ -3276,7 +3480,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/security-alerts/analyze", requireAdmin, async (_req, res) => {
+  app.post("/api/admin/security-alerts/analyze", requireAdmin, requireAdminStepUp, async (_req, res) => {
     try {
       const result = await analyzeAndCreateSecurityAlerts();
       res.status(201).json(result);
@@ -3285,7 +3489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/security-alerts", requireAdmin, async (req, res) => {
+  app.get("/api/admin/security-alerts", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 200, 1000);
       const alerts = await getSecurityAlerts(limit);
@@ -3295,7 +3499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/feedback-inbox", requireAdmin, async (req, res) => {
+  app.get("/api/admin/feedback-inbox", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
       const items = await listFeedbackInbox(limit);
@@ -3305,7 +3509,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/analytics/overview", requireAdmin, async (_req, res) => {
+  app.get("/api/admin/analytics/overview", requireAdmin, requireAdminStepUp, async (_req, res) => {
     try {
       const users = await getAllUsers();
       const tasksByUser = await Promise.all(users.map((u) => storage.getTasks(u.id)));
@@ -3397,7 +3601,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/feedback-inbox/:feedbackEventId/review", requireAdmin, async (req, res) => {
+  app.post("/api/admin/feedback-inbox/:feedbackEventId/review", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const payload = z.object({ reviewed: z.boolean().default(true) }).parse(req.body || {});
       await appendSecurityEvent({
@@ -3420,7 +3624,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/feedback-inbox/review-bulk", requireAdmin, async (req, res) => {
+  app.post("/api/admin/feedback-inbox/review-bulk", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const payload = z.object({
         feedbackEventIds: z.array(z.string().min(1)).min(1).max(500),
@@ -3455,7 +3659,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/storage", requireAdmin, async (req, res) => {
+  app.get("/api/admin/storage", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const userId = typeof req.query.userId === "string" ? req.query.userId : req.user!.id;
       const [policy, usage] = await Promise.all([
@@ -3480,7 +3684,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/usage/capture", requireAdmin, async (req, res) => {
+  app.post("/api/admin/usage/capture", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const userId = typeof req.body?.userId === "string" ? req.body.userId : req.user!.id;
       await captureUsageSnapshot(userId);
@@ -3490,7 +3694,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/usage", requireAdmin, async (_req, res) => {
+  app.get("/api/admin/usage", requireAdmin, requireAdminStepUp, async (_req, res) => {
     try {
       const usage = await getUsageOverview();
       res.json(usage);
@@ -3499,7 +3703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/premium/retention", requireAdmin, async (req, res) => {
+  app.get("/api/admin/premium/retention", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const days = Math.min(Math.max(Number(req.query.days || 30), 7), 180);
       const metrics = await getPremiumRetentionMetrics(days);
@@ -3509,7 +3713,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/storage/retention-dry-run", requireAdmin, async (req, res) => {
+  app.post("/api/admin/storage/retention-dry-run", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const retentionDays = Number(req.body?.retentionDays || 90);
       const result = await runRetentionDryRun(req.user!.id, retentionDays);
@@ -3519,7 +3723,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/storage/attachment-retention-run", requireAdmin, async (req, res) => {
+  app.post("/api/admin/storage/attachment-retention-run", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const retentionDays = Number(req.body?.retentionDays || 90);
       const execute = Boolean(req.body?.execute);

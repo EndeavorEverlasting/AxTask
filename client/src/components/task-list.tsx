@@ -169,9 +169,9 @@ const SortableTaskRow = memo(function SortableTaskRow({
   };
 
   const flashClass = flash === "status"
-    ? "animate-[task-flash-status_0.4s_ease-out]"
+    ? "axtask-animate-task-flash-status"
     : flash === "priority"
-    ? "animate-[task-flash-priority_0.4s_ease-out]"
+    ? "axtask-animate-task-flash-priority"
     : "";
 
   const variants = reducedMotion ? rowVariantsReduced : rowVariants;

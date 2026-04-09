@@ -63,3 +63,7 @@ Trigger rollback if auth or task CRUD regression appears.
 - Keep Replit warm for 7 days.
 - No schema-breaking DB changes without rollback script.
 - Keep daily backup verification active.
+
+## 8) Migrating user data (Replit DB → Neon)
+
+For moving historical tasks and related data **into** the new primary database while preserving import dedupe and coin-ledger rules, use **JSON export/import** — see [DATA_MERGE_RUNBOOK.md](./DATA_MERGE_RUNBOOK.md). Avoid raw `COPY` of `wallets` / `coin_transactions` for production users.

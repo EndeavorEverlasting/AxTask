@@ -355,9 +355,17 @@
   100% { background-color: transparent; }
 }
 
+.axtask-animate-task-flash-status {
+  animation: task-flash-status 0.4s ease-out;
+}
+
+.axtask-animate-task-flash-priority {
+  animation: task-flash-priority 0.4s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-\\[task-flash-status_0\\.4s_ease-out\\],
-  .animate-\\[task-flash-priority_0\\.4s_ease-out\\] {
+  .axtask-animate-task-flash-status,
+  .axtask-animate-task-flash-priority {
     animation: none !important;
   }
 }
