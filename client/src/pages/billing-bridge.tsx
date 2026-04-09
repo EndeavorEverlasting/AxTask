@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getCsrfToken } from "@/lib/queryClient";
+import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -87,9 +88,14 @@ export default function BillingBridgePage() {
       fd.append("taskTracker", ttFile!);
       fd.append("roster", rbFile!);
       if (mwFile) fd.append("manager", mwFile);
+      const headers: Record<string, string> = {};
+      const csrfToken = getCsrfToken();
+      if (csrfToken) headers[AXTASK_CSRF_HEADER] = csrfToken;
+
       const res = await fetch("/api/billing-bridge/reconcile", {
         method: "POST",
         body: fd,
+        headers,
         credentials: "include",
       });
       if (!res.ok) throw new Error((await res.json()).message ?? res.statusText);
