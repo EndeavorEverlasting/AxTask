@@ -18,3 +18,14 @@ NodeWeaver._pre_submodule_backup/
 docs/AxTask_Migration_Master_Plan.md
 docs/AxTask_Robust_Hosting_Migration_Plan_*.docx
 .security/local-node-provenance.json
+
+
+
+# Corporate workflow source files (real workbooks with employee data)
+my_corporate_workflow_files/
+
+# Python billing bridge
+tools/billing_bridge/.venv/
+tools/billing_bridge/output/
+__pycache__/
+*.pyc

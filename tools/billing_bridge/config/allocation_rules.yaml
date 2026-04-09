@@ -1,0 +1,10 @@
+single_supported_category:
+  behavior: direct_full_day
+multi_supported_category:
+  behavior: require_review
+attendance_without_task:
+  behavior: exception
+task_without_attendance:
+  behavior: exception
+hours_cap:
+  source: attendance

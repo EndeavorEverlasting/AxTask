@@ -1,0 +1,17 @@
+[project]
+name = "axtask-billing-bridge"
+version = "0.1.0"
+description = "Excel-heavy billing reconciliation companion for AxTask"
+requires-python = ">=3.11"
+dependencies = [
+  "pandas>=2.2.2",
+  "openpyxl>=3.1.5",
+  "pyyaml>=6.0.2"
+]
+
+[project.scripts]
+billing-bridge = "billing_bridge.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

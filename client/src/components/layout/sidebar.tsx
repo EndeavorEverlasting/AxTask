@@ -31,6 +31,7 @@ import {
   Mail,
   Globe2,
   Gamepad2,
+  ClipboardCheck,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -151,6 +152,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
     { path: "/import-export", icon: Upload, label: "Import/Export" },
     { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
+    { path: "/billing-bridge", icon: ClipboardCheck, label: "Billing Bridge" },
     ...(user?.role === "admin" ? [{ path: "/admin", icon: Shield, label: "Security Admin" }] : []),
   ];
 

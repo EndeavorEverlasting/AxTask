@@ -27,7 +27,9 @@
     "test:watch": "vitest",
     "test:pg-schema": "cross-env RUN_PG_SCHEMA_TESTS=1 vitest run server/users-schema-pg.integration.test.ts",
     "db:push": "drizzle-kit push",
-    "db:push:ci": "drizzle-kit push --force"
+    "db:push:ci": "drizzle-kit push --force",
+    "postinstall": "node -e \"if(require('fs').existsSync('tools/billing_bridge/setup-python.mjs')){require('child_process').execSync('node tools/billing_bridge/setup-python.mjs',{stdio:'inherit'})}else{console.log('[billing-bridge] setup script not found, skipping')}\"",
+    "billing-bridge:setup": "node tools/billing_bridge/setup-python.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

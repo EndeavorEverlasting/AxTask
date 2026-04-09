@@ -40,6 +40,7 @@ import CommunityPage from "@/pages/community";
 import ExperienceConfirmPage from "@/pages/experience-confirm";
 import LoginPage from "@/pages/login";
 import ContactPage from "@/pages/contact";
+import BillingBridgePage from "@/pages/billing-bridge";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 import { Link } from "wouter";
@@ -67,6 +68,7 @@ function Router() {
       <Route path="/account" component={AccountPage} />
       <Route path="/appeals" component={AppealsPage} />
       <Route path="/contact" component={ContactPage} />
+      <Route path="/billing-bridge" component={BillingBridgePage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -178,6 +180,7 @@ const VALID_ROUTES = [
   "/account",
   "/appeals",
   "/contact",
+  "/billing-bridge",
 ];
 
 function useRoutePersistence() {

@@ -3756,6 +3756,235 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ════════════════════════════════════════════════════════════════════════
+  //  Billing Bridge routes (protected — invokes Python billing bridge CLI)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.use("/api/billing-bridge", apiLimiter);
+
+  app.post("/api/billing-bridge/run", requireAuth, async (req, res) => {
+    try {
+      const { spawn } = await import("child_process");
+      const path = await import("path");
+      const fs = await import("fs/promises");
+
+      const bridgeRoot = path.resolve(__dirname, "../tools/billing_bridge");
+      const configDir = path.join(bridgeRoot, "config");
+      const outDir = path.join(bridgeRoot, "output", `run_${Date.now()}`);
+
+      // Validate config files exist
+      const aliasPath = path.join(configDir, "person_aliases.csv");
+      const outwardPath = path.join(configDir, "outward_assignment_map.csv");
+      const sitePath = path.join(configDir, "site_map.csv");
+
+      for (const f of [aliasPath, outwardPath, sitePath]) {
+        try { await fs.access(f); } catch {
+          return res.status(400).json({ message: `Missing config file: ${f}` });
+        }
+      }
+
+      // Expect source file paths in request body
+      const { taskTracker, roster, manager, month } = req.body;
+      if (!taskTracker || !roster || !manager) {
+        return res.status(400).json({
+          message: "taskTracker, roster, and manager file paths are required",
+        });
+      }
+
+      const args = [
+        "-m", "billing_bridge.cli",
+        "audit",
+        "--task-tracker", taskTracker,
+        "--roster", roster,
+        "--manager", manager,
+        "--month", month || "Mar 26",
+        "--out", outDir,
+        "--alias-map", aliasPath,
+        "--outward-map", outwardPath,
+        "--site-map", sitePath,
+      ];
+
+      const pythonBin = process.env.BILLING_BRIDGE_PYTHON || "python";
+      const child = spawn(pythonBin, args, {
+        cwd: path.join(bridgeRoot, "src"),
+        env: { ...process.env },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
+      child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+
+      const exitCode = await new Promise<number>((resolve) => {
+        child.on("close", (code) => resolve(code ?? 1));
+      });
+
+      if (exitCode !== 0) {
+        return res.status(500).json({
+          message: "Billing bridge failed",
+          exitCode,
+          stderr: stderr.slice(0, 2000),
+          stdout: stdout.slice(0, 2000),
+        });
+      }
+
+      // Read output files and return as JSON
+      const outputFiles: Record<string, string> = {};
+      try {
+        const files = await fs.readdir(outDir);
+        for (const f of files) {
+          if (f.endsWith(".csv") || f.endsWith(".xlsx")) {
+            outputFiles[f] = path.join(outDir, f);
+          }
+        }
+      } catch {
+        // outDir may not exist if bridge wrote elsewhere
+      }
+
+      res.json({
+        message: "Billing bridge completed successfully",
+        exitCode: 0,
+        outputDir: outDir,
+        outputFiles,
+        stdout: stdout.slice(0, 5000),
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(500).json({ message: error.message });
+      res.status(500).json({ message: "Failed to run billing bridge" });
+    }
+  });
+
+  // Status / health check for billing bridge availability
+  app.get("/api/billing-bridge/status", requireAuth, async (_req, res) => {
+    try {
+      const path = await import("path");
+      const fs = await import("fs/promises");
+      const bridgeRoot = path.resolve(__dirname, "../tools/billing_bridge");
+
+      const checks = {
+        configExists: false,
+        cliExists: false,
+        pythonAvailable: false,
+      };
+
+      try { await fs.access(path.join(bridgeRoot, "config")); checks.configExists = true; } catch {}
+      try { await fs.access(path.join(bridgeRoot, "src/billing_bridge/cli.py")); checks.cliExists = true; } catch {}
+
+      const { execSync } = await import("child_process");
+      const pythonBin = process.env.BILLING_BRIDGE_PYTHON || "python";
+      try {
+        execSync(`${pythonBin} --version`, { timeout: 5000 });
+        checks.pythonAvailable = true;
+      } catch {}
+
+      res.json({
+        available: checks.configExists && checks.cliExists && checks.pythonAvailable,
+        ...checks,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to check billing bridge status" });
+    }
+  });
+
+  // ── Billing Bridge: In-app reconciliation preview ─────────────────────────
+  // Accepts uploaded workbooks, runs TS extractors + reconciliation,
+  // and returns full exception + contribution data as JSON.
+
+  const bridgeUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024 },
+  });
+
+  app.post(
+    "/api/billing-bridge/reconcile",
+    requireAuth,
+    bridgeUpload.fields([
+      { name: "taskTracker", maxCount: 1 },
+      { name: "roster", maxCount: 1 },
+      { name: "manager", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      try {
+        const fs = await import("fs");
+        const path = await import("path");
+        const os = await import("os");
+
+        const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+        if (!files?.taskTracker?.[0] || !files?.roster?.[0]) {
+          return res.status(400).json({ message: "taskTracker and roster files are required" });
+        }
+
+        // Write buffers to temp files so xlsx can read them
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "billing-bridge-"));
+        const ttPath = path.join(tmpDir, "task_tracker.xlsx");
+        const rbPath = path.join(tmpDir, "roster.xlsx");
+        const mwPath = files.manager?.[0] ? path.join(tmpDir, "manager.xlsx") : null;
+
+        fs.writeFileSync(ttPath, files.taskTracker[0].buffer);
+        fs.writeFileSync(rbPath, files.roster[0].buffer);
+        if (mwPath && files.manager?.[0]) {
+          fs.writeFileSync(mwPath, files.manager[0].buffer);
+        }
+
+        const { extractTaskTracker } = await import("./services/corporate-extractors/task-tracker-extractor");
+        const { extractRosterBilling } = await import("./services/corporate-extractors/roster-billing-extractor");
+        const { extractManagerWorkbook } = await import("./services/corporate-extractors/manager-workbook-extractor");
+        const { reconcile } = await import("./services/corporate-extractors/reconcile");
+        const { buildContributions } = await import("./services/corporate-extractors/contributions-engine");
+
+        const tt = extractTaskTracker(ttPath);
+        const rb = extractRosterBilling(rbPath);
+        const mw = mwPath ? extractManagerWorkbook(mwPath) : null;
+
+        const reconResult = reconcile({
+          task_evidence_daily: tt.task_evidence_daily,
+          task_evidence_event: tt.task_evidence_event,
+          attendance: rb.attendance,
+          billing_detail_existing: rb.billing_detail_existing,
+        });
+
+        const contribs = buildContributions({
+          task_evidence_daily: tt.task_evidence_daily,
+          task_evidence_event: tt.task_evidence_event,
+          attendance: rb.attendance,
+          billing_detail_existing: rb.billing_detail_existing,
+          manager_existing_rows: [
+            ...rb.manager_internal_existing,
+            ...(mw?.manager_existing_rows ?? []),
+          ],
+        });
+
+        // Clean up temp files
+        try {
+          fs.unlinkSync(ttPath);
+          fs.unlinkSync(rbPath);
+          if (mwPath) fs.unlinkSync(mwPath);
+          fs.rmdirSync(tmpDir);
+        } catch {}
+
+        res.json({
+          reconciliation: reconResult,
+          contributions: {
+            field_insights: contribs.field_insights,
+            experience_ledger: contribs.experience_ledger,
+            assignment_evidence: contribs.assignment_evidence,
+          },
+          people: rb.people,
+          attendance_count: rb.attendance.length,
+          ingest_errors: [
+            ...tt.errors.map(e => ({ ...e, workbook: "task_tracker" })),
+            ...rb.errors.map(e => ({ ...e, workbook: "roster" })),
+            ...(mw?.errors ?? []).map(e => ({ ...e, workbook: "manager" })),
+          ],
+        });
+      } catch (error) {
+        if (error instanceof Error) return res.status(500).json({ message: error.message });
+        res.status(500).json({ message: "Failed to run reconciliation" });
+      }
+    },
+  );
+
   const httpServer = createServer(app);
   return httpServer;
 }
