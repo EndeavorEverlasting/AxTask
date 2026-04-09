@@ -149,16 +149,21 @@ def main() -> None:
     parser.add_argument("--site-map", default="config/site_map.example.csv")
     args = parser.parse_args()
 
-    run_audit(
-        task_tracker=args.task_tracker,
-        roster=args.roster,
-        manager=args.manager,
-        out=args.out,
-        month=args.month,
-        alias_map_path=args.alias_map,
-        outward_map_path=args.outward_map,
-        site_map_path=args.site_map,
-    )
+    if args.command == "audit":
+        run_audit(
+            task_tracker=args.task_tracker,
+            roster=args.roster,
+            manager=args.manager,
+            out=args.out,
+            month=args.month,
+            alias_map_path=args.alias_map,
+            outward_map_path=args.outward_map,
+            site_map_path=args.site_map,
+        )
+    elif args.command == "export-bonita":
+        raise NotImplementedError("export-bonita command is not yet implemented")
+    else:
+        raise ValueError(f"Unknown command: {args.command}")
 
 
 if __name__ == "__main__":

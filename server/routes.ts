@@ -3783,7 +3783,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Expect source file paths in request body
+      // Expect source file paths in request body — sanitize against path traversal
       const { taskTracker, roster, manager, month } = req.body;
       if (!taskTracker || !roster || !manager) {
         return res.status(400).json({
@@ -3791,12 +3791,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Only allow filenames (no directory separators) and resolve against a fixed base dir
+      const allowedBaseDir = path.resolve(__dirname, "../my_corporate_workflow_files");
+      function safePath(input: string): string {
+        const basename = path.basename(input); // strip any directory components
+        const resolved = path.resolve(allowedBaseDir, basename);
+        if (!resolved.startsWith(allowedBaseDir + path.sep) && resolved !== allowedBaseDir) {
+          throw new Error(`Invalid file path: ${input}`);
+        }
+        return resolved;
+      }
+
+      let safeTaskTracker: string, safeRoster: string, safeManager: string;
+      try {
+        safeTaskTracker = safePath(taskTracker);
+        safeRoster = safePath(roster);
+        safeManager = safePath(manager);
+      } catch (err) {
+        return res.status(400).json({ message: err instanceof Error ? err.message : "Invalid file path" });
+      }
+
+      // Verify files actually exist
+      for (const fp of [safeTaskTracker, safeRoster, safeManager]) {
+        try { await fs.access(fp); } catch {
+          return res.status(400).json({ message: `File not found: ${path.basename(fp)}` });
+        }
+      }
+
       const args = [
         "-m", "billing_bridge.cli",
         "audit",
-        "--task-tracker", taskTracker,
-        "--roster", roster,
-        "--manager", manager,
+        "--task-tracker", safeTaskTracker,
+        "--roster", safeRoster,
+        "--manager", safeManager,
         "--month", month || "Mar 26",
         "--out", outDir,
         "--alias-map", aliasPath,
@@ -3905,6 +3932,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       { name: "manager", maxCount: 1 },
     ]),
     async (req, res) => {
+      let tmpDir: string | null = null;
+      let ttPath: string | null = null;
+      let rbPath: string | null = null;
+      let mwPath: string | null = null;
       try {
         const fs = await import("fs");
         const path = await import("path");
@@ -3916,10 +3947,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Write buffers to temp files so xlsx can read them
-        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "billing-bridge-"));
-        const ttPath = path.join(tmpDir, "task_tracker.xlsx");
-        const rbPath = path.join(tmpDir, "roster.xlsx");
-        const mwPath = files.manager?.[0] ? path.join(tmpDir, "manager.xlsx") : null;
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "billing-bridge-"));
+        ttPath = path.join(tmpDir, "task_tracker.xlsx");
+        rbPath = path.join(tmpDir, "roster.xlsx");
+        mwPath = files.manager?.[0] ? path.join(tmpDir, "manager.xlsx") : null;
 
         fs.writeFileSync(ttPath, files.taskTracker[0].buffer);
         fs.writeFileSync(rbPath, files.roster[0].buffer);
@@ -3955,14 +3986,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ],
         });
 
-        // Clean up temp files
-        try {
-          fs.unlinkSync(ttPath);
-          fs.unlinkSync(rbPath);
-          if (mwPath) fs.unlinkSync(mwPath);
-          fs.rmdirSync(tmpDir);
-        } catch {}
-
         res.json({
           reconciliation: reconResult,
           contributions: {
@@ -3981,6 +4004,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (error) {
         if (error instanceof Error) return res.status(500).json({ message: error.message });
         res.status(500).json({ message: "Failed to run reconciliation" });
+      } finally {
+        // Always clean up temp files — guard each removal to avoid masking original errors
+        try {
+          const fs = await import("fs");
+          for (const fp of [ttPath, rbPath, mwPath]) {
+            if (fp && fs.existsSync(fp)) {
+              try { fs.unlinkSync(fp); } catch {}
+            }
+          }
+          if (tmpDir && fs.existsSync(tmpDir)) {
+            try { fs.rmdirSync(tmpDir); } catch {}
+          }
+        } catch {}
       }
     },
   );

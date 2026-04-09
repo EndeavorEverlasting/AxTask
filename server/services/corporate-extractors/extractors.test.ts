@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 import { extractTaskTracker } from "./task-tracker-extractor";
 import { extractRosterBilling } from "./roster-billing-extractor";
 import { extractManagerWorkbook } from "./manager-workbook-extractor";
@@ -19,17 +20,20 @@ import type {
   ContributionsResult,
 } from "./types";
 
-const FILES_DIR = path.resolve(__dirname, "../../../my_corporate_workflow_files");
+const __dirname_esm = path.dirname(fileURLToPath(import.meta.url));
+const FILES_DIR = path.resolve(__dirname_esm, "../../../my_corporate_workflow_files");
 
 const TASK_TRACKER = path.join(FILES_DIR, "CANDIDATE_OR_Task_Tracker_exec_wins_with_geoff_4_8.xlsx");
 const ROSTER_BILLING = path.join(FILES_DIR, "Active_Roster_Log_4_9_2026_Billing.xlsx");
 const MANAGER_WB = path.join(FILES_DIR, "CANDIDATE_Neuron_Track_hours_with_Field_Insights_2026-04-09.xlsx");
 
+const FIXTURES_EXIST = fs.existsSync(TASK_TRACKER) && fs.existsSync(ROSTER_BILLING) && fs.existsSync(MANAGER_WB);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Task Tracker
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("extractTaskTracker", () => {
+describe.skipIf(!FIXTURES_EXIST)("extractTaskTracker", () => {
   let result: TaskTrackerResult;
 
   beforeAll(() => {
@@ -89,7 +93,7 @@ describe("extractTaskTracker", () => {
 // 2. Roster / Billing
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("extractRosterBilling", () => {
+describe.skipIf(!FIXTURES_EXIST)("extractRosterBilling", () => {
   let result: RosterBillingResult;
 
   beforeAll(() => {
@@ -149,7 +153,7 @@ describe("extractRosterBilling", () => {
 // 3. Manager Workbook
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("extractManagerWorkbook", () => {
+describe.skipIf(!FIXTURES_EXIST)("extractManagerWorkbook", () => {
   let result: ManagerWorkbookResult;
 
   beforeAll(() => {
@@ -184,7 +188,7 @@ describe("extractManagerWorkbook", () => {
 // 4. Reconciliation (cross-workbook)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("reconcile", () => {
+describe.skipIf(!FIXTURES_EXIST)("reconcile", () => {
   let result: ReconciliationResult;
 
   beforeAll(() => {
@@ -247,7 +251,7 @@ describe("reconcile", () => {
 // 5. Contributions engine (the missing tooth)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("buildContributions", () => {
+describe.skipIf(!FIXTURES_EXIST)("buildContributions", () => {
   let result: ContributionsResult;
 
   beforeAll(() => {

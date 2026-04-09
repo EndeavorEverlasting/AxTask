@@ -60,10 +60,24 @@ function computeHours(inStr: string, outStr: string): number | null {
   return Math.round((diff / 60) * 100) / 100;
 }
 
-// ── A. Live - Mar 2026 ──────────────────────────────────────────────────────
+// ── Helpers: dynamic sheet/year resolution ──────────────────────────────────
+
+/** Find a sheet matching a pattern like /^Live - / and extract year from its name. */
+function findSheet(wb: WB, prefix: RegExp): { name: string; year: number } | null {
+  const sheet = (wb.SheetNames || []).find((n: string) => prefix.test(n));
+  if (!sheet) return null;
+  const ym = sheet.match(/(\d{4})/);
+  const year = ym ? parseInt(ym[1], 10) : new Date().getFullYear();
+  return { name: sheet, year };
+}
+
+// ── A. Live - <Mon> <Year> ──────────────────────────────────────────────────
 
 function parseLiveAttendance(wb: WB, _errors: IngestError[]): AttendanceRow[] {
-  const SHEET = "Live - Mar 2026";
+  const found = findSheet(wb, /^Live\s*-/i);
+  if (!found) return [];
+  const SHEET = found.name;
+  const year = found.year;
   const rawHeaders = headerRow(wb, SHEET, 1);
   if (rawHeaders.length < 3) return [];
   const dayPairs: { date: string; inIdx: number; outIdx: number }[] = [];
@@ -73,7 +87,7 @@ function parseLiveAttendance(wb: WB, _errors: IngestError[]): AttendanceRow[] {
       /^((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2})/,
     );
     if (match) {
-      const dateStr = parseMMMDD(match[1], 2026);
+      const dateStr = parseMMMDD(match[1], year);
       if (dateStr) dayPairs.push({ date: dateStr, inIdx: c, outIdx: c + 1 });
     }
   }
@@ -144,10 +158,12 @@ function parseRoster(wb: WB): Person[] {
 }
 
 
-// ── C. Billing Detail - Mar 2026 ────────────────────────────────────────────
+// ── C. Billing Detail - <Mon> <Year> ────────────────────────────────────────
 
 function parseBillingDetail(wb: WB, _errors: IngestError[]): BillingDetailExisting[] {
-  const SHEET = "Billing Detail - Mar 2026";
+  const found = findSheet(wb, /^Billing Detail\s*-/i);
+  if (!found) return [];
+  const SHEET = found.name;
   const headers = headerRow(wb, SHEET, 2);
   if (headers.length === 0) return [];
   const col = (l: string) => findCol(headers, l);

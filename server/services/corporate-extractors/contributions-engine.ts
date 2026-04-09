@@ -38,8 +38,8 @@ const CATEGORY_KEYWORDS: [RegExp, ContributionCategory][] = [
   [/logistic|dispos|transport|deliver|pickup/i, "Logistics / Disposal"],
   [/document|survey|audit|report/i, "Documentation / Survey"],
   [/deploy|install|provision|setup|commission/i, "Deployment"],
-  [/production support|support|continuity|workflow/i, "Production Support"],
   [/workflow continuity|field continuity/i, "Workflow Continuity"],
+  [/production support|support|continuity|workflow/i, "Production Support"],
 ];
 
 function inferCategory(text: string): ContributionCategory {

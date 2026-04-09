@@ -10,6 +10,37 @@ import { fileURLToPath } from "url";
 const __filename_esm = fileURLToPath(import.meta.url);
 const __dirname_esm = path.dirname(__filename_esm);
 
+// ── CSV helper ───────────────────────────────────────────────────────────────
+
+/** Parse a single CSV line respecting double-quoted fields. */
+function parseCSVLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') {
+        current += '"';
+        i++; // skip escaped quote
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        current += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      fields.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  fields.push(current);
+  return fields;
+}
+
 // ── Person alias map ─────────────────────────────────────────────────────────
 // Loaded from shared CSV at tools/billing_bridge/config/person_aliases.csv
 // so both TS extractors and Python billing bridge use the same source of truth.
@@ -26,7 +57,7 @@ function loadAliasMap(): Record<string, string> {
     const lines = csv.split(/\r?\n/).filter(Boolean);
     // Skip header: alias_name,canonical_name,source_system
     for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(",");
+      const cols = parseCSVLine(lines[i]);
       if (cols.length >= 2) {
         const alias = cols[0].trim().toLowerCase();
         const canonical = cols[1].trim();

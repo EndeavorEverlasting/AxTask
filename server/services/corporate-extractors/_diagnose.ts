@@ -6,8 +6,10 @@ import { extractTaskTracker } from "./task-tracker-extractor";
 import { extractRosterBilling } from "./roster-billing-extractor";
 import { extractManagerWorkbook } from "./manager-workbook-extractor";
 import path from "path";
+import { fileURLToPath } from "url";
 
-const DIR = path.resolve(__dirname, "../../../my_corporate_workflow_files");
+const __dirname_esm = path.dirname(fileURLToPath(import.meta.url));
+const DIR = path.resolve(__dirname_esm, "../../../my_corporate_workflow_files");
 const tt = extractTaskTracker(path.join(DIR, "CANDIDATE_OR_Task_Tracker_exec_wins_with_geoff_4_8.xlsx"));
 const rb = extractRosterBilling(path.join(DIR, "Active_Roster_Log_4_9_2026_Billing.xlsx"));
 const mw = extractManagerWorkbook(path.join(DIR, "CANDIDATE_Neuron_Track_hours_with_Field_Insights_2026-04-09.xlsx"));

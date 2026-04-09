@@ -18,7 +18,14 @@ def build_exception_report(exceptions: pd.DataFrame) -> pd.DataFrame:
 
 def build_change_summary(allocations: pd.DataFrame) -> pd.DataFrame:
     if allocations.empty:
-        return pd.DataFrame([{"metric": "allocated_rows", "value": 0}])
+        return pd.DataFrame(
+            [
+                {"metric": "allocated_rows", "value": 0},
+                {"metric": "total_allocated_hours", "value": 0.0},
+                {"metric": "unique_techs", "value": 0},
+                {"metric": "unique_assignments", "value": 0},
+            ]
+        )
 
     return pd.DataFrame(
         [

@@ -32,10 +32,14 @@ if (!pythonBin) {
   process.exit(0);
 }
 
+// Skip entirely if requirements.txt is missing (e.g. Docker layer without source yet)
+if (!existsSync(REQ_FILE)) {
+  console.log("[billing-bridge] requirements.txt not found — skipping venv setup");
+  process.exit(0);
+}
+
 // Hash requirements to detect changes
-const reqHash = existsSync(REQ_FILE)
-  ? createHash("sha256").update(readFileSync(REQ_FILE)).digest("hex").slice(0, 16)
-  : "none";
+const reqHash = createHash("sha256").update(readFileSync(REQ_FILE)).digest("hex").slice(0, 16);
 
 const alreadyInstalled =
   existsSync(join(VENV_DIR, "pyvenv.cfg")) &&

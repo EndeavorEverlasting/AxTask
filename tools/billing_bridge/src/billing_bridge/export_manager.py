@@ -31,6 +31,8 @@ def replace_month_sheet(
     from openpyxl import load_workbook
 
     wb = load_workbook(workbook_path)
+    if month_sheet not in wb.sheetnames:
+        raise KeyError(f"Sheet '{month_sheet}' not found in workbook. Available: {wb.sheetnames}")
     ws = wb[month_sheet]
 
     start_row = 7  # adjust after inspecting real manager workbook conventions

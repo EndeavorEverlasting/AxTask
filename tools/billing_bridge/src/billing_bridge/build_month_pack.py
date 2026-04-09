@@ -367,7 +367,10 @@ def build_workbook(task_tracker: Path, roster: Path, month: str, components: set
     month_short = datetime(year, month_num, 1).strftime("%b")
 
     if "all" in components or "billing" in components:
-        source = wb["Billing Detail - Mar 2026"]
+        template_name = "Billing Detail - Mar 2026"
+        if template_name not in wb.sheetnames:
+            raise ValueError(f"Template sheet '{template_name}' not found in workbook. Available: {wb.sheetnames}")
+        source = wb[template_name]
         if f"Billing Detail - {month_full} {year}" in wb.sheetnames:
             wb.remove(wb[f"Billing Detail - {month_full} {year}"])
         detail_ws = wb.copy_worksheet(source)

@@ -19,10 +19,10 @@ import type {
   ReconciliationResult,
 } from "./types";
 
-type PersonDate = `${string}|${string}`; // "canonical_name|yyyy-mm-dd"
+type PersonDate = string; // "canonical_name\0yyyy-mm-dd"
 
 function key(name: string, date: string): PersonDate {
-  return `${name}|${date}` as PersonDate;
+  return `${name}\x00${date}`;
 }
 
 export function reconcile(params: {
@@ -59,7 +59,7 @@ export function reconcile(params: {
   // Rule 5: task evidence exists but no attendance
   for (const pd of evidenceDays) {
     if (!attendanceDays.has(pd)) {
-      const [name, date] = pd.split("|");
+      const [name, date] = pd.split("\x00");
       exceptions.push({
         work_date: date,
         canonical_name: name,
@@ -73,7 +73,7 @@ export function reconcile(params: {
   // Rule 6: attendance exists but no task evidence
   for (const pd of attendanceDays) {
     if (!evidenceDays.has(pd)) {
-      const [name, date] = pd.split("|");
+      const [name, date] = pd.split("\x00");
       exceptions.push({
         work_date: date,
         canonical_name: name,
@@ -101,7 +101,7 @@ export function reconcile(params: {
 
     const eventWorkstreams = eventDayCats.get(pd);
     if (!eventWorkstreams || eventWorkstreams.size < buckets.size) {
-      const [name, date] = pd.split("|");
+      const [name, date] = pd.split("\x00");
       exceptions.push({
         work_date: date,
         canonical_name: name,
@@ -119,7 +119,7 @@ export function reconcile(params: {
     if (!attendanceDays.has(pd)) continue; // already flagged as no-attendance
     const cats = eventDayCats.get(pd);
     if (cats && cats.size > 1) {
-      const [name, date] = pd.split("|");
+      const [name, date] = pd.split("\x00");
       exceptions.push({
         work_date: date,
         canonical_name: name,
