@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -76,6 +77,12 @@ export default function BillingBridgePage() {
   const [mwFile, setMwFile] = useState<File | null>(null);
   const [nameFilter, setNameFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [generateOptions, setGenerateOptions] = useState({
+    rosterLog: true,
+    taskTracker: true,
+    neuronTracker: true,
+    billingSummary: true,
+  });
 
   const statusQuery = useQuery({
     queryKey: ["billing-bridge-status"],
@@ -88,6 +95,7 @@ export default function BillingBridgePage() {
       fd.append("taskTracker", ttFile!);
       fd.append("roster", rbFile!);
       if (mwFile) fd.append("manager", mwFile);
+      fd.append("generateOptions", JSON.stringify(generateOptions));
       const headers: Record<string, string> = {};
       const csrfToken = getCsrfToken();
       if (csrfToken) headers[AXTASK_CSRF_HEADER] = csrfToken;
@@ -139,9 +147,9 @@ export default function BillingBridgePage() {
       <div className="flex items-center gap-3">
         <FileSpreadsheet className="h-7 w-7 text-primary" />
         <div>
-          <h1 className="text-2xl font-bold">Billing Bridge</h1>
+          <h1 className="text-2xl font-bold">Billing Bridge Conjuration Station</h1>
           <p className="text-sm text-muted-foreground">
-            Reconcile task evidence against attendance &amp; billing records
+            Feed the AxTask beast your earthly spreadsheets and watch the digital magic happen! We bend time, space, and billable hours to our will.
           </p>
         </div>
       </div>
@@ -149,24 +157,86 @@ export default function BillingBridgePage() {
       {/* Upload section */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Upload Workbooks</CardTitle>
+          <CardTitle className="text-lg">Summon the Truth</CardTitle>
           <CardDescription>
-            Upload your Task Tracker, Roster &amp; Billing, and optionally the Manager workbook.
+            Hand over your Task Tracker, Roster &amp; Billing, and the legendary Manager Workbook.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <FileInput label="Task Tracker *" file={ttFile} onFile={setTtFile} />
             <FileInput label="Roster & Billing *" file={rbFile} onFile={setRbFile} />
             <FileInput label="Manager Workbook" file={mwFile} onFile={setMwFile} />
           </div>
+
+          <div className="space-y-3 p-4 bg-muted/30 rounded-lg border border-border/50">
+            <Label className="text-base font-semibold text-foreground">What artifacts shall we conjure?</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+              <div className="flex items-start space-x-2">
+                <Checkbox
+                  id="rosterLog"
+                  checked={generateOptions.rosterLog}
+                  onCheckedChange={(checked) => setGenerateOptions(prev => ({...prev, rosterLog: !!checked}))}
+                />
+                <div className="grid gap-1.5 leading-none">
+                  <label htmlFor="rosterLog" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    Generate the active roster log
+                  </label>
+                  <p className="text-xs text-muted-foreground">The ultimate truth ledger</p>
+                </div>
+              </div>
+
+              <div className="flex items-start space-x-2">
+                <Checkbox
+                  id="taskTracker"
+                  checked={generateOptions.taskTracker}
+                  onCheckedChange={(checked) => setGenerateOptions(prev => ({...prev, taskTracker: !!checked}))}
+                />
+                <div className="grid gap-1.5 leading-none">
+                  <label htmlFor="taskTracker" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    Generate the task tracker
+                  </label>
+                  <p className="text-xs text-muted-foreground">The daily grind evidence</p>
+                </div>
+              </div>
+
+              <div className="flex items-start space-x-2">
+                <Checkbox
+                  id="neuronTracker"
+                  checked={generateOptions.neuronTracker}
+                  onCheckedChange={(checked) => setGenerateOptions(prev => ({...prev, neuronTracker: !!checked}))}
+                />
+                <div className="grid gap-1.5 leading-none">
+                  <label htmlFor="neuronTracker" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    Generate a neuron hour tracker
+                  </label>
+                  <p className="text-xs text-muted-foreground">Which is Bonita's log</p>
+                </div>
+              </div>
+
+              <div className="flex items-start space-x-2">
+                <Checkbox
+                  id="billingSummary"
+                  checked={generateOptions.billingSummary}
+                  onCheckedChange={(checked) => setGenerateOptions(prev => ({...prev, billingSummary: !!checked}))}
+                />
+                <div className="grid gap-1.5 leading-none">
+                  <label htmlFor="billingSummary" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    Generate just the billing summary
+                  </label>
+                  <p className="text-xs text-muted-foreground">Show me the money</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="flex items-center gap-3">
             <Button
               onClick={() => reconcileMutation.mutate()}
               disabled={!canRun || reconcileMutation.isPending}
             >
               {reconcileMutation.isPending ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Running…</>
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Conjuring…</>
               ) : (
                 <><Upload className="mr-2 h-4 w-4" />Run Reconciliation</>
               )}
