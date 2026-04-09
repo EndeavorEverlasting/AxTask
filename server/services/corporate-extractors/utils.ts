@@ -173,7 +173,8 @@ export function cellNum(row: unknown[], idx: number): number | null {
 
 /** Read a workbook from a file path (server-side, using fs). */
 export function readWorkbook(filePath: string): XLSX.WorkBook {
-  return XLSX.readFile(filePath, { cellDates: false, cellNF: false, cellText: false });
+  const buffer = fs.readFileSync(filePath);
+  return XLSX.read(buffer, { type: "buffer", cellDates: false, cellNF: false, cellText: false });
 }
 
 /**

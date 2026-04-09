@@ -352,13 +352,14 @@ describe.skipIf(!FIXTURES_EXIST)("buildContributions", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 6. Various Combinations (April Pack & Rich Updated Manager)
+// 6. Various Combinations (April Pack & Rich/Team Updated Manager)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ROSTER_APRIL_PACK = path.join(FILES_DIR, "CANDIDATE_Active_Roster_Log_4_9_2026_Billing_April_Pack.xlsx");
 const MANAGER_RICH = path.join(FILES_DIR, "CANDIDATE_Neuron_Track_hours_with_Field_Insights_2026-04-09_rich-updated.xlsx");
+const MANAGER_TEAM_MAR26 = path.join(FILES_DIR, "CANDIDATE_Neuron_Track_hours_with_Field_Insights_2026-04-09_mar26_team-updated.xlsx");
 
-const COMBINATION_FIXTURES_EXIST = fs.existsSync(TASK_TRACKER) && fs.existsSync(ROSTER_APRIL_PACK) && fs.existsSync(MANAGER_RICH);
+const COMBINATION_FIXTURES_EXIST = fs.existsSync(TASK_TRACKER) && fs.existsSync(ROSTER_APRIL_PACK) && fs.existsSync(MANAGER_RICH) && fs.existsSync(MANAGER_TEAM_MAR26);
 
 describe.skipIf(!COMBINATION_FIXTURES_EXIST)("Various Combinations", () => {
   it("reconciles successfully with April Pack roster and Rich updated manager workbook", () => {
@@ -375,6 +376,37 @@ describe.skipIf(!COMBINATION_FIXTURES_EXIST)("Various Combinations", () => {
 
     expect(result.summary).toBeDefined();
     expect(result.summary.total_attendance_days).toBeGreaterThan(0);
+
+    // Test contributions engine as well
+    const contribs = buildContributions({
+      task_evidence_daily: tt.task_evidence_daily,
+      task_evidence_event: tt.task_evidence_event,
+      attendance: rb.attendance,
+      billing_detail_existing: rb.billing_detail_existing,
+      manager_existing_rows: [
+        ...rb.manager_internal_existing,
+        ...mw.manager_existing_rows,
+      ],
+    });
+
+    expect(contribs.field_insights).toBeDefined();
+    expect(contribs.field_insights.length).toBeGreaterThan(0);
+  });
+
+  it("reconciles successfully with April Pack roster and Team mar26 updated manager workbook", () => {
+    const tt = extractTaskTracker(TASK_TRACKER);
+    const rb = extractRosterBilling(ROSTER_APRIL_PACK);
+    const mw = extractManagerWorkbook(MANAGER_TEAM_MAR26);
+
+    const result = reconcile({
+      task_evidence_daily: tt.task_evidence_daily,
+      task_evidence_event: tt.task_evidence_event,
+      attendance: rb.attendance,
+      billing_detail_existing: rb.billing_detail_existing,
+    });
+
+    expect(result.summary).toBeDefined();
+    expect(result.exceptions).toBeDefined();
 
     // Test contributions engine as well
     const contribs = buildContributions({
