@@ -25,13 +25,19 @@ describe("docker workflow assets", () => {
       "utf8",
     );
     expect(dockerfile).toContain("COPY --from=build /app/dist ./dist");
-    // Production CMD must run schema migration before the server starts
+    // Production CMD must run SQL migrations, then drizzle-kit push, then server
+    expect(dockerfile).toContain("node scripts/apply-migrations.mjs");
     expect(dockerfile).toContain("drizzle-kit push --force");
     expect(dockerfile).toContain("node dist/index.js");
-    // Ensure push comes BEFORE node (order matters)
+    // Ensure migrations → push → node (order matters)
+    const migrateIdx = dockerfile.indexOf("node scripts/apply-migrations.mjs");
     const pushIdx = dockerfile.indexOf("drizzle-kit push --force");
     const nodeIdx = dockerfile.indexOf("node dist/index.js");
+    expect(migrateIdx).toBeLessThan(pushIdx);
     expect(pushIdx).toBeLessThan(nodeIdx);
+    // Ensure migration files and runner are copied into the image
+    expect(dockerfile).toContain("COPY --from=build /app/migrations ./migrations");
+    expect(dockerfile).toContain("COPY --from=build /app/scripts/apply-migrations.mjs");
   });
 
   it("keeps docker npm scripts wired to .env.docker", () => {
