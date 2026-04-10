@@ -1759,7 +1759,7 @@ export async function getCompletedTaskCount(userId: string): Promise<number> {
 // ─── Usage + Storage Controls ────────────────────────────────────────────────
 const DEFAULT_STORAGE_POLICY = {
   maxTasks: Number(process.env.STORAGE_MAX_TASKS || 100000),
-  maxAttachmentBytes: Number(process.env.STORAGE_MAX_ATTACHMENT_BYTES || 50 * 1024 * 1024),
+  maxAttachmentBytes: Number(process.env.STORAGE_MAX_ATTACHMENT_BYTES || 15 * 1024 * 1024 * 1024),
   maxAttachmentCount: Number(process.env.STORAGE_MAX_ATTACHMENT_COUNT || 500),
   maxTaskRetentionDays: Number(process.env.STORAGE_MAX_TASK_RETENTION_DAYS || 3650),
   softWarningPercent: Number(process.env.STORAGE_SOFT_WARNING_PERCENT || 80),
@@ -1815,9 +1815,11 @@ export async function assertCanStoreAttachment(userId: string, byteSize: number)
     };
   }
   if (usage.attachmentBytes + byteSize > policy.maxAttachmentBytes) {
+    const limitGb = (policy.maxAttachmentBytes / (1024 * 1024 * 1024)).toFixed(1);
+    const usedGb = (usage.attachmentBytes / (1024 * 1024 * 1024)).toFixed(2);
     return {
       ok: false,
-      message: `Attachment storage limit reached (${policy.maxAttachmentBytes} bytes).`,
+      message: `Storage limit reached (${usedGb} GB of ${limitGb} GB used). Remove old attachments or contact support.`,
     };
   }
   return { ok: true };
@@ -1826,6 +1828,7 @@ export async function assertCanStoreAttachment(userId: string, byteSize: number)
 export async function createAttachmentAsset(input: {
   userId: string;
   kind?: string;
+  taskId?: string;
   fileName?: string;
   mimeType: string;
   byteSize: number;
@@ -1834,6 +1837,7 @@ export async function createAttachmentAsset(input: {
   const [asset] = await db.insert(attachmentAssets).values({
     id: randomUUID(),
     userId: input.userId,
+    taskId: input.taskId || null,
     kind: input.kind || "feedback",
     fileName: input.fileName || null,
     mimeType: input.mimeType,
@@ -1855,6 +1859,23 @@ export async function getAttachmentAssets(userId: string, kind?: string): Promis
     eq(attachmentAssets.userId, userId),
     sql`${attachmentAssets.deletedAt} IS NULL`,
   )).orderBy(desc(attachmentAssets.createdAt));
+}
+
+export async function getTaskAttachments(userId: string, taskId: string): Promise<AttachmentAsset[]> {
+  return db.select().from(attachmentAssets).where(and(
+    eq(attachmentAssets.userId, userId),
+    eq(attachmentAssets.taskId, taskId),
+    sql`${attachmentAssets.deletedAt} IS NULL`,
+  )).orderBy(desc(attachmentAssets.createdAt));
+}
+
+export async function linkAttachmentToTask(userId: string, assetId: string, taskId: string): Promise<AttachmentAsset | undefined> {
+  const [asset] = await db
+    .update(attachmentAssets)
+    .set({ taskId })
+    .where(and(eq(attachmentAssets.id, assetId), eq(attachmentAssets.userId, userId)))
+    .returning();
+  return asset;
 }
 
 export async function getAttachmentAssetById(userId: string, assetId: string): Promise<AttachmentAsset | undefined> {

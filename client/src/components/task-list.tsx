@@ -55,6 +55,42 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { benchmarkPretext, estimateTextLayout } from "@/lib/pretext-layout";
 
+/** Minimal inline markdown renderer — handles **bold**, *italic*, `code`, and - list items. */
+function renderMarkdownInline(text: string): React.ReactNode {
+  // Split by lines for list support
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isList = /^[-*]\s/.test(line.trim());
+    const content = isList ? line.trim().slice(2) : line;
+
+    // Inline formatting: **bold**, *italic*, `code`
+    const parts: React.ReactNode[] = [];
+    let remaining = content;
+    let key = 0;
+    const inlineRe = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/;
+    while (remaining) {
+      const m = inlineRe.exec(remaining);
+      if (!m) { parts.push(remaining); break; }
+      if (m.index > 0) parts.push(remaining.slice(0, m.index));
+      if (m[2]) parts.push(<strong key={key++}>{m[2]}</strong>);
+      else if (m[3]) parts.push(<em key={key++}>{m[3]}</em>);
+      else if (m[4]) parts.push(<code key={key++} className="px-1 py-0.5 bg-muted rounded text-[0.85em]">{m[4]}</code>);
+      remaining = remaining.slice(m.index + m[0].length);
+    }
+
+    if (isList) {
+      elements.push(<span key={`l${i}`} className="block pl-3">• {parts}</span>);
+    } else {
+      if (i > 0) elements.push(<br key={`br${i}`} />);
+      elements.push(<span key={`s${i}`}>{parts}</span>);
+    }
+  }
+  return <>{elements}</>;
+}
+
 type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'manual';
 type SortDirection = 'asc' | 'desc';
 
@@ -217,8 +253,8 @@ const SortableTaskRow = memo(function SortableTaskRow({
       <TableCell className="max-w-md">
         <div className="truncate">{task.activity}</div>
         {task.notes && (
-          <div className="text-xs text-gray-500 dark:text-gray-400 truncate mt-1">
-            {task.notes}
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+            {renderMarkdownInline(task.notes)}
           </div>
         )}
         <div className="mt-1 text-[10px] text-gray-400">
@@ -509,7 +545,7 @@ function MobileTaskCard({
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 line-clamp-2">{task.activity}</p>
             {task.notes && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 mt-1">{task.notes}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-1">{renderMarkdownInline(task.notes)}</p>
             )}
           </div>
           <PriorityBadge priority={task.priority} />

@@ -13,7 +13,7 @@ import {
   logSecurityEvent, getSecurityLogs,
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
-  assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage,
+  assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachments, linkAttachmentToTask,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
   listBillingPaymentMethodsForUser, createBillingPaymentMethod,
@@ -95,7 +95,7 @@ import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
 import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./services/usage-service";
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
-import { writeAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
+import { writeAttachmentObject, readAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
 import { classifyWithFallback } from "./services/classification/universal-classifier";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
@@ -2603,6 +2603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     mimeType: z.string().min(3).max(128),
     byteSize: z.number().int().positive().max(10 * 1024 * 1024),
     kind: z.string().min(2).max(40).default("feedback"),
+    taskId: z.string().optional(),
   });
 
   const feedbackProcessSchema = z.object({
@@ -2621,6 +2622,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tempAsset = await createAttachmentAsset({
         userId: req.user!.id,
         kind: payload.kind,
+        taskId: payload.taskId,
         fileName: payload.fileName,
         mimeType: payload.mimeType,
         byteSize: payload.byteSize,
@@ -2799,6 +2801,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(assets);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch attachments" });
+    }
+  });
+
+  // ── Task attachment endpoints ─────────────────────────────────────────────
+
+  app.get("/api/tasks/:taskId/attachments", requireAuth, async (req, res) => {
+    try {
+      const assets = await getTaskAttachments(req.user!.id, req.params.taskId);
+      res.json(assets);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch task attachments" });
+    }
+  });
+
+  app.post("/api/tasks/:taskId/attachments/link", requireAuth, async (req, res) => {
+    try {
+      const { assetId } = z.object({ assetId: z.string().min(1) }).parse(req.body);
+      const linked = await linkAttachmentToTask(req.user!.id, assetId, req.params.taskId);
+      if (!linked) return res.status(404).json({ message: "Attachment not found" });
+      res.json(linked);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to link attachment to task" });
+    }
+  });
+
+  app.get("/api/attachments/:assetId/download", requireAuth, async (req, res) => {
+    try {
+      const asset = await getAttachmentAssetById(req.user!.id, req.params.assetId);
+      if (!asset) return res.status(404).json({ message: "Attachment not found" });
+      const meta = asset.metadataJson ? JSON.parse(asset.metadataJson) : {};
+      const storageKey = asset.storageKey || meta.storageKey;
+      if (!storageKey) return res.status(404).json({ message: "No storage key for attachment" });
+      const bytes = await readAttachmentObject(storageKey);
+      if (!bytes) return res.status(404).json({ message: "Attachment file not found" });
+      res.setHeader("Content-Type", asset.mimeType || "application/octet-stream");
+      res.setHeader("Content-Disposition", `inline; filename="${(asset.fileName || "download").replace(/"/g, "_")}"`);
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      res.send(bytes);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to download attachment" });
     }
   });
 

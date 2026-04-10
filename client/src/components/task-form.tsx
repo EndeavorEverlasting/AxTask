@@ -3,7 +3,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
-import { apiFetch } from "@/lib/queryClient";
+import { apiFetch, apiRequest, getCsrfToken } from "@/lib/queryClient";
+import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import {
   syncCreateTask,
   syncUpdateTask,
@@ -32,7 +33,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PriorityBadge } from "./priority-badge";
 import { ClockTimePicker } from "@/components/ui/clock-time-picker";
-import { Plus, CalendarIcon, Lightbulb, Save, Sparkles } from "lucide-react";
+import { Plus, CalendarIcon, Lightbulb, Save, Sparkles, ImagePlus, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, parse } from "date-fns";
 import { useFieldFlow } from "@/hooks/use-field-flow";
@@ -101,6 +102,61 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   } | null>(null);
   const [suggestionDismissed, setSuggestionDismissed] = useState(false);
   const liveClassificationPushRef = useRef<(activity: string, notes: string) => void>(() => {});
+
+  // ── Image attachments ──────────────────────────────────────────────────────
+  type TaskAttachment = { assetId: string; fileName: string; mimeType: string; uploading?: boolean };
+  const [taskAttachments, setTaskAttachments] = useState<TaskAttachment[]>([]);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = useCallback(async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Only images are supported", variant: "destructive" });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "Image must be under 10 MB", variant: "destructive" });
+      return;
+    }
+    const placeholder: TaskAttachment = { assetId: "uploading", fileName: file.name, mimeType: file.type, uploading: true };
+    setTaskAttachments((prev) => [...prev, placeholder]);
+    try {
+      const uploadUrlRes = await apiRequest("POST", "/api/attachments/upload-url", {
+        fileName: file.name,
+        mimeType: file.type,
+        byteSize: file.size,
+        kind: "task",
+        taskId: task?.id,
+      });
+      const { assetId, uploadUrl } = await uploadUrlRes.json() as { assetId: string; uploadUrl: string };
+      const headers: Record<string, string> = { "Content-Type": file.type };
+      const csrf = getCsrfToken();
+      if (csrf) headers[AXTASK_CSRF_HEADER] = csrf;
+      const putRes = await fetch(uploadUrl, { method: "PUT", headers, body: file, credentials: "include" });
+      if (!putRes.ok) throw new Error("Upload failed");
+      setTaskAttachments((prev) => prev.map((a) => a === placeholder ? { assetId, fileName: file.name, mimeType: file.type } : a));
+    } catch {
+      setTaskAttachments((prev) => prev.filter((a) => a !== placeholder));
+      toast({ title: "Failed to upload image", variant: "destructive" });
+    }
+  }, [task?.id, toast]);
+
+  const removeAttachment = useCallback(async (assetId: string) => {
+    try {
+      await apiRequest("DELETE", `/api/attachments/${assetId}`);
+    } catch { /* ignore */ }
+    setTaskAttachments((prev) => prev.filter((a) => a.assetId !== assetId));
+  }, []);
+
+  // Load existing attachments for edit mode
+  useEffect(() => {
+    if (!task?.id) return;
+    fetch(`/api/tasks/${task.id}/attachments`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : [])
+      .then((assets: Array<{ id: string; fileName: string; mimeType: string }>) => {
+        setTaskAttachments(assets.map((a) => ({ assetId: a.id, fileName: a.fileName || "image", mimeType: a.mimeType })));
+      })
+      .catch(() => {});
+  }, [task?.id]);
 
   const collab = useCollaboration(task?.id ?? null);
   const isEditing = !!task;
@@ -290,8 +346,8 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       }
       return syncCreateTask(taskData, queryClient, user?.id ?? "");
     },
-    onSuccess: (data: unknown) => {
-      const d = data as { offlineQueued?: boolean; classificationReward?: unknown; coinReward?: unknown };
+    onSuccess: async (data: unknown) => {
+      const d = data as { id?: string; offlineQueued?: boolean; classificationReward?: unknown; coinReward?: unknown };
       if (d?.offlineQueued) {
         toast({
           title: "Saved offline",
@@ -311,9 +367,22 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
             status: "pending",
           });
           clearDraft(draftKey);
+          setTaskAttachments([]);
         }
         onSuccess?.();
         return;
+      }
+
+      // Link any unlinked attachments to the newly created task
+      const createdTaskId = d?.id || task?.id;
+      if (createdTaskId && taskAttachments.length > 0) {
+        for (const att of taskAttachments) {
+          if (att.assetId && att.assetId !== "uploading") {
+            try {
+              await apiRequest("POST", `/api/tasks/${createdTaskId}/attachments/link`, { assetId: att.assetId });
+            } catch { /* best-effort */ }
+          }
+        }
       }
 
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
@@ -356,6 +425,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
           status: "pending",
         });
         clearDraft(draftKey);
+        setTaskAttachments([]);
       }
       onSuccess?.();
     },
@@ -886,15 +956,15 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   name="notes"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Notes</FormLabel>
+                      <FormLabel>Notes <span className="text-xs text-muted-foreground font-normal ml-1">Supports **bold**, *italic*, `code`, and - lists</span></FormLabel>
                       <FormControl>
                         <div className="flex gap-2 items-start">
                           <div className="relative flex-1">
                             <Textarea
                               rows={3}
-                              placeholder="Add detailed notes, tags (@urgent, #blocker), or dictate with mic..."
+                              placeholder="Add detailed notes with **markdown**, tags (@urgent, #blocker), or dictate with mic..."
                               {...field}
-                              className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full")}
+                              className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full font-mono text-sm")}
                               style={getCollabFieldColor("notes") ? { "--tw-ring-color": getCollabFieldColor("notes") } as React.CSSProperties : undefined}
                               onFocus={() => { setVoiceTarget("notes"); collab.focusField("notes"); }}
                               onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); collab.blurField(); }}
@@ -910,18 +980,76 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               </span>
                             )}
                           </div>
-                          <MicButton
-                            status={voiceTarget === "notes" ? speech.status : "idle"}
-                            isSupported={speech.isSupported}
-                            onClick={() => {
-                              setVoiceTarget("notes");
-                              speech.toggle();
-                            }}
-                            error={speech.error}
-                            className="mt-1"
-                          />
+                          <div className="flex flex-col gap-1">
+                            <MicButton
+                              status={voiceTarget === "notes" ? speech.status : "idle"}
+                              isSupported={speech.isSupported}
+                              onClick={() => {
+                                setVoiceTarget("notes");
+                                speech.toggle();
+                              }}
+                              error={speech.error}
+                              className="mt-1"
+                            />
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-9 w-9"
+                                    onClick={() => imageInputRef.current?.click()}
+                                  >
+                                    <ImagePlus className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Attach image</TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            <input
+                              ref={imageInputRef}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageUpload(file);
+                                e.target.value = "";
+                              }}
+                            />
+                          </div>
                         </div>
                       </FormControl>
+                      {/* Attachment thumbnails */}
+                      {taskAttachments.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {taskAttachments.map((att, idx) => (
+                            <div key={att.assetId + idx} className="relative group w-16 h-16 rounded-md overflow-hidden border bg-muted">
+                              {att.uploading ? (
+                                <div className="flex items-center justify-center w-full h-full">
+                                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                                </div>
+                              ) : (
+                                <img
+                                  src={`/api/attachments/${att.assetId}/download`}
+                                  alt={att.fileName}
+                                  className="w-full h-full object-cover"
+                                />
+                              )}
+                              {!att.uploading && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeAttachment(att.assetId)}
+                                  className="absolute top-0 right-0 bg-black/60 text-white rounded-bl p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {voiceTarget === "notes" && speech.interimTranscript && (
                         <p className="text-xs text-muted-foreground italic mt-1 animate-pulse">
                           {speech.interimTranscript}

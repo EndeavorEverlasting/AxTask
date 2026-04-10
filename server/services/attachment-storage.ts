@@ -26,6 +26,16 @@ export async function writeAttachmentObject(storageKey: string, bytes: Buffer): 
   return targetPath;
 }
 
+export async function readAttachmentObject(storageKey: string): Promise<Buffer | null> {
+  const baseDir = resolveStorageDir();
+  const targetPath = safeJoin(baseDir, storageKey);
+  try {
+    return await fs.readFile(targetPath);
+  } catch {
+    return null;
+  }
+}
+
 export async function deleteAttachmentObject(storageKey: string): Promise<void> {
   const baseDir = resolveStorageDir();
   const targetPath = safeJoin(baseDir, storageKey);

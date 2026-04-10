@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, bigint, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -524,7 +524,7 @@ export const storagePolicies = pgTable("storage_policies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }),
   maxTasks: integer("max_tasks").notNull().default(100000),
-  maxAttachmentBytes: integer("max_attachment_bytes").notNull().default(50 * 1024 * 1024),
+  maxAttachmentBytes: bigint("max_attachment_bytes", { mode: "number" }).notNull().default(15 * 1024 * 1024 * 1024),
   maxAttachmentCount: integer("max_attachment_count").notNull().default(500),
   maxTaskRetentionDays: integer("max_task_retention_days").notNull().default(3650),
   softWarningPercent: integer("soft_warning_percent").notNull().default(80),
@@ -539,6 +539,7 @@ export type StoragePolicy = typeof storagePolicies.$inferSelect;
 export const attachmentAssets = pgTable("attachment_assets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  taskId: varchar("task_id").references(() => tasks.id, { onDelete: "set null" }),
   kind: text("kind").notNull().default("feedback"),
   fileName: text("file_name"),
   mimeType: text("mime_type").notNull(),
@@ -550,6 +551,7 @@ export const attachmentAssets = pgTable("attachment_assets", {
 }, (table) => [
   index("idx_attachment_assets_user").on(table.userId),
   index("idx_attachment_assets_kind").on(table.kind),
+  index("idx_attachment_assets_task").on(table.taskId),
 ]);
 
 export type AttachmentAsset = typeof attachmentAssets.$inferSelect;
