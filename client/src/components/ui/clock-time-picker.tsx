@@ -1,7 +1,11 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Clock, Sparkles } from "lucide-react";
 import { wrapTextToLines } from "@/lib/pretext-layout";
 
@@ -229,6 +233,20 @@ export function ClockTimePicker({
 
   const handleMinuteSelect = (m: number) => {
     setMinute(m);
+    // Auto-submit when a minute is picked
+    emit(hour, m, period);
+    setOpen(false);
+    setMode("hour");
+  };
+
+  const handlePeriodToggle = (p: Period) => {
+    setPeriod(p);
+    // Auto-submit when AM/PM is toggled (if we already have an hour+minute)
+    if (mode === "minute" || value) {
+      emit(hour, minute, p);
+      setOpen(false);
+      setMode("hour");
+    }
   };
 
   const handleConfirm = () => {
@@ -246,82 +264,82 @@ export function ClockTimePicker({
   const displayTime = value ? `${hour}:${pad(minute)} ${period}` : undefined;
 
   return (
-    <Popover
-      modal
-      open={open}
-      onOpenChange={(o) => {
-        setOpen(o);
-        if (o) {
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={disabled}
+        className={cn(
+          "w-full pl-3 text-left font-normal justify-start border-dashed hover:border-primary/40 hover:bg-violet-500/5 dark:hover:bg-violet-500/10 transition-colors",
+          !value && "text-muted-foreground",
+          className,
+        )}
+        onClick={() => {
+          setOpen(true);
           setMode("hour");
           syncFromValue();
-        }
-      }}
-    >
-      <PopoverTrigger asChild disabled={disabled}>
-        <Button
-          variant="outline"
-          className={cn(
-            "w-full pl-3 text-left font-normal justify-start border-dashed hover:border-primary/40 hover:bg-violet-500/5 dark:hover:bg-violet-500/10 transition-colors",
-            !value && "text-muted-foreground",
-            className,
-          )}
-        >
-          <Clock className="mr-2 h-4 w-4 opacity-70 text-violet-500 dark:text-violet-400" />
-          {displayTime ?? placeholder}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-auto max-w-[min(18rem,calc(100vw-2rem))] p-0 overflow-hidden border-violet-200/70 dark:border-violet-900/50 shadow-xl"
-        align="start"
+        }}
       >
-        <div className="bg-gradient-to-br from-violet-500/10 via-background to-amber-500/10 dark:from-violet-950/40 dark:via-background dark:to-amber-950/25 px-4 pt-3 pb-2 border-b border-border/60">
-          <div className="flex items-center gap-1.5 text-violet-600 dark:text-violet-300 mb-1">
-            <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            <span className="text-[10px] font-semibold uppercase tracking-widest">Chrono nook</span>
-          </div>
-          {taglineLines.map((line, i) => (
-            <p key={i} className="text-[10px] leading-snug text-muted-foreground italic">
-              {line}
-            </p>
-          ))}
-        </div>
+        <Clock className="mr-2 h-4 w-4 opacity-70 text-violet-500 dark:text-violet-400" />
+        {displayTime ?? placeholder}
+      </Button>
 
-        <div className="p-4 pt-3">
-          <div className="flex items-center justify-between mb-1 gap-2">
-            <div className="flex items-baseline gap-1 text-2xl font-bold tracking-tight font-mono tabular-nums">
+      <Dialog open={open} onOpenChange={(o) => { if (!o) handleCancel(); }}>
+        <DialogContent
+          hideCloseButton
+          className="flex flex-col items-center justify-center w-[100vw] max-w-none h-[100dvh] max-h-none m-0 p-0 border-0 rounded-none bg-gradient-to-br from-violet-950/95 via-slate-950 to-indigo-950/95 sm:rounded-none"
+        >
+          <DialogTitle className="sr-only">Select time</DialogTitle>
+
+          {/* header */}
+          <div className="text-center pt-6 pb-2 px-4">
+            <div className="flex items-center justify-center gap-1.5 text-violet-300 mb-2">
+              <Sparkles className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="text-xs font-semibold uppercase tracking-widest">Chrono nook</span>
+            </div>
+            {taglineLines.map((line, i) => (
+              <p key={i} className="text-xs leading-snug text-slate-400 italic">
+                {line}
+              </p>
+            ))}
+          </div>
+
+          {/* digital display + AM/PM */}
+          <div className="flex items-center justify-center gap-3 px-6">
+            <div className="flex items-baseline gap-1 text-4xl sm:text-5xl font-bold tracking-tight font-mono tabular-nums">
               <button
                 type="button"
                 onClick={() => setMode("hour")}
                 className={cn(
-                  "px-2 py-1 rounded-lg transition-all duration-200",
+                  "px-3 py-2 rounded-xl transition-all duration-200",
                   mode === "hour"
-                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-[1.02]"
-                    : "hover:bg-muted text-muted-foreground hover:text-foreground",
+                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30 scale-[1.02]"
+                    : "hover:bg-white/10 text-slate-400 hover:text-white",
                 )}
               >
                 {pad(hour === 0 ? 12 : hour)}
               </button>
-              <span className="text-muted-foreground animate-pulse">:</span>
+              <span className="text-slate-500 animate-pulse">:</span>
               <button
                 type="button"
                 onClick={() => setMode("minute")}
                 className={cn(
-                  "px-2 py-1 rounded-lg transition-all duration-200",
+                  "px-3 py-2 rounded-xl transition-all duration-200",
                   mode === "minute"
-                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 scale-[1.02]"
-                    : "hover:bg-muted text-muted-foreground hover:text-foreground",
+                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30 scale-[1.02]"
+                    : "hover:bg-white/10 text-slate-400 hover:text-white",
                 )}
               >
                 {pad(minute)}
               </button>
             </div>
-            <div className="flex flex-col gap-0.5 shrink-0">
+            <div className="flex flex-col gap-1 shrink-0">
               <Button
                 type="button"
                 size="sm"
                 variant={period === "AM" ? "default" : "outline"}
-                className="h-7 text-[10px] px-2.5 font-bold"
-                onClick={() => setPeriod("AM")}
+                className={cn("h-9 text-xs px-4 font-bold", period !== "AM" && "border-slate-600 text-slate-300 hover:bg-white/10")}
+                onClick={() => handlePeriodToggle("AM")}
               >
                 AM
               </Button>
@@ -329,15 +347,16 @@ export function ClockTimePicker({
                 type="button"
                 size="sm"
                 variant={period === "PM" ? "default" : "outline"}
-                className="h-7 text-[10px] px-2.5 font-bold"
-                onClick={() => setPeriod("PM")}
+                className={cn("h-9 text-xs px-4 font-bold", period !== "PM" && "border-slate-600 text-slate-300 hover:bg-white/10")}
+                onClick={() => handlePeriodToggle("PM")}
               >
                 PM
               </Button>
             </div>
           </div>
 
-          <div className="flex justify-center -mx-1">
+          {/* clock face — centered and large */}
+          <div className="flex justify-center py-2">
             <ClockFace
               mode={mode}
               selected={mode === "hour" ? hour : minute}
@@ -345,41 +364,38 @@ export function ClockTimePicker({
             />
           </div>
 
+          {/* quip bubble */}
           <div
             className={cn(
-              "mt-1 rounded-2xl border px-3 py-2.5 relative",
-              "border-violet-200/90 bg-gradient-to-b from-violet-50/95 to-amber-50/40",
-              "dark:border-violet-800/70 dark:from-violet-950/55 dark:to-amber-950/25",
+              "mx-6 max-w-xs rounded-2xl border px-4 py-3 relative",
+              "border-violet-500/30 bg-violet-950/40",
               "shadow-inner shadow-violet-500/5",
             )}
           >
-            <div
-              className="absolute -top-2 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 border-l border-t border-violet-200/90 bg-violet-50/95 dark:border-violet-800 dark:bg-violet-950/55"
-              aria-hidden
-            />
-            <p className="text-[9px] font-semibold uppercase tracking-wider text-violet-600/90 dark:text-violet-400 mb-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-400 mb-1">
               {mode === "hour" ? "Hour whispers" : "Minute musings"}
             </p>
             {captionLines.map((line, i) => (
               <p
                 key={i}
-                className="text-[11px] leading-relaxed text-violet-950/90 dark:text-violet-100/95 font-medium"
+                className="text-xs leading-relaxed text-violet-100/90 font-medium"
               >
                 {line}
               </p>
             ))}
           </div>
 
-          <div className="flex justify-end gap-2 pt-3 mt-2 border-t border-border/60">
-            <Button type="button" variant="outline" size="sm" onClick={handleCancel}>
+          {/* action buttons */}
+          <div className="flex justify-center gap-3 pt-3 pb-6 px-6">
+            <Button type="button" variant="outline" size="lg" onClick={handleCancel} className="border-slate-600 text-slate-300 hover:bg-white/10 px-8">
               Cancel
             </Button>
-            <Button type="button" size="sm" onClick={handleConfirm}>
+            <Button type="button" size="lg" onClick={handleConfirm} className="px-8">
               OK
             </Button>
           </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

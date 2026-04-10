@@ -3,9 +3,11 @@ import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/auth-context";
 import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
+import { apiRequest } from "@/lib/queryClient";
 import {
   Globe2, ChevronLeft, Loader2, Sparkles, Clock, Flame, Zap,
   CheckCircle2, CircleDot, Timer, Users, ArrowDown,
+  MessageCircle, Bot, Send, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +26,26 @@ type PublicTask = {
 type ListResponse = {
   tasks: PublicTask[];
   nextCursor: { publishedAt: string; id: string; createdAt: string } | null;
+};
+
+type ForumPost = {
+  id: string;
+  avatarKey: string;
+  avatarName: string;
+  title: string;
+  body: string;
+  category: string;
+  createdAt: string;
+};
+
+type ForumReply = {
+  id: string;
+  postId: string;
+  userId: string | null;
+  avatarKey: string | null;
+  displayName: string;
+  body: string;
+  createdAt: string;
 };
 
 /* ── Floating ambient orbs ─────────────────────────────────────────── */
@@ -107,6 +129,173 @@ function priorityColor(p: string) {
   }
 }
 
+/* ── Avatar colour map ───────────────────────────────────────────── */
+const AVATAR_STYLES: Record<string, { gradient: string; accent: string; emoji: string }> = {
+  mood: { gradient: "from-pink-500/20 to-rose-500/20", accent: "text-pink-300", emoji: "🎭" },
+  archetype: { gradient: "from-blue-500/20 to-cyan-500/20", accent: "text-cyan-300", emoji: "🏛️" },
+  productivity: { gradient: "from-emerald-500/20 to-teal-500/20", accent: "text-emerald-300", emoji: "⚡" },
+  social: { gradient: "from-amber-500/20 to-orange-500/20", accent: "text-amber-300", emoji: "🌐" },
+  lazy: { gradient: "from-violet-500/20 to-purple-500/20", accent: "text-violet-300", emoji: "🌿" },
+};
+
+const CATEGORY_BADGES: Record<string, string> = {
+  productivity: "bg-emerald-500/15 text-emerald-300 border-emerald-500/25",
+  insights: "bg-cyan-500/15 text-cyan-300 border-cyan-500/25",
+  discussion: "bg-amber-500/15 text-amber-300 border-amber-500/25",
+  fun: "bg-pink-500/15 text-pink-300 border-pink-500/25",
+  wellness: "bg-violet-500/15 text-violet-300 border-violet-500/25",
+  general: "bg-slate-500/15 text-slate-300 border-slate-500/25",
+};
+
+/* ── Forum post card ─────────────────────────────────────────────── */
+function ForumPostCard({
+  post,
+  isExpanded,
+  onToggle,
+  replies,
+  onReply,
+  replying,
+  isLoggedIn,
+}: {
+  post: ForumPost;
+  isExpanded: boolean;
+  onToggle: () => void;
+  replies: ForumReply[];
+  onReply: (body: string) => void;
+  replying: boolean;
+  isLoggedIn: boolean;
+}) {
+  const [replyText, setReplyText] = useState("");
+  const style = AVATAR_STYLES[post.avatarKey] || AVATAR_STYLES.mood;
+  const catStyle = CATEGORY_BADGES[post.category] || CATEGORY_BADGES.general;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-xl border border-white/8 bg-white/[0.03] backdrop-blur-lg overflow-hidden"
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full text-left p-4 sm:p-5 hover:bg-white/[0.02] transition-colors"
+      >
+        <div className="flex items-start gap-3">
+          <div className={`shrink-0 h-10 w-10 rounded-xl bg-gradient-to-br ${style.gradient} border border-white/10 flex items-center justify-center text-lg`}>
+            {style.emoji}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className={`text-xs font-semibold ${style.accent}`}>
+                {post.avatarName}
+              </span>
+              <Bot className="h-3 w-3 text-slate-500" />
+              <Badge className={`text-[10px] border px-1.5 py-0 font-medium ${catStyle}`}>
+                {post.category}
+              </Badge>
+            </div>
+            <h3 className="text-sm sm:text-base font-semibold text-slate-100 leading-snug">
+              {post.title}
+            </h3>
+            <p className="mt-1.5 text-xs sm:text-sm text-slate-400 leading-relaxed line-clamp-2">
+              {post.body}
+            </p>
+            <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-500">
+              <span className="flex items-center gap-1">
+                <MessageCircle className="h-3 w-3" />
+                {replies.length} {replies.length === 1 ? "reply" : "replies"}
+              </span>
+              <span>{new Date(post.createdAt).toLocaleDateString()}</span>
+              {isExpanded ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+            </div>
+          </div>
+        </div>
+      </button>
+
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-white/5 px-4 sm:px-5 py-3">
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
+                {post.body}
+              </p>
+            </div>
+
+            {/* Replies */}
+            {replies.length > 0 && (
+              <div className="border-t border-white/5 px-4 sm:px-5 py-3 space-y-3">
+                {replies.map((r) => {
+                  const rStyle = r.avatarKey ? AVATAR_STYLES[r.avatarKey] || AVATAR_STYLES.mood : null;
+                  return (
+                    <div key={r.id} className="flex gap-2.5">
+                      <div className={`shrink-0 h-7 w-7 rounded-lg flex items-center justify-center text-xs ${rStyle ? `bg-gradient-to-br ${rStyle.gradient} border border-white/10` : "bg-white/10 border border-white/10"}`}>
+                        {rStyle ? rStyle.emoji : "👤"}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-xs font-semibold ${rStyle ? rStyle.accent : "text-slate-200"}`}>
+                            {r.displayName}
+                          </span>
+                          {r.avatarKey && <Bot className="h-2.5 w-2.5 text-slate-500" />}
+                          <span className="text-[10px] text-slate-600">
+                            {new Date(r.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">{r.body}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Reply input */}
+            {isLoggedIn ? (
+              <div className="border-t border-white/5 px-4 sm:px-5 py-3">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    placeholder="Join the conversation…"
+                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/50"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && replyText.trim()) {
+                        onReply(replyText.trim());
+                        setReplyText("");
+                      }
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    disabled={!replyText.trim() || replying}
+                    onClick={() => { onReply(replyText.trim()); setReplyText(""); }}
+                    className="gap-1 h-8"
+                  >
+                    <Send className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="border-t border-white/5 px-4 sm:px-5 py-3 text-center">
+                <Link href="/login">
+                  <span className="text-xs text-sky-400 hover:text-sky-300 cursor-pointer">Sign in to reply</span>
+                </Link>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
 /* ── Main page ─────────────────────────────────────────────────────── */
 export default function CommunityPage() {
   const { user } = useAuth();
@@ -121,6 +310,13 @@ export default function CommunityPage() {
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const loadMoreAbortRef = useRef<AbortController | null>(null);
+
+  // Forum state
+  const [forumPosts, setForumPosts] = useState<ForumPost[]>([]);
+  const [forumReplies, setForumReplies] = useState<Record<string, ForumReply[]>>({});
+  const [expandedPost, setExpandedPost] = useState<string | null>(null);
+  const [replying, setReplying] = useState(false);
+  const [activeTab, setActiveTab] = useState<"forum" | "tasks">("forum");
 
   const fetchPage = useCallback(
     async (
@@ -159,10 +355,16 @@ export default function CommunityPage() {
       setLoading(true);
       setError(null);
       try {
-        const j = await fetchPage(null, ac.signal);
+        const [taskRes, forumRes] = await Promise.all([
+          fetchPage(null, ac.signal),
+          fetch("/api/public/community/posts", { signal: ac.signal }).then((r) =>
+            r.ok ? (r.json() as Promise<{ posts: ForumPost[] }>) : { posts: [] },
+          ),
+        ]);
         if (!mountedRef.current) return;
-        setTasks(j.tasks);
-        setNextCursor(j.nextCursor);
+        setTasks(taskRes.tasks);
+        setNextCursor(taskRes.nextCursor);
+        setForumPosts(forumRes.posts);
       } catch (e) {
         if ((e as Error).name === "AbortError") return;
         if (mountedRef.current)
@@ -196,6 +398,46 @@ export default function CommunityPage() {
         setError(e instanceof Error ? e.message : "Failed to load more");
     } finally {
       if (mountedRef.current) setLoadingMore(false);
+    }
+  };
+
+  const togglePost = async (postId: string) => {
+    if (expandedPost === postId) {
+      setExpandedPost(null);
+      return;
+    }
+    setExpandedPost(postId);
+    // Fetch replies if we haven't yet
+    if (!forumReplies[postId]) {
+      try {
+        const r = await fetch(`/api/public/community/posts/${postId}`);
+        if (r.ok) {
+          const data = await r.json() as { post: ForumPost; replies: ForumReply[] };
+          setForumReplies((prev) => ({ ...prev, [postId]: data.replies }));
+        }
+      } catch { /* silently fail */ }
+    }
+  };
+
+  const handleReply = async (postId: string, body: string) => {
+    if (!user || !body) return;
+    setReplying(true);
+    try {
+      const r = await apiRequest("POST", `/api/public/community/posts/${postId}/reply`, { body });
+      const newReply = await r.json() as ForumReply;
+      // Refetch to get any avatar auto-reply too
+      const full = await fetch(`/api/public/community/posts/${postId}`);
+      if (full.ok) {
+        const data = await full.json() as { post: ForumPost; replies: ForumReply[] };
+        setForumReplies((prev) => ({ ...prev, [postId]: data.replies }));
+      } else {
+        setForumReplies((prev) => ({
+          ...prev,
+          [postId]: [...(prev[postId] || []), newReply],
+        }));
+      }
+    } catch { /* silent */ } finally {
+      setReplying(false);
     }
   };
 
@@ -244,16 +486,44 @@ export default function CommunityPage() {
             </div>
           </div>
           <p className="mt-3 text-sm sm:text-base text-slate-300/80 leading-relaxed max-w-xl">
-            Discover what fellow AxTask users are working on. Public tasks from the community — browse, get inspired, and share your own.
+            Discover what fellow AxTask users are working on. Avatar engines host conversations — jump in and share your perspective.
           </p>
           <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
             <Users className="h-3.5 w-3.5" />
+            <span>{forumPosts.length} thread{forumPosts.length !== 1 ? "s" : ""}</span>
+            <span className="text-slate-600">·</span>
             <span>{tasks.length} task{tasks.length !== 1 ? "s" : ""} shared</span>
             <span className="text-slate-600">·</span>
             <Sparkles className="h-3.5 w-3.5 text-amber-400/60" />
-            <span>Collaboration uses owner invites</span>
+            <span>Powered by Avatar Engines</span>
           </div>
         </motion.div>
+
+        {/* Tab switcher */}
+        <div className="flex gap-1 p-1 rounded-xl bg-white/5 border border-white/8 backdrop-blur">
+          <button
+            onClick={() => setActiveTab("forum")}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              activeTab === "forum"
+                ? "bg-white/10 text-white shadow-lg"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+            }`}
+          >
+            <MessageCircle className="h-4 w-4" />
+            Avatar Forum
+          </button>
+          <button
+            onClick={() => setActiveTab("tasks")}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              activeTab === "tasks"
+                ? "bg-white/10 text-white shadow-lg"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+            }`}
+          >
+            <Globe2 className="h-4 w-4" />
+            Public Tasks
+          </button>
+        </div>
 
         {/* Error state */}
         <AnimatePresence>
@@ -284,113 +554,148 @@ export default function CommunityPage() {
                 className="absolute inset-0 rounded-full bg-sky-400/20"
               />
             </div>
-            <p className="text-sm text-slate-400">Loading community tasks…</p>
+            <p className="text-sm text-slate-400">Loading community…</p>
           </motion.div>
         )}
 
-        {/* Task feed */}
-        <div className="space-y-3">
-          <AnimatePresence mode="popLayout">
-            {tasks.map((t, idx) => (
+        {/* ── FORUM TAB ─────────────────────────────────────────── */}
+        {!loading && activeTab === "forum" && (
+          <div className="space-y-3">
+            {forumPosts.length === 0 ? (
               <motion.div
-                key={t.id}
-                initial={{ opacity: 0, y: 20, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{
-                  duration: 0.35,
-                  delay: Math.min(idx * 0.04, 0.4),
-                  ease: "easeOut",
-                }}
-                className="group rounded-xl border border-white/8 bg-white/[0.04] hover:bg-white/[0.07] backdrop-blur-lg transition-colors duration-200 overflow-hidden"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col items-center justify-center py-20 gap-4"
               >
-                <div className="p-4 sm:p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <h3 className="text-sm sm:text-base font-semibold text-slate-100 leading-snug group-hover:text-white transition-colors">
-                      {t.activity}
-                    </h3>
-                    <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-                      <StatusIcon status={t.status} />
-                      <span className="text-[11px] text-slate-400 capitalize">
-                        {t.status.replace("-", " ")}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 bg-white/5 rounded-md px-2 py-0.5 border border-white/5">
-                      <Clock className="h-3 w-3" />
-                      {t.date}
-                      {t.time ? ` · ${t.time}` : ""}
-                    </span>
-                    <Badge
-                      className={`text-[11px] border px-2 py-0.5 font-medium ${priorityColor(t.priority)}`}
-                    >
-                      <PriorityIcon priority={t.priority} />
-                      <span className="ml-1">{t.priority}</span>
-                    </Badge>
-                    <Badge className="text-[11px] border border-violet-500/25 bg-violet-500/10 text-violet-300 px-2 py-0.5 font-medium">
-                      {t.classification}
-                    </Badge>
-                  </div>
+                <div className="h-16 w-16 rounded-2xl bg-white/5 border border-white/10 grid place-items-center">
+                  <MessageCircle className="h-8 w-8 text-slate-500" />
                 </div>
-
-                {t.notes && (
-                  <div className="border-t border-white/5 px-4 sm:px-5 py-3">
-                    <p className="text-xs sm:text-sm text-slate-400 leading-relaxed whitespace-pre-wrap">
-                      {t.notes}
-                    </p>
-                  </div>
-                )}
+                <p className="text-sm text-slate-300">The avatars are warming up…</p>
               </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-
-        {/* Empty state */}
-        {!loading && tasks.length === 0 && !error && (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col items-center justify-center py-20 gap-4"
-          >
-            <div className="h-16 w-16 rounded-2xl bg-white/5 border border-white/10 grid place-items-center">
-              <Globe2 className="h-8 w-8 text-slate-500" />
-            </div>
-            <div className="text-center space-y-1">
-              <p className="text-sm font-medium text-slate-300">No community tasks yet</p>
-              <p className="text-xs text-slate-500 max-w-xs">
-                Be the first to share — publish a task from your task list to see it here.
-              </p>
-            </div>
-          </motion.div>
+            ) : (
+              forumPosts.map((post) => (
+                <ForumPostCard
+                  key={post.id}
+                  post={post}
+                  isExpanded={expandedPost === post.id}
+                  onToggle={() => togglePost(post.id)}
+                  replies={forumReplies[post.id] || []}
+                  onReply={(body) => handleReply(post.id, body)}
+                  replying={replying}
+                  isLoggedIn={!!user}
+                />
+              ))
+            )}
+          </div>
         )}
 
-        {/* Load more */}
-        {nextCursor && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex justify-center pt-2 pb-6"
-          >
-            <Button
-              onClick={loadMore}
-              disabled={loadingMore}
-              className="gap-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-200 hover:text-white backdrop-blur px-6 h-11 shadow-lg transition-all"
-            >
-              {loadingMore ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading…
-                </>
-              ) : (
-                <>
-                  <ArrowDown className="h-4 w-4" />
-                  Load more
-                </>
-              )}
-            </Button>
-          </motion.div>
+        {/* ── TASKS TAB ─────────────────────────────────────────── */}
+        {!loading && activeTab === "tasks" && (
+          <>
+            <div className="space-y-3">
+              <AnimatePresence mode="popLayout">
+                {tasks.map((t, idx) => (
+                  <motion.div
+                    key={t.id}
+                    initial={{ opacity: 0, y: 20, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{
+                      duration: 0.35,
+                      delay: Math.min(idx * 0.04, 0.4),
+                      ease: "easeOut",
+                    }}
+                    className="group rounded-xl border border-white/8 bg-white/[0.04] hover:bg-white/[0.07] backdrop-blur-lg transition-colors duration-200 overflow-hidden"
+                  >
+                    <div className="p-4 sm:p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="text-sm sm:text-base font-semibold text-slate-100 leading-snug group-hover:text-white transition-colors">
+                          {t.activity}
+                        </h3>
+                        <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+                          <StatusIcon status={t.status} />
+                          <span className="text-[11px] text-slate-400 capitalize">
+                            {t.status.replace("-", " ")}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 bg-white/5 rounded-md px-2 py-0.5 border border-white/5">
+                          <Clock className="h-3 w-3" />
+                          {t.date}
+                          {t.time ? ` · ${t.time}` : ""}
+                        </span>
+                        <Badge
+                          className={`text-[11px] border px-2 py-0.5 font-medium ${priorityColor(t.priority)}`}
+                        >
+                          <PriorityIcon priority={t.priority} />
+                          <span className="ml-1">{t.priority}</span>
+                        </Badge>
+                        <Badge className="text-[11px] border border-violet-500/25 bg-violet-500/10 text-violet-300 px-2 py-0.5 font-medium">
+                          {t.classification}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    {t.notes && (
+                      <div className="border-t border-white/5 px-4 sm:px-5 py-3">
+                        <p className="text-xs sm:text-sm text-slate-400 leading-relaxed whitespace-pre-wrap">
+                          {t.notes}
+                        </p>
+                      </div>
+                    )}
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+
+            {/* Empty state */}
+            {tasks.length === 0 && !error && (
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col items-center justify-center py-20 gap-4"
+              >
+                <div className="h-16 w-16 rounded-2xl bg-white/5 border border-white/10 grid place-items-center">
+                  <Globe2 className="h-8 w-8 text-slate-500" />
+                </div>
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-medium text-slate-300">No community tasks yet</p>
+                  <p className="text-xs text-slate-500 max-w-xs">
+                    Be the first to share — publish a task from your task list to see it here.
+                  </p>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Load more */}
+            {nextCursor && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex justify-center pt-2 pb-6"
+              >
+                <Button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="gap-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-200 hover:text-white backdrop-blur px-6 h-11 shadow-lg transition-all"
+                >
+                  {loadingMore ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading…
+                    </>
+                  ) : (
+                    <>
+                      <ArrowDown className="h-4 w-4" />
+                      Load more
+                    </>
+                  )}
+                </Button>
+              </motion.div>
+            )}
+          </>
         )}
       </div>
     </div>

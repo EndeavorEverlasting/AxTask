@@ -58,6 +58,10 @@ import {
   submitStudyAnswer,
   getStudySessionSummary,
   getStudyStats,
+  listCommunityPosts,
+  getCommunityPostWithReplies,
+  createCommunityReply,
+  seedCommunityPosts,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
@@ -1382,6 +1386,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Community feed error:", error);
       res.status(500).json({ message: "Failed to fetch community tasks" });
+    }
+  });
+
+  // Seed avatar community posts on startup
+  await seedCommunityPosts();
+
+  // Community avatar forum — list posts
+  app.get("/api/public/community/posts", apiLimiter, async (_req, res) => {
+    try {
+      const posts = await listCommunityPosts(50);
+      res.json({ posts });
+    } catch (error) {
+      console.error("Community posts error:", error);
+      res.status(500).json({ message: "Failed to fetch community posts" });
+    }
+  });
+
+  // Community avatar forum — single post with replies
+  app.get("/api/public/community/posts/:id", apiLimiter, async (req, res) => {
+    try {
+      const result = await getCommunityPostWithReplies(req.params.id);
+      if (!result) return res.status(404).json({ message: "Post not found" });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch post" });
+    }
+  });
+
+  // Community avatar forum — reply to a post (auth required)
+  const communityReplySchema = z.object({
+    body: z.string().min(1).max(2000),
+  });
+
+  app.post("/api/public/community/posts/:id/reply", requireAuth, apiLimiter, async (req, res) => {
+    try {
+      const payload = communityReplySchema.parse(req.body);
+      const postData = await getCommunityPostWithReplies(req.params.id);
+      if (!postData) return res.status(404).json({ message: "Post not found" });
+
+      const displayName = req.user!.displayName || req.user!.email?.split("@")[0] || "Community Member";
+      const reply = await createCommunityReply({
+        postId: req.params.id,
+        userId: req.user!.id,
+        displayName,
+        body: payload.body,
+      });
+
+      // Auto-generate a quirky avatar reply ~50% of the time
+      const avatarKeys = ["mood", "archetype", "productivity", "social", "lazy"] as const;
+      const avatarNames: Record<string, string> = {
+        mood: "Moodweaver", archetype: "Archon", productivity: "Cadence", social: "Nexus", lazy: "Drift",
+      };
+      if (Math.random() > 0.5) {
+        const pick = avatarKeys[Math.floor(Math.random() * avatarKeys.length)];
+        const botReplies = [
+          `Great point! That reminds me of a pattern I've seen with ${postData.post.category} tasks — small consistent wins beat heroic sprints every time.`,
+          `Interesting take. I've been processing a lot of community data and you'd be surprised how many people feel the same way. You're not alone in this.`,
+          `Love this energy. Keep experimenting — the best productivity system is the one that *actually* fits your life, not the one that looks good on paper.`,
+          `Hm, that's a thought. I'll noodle on this while the other engines argue about efficiency metrics. Sometimes the best insights come from stepping back.`,
+          `Facts. Also — don't forget to celebrate what you've already done. Task lists only show what's *left*, never what's *finished*. You've been crushing it.`,
+        ];
+        await createCommunityReply({
+          postId: req.params.id,
+          avatarKey: pick,
+          displayName: avatarNames[pick],
+          body: botReplies[Math.floor(Math.random() * botReplies.length)],
+        });
+      }
+
+      res.status(201).json(reply);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to post reply" });
     }
   });
 

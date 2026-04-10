@@ -798,3 +798,38 @@ export const createPremiumReviewWorkflowSchema = createInsertSchema(premiumRevie
   templateJson: z.string().min(2).max(4000),
   isActive: z.boolean().default(true),
 });
+
+// ─── Community Posts (avatar-generated forum) ───────────────────────────────
+export const communityPosts = pgTable("community_posts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  /** Which avatar engine authored the post */
+  avatarKey: text("avatar_key").notNull(), // mood | archetype | productivity | social | lazy
+  avatarName: text("avatar_name").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  /** Loose category for filtering / colour-coding */
+  category: text("category").notNull().default("general"),
+  /** Optional link to source task (never exposes userId) */
+  relatedTaskId: varchar("related_task_id").references(() => tasks.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_community_posts_avatar").on(table.avatarKey),
+  index("idx_community_posts_created").on(table.createdAt),
+]);
+
+export type CommunityPost = typeof communityPosts.$inferSelect;
+
+export const communityReplies = pgTable("community_replies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  postId: varchar("post_id").notNull().references(() => communityPosts.id, { onDelete: "cascade" }),
+  /** null = avatar reply, non-null = human reply */
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  avatarKey: text("avatar_key"),
+  displayName: text("display_name").notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_community_replies_post").on(table.postId),
+]);
+
+export type CommunityReply = typeof communityReplies.$inferSelect;
