@@ -61,7 +61,9 @@ import {
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task, tasks } from "@shared/schema";
+import { db } from "./db";
+import { eq, desc } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
@@ -1310,6 +1312,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to remove push subscription" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Community public feed (no auth required)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/public/community/tasks", apiLimiter, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+
+      let rows = await db
+        .select({
+          id: tasks.id,
+          activity: tasks.activity,
+          date: tasks.date,
+          time: tasks.time,
+          status: tasks.status,
+          priority: tasks.priority,
+          classification: tasks.classification,
+          notes: tasks.notes,
+          communityShowNotes: tasks.communityShowNotes,
+          createdAt: tasks.createdAt,
+          updatedAt: tasks.updatedAt,
+        })
+        .from(tasks)
+        .where(eq(tasks.visibility, "public"))
+        .orderBy(desc(tasks.updatedAt), desc(tasks.createdAt))
+        .limit(limit + 1);
+
+      // Cursor-based pagination support
+      const cursorAt = req.query.cursorAt as string | undefined;
+      const cursorId = req.query.cursorId as string | undefined;
+      if (cursorAt && cursorId) {
+        const cursorDate = new Date(cursorAt);
+        rows = rows.filter((r) => {
+          const rDate = r.updatedAt ?? r.createdAt ?? new Date(0);
+          if (rDate < cursorDate) return true;
+          if (rDate.getTime() === cursorDate.getTime() && r.id < cursorId) return true;
+          return false;
+        });
+      }
+
+      const hasMore = rows.length > limit;
+      const page = rows.slice(0, limit);
+      const last = page[page.length - 1];
+
+      const mapped = page.map((t) => ({
+        id: t.id,
+        activity: t.activity,
+        date: t.date,
+        time: t.time,
+        status: t.status,
+        priority: t.priority,
+        classification: t.classification,
+        notes: t.communityShowNotes ? (t.notes || undefined) : undefined,
+      }));
+
+      const nextCursor = hasMore && last
+        ? {
+            publishedAt: (last.updatedAt ?? last.createdAt ?? new Date()).toISOString(),
+            id: last.id,
+            createdAt: (last.createdAt ?? new Date()).toISOString(),
+          }
+        : null;
+
+      res.json({ tasks: mapped, nextCursor });
+    } catch (error) {
+      console.error("Community feed error:", error);
+      res.status(500).json({ message: "Failed to fetch community tasks" });
     }
   });
 
