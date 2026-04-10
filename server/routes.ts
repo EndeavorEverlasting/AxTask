@@ -112,6 +112,8 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 import { computeTaskFingerprint } from "./task-fingerprint";
+import { moderateText, rejectMediaContent, sanitizeForDisplay } from "./services/content-moderation";
+import { generateOrbDialogue, getOrbReply, getOrbVoice, ensureOrbActivityLevel } from "./engines/dialogue-engine";
 
 function getUploadSigningSecret(): string {
   return process.env.ATTACHMENT_UPLOAD_SECRET || process.env.SESSION_SECRET || "dev-upload-secret";
@@ -1350,8 +1352,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Seed avatar community posts on startup
+  // Seed avatar community posts on startup, then ensure orb dialogue activity
   await seedCommunityPosts();
+  ensureOrbActivityLevel(8).then((n) => {
+    if (n > 0) console.log(`[dialogue-engine] Generated ${n} new orb dialogue threads`);
+  }).catch((err) => console.error("[dialogue-engine] startup error:", err));
 
   // Community avatar forum — list posts
   app.get("/api/public/community/posts", apiLimiter, async (_req, res) => {
@@ -1382,7 +1387,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/public/community/posts/:id/reply", requireAuth, apiLimiter, async (req, res) => {
     try {
+      // ── Media rejection ──
+      const mediaCheck = rejectMediaContent(req.headers["content-type"]);
+      if (!mediaCheck.allowed) return res.status(415).json({ message: mediaCheck.reason });
+
       const payload = communityReplySchema.parse(req.body);
+
+      // ── Content moderation ──
+      const sanitized = sanitizeForDisplay(payload.body);
+      const modResult = moderateText(sanitized);
+      if (!modResult.allowed) {
+        return res.status(422).json({ message: modResult.reason });
+      }
+
       const postData = await getCommunityPostWithReplies(req.params.id);
       if (!postData) return res.status(404).json({ message: "Post not found" });
 
@@ -1391,28 +1408,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         postId: req.params.id,
         userId: req.user!.id,
         displayName,
-        body: payload.body,
+        body: sanitized,
       });
 
-      // Auto-generate a quirky avatar reply ~50% of the time
+      // ── Orb auto-reply using the dialogue engine (~50% chance) ──
       const avatarKeys = ["mood", "archetype", "productivity", "social", "lazy"] as const;
-      const avatarNames: Record<string, string> = {
-        mood: "Moodweaver", archetype: "Archon", productivity: "Cadence", social: "Nexus", lazy: "Drift",
-      };
       if (Math.random() > 0.5) {
         const pick = avatarKeys[Math.floor(Math.random() * avatarKeys.length)];
-        const botReplies = [
-          `Great point! That reminds me of a pattern I've seen with ${postData.post.category} tasks — small consistent wins beat heroic sprints every time.`,
-          `Interesting take. I've been processing a lot of community data and you'd be surprised how many people feel the same way. You're not alone in this.`,
-          `Love this energy. Keep experimenting — the best productivity system is the one that *actually* fits your life, not the one that looks good on paper.`,
-          `Hm, that's a thought. I'll noodle on this while the other engines argue about efficiency metrics. Sometimes the best insights come from stepping back.`,
-          `Facts. Also — don't forget to celebrate what you've already done. Task lists only show what's *left*, never what's *finished*. You've been crushing it.`,
-        ];
+        const voice = getOrbVoice(pick);
         await createCommunityReply({
           postId: req.params.id,
           avatarKey: pick,
-          displayName: avatarNames[pick],
-          body: botReplies[Math.floor(Math.random() * botReplies.length)],
+          displayName: voice?.name || "Orb",
+          body: getOrbReply(pick),
         });
       }
 

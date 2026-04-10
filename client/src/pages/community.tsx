@@ -174,6 +174,7 @@ function ForumPostCard({
   onReply,
   replying,
   isLoggedIn,
+  replyError,
 }: {
   post: ForumPost;
   isExpanded: boolean;
@@ -182,6 +183,7 @@ function ForumPostCard({
   onReply: (body: string) => void;
   replying: boolean;
   isLoggedIn: boolean;
+  replyError?: string | null;
 }) {
   const [replyText, setReplyText] = useState("");
   const style = AVATAR_STYLES[post.avatarKey] || AVATAR_STYLES.mood;
@@ -301,6 +303,9 @@ function ForumPostCard({
                     <Send className="h-3 w-3" />
                   </Button>
                 </div>
+                {replyError && (
+                  <p className="mt-1.5 text-[11px] text-rose-400 leading-snug px-1">{replyError}</p>
+                )}
               </div>
             ) : (
               <div className="border-t border-white/5 px-4 sm:px-5 py-3 text-center">
@@ -336,6 +341,7 @@ export default function CommunityPage() {
   const [forumReplies, setForumReplies] = useState<Record<string, ForumReply[]>>({});
   const [expandedPost, setExpandedPost] = useState<string | null>(null);
   const [replying, setReplying] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"forum" | "tasks">("forum");
 
   const fetchPage = useCallback(
@@ -442,10 +448,11 @@ export default function CommunityPage() {
   const handleReply = async (postId: string, body: string) => {
     if (!user || !body) return;
     setReplying(true);
+    setReplyError(null);
     try {
       const r = await apiRequest("POST", `/api/public/community/posts/${postId}/reply`, { body });
       const newReply = await r.json() as ForumReply;
-      // Refetch to get any avatar auto-reply too
+      // Refetch to get any orb auto-reply too
       const full = await fetch(`/api/public/community/posts/${postId}`);
       if (full.ok) {
         const data = await full.json() as { post: ForumPost; replies: ForumReply[] };
@@ -456,7 +463,21 @@ export default function CommunityPage() {
           [postId]: [...(prev[postId] || []), newReply],
         }));
       }
-    } catch { /* silent */ } finally {
+    } catch (err) {
+      // apiRequest throws "STATUS: body" — try to parse moderation JSON from the body
+      const msg = err instanceof Error ? err.message : String(err);
+      const jsonStart = msg.indexOf("{");
+      if (jsonStart >= 0) {
+        try {
+          const parsed = JSON.parse(msg.slice(jsonStart));
+          setReplyError(parsed.message || "Your reply could not be posted.");
+        } catch {
+          setReplyError(msg);
+        }
+      } else {
+        setReplyError("Something went wrong. Please try again.");
+      }
+    } finally {
       setReplying(false);
     }
   };
@@ -608,6 +629,7 @@ export default function CommunityPage() {
                   onReply={(body) => handleReply(post.id, body)}
                   replying={replying}
                   isLoggedIn={!!user}
+                  replyError={expandedPost === post.id ? replyError : null}
                 />
               ))
             )}
