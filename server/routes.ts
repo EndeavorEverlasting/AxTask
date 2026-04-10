@@ -889,58 +889,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/premium/subscriptions/activate", requireAuth, async (req, res) => {
-    try {
-      const payload = z.object({
-        product: z.enum(["axtask", "nodeweaver", "bundle"]),
-        planKey: z.string().min(3).max(120),
-      }).parse(req.body || {});
-      const subscription = await upsertPremiumSubscription({
-        userId: req.user!.id,
-        product: payload.product,
-        planKey: payload.planKey,
-        status: "active",
-      });
-      await trackPremiumEvent({
-        userId: req.user!.id,
-        eventName: "premium_subscription_activated",
-        product: payload.product,
-        planKey: payload.planKey,
-      });
-      res.status(201).json(subscription);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to activate premium subscription" });
-    }
+  // Premium subscription self-service is blocked while payment integration is in development.
+  const PREMIUM_DEV_MSG = "Premium features are in development. Payment integration coming soon.";
+
+  app.post("/api/premium/subscriptions/activate", requireAuth, (_req, res) => {
+    res.status(403).json({ message: PREMIUM_DEV_MSG });
   });
 
-  app.post("/api/premium/subscriptions/downgrade", requireAuth, async (req, res) => {
-    try {
-      const payload = z.object({
-        product: z.enum(["axtask", "nodeweaver", "bundle"]),
-        graceDays: z.number().int().min(1).max(30).default(14),
-      }).parse(req.body || {});
-      const updated = await downgradePremiumToGrace(req.user!.id, payload.product, payload.graceDays);
-      if (!updated) return res.status(404).json({ message: "No active subscription found for this product" });
-      res.json(updated);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to start grace mode" });
-    }
+  app.post("/api/premium/subscriptions/downgrade", requireAuth, (_req, res) => {
+    res.status(403).json({ message: PREMIUM_DEV_MSG });
   });
 
-  app.post("/api/premium/subscriptions/reactivate", requireAuth, async (req, res) => {
-    try {
-      const payload = z.object({
-        product: z.enum(["axtask", "nodeweaver", "bundle"]),
-      }).parse(req.body || {});
-      const updated = await reactivatePremium(req.user!.id, payload.product);
-      if (!updated) return res.status(404).json({ message: "Subscription not found" });
-      res.json(updated);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to reactivate subscription" });
-    }
+  app.post("/api/premium/subscriptions/reactivate", requireAuth, (_req, res) => {
+    res.status(403).json({ message: PREMIUM_DEV_MSG });
   });
 
   app.get("/api/premium/saved-views", requireAuth, async (req, res) => {

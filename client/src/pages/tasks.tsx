@@ -24,11 +24,9 @@ export default function Tasks() {
               Add Task is front and center
             </p>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Use <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Ctrl+N</kbd> (Mac:{" "}
-              <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Cmd+N</kbd>) to jump here and{" "}
+              Use <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Alt+T</kbd> to jump here and{" "}
               <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Ctrl+Enter</kbd> (Mac:{" "}
-              <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Cmd+Enter</kbd>) to submit — click
-              inside the app first so the browser does not capture the shortcut.
+              <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Cmd+Enter</kbd>) to submit.
             </p>
           </div>
         </CardContent>

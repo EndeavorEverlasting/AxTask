@@ -1,16 +1,8 @@
-import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Crown, Sparkles, RefreshCw, Radar, Route, ShieldAlert, Youtube } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Crown, Sparkles, Lock, Zap, Brain, BarChart3, Layers, Rocket } from "lucide-react";
 import { DonateCta } from "@/components/donate-cta";
 import { useAuth } from "@/lib/auth-context";
+import { motion } from "framer-motion";
 
 type PremiumCatalog = {
   plans: Array<{
@@ -22,624 +14,137 @@ type PremiumCatalog = {
   }>;
 };
 
-type EntitlementsPayload = {
-  entitlements: {
-    userId: string;
-    planKeys: string[];
-    products: string[];
-    inGracePeriod: boolean;
-    graceUntil: string | null;
-    features: string[];
-  };
-  subscriptions: Array<{
-    id: string;
-    product: string;
-    planKey: string;
-    status: string;
-    graceUntil: string | null;
-  }>;
-};
-
-type SavedView = {
-  id: string;
-  name: string;
-  autoRefreshMinutes: number;
-  filtersJson: string;
-  isDefault: boolean;
-};
-
-type ReviewWorkflow = {
-  id: string;
-  name: string;
-  cadence: "daily" | "weekly" | "monthly";
-  criteriaJson: string;
-  templateJson: string;
-  isActive: boolean;
-  lastRunAt: string | null;
-};
-
-type PremiumInsight = {
-  id: string;
-  source: string;
-  insightType: string;
-  title: string;
-  body: string;
-  severity: "low" | "medium" | "high" | "critical";
-  status: "open" | "resolved";
-};
-
-type ReactivationPayload = {
-  inGracePeriod: boolean;
-  graceUntil: string | null;
-  prompts: string[];
-};
-
-type YoutubeProbeNext =
-  | {
-      available: true;
-      video: {
-        videoId: string;
-        title: string;
-        channelTitle: string;
-        thumbnailUrl: string;
-        watchUrl: string;
-      };
-      probeContext: string;
-      probeVersion: string;
-      contextSnapshot: Record<string, unknown>;
-    }
-  | {
-      available: false;
-      reason: "cooldown" | "unconfigured" | "youtube_error" | "no_results";
-      message?: string;
-      cooldownUntil?: string;
-    };
+const FEATURE_PREVIEWS = [
+  { icon: Brain, label: "AI-Powered Smart Views", desc: "Auto-curated task boards that learn your workflow." },
+  { icon: BarChart3, label: "Advanced Analytics", desc: "Deep productivity insights and trend analysis." },
+  { icon: Layers, label: "Review Workflows", desc: "Automated triage cadences for your backlog." },
+  { icon: Zap, label: "Bundle Automation", desc: "Cross-product reclassification and auto-reprioritization." },
+  { icon: Rocket, label: "Weekly Digests", desc: "AI-generated summaries delivered to your inbox." },
+  { icon: Sparkles, label: "Priority Insights", desc: "Actionable intelligence on stalled and misclassified tasks." },
+];
 
 export default function PremiumPage() {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
   const { user } = useAuth();
 
-  const [savedViewName, setSavedViewName] = useState("My Smart View");
-  const [savedViewFilters, setSavedViewFilters] = useState(JSON.stringify({ status: "pending", priority: ["High", "Highest"] }));
-  const [savedViewRefresh, setSavedViewRefresh] = useState(15);
-
-  const [workflowName, setWorkflowName] = useState("Weekly Triage");
-  const [workflowCadence, setWorkflowCadence] = useState<"daily" | "weekly" | "monthly">("weekly");
-  const [workflowCriteria, setWorkflowCriteria] = useState(JSON.stringify({ includeOverdue: true, includeHighPriority: true }));
-  const [workflowTemplate, setWorkflowTemplate] = useState(JSON.stringify({ sections: ["Overdue", "High Priority", "Stalled"] }));
-
   const { data: catalog } = useQuery<PremiumCatalog>({ queryKey: ["/api/premium/catalog"] });
-  const { data: entitlementsData } = useQuery<EntitlementsPayload>({ queryKey: ["/api/premium/entitlements"] });
-  const { data: savedViews = [] } = useQuery<SavedView[]>({ queryKey: ["/api/premium/saved-views"] });
-  const { data: workflows = [] } = useQuery<ReviewWorkflow[]>({ queryKey: ["/api/premium/review-workflows"] });
-  const { data: insights = [] } = useQuery<PremiumInsight[]>({ queryKey: ["/api/premium/insights"] });
-  const { data: reactivation } = useQuery<ReactivationPayload>({ queryKey: ["/api/premium/reactivation-prompts"] });
-
-  const isGoogleUser = user?.authProvider === "google";
-  const { data: youtubeProbe, isLoading: youtubeProbeLoading } = useQuery<YoutubeProbeNext>({
-    queryKey: ["/api/probes/youtube/next"],
-    enabled: isGoogleUser,
-  });
-
-  const youtubeFeedbackMutation = useMutation({
-    mutationFn: async (body: { videoId: string; reaction: string; contextSnapshot?: Record<string, unknown> }) => {
-      const res = await apiRequest("POST", "/api/probes/youtube/feedback", body);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/probes/youtube/next"] });
-      toast({ title: "Thanks", description: "Your feedback helps tune future picks." });
-    },
-    onError: (err: Error) =>
-      toast({ title: "Could not save feedback", description: err.message, variant: "destructive" }),
-  });
-
-  const entitlements = entitlementsData?.entitlements;
-
-  const premiumPlans = useMemo(() => catalog?.plans || [], [catalog]);
-
-  const refreshPremiumQueries = () => {
-    queryClient.invalidateQueries({ queryKey: ["/api/premium/entitlements"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/premium/saved-views"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/premium/review-workflows"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/premium/insights"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/premium/reactivation-prompts"] });
-  };
-
-  const activatePlanMutation = useMutation({
-    mutationFn: async ({ product, planKey }: { product: "axtask" | "nodeweaver" | "bundle"; planKey: string }) => {
-      const res = await apiRequest("POST", "/api/premium/subscriptions/activate", { product, planKey });
-      return res.json();
-    },
-    onSuccess: () => {
-      refreshPremiumQueries();
-      toast({ title: "Premium activated", description: "Subscription was activated successfully." });
-    },
-    onError: (err: Error) => toast({ title: "Activation failed", description: err.message, variant: "destructive" }),
-  });
-
-  const downgradeMutation = useMutation({
-    mutationFn: async (product: "axtask" | "nodeweaver" | "bundle") => {
-      const res = await apiRequest("POST", "/api/premium/subscriptions/downgrade", { product, graceDays: 14 });
-      return res.json();
-    },
-    onSuccess: () => {
-      refreshPremiumQueries();
-      toast({ title: "Grace mode started", description: "Premium moved to grace mode for 14 days." });
-    },
-    onError: (err: Error) => toast({ title: "Downgrade failed", description: err.message, variant: "destructive" }),
-  });
-
-  const reactivateMutation = useMutation({
-    mutationFn: async (product: "axtask" | "nodeweaver" | "bundle") => {
-      const res = await apiRequest("POST", "/api/premium/subscriptions/reactivate", { product });
-      return res.json();
-    },
-    onSuccess: () => {
-      refreshPremiumQueries();
-      toast({ title: "Premium reactivated", description: "Full premium write access restored." });
-    },
-    onError: (err: Error) => toast({ title: "Reactivation failed", description: err.message, variant: "destructive" }),
-  });
-
-  const createSavedViewMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/premium/saved-views", {
-        name: savedViewName,
-        filtersJson: savedViewFilters,
-        autoRefreshMinutes: savedViewRefresh,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/premium/saved-views"] });
-      toast({ title: "Saved view created" });
-    },
-    onError: (err: Error) => toast({ title: "Could not create saved view", description: err.message, variant: "destructive" }),
-  });
-
-  const setDefaultSavedViewMutation = useMutation({
-    mutationFn: async (id: string) => apiRequest("POST", `/api/premium/saved-views/${id}/default`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/premium/saved-views"] });
-      toast({ title: "Default view updated" });
-    },
-    onError: (err: Error) => toast({ title: "Could not set default", description: err.message, variant: "destructive" }),
-  });
-
-  const deleteSavedViewMutation = useMutation({
-    mutationFn: async (id: string) => apiRequest("DELETE", `/api/premium/saved-views/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/premium/saved-views"] });
-      toast({ title: "Saved view removed" });
-    },
-    onError: (err: Error) => toast({ title: "Could not delete saved view", description: err.message, variant: "destructive" }),
-  });
-
-  const createWorkflowMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/premium/review-workflows", {
-        name: workflowName,
-        cadence: workflowCadence,
-        criteriaJson: workflowCriteria,
-        templateJson: workflowTemplate,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/premium/review-workflows"] });
-      toast({ title: "Review workflow created" });
-    },
-    onError: (err: Error) => toast({ title: "Could not create workflow", description: err.message, variant: "destructive" }),
-  });
-
-  const runWorkflowMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiRequest("POST", `/api/premium/review-workflows/${id}/run`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/premium/review-workflows"] });
-      toast({ title: "Workflow run complete", description: "Review summary generated." });
-    },
-    onError: (err: Error) => toast({ title: "Workflow run failed", description: err.message, variant: "destructive" }),
-  });
-
-  const createDigestMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/premium/digests/weekly");
-      return res.json();
-    },
-    onSuccess: () => toast({ title: "Weekly digest generated", description: "Digest run completed successfully." }),
-    onError: (err: Error) => toast({ title: "Digest failed", description: err.message, variant: "destructive" }),
-  });
-
-  const reclassifyMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/premium/bundle/reclassify-backlog");
-      return res.json();
-    },
-    onSuccess: (payload: { scanned?: number; updated?: number }) => {
-      toast({
-        title: "Backlog reclassified",
-        description: `Scanned ${payload.scanned || 0} tasks, updated ${payload.updated || 0}.`,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/premium/insights"] });
-    },
-    onError: (err: Error) => toast({ title: "Reclassification failed", description: err.message, variant: "destructive" }),
-  });
-
-  const reprioritizeMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/premium/bundle/auto-reprioritize", { lowConfidenceThreshold: 0.45 });
-      return res.json();
-    },
-    onSuccess: (payload: { scanned?: number; reprioritized?: number }) => {
-      toast({
-        title: "Auto-reprioritize finished",
-        description: `Scanned ${payload.scanned || 0}, reprioritized ${payload.reprioritized || 0}.`,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-    },
-    onError: (err: Error) => toast({ title: "Auto-reprioritize failed", description: err.message, variant: "destructive" }),
-  });
-
-  const resolveInsightMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiRequest("POST", `/api/premium/insights/${id}/resolve`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/premium/insights"] });
-      toast({ title: "Insight resolved" });
-    },
-    onError: (err: Error) => toast({ title: "Could not resolve insight", description: err.message, variant: "destructive" }),
-  });
+  const plans = catalog?.plans ?? [];
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-            <Crown className="h-7 w-7 text-amber-500" />
-            Premium Control Center
-          </h2>
-          <p className="text-gray-600 dark:text-gray-400">Manage premium features, retention workflows, and bundle automation.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <DonateCta />
-          <Button variant="outline" onClick={refreshPremiumQueries}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-        </div>
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-6 md:p-10">
+      {/* Ambient orbs */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-amber-500/10 blur-3xl animate-pulse" />
+        <div className="absolute top-1/3 right-0 h-80 w-80 rounded-full bg-violet-500/10 blur-3xl animate-pulse [animation-delay:1.5s]" />
+        <div className="absolute bottom-0 left-1/4 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl animate-pulse [animation-delay:3s]" />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Current Entitlements</CardTitle>
-          <CardDescription>Feature access across AxTask Pro, NodeWeaver Pro, and Power Bundle.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {(entitlements?.planKeys || []).map((plan) => (
-              <Badge key={plan}>{plan}</Badge>
-            ))}
-            {(!entitlements || entitlements.planKeys.length === 0) && <Badge variant="outline">No active premium plans</Badge>}
+      <div className="relative z-10 mx-auto max-w-4xl space-y-10">
+        {/* Hero */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="text-center space-y-4"
+        >
+          <div className="inline-flex items-center justify-center h-20 w-20 rounded-2xl bg-amber-500/20 backdrop-blur-md border border-amber-400/30 mx-auto">
+            <Crown className="h-10 w-10 text-amber-400" />
           </div>
-          {entitlements?.inGracePeriod && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
-              Grace mode active until {entitlements.graceUntil ? new Date(entitlements.graceUntil).toLocaleString() : "unknown"}.
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          <h1 className="text-3xl md:text-4xl font-extrabold bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400 bg-clip-text text-transparent">
+            Premium Features
+          </h1>
+          <p className="text-slate-400 max-w-lg mx-auto text-sm md:text-base">
+            We're crafting something extraordinary. Premium subscriptions and payment processing are actively in development.
+          </p>
+        </motion.div>
 
-      {isGoogleUser && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Youtube className="h-5 w-5 text-red-600" />
-              Contextual video probe
-            </CardTitle>
-            <CardDescription>
-              A pick based on your AxTask mood, work style, and task themes (public YouTube search). Tell us if it lands.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {youtubeProbeLoading && <p className="text-sm text-muted-foreground">Loading suggestion…</p>}
-            {!youtubeProbeLoading && youtubeProbe && !youtubeProbe.available && (
-              <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
-                {youtubeProbe.reason === "cooldown" && youtubeProbe.cooldownUntil && (
-                  <p>
-                    Next suggestion after{" "}
-                    <span className="font-medium">{new Date(youtubeProbe.cooldownUntil).toLocaleString()}</span>.
-                  </p>
-                )}
-                {youtubeProbe.reason === "unconfigured" && (
-                  <p>{youtubeProbe.message || "YouTube search is not configured on this server (set YOUTUBE_API_KEY)."}</p>
-                )}
-                {youtubeProbe.reason === "no_results" && <p>{youtubeProbe.message || "Not enough signal for a pick yet."}</p>}
-                {youtubeProbe.reason === "youtube_error" && (
-                  <p className="text-destructive">{youtubeProbe.message || "YouTube lookup failed."}</p>
-                )}
-              </div>
-            )}
-            {!youtubeProbeLoading && youtubeProbe?.available && (
-              <div className="flex flex-col gap-4 sm:flex-row">
-                <a
-                  href={youtubeProbe.video.watchUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="shrink-0 block overflow-hidden rounded-md border border-border bg-muted/30"
-                >
-                  <img
-                    src={youtubeProbe.video.thumbnailUrl}
-                    alt={
-                      youtubeProbe.video.title?.trim()
-                        ? `Video thumbnail: ${youtubeProbe.video.title.trim()}`
-                        : "Video thumbnail"
-                    }
-                    className="h-36 w-full max-w-xs object-cover sm:h-32 sm:w-56"
-                  />
-                </a>
-                <div className="min-w-0 flex-1 space-y-3">
-                  <p className="text-sm text-muted-foreground">{youtubeProbe.probeContext}</p>
-                  <div>
-                    <p className="font-medium leading-snug">{youtubeProbe.video.title}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{youtubeProbe.video.channelTitle}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="default" asChild>
-                      <a href={youtubeProbe.video.watchUrl} target="_blank" rel="noopener noreferrer">
-                        Open on YouTube
-                      </a>
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={youtubeFeedbackMutation.isPending}
-                      onClick={() =>
-                        youtubeFeedbackMutation.mutate({
-                          videoId: youtubeProbe.video.videoId,
-                          reaction: "interested",
-                          contextSnapshot: youtubeProbe.contextSnapshot,
-                        })
-                      }
-                    >
-                      Interested
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={youtubeFeedbackMutation.isPending}
-                      onClick={() =>
-                        youtubeFeedbackMutation.mutate({
-                          videoId: youtubeProbe.video.videoId,
-                          reaction: "not_interested",
-                          contextSnapshot: youtubeProbe.contextSnapshot,
-                        })
-                      }
-                    >
-                      Not for me
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={youtubeFeedbackMutation.isPending}
-                      onClick={() =>
-                        youtubeFeedbackMutation.mutate({
-                          videoId: youtubeProbe.video.videoId,
-                          reaction: "dismiss",
-                          contextSnapshot: youtubeProbe.contextSnapshot,
-                        })
-                      }
-                    >
-                      Dismiss
-                    </Button>
-                  </div>
+        {/* "In Development" banner */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.2, duration: 0.5 }}
+          className="rounded-2xl border border-amber-400/20 bg-white/5 backdrop-blur-xl p-6 md:p-8 text-center space-y-4"
+        >
+          <div className="inline-flex items-center gap-2 rounded-full bg-amber-500/15 px-4 py-2 border border-amber-400/30">
+            <Lock className="h-4 w-4 text-amber-400" />
+            <span className="text-amber-300 font-semibold text-sm">Premium Features In Development</span>
+          </div>
+          <p className="text-slate-300 text-sm leading-relaxed max-w-2xl mx-auto">
+            Payment integration and subscription management are being built out. Beta testers will receive special offers
+            — including lifetime access — when we launch. Stay tuned.
+          </p>
+          <div className="pt-2">
+            <DonateCta />
+          </div>
+        </motion.div>
+
+        {/* Feature preview grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {FEATURE_PREVIEWS.map((feat, i) => (
+            <motion.div
+              key={feat.label}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 + i * 0.08, duration: 0.4 }}
+              className="group rounded-xl border border-white/10 bg-white/5 backdrop-blur-md p-5 space-y-3 hover:border-amber-400/30 hover:bg-white/10 transition-all duration-300"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 group-hover:scale-110 transition-transform">
+                  <feat.icon className="h-5 w-5" />
                 </div>
+                <h3 className="text-sm font-semibold text-slate-200">{feat.label}</h3>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+              <p className="text-xs text-slate-400 leading-relaxed">{feat.desc}</p>
+            </motion.div>
+          ))}
+        </div>
 
-      <Tabs defaultValue="plans">
-        <TabsList>
-          <TabsTrigger value="plans">Plans</TabsTrigger>
-          <TabsTrigger value="savedViews">Saved Views</TabsTrigger>
-          <TabsTrigger value="workflows">Workflows</TabsTrigger>
-          <TabsTrigger value="bundle">Bundle</TabsTrigger>
-          <TabsTrigger value="insights">Insights</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="plans" className="mt-4 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {premiumPlans.map((plan) => (
-              <Card key={plan.planKey}>
-                <CardHeader>
-                  <CardTitle className="text-base">{plan.planKey}</CardTitle>
-                  <CardDescription>{plan.product} • ${plan.monthlyPriceUsd}/mo</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    {plan.features.slice(0, 4).map((feature) => (
-                      <Badge key={feature} variant="secondary">{feature}</Badge>
+        {/* Plans preview (read-only, no activation) */}
+        {plans.length > 0 && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-bold text-slate-200 text-center">Planned Tiers</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {plans.map((plan, i) => (
+                <motion.div
+                  key={plan.planKey}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 + i * 0.1, duration: 0.4 }}
+                  className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-md p-5 space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-200">{plan.planKey}</h3>
+                    <span className="text-xs font-mono text-amber-400">${plan.monthlyPriceUsd}/mo</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {plan.features.slice(0, 4).map((f) => (
+                      <span key={f} className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-300">{f}</span>
                     ))}
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => activatePlanMutation.mutate({ product: plan.product as "axtask" | "nodeweaver" | "bundle", planKey: plan.planKey })}
-                      disabled={activatePlanMutation.isPending}
-                    >
-                      Activate
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => downgradeMutation.mutate(plan.product as "axtask" | "nodeweaver" | "bundle")}
-                      disabled={downgradeMutation.isPending}
-                    >
-                      Grace
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => reactivateMutation.mutate(plan.product as "axtask" | "nodeweaver" | "bundle")}
-                      disabled={reactivateMutation.isPending}
-                    >
-                      Reactivate
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  <button
+                    disabled
+                    className="w-full rounded-lg bg-white/5 border border-white/10 py-2 text-xs text-slate-500 cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <Lock className="h-3 w-3" />
+                    Coming Soon
+                  </button>
+                </motion.div>
+              ))}
+            </div>
           </div>
-          <Button onClick={() => createDigestMutation.mutate()} disabled={createDigestMutation.isPending}>
-            <Sparkles className="h-4 w-4 mr-2" />
-            Run Weekly Digest
-          </Button>
-        </TabsContent>
+        )}
 
-        <TabsContent value="savedViews" className="mt-4 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Create Saved Smart View</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Input value={savedViewName} onChange={(e) => setSavedViewName(e.target.value)} placeholder="View name" />
-              <Input
-                type="number"
-                min={1}
-                max={1440}
-                value={savedViewRefresh}
-                onChange={(e) => setSavedViewRefresh(Number(e.target.value) || 15)}
-                placeholder="Auto refresh minutes"
-              />
-              <Textarea value={savedViewFilters} onChange={(e) => setSavedViewFilters(e.target.value)} className="min-h-[100px]" />
-              <Button onClick={() => createSavedViewMutation.mutate()} disabled={createSavedViewMutation.isPending}>
-                Create Saved View
-              </Button>
-            </CardContent>
-          </Card>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {savedViews.map((view) => (
-              <Card key={view.id}>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    {view.name}
-                    {view.isDefault && <Badge>Default</Badge>}
-                  </CardTitle>
-                  <CardDescription>Auto refresh every {view.autoRefreshMinutes} min</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <pre className="text-xs rounded bg-gray-100 dark:bg-gray-800 p-2 overflow-auto">{view.filtersJson}</pre>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setDefaultSavedViewMutation.mutate(view.id)}>Set Default</Button>
-                    <Button size="sm" variant="destructive" onClick={() => deleteSavedViewMutation.mutate(view.id)}>Delete</Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="workflows" className="mt-4 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Create Review Workflow</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Input value={workflowName} onChange={(e) => setWorkflowName(e.target.value)} placeholder="Workflow name" />
-              <Input value={workflowCadence} onChange={(e) => setWorkflowCadence((e.target.value as "daily" | "weekly" | "monthly") || "weekly")} placeholder="daily | weekly | monthly" />
-              <Textarea value={workflowCriteria} onChange={(e) => setWorkflowCriteria(e.target.value)} className="min-h-[80px]" />
-              <Textarea value={workflowTemplate} onChange={(e) => setWorkflowTemplate(e.target.value)} className="min-h-[80px]" />
-              <Button onClick={() => createWorkflowMutation.mutate()} disabled={createWorkflowMutation.isPending}>
-                Create Workflow
-              </Button>
-            </CardContent>
-          </Card>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {workflows.map((workflow) => (
-              <Card key={workflow.id}>
-                <CardHeader>
-                  <CardTitle className="text-base">{workflow.name}</CardTitle>
-                  <CardDescription>{workflow.cadence} • {workflow.isActive ? "active" : "inactive"}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button size="sm" onClick={() => runWorkflowMutation.mutate(workflow.id)} disabled={runWorkflowMutation.isPending}>
-                    Run Now
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="bundle" className="mt-4 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Cross-Product Automation</CardTitle>
-              <CardDescription>Bundle-only reclassification and auto-reprioritization hooks.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap gap-3">
-              <Button onClick={() => reclassifyMutation.mutate()} disabled={reclassifyMutation.isPending}>
-                <Radar className="h-4 w-4 mr-2" />
-                Reclassify Backlog
-              </Button>
-              <Button variant="outline" onClick={() => reprioritizeMutation.mutate()} disabled={reprioritizeMutation.isPending}>
-                <Route className="h-4 w-4 mr-2" />
-                Auto-Reprioritize
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="insights" className="mt-4 space-y-4">
-          {reactivation?.inGracePeriod && (
-            <Card className="border-amber-300 dark:border-amber-700">
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ShieldAlert className="h-4 w-4 text-amber-500" />
-                  Reactivation Prompts
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {reactivation.prompts.map((prompt, idx) => (
-                  <p key={`${prompt}-${idx}`} className="text-sm">{prompt}</p>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {insights.map((insight) => (
-              <Card key={insight.id}>
-                <CardHeader>
-                  <CardTitle className="text-base">{insight.title}</CardTitle>
-                  <CardDescription>{insight.source} • {insight.insightType}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-gray-700 dark:text-gray-300">{insight.body}</p>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">{insight.severity}</Badge>
-                    <Badge>{insight.status}</Badge>
-                  </div>
-                  {insight.status === "open" && (
-                    <Button size="sm" variant="outline" onClick={() => resolveInsightMutation.mutate(insight.id)}>
-                      Resolve
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </TabsContent>
-      </Tabs>
+        {/* Greeting */}
+        {user && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.8 }}
+            className="text-center text-xs text-slate-500"
+          >
+            Signed in as <span className="text-slate-400">{user.displayName || user.email}</span> — you'll be among the first to know when premium launches.
+          </motion.p>
+        )}
+      </div>
     </div>
   );
 }

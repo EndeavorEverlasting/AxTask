@@ -5,8 +5,8 @@
 export const KBD = {
   tutorialToggle: "Ctrl+Shift+Y",
   tutorialToggleMac: "Cmd+Shift+Y",
-  newTask: "Ctrl+N",
-  newTaskMac: "Cmd+N",
+  newTask: "Alt+T",
+  newTaskMac: "Alt+T",
   voice: "Ctrl+M",
   voiceMac: "Cmd+M",
   submitTask: "Ctrl+Enter",

@@ -174,8 +174,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0 outline-none" tabIndex={-1}>
-      <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+    <div className="flex flex-col h-full min-h-0 outline-none overflow-y-auto overscroll-contain" tabIndex={-1}>
+      <div className="p-6 border-b border-gray-200 dark:border-gray-700 shrink-0">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-primary flex items-center">
             <img
@@ -190,7 +190,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Intelligent Task Management</p>
       </div>
 
-      <nav className="flex-1 min-h-0 p-4 overflow-y-auto overscroll-contain">
+      <nav className="p-4">
         <ul className="space-y-1">
           {menuItems.map(({ path, icon: Icon, label, badge }) => (
             <li key={path}>
@@ -218,18 +218,18 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </ul>
       </nav>
 
-      <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+      <div className="p-4 space-y-2">
         <Link href="/tasks?new=1">
           <Button
             size="sm"
             className="w-full justify-between bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg"
-            title={`Create task (${KBD.newTask} / ${KBD.newTaskMac} — click in the page if the browser captures the key)`}
+            title={`Create task (${KBD.newTask})`}
           >
             <span className="flex items-center">
               <PlusCircle className="mr-2 h-4 w-4" />
               Add Task
             </span>
-            <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">⌃N</kbd>
+            <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">Alt+T</kbd>
           </Button>
         </Link>
 
