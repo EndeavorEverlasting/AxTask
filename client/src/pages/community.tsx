@@ -7,7 +7,7 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   Globe2, ChevronLeft, Loader2, Sparkles, Clock, Flame, Zap,
   CheckCircle2, CircleDot, Timer, Users, ArrowDown,
-  MessageCircle, Bot, Send, ChevronDown, ChevronUp,
+  MessageCircle, Send, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -129,14 +129,32 @@ function priorityColor(p: string) {
   }
 }
 
-/* ── Avatar colour map ───────────────────────────────────────────── */
-const AVATAR_STYLES: Record<string, { gradient: string; accent: string; emoji: string }> = {
-  mood: { gradient: "from-pink-500/20 to-rose-500/20", accent: "text-pink-300", emoji: "🎭" },
-  archetype: { gradient: "from-blue-500/20 to-cyan-500/20", accent: "text-cyan-300", emoji: "🏛️" },
-  productivity: { gradient: "from-emerald-500/20 to-teal-500/20", accent: "text-emerald-300", emoji: "⚡" },
-  social: { gradient: "from-amber-500/20 to-orange-500/20", accent: "text-amber-300", emoji: "🌐" },
-  lazy: { gradient: "from-violet-500/20 to-purple-500/20", accent: "text-violet-300", emoji: "🌿" },
+/* ── Orb style map — each archetype drives a unique orb personality ── */
+const AVATAR_STYLES: Record<string, { gradient: string; glow: string; accent: string; ring: string; pulse: string }> = {
+  mood:         { gradient: "from-pink-400/40 via-rose-500/30 to-fuchsia-400/20",  glow: "shadow-pink-500/30",   accent: "text-pink-300",    ring: "ring-pink-400/30",    pulse: "[animation-delay:0s]" },
+  archetype:    { gradient: "from-sky-400/40 via-blue-500/30 to-cyan-400/20",       glow: "shadow-sky-500/30",    accent: "text-cyan-300",    ring: "ring-cyan-400/30",    pulse: "[animation-delay:0.4s]" },
+  productivity: { gradient: "from-emerald-400/40 via-teal-500/30 to-green-400/20",  glow: "shadow-emerald-500/30",accent: "text-emerald-300", ring: "ring-emerald-400/30", pulse: "[animation-delay:0.8s]" },
+  social:       { gradient: "from-amber-400/40 via-orange-500/30 to-yellow-400/20", glow: "shadow-amber-500/30",  accent: "text-amber-300",   ring: "ring-amber-400/30",   pulse: "[animation-delay:1.2s]" },
+  lazy:         { gradient: "from-violet-400/40 via-purple-500/30 to-indigo-400/20",glow: "shadow-violet-500/30", accent: "text-violet-300",  ring: "ring-violet-400/30",  pulse: "[animation-delay:1.6s]" },
 };
+
+/** Renders an avatar orb — a glowing sphere whose colour is driven by its archetype personality */
+function AvatarOrb({ avatarKey, size = "md" }: { avatarKey: string; size?: "sm" | "md" }) {
+  const s = AVATAR_STYLES[avatarKey] || AVATAR_STYLES.mood;
+  const dim = size === "md" ? "h-10 w-10" : "h-7 w-7";
+  const innerDim = size === "md" ? "h-4 w-4" : "h-2.5 w-2.5";
+  return (
+    <div className={`relative shrink-0 ${dim}`}>
+      {/* Outer glow ring */}
+      <div className={`absolute inset-0 rounded-full bg-gradient-to-br ${s.gradient} blur-sm opacity-60 animate-pulse ${s.pulse}`} />
+      {/* Main orb body */}
+      <div className={`relative ${dim} rounded-full bg-gradient-to-br ${s.gradient} border border-white/20 ring-1 ${s.ring} shadow-lg ${s.glow} flex items-center justify-center backdrop-blur-sm`}>
+        {/* Inner light core */}
+        <div className={`${innerDim} rounded-full bg-white/25 blur-[1px]`} />
+      </div>
+    </div>
+  );
+}
 
 const CATEGORY_BADGES: Record<string, string> = {
   productivity: "bg-emerald-500/15 text-emerald-300 border-emerald-500/25",
@@ -181,15 +199,13 @@ function ForumPostCard({
         className="w-full text-left p-4 sm:p-5 hover:bg-white/[0.02] transition-colors"
       >
         <div className="flex items-start gap-3">
-          <div className={`shrink-0 h-10 w-10 rounded-xl bg-gradient-to-br ${style.gradient} border border-white/10 flex items-center justify-center text-lg`}>
-            {style.emoji}
-          </div>
+          <AvatarOrb avatarKey={post.avatarKey} size="md" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1">
               <span className={`text-xs font-semibold ${style.accent}`}>
                 {post.avatarName}
               </span>
-              <Bot className="h-3 w-3 text-slate-500" />
+              <span className={`inline-block h-2 w-2 rounded-full bg-gradient-to-br ${style.gradient} shadow-sm ${style.glow}`} />
               <Badge className={`text-[10px] border px-1.5 py-0 font-medium ${catStyle}`}>
                 {post.category}
               </Badge>
@@ -234,15 +250,19 @@ function ForumPostCard({
                   const rStyle = r.avatarKey ? AVATAR_STYLES[r.avatarKey] || AVATAR_STYLES.mood : null;
                   return (
                     <div key={r.id} className="flex gap-2.5">
-                      <div className={`shrink-0 h-7 w-7 rounded-lg flex items-center justify-center text-xs ${rStyle ? `bg-gradient-to-br ${rStyle.gradient} border border-white/10` : "bg-white/10 border border-white/10"}`}>
-                        {rStyle ? rStyle.emoji : "👤"}
-                      </div>
+                      {r.avatarKey ? (
+                        <AvatarOrb avatarKey={r.avatarKey} size="sm" />
+                      ) : (
+                        <div className="shrink-0 h-7 w-7 rounded-full bg-white/10 border border-white/10 flex items-center justify-center">
+                          <div className="h-2.5 w-2.5 rounded-full bg-white/20" />
+                        </div>
+                      )}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className={`text-xs font-semibold ${rStyle ? rStyle.accent : "text-slate-200"}`}>
                             {r.displayName}
                           </span>
-                          {r.avatarKey && <Bot className="h-2.5 w-2.5 text-slate-500" />}
+                          {r.avatarKey && <span className={`inline-block h-1.5 w-1.5 rounded-full bg-gradient-to-br ${rStyle!.gradient}`} />}
                           <span className="text-[10px] text-slate-600">
                             {new Date(r.createdAt).toLocaleDateString()}
                           </span>
@@ -466,15 +486,17 @@ export default function CommunityPage() {
           className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-6 sm:p-8 shadow-2xl"
         >
           <div className="flex items-center gap-4">
-            <div className="relative grid place-items-center h-14 w-14 rounded-2xl bg-gradient-to-br from-sky-500/25 to-indigo-500/25 border border-sky-400/30 shadow-lg shadow-sky-500/10">
-              <Globe2 className="h-7 w-7 text-sky-300" />
-              <motion.span
+            <div className="relative h-14 w-14">
+              {/* Hero orb — a large, slowly pulsing composite orb */}
+              <motion.div
                 aria-hidden
-                initial={{ scale: 0.85, opacity: 0.15 }}
-                animate={{ scale: [0.85, 1.2, 0.85], opacity: [0.15, 0.5, 0.15] }}
-                transition={{ repeat: Infinity, duration: 3 }}
-                className="absolute inset-0 rounded-2xl border border-sky-300/30"
+                animate={{ scale: [1, 1.15, 1], opacity: [0.4, 0.7, 0.4] }}
+                transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
+                className="absolute inset-0 rounded-full bg-gradient-to-br from-sky-400/30 via-indigo-500/25 to-violet-400/20 blur-lg"
               />
+              <div className="relative h-14 w-14 rounded-full bg-gradient-to-br from-sky-400/40 via-indigo-500/30 to-violet-400/20 border border-white/20 ring-1 ring-sky-400/25 shadow-lg shadow-sky-500/20 grid place-items-center backdrop-blur-sm">
+                <div className="h-5 w-5 rounded-full bg-white/30 blur-[2px]" />
+              </div>
             </div>
             <div>
               <p className="text-[11px] uppercase tracking-[0.22em] text-sky-300/80 font-medium">
@@ -486,7 +508,7 @@ export default function CommunityPage() {
             </div>
           </div>
           <p className="mt-3 text-sm sm:text-base text-slate-300/80 leading-relaxed max-w-xl">
-            Discover what fellow AxTask users are working on. Avatar engines host conversations — jump in and share your perspective.
+            The orbs are alive. Each one is driven by an archetype personality — mood, productivity, social, and more. They start the conversations; you shape them.
           </p>
           <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
             <Users className="h-3.5 w-3.5" />
@@ -495,7 +517,7 @@ export default function CommunityPage() {
             <span>{tasks.length} task{tasks.length !== 1 ? "s" : ""} shared</span>
             <span className="text-slate-600">·</span>
             <Sparkles className="h-3.5 w-3.5 text-amber-400/60" />
-            <span>Powered by Avatar Engines</span>
+            <span>Powered by Orb Archetypes</span>
           </div>
         </motion.div>
 
@@ -510,7 +532,7 @@ export default function CommunityPage() {
             }`}
           >
             <MessageCircle className="h-4 w-4" />
-            Avatar Forum
+            Orb Forum
           </button>
           <button
             onClick={() => setActiveTab("tasks")}
@@ -567,10 +589,13 @@ export default function CommunityPage() {
                 animate={{ opacity: 1, y: 0 }}
                 className="flex flex-col items-center justify-center py-20 gap-4"
               >
-                <div className="h-16 w-16 rounded-2xl bg-white/5 border border-white/10 grid place-items-center">
-                  <MessageCircle className="h-8 w-8 text-slate-500" />
+                <div className="relative h-16 w-16">
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-sky-400/30 via-violet-500/20 to-cyan-400/20 blur-md animate-pulse" />
+                  <div className="relative h-16 w-16 rounded-full bg-gradient-to-br from-sky-400/20 via-violet-500/15 to-cyan-400/10 border border-white/15 grid place-items-center">
+                    <div className="h-5 w-5 rounded-full bg-white/20 blur-[1px]" />
+                  </div>
                 </div>
-                <p className="text-sm text-slate-300">The avatars are warming up…</p>
+                <p className="text-sm text-slate-300">The orbs are gathering…</p>
               </motion.div>
             ) : (
               forumPosts.map((post) => (
