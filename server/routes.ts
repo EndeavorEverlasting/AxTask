@@ -1353,10 +1353,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Seed avatar community posts on startup, then ensure orb dialogue activity
-  await seedCommunityPosts();
-  ensureOrbActivityLevel(8).then((n) => {
-    if (n > 0) console.log(`[dialogue-engine] Generated ${n} new orb dialogue threads`);
-  }).catch((err) => console.error("[dialogue-engine] startup error:", err));
+  try {
+    await seedCommunityPosts();
+    ensureOrbActivityLevel(8).then((n) => {
+      if (n > 0) console.log(`[dialogue-engine] Generated ${n} new orb dialogue threads`);
+    }).catch((err) => console.error("[dialogue-engine] startup error:", err));
+  } catch (err) {
+    console.error("[community-seed] Non-fatal: failed to seed community posts —", (err as Error).message);
+  }
 
   // Community avatar forum — list posts
   app.get("/api/public/community/posts", apiLimiter, async (_req, res) => {
