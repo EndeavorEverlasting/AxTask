@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   SSO_NOT_CONFIGURED_USER_MESSAGES,
   isSsoNotConfiguredErrorCode,
@@ -27,6 +27,95 @@ import {
   Eye, EyeOff, User, Clock, X, KeyRound, HelpCircle, ShieldQuestion,
   ArrowRight, ToggleLeft, ToggleRight, Info,
 } from "lucide-react";
+
+/* ── Interactive cursor-reactive ambient orbs ─────────────────────────── */
+const ORB_DEFS = [
+  { size: 320, baseX: 10, baseY: 8, color: "from-sky-500/20 to-indigo-500/12", drift: 40, speed: 7 },
+  { size: 260, baseX: 75, baseY: 15, color: "from-violet-500/18 to-fuchsia-500/10", drift: 35, speed: 9 },
+  { size: 200, baseX: 50, baseY: 70, color: "from-cyan-400/15 to-teal-400/10", drift: 45, speed: 8 },
+  { size: 280, baseX: 85, baseY: 60, color: "from-emerald-500/12 to-cyan-500/8", drift: 30, speed: 11 },
+  { size: 180, baseX: 20, baseY: 55, color: "from-rose-500/10 to-pink-500/8", drift: 50, speed: 6 },
+  { size: 240, baseX: 40, baseY: 25, color: "from-amber-500/10 to-orange-500/8", drift: 38, speed: 10 },
+];
+
+function LoginOrbs() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mouseRef = useRef({ x: 0.5, y: 0.5 });
+  const orbPositions = useRef(
+    ORB_DEFS.map((o) => ({ x: o.baseX, y: o.baseY })),
+  );
+  const rafRef = useRef<number>(0);
+  const timeRef = useRef(0);
+  const [positions, setPositions] = useState(
+    ORB_DEFS.map((o) => ({ x: o.baseX, y: o.baseY })),
+  );
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      mouseRef.current = {
+        x: (e.clientX - rect.left) / rect.width,
+        y: (e.clientY - rect.top) / rect.height,
+      };
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+      timeRef.current += dt;
+      const t = timeRef.current;
+      const mx = mouseRef.current.x;
+      const my = mouseRef.current.y;
+
+      const next = ORB_DEFS.map((o, i) => {
+        // Organic drift (each orb has unique phase)
+        const driftX = Math.sin(t / o.speed + i * 1.8) * o.drift * 0.3;
+        const driftY = Math.cos(t / o.speed + i * 2.4) * o.drift * 0.3;
+        // Cursor attraction — orbs gravitate toward mouse
+        const attractX = (mx * 100 - o.baseX) * 0.12;
+        const attractY = (my * 100 - o.baseY) * 0.12;
+        // Smooth lerp toward target
+        const prev = orbPositions.current[i];
+        const tx = o.baseX + driftX + attractX;
+        const ty = o.baseY + driftY + attractY;
+        return {
+          x: prev.x + (tx - prev.x) * dt * 1.2,
+          y: prev.y + (ty - prev.y) * dt * 1.2,
+        };
+      });
+      orbPositions.current = next;
+      setPositions([...next]);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  return (
+    <div ref={containerRef} className="pointer-events-none absolute inset-0 overflow-hidden">
+      {ORB_DEFS.map((orb, i) => (
+        <div
+          key={i}
+          className={`absolute rounded-full bg-gradient-to-br ${orb.color} blur-3xl transition-opacity duration-1000`}
+          style={{
+            width: orb.size,
+            height: orb.size,
+            left: `calc(${positions[i].x}% - ${orb.size / 2}px)`,
+            top: `calc(${positions[i].y}% - ${orb.size / 2}px)`,
+            willChange: "left, top",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 const ACCOUNTS_KEY = "axtask_known_accounts";
 const LAST_KEY = "axtask_last_email";
@@ -459,18 +548,23 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4 py-8">
-      <div className="w-full max-w-md">
+    <div className="relative h-full min-h-0 overflow-y-auto flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 px-4 py-8">
+      {/* Interactive cursor-reactive orbs */}
+      <LoginOrbs />
+
+      <div className="relative z-10 w-full max-w-md">
         <div className="text-center mb-8" id="login-help-header">
-          <div className="inline-flex items-center gap-2 text-primary mb-2">
-            <CheckSquare className="h-8 w-8" />
-            <span className="text-3xl font-bold">AxTask</span>
+          <div className="inline-flex items-center gap-2 mb-2">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 backdrop-blur-md border border-white/20">
+              <CheckSquare className="h-6 w-6 text-sky-400" />
+            </div>
+            <span className="text-3xl font-bold bg-gradient-to-r from-sky-300 via-blue-200 to-indigo-300 bg-clip-text text-transparent">AxTask</span>
           </div>
-          <p className="text-gray-500 dark:text-gray-400">
+          <p className="text-slate-400">
             Intelligent Task Management
           </p>
           {loginPretext ? (
-            <p className="mt-3 text-sm text-gray-600 dark:text-gray-400 max-w-md mx-auto leading-relaxed">
+            <p className="mt-3 text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
               {loginPretext}
             </p>
           ) : null}
@@ -478,12 +572,12 @@ export default function LoginPage() {
 
         <div
           id="login-help-card"
-          className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-8"
+          className="rounded-2xl border border-white/15 bg-white/5 backdrop-blur-xl shadow-2xl shadow-black/20 p-8"
         >
           {totpStep && mode === "login" ? (
             <div className="space-y-4">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Authenticator code</h2>
-              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+              <h2 className="text-xl font-semibold text-slate-100 mb-2">Authenticator code</h2>
+              <p className="text-sm text-slate-400 leading-relaxed">
                 Enter the 6-digit code from Google Authenticator or Microsoft Authenticator
                 {totpEmailMask ? (
                   <>
@@ -563,7 +657,7 @@ export default function LoginPage() {
               </button>
             </div>
           ) : null}
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
+          <h2 className="text-xl font-semibold text-slate-100 mb-6">
             {mode === "forgot"
               ? forgotStep === "done" ? "Success" : "Reset your password"
               : mode === "login"
@@ -589,38 +683,38 @@ export default function LoginPage() {
                       className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-primary bg-primary/5 dark:bg-primary/10 hover:bg-primary/10 dark:hover:bg-primary/20 transition-all text-left group"
                     >
                       {mostRecentAccount.provider === "google" ? (
-                        <div className="h-12 w-12 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
+                        <div className="h-12 w-12 rounded-full bg-white/10 border border-white/20 flex items-center justify-center shrink-0">
                           <ProviderIcon provider="google" />
                         </div>
                       ) : mostRecentAccount.provider === "workos" ? (
-                        <div className="h-12 w-12 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 flex items-center justify-center shrink-0">
+                        <div className="h-12 w-12 rounded-full bg-indigo-500/15 border border-indigo-400/30 flex items-center justify-center shrink-0">
                           <ProviderIcon provider="workos" />
                         </div>
                       ) : mostRecentAccount.provider === "replit" ? (
-                        <div className="h-12 w-12 rounded-full bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700 flex items-center justify-center shrink-0">
+                        <div className="h-12 w-12 rounded-full bg-orange-500/15 border border-orange-400/30 flex items-center justify-center shrink-0">
                           <ProviderIcon provider="replit" />
                         </div>
                       ) : (
                         <Avatar name={mostRecentAccount.displayName || mostRecentAccount.email} />
                       )}
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-gray-900 dark:text-white truncate flex items-center gap-2">
+                        <div className="font-semibold text-slate-100 truncate flex items-center gap-2">
                           Continue as {mostRecentAccount.displayName || mostRecentAccount.email.split("@")[0]}
                           <span className="text-[10px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5 shrink-0">
                             <Clock className="h-2.5 w-2.5" /> Last used
                           </span>
                         </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        <div className="text-xs text-slate-400 truncate">
                           {mostRecentAccount.email} · {providerLabel(mostRecentAccount.provider)}
                         </div>
                       </div>
                       <ArrowRight className="h-5 w-5 text-primary shrink-0 group-hover:translate-x-0.5 transition-transform" />
                     </button>
                   ) : (
-                    <div className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-left">
+                    <div className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-white/10 bg-white/5 text-left">
                       <Avatar name={mostRecentAccount.displayName || mostRecentAccount.email} />
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-gray-900 dark:text-white truncate">
+                        <div className="font-semibold text-slate-100 truncate">
                           {mostRecentAccount.displayName || mostRecentAccount.email.split("@")[0]}
                         </div>
                         <div className="text-xs text-amber-600 dark:text-amber-400 truncate">
