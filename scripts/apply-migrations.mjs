@@ -9,7 +9,8 @@
  * Usage:  node scripts/apply-migrations.mjs
  * Env:    DATABASE_URL (required)
  */
-import pg from "pg";
+import pgModule from "pg";
+const pg = pgModule.default || pgModule;
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +25,7 @@ async function main() {
     process.exit(1);
   }
 
-  const pool = new pg.default.Pool({ connectionString: url, max: 1 });
+  const pool = new pg.Pool({ connectionString: url, max: 1 });
   const client = await pool.connect();
 
   try {
