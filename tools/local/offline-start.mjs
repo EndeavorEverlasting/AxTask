@@ -23,7 +23,9 @@ const applyMigrationsScriptPath = path.join(projectRoot, "scripts", "apply-migra
 
 function runStep(stepLabel, command, args) {
   console.log(`\n[offline:start] ${stepLabel}`);
-  const result = spawnSync(command, args, {
+  // Quote the command on Windows so paths with spaces (e.g. C:\Program Files\…) survive shell splitting.
+  const safeCmd = isWin && command.includes(" ") ? `"${command}"` : command;
+  const result = spawnSync(safeCmd, args, {
     cwd: projectRoot,
     stdio: "inherit",
     shell: isWin,
@@ -140,10 +142,9 @@ function validateLocalEnv() {
   dotenv.config({ path: envPath, override: false });
 
   if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.trim()) {
-    console.error(
-      "[offline:start] DATABASE_URL is missing in .env. Set it to a local PostgreSQL URL.",
+    console.warn(
+      "[offline:start] DATABASE_URL is missing in .env — running in UI-only mode (no database).",
     );
-    process.exit(1);
   }
 
   if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.includes("replace-with")) {
@@ -151,6 +152,10 @@ function validateLocalEnv() {
       "[offline:start] SESSION_SECRET still uses placeholder text. Update it before sharing builds.",
     );
   }
+}
+
+function hasDatabaseUrl() {
+  return !!(process.env.DATABASE_URL && process.env.DATABASE_URL.trim());
 }
 
 function ensureSchemaApplied(state) {
@@ -194,7 +199,7 @@ function startDevServer() {
 }
 
 console.log("[offline:start] Bootstrapping local offline workflow");
-const bootstrap = spawnSync(process.execPath, [path.join(__dirname, "repo-bootstrap.mjs")], {
+const bootstrap = spawnSync(`"${process.execPath}"`, [path.join(__dirname, "repo-bootstrap.mjs")], {
   cwd: projectRoot,
   stdio: "inherit",
   shell: isWin,
@@ -205,9 +210,17 @@ const previousState = readState();
 ensureLocalEnvInit();
 ensureNodeModules();
 validateLocalEnv();
-ensureSqlMigrationsApplied();
-const dependencyFingerprint = ensureDependenciesSynced(previousState);
-const schemaFingerprint = ensureSchemaApplied(previousState);
+let dependencyFingerprint;
+let schemaFingerprint;
+if (hasDatabaseUrl()) {
+  ensureSqlMigrationsApplied();
+  dependencyFingerprint = ensureDependenciesSynced(previousState);
+  schemaFingerprint = ensureSchemaApplied(previousState);
+} else {
+  console.log("[offline:start] Skipping DB migrations & schema push (no DATABASE_URL).");
+  dependencyFingerprint = ensureDependenciesSynced(previousState);
+  schemaFingerprint = previousState.schemaFingerprint || "";
+}
 
 writeState({
   dependencyFingerprint,

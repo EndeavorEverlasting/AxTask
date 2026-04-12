@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearch } from "wouter";
 import { motion, useScroll, useTransform } from "framer-motion";
-import { CheckSquare, Sparkles, LayoutDashboard, Zap, Shield, BarChart3, Terminal } from "lucide-react";
+import { CheckSquare, Sparkles, LayoutDashboard, Zap, Shield, BarChart3, Terminal, Quote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CursorOrbsBackdrop } from "@/components/marketing/cursor-orbs-backdrop";
-import { pretextGradientCtaClassName } from "@/components/pretext/pretext-confirmation-shell";
+import { PretextAmbientChips, pretextGradientCtaClassName } from "@/components/pretext/pretext-confirmation-shell";
 import { cn } from "@/lib/utils";
 import { getSafePostLoginPath } from "@/lib/post-login-redirect";
 
@@ -13,6 +13,14 @@ const FEATURES = [
   { title: "Step-up when it matters", body: "MFA handoffs and confirmations use the same glass shell you trust for sensitive moves.", icon: Shield },
   { title: "Signals, not noise", body: "Analytics and rewards stay glanceable — the canvas is for doing, not decoding.", icon: BarChart3 },
 ];
+
+const PHILOSOPHY_LINES = [
+  { heading: "Fleeting by design", body: "Tasks are not monuments. They appear, demand attention, and dissolve — like the chips that scatter when your cursor arrives. Chase them and they retreat; let them breathe and they settle." },
+  { heading: "Measured in motion", body: "Productivity is not a number on a dashboard. It is the arc of a day: bursts of focus, valleys of rest, the quiet satisfaction of marking something done before it marked you." },
+  { heading: "Glass, not walls", body: "Every surface in AxTask is translucent — the confirm shell, the login card, the orbs behind them. Transparency is the point: nothing hides, nothing pretends." },
+];
+
+const AMBIENT_CHIP_LABELS = ["Done", "Shipped", "Closed", "Nailed It", "Checked", "Complete"];
 
 /** Placeholder slides until a hero MP4 ships; swap URLs without code changes. */
 const SHOWCASE_SLIDES = [
@@ -52,8 +60,9 @@ export default function LandingPage() {
   const featuresY = useTransform(scrollYProgress, [0, 1], [48, -48]);
 
   return (
-    <div className="relative min-h-dvh w-full overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white">
+    <div className="relative w-full overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white">
       <CursorOrbsBackdrop />
+      <PretextAmbientChips labels={AMBIENT_CHIP_LABELS} />
 
       <header className="relative z-10 border-b border-white/10 bg-black/20 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
@@ -136,6 +145,43 @@ export default function LandingPage() {
         </section>
 
         <section className="border-t border-white/10 py-20">
+          <div className="mx-auto max-w-4xl px-4 sm:px-6">
+            <div className="mb-12 text-center">
+              <p className="text-xs font-medium uppercase tracking-[0.25em] text-violet-300/90">Philosophy</p>
+              <h2 className="mt-2 text-2xl font-semibold sm:text-3xl">
+                Why the chips{" "}
+                <span className="bg-gradient-to-r from-violet-300 via-fuchsia-200 to-pink-200 bg-clip-text text-transparent">
+                  run away
+                </span>
+              </h2>
+              <p className="mx-auto mt-3 max-w-2xl text-sm text-slate-400">
+                Move your cursor over the floating labels. They scatter — because that is what tasks do when you reach for too many at once.
+              </p>
+            </div>
+            <div className="space-y-8">
+              {PHILOSOPHY_LINES.map(({ heading, body }) => (
+                <motion.div
+                  key={heading}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.5 }}
+                  transition={{ duration: 0.5 }}
+                  className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-sm p-6 sm:p-8"
+                >
+                  <div className="flex items-start gap-4">
+                    <Quote className="mt-1 h-5 w-5 shrink-0 text-violet-400/60" />
+                    <div>
+                      <h3 className="text-lg font-semibold text-white">{heading}</h3>
+                      <p className="mt-2 text-sm leading-relaxed text-slate-300">{body}</p>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="border-t border-white/10 py-20">
           <div className="mx-auto max-w-6xl px-4 sm:px-6">
             <div className="mb-10 text-center">
               <p className="text-xs font-medium uppercase tracking-[0.2em] text-teal-300/90">Showcase</p>
@@ -148,12 +194,13 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <footer className="border-t border-white/10 py-10 text-center text-xs text-slate-500">
-          <Link href="/contact" className="text-slate-400 underline-offset-4 hover:text-slate-200 hover:underline">
+        <footer className="border-t border-white/10 py-16 text-center">
+          <p className="text-sm text-slate-400 max-w-md mx-auto leading-relaxed mb-4">
+            AxTask — where tasks are fleeting, the canvas is calm, and every surface is glass.
+          </p>
+          <Link href="/contact" className="text-xs text-slate-500 underline-offset-4 hover:text-slate-200 hover:underline">
             Contact
           </Link>
-          <span className="mx-2">·</span>
-          <span>AxTask — sleek by default.</span>
         </footer>
       </main>
     </div>

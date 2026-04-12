@@ -63,7 +63,7 @@
   #root {
     height: 100%;
     min-height: 100dvh;
-    overflow: hidden;
+    overflow: auto;
   }
 
   body {

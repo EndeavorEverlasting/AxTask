@@ -28,7 +28,7 @@ import {
   ArrowRight, ToggleLeft, ToggleRight, Info,
 } from "lucide-react";
 import { CursorOrbsBackdrop } from "@/components/marketing/cursor-orbs-backdrop";
-import { pretextGradientCtaClassName } from "@/components/pretext/pretext-confirmation-shell";
+import { PretextAmbientChips, pretextGradientCtaClassName } from "@/components/pretext/pretext-confirmation-shell";
 import { cn } from "@/lib/utils";
 import { rememberPostLoginRedirectForOAuth } from "@/lib/post-login-redirect";
 
@@ -483,17 +483,18 @@ export default function LoginPage() {
   return (
     <div className="relative min-h-dvh w-full overflow-y-auto flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 px-4 py-8">
       <CursorOrbsBackdrop />
+      <PretextAmbientChips labels={["Focus", "Flow", "Ship", "Rest", "Repeat"]} />
 
       <div className="relative z-10 w-full max-w-md">
         <div className="text-center mb-8" id="login-help-header">
           <div className="inline-flex items-center gap-2 mb-2">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 backdrop-blur-md border border-white/20">
-              <CheckSquare className="h-6 w-6 text-sky-400" />
+              <CheckSquare className="h-6 w-6 text-emerald-300" />
             </div>
-            <span className="text-3xl font-bold bg-gradient-to-r from-sky-300 via-blue-200 to-indigo-300 bg-clip-text text-transparent">AxTask</span>
+            <span className="text-3xl font-bold bg-gradient-to-r from-emerald-200 via-teal-200 to-cyan-200 bg-clip-text text-transparent">AxTask</span>
           </div>
           <p className="text-slate-400">
-            Intelligent Task Management
+            Tasks are fleeting — your focus is not
           </p>
           {loginPretext ? (
             <p className="mt-3 text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
