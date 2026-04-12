@@ -2,7 +2,7 @@
  * Full-viewport pretext confirmation layout (gradient shell + glass card).
  * Use `PretextGlassCard` alone inside main app chrome when a full bleed shell is not needed.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
@@ -15,46 +15,46 @@ function chipHome(idx: number) {
   return { x: 6 + ((idx * 17) % 80), y: 55 + ((idx * 11) % 30) };
 }
 
+/**
+ * Ambient floating chips that drift and flee the cursor.
+ * Uses direct DOM manipulation (no React state) for smooth 60 fps.
+ */
 export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mouseRef = useRef({ x: -1, y: -1 });
-  const posRef = useRef(labels.map((_, i) => chipHome(i)));
-  const [positions, setPositions] = useState(() => labels.map((_, i) => chipHome(i)));
+  const chipRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const mouse = { x: -1, y: -1 };
+    const pos = labels.map((_, i) => chipHome(i));
+    let t = 0;
+    let last = performance.now();
+    let raf = 0;
+
     const onMove = (e: MouseEvent) => {
-      const r = containerRef.current?.getBoundingClientRect();
-      if (!r) return;
-      mouseRef.current = {
-        x: ((e.clientX - r.left) / r.width) * 100,
-        y: ((e.clientY - r.top) / r.height) * 100,
-      };
+      const r = container.getBoundingClientRect();
+      mouse.x = ((e.clientX - r.left) / r.width) * 100;
+      mouse.y = ((e.clientY - r.top) / r.height) * 100;
     };
-    const onLeave = () => { mouseRef.current = { x: -1, y: -1 }; };
+    const onLeave = () => { mouse.x = -1; mouse.y = -1; };
     window.addEventListener("mousemove", onMove, { passive: true });
     window.addEventListener("mouseleave", onLeave, { passive: true });
 
-    let last = performance.now();
-    let t = 0;
-    let raf = 0;
     const tick = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       t += dt;
-      const mx = mouseRef.current.x;
-      const my = mouseRef.current.y;
-      const hasMouse = mx >= 0;
+      const hasMouse = mouse.x >= 0;
 
-      const next = labels.map((_, i) => {
+      for (let i = 0; i < labels.length; i++) {
         const home = chipHome(i);
         const driftX = Math.sin(t / (4 + i) + i * 2.1) * 6;
         const driftY = Math.cos(t / (5 + i) + i * 1.7) * 4;
-        let repelX = 0;
-        let repelY = 0;
+        let repelX = 0, repelY = 0;
         if (hasMouse) {
-          const prev = posRef.current[i];
-          const dx = prev.x - mx;
-          const dy = prev.y - my;
+          const dx = pos[i].x - mouse.x;
+          const dy = pos[i].y - mouse.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
           if (dist < 28) {
             const force = ((28 - dist) / 28) * 22;
@@ -62,16 +62,17 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
             repelY = (dy / dist) * force;
           }
         }
-        const prev = posRef.current[i];
         const tx = home.x + driftX + repelX;
         const ty = home.y + driftY + repelY;
-        return {
-          x: prev.x + (tx - prev.x) * dt * 2,
-          y: prev.y + (ty - prev.y) * dt * 2,
-        };
-      });
-      posRef.current = next;
-      setPositions([...next]);
+        pos[i].x += (tx - pos[i].x) * dt * 2;
+        pos[i].y += (ty - pos[i].y) * dt * 2;
+
+        const el = chipRefs.current[i];
+        if (el) {
+          el.style.left = `${pos[i].x}%`;
+          el.style.top = `${pos[i].y}%`;
+        }
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -83,22 +84,20 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
   }, [labels]);
 
   return (
-    <div ref={containerRef} className="absolute inset-0 pointer-events-none overflow-hidden">
+    <div ref={containerRef} className="absolute inset-0 pointer-events-none overflow-hidden z-[1]">
       {labels.map((label, idx) => (
-        <motion.div
+        <div
           key={`${label}-${idx}`}
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: [0.5, 0.9, 0.5], scale: [0.92, 1, 0.92] }}
-          transition={{ duration: 3.2, delay: 0.15 * idx, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute text-xs sm:text-sm rounded-full border border-emerald-300/40 bg-emerald-900/30 backdrop-blur-sm px-3 py-1 text-emerald-200/80 shadow-lg shadow-emerald-500/10"
+          ref={(el) => { chipRefs.current[idx] = el; }}
+          className="absolute text-xs sm:text-sm rounded-full border border-emerald-300/40 bg-emerald-900/30 backdrop-blur-sm px-3 py-1 text-emerald-200/80 shadow-lg shadow-emerald-500/10 opacity-70"
           style={{
-            left: `${positions[idx]?.x ?? 0}%`,
-            top: `${positions[idx]?.y ?? 0}%`,
-            willChange: "transform",
+            left: `${chipHome(idx).x}%`,
+            top: `${chipHome(idx).y}%`,
+            willChange: "left, top",
           }}
         >
           {label}
-        </motion.div>
+        </div>
       ))}
     </div>
   );

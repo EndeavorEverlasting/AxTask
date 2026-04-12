@@ -60,7 +60,7 @@ export default function LandingPage() {
   const featuresY = useTransform(scrollYProgress, [0, 1], [48, -48]);
 
   return (
-    <div className="relative w-full overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white">
+    <div className="relative min-h-dvh w-full overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white">
       <CursorOrbsBackdrop />
       <PretextAmbientChips labels={AMBIENT_CHIP_LABELS} />
 
