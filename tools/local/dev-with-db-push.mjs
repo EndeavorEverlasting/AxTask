@@ -29,6 +29,16 @@ const skip = skipNorm === "true" || skipNorm === "1";
 if (skip) {
   console.log("[axtask:dev] SKIP_DB_PUSH_ON_START set — skipping drizzle-kit push.");
 } else {
+  console.log("[axtask:dev] Applying SQL migrations (scripts/apply-migrations.mjs)…");
+  const migrate = spawnSync(process.execPath, [path.join(projectRoot, "scripts", "apply-migrations.mjs")], {
+    cwd: projectRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
+  if ((migrate.status ?? 1) !== 0) {
+    console.error("[axtask:dev] apply-migrations.mjs failed. Fix migrations/*.sql or DATABASE_URL.");
+    process.exit(migrate.status ?? 1);
+  }
   const pre = spawnSync(process.execPath, ["scripts/pre-db-push-kit-workarounds.mjs"], {
     cwd: projectRoot,
     stdio: "inherit",
@@ -38,7 +48,7 @@ if (skip) {
     console.error("[axtask:dev] pre-db-push-kit-workarounds failed.");
     process.exit(pre.status ?? 1);
   }
-  console.log("[axtask:dev] Applying SQL migrations + database schema (npm run db:push)…");
+  console.log("[axtask:dev] Applying database schema (npm run db:push)…");
   const push = spawnSync("npm", ["run", "db:push"], {
     cwd: projectRoot,
     stdio: "inherit",

@@ -20,6 +20,8 @@ npm run dev
 
 Visit `http://localhost:5000` to access the application.
 
+The Quick Start block above runs **`npm run db:push` then `npm run dev` only**; it does **not** run `scripts/apply-migrations.mjs`. For smart start, Docker vs local, exact command order, and flowcharts, see **[docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)**.
+
 ## Docker Quick Start (Recommended for Workstations)
 
 Prerequisite on each machine:
@@ -52,7 +54,7 @@ Then open `http://localhost:5000`.
 - In-app: use `Install App Shortcut` in the left sidebar to install on desktop/mobile home screen (or show setup steps if browser prompt is unavailable)
 - First-login CTA: users also see a top install banner with `Dismiss` and `Don't show again` controls
 
-This flow automatically installs dependencies (first run), creates `.env` from `.env.example` if missing, runs `db:push`, and starts the app.
+This flow runs [`tools/local/offline-start.mjs`](tools/local/offline-start.mjs): installs dependencies when needed, ensures `.env` via `local:env-init`, runs **`node scripts/apply-migrations.mjs` every time**, runs **`npm run db:push`** only when the schema fingerprint changed (`shared/schema.ts`, `drizzle.config.ts`, `migrations/*.sql`), then starts the dev server with `npx tsx server/index.ts`. Details: [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md).
 
 ## Local + Offline Workflow
 
@@ -64,8 +66,9 @@ You can run AxTask fully local (including when offline) as long as your PostgreS
 2. Ensure `.env` has a local `DATABASE_URL` (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
 3. Run from the AxTask project directory:
    - `npm install`
-   - `npm run db:push`
-   - `npm run dev`
+   - After schema or migration changes: `node scripts/apply-migrations.mjs` (if `migrations/*.sql` changed) and/or `npm run db:push`
+   - `npm run dev` (server only; does not run migrations or push)
+   - **Or** use `npm run dev:smart` once to follow the full ordered flow automatically: [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)
 4. Work offline as needed, then commit and push changes later when back online.
 
 ### Why local runs fail most often
@@ -132,8 +135,8 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 ## Development
 
 ### Scripts
-- `npm run dev` - Start development server
-- `npm run dev:smart` - Smart local startup: sync deps only if lockfile changed, run `db:push` only if schema changed, then start dev server
+- `npm run dev` - Start development server only (no `apply-migrations`, no `db:push`)
+- `npm run dev:smart` - Smart local startup: SQL migrations every run, `db:push` when fingerprint changes, deps sync when lockfile changes; see [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)
 - `npm run deps:sync` - Sync dependencies from lockfile (`npm ci` fallback to `npm install`)
 - `npm run docker:start` - Build/start Docker app + Postgres stack
 - `npm run docker:stop` - Stop Docker stack (preserves named-volume data)

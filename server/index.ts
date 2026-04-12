@@ -239,7 +239,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await seedDevAccounts();
+  try {
+    await seedDevAccounts();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[seed] Dev account seed failed (${msg}). Start PostgreSQL and ensure DATABASE_URL is correct, or set DISABLE_DEV_SEED=true to skip seeding. The server will continue; auth DB calls will still fail until the database is reachable.`,
+    );
+  }
 
   const server = await registerRoutes(app);
 

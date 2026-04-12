@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   SSO_NOT_CONFIGURED_USER_MESSAGES,
   isSsoNotConfiguredErrorCode,
@@ -27,94 +27,18 @@ import {
   Eye, EyeOff, User, Clock, X, KeyRound, HelpCircle, ShieldQuestion,
   ArrowRight, ToggleLeft, ToggleRight, Info,
 } from "lucide-react";
+import { CursorOrbsBackdrop } from "@/components/marketing/cursor-orbs-backdrop";
+import { pretextGradientCtaClassName } from "@/components/pretext/pretext-confirmation-shell";
+import { cn } from "@/lib/utils";
+import { rememberPostLoginRedirectForOAuth } from "@/lib/post-login-redirect";
 
-/* ── Interactive cursor-reactive ambient orbs ─────────────────────────── */
-const ORB_DEFS = [
-  { size: 320, baseX: 10, baseY: 8, color: "from-sky-500/20 to-indigo-500/12", drift: 40, speed: 7 },
-  { size: 260, baseX: 75, baseY: 15, color: "from-violet-500/18 to-fuchsia-500/10", drift: 35, speed: 9 },
-  { size: 200, baseX: 50, baseY: 70, color: "from-cyan-400/15 to-teal-400/10", drift: 45, speed: 8 },
-  { size: 280, baseX: 85, baseY: 60, color: "from-emerald-500/12 to-cyan-500/8", drift: 30, speed: 11 },
-  { size: 180, baseX: 20, baseY: 55, color: "from-rose-500/10 to-pink-500/8", drift: 50, speed: 6 },
-  { size: 240, baseX: 40, baseY: 25, color: "from-amber-500/10 to-orange-500/8", drift: 38, speed: 10 },
-];
-
-function LoginOrbs() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mouseRef = useRef({ x: 0.5, y: 0.5 });
-  const orbPositions = useRef(
-    ORB_DEFS.map((o) => ({ x: o.baseX, y: o.baseY })),
-  );
-  const rafRef = useRef<number>(0);
-  const timeRef = useRef(0);
-  const [positions, setPositions] = useState(
-    ORB_DEFS.map((o) => ({ x: o.baseX, y: o.baseY })),
-  );
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      mouseRef.current = {
-        x: (e.clientX - rect.left) / rect.width,
-        y: (e.clientY - rect.top) / rect.height,
-      };
-    };
-    window.addEventListener("mousemove", onMove, { passive: true });
-
-    let last = performance.now();
-    const tick = (now: number) => {
-      const dt = Math.min((now - last) / 1000, 0.1);
-      last = now;
-      timeRef.current += dt;
-      const t = timeRef.current;
-      const mx = mouseRef.current.x;
-      const my = mouseRef.current.y;
-
-      const next = ORB_DEFS.map((o, i) => {
-        // Organic drift (each orb has unique phase)
-        const driftX = Math.sin(t / o.speed + i * 1.8) * o.drift * 0.3;
-        const driftY = Math.cos(t / o.speed + i * 2.4) * o.drift * 0.3;
-        // Cursor attraction — orbs gravitate toward mouse
-        const attractX = (mx * 100 - o.baseX) * 0.12;
-        const attractY = (my * 100 - o.baseY) * 0.12;
-        // Smooth lerp toward target
-        const prev = orbPositions.current[i];
-        const tx = o.baseX + driftX + attractX;
-        const ty = o.baseY + driftY + attractY;
-        return {
-          x: prev.x + (tx - prev.x) * dt * 1.2,
-          y: prev.y + (ty - prev.y) * dt * 1.2,
-        };
-      });
-      orbPositions.current = next;
-      setPositions([...next]);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
-
-  return (
-    <div ref={containerRef} className="pointer-events-none absolute inset-0 overflow-hidden">
-      {ORB_DEFS.map((orb, i) => (
-        <div
-          key={i}
-          className={`absolute rounded-full bg-gradient-to-br ${orb.color} blur-3xl transition-opacity duration-1000`}
-          style={{
-            width: orb.size,
-            height: orb.size,
-            left: `calc(${positions[i].x}% - ${orb.size / 2}px)`,
-            top: `calc(${positions[i].y}% - ${orb.size / 2}px)`,
-            willChange: "left, top",
-          }}
-        />
-      ))}
-    </div>
-  );
+function persistNextBeforeExternalAuth() {
+  try {
+    const next = new URLSearchParams(window.location.search).get("next");
+    if (next) rememberPostLoginRedirectForOAuth(next);
+  } catch {
+    /* ignore */
+  }
 }
 
 const ACCOUNTS_KEY = "axtask_known_accounts";
@@ -289,7 +213,7 @@ export default function LoginPage() {
         setOauthCallbackErrorCode(null);
       }
       setError(messages[oauthError] || `Authentication error: ${oauthError}`);
-      window.history.replaceState({}, "", "/");
+      window.history.replaceState({}, "", "/login");
       return;
     }
     if (params.get("step") === "totp") {
@@ -304,7 +228,7 @@ export default function LoginPage() {
           }
         })
         .catch(() => {});
-      window.history.replaceState({}, "", "/");
+      window.history.replaceState({}, "", "/login");
       return;
     }
     const token = params.get("reset_token");
@@ -312,7 +236,10 @@ export default function LoginPage() {
       setMode("forgot");
       setForgotStep("reset");
       setResetToken(token);
-      window.history.replaceState({}, "", "/");
+      window.history.replaceState({}, "", "/login");
+    } else if (params.get("mode") === "register") {
+      setMode("register");
+      setShowForm(true);
     }
   }, []);
 
@@ -363,6 +290,12 @@ export default function LoginPage() {
   const handlePickAccount = useCallback((acct: KnownAccount) => {
     const url = providerLoginUrls[acct.provider];
     if (url) {
+      try {
+        const next = new URLSearchParams(window.location.search).get("next");
+        if (next) rememberPostLoginRedirectForOAuth(next);
+      } catch {
+        /* ignore */
+      }
       window.location.href = url;
       return;
     }
@@ -548,9 +481,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative h-full min-h-0 overflow-y-auto flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 px-4 py-8">
-      {/* Interactive cursor-reactive orbs */}
-      <LoginOrbs />
+    <div className="relative min-h-dvh w-full overflow-y-auto flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 px-4 py-8">
+      <CursorOrbsBackdrop />
 
       <div className="relative z-10 w-full max-w-md">
         <div className="text-center mb-8" id="login-help-header">
@@ -604,7 +536,7 @@ export default function LoginPage() {
                       <InputOTPSlot
                         key={i}
                         index={i}
-                        className="h-11 w-10 rounded-md border-gray-200 dark:border-gray-600"
+                        className="h-11 w-10 rounded-md border-white/20 bg-white/5"
                       />
                     ))}
                   </InputOTPGroup>
@@ -617,7 +549,7 @@ export default function LoginPage() {
               ) : null}
               <Button
                 type="button"
-                className="w-full"
+                className={cn("w-full h-11", pretextGradientCtaClassName)}
                 disabled={submitting || totpCode.replace(/\D/g, "").length !== 6}
                 onClick={() => void submitTotpCode(totpCode)}
               >
@@ -737,24 +669,24 @@ export default function LoginPage() {
                       tabIndex={0}
                       onClick={() => available ? handlePickAccount(acct) : undefined}
                       onKeyDown={(e) => { if (available && (e.key === "Enter" || e.key === " ")) handlePickAccount(acct); }}
-                      className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left group ${
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left group ${
                         !available
-                          ? "border-gray-200 dark:border-gray-700 opacity-60 cursor-not-allowed"
+                          ? "border-white/10 bg-white/[0.03] opacity-60 cursor-not-allowed"
                           : acct.email === lastEmail
-                          ? "border-primary/40 bg-primary/5 dark:bg-primary/10 hover:bg-primary/10 dark:hover:bg-primary/15 cursor-pointer"
-                          : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer"
+                          ? "border-emerald-400/35 bg-emerald-500/10 hover:bg-emerald-500/15 cursor-pointer"
+                          : "border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer"
                       }`}
                     >
                       {acct.provider === "google" ? (
-                        <div className="h-10 w-10 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center shrink-0">
+                        <div className="h-10 w-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center shrink-0">
                           <ProviderIcon provider="google" />
                         </div>
                       ) : acct.provider === "workos" ? (
-                        <div className="h-10 w-10 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 flex items-center justify-center shrink-0">
+                        <div className="h-10 w-10 rounded-full bg-indigo-500/15 border border-indigo-400/30 flex items-center justify-center shrink-0">
                           <ProviderIcon provider="workos" />
                         </div>
                       ) : acct.provider === "replit" ? (
-                        <div className="h-10 w-10 rounded-full bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700 flex items-center justify-center shrink-0">
+                        <div className="h-10 w-10 rounded-full bg-orange-500/15 border border-orange-400/30 flex items-center justify-center shrink-0">
                           <ProviderIcon provider="replit" />
                         </div>
                       ) : (
@@ -762,10 +694,10 @@ export default function LoginPage() {
                       )}
 
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-gray-900 dark:text-white text-sm truncate">
+                        <div className="font-medium text-slate-100 text-sm truncate">
                           {acct.displayName || acct.email.split("@")[0]}
                         </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate flex items-center gap-1">
+                        <div className="text-xs text-slate-400 truncate flex items-center gap-1">
                           {acct.email}
                           <span className="text-[10px] text-gray-400">
                             · {providerLabel(acct.provider)}
@@ -784,7 +716,7 @@ export default function LoginPage() {
 
                       <button
                         onClick={(e) => { e.stopPropagation(); handleRemoveAccount(e, acct.email); }}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-opacity shrink-0"
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 transition-opacity shrink-0"
                         title="Forget this account"
                       >
                         <X className="h-3.5 w-3.5 text-gray-400" />
@@ -802,19 +734,22 @@ export default function LoginPage() {
 
               <div id="login-help-oauth" className="flex flex-wrap gap-2">
                 <a href="/api/auth/google/login"
-                  className={providerButtonClass("google", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm text-gray-600 dark:text-gray-300")}>
+                  onClick={() => persistNextBeforeExternalAuth()}
+                  className={providerButtonClass("google", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 transition-all text-sm text-slate-200")}>
                   <ProviderIcon provider="google" className="h-4 w-4" />
                   Google
                   {isLastUsedProvider("google") && <span className="text-[9px] text-primary font-medium">★</span>}
                 </a>
                 <a href="/api/auth/replit/login"
-                  className={providerButtonClass("replit", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm text-gray-600 dark:text-gray-300")}>
+                  onClick={() => persistNextBeforeExternalAuth()}
+                  className={providerButtonClass("replit", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 transition-all text-sm text-slate-200")}>
                   <KeyRound className="h-4 w-4" />
                   Replit
                   {isLastUsedProvider("replit") && <span className="text-[9px] text-primary font-medium">★</span>}
                 </a>
                 <a href="/api/auth/workos/login"
-                  className={providerButtonClass("workos", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm text-gray-600 dark:text-gray-300")}>
+                  onClick={() => persistNextBeforeExternalAuth()}
+                  className={providerButtonClass("workos", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 transition-all text-sm text-slate-200")}>
                   <ShieldCheck className="h-4 w-4" />
                   WorkOS
                   {isLastUsedProvider("workos") && <span className="text-[9px] text-primary font-medium">★</span>}
@@ -823,7 +758,7 @@ export default function LoginPage() {
                   type="button"
                   id="login-help-password-cta"
                   onClick={() => { setShowForm(true); setEmail(""); setError(""); }}
-                  className={providerButtonClass("local", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm text-gray-500 dark:text-gray-400")}
+                  className={providerButtonClass("local", "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-white/25 bg-white/[0.04] hover:bg-white/10 transition-all text-sm text-slate-300")}
                 >
                   <User className="h-4 w-4" />
                   Password
@@ -864,7 +799,8 @@ export default function LoginPage() {
               <div id="login-help-oauth" className="space-y-3">
                 <a
                   href="/api/auth/google/login"
-                  className={providerButtonClass("google", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
+                  onClick={() => persistNextBeforeExternalAuth()}
+                  className={providerButtonClass("google", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all font-medium text-slate-100")}
                 >
                   <ProviderIcon provider="google" />
                   Continue with Google
@@ -873,7 +809,8 @@ export default function LoginPage() {
 
                 <a
                   href="/api/auth/replit/login"
-                  className={providerButtonClass("replit", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
+                  onClick={() => persistNextBeforeExternalAuth()}
+                  className={providerButtonClass("replit", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all font-medium text-slate-100")}
                 >
                   <KeyRound className="h-5 w-5" />
                   Sign in with Replit
@@ -882,7 +819,8 @@ export default function LoginPage() {
 
                 <a
                   href="/api/auth/workos/login"
-                  className={providerButtonClass("workos", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all font-medium text-gray-700 dark:text-gray-200")}
+                  onClick={() => persistNextBeforeExternalAuth()}
+                  className={providerButtonClass("workos", "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all font-medium text-slate-100")}
                 >
                   <ShieldCheck className="h-5 w-5" />
                   Continue with WorkOS
@@ -944,19 +882,22 @@ export default function LoginPage() {
               {mode === "login" && (
                 <div id="login-help-oauth" className="space-y-2 mb-4">
                   <a href="/api/auth/google/login"
-                    className={providerButtonClass("google", "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm font-medium text-gray-700 dark:text-gray-200")}>
+                    onClick={() => persistNextBeforeExternalAuth()}
+                    className={providerButtonClass("google", "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all text-sm font-medium text-slate-100")}>
                     <ProviderIcon provider="google" className="h-4 w-4" />
                     Continue with Google
                     {isLastUsedProvider("google") && <span className="text-[10px] text-primary font-medium">★</span>}
                   </a>
                   <a href="/api/auth/replit/login"
-                    className={providerButtonClass("replit", "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm font-medium text-gray-700 dark:text-gray-200")}>
+                    onClick={() => persistNextBeforeExternalAuth()}
+                    className={providerButtonClass("replit", "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all text-sm font-medium text-slate-100")}>
                     <KeyRound className="h-4 w-4" />
                     Sign in with Replit
                     {isLastUsedProvider("replit") && <span className="text-[10px] text-primary font-medium">★</span>}
                   </a>
                   <a href="/api/auth/workos/login"
-                    className={providerButtonClass("workos", "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-all text-sm font-medium text-gray-700 dark:text-gray-200")}>
+                    onClick={() => persistNextBeforeExternalAuth()}
+                    className={providerButtonClass("workos", "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all text-sm font-medium text-slate-100")}>
                     <ShieldCheck className="h-4 w-4" />
                     Continue with WorkOS
                     {isLastUsedProvider("workos") && <span className="text-[10px] text-primary font-medium">★</span>}
@@ -1049,7 +990,11 @@ export default function LoginPage() {
                 </p>
               )}
 
-              <Button type="submit" className="w-full" disabled={submitting}>
+              <Button
+                type="submit"
+                className={cn("w-full h-11", pretextGradientCtaClassName)}
+                disabled={submitting}
+              >
                 {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {mode === "login" ? "Sign in" : "Create account"}
               </Button>

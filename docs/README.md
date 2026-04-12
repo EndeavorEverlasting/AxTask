@@ -215,12 +215,16 @@ Example: 100 tasks × 150ms = 15 seconds = $0.0001
 
 ## Development Workflow
 
+**Database and schema command order (local vs Docker vs production), flowcharts, and flags:** [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md)
+
 ### Local Development
 ```bash
 npm install           # Install dependencies
-npm run db:push      # Sync database schema
-npm run dev          # Start development server
+npm run db:push       # Sync Drizzle schema (run when shared/schema or DB is out of date)
+npm run dev           # Start development server only (no migrations, no push)
 ```
+
+For versioned SQL under `migrations/*.sql`, run `node scripts/apply-migrations.mjs` before or with your usual sync; full ordering is in [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md).
 
 ### One-Click Startup (Recommended for non-technical users)
 - Windows users: double-click `start-offline.cmd`
@@ -228,12 +232,14 @@ npm run dev          # Start development server
 - Optional setup for Windows users: `npm run offline:shortcut` (creates a Desktop icon)
 - In-app option: click `Install App Shortcut` in the sidebar to add AxTask to desktop/mobile home screen
 - First-login users also get a top install CTA banner with dismiss + "don't show again"
-- Auto-steps performed:
+- Auto-steps performed by `npm run offline:start` / `dev:smart` ([`tools/local/offline-start.mjs`](../tools/local/offline-start.mjs)):
   - Install dependencies if missing
-  - Create `.env` from `.env.example` if needed
+  - Create `.env` via `local:env-init` when needed
   - Validate `DATABASE_URL`
-  - Run `npm run db:push`
-  - Start dev server
+  - **`node scripts/apply-migrations.mjs`** (every run)
+  - Sync dependencies if lockfile / `package.json` fingerprint changed
+  - **`npm run db:push`** only when the schema fingerprint changed (`shared/schema.ts`, `drizzle.config.ts`, `migrations/*.sql`)
+  - Start dev server with `npx tsx server/index.ts`
 
 ### Offline Development (Commit Later)
 - Use a local PostgreSQL instance so the app can run without internet
@@ -272,6 +278,7 @@ Suggested mini-games PR sequence:
 
 ### Document Authority Map
 
+- Local / Docker / production database and schema sync: [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md)
 - Canonical index: `docs/ACTIVE_LEGACY_INDEX.md`
 - Canonical architecture contract: `docs/ARCHITECTURE.md`
 - Deployment-impact test sweep and debugging patterns: `docs/DEBUGGING_REFERENCE.md`

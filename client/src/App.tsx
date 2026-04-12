@@ -39,7 +39,14 @@ import FeedbackPage from "@/pages/feedback";
 import CommunityPage from "@/pages/community";
 import ExperienceConfirmPage from "@/pages/experience-confirm";
 import LoginPage from "@/pages/login";
+import LandingPage from "@/pages/landing";
 import ContactPage from "@/pages/contact";
+import { DeepLinkGate } from "@/components/marketing/deep-link-gate";
+import { isValidAppPath } from "@/lib/app-routes";
+import {
+  getSafePostLoginPath,
+  POST_LOGIN_REDIRECT_STORAGE_KEY,
+} from "@/lib/post-login-redirect";
 import BillingBridgePage from "@/pages/billing-bridge";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
@@ -160,50 +167,62 @@ function MobileVoiceFAB() {
 }
 
 const ROUTE_STORAGE_KEY = "axtask_last_route";
-/** Keep aligned with `<Router>` paths so last-route persistence matches real routes. */
-const VALID_ROUTES = [
-  "/",
-  "/tasks",
-  "/calendar",
-  "/analytics",
-  "/import-export",
-  "/google-sheets",
-  "/checklist",
-  "/planner",
-  "/mini-games",
-  "/feedback",
-  "/community",
-  "/admin",
-  "/rewards",
-  "/premium",
-  "/billing",
-  "/account",
-  "/appeals",
-  "/contact",
-  "/billing-bridge",
-];
 
-function useRoutePersistence() {
+function useRoutePersistence(enabled: boolean) {
   const [location, setLocation] = useLocation();
   const restoredRef = useRef(false);
 
   useEffect(() => {
+    if (!enabled) return;
     if (restoredRef.current) return;
     restoredRef.current = true;
     const pathname = window.location.pathname;
     if (pathname === "/" || pathname === "") {
       const saved = localStorage.getItem(ROUTE_STORAGE_KEY);
-      if (saved && saved !== "/" && VALID_ROUTES.includes(saved)) {
+      if (saved && saved !== "/" && isValidAppPath(saved)) {
         setLocation(saved);
       }
     }
-  }, [setLocation]);
+  }, [enabled, setLocation]);
 
   useEffect(() => {
-    if (location && location !== "/" && VALID_ROUTES.includes(location)) {
+    if (!enabled) return;
+    if (location && location !== "/" && isValidAppPath(location.split("?")[0])) {
       localStorage.setItem(ROUTE_STORAGE_KEY, location);
     }
-  }, [location]);
+  }, [enabled, location]);
+}
+
+function PostLoginRedirector() {
+  const [, setLocation] = useLocation();
+  const { user, loading } = useAuth();
+  const consumedRef = useRef(false);
+
+  useEffect(() => {
+    if (!user) consumedRef.current = false;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || loading) return;
+    if (consumedRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    let target = getSafePostLoginPath(params.get("next"));
+    if (!target) {
+      try {
+        const raw = sessionStorage.getItem(POST_LOGIN_REDIRECT_STORAGE_KEY);
+        target = getSafePostLoginPath(raw);
+        if (target) sessionStorage.removeItem(POST_LOGIN_REDIRECT_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (target && target !== "/") {
+      consumedRef.current = true;
+      setLocation(target);
+    }
+  }, [user, loading, setLocation]);
+
+  return null;
 }
 
 function AuthenticatedApp() {
@@ -213,7 +232,7 @@ function AuthenticatedApp() {
   const scale = isMobile ? 1 : zoom / 100;
   const [location, setLocation] = useLocation();
 
-  useRoutePersistence();
+  useRoutePersistence(Boolean(user) && !loading);
 
   if (location === "/mfa/confirm" || location === "/welcome-confirm") {
     return <ExperienceConfirmPage />;
@@ -260,13 +279,24 @@ function AuthenticatedApp() {
     if (location === "/contact") {
       return <ContactPage />;
     }
-    return <LoginPage />;
+    if (location === "/") {
+      return <LandingPage />;
+    }
+    if (location === "/login") {
+      return <LoginPage />;
+    }
+    const pathOnly = location.split("?")[0] || "";
+    if (pathOnly !== "/" && pathOnly !== "/login" && pathOnly !== "/contact") {
+      return <DeepLinkGate path={location} />;
+    }
+    return <LandingPage />;
   }
 
   return (
     <ImmersiveShellProvider>
     <VoiceProvider onNavigate={handleNavigate}>
       <TaskOfflineSyncProvider>
+      <PostLoginRedirector />
       <div className="h-dvh min-h-0 flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <Sidebar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

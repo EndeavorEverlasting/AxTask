@@ -2403,8 +2403,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/account", apiLimiter);
   app.use("/api/billing", apiLimiter);
 
-  await seedRewardsCatalog();
-  await seedOfflineSkillTree();
+  try {
+    await seedRewardsCatalog();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[seed] Rewards catalog seed failed (${msg}). Start PostgreSQL and ensure DATABASE_URL is correct. The server will continue; gamification data may be incomplete until the database is reachable.`,
+    );
+  }
+  try {
+    await seedOfflineSkillTree();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[seed] Offline skill tree seed failed (${msg}). Start PostgreSQL and ensure DATABASE_URL is correct. The server will continue.`,
+    );
+  }
 
   app.get("/api/gamification/wallet", requireAuth, async (req, res) => {
     try {
