@@ -258,7 +258,12 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.altKey && e.key.toLowerCase() === "t") {
+      if (!e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "t") {
+        e.preventDefault();
+        setLocation("/");
+      } else if (k === "n") {
         e.preventDefault();
         setLocation("/tasks?new=1");
       }

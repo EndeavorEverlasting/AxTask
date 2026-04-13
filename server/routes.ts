@@ -3972,14 +3972,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Only allow filenames (no directory separators) and resolve against a fixed base dir
       const allowedBaseDir = path.resolve(__dirname, "../my_corporate_workflow_files");
-      function safePath(input: string): string {
+      const safePath = (input: string): string => {
         const basename = path.basename(input); // strip any directory components
         const resolved = path.resolve(allowedBaseDir, basename);
         if (!resolved.startsWith(allowedBaseDir + path.sep) && resolved !== allowedBaseDir) {
           throw new Error(`Invalid file path: ${input}`);
         }
         return resolved;
-      }
+      };
 
       let safeTaskTracker: string, safeRoster: string, safeManager: string;
       try {
@@ -4157,7 +4157,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const contribs = buildContributions({
           task_evidence_daily: tt.task_evidence_daily,
           task_evidence_event: tt.task_evidence_event,
-          attendance: rb.attendance,
           billing_detail_existing: rb.billing_detail_existing,
           manager_existing_rows: [
             ...rb.manager_internal_existing,

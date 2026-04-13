@@ -255,7 +255,7 @@ function loadOutwardMappings(): OutwardMapping[] {
 
   return [...byAssignment.entries()].map(([assignment, cats]) => ({
     outward_assignment: assignment,
-    internal_categories: [...cats],
+    internal_categories: [...cats] as ContributionCategory[],
   }));
 }
 

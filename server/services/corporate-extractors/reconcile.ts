@@ -96,7 +96,7 @@ export function reconcile(params: {
 
   // Rule 7: multi-bucket splits must have explicit Event Log rows
   for (const [pd, billingRows] of billingDays) {
-    const buckets = new Set(billingRows.map(r => r.billing_bucket).filter(Boolean));
+    const buckets = new Set(billingRows.map((r: BillingDetailExisting) => r.billing_bucket).filter(Boolean));
     if (buckets.size <= 1) continue;
 
     const eventWorkstreams = eventDayCats.get(pd);

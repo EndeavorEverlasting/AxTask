@@ -219,6 +219,28 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       <div className="p-4 space-y-2">
+        <Link href="/">
+          <Button
+            size="sm"
+            className="w-full justify-between bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:via-teal-500 hover:to-cyan-500 text-white shadow-lg shadow-teal-500/25 ring-1 ring-teal-400/30"
+            title={`Dashboard — view all tasks (${KBD.dashboard})`}
+            onClick={handleNavClick}
+          >
+            <span className="flex items-center gap-2">
+              <span className="relative flex h-5 w-5 items-center justify-center">
+                {/* Classification orbs — miniature dots representing task categories */}
+                <span className="absolute h-2 w-2 rounded-full bg-red-400 opacity-90 -top-0.5 -left-0.5 animate-pulse" />
+                <span className="absolute h-2 w-2 rounded-full bg-blue-400 opacity-90 top-0 right-0 " />
+                <span className="absolute h-2 w-2 rounded-full bg-purple-400 opacity-90 bottom-0 left-0.5" />
+                <span className="absolute h-1.5 w-1.5 rounded-full bg-green-400 opacity-80 bottom-0 right-0.5" />
+                <LayoutDashboard className="h-4 w-4 relative z-10 drop-shadow-sm" />
+              </span>
+              All Tasks
+            </span>
+            <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">Alt+T</kbd>
+          </Button>
+        </Link>
+
         <Link href="/tasks?new=1">
           <Button
             size="sm"
@@ -229,7 +251,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               <PlusCircle className="mr-2 h-4 w-4" />
               Add Task
             </span>
-            <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">Alt+T</kbd>
+            <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">Alt+N</kbd>
           </Button>
         </Link>
 
