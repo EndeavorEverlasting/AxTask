@@ -27,6 +27,85 @@ Add unit tests when introducing:
 
 ---
 
+## Wouter Routing Pitfalls & Cross-Component Communication
+
+### ⚠️ CRITICAL: Wouter `useLocation()` NEVER returns query strings
+
+**Problem (caused five+ failed attempts to fix Alt+N hotkey):**
+```typescript
+// ❌ BROKEN — wouter's useLocation() returns ONLY the pathname, NEVER the query string
+const [location] = useLocation();
+const showForm = location.includes("new=1"); // ALWAYS false
+
+// ❌ BROKEN — setLocation with query params is a no-op if already on the same path
+setLocation("/tasks?new=1"); // Does nothing when already on /tasks
+```
+
+**Root Cause:**
+Wouter is a lightweight router. Unlike React Router, `useLocation()` returns only the pathname (`/tasks`), stripping `?query=params` entirely. `setLocation("/tasks?new=1")` when already on `/tasks` is treated as a same-path navigation and ignored.
+
+**Correct Solution — Custom Window Events:**
+```typescript
+// In App.tsx (global keydown handler):
+setLocation("/tasks");
+setTimeout(() => window.dispatchEvent(new Event("axtask-open-new-task")), 50);
+
+// In tasks.tsx (receiving component):
+useEffect(() => {
+  const onOpen = () => setShowForm(true);
+  window.addEventListener("axtask-open-new-task", onOpen);
+  return () => window.removeEventListener("axtask-open-new-task", onOpen);
+}, []);
+```
+
+**Why `setTimeout` is needed:** The navigation via `setLocation` needs one tick to mount the target page component before it can receive the event.
+
+**If you MUST read query params**, use wouter's `useSearch()` hook:
+```typescript
+import { useSearch } from "wouter";
+const search = useSearch(); // returns "?new=1" or ""
+```
+
+### Custom Event Contracts (canonical list)
+
+| Event Name | Dispatched By | Listened By | Purpose |
+|---|---|---|---|
+| `axtask-open-new-task` | App.tsx (Alt+N), sidebar button | tasks.tsx | Show task composer form |
+| `axtask-focus-task-search` | App.tsx (Alt+F), sidebar button | task-list.tsx | Focus the search input |
+| `axtask-voice-focus-task-search` | use-voice.tsx | task-list.tsx | Focus search after voice command |
+
+**Rules for adding new cross-component signals:**
+1. Always use `window.dispatchEvent(new Event("axtask-<action>"))` — never query strings
+2. Add the event name to this table and to `keyboard-shortcuts.test.ts`
+3. The receiving component must clean up its listener in the `useEffect` return
+4. Use `setTimeout(..., 50)` when dispatching after a `setLocation` navigation
+
+### Hotkey Implementation Rules
+
+All keyboard shortcuts are defined in `client/src/lib/keyboard-shortcuts.ts` (the `KBD` object). The actual handlers live in `App.tsx`. The sidebar buttons must fire the same events as the hotkeys.
+
+**Canonical hotkey map (keep in sync with KBD):**
+| Hotkey | Action | Mechanism |
+|---|---|---|
+| Alt+T | Dashboard (all tasks) | `setLocation("/")` |
+| Alt+F | Find tasks | `setLocation("/tasks")` + `axtask-focus-task-search` event |
+| Alt+N | New task (composer) | `setLocation("/tasks")` + `axtask-open-new-task` event |
+| Ctrl+Enter | Submit task form | Handled in task-form.tsx |
+| Ctrl+M | Voice commands | Handled in use-voice.tsx |
+| Ctrl+Shift+Y | Toggle tutorial | Handled in App.tsx |
+| Ctrl+Shift+/ | Hotkey help dialog | Handled in App.tsx |
+
+**Never use `<Link href="/path?param=value">` to trigger component behavior.** Wouter will navigate but the target component won't see the query param.
+
+**Test guardrails:** `client/src/lib/keyboard-shortcuts.test.ts` has 16 tests covering:
+- Every KBD constant mapping
+- No collisions between hotkeys
+- Custom event fire/receive contracts
+- Simulated Alt-key dispatch logic
+- Non-Alt keypress rejection
+
+---
+
 ## Common React/TypeScript Errors
 
 ### 1. Undefined Function Error: `setEditingTask is not defined`

@@ -95,6 +95,24 @@ App (Root)
   - Toast notifications
   - Query client configuration
 
+### Routing & Cross-Component Communication
+
+- **Router**: Wouter (lightweight, pathname-only)
+  - ⚠️ `useLocation()` returns **only the pathname** — never query strings
+  - ⚠️ `setLocation("/path?q=1")` is a **no-op** when already on `/path`
+  - Use `useSearch()` if you must read query params (rare — prefer events)
+
+- **Cross-Component Signals**: Custom `window` events (not URL query params)
+  - Hotkeys and sidebar buttons dispatch named events (e.g. `axtask-open-new-task`)
+  - Target components listen via `useEffect` + `addEventListener`
+  - Use `setTimeout(..., 50)` when dispatching after `setLocation` to allow mount
+  - Full event contract table: see `docs/DEBUGGING_REFERENCE.md`
+
+- **Keyboard Shortcuts**: Canonical source is `client/src/lib/keyboard-shortcuts.ts` (`KBD` object)
+  - Global handlers registered in `App.tsx`
+  - Sidebar buttons must fire identical events to the hotkeys
+  - Unit tests in `keyboard-shortcuts.test.ts` enforce mappings, collision-freedom, and event contracts
+
 ### Data Flow Patterns
 
 1. **User Action** → Component event handler

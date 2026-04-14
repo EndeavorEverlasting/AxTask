@@ -501,79 +501,71 @@ DATABASE_URL=<postgres-connection-string>
 
 ## Epic 7: Keyboard-Driven Navigation & Quick Find
 
-### Inspiration
-Replicates Google Sheets keyboard workflow:
-- `Ctrl + F` → Quick search
-- Arrow keys navigate results
-- Enter selects item
-- **No mouse required** for fast, immersive task access
+### Status: ✅ Implemented (April 2026)
 
-### Features
+### Implemented Hotkeys
 
-**Global Quick Find (Ctrl/Cmd + F):**
-- Opens search overlay that filters tasks in real-time
-- Arrow keys (↑↓) navigate between matches
-- Enter opens selected task for editing
-- ESC closes overlay
-- Prevents default browser find behavior
+| Hotkey | Action | Implementation |
+|---|---|---|
+| **Alt+T** | Open dashboard (load all tasks) | `setLocation("/")` in App.tsx |
+| **Alt+F** | Find tasks (focus search input) | Navigate to `/tasks` + `axtask-focus-task-search` event |
+| **Alt+N** | New task (open composer) | Navigate to `/tasks` + `axtask-open-new-task` event |
+| **Ctrl+Enter** | Submit task form | Handler in task-form.tsx |
+| **Ctrl+M / Cmd+M** | Voice commands | Handler in use-voice.tsx |
+| **Ctrl+Shift+Y** | Toggle tutorial | Handler in App.tsx |
+| **Ctrl+Shift+/** | Hotkey help dialog | Handler in App.tsx |
+| **Ctrl+Shift+B** | Toggle sidebar | Handler in sidebar.tsx |
 
-**Arrow Key Navigation:**
-- **All Tasks Table**: ↑↓ move between rows, Enter opens task
-- **Calendar Views**: Navigate between task cards (future enhancement)
-- **Dashboard**: Navigate stat cards and sections (future enhancement)
+### Architecture
 
-**Visual Focus:**
-- Focused task highlighted with blue border/background
-- Auto-scroll keeps focused item visible
-- Consistent with existing focus glow system
+**Canonical source of truth:** `client/src/lib/keyboard-shortcuts.ts` (the `KBD` constant object)
 
-### Implementation
+**⚠️ CRITICAL LESSON LEARNED (5+ failed attempts):**
+Wouter's `useLocation()` returns **only the pathname**, never query strings.
+`setLocation("/tasks?new=1")` is a no-op when already on `/tasks`.
+**Never use URL query params to trigger component behavior.** Use custom window events instead.
 
-**New Component:**
+**Cross-component communication pattern:**
 ```typescript
-// client/src/components/quick-find.tsx
-export function QuickFind({ isOpen, onClose, onSelectTask })
-  // Real-time search filtering
-  // Arrow key navigation
-  // Enter to select, ESC to close
-```
+// In App.tsx (hotkey handler) or sidebar button onClick:
+setLocation("/tasks");
+setTimeout(() => window.dispatchEvent(new Event("axtask-open-new-task")), 50);
 
-**Global Handler (App.tsx):**
-```typescript
+// In tasks.tsx (receiving component):
 useEffect(() => {
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-      e.preventDefault();
-      setQuickFindOpen(true);
-    }
-  };
-  window.addEventListener('keydown', handleKeyDown);
+  const onOpen = () => setShowForm(true);
+  window.addEventListener("axtask-open-new-task", onOpen);
+  return () => window.removeEventListener("axtask-open-new-task", onOpen);
 }, []);
 ```
 
-**Table Navigation (task-list.tsx):**
-```typescript
-useEffect(() => {
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'ArrowDown') setFocusedIndex(prev => prev + 1);
-    if (e.key === 'ArrowUp') setFocusedIndex(prev => prev - 1);
-    if (e.key === 'Enter') openTask(filteredTasks[focusedIndex]);
-  };
-  window.addEventListener('keydown', handleKeyDown);
-}, [focusedIndex]);
-```
+The `setTimeout(..., 50)` is required because the target page needs one tick to mount after `setLocation` navigates.
 
-### User Benefits
-- **Speed**: Jump to any task without scrolling
-- **Accessibility**: Full keyboard control, no mouse needed
-- **Familiarity**: Matches spreadsheet muscle memory
-- **Efficiency**: Same "List [Item]" → Navigate → Select workflow
+### Sidebar Buttons
+
+Three gradient action buttons in the sidebar (in order):
+1. **All Tasks** (emerald→teal→cyan) — `Alt+T` — navigates to dashboard
+2. **Find Tasks** (violet→fuchsia→pink) — `Alt+F` — navigates to `/tasks`, focuses search, has classification orbs
+3. **Add Task** (blue→indigo) — `Alt+N` — navigates to `/tasks`, opens task composer
+
+Sidebar buttons must fire **the same events** as the corresponding hotkeys. They are not independent implementations.
+
+### Test Guardrails
+
+`client/src/lib/keyboard-shortcuts.test.ts` — **16 tests** covering:
+- Every KBD constant mapping (Alt+T, Alt+N, Alt+F, voice, submit, etc.)
+- No collisions between dashboard, newTask, and findTasks hotkeys
+- Custom event fire/receive contracts (`axtask-open-new-task`, `axtask-focus-task-search`)
+- Simulated Alt-key dispatch verifying handler routing logic
+- Non-Alt keypress rejection (ensures no false triggers)
+- Browser-reserved key avoidance (Ctrl+T, Cmd+T)
 
 ### Future Enhancements (Post-1.3.0)
+- Arrow key navigation (↑↓) between task rows in the table
 - Vim-style keybindings (j/k for down/up)
-- Custom keyboard shortcuts per action
 - Quick actions (d = delete, c = complete) without opening task
 - Multi-select with Shift+Arrow
+- Full QuickFind overlay component with real-time filtering
 
 - ✓ Google login works
 - ✓ Tasks scoped per user

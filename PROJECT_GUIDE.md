@@ -14,7 +14,8 @@ Preferred communication style: Simple, everyday language.
 - **Framework**: React 18 with TypeScript for type safety and modern development
 - **UI Components**: shadcn/ui component library built on Radix UI primitives with Tailwind CSS styling
 - **State Management**: TanStack Query (React Query) for server state management and caching
-- **Routing**: Wouter for lightweight client-side routing
+- **Routing**: Wouter for lightweight client-side routing (**⚠️ `useLocation()` returns pathname only — never query strings; use custom window events for cross-component signals, not URL params; see `docs/DEBUGGING_REFERENCE.md`**)
+- **Keyboard Shortcuts**: Canonical definitions in `client/src/lib/keyboard-shortcuts.ts`; handlers in `App.tsx`; tests in `keyboard-shortcuts.test.ts`
 - **Form Handling**: React Hook Form with Zod schema validation
 - **Build System**: Vite for fast development and optimized production builds
 
