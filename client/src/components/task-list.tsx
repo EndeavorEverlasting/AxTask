@@ -777,7 +777,11 @@ export function TaskList() {
       searchInputRef.current?.focus();
     };
     window.addEventListener("axtask-voice-focus-task-search", onFocusSearch);
-    return () => window.removeEventListener("axtask-voice-focus-task-search", onFocusSearch);
+    window.addEventListener("axtask-focus-task-search", onFocusSearch);
+    return () => {
+      window.removeEventListener("axtask-voice-focus-task-search", onFocusSearch);
+      window.removeEventListener("axtask-focus-task-search", onFocusSearch);
+    };
   }, []);
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({

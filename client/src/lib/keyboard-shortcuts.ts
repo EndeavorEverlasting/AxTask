@@ -9,6 +9,8 @@ export const KBD = {
   dashboardMac: "Alt+T",
   newTask: "Alt+N",
   newTaskMac: "Alt+N",
+  findTasks: "Alt+F",
+  findTasksMac: "Alt+F",
   voice: "Ctrl+M",
   voiceMac: "Cmd+M",
   submitTask: "Ctrl+Enter",

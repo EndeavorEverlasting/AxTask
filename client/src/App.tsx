@@ -265,7 +265,14 @@ function AuthenticatedApp() {
         setLocation("/");
       } else if (k === "n") {
         e.preventDefault();
-        setLocation("/tasks?new=1");
+        setLocation("/tasks");
+        // Fire event so tasks page shows the composer form
+        setTimeout(() => window.dispatchEvent(new Event("axtask-open-new-task")), 50);
+      } else if (k === "f") {
+        e.preventDefault();
+        setLocation("/tasks");
+        // Fire event so task-list focuses the search input
+        setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 50);
       }
     };
     window.addEventListener("keydown", onKeyDown);

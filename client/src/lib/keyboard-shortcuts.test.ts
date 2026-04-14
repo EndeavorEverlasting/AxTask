@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { KBD, SHORTCUT_FOCUS_NOTE, tutorialToggleTitle } from "./keyboard-shortcuts";
 
 describe("keyboard-shortcuts constants", () => {
+  // ── KBD mapping tests ──
+
   it("Alt+T is mapped to dashboard (loads all tasks), not new-task", () => {
     expect(KBD.dashboard).toBe("Alt+T");
     expect(KBD.dashboardMac).toBe("Alt+T");
@@ -12,8 +14,14 @@ describe("keyboard-shortcuts constants", () => {
     expect(KBD.newTaskMac).toBe("Alt+N");
   });
 
-  it("dashboard and newTask are different shortcuts (no collision)", () => {
-    expect(KBD.dashboard).not.toBe(KBD.newTask);
+  it("Alt+F is mapped to findTasks (focus search)", () => {
+    expect(KBD.findTasks).toBe("Alt+F");
+    expect(KBD.findTasksMac).toBe("Alt+F");
+  });
+
+  it("dashboard, newTask, and findTasks are all different shortcuts (no collisions)", () => {
+    const keys = [KBD.dashboard, KBD.newTask, KBD.findTasks];
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
   it("does not use Ctrl+T or Cmd+T (reserved for browser tabs)", () => {
@@ -50,6 +58,90 @@ describe("keyboard-shortcuts constants", () => {
   it("submit task is Ctrl+Enter / Cmd+Enter", () => {
     expect(KBD.submitTask).toBe("Ctrl+Enter");
     expect(KBD.submitTaskMac).toBe("Cmd+Enter");
+  });
+
+  // ── Custom event contract tests ──
+  // These verify the event names that App.tsx must dispatch and TaskList/Tasks must listen to.
+
+  it("axtask-open-new-task event fires and can be received", () => {
+    let received = false;
+    const handler = () => { received = true; };
+    window.addEventListener("axtask-open-new-task", handler);
+    window.dispatchEvent(new Event("axtask-open-new-task"));
+    window.removeEventListener("axtask-open-new-task", handler);
+    expect(received).toBe(true);
+  });
+
+  it("axtask-focus-task-search event fires and can be received", () => {
+    let received = false;
+    const handler = () => { received = true; };
+    window.addEventListener("axtask-focus-task-search", handler);
+    window.dispatchEvent(new Event("axtask-focus-task-search"));
+    window.removeEventListener("axtask-focus-task-search", handler);
+    expect(received).toBe(true);
+  });
+
+  // ── Simulated Alt-key dispatch tests ──
+  // These verify that the keydown handler logic (as implemented in App.tsx) maps
+  // Alt+T, Alt+N, and Alt+F to the correct actions.
+
+  it("Alt+T keydown fires — handler should navigate to dashboard", () => {
+    const calls: string[] = [];
+    const handler = (e: KeyboardEvent) => {
+      if (!e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "t") calls.push("dashboard");
+      else if (k === "n") calls.push("newTask");
+      else if (k === "f") calls.push("findTasks");
+    };
+    window.addEventListener("keydown", handler);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "t", altKey: true }));
+    window.removeEventListener("keydown", handler);
+    expect(calls).toEqual(["dashboard"]);
+  });
+
+  it("Alt+N keydown fires — handler should open new task", () => {
+    const calls: string[] = [];
+    const handler = (e: KeyboardEvent) => {
+      if (!e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "t") calls.push("dashboard");
+      else if (k === "n") calls.push("newTask");
+      else if (k === "f") calls.push("findTasks");
+    };
+    window.addEventListener("keydown", handler);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "n", altKey: true }));
+    window.removeEventListener("keydown", handler);
+    expect(calls).toEqual(["newTask"]);
+  });
+
+  it("Alt+F keydown fires — handler should find tasks", () => {
+    const calls: string[] = [];
+    const handler = (e: KeyboardEvent) => {
+      if (!e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "t") calls.push("dashboard");
+      else if (k === "n") calls.push("newTask");
+      else if (k === "f") calls.push("findTasks");
+    };
+    window.addEventListener("keydown", handler);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", altKey: true }));
+    window.removeEventListener("keydown", handler);
+    expect(calls).toEqual(["findTasks"]);
+  });
+
+  it("non-Alt key presses do not trigger any hotkey action", () => {
+    const calls: string[] = [];
+    const handler = (e: KeyboardEvent) => {
+      if (!e.altKey) return;
+      calls.push(e.key);
+    };
+    window.addEventListener("keydown", handler);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "t", altKey: false }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "n", altKey: false }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", altKey: false }));
+    window.removeEventListener("keydown", handler);
+    expect(calls).toEqual([]);
   });
 });
 

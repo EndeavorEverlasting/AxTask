@@ -16,6 +16,7 @@ const HOTKEY_ROWS = [
   { keys: `${KBD.hotkeyHelp} / ${KBD.hotkeyHelpMac}`, action: "Open or close this shortcuts panel" },
   { keys: `${KBD.loginHelp} / ${KBD.loginHelpMac}`, action: "Show login/help" },
   { keys: `${KBD.dashboard} / ${KBD.dashboardMac}`, action: "Open dashboard (load all tasks)" },
+  { keys: `${KBD.findTasks} / ${KBD.findTasksMac}`, action: "Find tasks (focus search)" },
   { keys: `${KBD.newTask} / ${KBD.newTaskMac}`, action: "New task (open composer)" },
   { keys: `${KBD.submitTask} / ${KBD.submitTaskMac}`, action: "Submit task form" },
   { keys: `${KBD.voice} / ${KBD.voiceMac}`, action: "Voice commands" },

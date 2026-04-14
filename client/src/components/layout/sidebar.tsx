@@ -32,6 +32,7 @@ import {
   Globe2,
   Gamepad2,
   ClipboardCheck,
+  Search,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -227,25 +228,48 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             onClick={handleNavClick}
           >
             <span className="flex items-center gap-2">
-              <span className="relative flex h-5 w-5 items-center justify-center">
-                {/* Classification orbs — miniature dots representing task categories */}
-                <span className="absolute h-2 w-2 rounded-full bg-red-400 opacity-90 -top-0.5 -left-0.5 animate-pulse" />
-                <span className="absolute h-2 w-2 rounded-full bg-blue-400 opacity-90 top-0 right-0 " />
-                <span className="absolute h-2 w-2 rounded-full bg-purple-400 opacity-90 bottom-0 left-0.5" />
-                <span className="absolute h-1.5 w-1.5 rounded-full bg-green-400 opacity-80 bottom-0 right-0.5" />
-                <LayoutDashboard className="h-4 w-4 relative z-10 drop-shadow-sm" />
-              </span>
+              <LayoutDashboard className="h-4 w-4" />
               All Tasks
             </span>
             <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">Alt+T</kbd>
           </Button>
         </Link>
 
-        <Link href="/tasks?new=1">
+        {/* Find Tasks — navigate to /tasks and focus search input */}
+        <Link href="/tasks">
+          <Button
+            size="sm"
+            className="w-full justify-between bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 hover:from-violet-500 hover:via-fuchsia-500 hover:to-pink-500 text-white shadow-lg shadow-fuchsia-500/25 ring-1 ring-fuchsia-400/30"
+            title={`Find tasks — search & filter (${KBD.findTasks})`}
+            onClick={() => {
+              handleNavClick();
+              setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 50);
+            }}
+          >
+          <span className="flex items-center gap-2">
+            <span className="relative flex h-5 w-5 items-center justify-center">
+              {/* Classification orbs — representing searchable task categories */}
+              <span className="absolute h-2 w-2 rounded-full bg-red-400 opacity-90 -top-0.5 -left-0.5 animate-pulse" />
+              <span className="absolute h-2 w-2 rounded-full bg-blue-400 opacity-90 top-0 right-0" />
+              <span className="absolute h-2 w-2 rounded-full bg-purple-400 opacity-90 bottom-0 left-0.5" />
+              <span className="absolute h-1.5 w-1.5 rounded-full bg-green-400 opacity-80 bottom-0 right-0.5" />
+              <Search className="h-4 w-4 relative z-10 drop-shadow-sm" />
+            </span>
+            Find Tasks
+          </span>
+          <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">Alt+F</kbd>
+        </Button>
+        </Link>
+
+        <Link href="/tasks">
           <Button
             size="sm"
             className="w-full justify-between bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg"
             title={`Create task (${KBD.newTask})`}
+            onClick={() => {
+              handleNavClick();
+              setTimeout(() => window.dispatchEvent(new Event("axtask-open-new-task")), 50);
+            }}
           >
             <span className="flex items-center">
               <PlusCircle className="mr-2 h-4 w-4" />

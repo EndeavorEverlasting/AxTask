@@ -2,12 +2,16 @@ import { TaskList } from "@/components/task-list";
 import { TaskForm } from "@/components/task-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sparkles } from "lucide-react";
-import { useMemo } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
 
 export default function Tasks() {
-  const [location] = useLocation();
-  const showFormFirst = useMemo(() => location.includes("new=1"), [location]);
+  const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => {
+    const onOpen = () => setShowForm(true);
+    window.addEventListener("axtask-open-new-task", onOpen);
+    return () => window.removeEventListener("axtask-open-new-task", onOpen);
+  }, []);
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
@@ -24,16 +28,15 @@ export default function Tasks() {
               Add Task is front and center
             </p>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Use <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Alt+N</kbd> to jump here and{" "}
-              <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Ctrl+Enter</kbd> (Mac:{" "}
-              <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Cmd+Enter</kbd>) to submit.
-              Press <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Alt+T</kbd> to open the dashboard and load all tasks.
+              Use <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Alt+N</kbd> to add a task,{" "}
+              <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Alt+F</kbd> to find tasks,{" "}
+              and <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Alt+T</kbd> for the dashboard.
             </p>
           </div>
         </CardContent>
       </Card>
 
-      {showFormFirst && <TaskForm />}
+      {showForm && <TaskForm />}
       <TaskList />
     </div>
   );
