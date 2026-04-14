@@ -21,12 +21,17 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     intent: "navigation",
     patterns: [
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?(?:dashboard|home)\b/i,
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?(?:tasks?|task list)\b/i,
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?calendar\b/i,
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?analytics\b/i,
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?(?:planner|ai planner)\b/i,
-      /\b(?:go to|open|show me|navigate to|switch to)\s+(?:the\s+)?checklist\b/i,
+      /\b(?:go to|open|show me|navigate to|switch to|take me to)\s+(?:the\s+)?(?:dashboard|home)\b/i,
+      /\b(?:go to|open|show me|navigate to|switch to|take me to)\s+(?:the\s+)?(?:tasks?|task list|all tasks)\b/i,
+      /\b(?:go to|open|show me|navigate to|switch to|take me to)\s+(?:the\s+)?calendar\b/i,
+      /\b(?:go to|open|show me|navigate to|switch to|take me to)\s+(?:the\s+)?analytics\b/i,
+      /\b(?:go to|open|show me|navigate to|switch to|take me to)\s+(?:the\s+)?(?:planner|ai planner)\b/i,
+      /\b(?:go to|open|show me|navigate to|switch to|take me to)\s+(?:the\s+)?checklist\b/i,
+      /^(?:hey\s+)?ax\s*task[,.:!]?\s+(?:go\s+(?:to\s+)?|open\s+|show\s+)/i,
+      /\bshow\s+(?:me\s+)?(?:all\s+)?(?:my\s+)?tasks\b/i,
+      /\ball\s+tasks\b/i,
+      /\b(?:go|take me)\s+home\b/i,
+      /\bshow\s+(?:me\s+)?everything\b/i,
     ],
     priority: 10,
   },
@@ -35,6 +40,8 @@ const INTENT_PATTERNS: IntentPattern[] = [
     patterns: [
       /\b(?:create|add|new|make)\s+(?:a\s+)?(?:new\s+)?task\b/i,
       /\b(?:remind me to|i need to|don't forget to|add)\s+/i,
+      /\bnew\s+(?:task|item|to-?do)\b/i,
+      /\b(?:write|add)\s+(?:a\s+)?(?:new\s+)?(?:item|entry)\b/i,
     ],
     priority: 5,
   },
@@ -64,7 +71,10 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     intent: "search",
     patterns: [
-      /\b(?:find|search|look for|where is|show)\s+/i,
+      /\b(?:find|search|look for|where is)\s+/i,
+      /\bwhere(?:'s|\s+is)\s+(?:my\s+)?/i,
+      /\blook\s+(?:for|up)\s+/i,
+      /\bi\s+(?:want|need)\s+to\s+find\b/i,
     ],
     priority: 1,
   },
@@ -132,8 +142,16 @@ function extractSearchQuery(text: string): string {
   return query.trim();
 }
 
+/** Strip "Hey AxTask" / "OK AxTask" wake word prefix from transcripts. */
+function stripWakeWord(text: string): string {
+  return text
+    .replace(/^(?:hey\s+)?ax\s*task[,.:!]?\s*/i, "")
+    .replace(/^(?:ok(?:ay)?\s+)?ax\s*task[,.:!]?\s*/i, "")
+    .trim();
+}
+
 export function classifyIntent(text: string): IntentType {
-  const lower = text.toLowerCase().trim();
+  const lower = stripWakeWord(text).toLowerCase().trim();
 
   let bestIntent: IntentType = "search";
   let bestPriority = -1;
@@ -154,12 +172,13 @@ export function classifyIntent(text: string): IntentType {
 }
 
 export async function dispatchVoiceCommand(
-  transcript: string,
+  rawTranscript: string,
   tasks: Task[],
   userId: string,
   todayStr: string,
   now: Date
 ): Promise<EngineResponse> {
+  const transcript = stripWakeWord(rawTranscript);
   const intent = classifyIntent(transcript);
 
   switch (intent) {

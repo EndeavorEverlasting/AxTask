@@ -19,7 +19,7 @@ import { OfflineDataBanner } from "@/components/offline-data-banner";
 import { TaskOfflineSyncProvider } from "@/components/task-offline-sync-provider";
 import BulkActionDialog from "@/components/bulk-action-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { LayoutDashboard, List, CalendarDays, Brain, Mic, Gamepad2 } from "lucide-react";
+import { LayoutDashboard, List, CalendarDays, Brain, Mic, MicOff, Loader2, Gamepad2 } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
 import Analytics from "@/pages/analytics";
@@ -49,7 +49,6 @@ import {
 } from "@/lib/post-login-redirect";
 import BillingBridgePage from "@/pages/billing-bridge";
 import NotFound from "@/pages/not-found";
-import { Loader2 } from "lucide-react";
 import { Link } from "wouter";
 import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
 import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
@@ -152,16 +151,48 @@ function MobileBottomNav() {
 }
 
 function MobileVoiceFAB() {
-  const { openBar, isSupported } = useVoice();
+  const { openBarAndToggleListening, isSupported, status, isProcessing } = useVoice();
   if (!isSupported) return null;
+
+  const isListening = status === "listening";
 
   return (
     <button
-      className="md:hidden fixed right-4 bottom-20 z-50 w-14 h-14 rounded-full bg-primary text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform"
-      onClick={openBar}
-      aria-label="Voice command"
+      className="md:hidden fixed right-4 bottom-20 z-50 group"
+      onClick={openBarAndToggleListening}
+      aria-label={isListening ? "Listening — tap to stop" : "Hey AxTask — tap to speak"}
     >
-      <Mic className="h-6 w-6" />
+      {/* Outer pulse rings — visible when listening */}
+      {isListening && (
+        <>
+          <span className="absolute inset-0 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 opacity-30 animate-ping" />
+          <span className="absolute -inset-2 rounded-full bg-gradient-to-br from-violet-400/20 to-pink-400/20 animate-pulse" />
+        </>
+      )}
+      {/* Main button */}
+      <span
+        className={`relative flex items-center justify-center w-16 h-16 rounded-full shadow-2xl transition-all duration-300 ${
+          isListening
+            ? "bg-gradient-to-br from-red-500 via-rose-500 to-pink-600 scale-110 shadow-red-500/40"
+            : isProcessing
+              ? "bg-gradient-to-br from-amber-500 to-orange-500 shadow-amber-500/30"
+              : "bg-gradient-to-br from-violet-600 via-fuchsia-600 to-pink-600 shadow-fuchsia-500/30 group-active:scale-95"
+        }`}
+      >
+        {isProcessing ? (
+          <Loader2 className="h-7 w-7 text-white animate-spin" />
+        ) : isListening ? (
+          <MicOff className="h-7 w-7 text-white" />
+        ) : (
+          <Mic className="h-7 w-7 text-white" />
+        )}
+      </span>
+      {/* Label beneath */}
+      <span className={`block text-center text-[9px] font-semibold mt-1 transition-colors ${
+        isListening ? "text-red-500" : "text-fuchsia-600 dark:text-fuchsia-400"
+      }`}>
+        {isListening ? "Listening…" : "Hey AxTask"}
+      </span>
     </button>
   );
 }

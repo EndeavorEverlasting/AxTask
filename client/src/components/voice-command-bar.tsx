@@ -1,5 +1,6 @@
 import { useVoice } from "@/hooks/use-voice";
 import { KBD } from "@/lib/keyboard-shortcuts";
+import { VOICE_SHORTCUT_HINTS } from "@/lib/voice-shortcuts";
 import { AnimatePresence, motion } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import {
@@ -17,6 +18,8 @@ import {
   HelpCircle,
   GraduationCap,
   BookOpen,
+  LayoutDashboard,
+  PlusCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -213,6 +216,38 @@ export function VoiceCommandBar() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Voice shortcut hint chips — show when idle or listening, no response shown */}
+          {!lastResponse && (
+            <div className="px-4 pb-2">
+              <p className="text-[10px] font-medium text-gray-400 dark:text-gray-500 mb-1.5">
+                Try saying:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {VOICE_SHORTCUT_HINTS.map(({ action, label, examples }) => {
+                  const ChipIcon = action === "dashboard" ? LayoutDashboard : action === "find_tasks" ? Search : PlusCircle;
+                  const chipColor = action === "dashboard"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:border-emerald-800"
+                    : action === "find_tasks"
+                      ? "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 dark:bg-fuchsia-900/25 dark:text-fuchsia-300 dark:border-fuchsia-800"
+                      : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/25 dark:text-blue-300 dark:border-blue-800";
+                  return (
+                    <span
+                      key={action}
+                      className={cn(
+                        "inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full border transition-colors",
+                        chipColor,
+                      )}
+                      title={examples.join(" or ")}
+                    >
+                      <ChipIcon className="h-3 w-3" />
+                      {label}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="px-4 pb-2 flex items-center justify-between">
             <div className="flex gap-2 text-[10px] text-gray-400 dark:text-gray-500">

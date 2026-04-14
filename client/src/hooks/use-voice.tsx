@@ -8,6 +8,7 @@ import { syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { useLiveClassificationStream, type LiveClassificationSuggestion } from "./use-live-classification-stream";
 import { TUTORIAL_STEPS, useTutorial } from "@/hooks/use-tutorial";
+import { matchVoiceShortcut } from "@/lib/voice-shortcuts";
 
 interface EngineResponse {
   intent: string;
@@ -271,6 +272,42 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         message: `Searching for "${t}".`,
       });
       return;
+    }
+
+    // Fast local shortcut matching — no server round-trip for common phrases
+    const shortcut = matchVoiceShortcut(t);
+    if (shortcut) {
+      switch (shortcut) {
+        case "dashboard":
+          onNavigateRef.current?.("/");
+          setLastResponse({
+            intent: "navigation",
+            action: "navigate",
+            payload: { path: "/" },
+            message: "Opening Dashboard.",
+          });
+          return;
+        case "find_tasks":
+          onNavigateRef.current?.("/tasks");
+          setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 50);
+          setLastResponse({
+            intent: "search",
+            action: "prepare_task_search",
+            payload: {},
+            message: "Ready to search your tasks.",
+          });
+          return;
+        case "new_task":
+          onNavigateRef.current?.("/tasks");
+          setTimeout(() => window.dispatchEvent(new Event("axtask-open-new-task")), 50);
+          setLastResponse({
+            intent: "task_create",
+            action: "open_new_task",
+            payload: { activity: "" },
+            message: "Opening task form.",
+          });
+          return;
+      }
     }
 
     processMutationRef.current.mutate(t);
