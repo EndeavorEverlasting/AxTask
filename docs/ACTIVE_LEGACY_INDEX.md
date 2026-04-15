@@ -7,14 +7,22 @@ This index is the canonical architecture-cleanup map for AxTask and NodeWeaver i
 - NodeWeaver is **hybrid**: internal monorepo component by default, optional external service mode by deployment profile.
 - Classification ownership is **shared**: NodeWeaver engine core + AxTask fallback/orchestration.
 - Keep one active source per concern (architecture, deployment policy, PR segmentation).
+- Voice personalization is **RAG-contract driven**: retrieval-first adaptation with privacy/security governance.
 
 ## Active (authoritative)
 
 - `README.md`
+- `docs/README.md` (canonical completion-first philosophy and doctrine contract hub)
 - `docs/NODEWEAVER.md` (NodeWeaver standalone product vs vendored monorepo path)
 - `docs/ARCHITECTURE.md`
 - `docs/DEBUGGING_REFERENCE.md` (deployment-impact test sweep and debugging patterns)
 - `docs/PR_SEGMENTATION.md`
+- `docs/REPORT_ENGINE_AGENT_CONTRACTS.md`
+- `docs/CLARIFICATION_PROTOCOL.md`
+- `docs/RAG_CLASSIFICATION_BLUEPRINT.md`
+- `docs/ORB_AVATAR_EXPERIENCE_CONTRACT.md`
+- `docs/COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md`
+- `docs/SECURITY.md` (voice personalization retrieval security controls and incident guardrails)
 - `.github/workflows/pr-file-limit.yml`
 - `tools/ci/check-pr-file-count.mjs`
 - `tools/local/split-pr-helper.mjs`

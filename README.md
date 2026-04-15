@@ -14,13 +14,12 @@ A full-stack task management application with an intelligent priority scoring en
 ```bash
 npm install
 cp .env.example .env
-npm run db:push
-npm run dev
+npm run start:local
 ```
 
 Visit `http://localhost:5000` to access the application.
 
-The Quick Start block above runs **`npm run db:push` then `npm run dev` only**; it does **not** run `scripts/apply-migrations.mjs`. For smart start, Docker vs local, exact command order, and flowcharts, see **[docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)**.
+`npm run start:local` runs the smart local startup flow (SQL migrations first, then `db:push` when needed, then dev server). Use `npm run dev` only when you intentionally want server-only startup without schema automation. For command ordering details, see **[docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)**.
 
 ## Docker Quick Start (Recommended for Workstations)
 
@@ -67,8 +66,9 @@ You can run AxTask fully local (including when offline) as long as your PostgreS
 3. Run from the AxTask project directory:
    - `npm install`
    - After schema or migration changes: `node scripts/apply-migrations.mjs` (if `migrations/*.sql` changed) and/or `npm run db:push`
-   - `npm run dev` (server only; does not run migrations or push)
-   - **Or** use `npm run dev:smart` once to follow the full ordered flow automatically: [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)
+  - `npm run start:local` (recommended; auto-applies migrations/schema before dev server)
+  - `npm run dev` (server only; does not run migrations or push)
+  - `npm run dev:smart` (same workflow as `start:local`)
 4. Work offline as needed, then commit and push changes later when back online.
 
 ### Why local runs fail most often
@@ -136,6 +136,7 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 
 ### Scripts
 - `npm run dev` - Start development server only (no `apply-migrations`, no `db:push`)
+- `npm run start:local` - Recommended local startup: SQL migrations first, then conditional `db:push`, then dev server
 - `npm run dev:smart` - Smart local startup: SQL migrations every run, `db:push` when fingerprint changes, deps sync when lockfile changes; see [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)
 - `npm run deps:sync` - Sync dependencies from lockfile (`npm ci` fallback to `npm install`)
 - `npm run docker:start` - Build/start Docker app + Postgres stack
@@ -238,10 +239,16 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
 
 ## Documentation
 
+- **[Canonical Philosophy](docs/README.md)** - Completion-first doctrine, clarify-before-generate behavior, and avatar/privacy contract links
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - Technical architecture details
 - **[NodeWeaver in this repo](docs/NODEWEAVER.md)** - Standalone classifier vs vendored monorepo path (`services/nodeweaver/upstream`)
 - **[Active/Legacy Index](docs/ACTIVE_LEGACY_INDEX.md)** - Canonical active vs transitional vs legacy classification
 - **[Debugging Reference](docs/DEBUGGING_REFERENCE.md)** - Deployment-impact test sweep checklist and common fixes
+- **[Report Engine and Agent Contracts](docs/REPORT_ENGINE_AGENT_CONTRACTS.md)** - Report engine lifecycle and ambiguity gates
+- **[Clarification Protocol](docs/CLARIFICATION_PROTOCOL.md)** - Mandatory question-asking rules before report generation
+- **[RAG and Classification Blueprint](docs/RAG_CLASSIFICATION_BLUEPRINT.md)** - Retrieval + classification architecture for trusted output
+- **[Orb and Avatar Experience Contract](docs/ORB_AVATAR_EXPERIENCE_CONTRACT.md)** - Orb UX philosophy and mood/avatar behavior system
+- **[Community Automation Privacy Contract](docs/COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)** - Public community automation and data-minimization guardrails
 - **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
 - **[Security Guidelines](docs/SECURITY.md)** - Security best practices
 - **[Version History](VERSION.md)** - Release notes and changelog

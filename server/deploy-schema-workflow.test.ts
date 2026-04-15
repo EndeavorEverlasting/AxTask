@@ -59,6 +59,7 @@ describe("deploy / schema workflow guards", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
     expect(pkg.scripts["db:push"]).toBeTruthy();
     expect(pkg.scripts["db:push:ci"]).toBeTruthy();
+    expect(pkg.scripts["start:local"]).toContain("offline-start.mjs");
     expect(pkg.scripts["dev:smart"]).toContain("offline-start.mjs");
     expect(pkg.scripts["local:env-init"]).toContain("copy-env-local.mjs");
   });

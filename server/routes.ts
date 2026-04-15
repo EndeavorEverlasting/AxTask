@@ -62,12 +62,13 @@ import {
   getCommunityPostWithReplies,
   createCommunityReply,
   seedCommunityPosts,
+  addCoins,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task, tasks } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task, tasks, coinTransactions } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
@@ -99,6 +100,7 @@ import { writeAttachmentObject, readAttachmentObject, deleteAttachmentObject } f
 import { scanAttachmentBuffer } from "./services/attachment-scan";
 import { classifyWithFallback } from "./services/classification/universal-classifier";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
+import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
 function safeEqual(a: string, b: string): boolean {
@@ -134,7 +136,16 @@ function hasFeature(entitlements: { features: string[] }, feature: string): bool
   return entitlements.features.includes(feature);
 }
 
-async function callNodeWeaverBatchClassify(items: Array<{ id: string; activity: string; notes?: string }>) {
+type NodeWeaverBatchResponse = {
+  results?: Array<{
+    predicted_category?: string;
+    confidence_score?: number;
+  }>;
+};
+
+async function callNodeWeaverBatchClassify(
+  items: Array<{ id: string; activity: string; notes?: string }>,
+): Promise<NodeWeaverBatchResponse> {
   const baseUrl = process.env.NODEWEAVER_URL;
   if (!baseUrl) {
     throw new Error("NODEWEAVER_URL is not configured");
@@ -154,7 +165,31 @@ async function callNodeWeaverBatchClassify(items: Array<{ id: string; activity: 
   if (!response.ok) {
     throw new Error(`NodeWeaver classify failed with status ${response.status}`);
   }
-  return response.json();
+  const parsed = await parseLooseJsonResponse(response, "NodeWeaver classify");
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("NodeWeaver classify returned an empty or non-object payload.");
+  }
+  return parsed as NodeWeaverBatchResponse;
+}
+
+function stripJsonMarkdownFence(input: string): string {
+  const trimmed = input.trim();
+  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : trimmed;
+}
+
+async function parseLooseJsonResponse(response: globalThis.Response, source: string): Promise<unknown> {
+  const raw = await response.text();
+  const normalized = stripJsonMarkdownFence(raw);
+  if (!normalized) return null;
+  try {
+    return JSON.parse(normalized);
+  } catch (error) {
+    const preview = normalized.slice(0, 140).replace(/\s+/g, " ");
+    throw new Error(
+      `${source} returned invalid JSON payload (preview: ${preview || "<empty>"}).`,
+    );
+  }
 }
 
 function toIsoDate(date: Date): string {
@@ -1790,6 +1825,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const reclassifyTaskSchema = z.object({
+    classification: z.string().min(2).max(64),
+    baseUpdatedAt: z.string().optional(),
+  });
+
+  app.post("/api/tasks/:id/reclassify", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const payload = reclassifyTaskSchema.parse(req.body || {});
+      const task = await storage.getTask(userId, req.params.id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      const nextClassification = payload.classification.trim();
+      if (!nextClassification) {
+        return res.status(400).json({ message: "Classification is required." });
+      }
+      if (task.classification.trim().toLowerCase() === nextClassification.toLowerCase()) {
+        return res.json({ ...task, classification: task.classification });
+      }
+
+      const updatedTask = await storage.updateTask(userId, {
+        id: task.id,
+        classification: nextClassification,
+      });
+      if (!updatedTask) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      const coinsByLabel = new Map(
+        BUILT_IN_CLASSIFICATIONS.map((entry) => [entry.label.toLowerCase(), entry.coins]),
+      );
+      const coinsEarned = Math.max(1, coinsByLabel.get(nextClassification.toLowerCase()) ?? 2);
+      const { wallet } = await addCoins(
+        userId,
+        coinsEarned,
+        "task_classification",
+        `Reclassified task as ${nextClassification}`,
+        task.id,
+      );
+
+      return res.json({
+        ...updatedTask,
+        classification: nextClassification,
+        classificationReward: {
+          coinsEarned,
+          classification: nextClassification,
+          newBalance: wallet.balance,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({ message: error.message });
+      }
+      return res.status(500).json({ message: "Failed to reclassify task" });
+    }
+  });
+
   // Delete task
   app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
@@ -2436,6 +2530,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(wallet);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch wallet" });
+    }
+  });
+
+  app.get("/api/gamification/classification-stats", requireAuth, async (req, res) => {
+    try {
+      const [stats] = await db
+        .select({
+          totalClassifications: sql<number>`
+            coalesce(sum(case when ${coinTransactions.reason} = 'task_classification' then 1 else 0 end), 0)
+          `,
+          totalConfirmationsReceived: sql<number>`
+            coalesce(sum(case when ${coinTransactions.reason} = 'classification_confirmation_received' then 1 else 0 end), 0)
+          `,
+          totalClassificationCoins: sql<number>`
+            coalesce(sum(case when ${coinTransactions.reason} in ('task_classification', 'classification_confirmation_received') then ${coinTransactions.amount} else 0 end), 0)
+          `,
+        })
+        .from(coinTransactions)
+        .where(eq(coinTransactions.userId, req.user!.id));
+
+      res.json({
+        totalClassifications: Number(stats?.totalClassifications ?? 0),
+        totalConfirmationsReceived: Number(stats?.totalConfirmationsReceived ?? 0),
+        totalClassificationCoins: Number(stats?.totalClassificationCoins ?? 0),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch classification stats" });
     }
   });
 

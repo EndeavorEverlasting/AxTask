@@ -8,6 +8,62 @@
 
 AxTask is a full-stack intelligent task management application that automatically calculates task priorities using an advanced scoring engine. Originally designed to upgrade Google Sheets-based workflows, AxTask provides comprehensive task management with seamless import/export capabilities and real-time Google Sheets integration.
 
+## Axiomatic Completion Philosophy (Canonical)
+
+This document is the canonical philosophy source for AxTask.
+
+AxTask is built to help users **complete** meaningful work, not only track tasks. Every engine, agent, and interface flow should prioritize:
+
+- **Completion-first outcomes** over passive status display.
+- **Clarify-before-generate behavior** whenever intent, audience, scope, or evidence is ambiguous.
+- **Retrieval-grounded outputs** for reports and recommendations using RAG + classification contracts.
+- **Privacy-preserving assistance** where automation never leaks private user data to public surfaces.
+- **Coherent avatar experience** where orb/avatar behavior stays consistent across UI, dialogue, and automation.
+
+### Canonical Doctrine Contracts
+
+- [REPORT_ENGINE_AGENT_CONTRACTS.md](./REPORT_ENGINE_AGENT_CONTRACTS.md)
+- [CLARIFICATION_PROTOCOL.md](./CLARIFICATION_PROTOCOL.md)
+- [RAG_CLASSIFICATION_BLUEPRINT.md](./RAG_CLASSIFICATION_BLUEPRINT.md)
+- [ORB_AVATAR_EXPERIENCE_CONTRACT.md](./ORB_AVATAR_EXPERIENCE_CONTRACT.md)
+- [COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md](./COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)
+
+### Report Generation Definition Of Done
+
+A report workflow is complete only when:
+
+1. the agent selected the correct report mode (draft-only or guided),
+2. ambiguity checks ran and clarifying questions were asked when required,
+3. retrieval/classification evidence supported major claims,
+4. privacy constraints were enforced for any shared/public outputs.
+
+### Voice Personalization Doctrine (RAG)
+
+Speech personalization is treated as a retrieval contract, not blind model retraining:
+
+- Use correction-memory retrieval to adapt to user phrasing, accents, and dialect signals.
+- Keep personalization additive and feature-flagged with baseline fallback.
+- Require explicit user control (opt-in/opt-out, export, deletion).
+- Apply fairness and regression checks before broad rollout.
+- Enforce privacy and security constraints in:
+  - [RAG_CLASSIFICATION_BLUEPRINT.md](./RAG_CLASSIFICATION_BLUEPRINT.md)
+  - [COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md](./COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)
+  - [SECURITY.md](./SECURITY.md)
+
+### Orb + Avatar Doctrine
+
+- Floating orbs are a deliberate UX metaphor for fleeting tasks; movement should remain ambient and non-obstructive.
+- Cursor-elusion should be expressive but subtle enough to preserve usability.
+- Avatar identities are engine-driven personas, not user identities.
+- Mood-to-color mappings must stay stable across UI and community dialogue surfaces.
+
+### Rollout Phases
+
+1. **Doctrine Foundation**: publish and cross-link all canonical contracts.
+2. **Architecture Alignment**: align engine boundaries and fallback behavior language in architecture docs.
+3. **Operational Adoption**: ensure feature specs and implementation docs reference canonical contracts.
+4. **Verification**: maintain unit tests that guard canonical references and doctrine anchors.
+
 ## Architecture
 
 ### System Components
