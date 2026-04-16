@@ -1,28 +1,57 @@
 /**
  * Client-side voice shortcut matching.
  *
- * Maps spoken phrases to the same actions as keyboard shortcuts (Alt+T, Alt+F, Alt+N).
+ * Maps spoken phrases to the same actions as keyboard shortcuts (Alt+T, Alt+F, Alt+N, tutorial, help, sidebar, voice).
  * Executes locally — no server round-trip — for instant feedback on mobile.
- *
- * Supports:
- *  - "Hey AxTask" wake-word prefix (stripped before matching)
- *  - Multiple synonyms per shortcut
- *  - Fuzzy phrasing ("show me all my tasks" → dashboard)
  */
 
-export type VoiceShortcutAction = "dashboard" | "find_tasks" | "new_task" | null;
+export type VoiceShortcutAction =
+  | "dashboard"
+  | "find_tasks"
+  | "new_task"
+  | "toggle_tutorial"
+  | "toggle_hotkey_help"
+  | "toggle_sidebar"
+  | "wake_open_voice"
+  | "toggle_login_help"
+  | null;
 
-/** Strip "Hey AxTask" (and common variations) from the beginning of a transcript. */
-export function stripWakeWord(raw: string): string {
-  return raw
-    .replace(/^(?:hey\s+)?ax\s*task[,.:!]?\s*/i, "")
-    .replace(/^(?:ok(?:ay)?\s+)?ax\s*task[,.:!]?\s*/i, "")
-    .trim();
+/** ASR noise → phrase normalization before pattern matching. */
+export function normalizeVoiceShortcutPhrase(raw: string): string {
+  let s = raw.trim().toLowerCase();
+  if (/^add\s+attention$/i.test(s)) s = "add a task";
+  return s;
 }
 
-/** Returns true if the raw transcript begins with the wake-word prefix. */
+/**
+ * Strip wake prefixes: "Hey AxTask", "high AxTask", "OK AxTask", leading "AxTask " or standalone "AxTask".
+ */
+export function stripWakeWord(raw: string): string {
+  let s = raw.trim();
+  s = s
+    .replace(/^(?:hey|high)\s+ax\s*task[,.:!]?\s*/i, "")
+    .replace(/^(?:ok(?:ay)?)\s+ax\s*task[,.:!]?\s*/i, "")
+    .replace(/^ax\s*task[,.:!]?\s+/i, "")
+    .trim();
+  return s;
+}
+
+/** True if raw transcript begins with or is a wake phrase (including bare "AxTask"). */
 export function hasWakeWord(raw: string): boolean {
-  return /^(?:(?:hey|ok(?:ay)?)\s+)?ax\s*task\b/i.test(raw.trim());
+  const t = raw.trim();
+  if (!t) return false;
+  if (/^(?:(?:hey|high|ok(?:ay)?)\s+)?ax\s*task\b/i.test(t)) return true;
+  if (/^ax\s*task[,.:!]?\s*$/i.test(t)) return true;
+  return false;
+}
+
+/** Background wake listener: only react to wake-prefixed speech (reduces accidental triggers). */
+export function shouldProcessWakeListenerTranscript(raw: string): boolean {
+  const t = raw.trim();
+  if (!t) return false;
+  if (hasWakeWord(t)) return true;
+  if (/^ax\s*task\b/i.test(t)) return true;
+  return false;
 }
 
 interface ShortcutPattern {
@@ -68,16 +97,66 @@ const SHORTCUT_PATTERNS: ShortcutPattern[] = [
       /^(?:add|write)\s+(?:a\s+)?(?:new\s+)?(?:item|entry)$/i,
     ],
   },
+  {
+    action: "toggle_tutorial",
+    patterns: [
+      /^toggle\s+tutorial$/i,
+      /^(?:start|open|show)\s+(?:the\s+)?tutorial$/i,
+      /^(?:stop|close|end)\s+(?:the\s+)?tutorial$/i,
+      /^tutorial$/i,
+      /^guided\s+tour$/i,
+    ],
+  },
+  {
+    action: "toggle_hotkey_help",
+    patterns: [
+      /^keyboard\s+shortcuts?$/i,
+      /^(?:show\s+)?(?:shortcuts?|hotkeys?)$/i,
+      /^hotkey\s+help$/i,
+      /^shortcut\s+(?:reference|help)$/i,
+    ],
+  },
+  {
+    action: "toggle_sidebar",
+    patterns: [
+      /^toggle\s+sidebar$/i,
+      /^(?:show|hide)\s+(?:the\s+)?sidebar$/i,
+      /^sidebar$/i,
+      /^navigation\s+(?:menu|drawer)$/i,
+    ],
+  },
+  {
+    action: "wake_open_voice",
+    patterns: [
+      /^voice$/i,
+      /^(?:open|start)\s+(?:voice|microphone|mic)$/i,
+      /^listen$/i,
+    ],
+  },
+  {
+    action: "toggle_login_help",
+    patterns: [
+      /^login\s+help$/i,
+      /^sign\s*in\s+help$/i,
+      /^help\s+with\s+login$/i,
+    ],
+  },
 ];
 
 /**
  * Match a transcript against voice shortcut patterns.
- * Returns the matched action or null if no match.
- * Automatically strips the "Hey AxTask" wake word before matching.
+ * Strips wake words before matching. Bare "AxTask" → wake_open_voice.
  */
 export function matchVoiceShortcut(rawTranscript: string): VoiceShortcutAction {
-  const cleaned = stripWakeWord(rawTranscript).toLowerCase().trim();
-  if (!cleaned) return null;
+  const stripped = stripWakeWord(rawTranscript);
+  if (/^ax\s*task[,.:!]?\s*$/i.test(rawTranscript.trim())) {
+    return "wake_open_voice";
+  }
+
+  const cleaned = normalizeVoiceShortcutPhrase(stripped);
+  if (!cleaned) {
+    return hasWakeWord(rawTranscript) ? "wake_open_voice" : null;
+  }
 
   for (const { action, patterns } of SHORTCUT_PATTERNS) {
     for (const pattern of patterns) {
@@ -90,6 +169,12 @@ export function matchVoiceShortcut(rawTranscript: string): VoiceShortcutAction {
   return null;
 }
 
+/** Submit/save via voice on the task form (paired with submit hotkeys). */
+export function matchTaskFormVoiceSubmit(rawTranscript: string): boolean {
+  const t = normalizeVoiceShortcutPhrase(stripWakeWord(rawTranscript));
+  return /^(submit|save(\s+task)?|send(\s+it)?)$/i.test(t);
+}
+
 /**
  * Human-readable labels for voice shortcut actions (used in UI hint chips).
  */
@@ -97,5 +182,9 @@ export const VOICE_SHORTCUT_HINTS = [
   { action: "dashboard" as const, label: "Dashboard", examples: ['"Show all tasks"', '"Go home"'] },
   { action: "find_tasks" as const, label: "Find Tasks", examples: ['"Find a task"', '"Search"'] },
   { action: "new_task" as const, label: "New Task", examples: ['"Add a task"', '"New task"'] },
+  { action: "toggle_tutorial" as const, label: "Tutorial", examples: ['"Toggle tutorial"', '"Guided tour"'] },
+  { action: "toggle_hotkey_help" as const, label: "Shortcuts", examples: ['"Keyboard shortcuts"', '"Hotkeys"'] },
+  { action: "toggle_sidebar" as const, label: "Sidebar", examples: ['"Toggle sidebar"', '"Navigation"'] },
+  { action: "wake_open_voice" as const, label: "Voice", examples: ['"AxTask"', '"Start voice"'] },
+  { action: "toggle_login_help" as const, label: "Login help", examples: ['"Login help"'] },
 ] as const;
-

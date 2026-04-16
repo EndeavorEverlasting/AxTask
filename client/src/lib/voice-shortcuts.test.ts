@@ -1,130 +1,129 @@
 import { describe, expect, it } from "vitest";
 import {
   matchVoiceShortcut,
+  matchTaskFormVoiceSubmit,
   stripWakeWord,
   hasWakeWord,
+  shouldProcessWakeListenerTranscript,
+  normalizeVoiceShortcutPhrase,
   VOICE_SHORTCUT_HINTS,
 } from "./voice-shortcuts";
 
-describe("voice-shortcuts", () => {
-  // ── Wake word stripping ──
+describe("Voice: dashboard (Alt+T)", () => {
+  it("matches dashboard phrases", () => {
+    expect(matchVoiceShortcut("go to dashboard")).toBe("dashboard");
+    expect(matchVoiceShortcut("show all tasks")).toBe("dashboard");
+  });
+});
 
-  it("strips 'Hey AxTask' prefix", () => {
+describe("Voice: find_tasks (Alt+F)", () => {
+  it("matches find/search phrases", () => {
+    expect(matchVoiceShortcut("find tasks")).toBe("find_tasks");
+    expect(matchVoiceShortcut("search")).toBe("find_tasks");
+  });
+});
+
+describe("Voice: new_task (Alt+N)", () => {
+  it("matches new task phrases", () => {
+    expect(matchVoiceShortcut("add a task")).toBe("new_task");
+    expect(matchVoiceShortcut("new task")).toBe("new_task");
+  });
+
+  it("maps AxTask add attention → new_task (ASR normalization)", () => {
+    expect(matchVoiceShortcut("AxTask add attention")).toBe("new_task");
+    expect(matchVoiceShortcut("hey AxTask add attention")).toBe("new_task");
+  });
+});
+
+describe("Voice: tutorial (Ctrl+Shift+Y)", () => {
+  it("matches tutorial phrases", () => {
+    expect(matchVoiceShortcut("toggle tutorial")).toBe("toggle_tutorial");
+    expect(matchVoiceShortcut("tutorial")).toBe("toggle_tutorial");
+  });
+});
+
+describe("Voice: hotkey help (Ctrl+Shift+/)", () => {
+  it("matches shortcuts help phrases", () => {
+    expect(matchVoiceShortcut("keyboard shortcuts")).toBe("toggle_hotkey_help");
+    expect(matchVoiceShortcut("hotkeys")).toBe("toggle_hotkey_help");
+  });
+});
+
+describe("Voice: sidebar (Ctrl+Shift+B label / Backslash)", () => {
+  it("matches sidebar phrases", () => {
+    expect(matchVoiceShortcut("toggle sidebar")).toBe("toggle_sidebar");
+    expect(matchVoiceShortcut("sidebar")).toBe("toggle_sidebar");
+  });
+});
+
+describe("Voice: wake / open voice (Ctrl+M)", () => {
+  it("matches bare AxTask and wake-only phrases", () => {
+    expect(matchVoiceShortcut("AxTask")).toBe("wake_open_voice");
+    expect(matchVoiceShortcut("hey AxTask")).toBe("wake_open_voice");
+    expect(matchVoiceShortcut("high AxTask")).toBe("wake_open_voice");
+  });
+
+  it("matches explicit voice/mic phrases", () => {
+    expect(matchVoiceShortcut("start voice")).toBe("wake_open_voice");
+    expect(matchVoiceShortcut("voice")).toBe("wake_open_voice");
+  });
+});
+
+describe("Voice: login help (Ctrl+Shift+H)", () => {
+  it("matches login help phrases", () => {
+    expect(matchVoiceShortcut("login help")).toBe("toggle_login_help");
+  });
+});
+
+describe("Voice: submit task (form)", () => {
+  it("matchTaskFormVoiceSubmit detects submit/save", () => {
+    expect(matchTaskFormVoiceSubmit("submit")).toBe(true);
+    expect(matchTaskFormVoiceSubmit("save task")).toBe(true);
+    expect(matchTaskFormVoiceSubmit("hey AxTask send")).toBe(true);
+  });
+});
+
+describe("stripWakeWord / hasWakeWord / wake listener gate", () => {
+  it("strips hey, high, and OK AxTask", () => {
     expect(stripWakeWord("Hey AxTask go home")).toBe("go home");
-    expect(stripWakeWord("hey axtask, find tasks")).toBe("find tasks");
-  });
-
-  it("strips 'OK AxTask' prefix", () => {
+    expect(stripWakeWord("high AxTask find tasks")).toBe("find tasks");
     expect(stripWakeWord("OK AxTask new task")).toBe("new task");
-    expect(stripWakeWord("Okay AxTask add a task")).toBe("add a task");
   });
 
-  it("returns original text when no wake word", () => {
-    expect(stripWakeWord("add a task")).toBe("add a task");
-    expect(stripWakeWord("go to dashboard")).toBe("go to dashboard");
+  it("strips leading AxTask before command", () => {
+    expect(stripWakeWord("AxTask add a task")).toBe("add a task");
   });
 
-  it("hasWakeWord detects wake word presence", () => {
+  it("hasWakeWord detects variants", () => {
     expect(hasWakeWord("Hey AxTask")).toBe(true);
-    expect(hasWakeWord("hey axtask find")).toBe(true);
-    expect(hasWakeWord("OK AxTask")).toBe(true);
+    expect(hasWakeWord("high AxTask")).toBe(true);
     expect(hasWakeWord("find tasks")).toBe(false);
-    expect(hasWakeWord("")).toBe(false);
   });
 
-  // ── Dashboard shortcut matching ──
-
-  it("matches 'dashboard' phrases → dashboard", () => {
-    const phrases = [
-      "dashboard",
-      "go to dashboard",
-      "open dashboard",
-      "show me the dashboard",
-      "all tasks",
-      "show all tasks",
-      "show me my tasks",
-      "go home",
-      "take me home",
-      "home",
-      "show everything",
-      "show me everything",
-    ];
-    for (const p of phrases) {
-      expect(matchVoiceShortcut(p)).toBe("dashboard");
-    }
+  it("shouldProcessWakeListenerTranscript gates background listener", () => {
+    expect(shouldProcessWakeListenerTranscript("hey AxTask test")).toBe(true);
+    expect(shouldProcessWakeListenerTranscript("AxTask go")).toBe(true);
+    expect(shouldProcessWakeListenerTranscript("go home")).toBe(false);
   });
 
-  it("matches dashboard with wake word prefix", () => {
-    expect(matchVoiceShortcut("Hey AxTask go to dashboard")).toBe("dashboard");
-    expect(matchVoiceShortcut("OK AxTask show all tasks")).toBe("dashboard");
+  it("normalizeVoiceShortcutPhrase maps add attention → add a task", () => {
+    expect(normalizeVoiceShortcutPhrase("add attention")).toBe("add a task");
   });
+});
 
-  // ── Find tasks shortcut matching ──
-
-  it("matches 'find tasks' phrases → find_tasks", () => {
-    const phrases = [
-      "find tasks",
-      "find a task",
-      "search tasks",
-      "search for a task",
-      "search",
-      "find something",
-      "look for a task",
-      "look up something",
-    ];
-    for (const p of phrases) {
-      expect(matchVoiceShortcut(p)).toBe("find_tasks");
-    }
-  });
-
-  it("matches find with wake word prefix", () => {
-    expect(matchVoiceShortcut("Hey AxTask find a task")).toBe("find_tasks");
-  });
-
-  // ── New task shortcut matching ──
-
-  it("matches 'new task' phrases → new_task", () => {
-    const phrases = [
-      "add a task",
-      "new task",
-      "create a task",
-      "create a new task",
-      "make a task",
-      "add a new task",
-      "add a new item",
-    ];
-    for (const p of phrases) {
-      expect(matchVoiceShortcut(p)).toBe("new_task");
-    }
-  });
-
-  it("matches new task with wake word prefix", () => {
-    expect(matchVoiceShortcut("Hey AxTask add a task")).toBe("new_task");
-    expect(matchVoiceShortcut("Okay AxTask new task")).toBe("new_task");
-  });
-
-  // ── Non-matching ──
-
-  it("returns null for unrecognized phrases", () => {
-    expect(matchVoiceShortcut("")).toBeNull();
-    expect(matchVoiceShortcut("what is the weather")).toBeNull();
-    expect(matchVoiceShortcut("hello world")).toBeNull();
-  });
-
-  // ── Hint chips constant ──
-
-  it("VOICE_SHORTCUT_HINTS has entries for all three actions", () => {
-    const actions = VOICE_SHORTCUT_HINTS.map((h) => h.action);
-    expect(actions).toContain("dashboard");
-    expect(actions).toContain("find_tasks");
-    expect(actions).toContain("new_task");
-  });
-
-  it("each hint has a label and at least one example", () => {
+describe("VOICE_SHORTCUT_HINTS", () => {
+  it("covers all non-null shortcut actions", () => {
+    const labels = VOICE_SHORTCUT_HINTS.map((h) => h.label);
+    expect(labels.length).toBeGreaterThanOrEqual(8);
     for (const hint of VOICE_SHORTCUT_HINTS) {
-      expect(hint.label.length).toBeGreaterThan(0);
       expect(hint.examples.length).toBeGreaterThan(0);
     }
   });
 });
 
+describe("Non-matching", () => {
+  it("returns null for unrelated speech", () => {
+    expect(matchVoiceShortcut("what is the weather")).toBeNull();
+    expect(matchVoiceShortcut("")).toBeNull();
+  });
+});

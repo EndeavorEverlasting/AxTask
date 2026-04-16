@@ -17,6 +17,8 @@ import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useAuth } from "@/lib/auth-context";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
+import { matchTaskFormSubmitHotkey } from "@/lib/hotkey-actions";
+import { matchTaskFormVoiceSubmit } from "@/lib/voice-shortcuts";
 import { parseVoiceCommands, stripCommandText } from "@/lib/voice-commands";
 import { useVoice } from "@/hooks/use-voice";
 import { useCollaboration } from "@/hooks/use-collaboration";
@@ -185,6 +187,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const draftContext = task ? `edit_${task.id}` : defaultDate ? `date_${defaultDate}` : "new";
   const draftKey = getDraftKey(user?.id, draftContext);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSubmitWithWarningsRef = useRef<() => void>(() => {});
 
   const freshDefaults: InsertTask = task
     ? {
@@ -265,6 +268,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const isWarned = useCallback((fieldName: string) => warningFields.has(fieldName), [warningFields]);
 
   const handleVoiceResult = useCallback((transcript: string) => {
+    if (matchTaskFormVoiceSubmit(transcript)) {
+      handleSubmitWithWarningsRef.current();
+      return;
+    }
     const commands = parseVoiceCommands(transcript);
     const cleanText = commands.length > 0 ? stripCommandText(transcript) : transcript;
 
@@ -609,6 +616,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     form.handleSubmit(onSubmit)();
   }, [form, addWarning, clearWarning, toast, onSubmit]);
 
+  useEffect(() => {
+    handleSubmitWithWarningsRef.current = handleSubmitWithWarnings;
+  }, [handleSubmitWithWarnings]);
+
   const { consumeTaskPrefill } = useVoice();
 
   useEffect(() => {
@@ -634,11 +645,9 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== "Enter") return;
-      if (e.altKey || e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        handleSubmitWithWarnings();
-      }
+      if (!matchTaskFormSubmitHotkey(e)) return;
+      e.preventDefault();
+      handleSubmitWithWarnings();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

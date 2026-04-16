@@ -188,6 +188,12 @@ export default function LoginPage() {
 
   const [knownAccounts, setKnownAccounts] = useState<KnownAccount[]>([]);
   const [loginHelpOpen, setLoginHelpOpen] = useState(false);
+
+  useEffect(() => {
+    const onToggle = () => setLoginHelpOpen((v) => !v);
+    window.addEventListener("axtask-toggle-login-help", onToggle);
+    return () => window.removeEventListener("axtask-toggle-login-help", onToggle);
+  }, []);
   const [loginPretext, setLoginPretext] = useState<string | null>(null);
   const [oauthCallbackErrorCode, setOauthCallbackErrorCode] = useState<string | null>(null);
   const [totpStep, setTotpStep] = useState(false);

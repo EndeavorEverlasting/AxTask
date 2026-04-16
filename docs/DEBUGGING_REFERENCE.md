@@ -73,16 +73,20 @@ const search = useSearch(); // returns "?new=1" or ""
 | `axtask-open-new-task` | App.tsx (Alt+N), sidebar button | tasks.tsx | Show task composer form |
 | `axtask-focus-task-search` | App.tsx (Alt+F), sidebar button | task-list.tsx | Focus the search input |
 | `axtask-voice-focus-task-search` | use-voice.tsx | task-list.tsx | Focus search after voice command |
+| `axtask-close-voice-bar` | App.tsx (Escape when voice bar open) | use-voice.tsx | Close voice command bar |
+| `axtask-toggle-hotkey-help` | use-voice.tsx (voice shortcut) | App.tsx | Toggle keyboard shortcuts dialog |
+| `axtask-toggle-sidebar` | use-voice.tsx (voice shortcut) | sidebar.tsx | Toggle sidebar / mobile drawer |
+| `axtask-toggle-login-help` | use-voice.tsx (voice shortcut) | login.tsx | Toggle login help overlay |
 
 **Rules for adding new cross-component signals:**
 1. Always use `window.dispatchEvent(new Event("axtask-<action>"))` — never query strings
-2. Add the event name to this table and to `keyboard-shortcuts.test.ts`
+2. Add the event name to this table and to `hotkey-actions.test.ts` (or `keyboard-shortcuts.test.ts` for `KBD` constants)
 3. The receiving component must clean up its listener in the `useEffect` return
 4. Use `setTimeout(..., 50)` when dispatching after a `setLocation` navigation
 
 ### Hotkey Implementation Rules
 
-All keyboard shortcuts are defined in `client/src/lib/keyboard-shortcuts.ts` (the `KBD` object). The actual handlers live in `App.tsx`. The sidebar buttons must fire the same events as the hotkeys.
+All keyboard shortcut labels are defined in `client/src/lib/keyboard-shortcuts.ts` (the `KBD` object). Chord matching lives in `client/src/lib/hotkey-actions.ts`; `App.tsx`, `sidebar.tsx`, `use-voice.tsx`, and `login-help-overlay.tsx` apply the resulting actions. The sidebar buttons must fire the same events as the hotkeys.
 
 **Canonical hotkey map (keep in sync with KBD):**
 | Hotkey | Action | Mechanism |

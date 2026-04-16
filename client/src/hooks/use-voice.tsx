@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
+import { useWakeWordSpeech } from "@/hooks/use-wake-speech";
 import { useSpeechRecognition, type SpeechStatus } from "./use-speech-recognition";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -9,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLiveClassificationStream, type LiveClassificationSuggestion } from "./use-live-classification-stream";
 import { TUTORIAL_STEPS, useTutorial } from "@/hooks/use-tutorial";
 import { matchVoiceShortcut } from "@/lib/voice-shortcuts";
+import { matchVoiceMicChord, voiceBarOpenRef } from "@/lib/hotkey-actions";
 
 interface EngineResponse {
   intent: string;
@@ -91,12 +93,13 @@ interface VoiceProviderProps {
 
 export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
   const [isBarOpen, setIsBarOpen] = useState(false);
+  const [wakeSessionEnabled, setWakeSessionEnabled] = useState(false);
   const [lastResponse, setLastResponse] = useState<EngineResponse | null>(null);
   const [taskPrefill, setTaskPrefill] = useState<TaskPrefill | null>(null);
   const [voiceSearchQuery, setVoiceSearchQuery] = useState<string | null>(null);
   const [reviewProposal, setReviewProposal] = useState<ReviewProposal | null>(null);
   const { toast } = useToast();
-  const { startTutorial, jumpToStepById } = useTutorial();
+  const { startTutorial, stopTutorial, isActive: isTutorialActive, jumpToStepById } = useTutorial();
   const onNavigateRef = useRef(onNavigate);
   onNavigateRef.current = onNavigate;
   const pendingSearchDictationRef = useRef(false);
@@ -252,72 +255,13 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
   const processMutationRef = useRef(processMutation);
   processMutationRef.current = processMutation;
 
-  const handleVoiceResult = useCallback((transcript: string) => {
-    const t = transcript.trim();
-    if (!t) return;
-
-    if (pendingSearchDictationRef.current) {
-      const lower = t.toLowerCase();
-      if (hasNavigationLeadIn(lower) && matchNavigationPath(lower) !== null) {
-        pendingSearchDictationRef.current = false;
-        processMutationRef.current.mutate(t);
-        return;
-      }
-      pendingSearchDictationRef.current = false;
-      setVoiceSearchQuery(t);
-      setLastResponse({
-        intent: "search",
-        action: "show_results",
-        payload: { query: t, results: [] },
-        message: `Searching for "${t}".`,
-      });
-      return;
-    }
-
-    // Fast local shortcut matching — no server round-trip for common phrases
-    const shortcut = matchVoiceShortcut(t);
-    if (shortcut) {
-      switch (shortcut) {
-        case "dashboard":
-          onNavigateRef.current?.("/");
-          setLastResponse({
-            intent: "navigation",
-            action: "navigate",
-            payload: { path: "/" },
-            message: "Opening Dashboard.",
-          });
-          return;
-        case "find_tasks":
-          onNavigateRef.current?.("/tasks");
-          setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 50);
-          setLastResponse({
-            intent: "search",
-            action: "prepare_task_search",
-            payload: {},
-            message: "Ready to search your tasks.",
-          });
-          return;
-        case "new_task":
-          onNavigateRef.current?.("/tasks");
-          setTimeout(() => window.dispatchEvent(new Event("axtask-open-new-task")), 50);
-          setLastResponse({
-            intent: "task_create",
-            action: "open_new_task",
-            payload: { activity: "" },
-            message: "Opening task form.",
-          });
-          return;
-      }
-    }
-
-    processMutationRef.current.mutate(t);
-  }, []);
+  const handleVoiceResultRef = useRef<(transcript: string) => void>(() => {});
 
   const liveVoicePushRef = useRef<(text: string) => void>(() => {});
 
   const speech = useSpeechRecognition({
     continuous: false,
-    onResult: handleVoiceResult,
+    onResult: (transcript) => handleVoiceResultRef.current(transcript),
     onLiveText: (combined) => liveVoicePushRef.current(combined),
   });
 
@@ -356,6 +300,133 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
     });
   }, [toggleListening]);
 
+  const handleVoiceResult = useCallback(
+    (transcript: string) => {
+      const t = transcript.trim();
+      if (!t) return;
+
+      if (pendingSearchDictationRef.current) {
+        const lower = t.toLowerCase();
+        if (hasNavigationLeadIn(lower) && matchNavigationPath(lower) !== null) {
+          pendingSearchDictationRef.current = false;
+          processMutationRef.current.mutate(t);
+          return;
+        }
+        pendingSearchDictationRef.current = false;
+        setVoiceSearchQuery(t);
+        setLastResponse({
+          intent: "search",
+          action: "show_results",
+          payload: { query: t, results: [] },
+          message: `Searching for "${t}".`,
+        });
+        return;
+      }
+
+      const shortcut = matchVoiceShortcut(t);
+      if (shortcut) {
+        switch (shortcut) {
+          case "dashboard":
+            onNavigateRef.current?.("/");
+            setLastResponse({
+              intent: "navigation",
+              action: "navigate",
+              payload: { path: "/" },
+              message: "Opening Dashboard.",
+            });
+            return;
+          case "find_tasks":
+            onNavigateRef.current?.("/tasks");
+            setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 50);
+            setLastResponse({
+              intent: "search",
+              action: "prepare_task_search",
+              payload: {},
+              message: "Ready to search your tasks.",
+            });
+            return;
+          case "new_task":
+            onNavigateRef.current?.("/tasks");
+            setTimeout(() => window.dispatchEvent(new Event("axtask-open-new-task")), 50);
+            setLastResponse({
+              intent: "task_create",
+              action: "open_new_task",
+              payload: { activity: "" },
+              message: "Opening task form.",
+            });
+            return;
+          case "toggle_tutorial":
+            if (isTutorialActive) stopTutorial();
+            else startTutorial();
+            setLastResponse({
+              intent: "tutorial",
+              action: "tutorial_toggle",
+              payload: {},
+              message: "Tutorial toggled.",
+            });
+            return;
+          case "toggle_hotkey_help":
+            window.dispatchEvent(new Event("axtask-toggle-hotkey-help"));
+            setLastResponse({
+              intent: "help",
+              action: "hotkey_help",
+              payload: {},
+              message: "Keyboard shortcuts.",
+            });
+            return;
+          case "toggle_sidebar":
+            window.dispatchEvent(new Event("axtask-toggle-sidebar"));
+            setLastResponse({
+              intent: "layout",
+              action: "sidebar_toggle",
+              payload: {},
+              message: "Toggling sidebar.",
+            });
+            return;
+          case "toggle_login_help":
+            window.dispatchEvent(new Event("axtask-toggle-login-help"));
+            setLastResponse({
+              intent: "help",
+              action: "login_help",
+              payload: {},
+              message: "Login help.",
+            });
+            return;
+          case "wake_open_voice":
+            openBarAndToggleListening();
+            setLastResponse({
+              intent: "voice",
+              action: "wake",
+              payload: {},
+              message: "Listening.",
+            });
+            return;
+          default:
+            break;
+        }
+      }
+
+      processMutationRef.current.mutate(t);
+    },
+    [isTutorialActive, startTutorial, stopTutorial, openBarAndToggleListening],
+  );
+
+  useEffect(() => {
+    handleVoiceResultRef.current = handleVoiceResult;
+  }, [handleVoiceResult]);
+
+  useEffect(() => {
+    if (speech.status === "listening") {
+      setWakeSessionEnabled(true);
+    }
+  }, [speech.status]);
+
+  useWakeWordSpeech({
+    enabled: wakeSessionEnabled,
+    paused: speech.status === "listening" || processMutation.isPending,
+    onWakeTranscript: (raw) => handleVoiceResultRef.current(raw),
+  });
+
   const closeBar = useCallback(() => {
     pendingSearchDictationRef.current = false;
     setIsBarOpen(false);
@@ -392,38 +463,49 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
     setReviewProposal(null);
   }, []);
 
+  voiceBarOpenRef.current = isBarOpen;
+
+  useEffect(() => {
+    return () => {
+      voiceBarOpenRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const onCloseVoiceBar = () => {
+      closeBar();
+    };
+    window.addEventListener("axtask-close-voice-bar", onCloseVoiceBar);
+    return () => window.removeEventListener("axtask-close-voice-bar", onCloseVoiceBar);
+  }, [closeBar]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "m") {
-        e.preventDefault();
-        if (!isBarOpen) {
-          setIsBarOpen(true);
-          setTimeout(() => {
-            if (speech.status !== "listening") {
-              setLastResponse(null);
-              speech.resetTranscript();
-              speech.start();
-            }
-          }, 100);
-        } else {
-          if (speech.status === "listening") {
-            speech.stop();
-          } else {
+      if (!matchVoiceMicChord(e)) return;
+      e.preventDefault();
+      if (!isBarOpen) {
+        setIsBarOpen(true);
+        setTimeout(() => {
+          if (speech.status !== "listening") {
             setLastResponse(null);
             speech.resetTranscript();
             speech.start();
           }
+        }, 100);
+      } else {
+        if (speech.status === "listening") {
+          speech.stop();
+        } else {
+          setLastResponse(null);
+          speech.resetTranscript();
+          speech.start();
         }
-      }
-
-      if (e.key === "Escape" && isBarOpen) {
-        closeBar();
       }
     };
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isBarOpen, speech, closeBar]);
+  }, [isBarOpen, speech]);
 
   return (
     <VoiceContext.Provider

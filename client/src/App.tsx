@@ -55,6 +55,7 @@ import NotFound from "@/pages/not-found";
 import { Link } from "wouter";
 import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
 import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
+import { matchHotkeyFromKeyboardEvent, voiceBarOpenRef } from "@/lib/hotkey-actions";
 
 function Router() {
   return (
@@ -82,24 +83,6 @@ function Router() {
       <Route component={NotFound} />
     </Switch>
   );
-}
-
-/** Ctrl+Shift+Y / Cmd+Shift+Y toggles tutorial (avoids Ctrl/Cmd+T and Ctrl/Cmd+Shift+T reserved for browser tabs). */
-function TutorialHotkeys() {
-  const { isActive, startTutorial, stopTutorial } = useTutorial();
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      if (e.shiftKey && (e.ctrlKey || e.metaKey) && k === "y") {
-        e.preventDefault();
-        if (isActive) stopTutorial();
-        else startTutorial();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isActive, startTutorial, stopTutorial]);
-  return null;
 }
 
 function ReviewDialogBridge() {
@@ -267,6 +250,7 @@ function AuthenticatedApp() {
   const isMobile = useIsMobile();
   const scale = isMobile ? 1 : zoom / 100;
   const [location, setLocation] = useLocation();
+  const { isActive: isTutorialActive, startTutorial, stopTutorial } = useTutorial();
 
   useRoutePersistence(Boolean(user) && !loading);
 
@@ -277,39 +261,57 @@ function AuthenticatedApp() {
   const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
 
   useEffect(() => {
-    if (!user || loading) return;
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "Slash") {
-        e.preventDefault();
-        setHotkeyHelpOpen((v) => !v);
+      const m = matchHotkeyFromKeyboardEvent(e, {
+        hotkeyHelpOpen,
+        isVoiceBarOpen: voiceBarOpenRef.current,
+      });
+      if (!m) return;
+
+      switch (m.kind) {
+        case "toggleHotkeyHelp": {
+          if (!user || loading) return;
+          e.preventDefault();
+          setHotkeyHelpOpen((v) => !v);
+          break;
+        }
+        case "toggleTutorial": {
+          if (!user || loading) return;
+          e.preventDefault();
+          if (isTutorialActive) stopTutorial();
+          else startTutorial();
+          break;
+        }
+        case "navigate": {
+          e.preventDefault();
+          setLocation(m.path);
+          m.postEvents?.forEach(({ name, delayMs }) => {
+            setTimeout(() => window.dispatchEvent(new Event(name)), delayMs);
+          });
+          break;
+        }
+        case "closeHotkeyHelp": {
+          if (!user || loading) return;
+          e.preventDefault();
+          setHotkeyHelpOpen(false);
+          break;
+        }
+        case "voiceCloseBar": {
+          e.preventDefault();
+          window.dispatchEvent(new Event("axtask-close-voice-bar"));
+          break;
+        }
+        case "closeMobileNav": {
+          window.dispatchEvent(new Event("axtask-close-mobile-nav"));
+          break;
+        }
+        default:
+          break;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [user, loading]);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === "t") {
-        e.preventDefault();
-        setLocation("/");
-      } else if (k === "n") {
-        e.preventDefault();
-        setLocation("/tasks");
-        // Fire event so tasks page shows the composer form
-        setTimeout(() => window.dispatchEvent(new Event("axtask-open-new-task")), 50);
-      } else if (k === "f") {
-        e.preventDefault();
-        setLocation("/tasks");
-        // Fire event so task-list focuses the search input
-        setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 50);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [setLocation]);
+  }, [user, loading, hotkeyHelpOpen, setLocation, isTutorialActive, startTutorial, stopTutorial]);
 
   useEffect(() => {
     if (!user || loading) return;
@@ -320,19 +322,10 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     if (!user || loading) return;
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.repeat) return;
-      if (e.isComposing) return;
-      if (hotkeyHelpOpen) {
-        e.preventDefault();
-        setHotkeyHelpOpen(false);
-        return;
-      }
-      window.dispatchEvent(new Event("axtask-close-mobile-nav"));
-    };
-    window.addEventListener("keydown", onEsc);
-    return () => window.removeEventListener("keydown", onEsc);
-  }, [user, loading, hotkeyHelpOpen]);
+    const onToggle = () => setHotkeyHelpOpen((v) => !v);
+    window.addEventListener("axtask-toggle-hotkey-help", onToggle);
+    return () => window.removeEventListener("axtask-toggle-hotkey-help", onToggle);
+  }, [user, loading]);
 
   if (location === "/mfa/confirm" || location === "/welcome-confirm") {
     return <ExperienceConfirmPage />;
@@ -392,7 +385,6 @@ function AuthenticatedApp() {
         </main>
         <MobileBottomNav />
         <MobileVoiceFAB />
-        <TutorialHotkeys />
         {user ? <HotkeyHelpDialog open={hotkeyHelpOpen} onOpenChange={setHotkeyHelpOpen} /> : null}
         <TutorialOverlay />
         <TutorialInteractionGuide />

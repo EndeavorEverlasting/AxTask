@@ -1,3 +1,4 @@
+import { matchSidebarChord } from "@/lib/hotkey-actions";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
@@ -461,13 +462,12 @@ export function Sidebar() {
   useEffect(() => {
     /** Ctrl/Cmd+Shift+B is reserved for bookmarks in many browsers; use Backslash instead. */
     function handleKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "Backslash") {
-        e.preventDefault();
-        if (isMobile) {
-          setMobileOpen((v) => !v);
-        } else {
-          toggleSidebarHidden();
-        }
+      if (!matchSidebarChord(e)) return;
+      e.preventDefault();
+      if (isMobile) {
+        setMobileOpen((v) => !v);
+      } else {
+        toggleSidebarHidden();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -480,6 +480,18 @@ export function Sidebar() {
     window.addEventListener("axtask-close-mobile-nav", closeNav);
     return () => window.removeEventListener("axtask-close-mobile-nav", closeNav);
   }, [isMobile]);
+
+  useEffect(() => {
+    const onToggle = () => {
+      if (isMobile) {
+        setMobileOpen((v) => !v);
+      } else {
+        toggleSidebarHidden();
+      }
+    };
+    window.addEventListener("axtask-toggle-sidebar", onToggle);
+    return () => window.removeEventListener("axtask-toggle-sidebar", onToggle);
+  }, [isMobile, toggleSidebarHidden]);
 
   if (isMobile) {
     return (

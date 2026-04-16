@@ -33,6 +33,8 @@ const INTENT_ICONS: Record<string, typeof Mic> = {
   help: HelpCircle,
   tutorial: GraduationCap,
   module_guide: BookOpen,
+  layout: LayoutDashboard,
+  voice: Mic,
 };
 
 const INTENT_COLORS: Record<string, string> = {
@@ -44,6 +46,8 @@ const INTENT_COLORS: Record<string, string> = {
   help: "text-cyan-500",
   tutorial: "text-violet-500",
   module_guide: "text-amber-600",
+  layout: "text-slate-500",
+  voice: "text-emerald-500",
 };
 
 export function VoiceCommandBar() {

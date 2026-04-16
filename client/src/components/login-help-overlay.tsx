@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { GuidedTourOverlay } from "@/components/tutorial-shell";
 import { buildLoginHelpSteps } from "@/lib/login-help-steps";
 import { KBD, SHORTCUT_FOCUS_NOTE } from "@/lib/keyboard-shortcuts";
+import { matchLoginHelpChord } from "@/lib/hotkey-actions";
 
 const LOGIN_HELP_FOOTER_HINT =
   `Tap Next for each step. Esc, X, or Finish exits. After you sign in, press ${KBD.tutorialToggle} (${KBD.tutorialToggleMac} on Mac) for the full app tour. Press ${KBD.loginHelp} (${KBD.loginHelpMac} on Mac) to open this help again. ${SHORTCUT_FOCUS_NOTE}`;
@@ -42,10 +43,9 @@ export function LoginHelpOverlay({ oauthProviderNames, isOpen, onOpenChange }: L
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "h") {
-        e.preventDefault();
-        onOpenChange(!isOpenRef.current);
-      }
+      if (!matchLoginHelpChord(e)) return;
+      e.preventDefault();
+      onOpenChange(!isOpenRef.current);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

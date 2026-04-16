@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { KBD, SHORTCUT_FOCUS_NOTE, SUBMIT_TASK_SHORTCUTS, tutorialToggleTitle } from "./keyboard-shortcuts";
+import { matchAltNavigationHotkey } from "./hotkey-actions";
 
 describe("keyboard-shortcuts constants", () => {
   // ── KBD mapping tests ──
@@ -109,67 +110,36 @@ describe("keyboard-shortcuts constants", () => {
     expect(received).toBe(true);
   });
 
-  // ── Simulated Alt-key dispatch tests ──
-  // These verify that the keydown handler logic (as implemented in App.tsx) maps
-  // Alt+T, Alt+N, and Alt+F to the correct actions.
+  // ── Alt navigation (same logic as hotkey-actions / App) ──
 
-  it("Alt+T keydown fires — handler should navigate to dashboard", () => {
-    const calls: string[] = [];
-    const handler = (e: KeyboardEvent) => {
-      if (!e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === "t") calls.push("dashboard");
-      else if (k === "n") calls.push("newTask");
-      else if (k === "f") calls.push("findTasks");
-    };
-    window.addEventListener("keydown", handler);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "t", altKey: true }));
-    window.removeEventListener("keydown", handler);
-    expect(calls).toEqual(["dashboard"]);
+  it("Alt+T maps to dashboard via matchAltNavigationHotkey", () => {
+    const e = new KeyboardEvent("keydown", { key: "t", altKey: true });
+    expect(matchAltNavigationHotkey(e)?.kind).toBe("navigate");
+    expect((matchAltNavigationHotkey(e) as { path: string }).path).toBe("/");
   });
 
-  it("Alt+N keydown fires — handler should open new task", () => {
-    const calls: string[] = [];
-    const handler = (e: KeyboardEvent) => {
-      if (!e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === "t") calls.push("dashboard");
-      else if (k === "n") calls.push("newTask");
-      else if (k === "f") calls.push("findTasks");
-    };
-    window.addEventListener("keydown", handler);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "n", altKey: true }));
-    window.removeEventListener("keydown", handler);
-    expect(calls).toEqual(["newTask"]);
+  it("Alt+N maps to new task via matchAltNavigationHotkey", () => {
+    const e = new KeyboardEvent("keydown", { key: "n", altKey: true });
+    const m = matchAltNavigationHotkey(e);
+    expect(m?.kind).toBe("navigate");
+    if (m?.kind === "navigate") {
+      expect(m.path).toBe("/tasks");
+      expect(m.postEvents?.[0]?.name).toBe("axtask-open-new-task");
+    }
   });
 
-  it("Alt+F keydown fires — handler should find tasks", () => {
-    const calls: string[] = [];
-    const handler = (e: KeyboardEvent) => {
-      if (!e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === "t") calls.push("dashboard");
-      else if (k === "n") calls.push("newTask");
-      else if (k === "f") calls.push("findTasks");
-    };
-    window.addEventListener("keydown", handler);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", altKey: true }));
-    window.removeEventListener("keydown", handler);
-    expect(calls).toEqual(["findTasks"]);
+  it("Alt+F maps to find tasks via matchAltNavigationHotkey", () => {
+    const e = new KeyboardEvent("keydown", { key: "f", altKey: true });
+    const m = matchAltNavigationHotkey(e);
+    expect(m?.kind).toBe("navigate");
+    if (m?.kind === "navigate") {
+      expect(m.path).toBe("/tasks");
+      expect(m.postEvents?.[0]?.name).toBe("axtask-focus-task-search");
+    }
   });
 
-  it("non-Alt key presses do not trigger any hotkey action", () => {
-    const calls: string[] = [];
-    const handler = (e: KeyboardEvent) => {
-      if (!e.altKey) return;
-      calls.push(e.key);
-    };
-    window.addEventListener("keydown", handler);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "t", altKey: false }));
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "n", altKey: false }));
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", altKey: false }));
-    window.removeEventListener("keydown", handler);
-    expect(calls).toEqual([]);
+  it("non-Alt key presses do not match Alt navigation", () => {
+    expect(matchAltNavigationHotkey(new KeyboardEvent("keydown", { key: "t", altKey: false }))).toBeNull();
   });
 });
 
