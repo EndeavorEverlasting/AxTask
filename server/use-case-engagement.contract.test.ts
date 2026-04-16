@@ -21,4 +21,14 @@ describe("use-case engagement wiring", () => {
     expect(routes).toContain("ENGAGEMENT.taskSearch");
     expect(routes).toContain("recalculateReward");
   });
+
+  it("wires task list to server search for engagement coins", () => {
+    const taskList = fs.readFileSync(
+      path.join(root, "client", "src", "components", "task-list.tsx"),
+      "utf8",
+    );
+    expect(taskList).toContain("resolveTaskListSearchSource");
+    expect(taskList).toContain('"/api/tasks/search"');
+    expect(taskList).toContain("encodeURIComponent");
+  });
 });

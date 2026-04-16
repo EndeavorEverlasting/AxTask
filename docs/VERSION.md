@@ -122,6 +122,10 @@ tasks table:
 - **v2.1.0**: Advanced analytics, custom reporting
 - **v3.0.0**: Mobile app, offline synchronization
 
+## Recent (development)
+
+- **Task list search:** On the Tasks page, searches of two or more characters while online use `GET /api/tasks/search/:query` so full-text behavior and engagement coin rules stay aligned with the server.
+
 ## Development Notes
 
 ### Architecture Decisions

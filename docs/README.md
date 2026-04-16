@@ -182,6 +182,7 @@ All inputs validated using Zod schemas:
 ### Analytics & Search
 - `GET /api/tasks/stats` - Task statistics and metrics
 - `GET /api/tasks/search/:query` - Full-text search
+- **Tasks page search:** When the browser is online and the search box has **at least two** non-space characters, the main task list loads matches from this endpoint (so results match server search and capped **task search** AxCoin awards can apply). Shorter queries or offline mode use the cached `GET /api/tasks` list with client-side substring filtering only.
 - `GET /api/tasks/status/:status` - Filter by status
 - `GET /api/tasks/priority/:priority` - Filter by priority level
 

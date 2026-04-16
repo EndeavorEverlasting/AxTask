@@ -149,6 +149,10 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - `npm run test` - Run the full compendium of unit/integration/sweep tests (includes local login and Docker workflow guardrails)
 - `npm run check` - Run TypeScript checks
 
+### Git: testing vs deploy branch
+
+Running the app **locally** (or on a personal/staging URL) is the right place to try changes live. **Pushing** to the remote branch your hosting or CD pipeline deploys from can ship unfinished work or trigger production builds without a review gate. Prefer a **feature branch** for day-to-day commits, then open a **PR** into your team’s integration branch when you are ready to merge. See **[docs/GIT_BRANCHING_AND_DEPLOYMENT.md](docs/GIT_BRANCHING_AND_DEPLOYMENT.md)** for a short checklist (confirm current branch before `git push`, avoid using the deploy-connected branch as a scratchpad).
+
 ### PR Size and Segmentation Policy
 
 Code review quality drops on very large PRs. Keep pull requests below the hard CI cap and prefer smaller slices for CodeRabbit review.
