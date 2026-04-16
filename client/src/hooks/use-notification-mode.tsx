@@ -153,24 +153,27 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     },
   });
 
-  const ensureSubscription = useCallback(async () => {
+  const ensureSubscription = useCallback(async (options?: { silent?: boolean }) => {
     if (!("serviceWorker" in navigator)) return false;
     const vapidPublicKey = await resolveVapidPublicKey();
     if (!vapidPublicKey) {
-      toast({
-        title: "Push key missing",
-        description: "Push delivery is not configured yet. You can still enable in-app notification mode, but browser push will stay off until VAPID keys are configured.",
-        variant: "destructive",
-      });
+      if (!options?.silent) {
+        toast({
+          title: "Push key missing",
+          description:
+            "Push delivery is not configured yet. You can still enable in-app notification mode, but browser push will stay off until VAPID keys are configured.",
+          variant: "destructive",
+        });
+      }
       return false;
     }
 
     const registration = await navigator.serviceWorker.ready;
     const existing = await registration.pushManager.getSubscription();
-    const subscription = existing || await registration.pushManager.subscribe({
+    const subscription = existing || (await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-    });
+    }));
     await upsertSubscriptionMutation.mutateAsync(subscription);
     return true;
   }, [toast, upsertSubscriptionMutation]);
@@ -238,9 +241,7 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     disableAndUnsubscribe,
     ensureSubscription,
     localIntensity,
-    preferenceQuery.data?.dispatchProfile,
     preferenceQuery.data?.enabled,
-    preferenceQuery.data?.intensity,
     savePreferenceMutation,
     toast,
   ]);
@@ -264,7 +265,7 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
       if (!preferenceQuery.data?.enabled) return;
       if (toPushStatus() !== "granted") return;
       try {
-        await ensureSubscription();
+        await ensureSubscription({ silent: true });
       } catch {
         // ignore background sync errors; toggle flow surfaces user-facing errors.
       }

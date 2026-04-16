@@ -12,22 +12,5 @@
   <body style="background:#020617">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      (function () {
-        var h = location.hostname;
-        if (!/\.replit\.dev$/i.test(h) && !/\.replit\.app$/i.test(h)) return;
-        var s = document.createElement("script");
-        s.src = "https://replit.com/public/js/replit-dev-banner.js";
-        s.async = true;
-        /* SRI sha384 — verified 2026-04-07 against https://replit.com/public/js/replit-dev-banner.js */
-        s.integrity =
-          "sha384-Ot/Tu9WFHBmxe79uTL9kRtiU415hQIn1LnPczUWhACVAUsgp4rgHLuP+D6egBdmV";
-        s.crossOrigin = "anonymous";
-        s.onerror = function () {
-          console.warn("[axtask] Replit dev banner script failed to load or SRI mismatch");
-        };
-        document.body.appendChild(s);
-      })();
-    </script>
   </body>
 </html>

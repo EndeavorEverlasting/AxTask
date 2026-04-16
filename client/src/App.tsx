@@ -18,6 +18,7 @@ import { InstallCtaBanner } from "@/components/install-cta-banner";
 import { WalletTopBar } from "@/components/wallet-top-bar";
 import { FeedbackNudgeDialog } from "@/components/feedback-nudge-dialog";
 import { OfflineDataBanner } from "@/components/offline-data-banner";
+import { OfflineBanner } from "@/components/offline-banner";
 import { TaskOfflineSyncProvider } from "@/components/task-offline-sync-provider";
 import BulkActionDialog from "@/components/bulk-action-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -361,6 +362,7 @@ function AuthenticatedApp() {
     <VoiceProvider onNavigate={handleNavigate}>
       <TaskOfflineSyncProvider>
       <PostLoginRedirector />
+      <OfflineBanner />
       <div className="h-dvh min-h-0 flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <Sidebar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

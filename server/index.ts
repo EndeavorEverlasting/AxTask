@@ -62,7 +62,7 @@ app.use(
     contentSecurityPolicy: isDev ? false : {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
+        scriptSrc: ["'self'", "https://replit.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"],
@@ -123,7 +123,7 @@ if (!isDev) {
   app.use((_, res, next) => {
     res.setHeader(
       "Content-Security-Policy-Report-Only",
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; object-src 'none'; base-uri 'self'; frame-src 'none'; form-action 'self' https://accounts.google.com; report-uri /csp-report",
+      "default-src 'self'; script-src 'self' https://replit.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; object-src 'none'; base-uri 'self'; frame-src 'none'; form-action 'self' https://accounts.google.com; report-uri /csp-report",
     );
     next();
   });

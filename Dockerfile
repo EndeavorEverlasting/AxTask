@@ -24,6 +24,9 @@ COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=build /app/migrations ./migrations
 COPY --from=build /app/scripts/apply-migrations.mjs ./scripts/apply-migrations.mjs
 
+# Attachment storage directory (backed by volume in docker-compose).
+RUN mkdir -p /app/storage/attachments && chown -R axtask:axtask /app/storage
+
 USER axtask
 EXPOSE 5000
 
