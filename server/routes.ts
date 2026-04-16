@@ -4,6 +4,8 @@ import { timingSafeEqual } from "crypto";
 import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
+import { exportFullDatabase, exportUserData } from "./migration/export";
+import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
 import {
   storage, createUser, getUserByEmail, recordFailedLogin, resetFailedLogins,
   createResetToken, verifyResetToken, consumeResetToken,
@@ -66,10 +68,22 @@ import {
   hasTaskBeenAwarded,
   listUserClassificationLabels,
   addUserClassificationLabel,
+  addCollaborator,
+  removeCollaborator,
+  getTaskCollaborators,
+  updateCollaboratorRole,
+  getSharedTasks,
+  canAccessTask,
+  isTaskOwner,
+  resetStreak,
+  getPatterns,
+  getPatternsByType,
+  getUserClassificationStats,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
+import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
 import { db } from "./db";
@@ -95,6 +109,8 @@ import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
 import { processFeedbackWithEngines } from "./engines/feedback-engine";
+import { processTaskReview, type ReviewAction } from "./engines/review-engine";
+import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from "./engines/pattern-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { generateChecklistPDF } from "./checklist-pdf";
 import { processChecklistImage } from "./ocr-processor";
@@ -403,6 +419,15 @@ const voiceLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   message: { message: "Too many voice requests — try again shortly" },
+});
+
+const migrationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Too many migration requests — try again later" },
 });
 
 
@@ -1871,6 +1896,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isRepeated: priorityResult.isRepeated,
       }) || task;
 
+      learnFromTask(userId, task, allTasks).catch(err =>
+        console.error("[PatternEngine] learn error:", err)
+      );
+
       const uniqueTaskReward = await tryCappedCoinAward({
         userId,
         reason: ENGAGEMENT.uniqueTaskCreate.reason,
@@ -1955,7 +1984,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           walletBalance = coinReward.newBalance;
         }
       }
-      res.json({ ...task, coinReward, coinSkipReason, walletBalance });
+      let classificationReward = null;
+      const previousClassification = existingTask?.classification;
+      if (task!.classification && task!.classification !== "General" && task!.classification !== previousClassification) {
+        classificationReward = await awardCoinsForClassification(userId, task!);
+      }
+
+      res.json({ ...task, coinReward, coinSkipReason, walletBalance, classificationReward });
     } catch (error) {
       console.error("[TASK UPDATE ERROR]", error);
       if (error instanceof Error) {
@@ -2748,6 +2783,162 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ════════════════════════════════════════════════════════════════════════
+  //  Task Review routes (bulk voice-driven task management)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.post("/api/tasks/review", requireAuth, async (req, res) => {
+    try {
+      const { transcript } = req.body;
+      if (!transcript || typeof transcript !== "string") {
+        return res.status(400).json({ message: "Transcript is required" });
+      }
+      if (transcript.length > 2000) {
+        return res.status(400).json({ message: "Transcript must be under 2000 characters" });
+      }
+      const sanitized = transcript.replace(/<[^>]*>/g, "").trim();
+
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const now = new Date();
+      const result = processTaskReview(sanitized, allTasks, now);
+      res.json(result);
+    } catch (error) {
+      console.error("Task review error:", error);
+      res.status(500).json({ message: "Failed to process task review" });
+    }
+  });
+
+  app.post("/api/tasks/review/apply", requireAuth, async (req, res) => {
+    try {
+      const { actions } = req.body;
+      if (!Array.isArray(actions) || actions.length === 0) {
+        return res.status(400).json({ message: "Actions array is required" });
+      }
+      if (actions.length > 50) {
+        return res.status(400).json({ message: "Maximum 50 actions per batch" });
+      }
+
+      const userId = req.user!.id;
+      const results: Array<{ taskId: string; success: boolean; error?: string }> = [];
+
+      for (const action of actions as ReviewAction[]) {
+        try {
+          if (!action.taskId || !action.type) {
+            results.push({ taskId: action.taskId || "unknown", success: false, error: "Invalid action" });
+            continue;
+          }
+
+          const existingTask = await storage.getTask(userId, action.taskId);
+          if (!existingTask) {
+            results.push({ taskId: action.taskId, success: false, error: "Task not found or access denied" });
+            continue;
+          }
+
+          const previousStatus = existingTask.status;
+
+          switch (action.type) {
+            case "complete": {
+              const updatedTask = await storage.updateTask(userId, { id: action.taskId, status: "completed" });
+              if (updatedTask) {
+                try {
+                  await awardCoinsForCompletion(userId, updatedTask, previousStatus);
+                } catch (coinErr) {
+                  console.error(`Coin award failed for task ${action.taskId}:`, coinErr);
+                }
+              }
+              results.push({ taskId: action.taskId, success: true });
+              break;
+            }
+            case "reschedule": {
+              const newDate = action.details?.newDate;
+              if (typeof newDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+                await storage.updateTask(userId, { id: action.taskId, date: newDate });
+                results.push({ taskId: action.taskId, success: true });
+              } else {
+                results.push({ taskId: action.taskId, success: false, error: "Invalid date" });
+              }
+              break;
+            }
+            case "update": {
+              const updatePayload: UpdateTask = { id: action.taskId };
+              const validPriorities = ["Lowest", "Low", "Medium", "Medium-High", "High", "Highest"];
+              if (action.details?.priority && typeof action.details.priority === "string" && validPriorities.includes(action.details.priority)) {
+                updatePayload.priority = action.details.priority;
+              }
+              if (action.details?.notes && typeof action.details.notes === "string") {
+                updatePayload.notes = action.details.notes.slice(0, 2000);
+              }
+              if (Object.keys(updatePayload).length > 1) {
+                await storage.updateTask(userId, updatePayload);
+                results.push({ taskId: action.taskId, success: true });
+              } else {
+                results.push({ taskId: action.taskId, success: false, error: "No valid updates" });
+              }
+              break;
+            }
+            default:
+              results.push({ taskId: action.taskId, success: false, error: "Unknown action type" });
+          }
+        } catch (err) {
+          results.push({ taskId: action.taskId, success: false, error: "Processing error" });
+        }
+      }
+
+      const applied = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      res.json({ applied, failed, results });
+    } catch (error) {
+      console.error("Task review apply error:", error);
+      res.status(500).json({ message: "Failed to apply task review" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Pattern Learning routes (protected)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/patterns/insights", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const patterns = await getPatterns(userId);
+      const insights = getInsights(patterns);
+      res.json({ insights, patternCount: patterns.length });
+    } catch (error) {
+      console.error("Pattern insights error:", error);
+      res.status(500).json({ message: "Failed to get pattern insights" });
+    }
+  });
+
+  app.post("/api/patterns/learn", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const patterns = await analyzeTaskHistory(userId, allTasks);
+      const insights = getInsights(patterns);
+      res.json({ learned: patterns.length, insights });
+    } catch (error) {
+      console.error("Pattern learning error:", error);
+      res.status(500).json({ message: "Failed to analyze patterns" });
+    }
+  });
+
+  app.post("/api/patterns/suggest-deadline", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const { activity } = req.body;
+      if (!activity || typeof activity !== "string") {
+        return res.status(400).json({ message: "Activity is required" });
+      }
+      const patterns = await getPatterns(userId);
+      const suggestion = suggestDeadline(activity, patterns);
+      res.json({ suggestion });
+    } catch (error) {
+      console.error("Deadline suggestion error:", error);
+      res.status(500).json({ message: "Failed to suggest deadline" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
   //  Gamification routes (protected)
   // ════════════════════════════════════════════════════════════════════════
 
@@ -2784,6 +2975,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const diffDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
         if (diffDays > 1) {
           wallet.currentStreak = 0;
+          await resetStreak(req.user!.id);
         }
       }
       res.json(toPublicWallet(wallet));
@@ -2880,11 +3072,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/gamification/profile", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const [wallet, badges, rewards, txs] = await Promise.all([
+      const [wallet, badges, rewards, txs, classificationStats] = await Promise.all([
         getOrCreateWallet(userId),
         getUserBadges(userId),
         getUserRewards(userId),
         getTransactions(userId, 20),
+        getUserClassificationStats(userId),
       ]);
       res.json({
         wallet: toPublicWallet(wallet),
@@ -2892,6 +3085,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         rewards,
         transactions: toPublicCoinTransactions(txs),
         definitions: BADGE_DEFINITIONS,
+        classificationStats,
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch profile" });
@@ -4696,6 +4890,235 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     },
   );
+
+  // ─── Data Migration (Admin) ────────────────────────────────────────────────
+
+  app.post("/api/admin/export", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const { userId } = req.body;
+      const bundle = userId
+        ? await exportUserData(userId, { adminMode: true })
+        : await exportFullDatabase();
+
+      await logSecurityEvent(
+        "data_export",
+        req.user!.id,
+        userId || undefined,
+        req.ip,
+        `${userId ? "User" : "Full"} database export (${Object.values(bundle.metadata.tableCounts).reduce((a, b) => a + b, 0)} records)`
+      );
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="axtask-export-${userId ? "user-" + userId.slice(0, 8) : "full"}-${new Date().toISOString().slice(0, 10)}.json"`
+      );
+      res.json(bundle);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Export failed" });
+    }
+  });
+
+  app.get("/api/admin/export/:userId", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const bundle = await exportUserData(req.params.userId, { adminMode: true });
+
+      await logSecurityEvent(
+        "data_export",
+        req.user!.id,
+        req.params.userId,
+        req.ip,
+        `User data export for ${req.params.userId.slice(0, 8)}... (${Object.values(bundle.metadata.tableCounts).reduce((a: number, b: number) => a + b, 0)} records)`
+      );
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="axtask-user-${req.params.userId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json"`
+      );
+      res.json(bundle);
+    } catch (error: any) {
+      const msg = error.message || "Export failed";
+      const status = msg.includes("not found") ? 404 : 500;
+      res.status(status).json({ message: msg });
+    }
+  });
+
+  app.post("/api/admin/import", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const { bundle, dryRun, mode } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+
+      const importMode = mode === "remap" ? "remap" : "preserve";
+
+      if (!dryRun) {
+        const preCheck = await validateBundleWithDb(bundle);
+        if (preCheck.errors.length > 0) {
+          return res.json({
+            success: false,
+            dryRun: false,
+            mode: importMode,
+            inserted: {},
+            skipped: {},
+            conflicts: preCheck.conflicts,
+            errors: preCheck.errors,
+            warnings: preCheck.warnings,
+          });
+        }
+      }
+
+      const result = await importBundle(bundle, { dryRun: !!dryRun, mode: importMode });
+
+      if (!dryRun && result.success) {
+        const totalInserted = Object.values(result.inserted).reduce((a, b) => a + b, 0);
+        await logSecurityEvent(
+          "data_import",
+          req.user!.id,
+          undefined,
+          req.ip,
+          `Database import (${importMode}): ${totalInserted} records inserted, ${result.errors.length} errors`
+        );
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Import failed" });
+    }
+  });
+
+  app.post("/api/admin/import/validate", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const { bundle } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+      const validation = await validateBundleWithDb(bundle);
+      res.json(validation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Validation failed" });
+    }
+  });
+
+  // ─── User Self-Service Export & Import (GDPR) ──────────────────────────────
+
+  app.get("/api/account/export", requireAuth, migrationLimiter, async (req, res) => {
+    try {
+      const bundle = await exportUserData(req.user!.id);
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="my-axtask-data-${new Date().toISOString().slice(0, 10)}.json"`
+      );
+      res.json(bundle);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Export failed" });
+    }
+  });
+
+  app.post("/api/account/import", requireAuth, migrationLimiter, async (req, res) => {
+    try {
+      const { bundle, dryRun } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+
+      if (bundle.metadata.exportMode !== "user") {
+        return res.status(400).json({ message: "Only user-level export bundles can be imported via self-service. Full database imports require admin access." });
+      }
+
+      const validation = validateBundle(bundle);
+      if (validation.errors.length > 0) {
+        return res.status(400).json({ message: "Bundle validation failed", errors: validation.errors });
+      }
+
+      const result = await importUserBundle(bundle, req.user!.id, { dryRun: !!dryRun });
+
+      if (!dryRun && result.success) {
+        const totalInserted = Object.values(result.inserted).reduce((a, b) => a + b, 0);
+        await logSecurityEvent(
+          "user_data_import",
+          req.user!.id,
+          undefined,
+          req.ip,
+          `User self-service import: ${totalInserted} records imported`
+        );
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Import failed" });
+    }
+  });
+
+  // ─── Collaboration routes ──────────────────────────────────────────────────
+
+  app.get("/api/tasks/shared", requireAuth, async (req, res) => {
+    try {
+      const shared = await getSharedTasks(req.user!.id);
+      res.json(shared);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch shared tasks" });
+    }
+  });
+
+  app.get("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
+    try {
+      const access = await canAccessTask(req.user!.id, req.params.id);
+      if (!access.canAccess) return res.status(403).json({ message: "Access denied" });
+      const collaborators = await getTaskCollaborators(req.params.id);
+      res.json(collaborators);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch collaborators" });
+    }
+  });
+
+  app.post("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can add collaborators" });
+      const { email, role } = req.body;
+      if (!email) return res.status(400).json({ message: "Email is required" });
+      const validRoles = ["editor", "viewer"];
+      if (role && !validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
+      const user = await getUserByEmail(email);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (user.id === req.user!.id) return res.status(400).json({ message: "Cannot add yourself" });
+      const collab = await addCollaborator(req.params.id, user.id, role || "editor", req.user!.id);
+      res.json(collab);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to add collaborator" });
+    }
+  });
+
+  app.put("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can change roles" });
+      const { role } = req.body;
+      const validRoles = ["editor", "viewer"];
+      if (!validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
+      const updated = await updateCollaboratorRole(req.params.id, req.params.userId, role);
+      if (!updated) return res.status(404).json({ message: "Collaborator not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update collaborator" });
+    }
+  });
+
+  app.delete("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      const isSelf = req.params.userId === req.user!.id;
+      if (!ownerCheck && !isSelf) return res.status(403).json({ message: "Access denied" });
+      const removed = await removeCollaborator(req.params.id, req.params.userId);
+      if (!removed) return res.status(404).json({ message: "Collaborator not found" });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to remove collaborator" });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

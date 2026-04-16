@@ -1,4 +1,89 @@
-import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, billingPaymentMethods, idempotencyKeys, premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents, userNotificationPreferences, userPushSubscriptions, studyDecks, studyCards, studySessions, studyReviewEvents, communityPosts, communityReplies, userClassificationLabels, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent, type BillingPaymentMethod, type PremiumSubscription, type PremiumSavedView, type PremiumReviewWorkflow, type PremiumInsight, type PremiumEvent, type UserNotificationPreference, type UserPushSubscription, type StudyDeck, type StudyCard, type StudySession, type StudyReviewEvent, type CreateStudyDeckInput, type CreateStudyCardInput, type StartStudySessionInput, type SubmitStudyAnswerInput, type CommunityPost, type CommunityReply } from "@shared/schema";
+import {
+  tasks,
+  users,
+  passwordResetTokens,
+  securityLogs,
+  securityEvents,
+  securityAlerts,
+  wallets,
+  coinTransactions,
+  userBadges,
+  rewardsCatalog,
+  userRewards,
+  taskCollaborators,
+  taskPatterns,
+  classificationContributions,
+  classificationConfirmations,
+  offlineGenerators,
+  offlineSkillNodes,
+  userOfflineSkills,
+  usageSnapshots,
+  storagePolicies,
+  attachmentAssets,
+  taskImportFingerprints,
+  invoices,
+  invoiceEvents,
+  mfaChallenges,
+  billingPaymentMethods,
+  idempotencyKeys,
+  premiumSubscriptions,
+  premiumSavedViews,
+  premiumReviewWorkflows,
+  premiumInsights,
+  premiumEvents,
+  userNotificationPreferences,
+  userPushSubscriptions,
+  studyDecks,
+  studyCards,
+  studySessions,
+  studyReviewEvents,
+  communityPosts,
+  communityReplies,
+  userClassificationLabels,
+  type Task,
+  type InsertTask,
+  type UpdateTask,
+  type User,
+  type SafeUser,
+  type SecurityLog,
+  type SecurityEvent,
+  type SecurityAlert,
+  type Wallet,
+  type CoinTransaction,
+  type UserBadge,
+  type RewardItem,
+  type TaskCollaborator,
+  type TaskPattern,
+  type InsertTaskPattern,
+  type ClassificationContribution,
+  type ClassificationConfirmation,
+  type OfflineGenerator,
+  type OfflineSkillNode,
+  type UserOfflineSkill,
+  type UsageSnapshot,
+  type StoragePolicy,
+  type AttachmentAsset,
+  type Invoice,
+  type InvoiceEvent,
+  type BillingPaymentMethod,
+  type PremiumSubscription,
+  type PremiumSavedView,
+  type PremiumReviewWorkflow,
+  type PremiumInsight,
+  type PremiumEvent,
+  type UserNotificationPreference,
+  type UserPushSubscription,
+  type StudyDeck,
+  type StudyCard,
+  type StudySession,
+  type StudyReviewEvent,
+  type CreateStudyDeckInput,
+  type CreateStudyCardInput,
+  type StartStudySessionInput,
+  type SubmitStudyAnswerInput,
+  type CommunityPost,
+  type CommunityReply,
+} from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -1410,12 +1495,12 @@ export async function addCoins(
   details?: string,
   taskId?: string
 ): Promise<{ wallet: Wallet; transaction: CoinTransaction }> {
-  const wallet = await getOrCreateWallet(userId);
+  await getOrCreateWallet(userId);
   const [updated] = await db
     .update(wallets)
     .set({
-      balance: wallet.balance + amount,
-      lifetimeEarned: wallet.lifetimeEarned + amount,
+      balance: sql`${wallets.balance} + ${amount}`,
+      lifetimeEarned: sql`${wallets.lifetimeEarned} + ${amount}`,
     })
     .where(eq(wallets.userId, userId))
     .returning();
@@ -1439,13 +1524,13 @@ export async function hasTaskBeenAwarded(userId: string, taskId: string): Promis
 }
 
 export async function spendCoins(userId: string, amount: number, reason: string): Promise<Wallet | null> {
-  const wallet = await getOrCreateWallet(userId);
-  if (wallet.balance < amount) return null;
+  await getOrCreateWallet(userId);
   const [updated] = await db
     .update(wallets)
-    .set({ balance: wallet.balance - amount })
-    .where(eq(wallets.userId, userId))
+    .set({ balance: sql`${wallets.balance} - ${amount}` })
+    .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${amount}`))
     .returning();
+  if (!updated) return null;
   await db.insert(coinTransactions).values({ id: randomUUID(), userId, amount: -amount, reason });
   return updated;
 }
@@ -1484,6 +1569,13 @@ export async function updateStreak(userId: string): Promise<Wallet> {
   return updated;
 }
 
+export async function resetStreak(userId: string): Promise<void> {
+  await db
+    .update(wallets)
+    .set({ currentStreak: 0 })
+    .where(eq(wallets.userId, userId));
+}
+
 export async function getUserBadges(userId: string): Promise<UserBadge[]> {
   return db.select().from(userBadges).where(eq(userBadges.userId, userId)).orderBy(desc(userBadges.earnedAt));
 }
@@ -1514,15 +1606,31 @@ export async function getUserRewards(userId: string): Promise<(typeof userReward
 export async function redeemReward(userId: string, rewardId: string): Promise<boolean> {
   const reward = await getRewardById(rewardId);
   if (!reward) return false;
-  const [existing] = await db
-    .select({ value: count() })
-    .from(userRewards)
-    .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
-  if ((Number(existing?.value) || 0) > 0) return false;
-  const wallet = await spendCoins(userId, reward.cost, `Redeemed: ${reward.name}`);
-  if (!wallet) return false;
-  await db.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
-  return true;
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ value: count() })
+      .from(userRewards)
+      .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
+    if ((Number(existing?.value) || 0) > 0) return false;
+
+    const [deducted] = await tx
+      .update(wallets)
+      .set({ balance: sql`${wallets.balance} - ${reward.cost}` })
+      .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${reward.cost}`))
+      .returning();
+    if (!deducted) return false;
+
+    await tx.insert(coinTransactions).values({
+      id: randomUUID(),
+      userId,
+      amount: -reward.cost,
+      reason: `Redeemed: ${reward.name}`,
+    });
+
+    await tx.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
+    return true;
+  });
 }
 
 export async function seedRewardsCatalog(): Promise<void> {
@@ -2930,4 +3038,297 @@ export async function seedCommunityPosts(): Promise<void> {
   for (const post of AVATAR_SEED_POSTS) {
     await createCommunityPost(post);
   }
+}
+
+// ─── Collaboration helpers ──────────────────────────────────────────────────
+
+export async function addCollaborator(
+  taskId: string,
+  userId: string,
+  role: string,
+  invitedBy: string
+): Promise<TaskCollaborator> {
+  const existing = await db
+    .select()
+    .from(taskCollaborators)
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)));
+  if (existing.length > 0) {
+    const [updated] = await db
+      .update(taskCollaborators)
+      .set({ role })
+      .where(eq(taskCollaborators.id, existing[0].id))
+      .returning();
+    return updated;
+  }
+  const [collab] = await db
+    .insert(taskCollaborators)
+    .values({ id: randomUUID(), taskId, userId, role, invitedBy })
+    .returning();
+  return collab;
+}
+
+export async function removeCollaborator(taskId: string, userId: string): Promise<boolean> {
+  const result = await db
+    .delete(taskCollaborators)
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)))
+    .returning();
+  return result.length > 0;
+}
+
+export async function getTaskCollaborators(taskId: string): Promise<(TaskCollaborator & { email: string; displayName: string | null })[]> {
+  const rows = await db
+    .select({
+      id: taskCollaborators.id,
+      taskId: taskCollaborators.taskId,
+      userId: taskCollaborators.userId,
+      role: taskCollaborators.role,
+      invitedBy: taskCollaborators.invitedBy,
+      invitedAt: taskCollaborators.invitedAt,
+      email: users.email,
+      displayName: users.displayName,
+    })
+    .from(taskCollaborators)
+    .innerJoin(users, eq(taskCollaborators.userId, users.id))
+    .where(eq(taskCollaborators.taskId, taskId));
+  return rows;
+}
+
+export async function updateCollaboratorRole(taskId: string, userId: string, role: string): Promise<TaskCollaborator | null> {
+  const [updated] = await db
+    .update(taskCollaborators)
+    .set({ role })
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)))
+    .returning();
+  return updated ?? null;
+}
+
+export async function getSharedTasks(userId: string): Promise<Task[]> {
+  const rows = await db
+    .select({ taskId: taskCollaborators.taskId })
+    .from(taskCollaborators)
+    .where(eq(taskCollaborators.userId, userId));
+  if (rows.length === 0) return [];
+  const taskIds = rows.map(r => r.taskId);
+  const result = await db.select().from(tasks).where(
+    or(...taskIds.map(id => eq(tasks.id, id)))
+  );
+  return result;
+}
+
+export async function canAccessTask(userId: string, taskId: string): Promise<{ canAccess: boolean; role: string }> {
+  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
+  if (task?.userId === userId) return { canAccess: true, role: "owner" };
+  const [collab] = await db
+    .select({ role: taskCollaborators.role })
+    .from(taskCollaborators)
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)));
+  if (collab) return { canAccess: true, role: collab.role };
+  return { canAccess: false, role: "" };
+}
+
+export async function isTaskOwner(userId: string, taskId: string): Promise<boolean> {
+  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
+  return task?.userId === userId;
+}
+
+// ─── Pattern Learning Storage ────────────────────────────────────────────────
+
+export async function upsertPattern(
+  userId: string,
+  patternType: string,
+  patternKey: string,
+  data: Record<string, unknown>,
+  confidence: number
+): Promise<TaskPattern> {
+  const now = new Date();
+  const dataStr = JSON.stringify(data);
+
+  const result = await db.execute(sql`
+    INSERT INTO task_patterns (id, user_id, pattern_type, pattern_key, data, confidence, occurrences, last_seen, created_at)
+    VALUES (${randomUUID()}, ${userId}, ${patternType}, ${patternKey}, ${dataStr}, ${confidence}, 1, ${now}, ${now})
+    ON CONFLICT (user_id, pattern_type, pattern_key)
+    DO UPDATE SET
+      data = ${dataStr},
+      confidence = ${confidence},
+      occurrences = task_patterns.occurrences + 1,
+      last_seen = ${now}
+    RETURNING *
+  `);
+
+  return result.rows[0] as unknown as TaskPattern;
+}
+
+export async function getPatterns(userId: string): Promise<TaskPattern[]> {
+  return db
+    .select()
+    .from(taskPatterns)
+    .where(eq(taskPatterns.userId, userId))
+    .orderBy(desc(taskPatterns.occurrences));
+}
+
+export async function getPatternsByType(userId: string, patternType: string): Promise<TaskPattern[]> {
+  return db
+    .select()
+    .from(taskPatterns)
+    .where(and(eq(taskPatterns.userId, userId), eq(taskPatterns.patternType, patternType)))
+    .orderBy(desc(taskPatterns.occurrences));
+}
+
+export async function deleteStalePatterns(userId: string, olderThanDays: number = 90): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+  const result = await db
+    .delete(taskPatterns)
+    .where(and(eq(taskPatterns.userId, userId), lt(taskPatterns.lastSeen, cutoff)))
+    .returning();
+  return result.length;
+}
+
+export async function clearPatterns(userId: string): Promise<void> {
+  await db.delete(taskPatterns).where(eq(taskPatterns.userId, userId));
+}
+
+// ─── Classification Contributions ──────────────────────────────────────────
+
+export async function createClassificationContribution(
+  taskId: string,
+  userId: string,
+  classification: string,
+  baseCoinsAwarded: number
+): Promise<ClassificationContribution> {
+  const [existing] = await db
+    .select()
+    .from(classificationContributions)
+    .where(and(
+      eq(classificationContributions.taskId, taskId),
+      eq(classificationContributions.userId, userId)
+    ))
+    .limit(1);
+
+  if (existing) {
+    const [updated] = await db
+      .update(classificationContributions)
+      .set({
+        classification,
+        baseCoinsAwarded,
+      })
+      .where(eq(classificationContributions.id, existing.id))
+      .returning();
+    return updated;
+  }
+
+  const [contrib] = await db
+    .insert(classificationContributions)
+    .values({
+      id: randomUUID(),
+      taskId,
+      userId,
+      classification,
+      baseCoinsAwarded,
+      totalCoinsEarned: baseCoinsAwarded,
+      confirmationCount: 0,
+    })
+    .returning();
+  return contrib;
+}
+
+export async function getContributionsForTask(taskId: string): Promise<(ClassificationContribution & { displayName: string | null })[]> {
+  const rows = await db
+    .select({
+      id: classificationContributions.id,
+      taskId: classificationContributions.taskId,
+      userId: classificationContributions.userId,
+      classification: classificationContributions.classification,
+      baseCoinsAwarded: classificationContributions.baseCoinsAwarded,
+      totalCoinsEarned: classificationContributions.totalCoinsEarned,
+      confirmationCount: classificationContributions.confirmationCount,
+      createdAt: classificationContributions.createdAt,
+      displayName: users.displayName,
+    })
+    .from(classificationContributions)
+    .innerJoin(users, eq(users.id, classificationContributions.userId))
+    .where(eq(classificationContributions.taskId, taskId))
+    .orderBy(desc(classificationContributions.createdAt));
+  return rows;
+}
+
+export async function getContribution(taskId: string, userId: string): Promise<ClassificationContribution | null> {
+  const [row] = await db
+    .select()
+    .from(classificationContributions)
+    .where(and(
+      eq(classificationContributions.taskId, taskId),
+      eq(classificationContributions.userId, userId)
+    ))
+    .limit(1);
+  return row || null;
+}
+
+export async function hasUserConfirmedTask(taskId: string, userId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(classificationConfirmations)
+    .where(and(
+      eq(classificationConfirmations.taskId, taskId),
+      eq(classificationConfirmations.userId, userId)
+    ));
+  return (Number(row?.value) || 0) > 0;
+}
+
+export async function recordConfirmation(
+  contributionId: string,
+  taskId: string,
+  confirmingUserId: string,
+  coinsAwarded: number
+): Promise<ClassificationConfirmation> {
+  const [confirmation] = await db
+    .insert(classificationConfirmations)
+    .values({
+      id: randomUUID(),
+      contributionId,
+      taskId,
+      userId: confirmingUserId,
+      coinsAwarded,
+    })
+    .returning();
+
+  return confirmation;
+}
+
+export async function incrementContributionConfirmCount(contributionId: string): Promise<void> {
+  await db
+    .update(classificationContributions)
+    .set({
+      confirmationCount: sql`${classificationContributions.confirmationCount} + 1`,
+    })
+    .where(eq(classificationContributions.id, contributionId));
+}
+
+export async function updateContributionEarnings(contributionId: string, additionalCoins: number): Promise<void> {
+  await db
+    .update(classificationContributions)
+    .set({
+      totalCoinsEarned: sql`${classificationContributions.totalCoinsEarned} + ${additionalCoins}`,
+    })
+    .where(eq(classificationContributions.id, contributionId));
+}
+
+export async function getUserClassificationStats(userId: string): Promise<{
+  totalClassifications: number;
+  totalConfirmationsReceived: number;
+  totalClassificationCoins: number;
+}> {
+  const [classRow] = await db
+    .select({
+      total: count(),
+      totalCoins: sql<number>`COALESCE(SUM(${classificationContributions.totalCoinsEarned}), 0)`,
+      totalConfirmations: sql<number>`COALESCE(SUM(${classificationContributions.confirmationCount}), 0)`,
+    })
+    .from(classificationContributions)
+    .where(eq(classificationContributions.userId, userId));
+
+  return {
+    totalClassifications: Number(classRow?.total) || 0,
+    totalConfirmationsReceived: Number(classRow?.totalConfirmations) || 0,
+    totalClassificationCoins: Number(classRow?.totalCoins) || 0,
+  };
 }

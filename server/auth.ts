@@ -66,11 +66,17 @@ export function setupAuth(app: Express) {
         createTableIfMissing: true,
       });
 
+  const sessionStore = new PgStore({
+    pool: pool as any,
+    createTableIfMissing: true,
+  });
+  (global as { __sessionStore?: InstanceType<typeof PgStore> }).__sessionStore = sessionStore;
+
   app.use(
     session({
       store,
       secret: sessionSecret,
-      name: "axtask.sid",        // non-default name — hides framework identity
+      name: "axtask.sid",
       resave: false,
       saveUninitialized: false,
       cookie: {

@@ -9,6 +9,7 @@ import { registerOAuthRoutes } from "./auth-providers";
 import { seedDevAccounts } from "./seed-dev";
 import { pool } from "./db";
 import { installProbeSink } from "./probe-sink";
+import { setupCollaborationWs } from "./collaboration";
 
 const app = express();
 
@@ -65,7 +66,7 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'", "https://accounts.google.com", "https://oauth2.googleapis.com"],
+        connectSrc: ["'self'", "wss:", "ws:", "https://accounts.google.com", "https://oauth2.googleapis.com"],
         frameSrc: ["'none'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
@@ -109,7 +110,13 @@ if (!isDev) {
 }
 
 app.use(cookieParser());
-app.use(express.json({ limit: "2mb" }));
+const LARGE_BODY_PATHS = ["/api/admin/import", "/api/account/import", "/api/admin/import/validate"];
+app.use((req, res, next) => {
+  if (LARGE_BODY_PATHS.some(p => req.path.startsWith(p))) {
+    return express.json({ limit: "50mb" })(req, res, next);
+  }
+  return express.json({ limit: "2mb" })(req, res, next);
+});
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 
 if (!isDev) {
@@ -260,6 +267,8 @@ app.use((req, res, next) => {
   }
 
   const server = await registerRoutes(app);
+
+  setupCollaborationWs(server);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
