@@ -12,7 +12,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 
 interface Wallet {
-  userId: string;
   balance: number;
   lifetimeEarned: number;
   currentStreak: number;
@@ -32,10 +31,10 @@ interface RewardItem {
 
 interface Transaction {
   id: string;
-  userId: string;
   amount: number;
   reason: string;
   details: string | null;
+  taskId: string | null;
   createdAt: string;
 }
 

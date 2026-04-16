@@ -53,9 +53,9 @@ import { PretextPeekStrip } from "@/components/layout/pretext-peek-strip";
 import { ShellSplitter } from "@/components/layout/shell-splitter";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import type { SafeUser } from "@shared/schema";
+import type { PublicSessionUser } from "@shared/public-client-dtos";
 
-function userInitials(u: Pick<SafeUser, "displayName" | "email">): string {
+function userInitials(u: Pick<PublicSessionUser, "displayName" | "email">): string {
   const base = (u.displayName || u.email || "").trim();
   return base
     .split(/\s+/)
@@ -71,7 +71,7 @@ function AccountUserAvatar({
   user,
   className,
 }: {
-  user: Pick<SafeUser, "displayName" | "email" | "profileImageUrl">;
+  user: Pick<PublicSessionUser, "displayName" | "email" | "profileImageUrl">;
   className?: string;
 }) {
   const initials = userInitials(user);

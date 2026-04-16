@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import type { SafeUser } from "@shared/schema";
+import type { PublicSessionUser } from "@shared/public-client-dtos";
 import {
   AUTH_LOGIN_PATH,
   AUTH_LOGOUT_PATH,
@@ -23,17 +23,17 @@ function csrfHeaders(): Record<string, string> {
 }
 
 /** Phase B: session cookie missing/expired but device refresh cookie may still work. */
-async function fetchSessionUser(): Promise<SafeUser | null> {
+async function fetchSessionUser(): Promise<PublicSessionUser | null> {
   try {
     let res = await fetch(AUTH_ME_PATH, { credentials: "include" });
-    if (res.ok) return res.json();
+    if (res.ok) return res.json() as Promise<PublicSessionUser>;
     if (res.status === 401) {
       const r2 = await fetch(AUTH_REFRESH_PATH, {
         method: "POST",
         headers: csrfHeaders(),
         credentials: "include",
       });
-      if (r2.ok) return r2.json();
+      if (r2.ok) return r2.json() as Promise<PublicSessionUser>;
     }
     return null;
   } catch (e) {
@@ -44,7 +44,7 @@ async function fetchSessionUser(): Promise<SafeUser | null> {
   }
 }
 
-function rememberKnownAccount(data: SafeUser): void {
+function rememberKnownAccount(data: PublicSessionUser): void {
   try {
     const ACCOUNTS_KEY = "axtask_known_accounts";
     const LAST_KEY = "axtask_last_email";
@@ -70,15 +70,15 @@ function rememberKnownAccount(data: SafeUser): void {
 }
 
 export type LoginOutcome =
-  | { status: "authenticated"; user: SafeUser }
+  | { status: "authenticated"; user: PublicSessionUser }
   | { status: "totp_required"; emailMask?: string };
 
 interface AuthContextType {
-  user: SafeUser | null;
+  user: PublicSessionUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<LoginOutcome>;
   /** Complete sign-in after password step when `login` returned `totp_required`. */
-  completeTotpLogin: (code: string) => Promise<SafeUser>;
+  completeTotpLogin: (code: string) => Promise<PublicSessionUser>;
   register: (email: string, password: string, displayName?: string, inviteCode?: string) => Promise<void>;
   logout: () => Promise<void>;
   /** Reload session user from GET /api/auth/me (e.g. after phone verification). */
@@ -88,7 +88,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<SafeUser | null>(null);
+  const [user, setUser] = useState<PublicSessionUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -125,11 +125,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const err = await res.json();
       throw new Error(err.message || "Login failed");
     }
-    const data = (await res.json()) as { needsTotp?: boolean; emailMask?: string } & Partial<SafeUser>;
+    const data = (await res.json()) as { needsTotp?: boolean; emailMask?: string } & Partial<PublicSessionUser>;
     if (data.needsTotp) {
       return { status: "totp_required", emailMask: data.emailMask };
     }
-    const user = data as SafeUser;
+    const user = data as PublicSessionUser;
     clearQueryPersistStorageForUser(null);
     setUser(user);
     setOfflineQueueUserScope(user?.id ?? null);
@@ -148,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const err = await res.json().catch(() => ({}));
       throw new Error((err as { message?: string }).message || "Verification failed");
     }
-    const user = (await res.json()) as SafeUser;
+    const user = (await res.json()) as PublicSessionUser;
     clearQueryPersistStorageForUser(null);
     setUser(user);
     setOfflineQueueUserScope(user?.id ?? null);
@@ -167,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const err = await res.json();
       throw new Error(err.message || "Registration failed");
     }
-    const data = await res.json();
+    const data = (await res.json()) as PublicSessionUser;
     clearQueryPersistStorageForUser(null);
     setUser(data);
     setOfflineQueueUserScope(data?.id ?? null);

@@ -924,6 +924,7 @@ export function TaskList() {
         offlineQueued?: boolean;
         coinReward?: unknown;
         coinSkipReason?: string | null;
+        walletBalance?: number | null;
       } | undefined;
       if (d?.offlineQueued) {
         toast({
@@ -934,6 +935,12 @@ export function TaskList() {
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      if (typeof d?.walletBalance === "number") {
+        queryClient.setQueryData(["/api/gamification/wallet"], (prev: unknown) => {
+          if (!prev || typeof prev !== "object") return prev;
+          return { ...(prev as Record<string, unknown>), balance: d.walletBalance };
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       if (d?.coinReward) {
         const cr = d.coinReward as {

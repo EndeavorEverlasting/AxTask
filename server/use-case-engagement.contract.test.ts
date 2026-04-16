@@ -18,8 +18,17 @@ describe("use-case engagement wiring", () => {
     const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
     expect(routes).toContain("uniqueTaskReward");
     expect(routes).toContain("coinSkipReason");
+    expect(routes).toContain("walletBalance");
+    expect(routes).toContain("hasTaskBeenAwarded");
+    expect(routes).toContain("completionCoinSkipReason");
     expect(routes).toContain("ENGAGEMENT.taskSearch");
     expect(routes).toContain("recalculateReward");
+  });
+
+  it("returns classification confirmation response with new balance", () => {
+    const src = fs.readFileSync(path.join(root, "server", "classification-confirm.ts"), "utf8");
+    expect(src).toContain("newBalance");
+    expect(src).toContain("getOrCreateWallet");
   });
 
   it("wires task list to server search for engagement coins", () => {

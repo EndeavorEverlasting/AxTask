@@ -27,6 +27,7 @@ AxTask is built to help users **complete** meaningful work, not only track tasks
 - [RAG_CLASSIFICATION_BLUEPRINT.md](./RAG_CLASSIFICATION_BLUEPRINT.md)
 - [ORB_AVATAR_EXPERIENCE_CONTRACT.md](./ORB_AVATAR_EXPERIENCE_CONTRACT.md)
 - [COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md](./COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)
+- [CLIENT_VISIBLE_PRIVACY.md](./CLIENT_VISIBLE_PRIVACY.md) — browser Network/Console exposure, API serializers, and logging discipline
 
 ### Report Generation Definition Of Done
 

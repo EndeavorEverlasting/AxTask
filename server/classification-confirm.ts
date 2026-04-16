@@ -7,7 +7,7 @@ import {
   taskClassificationConfirmations,
   type Task,
 } from "@shared/schema";
-import { addCoins } from "./storage";
+import { addCoins, getOrCreateWallet } from "./storage";
 
 export type ClassificationContribution = {
   id: string;
@@ -132,7 +132,11 @@ export async function getClassificationConfirmPayload(
 export async function confirmTaskClassificationForUser(
   userId: string,
   task: Task,
-): Promise<{ confirmerCoins: number; contributorBonuses: Array<{ displayName: string; bonus: number }> }> {
+): Promise<{
+  confirmerCoins: number;
+  contributorBonuses: Array<{ displayName: string; bonus: number }>;
+  newBalance: number;
+}> {
   const payload = await getClassificationConfirmPayload(userId, task);
   if (payload.hasConfirmed) {
     throw new Error("Already confirmed");
@@ -176,5 +180,7 @@ export async function confirmTaskClassificationForUser(
     });
   }
 
-  return { confirmerCoins: CONFIRMER_COINS, contributorBonuses };
+  const wallet = await getOrCreateWallet(userId);
+
+  return { confirmerCoins: CONFIRMER_COINS, contributorBonuses, newBalance: wallet.balance };
 }
