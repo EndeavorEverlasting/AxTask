@@ -66,7 +66,7 @@ import {
   hasTaskBeenAwarded,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
-import { tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
+import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
@@ -2021,7 +2021,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
               taskId: task.id,
             })
           : null;
-      const walletBalanceAfterAllRewards = consensusReward?.newBalance ?? classificationWallet.balance;
+      const consensusTierBonus =
+        confirmationCount >= 4
+          ? await tryCappedCoinAward({
+              userId,
+              reason: ENGAGEMENT.consensusTierBonus.reason,
+              amount: ENGAGEMENT.consensusTierBonus.amount,
+              dailyCap: ENGAGEMENT.consensusTierBonus.dailyCap,
+              details: `Consensus tier bonus: ${nextClassification} (${confirmationCount} confirmations)`,
+              taskId: task.id,
+            })
+          : null;
+      const walletBalanceAfterAllRewards =
+        consensusTierBonus?.newBalance ??
+        consensusReward?.newBalance ??
+        classificationWallet.balance;
 
       return res.json({
         ...updatedTask,
@@ -2032,6 +2046,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           newBalance: walletBalanceAfterAllRewards,
         },
         consensusCorrectionReward: consensusReward,
+        consensusTierBonus,
         confirmationCount,
       });
     } catch (error) {
@@ -2116,6 +2131,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "All priorities recalculated successfully", recalculateReward });
     } catch (error) {
       res.status(500).json({ message: "Failed to recalculate priorities" });
+    }
+  });
+
+  const recalculateRatingSchema = z.object({
+    rating: z.number().int().min(1).max(5),
+  });
+
+  app.post("/api/tasks/recalculate/rating", requireAuth, async (req, res) => {
+    try {
+      const { rating } = recalculateRatingSchema.parse(req.body || {});
+      const reward =
+        rating >= 4
+          ? await tryCappedCoinAward({
+              userId: req.user!.id,
+              reason: ENGAGEMENT.recalculateRating.reason,
+              amount: ENGAGEMENT.recalculateRating.amount,
+              dailyCap: ENGAGEMENT.recalculateRating.dailyCap,
+              details: `Urgency recalculate rating submitted: ${rating}/5`,
+            })
+          : null;
+      res.status(201).json({ ok: true, rating, reward });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to submit recalculate rating" });
     }
   });
 
@@ -2815,6 +2854,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch profile" });
+    }
+  });
+
+  app.get("/api/gamification/economy-diagnostics", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const tasks = await storage.getTasks(userId);
+      const rewardsToday = await Promise.all(
+        Object.values(ENGAGEMENT).map(async (entry) => ({
+          reason: entry.reason,
+          todayCount: await countCoinEventsToday(userId, entry.reason),
+          dailyCap: entry.dailyCap,
+        })),
+      );
+      const averagePScore =
+        tasks.length > 0
+          ? Number(
+              (
+                tasks.reduce((sum, task) => sum + Number(task.priorityScore ?? 0), 0) /
+                tasks.length /
+                10
+              ).toFixed(2),
+            )
+          : 0;
+      res.json({
+        rewardsToday,
+        averagePScore,
+        pScoreScale: "0-10",
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch economy diagnostics" });
     }
   });
 

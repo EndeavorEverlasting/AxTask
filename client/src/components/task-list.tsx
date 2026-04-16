@@ -30,6 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ToastAction } from "@/components/ui/toast";
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
@@ -996,6 +997,14 @@ export function TaskList() {
         toast({
           title: "Priorities recalculated",
           description: `All task priorities updated. +${payload.recalculateReward.coins} AxCoins (balance ${payload.recalculateReward.newBalance}).`,
+          action: (
+            <ToastAction
+              altText="Rate recalculation"
+              onClick={() => rateRecalculateMutation.mutate({ rating: 5 })}
+            >
+              Rate +5
+            </ToastAction>
+          ),
         });
       } else {
         toast({
@@ -1011,6 +1020,29 @@ export function TaskList() {
         description: "Failed to recalculate priorities",
         variant: "destructive",
       });
+    },
+  });
+
+  const rateRecalculateMutation = useMutation({
+    mutationFn: async ({ rating }: { rating: number }) => {
+      return syncRawTaskRequest("POST", "/api/tasks/recalculate/rating", { rating }, queryClient);
+    },
+    onSuccess: (data) => {
+      const payload = data as { reward?: { coins: number; newBalance: number } | null; rating?: number };
+      if (payload.reward && payload.reward.coins > 0) {
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+        toast({
+          title: "Thanks for rating",
+          description: `Recalculate rated ${payload.rating ?? 5}/5. +${payload.reward.coins} AxCoins (balance ${payload.reward.newBalance}).`,
+        });
+      } else {
+        toast({
+          title: "Rating received",
+          description: "Thanks for helping tune urgency recalculation.",
+        });
+      }
+      requestFeedbackNudge("recalculate_rating");
     },
   });
 

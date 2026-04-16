@@ -12,6 +12,8 @@ describe("use-case engagement wiring", () => {
     expect(src).toContain("unique_task_create");
     expect(src).toContain("task_search_reward");
     expect(src).toContain("priority_recalculate_reward");
+    expect(src).toContain("urgency_recalculate_rating_reward");
+    expect(src).toContain("classification_consensus_tier_bonus");
     expect(src).toContain("feedback_submission_reward");
     expect(src).toContain("classification_correction_consensus_reward");
   });
@@ -22,7 +24,10 @@ describe("use-case engagement wiring", () => {
     expect(routes).toContain("coinSkipReason");
     expect(routes).toContain("ENGAGEMENT.taskSearch");
     expect(routes).toContain("recalculateReward");
+    expect(routes).toContain('"/api/tasks/recalculate/rating"');
+    expect(routes).toContain('"/api/gamification/economy-diagnostics"');
     expect(routes).toContain("consensusCorrectionReward");
+    expect(routes).toContain("consensusTierBonus");
     expect(routes).toContain("confirmationCount");
   });
   it("returns classification confirmation response with new balance", () => {

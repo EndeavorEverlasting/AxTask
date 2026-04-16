@@ -21,7 +21,18 @@ export function WalletTopBar() {
   const { data: wallet } = useQuery<{ balance: number; currentStreak?: number }>({
     queryKey: ["/api/gamification/wallet"],
   });
+  const { data: rewards = [] } = useQuery<Array<{ id: string; cost: number; name: string }>>({
+    queryKey: ["/api/gamification/rewards"],
+  });
+  const { data: myRewards = [] } = useQuery<Array<{ rewardId: string }>>({
+    queryKey: ["/api/gamification/my-rewards"],
+  });
   const animated = useCountUp(wallet?.balance ?? 0);
+  const ownedRewardIds = new Set(myRewards.map((entry) => entry.rewardId));
+  const nextAffordableReward =
+    rewards
+      .filter((reward) => !ownedRewardIds.has(reward.id) && (wallet?.balance ?? 0) >= reward.cost)
+      .sort((a, b) => a.cost - b.cost)[0] ?? null;
 
   const claimMutation = useMutation({
     mutationFn: async () => {
@@ -44,6 +55,24 @@ export function WalletTopBar() {
     onError: (e: unknown) => {
       const msg = e instanceof Error ? e.message : "Could not claim offline coins.";
       toast({ title: "Claim failed", description: msg, variant: "destructive" });
+    },
+  });
+
+  const quickRedeemMutation = useMutation({
+    mutationFn: async (rewardId: string) => {
+      const res = await apiRequest("POST", "/api/gamification/redeem", { rewardId });
+      return res.json() as Promise<{ message?: string }>;
+    },
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      requestFeedbackNudge("reward_redeem");
+      toast({ title: "Quick redeem complete", description: data.message || "Reward redeemed." });
+    },
+    onError: (e: unknown) => {
+      const msg = e instanceof Error ? e.message : "Could not redeem from quick menu.";
+      toast({ title: "Quick redeem failed", description: msg, variant: "destructive" });
     },
   });
 
@@ -71,6 +100,14 @@ export function WalletTopBar() {
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem onClick={() => setLocation("/rewards")}>Rewards &amp; profile</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setLocation("/rewards?tab=shop")}>Open shop</DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!nextAffordableReward || quickRedeemMutation.isPending}
+            onClick={() => nextAffordableReward && quickRedeemMutation.mutate(nextAffordableReward.id)}
+          >
+            {nextAffordableReward
+              ? `Quick redeem: ${nextAffordableReward.name} (${nextAffordableReward.cost})`
+              : "Quick redeem unavailable"}
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setLocation("/rewards?tab=history")}>Coin history</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setLocation("/mini-games")}>Earn from mini-games</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setLocation("/feedback")}>Give feedback for coins</DropdownMenuItem>

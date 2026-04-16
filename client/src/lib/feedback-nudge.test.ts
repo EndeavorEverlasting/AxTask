@@ -35,5 +35,16 @@ describe("feedback nudge guardrails", () => {
     expect(dispatchSpy).toHaveBeenCalledTimes(1);
     dispatchSpy.mockRestore();
   });
+
+  it("applies weighted day budget so high-signal sources stop earlier", () => {
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    for (let i = 0; i < 12; i++) {
+      requestFeedbackNudge(i % 2 === 0 ? "task_complete" : "classification_confirm");
+      localStorage.setItem("axtask.feedbackNudge.lastAt", "0");
+    }
+    // High-intensity mode allows a large budget, but weighted events still cap.
+    expect(dispatchSpy).toHaveBeenCalledTimes(9);
+    dispatchSpy.mockRestore();
+  });
 });
 

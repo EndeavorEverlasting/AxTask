@@ -36,6 +36,8 @@ export const ENGAGEMENT = {
   taskSearch: { reason: "task_search_reward", amount: 1, dailyCap: 30 },
   recalculate: { reason: "priority_recalculate_reward", amount: 2, dailyCap: 8 },
   feedbackSubmission: { reason: "feedback_submission_reward", amount: 3, dailyCap: 5 },
+  recalculateRating: { reason: "urgency_recalculate_rating_reward", amount: 2, dailyCap: 6 },
+  consensusTierBonus: { reason: "classification_consensus_tier_bonus", amount: 3, dailyCap: 8 },
   classificationCorrectionConsensus: {
     reason: "classification_correction_consensus_reward",
     amount: 4,

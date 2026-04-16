@@ -94,6 +94,13 @@ export default function RewardsPage() {
   const { data: avatarData } = useQuery<{ avatars: AvatarProfile[] }>({
     queryKey: ["/api/gamification/avatars"],
   });
+  const { data: economyDiagnostics } = useQuery<{
+    averagePScore: number;
+    pScoreScale: string;
+    rewardsToday: Array<{ reason: string; todayCount: number; dailyCap: number }>;
+  }>({
+    queryKey: ["/api/gamification/economy-diagnostics"],
+  });
 
   const animatedBalance = useCountUp(wallet?.balance ?? 0);
 
@@ -242,6 +249,14 @@ export default function RewardsPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+      {economyDiagnostics && (
+        <Card>
+          <CardContent className="p-4 text-sm text-muted-foreground">
+            Avg P-Score uses the {economyDiagnostics.pScoreScale} scale across dashboard and rewards views.
+            Current average: <span className="font-semibold text-foreground">{economyDiagnostics.averagePScore}</span>.
+          </CardContent>
+        </Card>
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
