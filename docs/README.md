@@ -271,6 +271,8 @@ Example: 100 tasks × 150ms = 15 seconds = $0.0001
 
 ## Development Workflow
 
+**Pre-push objective-to-code checklist (rewards, classification, feedback, coins, p-score):** [OBJECTIVE_CODE_PUSH_CHECKLIST.md](./OBJECTIVE_CODE_PUSH_CHECKLIST.md)
+
 **Database and schema command order (local vs Docker vs production), flowcharts, and flags:** [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md)
 
 ### Local Development
