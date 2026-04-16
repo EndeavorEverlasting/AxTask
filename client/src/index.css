@@ -381,11 +381,11 @@
   }
 
   .glass-panel-elevated {
-    @apply glass-panel shadow-lg shadow-slate-900/12 dark:shadow-black/30;
+    @apply glass-panel shadow-lg shadow-slate-900/10 dark:shadow-black/30;
   }
 
   .glass-panel-interactive {
-    @apply glass-panel-elevated transition-transform duration-200 ease-out hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-900/12 dark:hover:shadow-black/35 focus-within:ring-2 focus-within:ring-primary/35;
+    @apply glass-panel-elevated transition-transform duration-200 ease-out hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-900/10 dark:hover:shadow-black/30 focus-within:ring-2 focus-within:ring-primary focus-within:ring-opacity-30;
   }
 
   .chip-row {
