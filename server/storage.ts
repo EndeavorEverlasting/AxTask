@@ -6,6 +6,7 @@ import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
 import { parseFeedbackPayload, parseFeedbackReviewPayload } from "./services/feedback-inbox-parser";
 import { maskE164ForDisplay } from "@shared/phone";
+import { displayAveragePriorityScoreFromDb } from "@shared/display-priority-score";
 import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
@@ -1049,6 +1050,22 @@ export class DatabaseStorage implements IStorage {
         return sql.join([sql`CASE`, ...parts, sql`ELSE ${sql.raw(column)} END`], sql` `);
       };
 
+      const associationsCase = sql.join(
+        [
+          sql`CASE`,
+          ...batch.map((u) => {
+            const val = u.classificationAssociations;
+            if (val === undefined) {
+              return sql`WHEN id = ${u.id} THEN classification_associations`;
+            }
+            const escaped = JSON.stringify(val).replace(/\\/g, "\\\\").replace(/'/g, "''");
+            return sql`WHEN id = ${u.id} THEN ${sql.raw(`'${escaped}'::jsonb`)}`;
+          }),
+          sql`ELSE classification_associations END`,
+        ],
+        sql` `,
+      );
+
       const idParams = batch.map(u => sql`${u.id}`);
 
       await db.execute(sql`
@@ -1056,6 +1073,7 @@ export class DatabaseStorage implements IStorage {
           priority = ${buildCase('priority', u => u.priority)},
           priority_score = ${buildCase('priority_score', u => u.priorityScore)},
           classification = ${buildCase('classification', u => u.classification)},
+          classification_associations = ${associationsCase},
           is_repeated = ${buildCase('is_repeated', u => u.isRepeated)},
           updated_at = ${now}
         WHERE user_id = ${userId} AND id IN (${sql.join(idParams, sql`, `)})
@@ -1105,11 +1123,13 @@ export class DatabaseStorage implements IStorage {
       db.select({ value: avg(tasks.priorityScore) }).from(tasks).where(eq(tasks.userId, userId)),
     ]);
 
+    const rawAvg = Number(avgRow?.value) || 0;
     return {
       totalTasks: Number(totalRow?.value) || 0,
       highPriorityTasks: Number(highPriorityRow?.value) || 0,
       completedToday: Number(completedTodayRow?.value) || 0,
-      avgPriorityScore: Number(avgRow?.value) || 0,
+      /** Same scale as task list / planner: DB stores score × 10. */
+      avgPriorityScore: displayAveragePriorityScoreFromDb(rawAvg),
     };
   }
 }

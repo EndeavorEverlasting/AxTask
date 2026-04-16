@@ -15,6 +15,8 @@ import { TutorialOverlay } from "@/components/tutorial-overlay";
 import { TutorialInteractionGuide } from "@/components/tutorial-interaction-guide";
 import { VoiceCommandBar } from "@/components/voice-command-bar";
 import { InstallCtaBanner } from "@/components/install-cta-banner";
+import { WalletTopBar } from "@/components/wallet-top-bar";
+import { FeedbackNudgeDialog } from "@/components/feedback-nudge-dialog";
 import { OfflineDataBanner } from "@/components/offline-data-banner";
 import { TaskOfflineSyncProvider } from "@/components/task-offline-sync-provider";
 import BulkActionDialog from "@/components/bulk-action-dialog";
@@ -210,7 +212,8 @@ function useRoutePersistence(enabled: boolean) {
     const pathname = window.location.pathname;
     if (pathname === "/" || pathname === "") {
       const saved = localStorage.getItem(ROUTE_STORAGE_KEY);
-      if (saved && saved !== "/" && isValidAppPath(saved)) {
+      const savedPath = saved ? saved.split("?")[0] : "";
+      if (saved && saved !== "/" && isValidAppPath(savedPath)) {
         setLocation(saved);
       }
     }
@@ -344,6 +347,7 @@ function AuthenticatedApp() {
         <Sidebar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <OfflineDataBanner />
+          <WalletTopBar />
           <InstallCtaBanner userId={user.id} />
           <div
             className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0 [scrollbar-gutter:stable]"
@@ -369,6 +373,7 @@ function AuthenticatedApp() {
         <TutorialInteractionGuide />
         <VoiceCommandBar />
         <ReviewDialogBridge />
+        <FeedbackNudgeDialog />
       </div>
       </TaskOfflineSyncProvider>
     </VoiceProvider>

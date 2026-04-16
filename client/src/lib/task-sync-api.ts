@@ -281,6 +281,7 @@ export function optimisticTaskFromInsert(data: InsertTask, id: string, userId: s
     priority: "Low",
     priorityScore: 0,
     classification: "General",
+    classificationAssociations: [{ label: "General", confidence: 1 }],
     status: data.status ?? "pending",
     isRepeated: false,
     sortOrder: 0,

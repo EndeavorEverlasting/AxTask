@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronDown, Coins, Plus, Sparkles } from "lucide-react";
 import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
+import type { ClassificationAssociation } from "@shared/schema";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type CategoriesResponse = {
   builtIn: { label: string; coins: number }[];
@@ -46,6 +48,8 @@ export function getClassificationColor(classification: string) {
 
 interface ClassificationBadgeProps {
   classification: string;
+  /** Multi-label model from API; primary remains `classification`. */
+  classificationAssociations?: ClassificationAssociation[] | null;
   taskId?: string;
   editable?: boolean;
   /** Used with NodeWeaver / AxTask suggestions when the popover opens. */
@@ -57,6 +61,7 @@ interface ClassificationBadgeProps {
 
 export function ClassificationBadge({
   classification,
+  classificationAssociations,
   taskId,
   editable = false,
   activity = "",
@@ -200,13 +205,43 @@ export function ClassificationBadge({
 
   const isCurrent = (label: string) => label.toLowerCase() === classification.toLowerCase();
 
+  const associationAlts = (classificationAssociations ?? []).filter(
+    (a) => a.label.trim().toLowerCase() !== classification.trim().toLowerCase(),
+  );
+  const hasAssociationDetail =
+    (classificationAssociations?.length ?? 0) > 1 || associationAlts.length > 0;
+
+  const associationTooltip = hasAssociationDetail ? (
+    <div className="text-xs space-y-1 max-w-[220px]">
+      <p className="font-medium text-foreground">Labels & confidence</p>
+      {(classificationAssociations ?? [{ label: classification, confidence: 1 }]).map((a) => (
+        <div key={a.label} className="flex justify-between gap-3 tabular-nums">
+          <span className={a.label === classification ? "font-semibold" : ""}>{a.label}</span>
+          <span className="text-muted-foreground">{Math.round(a.confidence * 100)}%</span>
+        </div>
+      ))}
+    </div>
+  ) : null;
+
   if (!editable || !taskId) {
-    return (
+    const pill = (
       <span
-        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getClassificationColor(classification)}`}
+        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${getClassificationColor(classification)}`}
       >
         {classification}
+        {hasAssociationDetail && (
+          <span className="text-[10px] opacity-80 font-normal tabular-nums">+{associationAlts.length || 0}</span>
+        )}
       </span>
+    );
+    if (!associationTooltip) return pill;
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>{pill}</TooltipTrigger>
+          <TooltipContent side="top">{associationTooltip}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
 
@@ -219,6 +254,9 @@ export function ClassificationBadge({
           onClick={(e) => e.stopPropagation()}
         >
           {classification}
+          {hasAssociationDetail && (
+            <span className="text-[10px] opacity-80 font-normal tabular-nums">+{associationAlts.length || 0}</span>
+          )}
           <ChevronDown className="h-3 w-3 opacity-60" />
         </button>
       </PopoverTrigger>
@@ -228,6 +266,21 @@ export function ClassificationBadge({
         side="bottom"
         onClick={(e) => e.stopPropagation()}
       >
+        {hasAssociationDetail && (
+          <div className="mb-2 pb-2 border-b border-gray-200 dark:border-gray-700">
+            <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
+              Multi-label confidence
+            </div>
+            <div className="px-2 space-y-1 text-xs">
+              {(classificationAssociations ?? [{ label: classification, confidence: 1 }]).map((a) => (
+                <div key={`${a.label}-${a.confidence}`} className="flex justify-between gap-2 tabular-nums">
+                  <span className={a.label === classification ? "font-semibold text-foreground" : ""}>{a.label}</span>
+                  <span className="text-muted-foreground">{Math.round(a.confidence * 100)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {activity.trim().length > 0 && (
           <div className="mb-2 pb-2 border-b border-gray-200 dark:border-gray-700">
             <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">

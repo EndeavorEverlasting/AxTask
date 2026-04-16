@@ -4,11 +4,11 @@ import { db } from "./db";
 import { eq, and, sql, count } from "drizzle-orm";
 
 const BASE_COINS: Record<string, number> = {
-  Highest: 25,
-  High: 20,
-  "Medium-High": 15,
-  Medium: 10,
-  Low: 5,
+  Highest: 32,
+  High: 26,
+  "Medium-High": 20,
+  Medium: 14,
+  Low: 8,
 };
 
 const STREAK_BADGES: Record<number, string> = {

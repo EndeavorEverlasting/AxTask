@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { Card, CardContent } from "@/components/ui/card";
 import { TaskForm } from "@/components/task-form";
 import { TaskList } from "@/components/task-list";
@@ -62,6 +64,10 @@ export default function Dashboard() {
   const { data: stats, isLoading } = useQuery<TaskStats>({
     queryKey: ["/api/tasks/stats"],
   });
+
+  useEffect(() => {
+    requestFeedbackNudge("dashboard_visit");
+  }, []);
 
   const reducedMotion = useReducedMotion();
 

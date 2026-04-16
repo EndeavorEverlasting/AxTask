@@ -18,6 +18,7 @@ import {
   TaskSyncAbortedError,
 } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useVoice } from "@/hooks/use-voice";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -265,6 +266,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
         <div className="flex items-center gap-1.5">
           <ClassificationBadge
             classification={task.classification}
+            classificationAssociations={task.classificationAssociations}
             taskId={task.id}
             activity={task.activity}
             notes={task.notes ?? ""}
@@ -571,6 +573,7 @@ function MobileTaskCard({
         <div className="flex items-center gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
           <ClassificationBadge
             classification={task.classification}
+            classificationAssociations={task.classificationAssociations}
             taskId={task.id}
             activity={task.activity}
             notes={task.notes ?? ""}
@@ -849,7 +852,7 @@ export function TaskList() {
         return next;
       });
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       const d = data as { offlineQueued?: boolean; coinReward?: unknown } | undefined;
       if (d?.offlineQueued) {
         toast({
@@ -881,6 +884,9 @@ export function TaskList() {
         });
         playIfEligible(3);
       }
+      if (variables.status === "completed") {
+        requestFeedbackNudge("task_complete");
+      }
     },
     onError: (e: unknown) => {
       if (e instanceof TaskSyncAbortedError) return;
@@ -909,6 +915,7 @@ export function TaskList() {
         title: "Priorities recalculated",
         description: "All task priorities have been recalculated successfully.",
       });
+      requestFeedbackNudge("recalculate");
     },
     onError: () => {
       toast({

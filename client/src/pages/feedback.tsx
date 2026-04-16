@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -26,9 +26,11 @@ type FeedbackSubmitResponse = {
     priority: string;
     sentiment: string;
   };
+  feedbackReward?: { coins: number; newBalance: number } | null;
 };
 
 export default function FeedbackPage() {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const [message, setMessage] = useState("");
   const [screenshots, setScreenshots] = useState<ScreenshotItem[]>([]);
@@ -96,7 +98,16 @@ export default function FeedbackPage() {
       const details = payload.analysis
         ? `${payload.analysis.classification} • ${payload.analysis.priority} • ${payload.analysis.sentiment}`
         : "Thanks — your feedback has been recorded.";
-      toast({ title: "Feedback sent", description: details });
+      if (payload.feedbackReward && payload.feedbackReward.coins > 0) {
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+        toast({
+          title: `Feedback sent · +${payload.feedbackReward.coins} AxCoins`,
+          description: `${details} · Balance ${payload.feedbackReward.newBalance}.`,
+        });
+      } else {
+        toast({ title: "Feedback sent", description: details });
+      }
       setMessage("");
       setScreenshots([]);
     },

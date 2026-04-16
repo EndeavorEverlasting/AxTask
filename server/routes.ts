@@ -68,7 +68,7 @@ import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task, tasks, coinTransactions } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, count } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
@@ -98,7 +98,8 @@ import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./se
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, readAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
-import { classifyWithFallback } from "./services/classification/universal-classifier";
+import { classifyWithFallback, classifyWithAssociations } from "./services/classification/universal-classifier";
+import { confirmTaskClassificationForUser, getClassificationConfirmPayload } from "./classification-confirm";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
 import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
 
@@ -128,7 +129,7 @@ function buildAttachmentStorageKey(userId: string, assetId: string, fileName?: s
 }
 
 async function classifyTaskWithFallback(activity: string, notes: string, preferExternal = true): Promise<string> {
-  const result = await classifyWithFallback(activity, notes, { preferExternal });
+  const { result } = await classifyWithAssociations(activity, notes, { preferExternal });
   return result.classification;
 }
 
@@ -1590,6 +1591,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/tasks/:id/classifications", requireAuth, async (req, res) => {
+    try {
+      const task = await storage.getTask(req.user!.id, req.params.id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const payload = await getClassificationConfirmPayload(req.user!.id, task);
+      res.json(payload);
+    } catch (error) {
+      console.error("Classifications fetch error:", error);
+      res.status(500).json({ message: "Failed to fetch classifications" });
+    }
+  });
+
+  app.post("/api/tasks/:id/confirm-classification", requireAuth, async (req, res) => {
+    try {
+      const task = await storage.getTask(req.user!.id, req.params.id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const out = await confirmTaskClassificationForUser(req.user!.id, task);
+      res.json(out);
+    } catch (error: unknown) {
+      const pgCode = error && typeof error === "object" && "code" in error ? (error as { code?: string }).code : undefined;
+      if (pgCode === "23505") {
+        return res.status(400).json({ message: "Already confirmed" });
+      }
+      if (error instanceof Error) {
+        const m = error.message;
+        if (m === "Already confirmed" || m === "Contributor cannot confirm own classification reward") {
+          return res.status(400).json({ message: m });
+        }
+        if (m === "No classification to confirm") {
+          return res.status(400).json({ message: m });
+        }
+      }
+      console.error("Confirm classification error:", error);
+      res.status(500).json({ message: "Failed to confirm classification" });
+    }
+  });
+
   // Get task by ID
   app.get("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
@@ -1664,21 +1706,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 task.activity, task.notes || "", task.urgency, task.impact, task.effort,
                 contextTasks
               );
-              const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
+              const { result: clsRes, associations } = await classifyWithAssociations(
+                task.activity,
+                task.notes || "",
+                { preferExternal: false },
+              );
               updates.push({
                 id: task.id,
                 priority: priorityResult.priority,
                 priorityScore: Math.round(priorityResult.score * 10),
-                classification,
+                classification: clsRes.classification,
+                classificationAssociations: associations,
                 isRepeated: priorityResult.isRepeated,
               });
             } catch (e) {
-              const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
+              const { result: clsRes, associations } = await classifyWithAssociations(
+                task.activity,
+                task.notes || "",
+                { preferExternal: false },
+              );
               updates.push({
                 id: task.id,
                 priority: "Low",
                 priorityScore: 0,
-                classification,
+                classification: clsRes.classification,
+                classificationAssociations: associations,
                 isRepeated: false,
               });
             }
@@ -1744,13 +1796,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allTasks.filter(t => t.id !== task.id)
       );
 
-      const classification = await classifyTaskWithFallback(task.activity, task.notes || "", true);
+      const { result: clsRes, associations } = await classifyWithAssociations(
+        task.activity,
+        task.notes || "",
+        { preferExternal: true },
+      );
 
       task = await storage.updateTask(userId, {
         id: task.id,
         priority: priorityResult.priority,
         priorityScore: Math.round(priorityResult.score * 10),
-        classification,
+        classification: clsRes.classification,
+        classificationAssociations: associations,
         isRepeated: priorityResult.isRepeated,
       }) || task;
 
@@ -1794,13 +1851,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           allTasks.filter(t => t.id !== task!.id)
         );
 
-        const classification = await classifyTaskWithFallback(task!.activity, task!.notes || "", true);
+        const { result: clsRes, associations } = await classifyWithAssociations(
+          task!.activity,
+          task!.notes || "",
+          { preferExternal: true },
+        );
 
         task = await storage.updateTask(userId, {
           id: task!.id,
           priority: priorityResult.priority,
           priorityScore: Math.round(priorityResult.score * 10),
-          classification,
+          classification: clsRes.classification,
+          classificationAssociations: associations,
           isRepeated: priorityResult.isRepeated,
         }) || task;
       }
@@ -1850,6 +1912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedTask = await storage.updateTask(userId, {
         id: task.id,
         classification: nextClassification,
+        classificationAssociations: [{ label: nextClassification, confidence: 1 }],
       });
       if (!updatedTask) {
         return res.status(404).json({ message: "Task not found" });
@@ -1928,13 +1991,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           allTasks.filter(t => t.id !== task.id)
         );
 
-        const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
+        const { result: clsRes, associations } = await classifyWithAssociations(
+          task.activity,
+          task.notes || "",
+          { preferExternal: false },
+        );
 
         await storage.updateTask(userId, {
           id: task.id,
           priority: priorityResult.priority,
           priorityScore: Math.round(priorityResult.score * 10),
-          classification,
+          classification: clsRes.classification,
+          classificationAssociations: associations,
           isRepeated: priorityResult.isRepeated,
         });
       }
@@ -2090,13 +2158,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             allTasks.filter(t => t.id !== task.id)
           );
 
-          const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
+          const { result: clsRes, associations } = await classifyWithAssociations(
+            task.activity,
+            task.notes || "",
+            { preferExternal: false },
+          );
 
           const updatedTask = await storage.updateTask(userId, {
             id: task.id,
             priority: priorityResult.priority,
             priorityScore: Math.round(priorityResult.score * 10),
-            classification,
+            classification: clsRes.classification,
+            classificationAssociations: associations,
             isRepeated: priorityResult.isRepeated,
           });
 
@@ -2544,7 +2617,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             coalesce(sum(case when ${coinTransactions.reason} = 'classification_confirmation_received' then 1 else 0 end), 0)
           `,
           totalClassificationCoins: sql<number>`
-            coalesce(sum(case when ${coinTransactions.reason} in ('task_classification', 'classification_confirmation_received') then ${coinTransactions.amount} else 0 end), 0)
+            coalesce(sum(case when ${coinTransactions.reason} in (
+              'task_classification',
+              'classification_confirmation_received',
+              'classification_confirmer'
+            ) then ${coinTransactions.amount} else 0 end), 0)
           `,
         })
         .from(coinTransactions)
@@ -2896,10 +2973,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
           analysis,
         },
       });
+
+      let feedbackReward: { coins: number; newBalance: number } | null = null;
+      const dailyFeedbackRewards = 5;
+      const [rewardCountRow] = await db
+        .select({ value: count() })
+        .from(coinTransactions)
+        .where(
+          and(
+            eq(coinTransactions.userId, req.user!.id),
+            eq(coinTransactions.reason, "feedback_submission_reward"),
+            sql`(${coinTransactions.createdAt}::date) = (timezone('UTC', now()))::date`,
+          ),
+        );
+      const already = Number(rewardCountRow?.value) || 0;
+      if (already < dailyFeedbackRewards) {
+        const rewardCoins = 3;
+        const { wallet } = await addCoins(
+          req.user!.id,
+          rewardCoins,
+          "feedback_submission_reward",
+          `Feedback (${parsed.message.slice(0, 80)}${parsed.message.length > 80 ? "…" : ""})`,
+        );
+        feedbackReward = { coins: rewardCoins, newBalance: wallet.balance };
+      }
+
       res.status(201).json({
         message: "Feedback submitted",
         attachments: totalAttachments,
         analysis,
+        feedbackReward,
       });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });

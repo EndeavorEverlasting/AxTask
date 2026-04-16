@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, bigint, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, bigint, timestamp, boolean, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -193,6 +193,14 @@ export const deletePushSubscriptionSchema = z.object({
 export type UserNotificationPreference = typeof userNotificationPreferences.$inferSelect;
 export type UserPushSubscription = typeof userPushSubscriptions.$inferSelect;
 
+/** Multi-label classification with confidence (0–1). Primary label is always `tasks.classification`. */
+export const classificationAssociationSchema = z.object({
+  label: z.string().min(1).max(64),
+  confidence: z.number().min(0).max(1),
+});
+export type ClassificationAssociation = z.infer<typeof classificationAssociationSchema>;
+export const classificationAssociationsSchema = z.array(classificationAssociationSchema).max(8);
+
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -209,6 +217,8 @@ export const tasks = pgTable("tasks", {
   priority: text("priority").notNull(),
   priorityScore: integer("priority_score").notNull(),
   classification: text("classification").notNull(),
+  /** Ordered candidates with confidence; primary is `classification`. */
+  classificationAssociations: jsonb("classification_associations").$type<ClassificationAssociation[] | null>(),
   status: text("status").notNull().default("pending"),
   isRepeated: boolean("is_repeated").default(false),
   sortOrder: integer("sort_order").default(0),
@@ -228,6 +238,7 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   priority: true,
   priorityScore: true,
   classification: true,
+  classificationAssociations: true,
   isRepeated: true,
   sortOrder: true,
   createdAt: true,
@@ -254,6 +265,7 @@ export const updateTaskSchema = insertTaskSchema.partial().extend({
   priority: z.string().optional(),
   priorityScore: z.number().optional(),
   classification: z.string().optional(),
+  classificationAssociations: classificationAssociationsSchema.nullable().optional(),
   isRepeated: z.boolean().optional(),
   sortOrder: z.number().optional(),
 });
@@ -265,6 +277,27 @@ export const reorderTasksSchema = z.object({
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type UpdateTask = z.infer<typeof updateTaskSchema>;
 export type Task = typeof tasks.$inferSelect;
+
+/** One user may confirm a task's classification once (solo + future multi-viewer). */
+export const taskClassificationConfirmations = pgTable(
+  "task_classification_confirmations",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    taskId: varchar("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("ux_task_classification_confirmations_task_user").on(table.taskId, table.userId),
+    index("idx_task_classification_confirmations_task").on(table.taskId),
+  ],
+);
+
+export type TaskClassificationConfirmation = typeof taskClassificationConfirmations.$inferSelect;
 
 // ─── Study Mini-Games ───────────────────────────────────────────────────────
 export const studyDecks = pgTable("study_decks", {

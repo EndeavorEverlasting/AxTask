@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -62,10 +63,21 @@ interface AvatarProfile {
   mission: string;
 }
 
+const REWARD_TABS = new Set(["profile", "investments", "shop", "badges", "history"]);
+
 export default function RewardsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const search = useSearch();
   const [activeTab, setActiveTab] = useState("profile");
+
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const tab = params.get("tab");
+    if (tab && REWARD_TABS.has(tab)) {
+      setActiveTab(tab);
+    }
+  }, [search]);
 
   const { data: wallet } = useQuery<Wallet>({ queryKey: ["/api/gamification/wallet"] });
   const { data: rewards = [] } = useQuery<RewardItem[]>({ queryKey: ["/api/gamification/rewards"] });
