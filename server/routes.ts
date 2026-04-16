@@ -483,7 +483,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Auto-login after registration
       req.login(user, (err) => {
         if (err) return res.status(500).json({ message: "Registration succeeded but login failed" });
-        res.status(201).json(user);
+        res.status(201).json(toPublicSessionUser(user));
       });
     } catch (error) {
       if (error instanceof Error) {
@@ -569,7 +569,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         req.login(user, (err) => {
           if (err) return next(err);
-          res.json(user);
+          res.json(toPublicSessionUser(user));
         });
       })(req, res, next);
     } catch (error) {
@@ -614,7 +614,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.logout(() => {});
       return res.status(401).json({ message: "Not authenticated" });
     }
-    res.json(fresh);
+    res.json(toPublicSessionUser(fresh));
   });
 
   // Return registration mode + auth provider so the UI can adapt
@@ -693,7 +693,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ipAddress: req.ip,
           userAgent: req.get("user-agent") || undefined,
         });
-        res.json(safe);
+        res.json(toPublicSessionUser(safe));
       });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
@@ -723,7 +723,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const resetUrl = `${req.protocol}://${req.get("host")}/?reset_token=${result.token}`;
-      console.log(`[PASSWORD RESET] Token for ${email}: ${resetUrl}`);
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[PASSWORD RESET] (non-production) ${email}: ${resetUrl}`);
+      }
       await logSecurityEvent("password_reset_requested", undefined, undefined, req.ip, `Reset requested for: ${email}`);
 
       // Check if security question is available as fallback
@@ -1905,8 +1907,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Task not found" });
       }
 
-      console.log(`[TASK UPDATE] Task ${req.params.id}: ${previousStatus} → ${task.status}`);
-
       if (validatedData.activity || validatedData.notes) {
         const allTasks = await storage.getTasks(userId);
         const priorityResult = await PriorityEngine.calculatePriority(
@@ -1939,10 +1939,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let coinReward = null;
       let coinSkipReason: string | null = null;
+      let walletBalance: number | null = null;
       if (task!.status === "completed" && previousStatus !== "completed") {
-        console.log(`[COIN REWARD] Awarding coins for task ${task.id}`);
         coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
-        console.log(`[COIN REWARD] Result:`, coinReward);
         if (!coinReward) {
           const alreadyAwarded = await hasTaskBeenAwarded(userId, task!.id);
           coinSkipReason = completionCoinSkipReason({
@@ -1951,12 +1950,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             coinReward,
             alreadyAwarded,
           });
+          walletBalance = (await getOrCreateWallet(userId)).balance;
+        } else {
+          walletBalance = coinReward.newBalance;
         }
-      } else {
-        console.log(`[COIN REWARD] Skipped: status=${task.status}, prev=${previousStatus}`);
       }
-      const responseWalletBalance = coinReward?.newBalance ?? null;
-      res.json({ ...task, coinReward, coinSkipReason, walletBalance: responseWalletBalance });
+      res.json({ ...task, coinReward, coinSkipReason, walletBalance });
     } catch (error) {
       console.error("[TASK UPDATE ERROR]", error);
       if (error instanceof Error) {
@@ -2787,7 +2786,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           wallet.currentStreak = 0;
         }
       }
-      res.json(wallet);
+      res.json(toPublicWallet(wallet));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch wallet" });
     }
@@ -2828,7 +2827,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
       const txs = await getTransactions(req.user!.id, limit);
-      res.json(txs);
+      res.json(toPublicCoinTransactions(txs));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch transactions" });
     }
@@ -2872,7 +2871,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Insufficient coins or reward not found" });
       }
       const wallet = await getOrCreateWallet(req.user!.id);
-      res.json({ message: "Reward redeemed!", wallet });
+      res.json({ message: "Reward redeemed!", wallet: toPublicWallet(wallet) });
     } catch (error) {
       res.status(500).json({ message: "Failed to redeem reward" });
     }
@@ -3856,6 +3855,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.session.save((err) => (err ? reject(err) : resolve()));
       });
       const fresh = await getUserById(req.user!.id);
+      if (!fresh) {
+        return res.status(500).json({ message: "Account not found after enrollment" });
+      }
       await appendSecurityEvent({
         eventType: "totp_enabled",
         actorUserId: req.user!.id,
@@ -3865,7 +3867,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
       });
-      res.json({ message: "Authenticator enabled", user: fresh });
+      res.json({ message: "Authenticator enabled", user: toPublicSessionUser(fresh) });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to confirm enrollment" });
@@ -3907,6 +3909,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await clearUserTotp(req.user!.id);
       const fresh = await getUserById(req.user!.id);
+      if (!fresh) {
+        return res.status(500).json({ message: "Account not found after disabling authenticator" });
+      }
       await appendSecurityEvent({
         eventType: "totp_disabled",
         actorUserId: req.user!.id,
@@ -3916,7 +3921,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
       });
-      res.json({ message: "Authenticator removed", user: fresh });
+      res.json({ message: "Authenticator removed", user: toPublicSessionUser(fresh) });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to disable authenticator" });
@@ -3952,6 +3957,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await setUserVerifiedPhone(req.user!.id, result.smsDestinationE164);
       const fresh = await getUserById(req.user!.id);
+      if (!fresh) {
+        return res.status(500).json({ message: "Account not found after phone verification" });
+      }
       await appendSecurityEvent({
         eventType: "phone_verified",
         actorUserId: req.user!.id,
@@ -3962,7 +3970,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userAgent: req.get("user-agent") || undefined,
         payload: {},
       });
-      res.json({ message: "Phone verified", user: fresh });
+      res.json({ message: "Phone verified", user: toPublicSessionUser(fresh) });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to verify phone" });

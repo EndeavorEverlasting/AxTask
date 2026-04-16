@@ -13,7 +13,6 @@ import { useCountUp } from "@/hooks/use-count-up";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 
 interface Wallet {
-  userId: string;
   balance: number;
   lifetimeEarned: number;
   currentStreak: number;
@@ -33,10 +32,10 @@ interface RewardItem {
 
 interface Transaction {
   id: string;
-  userId: string;
   amount: number;
   reason: string;
   details: string | null;
+  taskId: string | null;
   createdAt: string;
 }
 

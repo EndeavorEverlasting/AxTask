@@ -1,9 +1,11 @@
 import type { Task } from "@shared/schema";
 
+/** Chooses full list vs server search results for the Tasks table pipeline. */
 export function resolveTaskListSearchSource(input: {
   browserOnline: boolean;
   debouncedQuery: string;
   allTasks: Task[];
+  /** Pass `undefined` while the search request is in flight or when server search is disabled. */
   searchResults: Task[] | undefined;
 }): { baseTasks: Task[]; applyLocalSearch: boolean; serverSearchActive: boolean } {
   const q = input.debouncedQuery.trim();

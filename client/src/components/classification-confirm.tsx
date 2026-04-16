@@ -61,6 +61,12 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
         newBalance?: number;
       };
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "classifications"] });
+      if (typeof r.newBalance === "number") {
+        queryClient.setQueryData(["/api/gamification/wallet"], (prev: unknown) => {
+          if (!prev || typeof prev !== "object") return prev;
+          return { ...(prev as Record<string, unknown>), balance: r.newBalance };
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });

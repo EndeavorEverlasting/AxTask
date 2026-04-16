@@ -22,15 +22,18 @@ describe("use-case engagement wiring", () => {
     const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
     expect(routes).toContain("uniqueTaskReward");
     expect(routes).toContain("coinSkipReason");
+    expect(routes).toContain("walletBalance");
+    expect(routes).toContain("hasTaskBeenAwarded");
+    expect(routes).toContain("completionCoinSkipReason");
     expect(routes).toContain("ENGAGEMENT.taskSearch");
     expect(routes).toContain("recalculateReward");
     expect(routes).toContain('"/api/tasks/recalculate/rating"');
     expect(routes).toContain('"/api/gamification/economy-diagnostics"');
     expect(routes).toContain("consensusCorrectionReward");
     expect(routes).toContain("consensusTierBonus");
-    expect(routes).toContain("walletBalance");
     expect(routes).toContain("confirmationCount");
   });
+
   it("returns classification confirmation response with new balance", () => {
     const src = fs.readFileSync(path.join(root, "server", "classification-confirm.ts"), "utf8");
     expect(src).toContain("newBalance");

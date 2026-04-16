@@ -17,10 +17,10 @@ import {
   syncUpdateTask,
   TaskSyncAbortedError,
 } from "@/lib/task-sync-api";
-import { useToast } from "@/hooks/use-toast";
-import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { apiFetch } from "@/lib/queryClient";
 import { resolveTaskListSearchSource } from "@/lib/task-list-search-source";
+import { useToast } from "@/hooks/use-toast";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useVoice } from "@/hooks/use-voice";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -901,6 +901,7 @@ export function TaskList() {
   }, [serverSearchActive, isDragMode]);
 
   const dragModeEffective = isDragMode && !serverSearchActive;
+
   const [updatingTaskIds, setUpdatingTaskIds] = useState<Set<string>>(() => new Set());
   const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(() => new Set());
 
@@ -972,6 +973,12 @@ export function TaskList() {
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      if (typeof d?.walletBalance === "number") {
+        queryClient.setQueryData(["/api/gamification/wallet"], (prev: unknown) => {
+          if (!prev || typeof prev !== "object") return prev;
+          return { ...(prev as Record<string, unknown>), balance: d.walletBalance };
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       if (d?.coinReward) {
         const cr = d.coinReward as {
@@ -1047,6 +1054,7 @@ export function TaskList() {
       };
       if (payload.recalculateReward && payload.recalculateReward.coins > 0) {
         void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
         toast({
           title: "Priorities recalculated",
           description: `All task priorities updated. +${payload.recalculateReward.coins} AxCoins (balance ${payload.recalculateReward.newBalance}).`,
@@ -1167,6 +1175,7 @@ export function TaskList() {
   }, [baseTasks, toast]);
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (serverSearchActive) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -1180,13 +1189,14 @@ export function TaskList() {
   };
 
   const filteredAndSortedTasks = useMemo(() => {
+    const qLower = debouncedSearchQuery.toLowerCase();
     const filtered = baseTasks.filter((task) => {
       const matchesSearch =
         !applyLocalSearch ||
         !debouncedSearchQuery ||
-        task.activity.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        task.notes?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        task.classification.toLowerCase().includes(debouncedSearchQuery.toLowerCase());
+        task.activity.toLowerCase().includes(qLower) ||
+        (task.notes?.toLowerCase().includes(qLower) ?? false) ||
+        task.classification.toLowerCase().includes(qLower);
 
       const matchesPriority = priorityFilter === "all" || task.priority === priorityFilter;
       const matchesStatus = statusFilter === "all" || task.status === statusFilter;
@@ -1273,13 +1283,19 @@ export function TaskList() {
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:space-x-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              {useServerSearchList && isSearchFetching && searchTasks === undefined ? (
+                <RefreshLoader
+                  className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground"
+                  aria-hidden
+                />
+              ) : null}
               <Input
                 id="task-list-search"
                 ref={searchInputRef}
                 placeholder="Search tasks..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 w-full md:w-64 h-10"
+                className={`pl-10 w-full md:w-64 h-10 ${useServerSearchList && isSearchFetching && searchTasks === undefined ? "pr-10" : ""}`}
                 aria-label="Search tasks"
               />
             </div>
@@ -1355,6 +1371,12 @@ export function TaskList() {
                 <Button
                   variant={isDragMode ? "default" : "outline"}
                   size="sm"
+                  disabled={serverSearchActive}
+                  title={
+                    serverSearchActive
+                      ? "Clear search or shorten it to reorder the full list with drag mode."
+                      : undefined
+                  }
                   onClick={() => {
                     setIsDragMode(!isDragMode);
                     if (!isDragMode) setSortField('manual');
@@ -1448,7 +1470,7 @@ export function TaskList() {
             {useVirtualized ? (
               <VirtualizedTaskTable
                 tasks={filteredAndSortedTasks}
-                isDragMode={isDragMode}
+                isDragMode={dragModeEffective}
                 onEdit={handleEdit}
                 onToggleStatus={handleToggleStatus}
                 onDelete={handleDelete}
@@ -1464,7 +1486,7 @@ export function TaskList() {
                 <Table containerClassName="overflow-visible max-h-none">
                   <TableHeader>
                     <TableRow>
-                      {isDragMode && <TableHead className="w-8"></TableHead>}
+                      {dragModeEffective && <TableHead className="w-8"></TableHead>}
                       <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('date')}>
                         <div className="flex items-center">
                           Date
@@ -1527,7 +1549,7 @@ export function TaskList() {
                           <SortableTaskRow
                             key={task.id}
                             task={task}
-                            isDragMode={isDragMode}
+                            isDragMode={dragModeEffective}
                             onEdit={handleEdit}
                             onToggleStatus={handleToggleStatus}
                             onDelete={handleDelete}
