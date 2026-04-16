@@ -19,6 +19,8 @@ import {
 } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
+import { apiFetch } from "@/lib/queryClient";
+import { resolveTaskListSearchSource } from "@/lib/task-list-search-source";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useVoice } from "@/hooks/use-voice";
 import { useIsMobile } from "@/hooks/use-mobile";
