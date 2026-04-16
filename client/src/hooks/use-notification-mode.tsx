@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { applyNativeReminderPolicy } from "@/lib/native-reminder-bridge";
 
 type NotificationPreference = {
   userId: string;
@@ -12,6 +13,17 @@ type NotificationPreference = {
   immersiveSoundsEnabled: boolean;
   createdAt: string | Date;
   updatedAt: string | Date;
+  pushConfigured?: boolean;
+  hasSubscription?: boolean;
+  deliveryChannel?: "push" | "in_app";
+  dispatchProfile?: {
+    intensity: number;
+    band: "off" | "low" | "balanced" | "frequent";
+    cadenceMinutes: number | null;
+    maxPerDay: number;
+    feedbackCooldownSeconds: number | null;
+    feedbackMaxPerDay: number;
+  };
 };
 
 type PushSupportStatus = "unsupported" | "denied" | "default" | "granted";
@@ -23,6 +35,8 @@ type NotificationModeContextValue = {
   immersiveSoundsEnabled: boolean;
   pushStatus: PushSupportStatus;
   canUsePush: boolean;
+  dispatchProfile?: NotificationPreference["dispatchProfile"];
+  deliveryChannel?: NotificationPreference["deliveryChannel"];
   toggleNotificationMode: () => Promise<void>;
   setLocalIntensity: (value: number) => void;
   saveIntensity: (value: number) => Promise<void>;
@@ -35,6 +49,15 @@ const NotificationModeContext = createContext<NotificationModeContextValue | nul
 
 function clampIntensity(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function persistClientReminderState(enabled: boolean, intensity: number): void {
+  try {
+    localStorage.setItem("axtask.notification.enabled", String(enabled));
+    localStorage.setItem("axtask.notification.intensity", String(intensity));
+  } catch {
+    // ignore storage quota/private mode
+  }
 }
 
 function toPushStatus(): PushSupportStatus {
@@ -93,6 +116,7 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
   useEffect(() => {
     if (!preferenceQuery.data) return;
     setLocalIntensity(clampIntensity(preferenceQuery.data.intensity));
+    persistClientReminderState(Boolean(preferenceQuery.data.enabled), clampIntensity(preferenceQuery.data.intensity));
   }, [preferenceQuery.data]);
 
   useEffect(() => {
@@ -104,6 +128,7 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     onSuccess: (next) => {
       preferenceQuery.refetch();
       setLocalIntensity(clampIntensity(next.intensity));
+      persistClientReminderState(Boolean(next.enabled), clampIntensity(next.intensity));
     },
   });
 
@@ -167,7 +192,14 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
 
     if (currentlyEnabled) {
       await disableAndUnsubscribe();
-      await savePreferenceMutation.mutateAsync({ enabled: false });
+      const nextPref = await savePreferenceMutation.mutateAsync({ enabled: false });
+      const dispatchProfile = nextPref.dispatchProfile;
+      await applyNativeReminderPolicy({
+        enabled: false,
+        intensity: nextPref.intensity ?? localIntensity,
+        cadenceMinutes: dispatchProfile?.cadenceMinutes ?? null,
+        maxPerDay: dispatchProfile?.maxPerDay ?? 0,
+      });
       toast({ title: "Notifications off", description: "Notification mode has been disabled." });
       return;
     }
@@ -186,7 +218,14 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
       setPushStatus("unsupported");
     }
 
-    await savePreferenceMutation.mutateAsync({ enabled: true });
+    const nextPref = await savePreferenceMutation.mutateAsync({ enabled: true });
+    const dispatchProfile = nextPref.dispatchProfile;
+    await applyNativeReminderPolicy({
+      enabled: true,
+      intensity: nextPref.intensity ?? localIntensity,
+      cadenceMinutes: dispatchProfile?.cadenceMinutes ?? null,
+      maxPerDay: dispatchProfile?.maxPerDay ?? 0,
+    });
     if (pushEnabled) {
       toast({ title: "Notifications on", description: "Push notifications are now enabled." });
     } else {
@@ -195,12 +234,29 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
         description: "Notification mode is enabled. Push delivery is unavailable on this device/configuration.",
       });
     }
-  }, [disableAndUnsubscribe, ensureSubscription, preferenceQuery.data?.enabled, savePreferenceMutation, toast]);
+  }, [
+    disableAndUnsubscribe,
+    ensureSubscription,
+    localIntensity,
+    preferenceQuery.data?.dispatchProfile,
+    preferenceQuery.data?.enabled,
+    preferenceQuery.data?.intensity,
+    savePreferenceMutation,
+    toast,
+  ]);
 
   const saveIntensity = useCallback(async (value: number) => {
     const intensity = clampIntensity(value);
     setLocalIntensity(intensity);
-    await savePreferenceMutation.mutateAsync({ intensity });
+    const nextPref = await savePreferenceMutation.mutateAsync({ intensity });
+    const profile = nextPref.dispatchProfile;
+    await applyNativeReminderPolicy({
+      enabled: Boolean(nextPref.enabled),
+      intensity,
+      cadenceMinutes: profile?.cadenceMinutes ?? null,
+      maxPerDay: profile?.maxPerDay ?? 0,
+    });
+    persistClientReminderState(Boolean(nextPref.enabled), intensity);
   }, [savePreferenceMutation]);
 
   useEffect(() => {
@@ -229,6 +285,8 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     immersiveSoundsEnabled: Boolean(preferenceQuery.data?.immersiveSoundsEnabled),
     pushStatus,
     canUsePush: pushStatus !== "unsupported" && pushStatus !== "denied",
+    dispatchProfile: preferenceQuery.data?.dispatchProfile,
+    deliveryChannel: preferenceQuery.data?.deliveryChannel,
     toggleNotificationMode,
     setLocalIntensity: (value: number) => setLocalIntensity(clampIntensity(value)),
     saveIntensity,
@@ -236,6 +294,8 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
   }), [
     localIntensity,
     preferenceQuery.data?.enabled,
+    preferenceQuery.data?.dispatchProfile,
+    preferenceQuery.data?.deliveryChannel,
     preferenceQuery.data?.immersiveSoundsEnabled,
     preferenceQuery.isLoading,
     pushStatus,

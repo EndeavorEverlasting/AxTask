@@ -5,6 +5,8 @@ export type NotificationDispatchProfile = {
   band: NotificationIntensityBand;
   cadenceMinutes: number | null;
   maxPerDay: number;
+  feedbackCooldownSeconds: number | null;
+  feedbackMaxPerDay: number;
 };
 
 function clampIntensity(value: number): number {
@@ -19,6 +21,8 @@ export function getNotificationDispatchProfile(intensityInput: number): Notifica
       band: "off",
       cadenceMinutes: null,
       maxPerDay: 0,
+      feedbackCooldownSeconds: null,
+      feedbackMaxPerDay: 0,
     };
   }
   if (intensity <= 30) {
@@ -27,6 +31,8 @@ export function getNotificationDispatchProfile(intensityInput: number): Notifica
       band: "low",
       cadenceMinutes: 360,
       maxPerDay: 3,
+      feedbackCooldownSeconds: 180,
+      feedbackMaxPerDay: 4,
     };
   }
   if (intensity <= 70) {
@@ -35,6 +41,8 @@ export function getNotificationDispatchProfile(intensityInput: number): Notifica
       band: "balanced",
       cadenceMinutes: 120,
       maxPerDay: 8,
+      feedbackCooldownSeconds: 90,
+      feedbackMaxPerDay: 8,
     };
   }
   return {
@@ -42,6 +50,8 @@ export function getNotificationDispatchProfile(intensityInput: number): Notifica
     band: "frequent",
     cadenceMinutes: 30,
     maxPerDay: 24,
+    feedbackCooldownSeconds: 45,
+    feedbackMaxPerDay: 12,
   };
 }
 
