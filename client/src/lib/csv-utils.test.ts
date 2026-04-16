@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseTasksFromCSV, tasksToCSV } from "./csv-utils";
+import fs from "node:fs";
+import path from "node:path";
+import * as XLSX from "xlsx";
+import { parseTasksFromCSV, parseTasksFromWorkbook, tasksToCSV } from "./csv-utils";
 
 describe("csv-utils", () => {
   describe("parseTasksFromCSV", () => {
@@ -89,6 +92,83 @@ Do thing,Some note`;
     it("returns empty string for empty array", () => {
       const csv = tasksToCSV([]);
       expect(csv).toBe("");
+    });
+  });
+
+  describe("parseTasksFromWorkbook", () => {
+    function makeWorkbook() {
+      const wb = XLSX.utils.book_new();
+
+      const planner2026 = XLSX.utils.aoa_to_sheet([
+        ["Date", "Activity", "Notes", "Result", "Urgency", "Impact", "Effort"],
+        ["2026-04-16", "Top system entry", "stay at top", true, 5, 5, 2],
+      ]);
+      XLSX.utils.book_append_sheet(wb, planner2026, "Daily Planner 2026");
+
+      const archive2025 = XLSX.utils.aoa_to_sheet([
+        ["Date", "Activity", "Notes", "Result"],
+        ["2025-12-01", "Legacy 2025 activity", "older schema-ish", false],
+      ]);
+      XLSX.utils.book_append_sheet(wb, archive2025, "Archive 2025");
+
+      const vault = XLSX.utils.aoa_to_sheet([
+        ["Key", "Category", "Item", "Notes", "Source Date"],
+        ["K-1", "Ops", "Vault task", "from vault", 46029], // 2026-01-03 Excel serial
+      ]);
+      XLSX.utils.book_append_sheet(wb, vault, "Vault");
+
+      const readme = XLSX.utils.aoa_to_sheet([
+        ["Instructions"],
+        ["This sheet should be ignored by import parser"],
+      ]);
+      XLSX.utils.book_append_sheet(wb, readme, "README");
+
+      return wb;
+    }
+
+    it("includes planner/archive/vault task rows and ignores non-import tabs", () => {
+      const wb = makeWorkbook();
+      const tasks = parseTasksFromWorkbook(wb);
+
+      expect(tasks.length).toBeGreaterThanOrEqual(3);
+      expect(tasks.some((t) => t.activity === "Top system entry")).toBe(true);
+      expect(tasks.some((t) => t.activity === "Legacy 2025 activity")).toBe(true);
+      expect(tasks.some((t) => t.activity === "Vault task")).toBe(true);
+      expect(tasks.some((t) => t.activity === "This sheet should be ignored by import parser")).toBe(false);
+    });
+
+    it("supports configurable year filter for 2026-only mode", () => {
+      const wb = makeWorkbook();
+      const tasks = parseTasksFromWorkbook(wb, { mode: "year-filter", allowedYears: [2026] });
+
+      expect(tasks.length).toBeGreaterThan(0);
+      expect(tasks.every((t) => String(t.date).startsWith("2026-"))).toBe(true);
+      expect(tasks.some((t) => t.activity === "Legacy 2025 activity")).toBe(false);
+    });
+
+    it("supports configurable year filter for 2025+2026 mode", () => {
+      const wb = makeWorkbook();
+      const tasks = parseTasksFromWorkbook(wb, { mode: "year-filter", allowedYears: [2025, 2026] });
+
+      expect(tasks.some((t) => String(t.date).startsWith("2025-"))).toBe(true);
+      expect(tasks.some((t) => String(t.date).startsWith("2026-"))).toBe(true);
+    });
+  });
+
+  describe("real custom workbook compatibility", () => {
+    const customWorkbookPath = path.resolve(
+      process.cwd(),
+      "2026 Shared Task Tracker - 4_16_26 - Make data entry system stay at the top, Broken Priority, Score, Override, and TaskID.xlsx",
+    );
+    const hasCustomWorkbook = fs.existsSync(customWorkbookPath);
+
+    it.skipIf(!hasCustomWorkbook)("parses the provided custom workbook shape", () => {
+      const wb = XLSX.readFile(customWorkbookPath);
+      const tasks = parseTasksFromWorkbook(wb, { mode: "year-filter", allowedYears: [2025, 2026] });
+
+      expect(tasks.length).toBeGreaterThan(0);
+      expect(tasks.some((t) => String(t.date).startsWith("2025-"))).toBe(true);
+      expect(tasks.some((t) => String(t.date).startsWith("2026-"))).toBe(true);
     });
   });
 });

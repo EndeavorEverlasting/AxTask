@@ -24,6 +24,7 @@ docs/AxTask_Robust_Hosting_Migration_Plan_*.docx
 
 # Corporate workflow source files (real workbooks with employee data)
 my_corporate_workflow_files/
+2026 Shared Task Tracker - *.xlsx
 
 # Python billing bridge
 tools/billing_bridge/.venv/

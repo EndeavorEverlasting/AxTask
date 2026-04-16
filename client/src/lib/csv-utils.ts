@@ -31,42 +31,71 @@ interface ParsedSheetResult {
   rowCount: number;
 }
 
-export function parseTasksFromExcel(file: File): Promise<any[]> {
+export interface WorkbookParseOptions {
+  mode?: 'include-all' | 'year-filter';
+  allowedYears?: number[];
+}
+
+function taskYear(task: any): number | null {
+  const d = typeof task?.date === 'string' ? task.date : '';
+  const m = d.match(/^(\d{4})-/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  return Number.isFinite(y) ? y : null;
+}
+
+function applyWorkbookFilters(tasks: any[], options?: WorkbookParseOptions): any[] {
+  if (!options || options.mode !== 'year-filter') return tasks;
+  const allowed = new Set((options.allowedYears || []).filter((y) => Number.isFinite(y)));
+  if (allowed.size === 0) return tasks;
+  return tasks.filter((t) => {
+    const y = taskYear(t);
+    return y !== null && allowed.has(y);
+  });
+}
+
+export function parseTasksFromWorkbook(
+  workbook: XLSX.WorkBook,
+  options?: WorkbookParseOptions,
+): any[] {
+  const allTasks: any[] = [];
+  const importSheets = [
+    'Daily Planner 2026',
+    'Archive 2025',
+    'Archive 2024',
+    'Vault',
+  ];
+
+  for (const sheetName of importSheets) {
+    if (!workbook.SheetNames.includes(sheetName)) continue;
+    const sheet = workbook.Sheets[sheetName];
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    if (rows.length < 2) continue;
+
+    const headers = (rows[0] || []).map((h: any) =>
+      String(h || '').trim().toLowerCase()
+    );
+
+    if (sheetName === 'Vault') {
+      const parsed = parseVaultRows(rows, headers);
+      allTasks.push(...parsed);
+    } else {
+      const parsed = parsePlannerRows(rows, headers, sheetName);
+      allTasks.push(...parsed);
+    }
+  }
+
+  return applyWorkbookFilters(allTasks, options);
+}
+
+export function parseTasksFromExcel(file: File, options?: WorkbookParseOptions): Promise<any[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        const allTasks: any[] = [];
-
-        const importSheets = [
-          'Daily Planner 2026',
-          'Archive 2025',
-          'Archive 2024',
-          'Vault',
-        ];
-
-        for (const sheetName of importSheets) {
-          if (!workbook.SheetNames.includes(sheetName)) continue;
-          const sheet = workbook.Sheets[sheetName];
-          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-          if (rows.length < 2) continue;
-
-          const headers = (rows[0] || []).map((h: any) =>
-            String(h || '').trim().toLowerCase()
-          );
-
-          if (sheetName === 'Vault') {
-            const parsed = parseVaultRows(rows, headers);
-            allTasks.push(...parsed);
-          } else {
-            const parsed = parsePlannerRows(rows, headers, sheetName);
-            allTasks.push(...parsed);
-          }
-        }
-
-        resolve(allTasks);
+        resolve(parseTasksFromWorkbook(workbook, options));
       } catch (error) {
         console.error('Excel parse error:', error);
         reject(error);
