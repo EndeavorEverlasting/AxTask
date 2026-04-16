@@ -64,12 +64,14 @@ import {
   seedCommunityPosts,
   addCoins,
   hasTaskBeenAwarded,
+  listUserClassificationLabels,
+  addUserClassificationLabel,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, count } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
@@ -102,7 +104,7 @@ import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./se
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, readAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
-import { classifyWithFallback, classifyWithAssociations } from "./services/classification/universal-classifier";
+import { classifyWithFallback, classifyWithAssociations, normalizeAssociationWeights } from "./services/classification/universal-classifier";
 import { confirmTaskClassificationForUser, getClassificationConfirmPayload } from "./classification-confirm";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
 import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
@@ -1962,10 +1964,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const reclassifyTaskSchema = z.object({
-    classification: z.string().min(2).max(64),
-    baseUpdatedAt: z.string().optional(),
-  });
+  const reclassifyTaskSchema = z
+    .object({
+      classification: z.string().min(2).max(64).optional(),
+      associations: classificationAssociationsSchema.optional(),
+      baseUpdatedAt: z.string().optional(),
+    })
+    .refine(
+      (d) =>
+        Boolean(d.classification?.trim() && d.classification.trim().length >= 2) ||
+        (Array.isArray(d.associations) && d.associations.length >= 1),
+      { message: "Provide classification or associations" },
+    );
+
+  function associationsFingerprint(rows: ClassificationAssociation[] | null | undefined): string {
+    const list = [...(rows ?? [])].map((r) => `${r.label.toLowerCase()}:${Math.round(r.confidence * 1000)}`);
+    list.sort();
+    return list.join("|");
+  }
 
   app.post("/api/tasks/:id/reclassify", requireAuth, async (req, res) => {
     try {
@@ -1976,21 +1992,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Task not found" });
       }
 
-      const nextClassification = payload.classification.trim();
-      if (!nextClassification) {
-        return res.status(400).json({ message: "Classification is required." });
+      let nextAssociations: ClassificationAssociation[];
+      let nextPrimary: string;
+      if (payload.associations && payload.associations.length > 0) {
+        nextAssociations = normalizeAssociationWeights(payload.associations);
+        nextAssociations = [...nextAssociations].sort((a, b) => b.confidence - a.confidence);
+        nextPrimary = nextAssociations[0].label;
+      } else {
+        nextPrimary = payload.classification!.trim();
+        nextAssociations = [{ label: nextPrimary, confidence: 1 }];
       }
-      if (task.classification.trim().toLowerCase() === nextClassification.toLowerCase()) {
+
+      const samePrimary =
+        task.classification.trim().toLowerCase() === nextPrimary.trim().toLowerCase();
+      const sameAssoc =
+        associationsFingerprint(task.classificationAssociations) === associationsFingerprint(nextAssociations);
+      if (samePrimary && sameAssoc) {
         return res.json({ ...task, classification: task.classification });
       }
 
+      const primaryChanged = !samePrimary;
+
       const updatedTask = await storage.updateTask(userId, {
         id: task.id,
-        classification: nextClassification,
-        classificationAssociations: [{ label: nextClassification, confidence: 1 }],
+        classification: nextPrimary,
+        classificationAssociations: nextAssociations,
       });
       if (!updatedTask) {
         return res.status(404).json({ message: "Task not found" });
+      }
+
+      if (!primaryChanged) {
+        return res.json({
+          ...updatedTask,
+          classification: nextPrimary,
+          classificationReward: undefined,
+          consensusCorrectionReward: null,
+          consensusTierBonus: null,
+        });
       }
 
       const [confirmationCountRow] = await db
@@ -2002,12 +2041,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const coinsByLabel = new Map(
         BUILT_IN_CLASSIFICATIONS.map((entry) => [entry.label.toLowerCase(), entry.coins]),
       );
-      const coinsEarned = Math.max(1, coinsByLabel.get(nextClassification.toLowerCase()) ?? 2);
+      const coinsEarned = Math.max(1, coinsByLabel.get(nextPrimary.toLowerCase()) ?? 2);
       const { wallet: classificationWallet } = await addCoins(
         userId,
         coinsEarned,
         "task_classification",
-        `Reclassified task as ${nextClassification}`,
+        `Reclassified task as ${nextPrimary}`,
         task.id,
       );
       const consensusReward =
@@ -2017,7 +2056,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               reason: ENGAGEMENT.classificationCorrectionConsensus.reason,
               amount: ENGAGEMENT.classificationCorrectionConsensus.amount,
               dailyCap: ENGAGEMENT.classificationCorrectionConsensus.dailyCap,
-              details: `Consensus correction: ${nextClassification} (${confirmationCount} confirmations)`,
+              details: `Consensus correction: ${nextPrimary} (${confirmationCount} confirmations)`,
               taskId: task.id,
             })
           : null;
@@ -2028,7 +2067,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               reason: ENGAGEMENT.consensusTierBonus.reason,
               amount: ENGAGEMENT.consensusTierBonus.amount,
               dailyCap: ENGAGEMENT.consensusTierBonus.dailyCap,
-              details: `Consensus tier bonus: ${nextClassification} (${confirmationCount} confirmations)`,
+              details: `Consensus tier bonus: ${nextPrimary} (${confirmationCount} confirmations)`,
               taskId: task.id,
             })
           : null;
@@ -2039,10 +2078,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       return res.json({
         ...updatedTask,
-        classification: nextClassification,
+        classification: nextPrimary,
         classificationReward: {
           coinsEarned,
-          classification: nextClassification,
+          classification: nextPrimary,
           newBalance: walletBalanceAfterAllRewards,
         },
         consensusCorrectionReward: consensusReward,
@@ -2962,6 +3001,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to unlock offline skill" });
+    }
+  });
+
+  // ── Classification categories + suggestions (protected) ───────────────────
+  app.get("/api/classification/categories", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const custom = await listUserClassificationLabels(userId);
+      res.json({
+        builtIn: BUILT_IN_CLASSIFICATIONS.map((c) => ({ label: c.label, coins: c.coins })),
+        custom: custom.map((c) => ({ id: c.id, label: c.label, coins: c.coins })),
+      });
+    } catch {
+      res.status(500).json({ message: "Failed to load categories" });
+    }
+  });
+
+  app.post("/api/classification/categories", requireAuth, async (req, res) => {
+    try {
+      const { name } = z.object({ name: z.string().min(2).max(48) }).parse(req.body ?? {});
+      const row = await addUserClassificationLabel(req.user!.id, name);
+      res.json(row);
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({ message: error.message });
+      }
+      res.status(500).json({ message: "Failed to add category" });
+    }
+  });
+
+  const classificationSuggestionsSchema = z.object({
+    activity: z.string().min(1).max(500),
+    notes: z.string().max(5000).optional().default(""),
+  });
+
+  app.post("/api/classification/suggestions", requireAuth, async (req, res) => {
+    try {
+      const body = classificationSuggestionsSchema.parse(req.body ?? {});
+      const { result, associations } = await classifyWithAssociations(body.activity, body.notes || "", {
+        preferExternal: true,
+      });
+      const sourceTag =
+        result.source === "external_api"
+          ? "nodeweaver"
+          : result.source === "priority_engine"
+            ? "axtask"
+            : "catalog";
+      const suggestions = associations.map((a) => ({
+        label: a.label,
+        confidence: a.confidence,
+        source: sourceTag,
+      }));
+      res.json({ suggestions });
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({ message: error.message });
+      }
+      res.status(500).json({ message: "Suggestions failed" });
     }
   });
 

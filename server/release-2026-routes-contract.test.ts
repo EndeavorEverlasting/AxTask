@@ -21,6 +21,21 @@ describe("release-2026-04-15 contracts", () => {
     expect(sql).toContain("task_classification_confirmations");
   });
 
+  it("ships user custom classification labels migration", () => {
+    const sql = fs.readFileSync(
+      path.join(projectRoot, "migrations", "0009_user_classification_labels.sql"),
+      "utf8",
+    );
+    expect(sql).toContain("user_classification_labels");
+  });
+
+  it("exposes classification categories + suggestions HTTP routes", () => {
+    const routes = fs.readFileSync(path.join(projectRoot, "server", "routes.ts"), "utf8");
+    expect(routes).toContain('app.get("/api/classification/categories"');
+    expect(routes).toContain('app.post("/api/classification/categories"');
+    expect(routes).toContain('app.post("/api/classification/suggestions"');
+  });
+
   it("completion awards skip when task was already rewarded (ledger guard)", () => {
     const engine = fs.readFileSync(path.join(projectRoot, "server", "coin-engine.ts"), "utf8");
     expect(engine).toContain("hasTaskBeenAwarded");

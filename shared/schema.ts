@@ -299,6 +299,26 @@ export const taskClassificationConfirmations = pgTable(
 
 export type TaskClassificationConfirmation = typeof taskClassificationConfirmations.$inferSelect;
 
+/** User-defined classification labels (shown alongside built-in catalog). */
+export const userClassificationLabels = pgTable(
+  "user_classification_labels",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    coins: integer("coins").notNull().default(3),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_user_classification_labels_user").on(table.userId),
+    uniqueIndex("ux_user_class_labels_user_lower").on(table.userId, sql`lower(${table.label})`),
+  ],
+);
+
+export type UserClassificationLabel = typeof userClassificationLabels.$inferSelect;
+
 // ─── Study Mini-Games ───────────────────────────────────────────────────────
 export const studyDecks = pgTable("study_decks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { syncRawTaskRequest, TaskSyncAbortedError } from "@/lib/task-sync-api";
@@ -70,6 +70,8 @@ export function ClassificationBadge({
   baseUpdatedAt,
 }: ClassificationBadgeProps) {
   const [open, setOpen] = useState(false);
+  const [selectedLabels, setSelectedLabels] = useState<Set<string>>(() => new Set());
+  const prevOpenRef = useRef(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const queryClientHook = useQueryClient();
   const { toast } = useToast();
@@ -84,6 +86,17 @@ export function ClassificationBadge({
     enabled: Boolean(editable && taskId && open),
     staleTime: 60_000,
   });
+
+  useEffect(() => {
+    if (open && !prevOpenRef.current) {
+      const base =
+        classificationAssociations && classificationAssociations.length > 0
+          ? classificationAssociations.map((a) => a.label)
+          : [classification];
+      setSelectedLabels(new Set(base));
+    }
+    prevOpenRef.current = open;
+  }, [open, classification, classificationAssociations]);
 
   const suggestionsQuery = useQuery({
     queryKey: ["/api/classification/suggestions", taskId, activity, notes],
@@ -121,8 +134,11 @@ export function ClassificationBadge({
   }, [suggestionsQuery.data, classification]);
 
   const reclassifyMutation = useMutation({
-    mutationFn: async (newClassification: string) => {
-      const payload: Record<string, string> = { classification: newClassification };
+    mutationFn: async (input: string | { associations: ClassificationAssociation[] }) => {
+      const payload: Record<string, unknown> =
+        typeof input === "string"
+          ? { classification: input }
+          : { associations: input.associations };
       if (baseUpdatedAt) payload.baseUpdatedAt = baseUpdatedAt;
       return syncRawTaskRequest(
         "POST",
@@ -157,14 +173,14 @@ export function ClassificationBadge({
         toast({
           title: `Reclassified! +${cr.coinsEarned} coins`,
           description: r.consensusCorrectionReward
-            ? `Now classified as ${cr.classification}. +${r.consensusCorrectionReward.coins} consensus bonus. Balance: ${r.consensusCorrectionReward.newBalance}`
-            : `Now classified as ${cr.classification}. Balance: ${cr.newBalance}`,
+            ? `Primary topic: ${cr.classification}. +${r.consensusCorrectionReward.coins} consensus bonus. Balance: ${r.consensusCorrectionReward.newBalance}`
+            : `Primary topic: ${cr.classification}. Balance: ${cr.newBalance}`,
         });
         playIfEligible(1);
       } else {
         toast({
-          title: "Reclassified",
-          description: `Task is now classified as ${r.classification}`,
+          title: "Topics updated",
+          description: `Primary label: ${r.classification}. Multi-label weights saved (coins apply when the primary topic changes).`,
         });
         playIfEligible(3);
       }
@@ -208,7 +224,31 @@ export function ClassificationBadge({
 
   const coinsFor = (label: string) => coinByLabel.get(label.toLowerCase()) ?? 5;
 
-  const isCurrent = (label: string) => label.toLowerCase() === classification.toLowerCase();
+  const toggleLabel = (label: string) => {
+    setSelectedLabels((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) {
+        if (next.size <= 1) return next;
+        next.delete(label);
+      } else {
+        next.add(label);
+      }
+      return next;
+    });
+  };
+
+  const applySelectedLabels = () => {
+    const fromCatalog = categoryRows.filter((c) => selectedLabels.has(c.label)).map((c) => c.label);
+    const extra = Array.from(selectedLabels).filter((l) => !fromCatalog.includes(l));
+    const labels = [...fromCatalog, ...extra.sort((a, b) => a.localeCompare(b))];
+    if (labels.length === 0) return;
+    const n = labels.length;
+    const associations: ClassificationAssociation[] = labels.map((label) => ({
+      label,
+      confidence: Math.round((1 / n) * 1000) / 1000,
+    }));
+    reclassifyMutation.mutate({ associations });
+  };
 
   const associationAlts = (classificationAssociations ?? []).filter(
     (a) => a.label.trim().toLowerCase() !== classification.trim().toLowerCase(),
@@ -295,7 +335,9 @@ export function ClassificationBadge({
               <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1">Loading suggestions…</div>
             )}
             {suggestionsQuery.isError && (
-              <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1">Suggestions unavailable offline.</div>
+              <div className="text-xs text-amber-800/90 dark:text-amber-200/90 px-2 py-1">
+                Could not load suggestions. Check your connection — they refresh when you reopen this panel after editing the task text.
+              </div>
             )}
             {!suggestionsQuery.isLoading && !suggestionsQuery.isError && topSuggestions.length === 0 && (
               <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1">No alternate suggestions.</div>
@@ -332,40 +374,52 @@ export function ClassificationBadge({
         )}
 
         <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
-          Your Categories
+          Your categories (multi-select)
         </div>
+        <p className="text-[10px] text-muted-foreground px-2 pb-1 leading-snug">
+          Check one or more topics; the first row after save is the primary label (highest weight). Equal split for now — refine with quick single-topic picks above.
+        </p>
         <div className="max-h-[240px] overflow-y-auto space-y-0.5">
           {categoriesQuery.isLoading && (
             <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-2">Loading categories...</div>
           )}
           {!categoriesQuery.isLoading &&
             categoryRows.map((cat) => (
-              <button
+              <label
                 key={cat.label}
-                type="button"
-                disabled={isCurrent(cat.label) || reclassifyMutation.isPending}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm min-h-[40px] transition-colors ${
-                  isCurrent(cat.label)
-                    ? "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-default"
-                    : "hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300 cursor-pointer active:bg-gray-100 dark:active:bg-gray-700"
-                }`}
-                onClick={() => reclassifyMutation.mutate(cat.label)}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm min-h-[40px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300"
               >
-                <span className="flex items-center gap-2.5">
-                  <span
-                    className={`inline-block w-3 h-3 rounded-full ${getClassificationColor(cat.label).split(" ")[0]}`}
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-gray-400 shrink-0"
+                    checked={selectedLabels.has(cat.label)}
+                    disabled={reclassifyMutation.isPending}
+                    onChange={() => toggleLabel(cat.label)}
                   />
-                  <span className="font-medium">{cat.label}</span>
+                  <span
+                    className={`inline-block w-3 h-3 rounded-full shrink-0 ${getClassificationColor(cat.label).split(" ")[0]}`}
+                  />
+                  <span className="font-medium truncate">{cat.label}</span>
                 </span>
-                {coinsFor(cat.label) > 0 && !isCurrent(cat.label) && (
-                  <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-semibold tabular-nums">
+                {coinsFor(cat.label) > 0 && (
+                  <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-semibold tabular-nums shrink-0">
                     <Coins className="h-3.5 w-3.5" />
                     +{coinsFor(cat.label)}
                   </span>
                 )}
-              </button>
+              </label>
             ))}
         </div>
+        <Button
+          type="button"
+          className="w-full mt-2"
+          size="sm"
+          disabled={reclassifyMutation.isPending || selectedLabels.size === 0}
+          onClick={applySelectedLabels}
+        >
+          Apply selected labels
+        </Button>
 
         <div className="mt-2 pt-2 border-t border-gray-200/80 dark:border-gray-700/80 px-1">
           <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">

@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, billingPaymentMethods, idempotencyKeys, premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents, userNotificationPreferences, userPushSubscriptions, studyDecks, studyCards, studySessions, studyReviewEvents, communityPosts, communityReplies, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent, type BillingPaymentMethod, type PremiumSubscription, type PremiumSavedView, type PremiumReviewWorkflow, type PremiumInsight, type PremiumEvent, type UserNotificationPreference, type UserPushSubscription, type StudyDeck, type StudyCard, type StudySession, type StudyReviewEvent, type CreateStudyDeckInput, type CreateStudyCardInput, type StartStudySessionInput, type SubmitStudyAnswerInput, type CommunityPost, type CommunityReply } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, billingPaymentMethods, idempotencyKeys, premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents, userNotificationPreferences, userPushSubscriptions, studyDecks, studyCards, studySessions, studyReviewEvents, communityPosts, communityReplies, userClassificationLabels, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent, type BillingPaymentMethod, type PremiumSubscription, type PremiumSavedView, type PremiumReviewWorkflow, type PremiumInsight, type PremiumEvent, type UserNotificationPreference, type UserPushSubscription, type StudyDeck, type StudyCard, type StudySession, type StudyReviewEvent, type CreateStudyDeckInput, type CreateStudyCardInput, type StartStudySessionInput, type SubmitStudyAnswerInput, type CommunityPost, type CommunityReply } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -902,6 +902,50 @@ export async function analyzeAndCreateSecurityAlerts(): Promise<{ created: numbe
   return { created };
 }
 
+// ─── User classification labels ───────────────────────────────────────────────
+
+export async function listUserClassificationLabels(
+  userId: string,
+): Promise<{ id: string; label: string; coins: number }[]> {
+  return db
+    .select({
+      id: userClassificationLabels.id,
+      label: userClassificationLabels.label,
+      coins: userClassificationLabels.coins,
+    })
+    .from(userClassificationLabels)
+    .where(eq(userClassificationLabels.userId, userId))
+    .orderBy(asc(userClassificationLabels.label));
+}
+
+export async function addUserClassificationLabel(
+  userId: string,
+  rawLabel: string,
+): Promise<{ id: string; label: string; coins: number }> {
+  const label = rawLabel.trim();
+  if (label.length < 2) {
+    throw new Error("Name must be at least 2 characters.");
+  }
+  const [dup] = await db
+    .select()
+    .from(userClassificationLabels)
+    .where(
+      and(
+        eq(userClassificationLabels.userId, userId),
+        sql`lower(${userClassificationLabels.label}) = ${label.toLowerCase()}`,
+      ),
+    )
+    .limit(1);
+  if (dup) {
+    return { id: dup.id, label: dup.label, coins: dup.coins };
+  }
+  const [row] = await db
+    .insert(userClassificationLabels)
+    .values({ id: randomUUID(), userId, label, coins: 3 })
+    .returning();
+  return { id: row.id, label: row.label, coins: row.coins };
+}
+
 // ─── Task storage ────────────────────────────────────────────────────────────
 
 export interface IStorage {
@@ -1030,7 +1074,8 @@ export class DatabaseStorage implements IStorage {
             ilike(tasks.classification, lowercaseQuery)
           )
         )
-      );
+      )
+      .orderBy(desc(tasks.updatedAt), desc(tasks.createdAt));
   }
 
   async bulkUpdateTasks(userId: string, updates: UpdateTask[]): Promise<void> {

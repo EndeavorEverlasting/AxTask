@@ -116,7 +116,7 @@ const KEYWORD_RULES: { label: string; re: RegExp; weight: number }[] = [
   { label: "Design", re: /\b(design|ui|ux|prototype|wireframe)\b/, weight: 1 },
 ];
 
-function normalizeAssociationWeights(rows: ClassificationAssociation[]): ClassificationAssociation[] {
+export function normalizeAssociationWeights(rows: ClassificationAssociation[]): ClassificationAssociation[] {
   const sum = rows.reduce((s, r) => s + r.confidence, 0);
   if (sum <= 0) {
     const n = rows.length || 1;

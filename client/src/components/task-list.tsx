@@ -95,8 +95,22 @@ function renderMarkdownInline(text: string): React.ReactNode {
   return <>{elements}</>;
 }
 
-type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'manual';
+type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'createdAt' | 'updatedAt' | 'manual';
 type SortDirection = 'asc' | 'desc';
+
+function taskTimestampMs(value: unknown): number {
+  if (value == null) return 0;
+  if (value instanceof Date) return value.getTime();
+  const t = new Date(value as string).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+function formatTaskTimestamp(value: unknown): string {
+  if (value == null) return "—";
+  const d = value instanceof Date ? value : new Date(value as string);
+  if (!Number.isFinite(d.getTime())) return "—";
+  return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+}
 
 const VIRTUALIZE_THRESHOLD = 100;
 
@@ -251,6 +265,12 @@ const SortableTaskRow = memo(function SortableTaskRow({
           )}
         </div>
       </TableCell>
+      <TableCell className="max-w-[140px] font-mono text-xs text-muted-foreground whitespace-nowrap">
+        {formatTaskTimestamp(task.createdAt)}
+      </TableCell>
+      <TableCell className="max-w-[140px] font-mono text-xs text-muted-foreground whitespace-nowrap">
+        {formatTaskTimestamp(task.updatedAt)}
+      </TableCell>
       <TableCell>
         <PriorityBadge priority={task.priority} />
       </TableCell>
@@ -371,6 +391,18 @@ function VirtualizedTaskTable({
                 {sortField === 'date' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
               </div>
             </TableHead>
+            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('createdAt')}>
+              <div className="flex items-center">
+                Created
+                {sortField === 'createdAt' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+              </div>
+            </TableHead>
+            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('updatedAt')}>
+              <div className="flex items-center">
+                Updated
+                {sortField === 'updatedAt' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+              </div>
+            </TableHead>
             <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priority')}>
               <div className="flex items-center">
                 Priority
@@ -408,7 +440,7 @@ function VirtualizedTaskTable({
           <TableBody>
             {virtualizer.getVirtualItems().length > 0 && (
               <tr style={{ height: `${virtualizer.getVirtualItems()[0].start}px` }} aria-hidden="true">
-                <td colSpan={isDragMode ? 8 : 7} />
+                <td colSpan={isDragMode ? 10 : 9} />
               </tr>
             )}
             {virtualizer.getVirtualItems().map((virtualItem) => {
@@ -429,7 +461,7 @@ function VirtualizedTaskTable({
             })}
             {virtualizer.getVirtualItems().length > 0 && (
               <tr style={{ height: `${virtualizer.getTotalSize() - (virtualizer.getVirtualItems()[virtualizer.getVirtualItems().length - 1].end)}px` }} aria-hidden="true">
-                <td colSpan={isDragMode ? 8 : 7} />
+                <td colSpan={isDragMode ? 10 : 9} />
               </tr>
             )}
           </TableBody>
@@ -1087,7 +1119,7 @@ export function TaskList() {
   const handleSort = useCallback((field: SortField) => {
     if (field === 'manual') {
       setSortField('manual');
-      setIsDragMode(true);
+      setIsDragMode(false);
       return;
     }
     setIsDragMode(false);
@@ -1096,13 +1128,14 @@ export function TaskList() {
         setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
         return prev;
       }
-      setSortDirection('asc');
+      const defaultDir = field === 'createdAt' || field === 'updatedAt' ? 'desc' : 'asc';
+      setSortDirection(defaultDir);
       return field;
     });
   }, []);
 
   const handleAISort = () => {
-    const sorted = TaskAIEngine.suggestOptimalOrder(tasks);
+    const sorted = TaskAIEngine.suggestOptimalOrder(baseTasks);
     const taskIds = sorted.map(t => t.id);
     reorderMutation.mutate(taskIds);
     setSortField('manual');
@@ -1114,13 +1147,13 @@ export function TaskList() {
   };
 
   const runPretextBenchmark = useCallback(() => {
-    const samples = tasks.map((t) => `${t.activity} ${t.notes || ""}`);
+    const samples = baseTasks.map((t) => `${t.activity} ${t.notes || ""}`);
     setPretextStats(benchmarkPretext(samples, 320));
     toast({
       title: "Pretext benchmark complete",
       description: `Processed ${samples.length} samples.`,
     });
-  }, [tasks, toast]);
+  }, [baseTasks, toast]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -1136,8 +1169,10 @@ export function TaskList() {
   };
 
   const filteredAndSortedTasks = useMemo(() => {
-    const filtered = tasks.filter((task) => {
-      const matchesSearch = !debouncedSearchQuery ||
+    const filtered = baseTasks.filter((task) => {
+      const matchesSearch =
+        !applyLocalSearch ||
+        !debouncedSearchQuery ||
         task.activity.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
         task.notes?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
         task.classification.toLowerCase().includes(debouncedSearchQuery.toLowerCase());
@@ -1153,26 +1188,32 @@ export function TaskList() {
     }
 
     return [...filtered].sort((a, b) => {
-      let aValue: any = a[sortField];
-      let bValue: any = b[sortField];
+      let aValue: number | string;
+      let bValue: number | string;
 
       if (sortField === 'date') {
-        aValue = new Date(aValue).getTime();
-        bValue = new Date(bValue).getTime();
+        aValue = new Date(a.date).getTime();
+        bValue = new Date(b.date).getTime();
+      } else if (sortField === 'createdAt' || sortField === 'updatedAt') {
+        aValue = taskTimestampMs(a[sortField]);
+        bValue = taskTimestampMs(b[sortField]);
       } else if (sortField === 'priority') {
         const priorityOrder = { 'Highest': 5, 'High': 4, 'Medium-High': 3, 'Medium': 2, 'Low': 1 };
-        aValue = priorityOrder[aValue as keyof typeof priorityOrder] || 0;
-        bValue = priorityOrder[bValue as keyof typeof priorityOrder] || 0;
+        aValue = priorityOrder[a.priority as keyof typeof priorityOrder] || 0;
+        bValue = priorityOrder[b.priority as keyof typeof priorityOrder] || 0;
       } else if (sortField === 'priorityScore') {
-        aValue = Number(aValue) || 0;
-        bValue = Number(bValue) || 0;
+        aValue = Number(a.priorityScore) || 0;
+        bValue = Number(b.priorityScore) || 0;
+      } else {
+        aValue = String(a[sortField] ?? "");
+        bValue = String(b[sortField] ?? "");
       }
 
       if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
       if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [tasks, debouncedSearchQuery, priorityFilter, statusFilter, sortField, sortDirection]);
+  }, [baseTasks, applyLocalSearch, debouncedSearchQuery, priorityFilter, statusFilter, sortField, sortDirection]);
 
   const handleEdit = useCallback((task: Task) => setEditingTask(task), []);
   const handleToggleStatus = useCallback(
@@ -1257,6 +1298,47 @@ export function TaskList() {
                 </SelectContent>
               </Select>
             </div>
+            {isMobile && (
+              <div className="flex gap-2 w-full">
+                <Select
+                  value={sortField}
+                  onValueChange={(v) => {
+                    if (v === "manual") {
+                      setSortField("manual");
+                      setIsDragMode(false);
+                      return;
+                    }
+                    handleSort(v as Exclude<SortField, "manual">);
+                  }}
+                >
+                  <SelectTrigger className="flex-1 h-10">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="manual">Saved order</SelectItem>
+                    <SelectItem value="date">Scheduled date</SelectItem>
+                    <SelectItem value="priority">Priority</SelectItem>
+                    <SelectItem value="activity">Activity</SelectItem>
+                    <SelectItem value="classification">Classification</SelectItem>
+                    <SelectItem value="priorityScore">Score</SelectItem>
+                    <SelectItem value="status">Status</SelectItem>
+                    <SelectItem value="createdAt">Created</SelectItem>
+                    <SelectItem value="updatedAt">Updated</SelectItem>
+                  </SelectContent>
+                </Select>
+                {sortField !== "manual" && (
+                  <Select value={sortDirection} onValueChange={(d) => setSortDirection(d as SortDirection)}>
+                    <SelectTrigger className="w-[128px] h-10 shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="asc">Ascending</SelectItem>
+                      <SelectItem value="desc">Descending</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
             {!isMobile && (
               <div className="flex flex-wrap items-center gap-2 md:space-x-3">
                 <Button
@@ -1376,6 +1458,18 @@ export function TaskList() {
                         <div className="flex items-center">
                           Date
                           {sortField === 'date' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+                        </div>
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('createdAt')}>
+                        <div className="flex items-center">
+                          Created
+                          {sortField === 'createdAt' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+                        </div>
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('updatedAt')}>
+                        <div className="flex items-center">
+                          Updated
+                          {sortField === 'updatedAt' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
                         </div>
                       </TableHead>
                       <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priority')}>

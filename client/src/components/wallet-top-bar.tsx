@@ -77,24 +77,30 @@ export function WalletTopBar() {
   });
 
   return (
-    <div className="shrink-0 flex items-center justify-between gap-2 border-b border-amber-200/40 dark:border-amber-900/30 bg-gradient-to-r from-amber-500/12 via-background to-violet-500/10 px-3 py-2 md:px-4">
-      <div className="min-w-0 text-xs text-muted-foreground hidden sm:block truncate">
-        Tap your balance for shop, history, and quick claim
+    <div className="sticky top-0 z-50 shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-amber-300/50 dark:border-amber-800/50 bg-gradient-to-r from-amber-400/20 via-amber-100/40 to-violet-200/25 dark:from-amber-600/15 dark:via-amber-950/40 dark:to-violet-950/30 px-3 py-3 md:px-5 md:py-3.5 shadow-sm shadow-amber-900/5">
+      <div className="min-w-0 flex flex-col gap-0.5">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-800/90 dark:text-amber-300/95">
+          AxCoins
+        </span>
+        <span className="text-xs text-muted-foreground leading-snug max-w-[min(100%,28rem)]">
+          Balance stays pinned here — tap to open shop, quick redeem, history, or earn more without leaving your flow.
+        </span>
       </div>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="ml-auto inline-flex items-center gap-2 rounded-full border border-amber-300/60 bg-amber-50/90 px-3 py-1.5 text-sm font-semibold text-amber-950 shadow-sm transition hover:bg-amber-100 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-50 dark:hover:bg-amber-900/50"
+            className="inline-flex items-center gap-2.5 rounded-full border-2 border-amber-400/70 bg-gradient-to-br from-amber-50 to-amber-100/90 px-4 py-2 text-amber-950 shadow-md shadow-amber-600/10 transition hover:brightness-105 dark:border-amber-500/50 dark:from-amber-950/80 dark:to-amber-900/50 dark:text-amber-50 dark:shadow-amber-900/30"
+            aria-label="Open AxCoins menu"
           >
-            <Coins className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" aria-hidden />
-            <span className="tabular-nums tracking-tight">{animated}</span>
+            <Coins className="h-6 w-6 text-amber-600 dark:text-amber-300 shrink-0 drop-shadow-sm" aria-hidden />
+            <span className="text-xl md:text-2xl font-bold tabular-nums tracking-tight leading-none">{animated}</span>
             {(wallet?.currentStreak ?? 0) > 0 && (
-              <span className="text-[11px] font-medium text-orange-600 dark:text-orange-400 tabular-nums">
+              <span className="text-xs font-semibold text-orange-600 dark:text-orange-400 tabular-nums">
                 🔥{wallet?.currentStreak}
               </span>
             )}
-            <ChevronDown className="h-4 w-4 opacity-60 shrink-0" aria-hidden />
+            <ChevronDown className="h-4 w-4 opacity-70 shrink-0" aria-hidden />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">

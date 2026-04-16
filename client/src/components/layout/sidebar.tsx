@@ -285,22 +285,23 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </Button>
         </Link>
 
-        {wallet && (
-          <Link href="/rewards">
-            <div
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 cursor-pointer hover:shadow-md transition-all duration-300 ${sparkle ? "ring-2 ring-yellow-400 shadow-lg shadow-yellow-400/30 scale-105" : ""}`}
-              onClick={handleNavClick}
-            >
-              <Coins className={`h-4 w-4 text-amber-500 transition-transform ${sparkle ? "animate-spin" : ""}`} />
-              <span className="text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300">{animatedBalance}</span>
-              <span className="text-xs text-amber-600 dark:text-amber-400">AxCoins</span>
-              {sparkle && <span className="text-xs animate-bounce">✨</span>}
-              {(wallet.currentStreak ?? 0) > 0 && (
-                <span className="ml-auto text-xs text-orange-500 font-medium">🔥{wallet.currentStreak}</span>
-              )}
-            </div>
-          </Link>
-        )}
+        <Link href="/rewards">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-between border-amber-300/60 text-amber-900 dark:border-amber-700/50 dark:text-amber-200"
+            onClick={handleNavClick}
+            title="Full rewards page — your live balance is always at the top of the main panel"
+          >
+            <span className="flex items-center gap-2">
+              <Coins className={`h-4 w-4 text-amber-600 dark:text-amber-400 ${sparkle ? "motion-safe:animate-pulse" : ""}`} />
+              <span className="text-xs font-medium">Rewards &amp; shop</span>
+            </span>
+            {wallet ? (
+              <span className="text-[11px] tabular-nums text-muted-foreground">{animatedBalance} ⓘ</span>
+            ) : null}
+          </Button>
+        </Link>
 
         <Button
           variant={tutorialActive ? "default" : "outline"}
