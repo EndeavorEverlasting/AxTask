@@ -238,8 +238,9 @@ export function ClassificationBadge({
   };
 
   const applySelectedLabels = () => {
-    const fromCatalog = categoryRows.filter((c) => selectedLabels.has(c.label)).map((c) => c.label);
-    const extra = Array.from(selectedLabels).filter((l) => !fromCatalog.includes(l));
+    const selectedArray = Array.from(selectedLabels);
+    const fromCatalog = selectedArray.filter((l) => categoryRows.some((c) => c.label === l));
+    const extra = selectedArray.filter((l) => !fromCatalog.includes(l));
     const labels = [...fromCatalog, ...extra.sort((a, b) => a.localeCompare(b))];
     if (labels.length === 0) return;
     const n = labels.length;

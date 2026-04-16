@@ -918,6 +918,34 @@ export async function listUserClassificationLabels(
     .orderBy(asc(userClassificationLabels.label));
 }
 
+function isPostgresUniqueViolation(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const o = e as { code?: string; cause?: unknown };
+  if (o.code === "23505") return true;
+  if (o.cause && typeof o.cause === "object" && (o.cause as { code?: string }).code === "23505") {
+    return true;
+  }
+  return false;
+}
+
+async function getUserClassificationLabelByUserLower(
+  userId: string,
+  labelLower: string,
+): Promise<{ id: string; label: string; coins: number } | undefined> {
+  const [row] = await db
+    .select()
+    .from(userClassificationLabels)
+    .where(
+      and(
+        eq(userClassificationLabels.userId, userId),
+        sql`lower(${userClassificationLabels.label}) = ${labelLower}`,
+      ),
+    )
+    .limit(1);
+  if (!row) return undefined;
+  return { id: row.id, label: row.label, coins: row.coins };
+}
+
 export async function addUserClassificationLabel(
   userId: string,
   rawLabel: string,
@@ -926,24 +954,25 @@ export async function addUserClassificationLabel(
   if (label.length < 2) {
     throw new Error("Name must be at least 2 characters.");
   }
-  const [dup] = await db
-    .select()
-    .from(userClassificationLabels)
-    .where(
-      and(
-        eq(userClassificationLabels.userId, userId),
-        sql`lower(${userClassificationLabels.label}) = ${label.toLowerCase()}`,
-      ),
-    )
-    .limit(1);
-  if (dup) {
-    return { id: dup.id, label: dup.label, coins: dup.coins };
+  if (label.length > 48) {
+    throw new Error("Name must be at most 48 characters.");
   }
-  const [row] = await db
-    .insert(userClassificationLabels)
-    .values({ id: randomUUID(), userId, label, coins: 3 })
-    .returning();
-  return { id: row.id, label: row.label, coins: row.coins };
+
+  try {
+    const [row] = await db
+      .insert(userClassificationLabels)
+      .values({ id: randomUUID(), userId, label, coins: 3 })
+      .returning();
+    if (row) {
+      return { id: row.id, label: row.label, coins: row.coins };
+    }
+  } catch (e: unknown) {
+    if (!isPostgresUniqueViolation(e)) throw e;
+  }
+
+  const existing = await getUserClassificationLabelByUserLower(userId, label.toLowerCase());
+  if (existing) return existing;
+  throw new Error("Could not create or load classification label.");
 }
 
 // ─── Task storage ────────────────────────────────────────────────────────────
