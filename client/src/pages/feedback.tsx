@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import { useToast } from "@/hooks/use-toast";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -108,6 +109,7 @@ export default function FeedbackPage() {
       } else {
         toast({ title: "Feedback sent", description: details });
       }
+      requestFeedbackNudge("feedback_submitted");
       setMessage("");
       setScreenshots([]);
     },

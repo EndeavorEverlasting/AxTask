@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ThumbsUp, TrendingUp, Users, Coins } from "lucide-react";
@@ -74,6 +75,7 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
           ? `Compound interest paid to classifiers: ${bonusDetails}`
           : "Your confirmation has been recorded.",
       });
+      requestFeedbackNudge("classification_confirm");
     },
     onError: () => {
       toast({ title: "Cannot confirm", description: "You may have already confirmed or be the original classifier.", variant: "destructive" });

@@ -12,6 +12,8 @@ describe("use-case engagement wiring", () => {
     expect(src).toContain("unique_task_create");
     expect(src).toContain("task_search_reward");
     expect(src).toContain("priority_recalculate_reward");
+    expect(src).toContain("feedback_submission_reward");
+    expect(src).toContain("classification_correction_consensus_reward");
   });
 
   it("wires task create, update, search, and recalculate responses", () => {
@@ -20,5 +22,34 @@ describe("use-case engagement wiring", () => {
     expect(routes).toContain("coinSkipReason");
     expect(routes).toContain("ENGAGEMENT.taskSearch");
     expect(routes).toContain("recalculateReward");
+    expect(routes).toContain("consensusCorrectionReward");
+    expect(routes).toContain("confirmationCount");
+  });
+  it("returns classification confirmation response with new balance", () => {
+    const src = fs.readFileSync(path.join(root, "server", "classification-confirm.ts"), "utf8");
+    expect(src).toContain("newBalance");
+    expect(src).toContain("getOrCreateWallet");
+  });
+
+  it("wires task list to server search for engagement coins", () => {
+    const taskList = fs.readFileSync(
+      path.join(root, "client", "src", "components", "task-list.tsx"),
+      "utf8",
+    );
+    expect(taskList).toContain("resolveTaskListSearchSource");
+    expect(taskList).toContain('"/api/tasks/search"');
+    expect(taskList).toContain("encodeURIComponent");
+  });
+
+  it("keeps multi-label confidence visible across UI and route updates", () => {
+    const badgeUi = fs.readFileSync(
+      path.join(root, "client", "src", "components", "classification-badge.tsx"),
+      "utf8",
+    );
+    const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
+    expect(badgeUi).toContain("Multi-label confidence");
+    expect(badgeUi).toContain("classificationAssociations");
+    expect(routes).toContain("classifyWithAssociations");
+    expect(routes).toContain("classificationAssociations");
   });
 });

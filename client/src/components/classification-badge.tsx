@@ -4,6 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { syncRawTaskRequest, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -149,12 +150,15 @@ export function ClassificationBadge({
       const r = result as {
         classification: string;
         classificationReward?: { coinsEarned: number; classification: string; newBalance: number };
+        consensusCorrectionReward?: { coins: number; newBalance: number } | null;
       };
       if (r.classificationReward) {
         const cr = r.classificationReward;
         toast({
           title: `Reclassified! +${cr.coinsEarned} coins`,
-          description: `Now classified as ${cr.classification}. Balance: ${cr.newBalance}`,
+          description: r.consensusCorrectionReward
+            ? `Now classified as ${cr.classification}. +${r.consensusCorrectionReward.coins} consensus bonus. Balance: ${r.consensusCorrectionReward.newBalance}`
+            : `Now classified as ${cr.classification}. Balance: ${cr.newBalance}`,
         });
         playIfEligible(1);
       } else {
@@ -164,6 +168,7 @@ export function ClassificationBadge({
         });
         playIfEligible(3);
       }
+      requestFeedbackNudge("classification_reclassify");
       setOpen(false);
     },
     onError: (err: unknown) => {

@@ -4,6 +4,12 @@ import { Button } from "@/components/ui/button";
 import { useInstallShortcut } from "@/hooks/use-install-shortcut";
 import { getInstallInstructions } from "@/lib/install-shortcut";
 import {
+  markInstallDismissed,
+  readInstallDeviceState,
+  shouldSuppressInstallPrompt,
+  writeInstallDeviceState,
+} from "@/lib/install-device-state";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -16,36 +22,6 @@ interface InstallCtaBannerProps {
   userId: string;
 }
 
-const DEVICE_STATE_KEY = "axtask.install.device.v1";
-
-type DeviceInstallState = {
-  /** User hid the banner for this session/device without opting out forever */
-  dismissed?: boolean;
-  /** Never show install prompts on this device */
-  optOut?: boolean;
-};
-
-function readDeviceState(): DeviceInstallState {
-  if (typeof localStorage === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(DEVICE_STATE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as DeviceInstallState;
-  } catch {
-    return {};
-  }
-}
-
-function writeDeviceState(partial: Partial<DeviceInstallState>): void {
-  if (typeof localStorage === "undefined") return;
-  try {
-    const next = { ...readDeviceState(), ...partial };
-    localStorage.setItem(DEVICE_STATE_KEY, JSON.stringify(next));
-  } catch {
-    /* ignore */
-  }
-}
-
 export function InstallCtaBanner({ userId }: InstallCtaBannerProps) {
   const [visible, setVisible] = useState(false);
   const [open, setOpen] = useState(false);
@@ -54,7 +30,7 @@ export function InstallCtaBanner({ userId }: InstallCtaBannerProps) {
 
   useEffect(() => {
     if (isInstalled) {
-      writeDeviceState({ dismissed: true });
+      writeInstallDeviceState({ installed: true });
     }
   }, [isInstalled]);
 
@@ -63,8 +39,8 @@ export function InstallCtaBanner({ userId }: InstallCtaBannerProps) {
       setVisible(false);
       return;
     }
-    const st = readDeviceState();
-    if (st.optOut || st.dismissed) {
+    const st = readInstallDeviceState();
+    if (st.installed || shouldSuppressInstallPrompt()) {
       setVisible(false);
       return;
     }
@@ -74,12 +50,12 @@ export function InstallCtaBanner({ userId }: InstallCtaBannerProps) {
   const instructions = useMemo(() => getInstallInstructions(platform), [platform]);
 
   const dismiss = () => {
-    writeDeviceState({ dismissed: true });
+    markInstallDismissed();
     setVisible(false);
   };
 
   const dontShowAgain = () => {
-    writeDeviceState({ optOut: true, dismissed: true });
+    writeInstallDeviceState({ optOut: true, dismissedUntil: Date.now() + 365 * 24 * 60 * 60 * 1000 });
     setVisible(false);
   };
 
@@ -87,7 +63,7 @@ export function InstallCtaBanner({ userId }: InstallCtaBannerProps) {
     if (canPromptInstall) {
       const result = await install();
       if (result === "accepted") {
-        writeDeviceState({ dismissed: true });
+        writeInstallDeviceState({ installed: true });
         toast({
           title: "Shortcut installed",
           description: "AxTask is now available from your home screen or desktop.",

@@ -797,6 +797,71 @@ export function TaskList() {
     queryKey: ["/api/storage/me"],
   });
 
+  const [browserOnline, setBrowserOnline] = useState(
+    () => typeof navigator !== "undefined" && navigator.onLine,
+  );
+  useEffect(() => {
+    const up = () => setBrowserOnline(true);
+    const down = () => setBrowserOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+
+  const serverQueryTrimmed = debouncedSearchQuery.trim();
+  const useServerSearchList = browserOnline && serverQueryTrimmed.length >= 2;
+
+  const {
+    data: searchTasks,
+    isFetching: isSearchFetching,
+    dataUpdatedAt: searchDataUpdatedAt,
+  } = useQuery<Task[]>({
+    queryKey: ["/api/tasks/search", serverQueryTrimmed],
+    queryFn: async ({ queryKey, signal }) => {
+      const q = queryKey[1] as string;
+      const res = await apiFetch(
+        "GET",
+        `/api/tasks/search/${encodeURIComponent(q)}`,
+        undefined,
+        undefined,
+        signal,
+      );
+      if (!res.ok) {
+        const text = (await res.text()) || res.statusText;
+        throw new Error(`${res.status}: ${text}`);
+      }
+      return res.json() as Promise<Task[]>;
+    },
+    enabled: useServerSearchList,
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (!useServerSearchList) return;
+    if (!searchTasks?.length) return;
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+    requestFeedbackNudge("task_search_success");
+  }, [useServerSearchList, searchDataUpdatedAt, searchTasks, queryClient]);
+
+  const { baseTasks, applyLocalSearch, serverSearchActive } = useMemo(
+    () =>
+      resolveTaskListSearchSource({
+        browserOnline,
+        debouncedQuery: debouncedSearchQuery,
+        allTasks: tasks,
+        searchResults: useServerSearchList ? searchTasks : undefined,
+      }),
+    [browserOnline, debouncedSearchQuery, tasks, useServerSearchList, searchTasks],
+  );
+
+  useEffect(() => {
+    if (serverSearchActive && isDragMode) setIsDragMode(false);
+  }, [serverSearchActive, isDragMode]);
+
+  const dragModeEffective = isDragMode && !serverSearchActive;
   const [updatingTaskIds, setUpdatingTaskIds] = useState<Set<string>>(() => new Set());
   const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(() => new Set());
 

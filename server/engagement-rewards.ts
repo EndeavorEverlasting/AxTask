@@ -35,4 +35,10 @@ export const ENGAGEMENT = {
   uniqueTaskCreate: { reason: "unique_task_create", amount: 3, dailyCap: 40 },
   taskSearch: { reason: "task_search_reward", amount: 1, dailyCap: 30 },
   recalculate: { reason: "priority_recalculate_reward", amount: 2, dailyCap: 8 },
+  feedbackSubmission: { reason: "feedback_submission_reward", amount: 3, dailyCap: 5 },
+  classificationCorrectionConsensus: {
+    reason: "classification_correction_consensus_reward",
+    amount: 4,
+    dailyCap: 10,
+  },
 } as const;

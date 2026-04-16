@@ -69,7 +69,7 @@ import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
 import { tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task, tasks, coinTransactions } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, count } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
@@ -1971,17 +1971,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Task not found" });
       }
 
+      const [confirmationCountRow] = await db
+        .select({ value: count() })
+        .from(taskClassificationConfirmations)
+        .where(eq(taskClassificationConfirmations.taskId, task.id));
+      const confirmationCount = Number(confirmationCountRow?.value) || 0;
+
       const coinsByLabel = new Map(
         BUILT_IN_CLASSIFICATIONS.map((entry) => [entry.label.toLowerCase(), entry.coins]),
       );
       const coinsEarned = Math.max(1, coinsByLabel.get(nextClassification.toLowerCase()) ?? 2);
-      const { wallet } = await addCoins(
+      const { wallet: classificationWallet } = await addCoins(
         userId,
         coinsEarned,
         "task_classification",
         `Reclassified task as ${nextClassification}`,
         task.id,
       );
+      const consensusReward =
+        confirmationCount >= 2
+          ? await tryCappedCoinAward({
+              userId,
+              reason: ENGAGEMENT.classificationCorrectionConsensus.reason,
+              amount: ENGAGEMENT.classificationCorrectionConsensus.amount,
+              dailyCap: ENGAGEMENT.classificationCorrectionConsensus.dailyCap,
+              details: `Consensus correction: ${nextClassification} (${confirmationCount} confirmations)`,
+              taskId: task.id,
+            })
+          : null;
+      const walletBalanceAfterAllRewards = consensusReward?.newBalance ?? classificationWallet.balance;
 
       return res.json({
         ...updatedTask,
@@ -1989,8 +2007,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         classificationReward: {
           coinsEarned,
           classification: nextClassification,
-          newBalance: wallet.balance,
+          newBalance: walletBalanceAfterAllRewards,
         },
+        consensusCorrectionReward: consensusReward,
+        confirmationCount,
       });
     } catch (error) {
       if (error instanceof Error) {
@@ -3044,29 +3064,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       });
 
-      let feedbackReward: { coins: number; newBalance: number } | null = null;
-      const dailyFeedbackRewards = 5;
-      const [rewardCountRow] = await db
-        .select({ value: count() })
-        .from(coinTransactions)
-        .where(
-          and(
-            eq(coinTransactions.userId, req.user!.id),
-            eq(coinTransactions.reason, "feedback_submission_reward"),
-            sql`(${coinTransactions.createdAt}::date) = (timezone('UTC', now()))::date`,
-          ),
-        );
-      const already = Number(rewardCountRow?.value) || 0;
-      if (already < dailyFeedbackRewards) {
-        const rewardCoins = 3;
-        const { wallet } = await addCoins(
-          req.user!.id,
-          rewardCoins,
-          "feedback_submission_reward",
-          `Feedback (${parsed.message.slice(0, 80)}${parsed.message.length > 80 ? "…" : ""})`,
-        );
-        feedbackReward = { coins: rewardCoins, newBalance: wallet.balance };
-      }
+      const feedbackReward = await tryCappedCoinAward({
+        userId: req.user!.id,
+        reason: ENGAGEMENT.feedbackSubmission.reason,
+        amount: ENGAGEMENT.feedbackSubmission.amount,
+        dailyCap: ENGAGEMENT.feedbackSubmission.dailyCap,
+        details: `Feedback (${parsed.message.slice(0, 80)}${parsed.message.length > 80 ? "…" : ""})`,
+      });
 
       res.status(201).json({
         message: "Feedback submitted",

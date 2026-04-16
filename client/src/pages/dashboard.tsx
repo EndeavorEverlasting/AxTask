@@ -18,6 +18,14 @@ interface TaskStats {
   avgPriorityScore: number;
 }
 
+function scoreBand(score: number): string {
+  if (score >= 8) return "Critical load";
+  if (score >= 6) return "High load";
+  if (score >= 4) return "Moderate load";
+  if (score >= 2) return "Standard load";
+  return "Light load";
+}
+
 function StatCard({
   label,
   value,
@@ -78,6 +86,7 @@ export default function Dashboard() {
     typeof stats?.avgPriorityScore === "number" ? stats.avgPriorityScore : 0,
     3
   );
+  const avgScoreBand = scoreBand(Number(stats?.avgPriorityScore || 0));
 
   return (
     <div className="p-4 md:p-6 space-y-6 md:space-y-8">
@@ -119,7 +128,7 @@ export default function Dashboard() {
           reducedMotion={reducedMotion}
         />
         <StatCard
-          label="Avg Priority Score"
+          label="Avg P-Score (0-10)"
           value={isLoading ? "..." : avgScore}
           icon={<BarChart3 className="text-orange-600 text-xl h-6 w-6" />}
           colorClass="text-orange-600"
@@ -128,6 +137,9 @@ export default function Dashboard() {
           reducedMotion={reducedMotion}
         />
       </div>
+      <p className="text-xs text-muted-foreground -mt-2">
+        Average p-score is shown in engine units (0-10 typical), not raw DB units. Current band: {avgScoreBand}.
+      </p>
 
       <TaskForm />
 
