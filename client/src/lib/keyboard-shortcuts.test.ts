@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KBD, SHORTCUT_FOCUS_NOTE, tutorialToggleTitle } from "./keyboard-shortcuts";
+import { KBD, SHORTCUT_FOCUS_NOTE, SUBMIT_TASK_SHORTCUTS, tutorialToggleTitle } from "./keyboard-shortcuts";
 
 describe("keyboard-shortcuts constants", () => {
   // ── KBD mapping tests ──
@@ -55,9 +55,15 @@ describe("keyboard-shortcuts constants", () => {
     expect(KBD.voiceMac).toBe("Cmd+M");
   });
 
-  it("submit task is Ctrl+Enter / Cmd+Enter", () => {
+  it("submit task is Ctrl+Enter / Cmd+Enter / Alt+Enter", () => {
     expect(KBD.submitTask).toBe("Ctrl+Enter");
     expect(KBD.submitTaskMac).toBe("Cmd+Enter");
+    expect(KBD.submitTaskAlt).toBe("Alt+Enter");
+  });
+
+  it("SUBMIT_TASK_SHORTCUTS lists all submit chords", () => {
+    expect(SUBMIT_TASK_SHORTCUTS).toContain("Ctrl+Enter");
+    expect(SUBMIT_TASK_SHORTCUTS).toContain("Alt+Enter");
   });
 
   // ── Custom event contract tests ──
@@ -69,6 +75,28 @@ describe("keyboard-shortcuts constants", () => {
     window.addEventListener("axtask-open-new-task", handler);
     window.dispatchEvent(new Event("axtask-open-new-task"));
     window.removeEventListener("axtask-open-new-task", handler);
+    expect(received).toBe(true);
+  });
+
+  it("axtask-open-hotkey-help event fires and can be received", () => {
+    let received = false;
+    const handler = () => {
+      received = true;
+    };
+    window.addEventListener("axtask-open-hotkey-help", handler);
+    window.dispatchEvent(new Event("axtask-open-hotkey-help"));
+    window.removeEventListener("axtask-open-hotkey-help", handler);
+    expect(received).toBe(true);
+  });
+
+  it("axtask-close-mobile-nav event fires and can be received", () => {
+    let received = false;
+    const handler = () => {
+      received = true;
+    };
+    window.addEventListener("axtask-close-mobile-nav", handler);
+    window.dispatchEvent(new Event("axtask-close-mobile-nav"));
+    window.removeEventListener("axtask-close-mobile-nav", handler);
     expect(received).toBe(true);
   });
 

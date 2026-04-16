@@ -634,7 +634,8 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      if (e.key !== "Enter") return;
+      if (e.altKey || e.ctrlKey || e.metaKey) {
         e.preventDefault();
         handleSubmitWithWarnings();
       }

@@ -19,6 +19,7 @@ export const VALID_APP_PATHS = [
   "/premium",
   "/billing",
   "/account",
+  "/settings",
   "/appeals",
   "/contact",
   "/billing-bridge",

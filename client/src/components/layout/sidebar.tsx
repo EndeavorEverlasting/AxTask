@@ -23,7 +23,6 @@ import {
   MessageSquare,
   PlusCircle,
   Crown,
-  BellRing,
   CreditCard,
   UserRoundCog,
   Menu,
@@ -33,17 +32,17 @@ import {
   Gamepad2,
   ClipboardCheck,
   Search,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
 import { useZoom } from "@/hooks/use-zoom";
 import { useTutorial } from "@/hooks/use-tutorial";
-import { useNotificationMode } from "@/hooks/use-notification-mode";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useCountUp } from "@/hooks/use-count-up";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
+import { NotificationIntensityPanel } from "@/components/settings/notification-intensity-panel";
 import { VoiceBarTrigger } from "@/components/voice-command-bar";
 import { InstallShortcutButton } from "@/components/install-shortcut-button";
 import { KBD, tutorialToggleTitle } from "@/lib/keyboard-shortcuts";
@@ -96,24 +95,18 @@ function AccountUserAvatar({
 }
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { toast } = useToast();
   const { user, logout } = useAuth();
   const { zoom, zoomIn, zoomOut, resetZoom, ZOOM_MIN, ZOOM_MAX } = useZoom();
   const { isActive: tutorialActive, startTutorial, stopTutorial, hasCompleted } = useTutorial();
+
+  const goHomeAndStartTutorial = () => {
+    setLocation("/");
+    queueMicrotask(() => startTutorial());
+  };
   const isMobile = useIsMobile();
-  const {
-    isLoading: notificationLoading,
-    enabled: notificationEnabled,
-    intensity: notificationIntensity,
-    pushStatus,
-    dispatchProfile,
-    deliveryChannel,
-    toggleNotificationMode,
-    setLocalIntensity,
-    saveIntensity,
-  } = useNotificationMode();
 
   const { data: briefing } = useQuery<{ overdue: { count: number }; dueWithinHour: { count: number } }>({
     queryKey: ["/api/planner/briefing"],
@@ -149,6 +142,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
     { path: "/premium", icon: Crown, label: "Premium" },
     { path: "/billing", icon: CreditCard, label: "Billing" },
+    { path: "/settings", icon: SlidersHorizontal, label: "Settings" },
     { path: "/account", icon: UserRoundCog, label: "Account" },
     { path: "/feedback", icon: MessageSquare, label: "Feedback" },
     { path: "/contact", icon: Mail, label: "Contact" },
@@ -165,17 +159,6 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     return false;
   };
 
-  const notificationStatusLabel = (() => {
-    if (pushStatus === "unsupported") return "Not supported";
-    if (pushStatus === "denied") return "Permission denied";
-    if (!notificationEnabled) return "Off";
-    const channel = deliveryChannel === "push" ? "push" : "in-app";
-    return `On (${notificationIntensity}%, ${channel})`;
-  })();
-  const notificationCadenceSummary = dispatchProfile?.cadenceMinutes
-    ? `Every ${dispatchProfile.cadenceMinutes}m · Max ${dispatchProfile.maxPerDay}/day`
-    : "No scheduled reminders";
-
   const handleNavClick = () => {
     onNavigate?.();
   };
@@ -184,14 +167,19 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex flex-col h-full min-h-0 outline-none overflow-y-auto overscroll-contain" tabIndex={-1}>
       <div className="p-6 border-b border-gray-200 dark:border-gray-700 shrink-0">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-primary flex items-center">
+          <button
+            type="button"
+            onClick={goHomeAndStartTutorial}
+            className="text-xl font-bold text-primary flex items-center rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label="AxTask — open dashboard and start guided tour"
+          >
             <img
               src="/branding/axtask-logo.png"
-              alt="AxTask logo"
+              alt=""
               className="mr-2 h-6 w-6 rounded-sm object-cover"
             />
             AxTask
-          </h1>
+          </button>
           {!isMobile && <VoiceBarTrigger />}
         </div>
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Intelligent Task Management</p>
@@ -319,41 +307,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <kbd className="ml-2 text-[10px] font-mono opacity-60 bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">⌃⇧Y</kbd>
         </Button>
 
-        <div className="rounded-lg border border-sky-300/40 bg-sky-50/60 p-3 dark:border-sky-700/40 dark:bg-sky-900/15">
-          <Button
-            variant={notificationEnabled ? "default" : "outline"}
-            size="sm"
-            onClick={() => void toggleNotificationMode()}
-            disabled={notificationLoading}
-            className={`w-full justify-between ring-1 ring-sky-400/40 ${
-              notificationEnabled ? "bg-sky-600 hover:bg-sky-700 text-white shadow-md shadow-sky-500/30" : "bg-sky-50/70 dark:bg-sky-900/20"
-            }`}
-            title="Toggle push notifications"
-          >
-            <span className="flex items-center">
-              <BellRing className="mr-2 h-4 w-4" />
-              {notificationEnabled ? "Disable Notifications" : "Enable Notifications"}
-            </span>
-          </Button>
-          <div className="mt-2 space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-gray-600 dark:text-gray-300">Intensity</span>
-              <span className="font-semibold text-sky-700 dark:text-sky-300">{notificationIntensity}%</span>
-            </div>
-            <Slider
-              min={0}
-              max={100}
-              step={1}
-              value={[notificationIntensity]}
-              onValueChange={(value) => setLocalIntensity(value[0] ?? 0)}
-              onValueCommit={(value) => void saveIntensity(value[0] ?? 0)}
-              disabled={notificationLoading}
-              aria-label="Notification intensity"
-            />
-            <p className="text-[11px] text-gray-600 dark:text-gray-400">Status: {notificationStatusLabel}</p>
-            <p className="text-[11px] text-gray-600 dark:text-gray-400">{notificationCadenceSummary}</p>
-          </div>
-        </div>
+        <NotificationIntensityPanel />
 
         {!isMobile && (
           <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700/50">
@@ -449,6 +403,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
 export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const { startTutorial } = useTutorial();
+  const goHomeAndStartTutorial = () => {
+    setLocation("/");
+    queueMicrotask(() => startTutorial());
+  };
   return (
     <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shrink-0">
       <Button
@@ -460,10 +420,15 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
       >
         <Menu className="h-6 w-6" />
       </Button>
-      <h1 className="text-lg font-bold text-primary flex items-center">
+      <button
+        type="button"
+        onClick={goHomeAndStartTutorial}
+        className="text-lg font-bold text-primary flex items-center rounded-md px-1 py-0.5 hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label="AxTask — open dashboard and start guided tour"
+      >
         <CheckSquare className="mr-2 h-5 w-5" />
         AxTask
-      </h1>
+      </button>
       {user ? (
         <Link
           href="/account"
@@ -508,6 +473,13 @@ export function Sidebar() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isMobile, toggleSidebarHidden]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const closeNav = () => setMobileOpen(false);
+    window.addEventListener("axtask-close-mobile-nav", closeNav);
+    return () => window.removeEventListener("axtask-close-mobile-nav", closeNav);
+  }, [isMobile]);
 
   if (isMobile) {
     return (

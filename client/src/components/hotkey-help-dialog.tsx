@@ -18,7 +18,7 @@ const HOTKEY_ROWS = [
   { keys: `${KBD.dashboard} / ${KBD.dashboardMac}`, action: "Open dashboard (load all tasks)" },
   { keys: `${KBD.findTasks} / ${KBD.findTasksMac}`, action: "Find tasks (focus search)" },
   { keys: `${KBD.newTask} / ${KBD.newTaskMac}`, action: "New task (open composer)" },
-  { keys: `${KBD.submitTask} / ${KBD.submitTaskMac}`, action: "Submit task form" },
+  { keys: `${KBD.submitTask} / ${KBD.submitTaskMac} / ${KBD.submitTaskAlt}`, action: "Submit task form" },
   { keys: `${KBD.voice} / ${KBD.voiceMac}`, action: "Voice commands" },
   { keys: `${KBD.tutorialToggle} / ${KBD.tutorialToggleMac}`, action: "Toggle tutorial" },
 ] as const;

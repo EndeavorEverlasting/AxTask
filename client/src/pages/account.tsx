@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Smartphone, ShieldCheck, Cake, Mail, Volume2, KeyRound } from "lucide-react";
+import { ArrowLeft, Smartphone, ShieldCheck, Cake, Mail, KeyRound, Settings } from "lucide-react";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { normalizeToE164 } from "@shared/phone";
 import { useAuth } from "@/lib/auth-context";
@@ -14,128 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DonateCta } from "@/components/donate-cta";
-import { Switch } from "@/components/ui/switch";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { useNotificationMode } from "@/hooks/use-notification-mode";
-import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
-
-function ImmersiveSoundsSettingsCard() {
-  const { isLoading: notifPrefsLoading } = useNotificationMode();
-  const { toast } = useToast();
-  const {
-    deviceScope,
-    effectiveEnabled,
-    setSoundsEnabled,
-    setScope,
-    playPreview,
-  } = useImmersiveSounds();
-  const [pending, setPending] = useState(false);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Volume2 className="h-5 w-5" />
-          Immersive sounds
-        </CardTitle>
-        <CardDescription>
-          Short sounds for wins and confirmations. How often they play follows your{" "}
-          <span className="font-medium text-foreground">notification intensity</span> slider in the sidebar (lower =
-          calmer; lowest tier stops at 50% or below).
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-0.5">
-            <Label htmlFor="immersive-sounds-enabled">Enable immersive sounds</Label>
-            <p className="text-xs text-muted-foreground">Independent of push notifications.</p>
-          </div>
-          <Switch
-            id="immersive-sounds-enabled"
-            checked={effectiveEnabled}
-            disabled={notifPrefsLoading || pending}
-            onCheckedChange={(checked) => {
-              setPending(true);
-              void (async () => {
-                try {
-                  await setSoundsEnabled(checked);
-                } catch (e) {
-                  console.error("[account] setSoundsEnabled failed:", e);
-                  toast({
-                    title: "Could not update sounds",
-                    description: e instanceof Error ? e.message : "Please try again.",
-                    variant: "destructive",
-                  });
-                } finally {
-                  setPending(false);
-                }
-              })();
-            }}
-          />
-        </div>
-
-        <div className="space-y-3">
-          <Label>Apply this setting</Label>
-          <RadioGroup
-            value={deviceScope}
-            disabled={notifPrefsLoading || pending}
-            onValueChange={(v) => {
-              if (v !== "account" && v !== "local") return;
-              setPending(true);
-              void (async () => {
-                try {
-                  await setScope(v);
-                } catch (e) {
-                  console.error("[account] setScope failed:", e);
-                  toast({
-                    title: "Could not update sound scope",
-                    description: e instanceof Error ? e.message : "Please try again.",
-                    variant: "destructive",
-                  });
-                } finally {
-                  setPending(false);
-                }
-              })();
-            }}
-            className="grid gap-3"
-          >
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 has-[[data-state=checked]]:border-primary">
-              <RadioGroupItem value="account" id="immersive-scope-account" className="mt-0.5" />
-              <div className="grid gap-0.5">
-                <span className="text-sm font-medium leading-none">Sync across my devices</span>
-                <span className="text-xs text-muted-foreground">
-                  Saved to your account. Other browsers you use with AxTask can follow the same on/off state.
-                </span>
-              </div>
-            </label>
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 has-[[data-state=checked]]:border-primary">
-              <RadioGroupItem value="local" id="immersive-scope-local" className="mt-0.5" />
-              <div className="grid gap-0.5">
-                <span className="text-sm font-medium leading-none">This device only</span>
-                <span className="text-xs text-muted-foreground">
-                  Stored only in this browser. Other devices are unaffected.
-                </span>
-              </div>
-            </label>
-          </RadioGroup>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={!effectiveEnabled || pending}
-            onClick={() => playPreview()}
-          >
-            Test sound
-          </Button>
-          <span className="text-xs text-muted-foreground">Preview uses the high-tier chime (volume follows your system).</span>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+import { ImmersiveSoundsSettingsCard } from "@/components/settings/immersive-sounds-settings-card";
 
 export default function AccountPage() {
   const { user, refreshUser } = useAuth();
@@ -345,7 +224,15 @@ export default function AccountPage() {
           <ShieldCheck className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
           <h1 className="text-2xl font-semibold tracking-tight">Account security</h1>
         </div>
-        <DonateCta />
+        <div className="flex flex-wrap items-center gap-2 justify-end">
+          <Link href="/settings">
+            <Button type="button" variant="outline" size="sm" className="gap-1.5">
+              <Settings className="h-4 w-4" />
+              App preferences
+            </Button>
+          </Link>
+          <DonateCta />
+        </div>
       </div>
 
       <Card>

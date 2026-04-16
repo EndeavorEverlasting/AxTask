@@ -1,6 +1,6 @@
 import { useState, useCallback, createContext, useContext } from "react";
 import type { TutorialStep } from "@/lib/tutorial-types";
-import { KBD, SHORTCUT_FOCUS_NOTE } from "@/lib/keyboard-shortcuts";
+import { KBD, SHORTCUT_FOCUS_NOTE, SUBMIT_TASK_SHORTCUTS } from "@/lib/keyboard-shortcuts";
 
 export type { TutorialStep };
 
@@ -122,7 +122,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "shortcuts",
     title: "Keyboard Shortcuts & Sidebar",
-    description: `Power user tips: ${KBD.sidebar} (${KBD.sidebarMac}) toggles the sidebar, ${KBD.hotkeyHelp} (${KBD.hotkeyHelpMac}) opens the shortcut reference, ${KBD.voice} (${KBD.voiceMac}) starts voice input, ${KBD.submitTask} (${KBD.submitTaskMac}) submits the task form, and ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) toggles this tutorial. ${SHORTCUT_FOCUS_NOTE}`,
+    description: `Power user tips: ${KBD.sidebar} (${KBD.sidebarMac}) toggles the sidebar, ${KBD.hotkeyHelp} (${KBD.hotkeyHelpMac}) opens the shortcut reference, ${KBD.voice} (${KBD.voiceMac}) starts voice input, ${SUBMIT_TASK_SHORTCUTS} submits the task form, and ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) toggles this tutorial. ${SHORTCUT_FOCUS_NOTE}`,
     position: "bottom",
   },
   {

@@ -36,6 +36,7 @@ import RewardsPage from "@/pages/rewards";
 import PremiumPage from "@/pages/premium";
 import BillingPage from "@/pages/billing";
 import AccountPage from "@/pages/account";
+import SettingsPage from "@/pages/settings";
 import AppealsPage from "@/pages/appeals";
 import FeedbackPage from "@/pages/feedback";
 import CommunityPage from "@/pages/community";
@@ -74,6 +75,7 @@ function Router() {
       <Route path="/premium" component={PremiumPage} />
       <Route path="/billing" component={BillingPage} />
       <Route path="/account" component={AccountPage} />
+      <Route path="/settings" component={SettingsPage} />
       <Route path="/appeals" component={AppealsPage} />
       <Route path="/contact" component={ContactPage} />
       <Route path="/billing-bridge" component={BillingBridgePage} />
@@ -268,10 +270,6 @@ function AuthenticatedApp() {
 
   useRoutePersistence(Boolean(user) && !loading);
 
-  if (location === "/mfa/confirm" || location === "/welcome-confirm") {
-    return <ExperienceConfirmPage />;
-  }
-
   const handleNavigate = useCallback((path: string) => {
     setLocation(path);
   }, [setLocation]);
@@ -312,6 +310,33 @@ function AuthenticatedApp() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [setLocation]);
+
+  useEffect(() => {
+    if (!user || loading) return;
+    const openHotkeyHelp = () => setHotkeyHelpOpen(true);
+    window.addEventListener("axtask-open-hotkey-help", openHotkeyHelp);
+    return () => window.removeEventListener("axtask-open-hotkey-help", openHotkeyHelp);
+  }, [user, loading]);
+
+  useEffect(() => {
+    if (!user || loading) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.repeat) return;
+      if (e.isComposing) return;
+      if (hotkeyHelpOpen) {
+        e.preventDefault();
+        setHotkeyHelpOpen(false);
+        return;
+      }
+      window.dispatchEvent(new Event("axtask-close-mobile-nav"));
+    };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [user, loading, hotkeyHelpOpen]);
+
+  if (location === "/mfa/confirm" || location === "/welcome-confirm") {
+    return <ExperienceConfirmPage />;
+  }
 
   if (loading) {
     return (
