@@ -113,6 +113,33 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 
 if (!isDev) {
+  app.use((_, res, next) => {
+    res.setHeader(
+      "Content-Security-Policy-Report-Only",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; object-src 'none'; base-uri 'self'; frame-src 'none'; form-action 'self' https://accounts.google.com; report-uri /csp-report",
+    );
+    next();
+  });
+}
+
+app.post(
+  "/csp-report",
+  express.json({ type: ["application/csp-report", "application/reports+json", "application/json"] }),
+  (req, res) => {
+    const report = (req.body && (req.body["csp-report"] || req.body)) as
+      | Record<string, unknown>
+      | undefined;
+    if (report) {
+      const blockedUri = String(report["blocked-uri"] || "");
+      const violated = String(report["violated-directive"] || "");
+      const sourceFile = String(report["source-file"] || "");
+      log(`[csp-report] violated="${violated}" blocked="${blockedUri}" source="${sourceFile}"`);
+    }
+    res.status(204).send();
+  },
+);
+
+if (!isDev) {
   app.use("/api", (req, res, next) => {
     if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
       return next();

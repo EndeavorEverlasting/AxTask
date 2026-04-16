@@ -14,6 +14,8 @@ describe("notification mode guard wiring", () => {
     expect(src).toContain("Push key missing");
     expect(src).toContain("return false");
     expect(src).toContain("Notification mode is enabled. Push delivery is unavailable");
+    expect(src).toContain("dispatchProfile");
+    expect(src).toContain("deliveryChannel");
   });
 
   it("exposes public push config endpoint for runtime key resolution", () => {

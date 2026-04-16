@@ -108,6 +108,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     enabled: notificationEnabled,
     intensity: notificationIntensity,
     pushStatus,
+    dispatchProfile,
+    deliveryChannel,
     toggleNotificationMode,
     setLocalIntensity,
     saveIntensity,
@@ -167,8 +169,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     if (pushStatus === "unsupported") return "Not supported";
     if (pushStatus === "denied") return "Permission denied";
     if (!notificationEnabled) return "Off";
-    return `On (${notificationIntensity}%)`;
+    const channel = deliveryChannel === "push" ? "push" : "in-app";
+    return `On (${notificationIntensity}%, ${channel})`;
   })();
+  const notificationCadenceSummary = dispatchProfile?.cadenceMinutes
+    ? `Every ${dispatchProfile.cadenceMinutes}m · Max ${dispatchProfile.maxPerDay}/day`
+    : "No scheduled reminders";
 
   const handleNavClick = () => {
     onNavigate?.();
@@ -344,6 +350,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               aria-label="Notification intensity"
             />
             <p className="text-[11px] text-gray-600 dark:text-gray-400">Status: {notificationStatusLabel}</p>
+            <p className="text-[11px] text-gray-600 dark:text-gray-400">{notificationCadenceSummary}</p>
           </div>
         </div>
 

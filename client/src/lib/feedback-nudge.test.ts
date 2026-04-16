@@ -5,6 +5,8 @@ describe("feedback nudge guardrails", () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
+    localStorage.setItem("axtask.notification.enabled", "true");
+    localStorage.setItem("axtask.notification.intensity", "100");
   });
 
   it("enforces cooldown between nudges", () => {
@@ -17,14 +19,20 @@ describe("feedback nudge guardrails", () => {
 
   it("caps nudge attempts per source", () => {
     const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    for (let i = 0; i < 6; i++) {
+      requestFeedbackNudge("task_complete");
+      localStorage.setItem("axtask.feedbackNudge.lastAt", "0");
+    }
+    expect(dispatchSpy).toHaveBeenCalledTimes(5);
+    dispatchSpy.mockRestore();
+  });
+
+  it("tightens cadence when notification mode is disabled", () => {
+    localStorage.setItem("axtask.notification.enabled", "false");
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
     requestFeedbackNudge("task_complete");
-    localStorage.setItem("axtask.feedbackNudge.lastAt", "0");
-    requestFeedbackNudge("task_complete");
-    localStorage.setItem("axtask.feedbackNudge.lastAt", "0");
-    requestFeedbackNudge("task_complete");
-    localStorage.setItem("axtask.feedbackNudge.lastAt", "0");
-    requestFeedbackNudge("task_complete");
-    expect(dispatchSpy).toHaveBeenCalledTimes(3);
+    requestFeedbackNudge("task_search_success");
+    expect(dispatchSpy).toHaveBeenCalledTimes(1);
     dispatchSpy.mockRestore();
   });
 });

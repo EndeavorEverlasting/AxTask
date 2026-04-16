@@ -1250,9 +1250,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/notifications/preferences", requireAuth, async (req, res) => {
     try {
       const preference = await getUserNotificationPreference(req.user!.id);
+      const dispatchProfile = getNotificationDispatchProfile(preference.intensity);
+      const subscriptions = await listUserPushSubscriptions(req.user!.id);
+      const pushConfigured = Boolean(
+        (process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY || "").trim(),
+      );
+      const hasSubscription = subscriptions.length > 0;
+      const deliveryChannel =
+        preference.enabled && pushConfigured && hasSubscription ? "push" : "in_app";
       res.json({
         ...preference,
-        dispatchProfile: getNotificationDispatchProfile(preference.intensity),
+        dispatchProfile,
+        pushConfigured,
+        hasSubscription,
+        deliveryChannel,
       });
     } catch {
       res.status(500).json({ message: "Failed to fetch notification preferences" });
@@ -1273,9 +1284,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         quietHoursStart: payload.quietHoursStart,
         quietHoursEnd: payload.quietHoursEnd,
       });
+      const dispatchProfile = getNotificationDispatchProfile(preference.intensity);
+      const subscriptions = await listUserPushSubscriptions(req.user!.id);
+      const pushConfigured = Boolean(
+        (process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY || "").trim(),
+      );
+      const hasSubscription = subscriptions.length > 0;
+      const deliveryChannel =
+        preference.enabled && pushConfigured && hasSubscription ? "push" : "in_app";
       return res.json({
         ...preference,
-        dispatchProfile: getNotificationDispatchProfile(preference.intensity),
+        dispatchProfile,
+        pushConfigured,
+        hasSubscription,
+        deliveryChannel,
       });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
