@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -216,6 +217,9 @@ export default function BulkActionDialog({
           title: "Changes applied",
           description: `${data.applied} task${data.applied !== 1 ? "s" : ""} updated successfully.`,
         });
+        if (typeof data.applied === "number" && data.applied > 0) {
+          requestFeedbackNudge("bulk_actions");
+        }
       }
       onOpenChange(false);
     },

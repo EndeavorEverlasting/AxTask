@@ -12,6 +12,7 @@ import {
 } from "@/lib/task-sync-api";
 import { PriorityEngine } from "@/lib/priority-engine";
 import { useToast } from "@/hooks/use-toast";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useAuth } from "@/lib/auth-context";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -347,7 +348,13 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       return syncCreateTask(taskData, queryClient, user?.id ?? "");
     },
     onSuccess: async (data: unknown) => {
-      const d = data as { id?: string; offlineQueued?: boolean; classificationReward?: unknown; coinReward?: unknown };
+      const d = data as {
+        id?: string;
+        offlineQueued?: boolean;
+        classificationReward?: unknown;
+        coinReward?: unknown;
+        uniqueTaskReward?: { coins: number; newBalance: number } | null;
+      };
       if (d?.offlineQueued) {
         toast({
           title: "Saved offline",
@@ -389,7 +396,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
 
-      if (d?.coinReward || d?.classificationReward) {
+      if (d?.coinReward || d?.classificationReward || d?.uniqueTaskReward) {
         queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
         queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
         queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
@@ -403,12 +410,20 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
         });
         playIfEligible(1);
       } else {
+        let desc = task ? "Your task has been updated successfully." : "Your task has been added successfully.";
+        if (!task && d?.uniqueTaskReward && d.uniqueTaskReward.coins > 0) {
+          desc = `${desc} +${d.uniqueTaskReward.coins} AxCoins new-task bonus (balance ${d.uniqueTaskReward.newBalance}).`;
+        }
         toast({
           title: task ? "Task updated" : "Task created",
-          description: task ? "Your task has been updated successfully." : "Your task has been added successfully.",
+          description: desc,
         });
-        if (d?.coinReward) playIfEligible(1);
+        if (d?.coinReward || (!task && d?.uniqueTaskReward && d.uniqueTaskReward.coins > 0)) playIfEligible(1);
         else playIfEligible(3);
+      }
+
+      if (!task && !d?.offlineQueued) {
+        requestFeedbackNudge("task_create");
       }
 
       if (!task) {

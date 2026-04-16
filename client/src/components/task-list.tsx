@@ -853,7 +853,11 @@ export function TaskList() {
       });
     },
     onSuccess: (data, variables) => {
-      const d = data as { offlineQueued?: boolean; coinReward?: unknown } | undefined;
+      const d = data as {
+        offlineQueued?: boolean;
+        coinReward?: unknown;
+        coinSkipReason?: string | null;
+      } | undefined;
       if (d?.offlineQueued) {
         toast({
           title: "Saved offline",
@@ -877,6 +881,12 @@ export function TaskList() {
           description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${badgeText}`,
         });
         playIfEligible(1);
+      } else if (variables.status === "completed" && d?.coinSkipReason === "already_awarded") {
+        toast({
+          title: "No new completion coins",
+          description: "This task already earned its one-time completion reward.",
+        });
+        playIfEligible(3);
       } else {
         toast({
           title: "Task updated",
@@ -911,10 +921,21 @@ export function TaskList() {
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      toast({
-        title: "Priorities recalculated",
-        description: "All task priorities have been recalculated successfully.",
-      });
+      const payload = data as {
+        recalculateReward?: { coins: number; newBalance: number } | null;
+      };
+      if (payload.recalculateReward && payload.recalculateReward.coins > 0) {
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+        toast({
+          title: "Priorities recalculated",
+          description: `All task priorities updated. +${payload.recalculateReward.coins} AxCoins (balance ${payload.recalculateReward.newBalance}).`,
+        });
+      } else {
+        toast({
+          title: "Priorities recalculated",
+          description: "All task priorities have been recalculated successfully.",
+        });
+      }
       requestFeedbackNudge("recalculate");
     },
     onError: () => {

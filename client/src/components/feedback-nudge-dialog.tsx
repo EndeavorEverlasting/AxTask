@@ -38,7 +38,11 @@ export function FeedbackNudgeDialog() {
                 ? "Did priority recalculation match what you expected?"
                 : source === "dashboard_visit"
                   ? "Anything about the dashboard or task flow you would change?"
-                  : "A short note helps us tune AxTask for real workflows."}
+                  : source === "task_create"
+                    ? "Was creating this task frictionless, or did something confuse you?"
+                    : source === "bulk_actions"
+                      ? "Bulk changes in one go — anything feel risky or unclear?"
+                      : "A short note helps us tune AxTask for real workflows."}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2 sm:gap-0">

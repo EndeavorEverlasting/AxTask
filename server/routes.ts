@@ -63,8 +63,11 @@ import {
   createCommunityReply,
   seedCommunityPosts,
   addCoins,
+  hasTaskBeenAwarded,
 } from "./storage";
 import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
+import { tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
+import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task, tasks, coinTransactions } from "@shared/schema";
 import { db } from "./db";
@@ -1564,7 +1567,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Search tasks
   app.get("/api/tasks/search/:query", requireAuth, async (req, res) => {
     try {
-      const tasks = await storage.searchTasks(req.user!.id, req.params.query);
+      const userId = req.user!.id;
+      const raw = req.params.query ?? "";
+      let decoded = raw;
+      try {
+        decoded = decodeURIComponent(raw);
+      } catch {
+        decoded = raw;
+      }
+      const tasks = await storage.searchTasks(userId, decoded);
+      const q = decoded.trim();
+      if (tasks.length > 0 && q.length >= 2) {
+        await tryCappedCoinAward({
+          userId,
+          reason: ENGAGEMENT.taskSearch.reason,
+          amount: ENGAGEMENT.taskSearch.amount,
+          dailyCap: ENGAGEMENT.taskSearch.dailyCap,
+          details: `Search: ${q.slice(0, 80)}`,
+        });
+      }
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ message: "Failed to search tasks" });
@@ -1811,7 +1832,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isRepeated: priorityResult.isRepeated,
       }) || task;
 
-      res.status(201).json(task);
+      const uniqueTaskReward = await tryCappedCoinAward({
+        userId,
+        reason: ENGAGEMENT.uniqueTaskCreate.reason,
+        amount: ENGAGEMENT.uniqueTaskCreate.amount,
+        dailyCap: ENGAGEMENT.uniqueTaskCreate.dailyCap,
+        details: `New task: ${task.activity.slice(0, 100)}`,
+        taskId: task.id,
+      });
+
+      res.status(201).json({ ...task, uniqueTaskReward });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
@@ -1868,15 +1898,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       let coinReward = null;
+      let coinSkipReason: string | null = null;
       if (task!.status === "completed" && previousStatus !== "completed") {
         console.log(`[COIN REWARD] Awarding coins for task ${task.id}`);
         coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
         console.log(`[COIN REWARD] Result:`, coinReward);
+        if (!coinReward) {
+          const alreadyAwarded = await hasTaskBeenAwarded(userId, task!.id);
+          coinSkipReason = completionCoinSkipReason({
+            previousStatus,
+            taskStatus: task!.status,
+            coinReward,
+            alreadyAwarded,
+          });
+        }
       } else {
         console.log(`[COIN REWARD] Skipped: status=${task.status}, prev=${previousStatus}`);
       }
 
-      res.json({ ...task, coinReward });
+      res.json({ ...task, coinReward, coinSkipReason });
     } catch (error) {
       console.error("[TASK UPDATE ERROR]", error);
       if (error instanceof Error) {
@@ -2007,7 +2047,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      res.json({ message: "All priorities recalculated successfully" });
+      const recalculateReward =
+        allTasks.length > 0
+          ? await tryCappedCoinAward({
+              userId,
+              reason: ENGAGEMENT.recalculate.reason,
+              amount: ENGAGEMENT.recalculate.amount,
+              dailyCap: ENGAGEMENT.recalculate.dailyCap,
+              details: `Recalculated ${allTasks.length} task priorities`,
+            })
+          : null;
+
+      res.json({ message: "All priorities recalculated successfully", recalculateReward });
     } catch (error) {
       res.status(500).json({ message: "Failed to recalculate priorities" });
     }
