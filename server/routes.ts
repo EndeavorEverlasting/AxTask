@@ -3947,6 +3947,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/account/import/challenge", requireAuth, requireDataExportStepUp, async (req, res) => {
     try {
+      const bundle = req.body?.bundle as Record<string, unknown> | undefined;
+      // Full user export bundles use migration import and do not require legacy ownership quiz prompts.
+      const isFullUserBundle =
+        !!bundle &&
+        typeof bundle === "object" &&
+        typeof (bundle.metadata as Record<string, unknown> | undefined)?.exportMode === "string" &&
+        (bundle.metadata as Record<string, unknown>).exportMode === "user" &&
+        !!(bundle.data as Record<string, unknown> | undefined)?.userBadges;
+      if (isFullUserBundle) {
+        return res.json({
+          ownershipQuizRequired: false,
+          tasksFingerprint: "",
+          questionCount: 0,
+          questions: [],
+        });
+      }
       const ch = buildImportChallenge(req.body?.bundle);
       if (ch.message) {
         return res.status(400).json(ch);
@@ -3974,6 +3990,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .optional(),
         })
         .parse(req.body);
+      const asBundle = body.bundle as Record<string, unknown>;
+      const asMetadata = (asBundle?.metadata || {}) as Record<string, unknown>;
+      const asData = (asBundle?.data || {}) as Record<string, unknown>;
+      const isFullUserBundle =
+        asMetadata.exportMode === "user" &&
+        (Array.isArray(asData.tasks) || Array.isArray(asData.userBadges) || Array.isArray(asData.coinTransactions));
+      if (isFullUserBundle) {
+        const validation = validateBundle(asBundle as import("./migration/export").ExportBundle);
+        if (validation.errors.length > 0) {
+          return res.status(400).json({ message: "Bundle validation failed", errors: validation.errors });
+        }
+        const result = await importUserBundle(
+          asBundle as import("./migration/export").ExportBundle,
+          req.user!.id,
+          { dryRun: body.dryRun }
+        );
+        return res.json(result);
+      }
       const result = await runAccountImport({
         userId: req.user!.id,
         bundle: body.bundle,
@@ -5001,56 +5035,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ─── User Self-Service Export & Import (GDPR) ──────────────────────────────
-
-  app.get("/api/account/export", requireAuth, migrationLimiter, async (req, res) => {
-    try {
-      const bundle = await exportUserData(req.user!.id);
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="my-axtask-data-${new Date().toISOString().slice(0, 10)}.json"`
-      );
-      res.json(bundle);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message || "Export failed" });
-    }
-  });
-
-  app.post("/api/account/import", requireAuth, migrationLimiter, async (req, res) => {
-    try {
-      const { bundle, dryRun } = req.body;
-      if (!bundle || !bundle.metadata || !bundle.data) {
-        return res.status(400).json({ message: "Invalid export bundle format" });
-      }
-
-      if (bundle.metadata.exportMode !== "user") {
-        return res.status(400).json({ message: "Only user-level export bundles can be imported via self-service. Full database imports require admin access." });
-      }
-
-      const validation = validateBundle(bundle);
-      if (validation.errors.length > 0) {
-        return res.status(400).json({ message: "Bundle validation failed", errors: validation.errors });
-      }
-
-      const result = await importUserBundle(bundle, req.user!.id, { dryRun: !!dryRun });
-
-      if (!dryRun && result.success) {
-        const totalInserted = Object.values(result.inserted).reduce((a, b) => a + b, 0);
-        await logSecurityEvent(
-          "user_data_import",
-          req.user!.id,
-          undefined,
-          req.ip,
-          `User self-service import: ${totalInserted} records imported`
-        );
-      }
-
-      res.json(result);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message || "Import failed" });
-    }
-  });
+  // ─── User Self-Service Export & Import (GDPR) routes are handled above with step-up auth.
 
   // ─── Collaboration routes ──────────────────────────────────────────────────
 
