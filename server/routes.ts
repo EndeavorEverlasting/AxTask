@@ -3945,17 +3945,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const isFullUserBundle = (bundle: unknown): bundle is import("./migration/export").ExportBundle => {
+    if (!bundle || typeof bundle !== "object") return false;
+    const record = bundle as Record<string, unknown>;
+    const metadata = (record.metadata || {}) as Record<string, unknown>;
+    const data = (record.data || {}) as Record<string, unknown>;
+    return (
+      metadata.exportMode === "user" &&
+      (Array.isArray(data.tasks) || Array.isArray(data.userBadges) || Array.isArray(data.coinTransactions))
+    );
+  };
+
   app.post("/api/account/import/challenge", requireAuth, requireDataExportStepUp, async (req, res) => {
     try {
-      const bundle = req.body?.bundle as Record<string, unknown> | undefined;
       // Full user export bundles use migration import and do not require legacy ownership quiz prompts.
-      const isFullUserBundle =
-        !!bundle &&
-        typeof bundle === "object" &&
-        typeof (bundle.metadata as Record<string, unknown> | undefined)?.exportMode === "string" &&
-        (bundle.metadata as Record<string, unknown>).exportMode === "user" &&
-        !!(bundle.data as Record<string, unknown> | undefined)?.userBadges;
-      if (isFullUserBundle) {
+      if (isFullUserBundle(req.body?.bundle)) {
         return res.json({
           ownershipQuizRequired: false,
           tasksFingerprint: "",
@@ -3990,22 +3994,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .optional(),
         })
         .parse(req.body);
-      const asBundle = body.bundle as Record<string, unknown>;
-      const asMetadata = (asBundle?.metadata || {}) as Record<string, unknown>;
-      const asData = (asBundle?.data || {}) as Record<string, unknown>;
-      const isFullUserBundle =
-        asMetadata.exportMode === "user" &&
-        (Array.isArray(asData.tasks) || Array.isArray(asData.userBadges) || Array.isArray(asData.coinTransactions));
-      if (isFullUserBundle) {
-        const validation = validateBundle(asBundle as import("./migration/export").ExportBundle);
+      if (isFullUserBundle(body.bundle)) {
+        const validation = validateBundle(body.bundle);
         if (validation.errors.length > 0) {
           return res.status(400).json({ message: "Bundle validation failed", errors: validation.errors });
         }
-        const result = await importUserBundle(
-          asBundle as import("./migration/export").ExportBundle,
-          req.user!.id,
-          { dryRun: body.dryRun }
-        );
+        const result = await importUserBundle(body.bundle, req.user!.id, { dryRun: body.dryRun });
         return res.json(result);
       }
       const result = await runAccountImport({
