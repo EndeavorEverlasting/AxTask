@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Coins, ChevronDown } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { useCountUp } from "@/hooks/use-count-up";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -31,6 +32,7 @@ export function WalletTopBar() {
       void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
       if (data?.ok && (data.claimedCoins ?? 0) > 0) {
+        requestFeedbackNudge("coin_claim_success");
         toast({
           title: `+${data.claimedCoins} AxCoins`,
           description: data.message || "Offline generator claimed.",
@@ -70,6 +72,8 @@ export function WalletTopBar() {
           <DropdownMenuItem onClick={() => setLocation("/rewards")}>Rewards &amp; profile</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setLocation("/rewards?tab=shop")}>Open shop</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setLocation("/rewards?tab=history")}>Coin history</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setLocation("/mini-games")}>Earn from mini-games</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setLocation("/feedback")}>Give feedback for coins</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={claimMutation.isPending}

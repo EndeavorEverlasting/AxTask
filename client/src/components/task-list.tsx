@@ -845,6 +845,7 @@ export function TaskList() {
     if (!useServerSearchList) return;
     if (!searchTasks?.length) return;
     void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+    requestFeedbackNudge("task_search_success");
   }, [useServerSearchList, searchDataUpdatedAt, searchTasks, queryClient]);
 
   const { baseTasks, applyLocalSearch, serverSearchActive } = useMemo(

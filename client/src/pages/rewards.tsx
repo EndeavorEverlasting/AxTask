@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 
 interface Wallet {
   balance: number;
@@ -104,6 +105,7 @@ export default function RewardsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      requestFeedbackNudge("reward_redeem");
       toast({ title: "Reward redeemed!", description: "Check your profile for your new reward." });
     },
     onError: (err: Error) => {
