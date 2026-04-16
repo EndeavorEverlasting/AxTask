@@ -15,6 +15,7 @@ import {
   logSecurityEvent, getSecurityLogs,
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
+  getFeedbackSubmissionCount, getAvatarProfiles, engageAvatarMission, spendCoinsForAvatarBoost, seedAvatarSkillTree, getAvatarSkillTree, unlockAvatarSkill,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachments, linkAttachmentToTask,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
@@ -52,6 +53,8 @@ import {
   listUserPushSubscriptions,
   upsertUserPushSubscription,
   deleteUserPushSubscription,
+  listOpenAdherenceInterventions,
+  acknowledgeAdherenceIntervention,
   listStudyDecks,
   createStudyDeck,
   listStudyCards,
@@ -80,12 +83,12 @@ import {
   getPatternsByType,
   getUserClassificationStats,
 } from "./storage";
-import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
+import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, count } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
@@ -124,6 +127,8 @@ import { classifyWithFallback, classifyWithAssociations, normalizeAssociationWei
 import { confirmTaskClassificationForUser, getClassificationConfirmPayload } from "./classification-confirm";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
 import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
+import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
+import { evaluateAdherenceForUser } from "./services/adherence-evaluator";
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
 function safeEqual(a: string, b: string): boolean {
@@ -451,6 +456,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const userAgent = req.get("user-agent") || undefined;
     res.on("finish", async () => {
       try {
+        const ctx = req.monitor;
         await appendSecurityEvent({
           eventType: "api_request",
           actorUserId,
@@ -461,8 +467,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userAgent,
           payload: {
             durationMs: Date.now() - startedAt,
+            requestId: ctx?.requestId,
+            params: ctx?.params,
+            query: ctx?.query,
+            body: ctx?.body,
+            headers: ctx?.headers,
           },
         });
+
+        // Fallback: ensure we record a dedicated error event for 5xx even if the route handler
+        // caught the error and returned 500 without throwing into the global error handler.
+        if (res.statusCode >= 500 && !(req as any).__axtaskApiErrorEmitted) {
+          const errorName = "Http5xx";
+          const errorMessage = `Response status ${res.statusCode}`;
+          await appendSecurityEvent({
+            eventType: "api_error",
+            actorUserId,
+            route: req.path,
+            method: req.method,
+            statusCode: res.statusCode,
+            ipAddress,
+            userAgent,
+            payload: {
+              requestId: ctx?.requestId,
+              params: ctx?.params,
+              query: ctx?.query,
+              body: ctx?.body,
+              headers: ctx?.headers,
+              errorName,
+              errorMessage,
+            },
+          });
+          void notifyAdminsOfApiError({
+            requestId: ctx?.requestId,
+            route: req.path,
+            method: req.method,
+            statusCode: res.statusCode,
+            errorName,
+            errorMessage,
+          });
+        }
       } catch {
         // Avoid breaking request lifecycle because of audit sink failures.
       }
@@ -594,6 +638,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         req.login(user, (err) => {
           if (err) return next(err);
+          void evaluateAdherenceForUser(user.id, "login");
           res.json(toPublicSessionUser(user));
         });
       })(req, res, next);
@@ -639,6 +684,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.logout(() => {});
       return res.status(401).json({ message: "Not authenticated" });
     }
+    void evaluateAdherenceForUser(req.user!.id, "login");
     res.json(toPublicSessionUser(fresh));
   });
 
@@ -1382,6 +1428,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to remove push subscription" });
+    }
+  });
+
+  app.get("/api/adherence/interventions", requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+      const rows = await listOpenAdherenceInterventions(req.user!.id, limit);
+      const items = rows.map((row) => ({
+        ...row,
+        context: row.contextJson ? (() => {
+          try {
+            return JSON.parse(row.contextJson);
+          } catch {
+            return null;
+          }
+        })() : null,
+      }));
+      res.json(items);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch adherence interventions" });
+    }
+  });
+
+  app.post("/api/adherence/interventions/:id/acknowledge", requireAuth, async (req, res) => {
+    try {
+      const { action } = acknowledgeAdherenceInterventionSchema.parse(req.body || {});
+      const ok = await acknowledgeAdherenceIntervention(req.user!.id, req.params.id, action);
+      if (!ok) return res.status(404).json({ message: "Intervention not found" });
+      res.status(204).send();
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to acknowledge intervention" });
+    }
+  });
+
+  app.post("/api/adherence/refresh", requireAuth, async (req, res) => {
+    try {
+      const result = await evaluateAdherenceForUser(req.user!.id, "manual");
+      res.json(result);
+    } catch {
+      res.status(500).json({ message: "Failed to refresh adherence evaluation" });
     }
   });
 
@@ -2963,6 +3050,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       `[seed] Offline skill tree seed failed (${msg}). Start PostgreSQL and ensure DATABASE_URL is correct. The server will continue.`,
     );
   }
+  try {
+    await seedAvatarSkillTree();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[seed] Avatar skill tree seed failed (${msg}). Start PostgreSQL and ensure DATABASE_URL is correct. The server will continue.`,
+    );
+  }
 
   app.get("/api/gamification/wallet", requireAuth, async (req, res) => {
     try {
@@ -3127,6 +3222,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     skillKey: z.string().min(2).max(80),
   });
 
+  const avatarEngageSchema = z.object({
+    sourceType: z.enum(["task", "feedback", "post"]),
+    sourceRef: z.string().min(2).max(160),
+    text: z.string().min(1).max(2000),
+    completed: z.boolean().default(false),
+  });
+
+  const avatarSpendSchema = z.object({
+    coins: z.number().int().min(1).max(10000),
+  });
+
+  const avatarSkillUnlockSchema = z.object({
+    skillKey: z.string().min(2).max(80),
+  });
+
   app.get("/api/gamification/offline-generator", requireAuth, async (req, res) => {
     try {
       const status = await getOfflineGeneratorStatus(req.user!.id);
@@ -3197,6 +3307,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to unlock offline skill" });
+    }
+  });
+
+  app.get("/api/gamification/avatars", requireAuth, async (req, res) => {
+    try {
+      const avatars = await getAvatarProfiles(req.user!.id);
+      res.json({ avatars });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch avatars" });
+    }
+  });
+
+  app.post("/api/gamification/avatars/:avatarKey/engage", requireAuth, async (req, res) => {
+    try {
+      const payload = avatarEngageSchema.parse(req.body ?? {});
+      const result = await engageAvatarMission({
+        userId: req.user!.id,
+        avatarKey: req.params.avatarKey,
+        sourceType: payload.sourceType,
+        sourceRef: payload.sourceRef,
+        text: payload.text,
+        completed: payload.completed,
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to engage avatar mission" });
+    }
+  });
+
+  app.post("/api/gamification/avatars/:avatarKey/spend", requireAuth, async (req, res) => {
+    try {
+      const { coins } = avatarSpendSchema.parse(req.body ?? {});
+      const result = await spendCoinsForAvatarBoost(req.user!.id, req.params.avatarKey, coins);
+      if (!result.ok) return res.status(400).json(result);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to spend coins on avatar" });
+    }
+  });
+
+  app.get("/api/gamification/avatar-skills", requireAuth, async (req, res) => {
+    try {
+      const skills = await getAvatarSkillTree(req.user!.id);
+      res.json(skills);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch avatar skills" });
+    }
+  });
+
+  app.post("/api/gamification/avatar-skills/unlock", requireAuth, async (req, res) => {
+    try {
+      const { skillKey } = avatarSkillUnlockSchema.parse(req.body);
+      const result = await unlockAvatarSkill(req.user!.id, skillKey);
+      if (!result.ok) {
+        return res.status(400).json(result);
+      }
+      const skills = await getAvatarSkillTree(req.user!.id);
+      res.json({ ...result, skills });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to unlock avatar skill" });
     }
   });
 
@@ -3457,11 +3630,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         details: `Feedback (${parsed.message.slice(0, 80)}${parsed.message.length > 80 ? "…" : ""})`,
       });
 
+      const feedbackCount = await getFeedbackSubmissionCount(req.user!.id);
+      const feedbackBadgesEarned = await awardFeedbackBadges(req.user!.id, feedbackCount);
+
       res.status(201).json({
         message: "Feedback submitted",
         attachments: totalAttachments,
         analysis,
         feedbackReward,
+        feedbackBadgesEarned,
       });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });

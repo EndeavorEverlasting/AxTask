@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { Card, CardContent } from "@/components/ui/card";
+import { GlassPanel } from "@/components/ui/glass-panel";
+import { FloatingChip } from "@/components/ui/floating-chip";
 import { TaskForm } from "@/components/task-form";
 import { TaskList } from "@/components/task-list";
 import { BarChart3, CheckCircle, AlertTriangle, ListTodo } from "lucide-react";
@@ -49,7 +51,7 @@ function StatCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: index * 0.08 }}
     >
-      <Card>
+      <Card className="glass-panel-interactive">
         <CardContent className="p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -90,14 +92,19 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 md:space-y-8">
-      <div className="space-y-3">
+      <GlassPanel elevated className="space-y-3 p-4 md:p-5">
+        <div className="flex flex-wrap gap-2">
+          <FloatingChip tone="neutral">Glass UI</FloatingChip>
+          <FloatingChip tone="success">Guided flow</FloatingChip>
+          <FloatingChip tone="warning">{avgScoreBand}</FloatingChip>
+        </div>
         <div>
           <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Task Dashboard</h2>
           <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">Manage and prioritize your tasks efficiently</p>
         </div>
         <ImmersivePretextCue />
         <MobileChecklistWidget />
-      </div>
+      </GlassPanel>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
         <StatCard

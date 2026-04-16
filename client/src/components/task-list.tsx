@@ -31,6 +31,10 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ToastAction } from "@/components/ui/toast";
+import { GlassPanel } from "@/components/ui/glass-panel";
+import { FloatingChip } from "@/components/ui/floating-chip";
+import { AvatarGlowChip } from "@/components/ui/avatar-glow-chip";
+import { ProgressStrip } from "@/components/ui/progress-strip";
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
@@ -97,6 +101,24 @@ function renderMarkdownInline(text: string): React.ReactNode {
 
 type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'createdAt' | 'updatedAt' | 'manual';
 type SortDirection = 'asc' | 'desc';
+
+type AvatarSupportProfile = {
+  id: string;
+  avatarKey: string;
+  displayName: string;
+  archetypeKey: string;
+  level: number;
+  xp: number;
+  totalXp: number;
+  mission: string;
+};
+
+type AvatarSupportSkill = {
+  skillKey: string;
+  currentLevel: number;
+  effectType: string;
+  effectPerLevel: number;
+};
 
 function taskTimestampMs(value: unknown): number {
   if (value == null) return 0;
@@ -835,6 +857,12 @@ export function TaskList() {
   }>({
     queryKey: ["/api/storage/me"],
   });
+  const { data: avatarSupportData } = useQuery<{ avatars: AvatarSupportProfile[] }>({
+    queryKey: ["/api/gamification/avatars"],
+  });
+  const { data: avatarSkillData = [] } = useQuery<AvatarSupportSkill[]>({
+    queryKey: ["/api/gamification/avatar-skills"],
+  });
 
   const [browserOnline, setBrowserOnline] = useState(
     () => typeof navigator !== "undefined" && navigator.onLine,
@@ -986,11 +1014,23 @@ export function TaskList() {
           newBalance: number;
           streak: number;
           badgesEarned?: unknown[];
+          comboCount?: number;
+          chainCount24h?: number;
+          nextComboBadgeAt?: number | null;
+          nextChainBadgeAt?: number | null;
         };
         const badgeText = cr.badgesEarned?.length ? ` 🏅 New badge${cr.badgesEarned.length > 1 ? "s" : ""}!` : "";
+        const comboHint =
+          typeof cr.nextComboBadgeAt === "number" && typeof cr.comboCount === "number"
+            ? ` · Combo ${cr.comboCount}/${cr.nextComboBadgeAt}`
+            : "";
+        const chainHint =
+          typeof cr.nextChainBadgeAt === "number" && typeof cr.chainCount24h === "number"
+            ? ` · Chain ${cr.chainCount24h}/${cr.nextChainBadgeAt}`
+            : "";
         toast({
           title: `+${cr.coinsEarned} AxCoins earned!`,
-          description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${badgeText}`,
+          description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${comboHint}${chainHint}${badgeText}`,
         });
         queryClient.setQueryData(["/api/gamification/wallet"], (prev: unknown) => {
           if (!prev || typeof prev !== "object") return prev;
@@ -1253,6 +1293,14 @@ export function TaskList() {
   );
 
   const useVirtualized = filteredAndSortedTasks.length > VIRTUALIZE_THRESHOLD;
+  const activeEntourageSlots = 1 + (avatarSkillData.find((skill) => skill.skillKey === "entourage-slots")?.currentLevel ?? 0);
+  const guidanceDepth = 1 + (avatarSkillData.find((skill) => skill.skillKey === "guidance-depth")?.currentLevel ?? 0);
+  const contextPoints = avatarSkillData
+    .filter((skill) => skill.effectType === "context_points")
+    .reduce((sum, skill) => sum + (skill.currentLevel * skill.effectPerLevel), 0);
+  const resourceBudget = avatarSkillData
+    .filter((skill) => skill.effectType === "resource_budget")
+    .reduce((sum, skill) => sum + (skill.currentLevel * skill.effectPerLevel), 0);
 
   if (isLoading) {
     return (
@@ -1269,7 +1317,7 @@ export function TaskList() {
   }
 
   return (
-    <Card>
+    <Card className="glass-panel-elevated">
       <CardHeader className="px-4 md:px-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center justify-between">
@@ -1423,6 +1471,27 @@ export function TaskList() {
             </span>
           </div>
         )}
+        {avatarSupportData?.avatars?.length ? (
+          <GlassPanel elevated className="mt-3 p-3">
+            <p className="text-sm font-medium">Companion Guidance</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Active entourage slots: {activeEntourageSlots} · Guidance depth: {guidanceDepth} · Context points: {contextPoints} · Resource budget: {resourceBudget}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <FloatingChip tone="neutral">Slots {activeEntourageSlots}</FloatingChip>
+              <FloatingChip tone="success">Depth {guidanceDepth}</FloatingChip>
+              <FloatingChip tone="warning">Context {contextPoints}</FloatingChip>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {avatarSupportData.avatars.slice(0, activeEntourageSlots).map((avatar) => (
+                <AvatarGlowChip key={avatar.id} avatarKey={avatar.avatarKey}>
+                  {avatar.displayName} L{avatar.level}
+                </AvatarGlowChip>
+              ))}
+            </div>
+            <ProgressStrip className="mt-2" tone="success" value={Math.min(100, guidanceDepth * 20)} />
+          </GlassPanel>
+        ) : null}
       </CardHeader>
       <CardContent className="px-4 md:px-6">
         {filteredAndSortedTasks.length === 0 ? (

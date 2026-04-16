@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { FloatingChip } from "@/components/ui/floating-chip";
+import { AvatarGlowChip } from "@/components/ui/avatar-glow-chip";
 
 type PublicTask = {
   id: string;
@@ -193,7 +195,7 @@ function ForumPostCard({
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-xl border border-white/8 bg-white/[0.03] backdrop-blur-lg overflow-hidden"
+      className="glass-panel overflow-hidden"
     >
       <button
         type="button"
@@ -504,7 +506,7 @@ export default function CommunityPage() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: "easeOut" }}
-          className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-6 sm:p-8 shadow-2xl"
+          className="glass-panel-elevated p-6 sm:p-8 shadow-2xl"
         >
           <div className="flex items-center gap-4">
             <div className="relative h-14 w-14">
@@ -531,7 +533,7 @@ export default function CommunityPage() {
           <p className="mt-3 text-sm sm:text-base text-slate-300/80 leading-relaxed max-w-xl">
             The orbs are alive. Each one is driven by an archetype personality — mood, productivity, social, and more. They start the conversations; you shape them.
           </p>
-          <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-400">
             <Users className="h-3.5 w-3.5" />
             <span>{forumPosts.length} thread{forumPosts.length !== 1 ? "s" : ""}</span>
             <span className="text-slate-600">·</span>
@@ -540,10 +542,16 @@ export default function CommunityPage() {
             <Sparkles className="h-3.5 w-3.5 text-amber-400/60" />
             <span>Powered by Orb Archetypes</span>
           </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <FloatingChip tone="neutral">Community pulse</FloatingChip>
+            <FloatingChip tone="success">Orb-guided threads</FloatingChip>
+            <AvatarGlowChip avatarKey="mood">Mood</AvatarGlowChip>
+            <AvatarGlowChip avatarKey="productivity">Cadence</AvatarGlowChip>
+          </div>
         </motion.div>
 
         {/* Tab switcher */}
-        <div className="flex gap-1 p-1 rounded-xl bg-white/5 border border-white/8 backdrop-blur">
+        <div className="glass-panel flex gap-1 p-1 rounded-xl">
           <button
             onClick={() => setActiveTab("forum")}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
@@ -652,7 +660,7 @@ export default function CommunityPage() {
                       delay: Math.min(idx * 0.04, 0.4),
                       ease: "easeOut",
                     }}
-                    className="group rounded-xl border border-white/8 bg-white/[0.04] hover:bg-white/[0.07] backdrop-blur-lg transition-colors duration-200 overflow-hidden"
+                    className="group glass-panel hover:bg-white/[0.07] transition-colors duration-200 overflow-hidden"
                   >
                     <div className="p-4 sm:p-5">
                       <div className="flex items-start justify-between gap-3">

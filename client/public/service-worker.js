@@ -61,8 +61,10 @@ self.addEventListener("push", (event) => {
     body: payload.body || "You have a new notification.",
     icon: payload.icon || "/branding/axtask-logo.png",
     badge: payload.badge || "/branding/axtask-logo.png",
+    tag: payload.meta?.type === "adherence" ? "axtask-adherence" : undefined,
     data: {
       url: payload.url || "/planner",
+      meta: payload.meta || null,
     },
   };
 

@@ -1,5 +1,5 @@
 import { type Task, tasks } from "@shared/schema";
-import { addCoins, updateStreak, awardBadge, getOrCreateWallet, getCompletedTaskCount, getUserBadges, hasTaskBeenAwarded } from "./storage";
+import { addCoins, updateStreak, awardBadge, getOrCreateWallet, getCompletedTaskCount, hasTaskBeenAwarded, updateComboChainOnCompletion } from "./storage";
 import { db } from "./db";
 import { eq, and, sql, count } from "drizzle-orm";
 
@@ -27,6 +27,22 @@ const COMPLETION_BADGES: Record<number, string> = {
   500: "task-500",
 };
 
+const FEEDBACK_BADGES: Record<number, string> = {
+  1: "feedback-1",
+  5: "feedback-5",
+  25: "feedback-25",
+};
+
+const CHAIN_BADGES: Record<number, string> = {
+  5: "chain-5",
+  10: "chain-10",
+};
+
+const COMBO_BADGES: Record<number, string> = {
+  3: "combo-3",
+  5: "combo-5",
+};
+
 export const BADGE_DEFINITIONS: Record<string, { name: string; description: string; icon: string }> = {
   "first-task": { name: "First Step", description: "Complete your first task", icon: "🎯" },
   "task-10": { name: "Getting Going", description: "Complete 10 tasks", icon: "🔥" },
@@ -40,6 +56,13 @@ export const BADGE_DEFINITIONS: Record<string, { name: string; description: stri
   "streak-30": { name: "Monthly Master", description: "30-day completion streak", icon: "🌟" },
   "crisis-handler": { name: "Crisis Handler", description: "Complete 5 Highest-priority tasks", icon: "🚨" },
   "early-bird": { name: "Early Bird", description: "Complete a task before its due date", icon: "🐦" },
+  "feedback-1": { name: "Voice Heard", description: "Submit your first feedback report", icon: "🗣️" },
+  "feedback-5": { name: "Feedback Loop", description: "Submit feedback 5 times", icon: "🔁" },
+  "feedback-25": { name: "Insight Partner", description: "Submit feedback 25 times", icon: "📊" },
+  "chain-5": { name: "Chain Starter", description: "Complete 5 tasks in 24 hours", icon: "⛓️" },
+  "chain-10": { name: "Chain Reactor", description: "Complete 10 tasks in 24 hours", icon: "⚙️" },
+  "combo-3": { name: "Combo Spark", description: "Complete 3 tasks inside a combo window", icon: "⚡" },
+  "combo-5": { name: "Combo Surge", description: "Complete 5 tasks inside a combo window", icon: "🌩️" },
 };
 
 export interface CoinAwardResult {
@@ -48,6 +71,18 @@ export interface CoinAwardResult {
   streak: number;
   badgesEarned: string[];
   breakdown: { label: string; amount: number }[];
+  nextComboBadgeAt?: number | null;
+  nextChainBadgeAt?: number | null;
+  comboCount?: number;
+  chainCount24h?: number;
+}
+
+function getNextThreshold(current: number, thresholds: number[]): number | null {
+  const sorted = [...thresholds].sort((a, b) => a - b);
+  for (const threshold of sorted) {
+    if (current < threshold) return threshold;
+  }
+  return null;
 }
 
 export async function awardCoinsForCompletion(
@@ -95,6 +130,7 @@ export async function awardCoinsForCompletion(
   const { wallet: finalWallet } = await addCoins(userId, totalCoins, "task_completion", `Completed: ${task.activity.substring(0, 100)}`, task.id);
 
   const badgesEarned: string[] = [];
+  const comboChainWallet = await updateComboChainOnCompletion(userId);
 
   const completedCount = await getCompletedTaskCount(userId);
   for (const [threshold, badgeId] of Object.entries(COMPLETION_BADGES)) {
@@ -145,6 +181,26 @@ export async function awardCoinsForCompletion(
     }
   }
 
+  for (const [threshold, badgeId] of Object.entries(CHAIN_BADGES)) {
+    if (comboChainWallet.chainCount24h >= Number(threshold)) {
+      const awarded = await awardBadge(userId, badgeId);
+      if (awarded) {
+        badgesEarned.push(badgeId);
+        await addCoins(userId, 12, "chain_badge", `Chain Badge: ${BADGE_DEFINITIONS[badgeId]?.name}`);
+      }
+    }
+  }
+
+  for (const [threshold, badgeId] of Object.entries(COMBO_BADGES)) {
+    if (comboChainWallet.comboCount >= Number(threshold)) {
+      const awarded = await awardBadge(userId, badgeId);
+      if (awarded) {
+        badgesEarned.push(badgeId);
+        await addCoins(userId, 12, "combo_badge", `Combo Badge: ${BADGE_DEFINITIONS[badgeId]?.name}`);
+      }
+    }
+  }
+
   const refreshedWallet = await getOrCreateWallet(userId);
 
   return {
@@ -153,5 +209,23 @@ export async function awardCoinsForCompletion(
     streak,
     badgesEarned,
     breakdown,
+    comboCount: comboChainWallet.comboCount,
+    chainCount24h: comboChainWallet.chainCount24h,
+    nextComboBadgeAt: getNextThreshold(comboChainWallet.comboCount, Object.keys(COMBO_BADGES).map(Number)),
+    nextChainBadgeAt: getNextThreshold(comboChainWallet.chainCount24h, Object.keys(CHAIN_BADGES).map(Number)),
   };
+}
+
+export async function awardFeedbackBadges(userId: string, feedbackCount: number): Promise<string[]> {
+  const earned: string[] = [];
+  for (const [threshold, badgeId] of Object.entries(FEEDBACK_BADGES)) {
+    if (feedbackCount >= Number(threshold)) {
+      const awarded = await awardBadge(userId, badgeId);
+      if (awarded) {
+        earned.push(badgeId);
+        await addCoins(userId, 8, "feedback_badge", `Feedback Badge: ${BADGE_DEFINITIONS[badgeId]?.name}`);
+      }
+    }
+  }
+  return earned;
 }

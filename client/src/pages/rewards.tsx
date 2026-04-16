@@ -7,6 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { GlassPanel } from "@/components/ui/glass-panel";
+import { FloatingChip } from "@/components/ui/floating-chip";
+import { AvatarGlowChip } from "@/components/ui/avatar-glow-chip";
+import { ProgressStrip } from "@/components/ui/progress-strip";
 import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
@@ -134,7 +138,7 @@ export default function RewardsPage() {
         text: payload.text,
         completed: payload.completed ?? false,
       });
-      return res.json() as Promise<{ awarded: boolean; xp?: number; coins?: number; message?: string }>;
+      return res.json() as Promise<{ awarded: boolean; xp?: number; coins?: number; message?: string; avatarLevel?: number; avatarNextLevelXp?: number }>;
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/avatars"] });
@@ -142,8 +146,8 @@ export default function RewardsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
       if (result.awarded) {
         toast({
-          title: "Avatar leveled up progress",
-          description: `Mission complete: +${result.xp ?? 0} XP and +${result.coins ?? 0} coins`,
+          title: "Avatar mission complete",
+          description: `${result.message ?? "Companion guidance improved."} +${result.xp ?? 0} XP, +${result.coins ?? 0} coins${result.avatarLevel ? ` · L${result.avatarLevel}` : ""}`,
         });
       } else {
         toast({
@@ -179,6 +183,7 @@ export default function RewardsPage() {
     theme: rewards.filter(r => r.type === "theme"),
     badge: rewards.filter(r => r.type === "badge"),
     title: rewards.filter(r => r.type === "title"),
+    avatar_support: rewards.filter(r => r.type === "avatar_support"),
   };
 
   return (
@@ -192,7 +197,7 @@ export default function RewardsPage() {
           <p className="text-gray-600 dark:text-gray-400">Spend your AxCoins on themes, badges, and titles</p>
         </div>
         <motion.div
-          className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-yellow-400 text-white px-5 py-3 rounded-xl shadow-lg"
+          className="glass-panel-elevated flex items-center gap-2 bg-gradient-to-r from-amber-500/90 to-yellow-400/90 text-white px-5 py-3 rounded-xl shadow-lg"
           whileHover={{ scale: 1.05 }}
         >
           <Coins className="h-6 w-6" />
@@ -203,7 +208,7 @@ export default function RewardsPage() {
 
       {wallet && (
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-          <Card>
+          <Card className="glass-panel">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="bg-amber-100 dark:bg-amber-900/30 p-2 rounded-lg">
                 <Coins className="h-5 w-5 text-amber-600" />
@@ -214,7 +219,7 @@ export default function RewardsPage() {
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="glass-panel">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="bg-green-100 dark:bg-green-900/30 p-2 rounded-lg">
                 <Trophy className="h-5 w-5 text-green-600" />
@@ -225,7 +230,7 @@ export default function RewardsPage() {
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="glass-panel">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="bg-orange-100 dark:bg-orange-900/30 p-2 rounded-lg">
                 <Flame className="h-5 w-5 text-orange-600" />
@@ -236,7 +241,7 @@ export default function RewardsPage() {
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="glass-panel">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="bg-purple-100 dark:bg-purple-900/30 p-2 rounded-lg">
                 <Award className="h-5 w-5 text-purple-600" />
@@ -250,7 +255,7 @@ export default function RewardsPage() {
         </div>
       )}
       {economyDiagnostics && (
-        <Card>
+        <Card className="glass-panel">
           <CardContent className="p-4 text-sm text-muted-foreground">
             Average priority score uses the {economyDiagnostics.pScoreScale} engine scale (same meaning as the task list &quot;Priority (0–10)&quot; column — not AxCoins).
             Current average across tasks:{" "}
@@ -269,7 +274,7 @@ export default function RewardsPage() {
         </TabsList>
 
         <TabsContent value="profile" className="mt-4 space-y-6">
-          <Card>
+          <Card className="glass-panel-elevated">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <User className="h-5 w-5" />
@@ -360,7 +365,7 @@ export default function RewardsPage() {
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {(avatarData?.avatars ?? []).map((av) => (
-                    <div key={av.id} className="p-4 rounded-xl border bg-gradient-to-br from-slate-50 to-white dark:from-slate-900/40 dark:to-slate-900/10">
+                    <GlassPanel key={av.id} elevated className="p-4 rounded-xl">
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <p className="font-semibold">{av.displayName}</p>
@@ -371,20 +376,23 @@ export default function RewardsPage() {
                         <Badge>Lvl {av.level}</Badge>
                       </div>
                       <p className="text-xs mt-2 text-muted-foreground">{av.mission}</p>
-                      <div className="mt-2 h-2 rounded bg-muted overflow-hidden">
-                        <div
-                          className="h-full bg-emerald-500 transition-all"
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              (() => {
-                                const nextThreshold = 100 + (av.level - 1) * 25;
-                                return nextThreshold > 0 ? (av.xp / nextThreshold) * 100 : 0;
-                              })(),
-                            )}%`,
-                          }}
-                        />
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <AvatarGlowChip avatarKey={av.avatarKey}>
+                          <span className="capitalize">{av.avatarKey}</span>
+                        </AvatarGlowChip>
+                        <FloatingChip tone="neutral">Archetype: {av.archetypeKey}</FloatingChip>
                       </div>
+                      <ProgressStrip
+                        className="mt-2"
+                        tone="success"
+                        value={Math.min(
+                          100,
+                          (() => {
+                            const nextThreshold = 100 + (av.level - 1) * 25;
+                            return nextThreshold > 0 ? (av.xp / nextThreshold) * 100 : 0;
+                          })(),
+                        )}
+                      />
                       <p className="text-[11px] mt-1 text-muted-foreground">
                         XP: {av.xp} (total {av.totalXp})
                       </p>
@@ -439,7 +447,7 @@ export default function RewardsPage() {
                           Spend 25 Coins
                         </Button>
                       </div>
-                    </div>
+                    </GlassPanel>
                   ))}
                 </div>
               </div>
@@ -448,7 +456,7 @@ export default function RewardsPage() {
         </TabsContent>
 
         <TabsContent value="investments" className="mt-4 space-y-6">
-          <Card>
+          <Card className="glass-panel">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-amber-500" />
@@ -504,7 +512,7 @@ export default function RewardsPage() {
         </TabsContent>
 
         <TabsContent value="shop" className="space-y-6 mt-4">
-          {(["theme", "badge", "title"] as const).map(type => (
+          {(["theme", "badge", "title", "avatar_support"] as const).map(type => (
             <div key={type}>
               <h3 className="text-lg font-semibold capitalize mb-3">{type}s</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -512,7 +520,7 @@ export default function RewardsPage() {
                   const owned = ownedRewardIds.has(reward.id);
                   return (
                     <motion.div key={reward.id} whileHover={{ y: -2 }} transition={{ duration: 0.15 }}>
-                      <Card className={owned ? "border-green-400 dark:border-green-600" : ""}>
+                      <Card className={owned ? "glass-panel-elevated border-green-400 dark:border-green-600" : "glass-panel"}>
                         <CardContent className="p-5">
                           <div className="flex items-start justify-between mb-3">
                             <div className="text-3xl">{reward.icon}</div>
@@ -548,7 +556,7 @@ export default function RewardsPage() {
               const earned = badgeData.earned.find(b => b.badgeId === id);
               return (
                 <motion.div key={id} whileHover={{ scale: 1.02 }} transition={{ duration: 0.15 }}>
-                  <Card className={earned ? "border-amber-400 dark:border-amber-600" : "opacity-60"}>
+                  <Card className={earned ? "glass-panel border-amber-400 dark:border-amber-600" : "glass-panel opacity-60"}>
                     <CardContent className="p-5">
                       <div className="flex items-center gap-3">
                         <span className={`text-3xl ${!earned ? "grayscale" : ""}`}>{def.icon}</span>
@@ -571,7 +579,7 @@ export default function RewardsPage() {
         </TabsContent>
 
         <TabsContent value="history" className="mt-4">
-          <Card>
+          <Card className="glass-panel">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />

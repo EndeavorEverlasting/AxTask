@@ -22,6 +22,8 @@ import { NotificationIntensityPanel } from "@/components/settings/notification-i
 import { ImmersiveSoundsSettingsCard } from "@/components/settings/immersive-sounds-settings-card";
 import { InstallShortcutButton } from "@/components/install-shortcut-button";
 import { cn } from "@/lib/utils";
+import { GlassPanel } from "@/components/ui/glass-panel";
+import { FloatingChip } from "@/components/ui/floating-chip";
 
 export default function SettingsPage() {
   const [, setLocation] = useLocation();
@@ -46,7 +48,7 @@ export default function SettingsPage() {
         Back to app
       </Link>
 
-      <section
+      <GlassPanel
         className={cn(
           "relative overflow-hidden rounded-2xl border-2 border-dashed border-primary/25 bg-gradient-to-br from-violet-500/10 via-background to-amber-500/10 p-6 shadow-sm",
           "dark:from-violet-900/20 dark:via-background dark:to-amber-900/15",
@@ -68,11 +70,15 @@ export default function SettingsPage() {
               Tweak how AxTask feels—without digging through sidebars. Still flat? That&apos;s just the calm before the
               productivity storm.
             </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <FloatingChip tone="neutral">Mission control</FloatingChip>
+              <FloatingChip tone="success">Guided setup</FloatingChip>
+            </div>
           </div>
         </div>
-      </section>
+      </GlassPanel>
 
-      <Card className="border-primary/15 shadow-md shadow-primary/5">
+      <Card className="glass-panel-interactive border-primary/15 shadow-md shadow-primary/5">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <span className="rounded-lg bg-muted px-2 py-0.5 text-xs font-mono">Look &amp; scale</span>
@@ -105,7 +111,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="glass-panel">
         <CardHeader>
           <CardTitle className="text-lg">Notifications</CardTitle>
           <CardDescription>Same controls as the sidebar—now in one place for obsessive tweakers.</CardDescription>
@@ -117,7 +123,7 @@ export default function SettingsPage() {
 
       <ImmersiveSoundsSettingsCard />
 
-      <Card className="border-amber-200/50 dark:border-amber-900/40 bg-amber-50/30 dark:bg-amber-950/20">
+      <Card className="glass-panel border-amber-200/50 dark:border-amber-900/40 bg-amber-50/30 dark:bg-amber-950/20">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <GraduationCap className="h-5 w-5 text-amber-700 dark:text-amber-400" />
@@ -135,7 +141,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="glass-panel">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <Keyboard className="h-5 w-5" />
@@ -152,7 +158,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="glass-panel">
         <CardHeader>
           <CardTitle className="text-lg">Install</CardTitle>
           <CardDescription>Add AxTask to your home screen when your OS allows it.</CardDescription>
@@ -162,7 +168,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="glass-panel">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <UserRoundCog className="h-5 w-5" />

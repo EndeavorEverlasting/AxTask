@@ -10,6 +10,12 @@ import { seedDevAccounts } from "./seed-dev";
 import { pool } from "./db";
 import { installProbeSink } from "./probe-sink";
 import { setupCollaborationWs } from "./collaboration";
+import { attachMonitorContext } from "./monitoring/request-context";
+import { appendSecurityEvent } from "./storage";
+import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
+import { evaluateAdherenceForAllUsers } from "./services/adherence-evaluator";
+import { dispatchAdherencePushNotifications } from "./services/adherence-dispatch";
+import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence-thresholds";
 
 const app = express();
 
@@ -118,6 +124,10 @@ app.use((req, res, next) => {
   return express.json({ limit: "2mb" })(req, res, next);
 });
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
+
+// Attach a privacy-safe snapshot of allowlisted request parameters for monitoring.
+// Must run after body parsers so req.body is available.
+app.use("/api", attachMonitorContext());
 
 if (!isDev) {
   app.use((_, res, next) => {
@@ -270,7 +280,24 @@ app.use((req, res, next) => {
 
   setupCollaborationWs(server);
 
+  if (isAdherenceEnabled()) {
+    const thresholds = getAdherenceThresholds();
+    const runAdherenceTick = async () => {
+      try {
+        await evaluateAdherenceForAllUsers("cron");
+        await dispatchAdherencePushNotifications(100);
+      } catch (error) {
+        console.warn("[adherence] background tick failed:", (error as Error)?.message || String(error));
+      }
+    };
+    void runAdherenceTick();
+    setInterval(() => {
+      void runAdherenceTick();
+    }, thresholds.cronIntervalMs);
+  }
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    const req = _req as Request & { monitor?: { requestId?: string; params?: any; query?: any; body?: any; headers?: any } };
     const status = err.status || err.statusCode || 500;
     const message =
       process.env.NODE_ENV === "production" && status >= 500
@@ -278,6 +305,43 @@ app.use((req, res, next) => {
         : err.message || "Internal Server Error";
 
     console.error(`[error] ${status} — ${err.message || err}`);
+
+    // Best-effort audit event for server-side errors (never blocks response).
+    try {
+      (req as any).__axtaskApiErrorEmitted = true;
+      const ctx = req.monitor;
+      const errorName = err?.name ? String(err.name) : "Error";
+      const errorMessage = err?.message ? String(err.message) : String(err);
+      void appendSecurityEvent({
+        eventType: "api_error",
+        actorUserId: (req.user as any)?.id,
+        route: req.path,
+        method: req.method,
+        statusCode: status,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {
+          requestId: ctx?.requestId,
+          params: ctx?.params,
+          query: ctx?.query,
+          body: ctx?.body,
+          headers: ctx?.headers,
+          errorName,
+          errorMessage,
+          ...(process.env.NODE_ENV !== "production" ? { stack: err?.stack ? String(err.stack) : undefined } : {}),
+        },
+      });
+      void notifyAdminsOfApiError({
+        requestId: ctx?.requestId,
+        route: req.path,
+        method: req.method,
+        statusCode: status,
+        errorName,
+        errorMessage,
+      });
+    } catch {
+      // ignore
+    }
     if (!res.headersSent) {
       res.status(status).json({ message });
     }

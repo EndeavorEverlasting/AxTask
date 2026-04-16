@@ -193,6 +193,64 @@ export const deletePushSubscriptionSchema = z.object({
 export type UserNotificationPreference = typeof userNotificationPreferences.$inferSelect;
 export type UserPushSubscription = typeof userPushSubscriptions.$inferSelect;
 
+export const adherenceSignalSchema = z.enum([
+  "missed_due_dates",
+  "reminder_ignored",
+  "streak_drop",
+  "no_engagement",
+]);
+
+export const adherenceInterventionStatusSchema = z.enum([
+  "open",
+  "acknowledged",
+  "dismissed",
+]);
+
+export const userAdherenceState = pgTable("user_adherence_state", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  lastEvaluatedAt: timestamp("last_evaluated_at"),
+  lastLoginAt: timestamp("last_login_at"),
+  lastTaskMutationAt: timestamp("last_task_mutation_at"),
+  lastMissedDueAt: timestamp("last_missed_due_at"),
+  lastReminderIgnoredAt: timestamp("last_reminder_ignored_at"),
+  lastStreakDropAt: timestamp("last_streak_drop_at"),
+  lastNoEngagementAt: timestamp("last_no_engagement_at"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_adherence_state_updated").on(table.updatedAt),
+]);
+
+export const userAdherenceInterventions = pgTable("user_adherence_interventions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  signal: text("signal").notNull(),
+  status: text("status").notNull().default("open"),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  channel: text("channel").notNull().default("in_app"),
+  contextJson: text("context_json"),
+  dedupeKey: text("dedupe_key").notNull(),
+  pushSentAt: timestamp("push_sent_at"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  dismissedAt: timestamp("dismissed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_adherence_interventions_user_status").on(table.userId, table.status),
+  index("idx_adherence_interventions_signal").on(table.signal),
+  index("idx_adherence_interventions_created").on(table.createdAt),
+  uniqueIndex("ux_adherence_interventions_user_dedupe").on(table.userId, table.dedupeKey),
+]);
+
+export const acknowledgeAdherenceInterventionSchema = z.object({
+  action: z.enum(["acknowledge", "dismiss"]).default("acknowledge"),
+});
+
+export type AdherenceSignal = z.infer<typeof adherenceSignalSchema>;
+export type AdherenceInterventionStatus = z.infer<typeof adherenceInterventionStatusSchema>;
+export type UserAdherenceState = typeof userAdherenceState.$inferSelect;
+export type UserAdherenceIntervention = typeof userAdherenceInterventions.$inferSelect;
+
 /** Multi-label classification with confidence (0–1). Primary label is always `tasks.classification`. */
 export const classificationAssociationSchema = z.object({
   label: z.string().min(1).max(64),
@@ -463,6 +521,12 @@ export const wallets = pgTable("wallets", {
   currentStreak: integer("current_streak").notNull().default(0),
   longestStreak: integer("longest_streak").notNull().default(0),
   lastCompletionDate: text("last_completion_date"),
+  comboCount: integer("combo_count").notNull().default(0),
+  bestComboCount: integer("best_combo_count").notNull().default(0),
+  comboWindowStartedAt: timestamp("combo_window_started_at"),
+  lastCompletionAt: timestamp("last_completion_at"),
+  chainCount24h: integer("chain_count_24h").notNull().default(0),
+  bestChainCount24h: integer("best_chain_count_24h").notNull().default(0),
 });
 
 export type Wallet = typeof wallets.$inferSelect;
@@ -570,6 +634,59 @@ export const userOfflineSkills = pgTable("user_offline_skills", {
 ]);
 
 export type UserOfflineSkill = typeof userOfflineSkills.$inferSelect;
+
+export const avatarSkillNodes = pgTable("avatar_skill_nodes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  skillKey: text("skill_key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  branch: text("branch").notNull(),
+  maxLevel: integer("max_level").notNull().default(1),
+  baseCost: integer("base_cost").notNull().default(100),
+  effectType: text("effect_type").notNull(),
+  effectPerLevel: integer("effect_per_level").notNull().default(0),
+  prerequisiteSkillKey: text("prerequisite_skill_key"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_avatar_skill_nodes_branch").on(table.branch),
+  index("idx_avatar_skill_nodes_sort").on(table.sortOrder),
+]);
+
+export type AvatarSkillNode = typeof avatarSkillNodes.$inferSelect;
+
+export const userAvatarSkills = pgTable("user_avatar_skills", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  skillNodeId: varchar("skill_node_id").notNull().references(() => avatarSkillNodes.id, { onDelete: "cascade" }),
+  level: integer("level").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_user_avatar_skills_user_node").on(table.userId, table.skillNodeId),
+  index("idx_user_avatar_skills_user").on(table.userId),
+]);
+
+export type UserAvatarSkill = typeof userAvatarSkills.$inferSelect;
+
+export const userAvatarProfiles = pgTable("user_avatar_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  avatarKey: text("avatar_key").notNull(),
+  displayName: text("display_name").notNull(),
+  archetypeKey: text("archetype_key").notNull(),
+  level: integer("level").notNull().default(1),
+  xp: integer("xp").notNull().default(0),
+  totalXp: integer("total_xp").notNull().default(0),
+  mission: text("mission").notNull().default("Complete a task to gain XP."),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_user_avatar_profiles_user_avatar").on(table.userId, table.avatarKey),
+  index("idx_user_avatar_profiles_user").on(table.userId),
+]);
+
+export type UserAvatarProfile = typeof userAvatarProfiles.$inferSelect;
 
 // ─── Storage, Usage, and Attachments ────────────────────────────────────────
 export const usageSnapshots = pgTable("usage_snapshots", {

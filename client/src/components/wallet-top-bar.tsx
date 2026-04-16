@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FloatingChip } from "@/components/ui/floating-chip";
 
 export function WalletTopBar() {
   const [, setLocation] = useLocation();
@@ -77,7 +78,7 @@ export function WalletTopBar() {
   });
 
   return (
-    <div className="sticky top-0 z-50 shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-amber-300/50 dark:border-amber-800/50 bg-gradient-to-r from-amber-400/20 via-amber-100/40 to-violet-200/25 dark:from-amber-600/15 dark:via-amber-950/40 dark:to-violet-950/30 px-3 py-3 md:px-5 md:py-3.5 shadow-sm shadow-amber-900/5">
+    <div className="sticky top-0 z-50 shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-amber-300/50 dark:border-amber-800/50 bg-gradient-to-r from-amber-400/20 via-amber-100/40 to-violet-200/25 dark:from-amber-600/15 dark:via-amber-950/40 dark:to-violet-950/30 px-3 py-3 md:px-5 md:py-3.5 shadow-sm shadow-amber-900/5 backdrop-blur-md">
       <div className="min-w-0 flex flex-col gap-0.5">
         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-800/90 dark:text-amber-300/95">
           AxCoins
@@ -85,6 +86,9 @@ export function WalletTopBar() {
         <span className="text-xs text-muted-foreground leading-snug max-w-[min(100%,28rem)]">
           Balance stays pinned here — tap to open shop, quick redeem, history, or earn more without leaving your flow.
         </span>
+        <div className="mt-1">
+          <FloatingChip tone="neutral">Floating wallet rail</FloatingChip>
+        </div>
       </div>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

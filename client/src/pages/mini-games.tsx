@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { GlassPanel } from "@/components/ui/glass-panel";
+import { FloatingChip } from "@/components/ui/floating-chip";
 import { useToast } from "@/hooks/use-toast";
 import {
   createDeckCard,
@@ -148,19 +150,23 @@ export default function MiniGamesPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      <div className="flex items-center justify-between">
+      <GlassPanel elevated className="flex items-center justify-between p-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Gamepad2 className="h-6 w-6 text-indigo-500" />
             Mini-Games
           </h1>
           <p className="text-sm text-muted-foreground">Study sub-experiences for focused review rounds.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <FloatingChip tone="neutral">Focused review</FloatingChip>
+            <FloatingChip tone="success">XP + coins</FloatingChip>
+          </div>
         </div>
         <Badge variant="secondary" className="capitalize">{gameStatus.replace("_", " ")}</Badge>
-      </div>
+      </GlassPanel>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card className="xl:col-span-2">
+        <Card className="xl:col-span-2 glass-panel-interactive">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Brain className="h-5 w-5 text-primary" />
@@ -177,7 +183,7 @@ export default function MiniGamesPage() {
               <p className="text-sm text-muted-foreground">Add at least one card to launch your first sprint.</p>
             ) : (
               <div className="space-y-3">
-                <div className="rounded-lg border p-4 min-h-[160px]">
+                <div className="glass-panel rounded-lg p-4 min-h-[160px]">
                   <p className="text-xs text-muted-foreground mb-2">
                     Card {Math.min(cardIndex + 1, cards.length)} / {cards.length}
                   </p>
@@ -220,17 +226,17 @@ export default function MiniGamesPage() {
               </div>
             )}
             {summary ? (
-              <div className="rounded-lg border bg-muted/20 p-3 text-sm space-y-1">
+              <GlassPanel className="rounded-lg p-3 text-sm space-y-1">
                 <p className="font-semibold flex items-center gap-2"><Sparkles className="h-4 w-4 text-amber-500" /> Session Summary</p>
                 <p>Score: {summary.scorePercent}% ({summary.correctCards}/{summary.answeredCards})</p>
                 <p>Coins earned: {summary.rewardCoins}</p>
                 <p>Weak topics: {summary.weakTopicsJson || "None detected"}</p>
-              </div>
+              </GlassPanel>
             ) : null}
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="glass-panel-interactive">
           <CardHeader>
             <CardTitle>Deck Builder</CardTitle>
             <CardDescription>Create cards from study topics and run quick rounds.</CardDescription>
@@ -275,7 +281,7 @@ export default function MiniGamesPage() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="glass-panel">
         <CardHeader>
           <CardTitle>Game Registry</CardTitle>
           <CardDescription>Current and upcoming study mini-games in this sub-experience layer.</CardDescription>

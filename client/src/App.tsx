@@ -17,6 +17,7 @@ import { VoiceCommandBar } from "@/components/voice-command-bar";
 import { InstallCtaBanner } from "@/components/install-cta-banner";
 import { WalletTopBar } from "@/components/wallet-top-bar";
 import { FeedbackNudgeDialog } from "@/components/feedback-nudge-dialog";
+import { AdherenceNudges } from "@/components/adherence-nudges";
 import { OfflineDataBanner } from "@/components/offline-data-banner";
 import { OfflineBanner } from "@/components/offline-banner";
 import { TaskOfflineSyncProvider } from "@/components/task-offline-sync-provider";
@@ -369,6 +370,7 @@ function AuthenticatedApp() {
           <OfflineDataBanner />
           <WalletTopBar />
           <InstallCtaBanner userId={user.id} />
+          <AdherenceNudges />
           <div
             className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0 [scrollbar-gutter:stable]"
             style={
