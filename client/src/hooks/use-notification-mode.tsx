@@ -76,6 +76,10 @@ async function resolveVapidPublicKey(): Promise<string | null> {
   return null;
 }
 
+function canUsePushApis(): boolean {
+  return "Notification" in window && "serviceWorker" in navigator;
+}
+
 export function NotificationModeProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const [localIntensity, setLocalIntensity] = useState<number>(50);
@@ -125,15 +129,15 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
   });
 
   const ensureSubscription = useCallback(async () => {
-    if (!("serviceWorker" in navigator)) return;
+    if (!("serviceWorker" in navigator)) return false;
     const vapidPublicKey = await resolveVapidPublicKey();
     if (!vapidPublicKey) {
       toast({
         title: "Push key missing",
-        description: "The server has not published a VAPID key yet. Ensure the database is migrated (npm run db:push) and CANONICAL_HOST or VAPID_SUBJECT is set in production.",
+        description: "Push delivery is not configured yet. You can still enable in-app notification mode, but browser push will stay off until VAPID keys are configured.",
         variant: "destructive",
       });
-      throw new Error("VAPID public key not configured");
+      return false;
     }
 
     const registration = await navigator.serviceWorker.ready;
@@ -143,6 +147,7 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
     });
     await upsertSubscriptionMutation.mutateAsync(subscription);
+    return true;
   }, [toast, upsertSubscriptionMutation]);
 
   const disableAndUnsubscribe = useCallback(async () => {
@@ -167,34 +172,29 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
       return;
     }
 
-    if (!("Notification" in window) || !("serviceWorker" in navigator)) {
+    let pushEnabled = false;
+    if (canUsePushApis()) {
+      let permission = Notification.permission;
+      if (permission !== "granted") {
+        permission = await Notification.requestPermission();
+      }
+      setPushStatus(permission as PushSupportStatus);
+      if (permission === "granted") {
+        pushEnabled = await ensureSubscription();
+      }
+    } else {
       setPushStatus("unsupported");
-      toast({
-        title: "Push not supported",
-        description: "This browser does not support push notifications.",
-        variant: "destructive",
-      });
-      return;
     }
 
-    let permission = Notification.permission;
-    if (permission !== "granted") {
-      permission = await Notification.requestPermission();
-    }
-    setPushStatus(permission as PushSupportStatus);
-
-    if (permission !== "granted") {
-      toast({
-        title: "Push permission denied",
-        description: "Allow browser notifications to enable notification mode.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    await ensureSubscription();
     await savePreferenceMutation.mutateAsync({ enabled: true });
-    toast({ title: "Notifications on", description: "Push notifications are now enabled." });
+    if (pushEnabled) {
+      toast({ title: "Notifications on", description: "Push notifications are now enabled." });
+    } else {
+      toast({
+        title: "Notifications on",
+        description: "Notification mode is enabled. Push delivery is unavailable on this device/configuration.",
+      });
+    }
   }, [disableAndUnsubscribe, ensureSubscription, preferenceQuery.data?.enabled, savePreferenceMutation, toast]);
 
   const saveIntensity = useCallback(async (value: number) => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { CoinTransaction } from "./schema";
-import { toPublicCoinTransaction, toPublicSessionUser, toPublicWallet } from "./public-client-dtos";
+import type { CoinTransaction, UserBadge } from "./schema";
+import { toPublicBadge, toPublicCoinTransaction, toPublicSessionUser, toPublicWallet } from "./public-client-dtos";
 import type { SafeUser } from "./schema";
 
 const safeUser = (over: Partial<SafeUser> = {}): SafeUser =>
@@ -74,5 +74,17 @@ describe("public client DTOs", () => {
     } as CoinTransaction;
     const pub = toPublicCoinTransaction(row);
     expect(pub.details).toContain("Search:");
+  });
+
+  it("strips badge userId for public responses", () => {
+    const badge = {
+      id: "b1",
+      userId: "u1",
+      badgeId: "first-task",
+      earnedAt: new Date(),
+    } as UserBadge;
+    const pub = toPublicBadge(badge);
+    expect(pub).not.toHaveProperty("userId");
+    expect(pub.badgeId).toBe("first-task");
   });
 });

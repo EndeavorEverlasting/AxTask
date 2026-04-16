@@ -74,7 +74,7 @@ import { db } from "./db";
 import { eq, and, desc, sql, count } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
-import { toPublicSessionUser, toPublicWallet, toPublicCoinTransactions } from "@shared/public-client-dtos";
+import { toPublicSessionUser, toPublicWallet, toPublicCoinTransactions, toPublicBadges } from "@shared/public-client-dtos";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
 import { verifyMfaChallengeOrTotp } from "./services/mfa-totp";
 import {
@@ -1283,6 +1283,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       return res.status(500).json({ message: "Failed to update notification preferences" });
     }
+  });
+
+  app.get("/api/notifications/push-public-config", requireAuth, async (_req, res) => {
+    const publicKey = (
+      process.env.VAPID_PUBLIC_KEY ||
+      process.env.VITE_VAPID_PUBLIC_KEY ||
+      ""
+    ).trim();
+    res.json({
+      configured: !!publicKey,
+      publicKey: publicKey || undefined,
+    });
   });
 
   app.get("/api/notifications/subscriptions", requireAuth, async (req, res) => {
@@ -2702,7 +2714,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/gamification/badges", requireAuth, async (req, res) => {
     try {
       const earned = await getUserBadges(req.user!.id);
-      res.json({ earned, definitions: BADGE_DEFINITIONS });
+      res.json({ earned: toPublicBadges(earned), definitions: BADGE_DEFINITIONS });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch badges" });
     }
@@ -2754,7 +2766,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ]);
       res.json({
         wallet: toPublicWallet(wallet),
-        badges,
+        badges: toPublicBadges(badges),
         rewards,
         transactions: toPublicCoinTransactions(txs),
         definitions: BADGE_DEFINITIONS,

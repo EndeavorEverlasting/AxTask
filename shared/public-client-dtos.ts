@@ -1,4 +1,4 @@
-import type { CoinTransaction, SafeUser, Wallet } from "./schema";
+import type { CoinTransaction, SafeUser, UserBadge, Wallet } from "./schema";
 
 /**
  * Session user returned from GET /api/auth/me (and similar).
@@ -55,4 +55,19 @@ export function toPublicCoinTransaction(row: CoinTransaction): PublicCoinTransac
 
 export function toPublicCoinTransactions(rows: CoinTransaction[]): PublicCoinTransaction[] {
   return rows.map(toPublicCoinTransaction);
+}
+
+/** Badge payload safe for client consumption. */
+export type PublicBadge = Pick<UserBadge, "id" | "badgeId" | "earnedAt">;
+
+export function toPublicBadge(badge: UserBadge): PublicBadge {
+  return {
+    id: badge.id,
+    badgeId: badge.badgeId,
+    earnedAt: badge.earnedAt,
+  };
+}
+
+export function toPublicBadges(badges: UserBadge[]): PublicBadge[] {
+  return badges.map(toPublicBadge);
 }

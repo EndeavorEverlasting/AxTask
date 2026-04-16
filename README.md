@@ -356,6 +356,12 @@ Required env for browser push subscription:
 VITE_VAPID_PUBLIC_KEY=...
 ```
 
+Optional server-side fallback for runtime push-key publication (used by
+`/api/notifications/push-public-config`):
+```env
+VAPID_PUBLIC_KEY=...
+```
+
 After pulling these changes, run:
 ```bash
 npm run db:push

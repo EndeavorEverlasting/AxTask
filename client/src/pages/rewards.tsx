@@ -46,7 +46,6 @@ interface BadgeDefinition {
 
 interface UserBadge {
   id: string;
-  userId: string;
   badgeId: string;
   earnedAt: string;
 }
