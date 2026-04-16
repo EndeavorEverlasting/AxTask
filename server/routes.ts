@@ -1934,6 +1934,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }) || task;
       }
 
+      const latestTask = await storage.getTask(userId, req.params.id);
+      task = latestTask || task;
+
       let coinReward = null;
       let coinSkipReason: string | null = null;
       if (task!.status === "completed" && previousStatus !== "completed") {

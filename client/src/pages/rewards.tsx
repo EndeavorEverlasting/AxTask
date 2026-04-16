@@ -253,8 +253,9 @@ export default function RewardsPage() {
       {economyDiagnostics && (
         <Card>
           <CardContent className="p-4 text-sm text-muted-foreground">
-            Avg P-Score uses the {economyDiagnostics.pScoreScale} scale across dashboard and rewards views.
-            Current average: <span className="font-semibold text-foreground">{economyDiagnostics.averagePScore}</span>.
+            Average priority score uses the {economyDiagnostics.pScoreScale} engine scale (same meaning as the task list &quot;Priority (0–10)&quot; column — not AxCoins).
+            Current average across tasks:{" "}
+            <span className="font-semibold text-foreground">{economyDiagnostics.averagePScore}</span>.
           </CardContent>
         </Card>
       )}

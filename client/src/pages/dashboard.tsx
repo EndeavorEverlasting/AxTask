@@ -128,7 +128,7 @@ export default function Dashboard() {
           reducedMotion={reducedMotion}
         />
         <StatCard
-          label="Avg P-Score (0-10)"
+          label="Avg priority (0–10)"
           value={isLoading ? "..." : avgScore}
           icon={<BarChart3 className="text-orange-600 text-xl h-6 w-6" />}
           colorClass="text-orange-600"
@@ -137,8 +137,8 @@ export default function Dashboard() {
           reducedMotion={reducedMotion}
         />
       </div>
-      <p className="text-xs text-muted-foreground -mt-2">
-        Average p-score is shown in engine units (0-10 typical), not raw DB units. Current band: {avgScoreBand}.
+      <p className="text-xs text-muted-foreground -mt-2 max-w-3xl">
+        This is the same scale as the task list &quot;Priority (0–10)&quot; column: stored priority score in the database is ×10, then averaged and shown here as engine units (typically under ~12). Load band: {avgScoreBand}.
       </p>
 
       <TaskForm />

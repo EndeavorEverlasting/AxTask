@@ -421,9 +421,13 @@ function VirtualizedTaskTable({
                 {sortField === 'classification' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
               </div>
             </TableHead>
-            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priorityScore')}>
+            <TableHead
+              className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
+              onClick={() => handleSort('priorityScore')}
+              title="Priority engine score in 0–10 units (stored as ×10 in the database). Same scale as dashboard “avg priority”."
+            >
               <div className="flex items-center">
-                Score
+                Priority (0–10)
                 {sortField === 'priorityScore' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
               </div>
             </TableHead>
@@ -997,6 +1001,13 @@ export function TaskList() {
           description: "This task already earned its one-time completion reward.",
         });
         playIfEligible(3);
+      } else if (variables.status === "completed" && d?.coinSkipReason === "not_awarded") {
+        toast({
+          title: "Completed — no coins this time",
+          description:
+            "The server did not award completion coins for this transition. Check your balance after a refresh; if it keeps happening, the completion may not have persisted before the payout step.",
+        });
+        playIfEligible(3);
       } else {
         toast({
           title: "Task updated",
@@ -1320,7 +1331,7 @@ export function TaskList() {
                     <SelectItem value="priority">Priority</SelectItem>
                     <SelectItem value="activity">Activity</SelectItem>
                     <SelectItem value="classification">Classification</SelectItem>
-                    <SelectItem value="priorityScore">Score</SelectItem>
+                    <SelectItem value="priorityScore">Priority (0–10)</SelectItem>
                     <SelectItem value="status">Status</SelectItem>
                     <SelectItem value="createdAt">Created</SelectItem>
                     <SelectItem value="updatedAt">Updated</SelectItem>
@@ -1490,9 +1501,13 @@ export function TaskList() {
                           {sortField === 'classification' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
                         </div>
                       </TableHead>
-                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priorityScore')}>
+                      <TableHead
+                        className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
+                        onClick={() => handleSort('priorityScore')}
+                        title="Priority engine score in 0–10 units (stored as ×10 in the database). Same scale as dashboard “avg priority”."
+                      >
                         <div className="flex items-center">
-                          Score
+                          Priority (0–10)
                           {sortField === 'priorityScore' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
                         </div>
                       </TableHead>
