@@ -28,6 +28,7 @@ describe("use-case engagement wiring", () => {
     expect(routes).toContain('"/api/gamification/economy-diagnostics"');
     expect(routes).toContain("consensusCorrectionReward");
     expect(routes).toContain("consensusTierBonus");
+    expect(routes).toContain("walletBalance");
     expect(routes).toContain("confirmationCount");
   });
   it("returns classification confirmation response with new balance", () => {

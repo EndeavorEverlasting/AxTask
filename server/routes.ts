@@ -1950,8 +1950,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         console.log(`[COIN REWARD] Skipped: status=${task.status}, prev=${previousStatus}`);
       }
-
-      res.json({ ...task, coinReward, coinSkipReason });
+      const responseWalletBalance = coinReward?.newBalance ?? null;
+      res.json({ ...task, coinReward, coinSkipReason, walletBalance: responseWalletBalance });
     } catch (error) {
       console.error("[TASK UPDATE ERROR]", error);
       if (error instanceof Error) {

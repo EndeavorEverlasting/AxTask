@@ -925,6 +925,7 @@ export function TaskList() {
         offlineQueued?: boolean;
         coinReward?: unknown;
         coinSkipReason?: string | null;
+        walletBalance?: number | null;
       } | undefined;
       if (d?.offlineQueued) {
         toast({
@@ -948,7 +949,16 @@ export function TaskList() {
           title: `+${cr.coinsEarned} AxCoins earned!`,
           description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${badgeText}`,
         });
+        queryClient.setQueryData(["/api/gamification/wallet"], (prev: unknown) => {
+          if (!prev || typeof prev !== "object") return prev;
+          return { ...(prev as Record<string, unknown>), balance: cr.newBalance };
+        });
         playIfEligible(1);
+      } else if (typeof d?.walletBalance === "number") {
+        queryClient.setQueryData(["/api/gamification/wallet"], (prev: unknown) => {
+          if (!prev || typeof prev !== "object") return prev;
+          return { ...(prev as Record<string, unknown>), balance: d.walletBalance };
+        });
       } else if (variables.status === "completed" && d?.coinSkipReason === "already_awarded") {
         toast({
           title: "No new completion coins",
