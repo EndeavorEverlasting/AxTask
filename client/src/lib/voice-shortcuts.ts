@@ -7,6 +7,7 @@
 
 export type VoiceShortcutAction =
   | "dashboard"
+  | "shopping_list"
   | "find_tasks"
   | "new_task"
   | "toggle_tutorial"
@@ -71,6 +72,13 @@ const SHORTCUT_PATTERNS: ShortcutPattern[] = [
       /^(?:go\s+)?home$/i,
       /^(?:show(?:\s+me)?|open)\s+(?:the\s+)?(?:main|home)\s*(?:page|screen)?$/i,
       /^(?:show(?:\s+me)?)\s+everything$/i,
+    ],
+  },
+  {
+    action: "shopping_list",
+    patterns: [
+      /^shopping\s+list$/i,
+      /^(?:open|show|go\s+to)\s+(?:me\s+)?(?:my\s+)?(?:shopping|grocery)(?:\s+list)?$/i,
     ],
   },
   {
@@ -180,6 +188,7 @@ export function matchTaskFormVoiceSubmit(rawTranscript: string): boolean {
  */
 export const VOICE_SHORTCUT_HINTS = [
   { action: "dashboard" as const, label: "Dashboard", examples: ['"Show all tasks"', '"Go home"'] },
+  { action: "shopping_list" as const, label: "Shopping list", examples: ['"Shopping list"', '"Open shopping list"'] },
   { action: "find_tasks" as const, label: "Find Tasks", examples: ['"Find a task"', '"Search"'] },
   { action: "new_task" as const, label: "New Task", examples: ['"Add a task"', '"New task"'] },
   { action: "toggle_tutorial" as const, label: "Tutorial", examples: ['"Toggle tutorial"', '"Guided tour"'] },

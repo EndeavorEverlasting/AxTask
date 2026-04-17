@@ -47,8 +47,11 @@ describe("PriorityEngine", () => {
       expect(PriorityEngine.classifyTask("submit report", "")).toBe("Administrative");
       expect(PriorityEngine.classifyTask("approve request", "sign document")).toBe("Administrative");
     });
+    it("classifies shopping", () => {
+      expect(PriorityEngine.classifyTask("buy groceries", "")).toBe("Shopping");
+    });
     it("returns General for unclassified tasks", () => {
-      expect(PriorityEngine.classifyTask("buy groceries", "")).toBe("General");
+      expect(PriorityEngine.classifyTask("read a book", "")).toBe("General");
     });
   });
 

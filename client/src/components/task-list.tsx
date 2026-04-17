@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
+import { isShoppingTask } from "@shared/shopping-tasks";
 import {
   isBrowserOnline,
   syncDeleteTask,
@@ -185,6 +186,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
   isUpdating,
   isDeleting,
   reducedMotion,
+  shoppingVariant = false,
 }: {
   task: Task;
   isDragMode: boolean;
@@ -194,6 +196,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
   isUpdating: boolean;
   isDeleting: boolean;
   reducedMotion: boolean;
+  shoppingVariant?: boolean;
 }) {
   const {
     attributes,
@@ -338,6 +341,15 @@ const SortableTaskRow = memo(function SortableTaskRow({
               onToggleStatus(task.id, task.status === "completed" ? "pending" : "completed");
             }}
             disabled={isUpdating}
+            aria-label={
+              shoppingVariant
+                ? task.status === "completed"
+                  ? "Mark as not purchased"
+                  : "Mark as purchased"
+                : task.status === "completed"
+                  ? "Mark as not complete"
+                  : "Mark complete"
+            }
           >
             <Check className="h-4 w-4" />
           </Button>
@@ -362,7 +374,8 @@ const SortableTaskRow = memo(function SortableTaskRow({
     prev.isDragMode === next.isDragMode &&
     prev.isUpdating === next.isUpdating &&
     prev.isDeleting === next.isDeleting &&
-    prev.reducedMotion === next.reducedMotion
+    prev.reducedMotion === next.reducedMotion &&
+    prev.shoppingVariant === next.shoppingVariant
   );
 });
 
@@ -378,6 +391,7 @@ function VirtualizedTaskTable({
   sortField,
   sortDirection,
   handleSort,
+  shoppingVariant = false,
 }: {
   tasks: Task[];
   isDragMode: boolean;
@@ -390,6 +404,7 @@ function VirtualizedTaskTable({
   sortField: SortField;
   sortDirection: SortDirection;
   handleSort: (field: SortField) => void;
+  shoppingVariant?: boolean;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const ROW_HEIGHT = 52;
@@ -455,7 +470,7 @@ function VirtualizedTaskTable({
             </TableHead>
             <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('status')}>
               <div className="flex items-center">
-                Status
+                {shoppingVariant ? "Purchased" : "Status"}
                 {sortField === 'status' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
               </div>
             </TableHead>
@@ -482,6 +497,7 @@ function VirtualizedTaskTable({
                   isUpdating={isUpdatingRow(task.id)}
                   isDeleting={isDeletingRow(task.id)}
                   reducedMotion={reducedMotion}
+                  shoppingVariant={shoppingVariant}
                 />
               );
             })}
@@ -504,6 +520,7 @@ function MobileTaskCard({
   onDelete,
   isUpdating,
   isDeleting,
+  shoppingVariant = false,
 }: {
   task: Task;
   onEdit: (task: Task) => void;
@@ -511,6 +528,7 @@ function MobileTaskCard({
   onDelete: (id: string) => void;
   isUpdating: boolean;
   isDeleting: boolean;
+  shoppingVariant?: boolean;
 }) {
   const [swipeX, setSwipeX] = useState(0);
   const [swiping, setSwiping] = useState(false);
@@ -651,7 +669,13 @@ function MobileTaskCard({
             disabled={isUpdating}
           >
             <Check className="h-4 w-4 mr-1" />
-            {task.status === "completed" ? "Undo" : "Done"}
+            {shoppingVariant
+              ? task.status === "completed"
+                ? "Not purchased"
+                : "Mark purchased"
+              : task.status === "completed"
+                ? "Undo"
+                : "Done"}
           </Button>
           <Button
             variant="outline"
@@ -676,6 +700,7 @@ function MobileVirtualizedTaskList({
   onEdit,
   onToggleStatus,
   onDelete,
+  shoppingVariant = false,
 }: {
   getScrollElement: () => HTMLElement | null;
   tasks: Task[];
@@ -684,6 +709,7 @@ function MobileVirtualizedTaskList({
   onEdit: (task: Task) => void;
   onToggleStatus: (id: string, status: string) => void;
   onDelete: (id: string) => void;
+  shoppingVariant?: boolean;
 }) {
   const rowHeight = 118;
   const virtualizer = useVirtualizer({
@@ -711,6 +737,7 @@ function MobileVirtualizedTaskList({
                 onDelete={onDelete}
                 isUpdating={updatingTaskIds.has(task.id)}
                 isDeleting={deletingTaskIds.has(task.id)}
+                shoppingVariant={shoppingVariant}
               />
             </div>
           </div>
@@ -799,15 +826,18 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollEl: HTMLElement 
   return { pullDistance, isRefreshing };
 }
 
-export function TaskList() {
+export type TaskListVariant = "default" | "shopping";
+
+export function TaskList({ variant = "default" }: { variant?: TaskListVariant } = {}) {
   const { toast } = useToast();
   const { playIfEligible } = useImmersiveSounds();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
+  const shoppingUi = variant === "shopping";
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 200);
   const [priorityFilter, setPriorityFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(() => (shoppingUi ? "pending" : "all"));
   const [sortField, setSortField] = useState<SortField>('manual');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -851,6 +881,11 @@ export function TaskList() {
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
   });
+
+  const scopedTasks = useMemo(
+    () => (shoppingUi ? tasks.filter((t) => isShoppingTask(t)) : tasks),
+    [tasks, shoppingUi],
+  );
   const { data: storageProfile } = useQuery<{
     policy: { maxTasks: number; maxAttachmentBytes: number };
     usage: { taskCount: number; attachmentBytes: number };
@@ -918,10 +953,10 @@ export function TaskList() {
       resolveTaskListSearchSource({
         browserOnline,
         debouncedQuery: debouncedSearchQuery,
-        allTasks: tasks,
+        allTasks: scopedTasks,
         searchResults: useServerSearchList ? searchTasks : undefined,
       }),
-    [browserOnline, debouncedSearchQuery, tasks, useServerSearchList, searchTasks],
+    [browserOnline, debouncedSearchQuery, scopedTasks, useServerSearchList, searchTasks],
   );
 
   useEffect(() => {
@@ -1321,7 +1356,7 @@ export function TaskList() {
       <CardHeader className="px-4 md:px-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center justify-between">
-            <CardTitle>Task List</CardTitle>
+            <CardTitle>{shoppingUi ? "Shopping list" : "Task List"}</CardTitle>
             {isMobile && (
               <Button variant="ghost" size="icon" className="h-10 w-10" onClick={handlePullRefresh} disabled={isRefreshing}>
                 <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
@@ -1340,11 +1375,11 @@ export function TaskList() {
               <Input
                 id="task-list-search"
                 ref={searchInputRef}
-                placeholder="Search tasks..."
+                placeholder={shoppingUi ? "Search shopping items…" : "Search tasks..."}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className={`pl-10 w-full md:w-64 h-10 ${useServerSearchList && isSearchFetching && searchTasks === undefined ? "pr-10" : ""}`}
-                aria-label="Search tasks"
+                aria-label={shoppingUi ? "Search shopping items" : "Search tasks"}
               />
             </div>
             <div className="flex gap-2">
@@ -1369,7 +1404,7 @@ export function TaskList() {
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="in-progress">In Progress</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="completed">{shoppingUi ? "Purchased" : "Completed"}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1518,6 +1553,7 @@ export function TaskList() {
                   onEdit={handleEdit}
                   onToggleStatus={handleToggleStatus}
                   onDelete={handleDelete}
+                  shoppingVariant={shoppingUi}
                 />
               ) : (
                 filteredAndSortedTasks.map((task: Task) => (
@@ -1529,6 +1565,7 @@ export function TaskList() {
                     onDelete={handleDelete}
                     isUpdating={updatingTaskIds.has(task.id)}
                     isDeleting={deletingTaskIds.has(task.id)}
+                    shoppingVariant={shoppingUi}
                   />
                 ))
               )}
@@ -1549,6 +1586,7 @@ export function TaskList() {
                 sortField={sortField}
                 sortDirection={sortDirection}
                 handleSort={handleSort}
+                shoppingVariant={shoppingUi}
               />
             ) : (
               <div className="overflow-x-auto">
@@ -1604,7 +1642,7 @@ export function TaskList() {
                       </TableHead>
                       <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('status')}>
                         <div className="flex items-center">
-                          Status
+                          {shoppingUi ? "Purchased" : "Status"}
                           {sortField === 'status' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
                         </div>
                       </TableHead>
@@ -1625,6 +1663,7 @@ export function TaskList() {
                             isUpdating={updatingTaskIds.has(task.id)}
                             isDeleting={deletingTaskIds.has(task.id)}
                             reducedMotion={reducedMotion}
+                            shoppingVariant={shoppingUi}
                           />
                         ))}
                       </AnimatePresence>

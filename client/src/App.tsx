@@ -31,6 +31,7 @@ import CalendarPage from "@/pages/calendar";
 import ImportExport from "@/pages/import-export";
 import GoogleSheetsSyncPage from "@/pages/google-sheets-sync";
 import ChecklistPage from "@/pages/checklist";
+import ShoppingPage from "@/pages/shopping";
 import PlannerPage from "@/pages/planner";
 import MiniGamesPage from "@/pages/mini-games";
 import AdminPage from "@/pages/admin";
@@ -69,6 +70,7 @@ function Router() {
       <Route path="/import-export" component={ImportExport} />
       <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
       <Route path="/checklist" component={ChecklistPage} />
+      <Route path="/shopping" component={ShoppingPage} />
       <Route path="/planner" component={PlannerPage} />
       <Route path="/mini-games" component={MiniGamesPage} />
       <Route path="/feedback" component={FeedbackPage} />

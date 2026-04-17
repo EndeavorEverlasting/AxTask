@@ -16,6 +16,13 @@ describe("Voice: dashboard (Alt+T)", () => {
   });
 });
 
+describe("Voice: shopping_list", () => {
+  it("matches shopping list phrases", () => {
+    expect(matchVoiceShortcut("shopping list")).toBe("shopping_list");
+    expect(matchVoiceShortcut("open my shopping list")).toBe("shopping_list");
+  });
+});
+
 describe("Voice: find_tasks (Alt+F)", () => {
   it("matches find/search phrases", () => {
     expect(matchVoiceShortcut("find tasks")).toBe("find_tasks");

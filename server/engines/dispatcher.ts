@@ -1,4 +1,11 @@
 import type { Task } from "@shared/schema";
+import {
+  extractShoppingListItemsForVoice,
+  isShoppingVoiceUtterance,
+  SHOPPING_LIST_MAX_ITEMS,
+  stripAvatarDelegationPhrase,
+  stripTrailingShoppingListFromActivity,
+} from "@shared/shopping-tasks";
 import { classifyCalendarIntent, processCalendarCommand, type CalendarResult } from "./calendar-engine";
 import { processPlannerQuery, type PlannerResult } from "./planner-engine";
 import { isTaskReviewIntent, processTaskReview, type ReviewResult } from "./review-engine";
@@ -22,6 +29,8 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     intent: "navigation",
     patterns: [
+      /\b(?:go to|open|show|show me|navigate to|switch to|take me to)\s+(?:the\s+)?(?:my\s+)?(?:shopping|grocery)(?:\s+list)?\b/i,
+      /\b(?:show|open)\s+(?:me\s+)?(?:my\s+)?(?:shopping|grocery)(?:\s+list)?\b/i,
       /\b(?:go to|open|show me|navigate to|switch to|take me to)\s+(?:the\s+)?(?:dashboard|home)\b/i,
       /\b(?:go to|open|show me|navigate to|switch to|take me to)\s+(?:the\s+)?(?:tasks?|task list|all tasks)\b/i,
       /\b(?:go to|open|show me|navigate to|switch to|take me to)\s+(?:the\s+)?calendar\b/i,
@@ -101,8 +110,16 @@ function extractNavigationTarget(text: string): string {
   if (/\bcalendar\b/.test(lower)) return "/calendar";
   if (/\banalytics\b/.test(lower)) return "/analytics";
   if (/\b(?:planner|ai planner)\b/.test(lower)) return "/planner";
+  if (/\b(shopping|grocery)\s+list\b/.test(lower)) return "/shopping";
+  if (/\b(?:open|show|go to|navigate to)\s+(?:me\s+)?(?:the\s+)?(?:my\s+)?(?:shopping|grocery)\b/.test(lower))
+    return "/shopping";
   if (/\bchecklist\b/.test(lower)) return "/checklist";
   return "/";
+}
+
+function voiceAck(message: string, delegation: boolean): string {
+  if (!delegation) return message;
+  return `On it — ${message}`;
 }
 
 function extractTaskDetails(text: string): { activity: string; date?: string; time?: string } {
@@ -192,23 +209,55 @@ export async function dispatchVoiceCommand(
   todayStr: string,
   now: Date
 ): Promise<EngineResponse> {
-  const transcript = stripWakeWord(rawTranscript);
-  const intent = classifyIntent(transcript);
+  const afterWake = stripWakeWord(rawTranscript);
+  const { text: delegated, delegation } = stripAvatarDelegationPhrase(afterWake);
+  const intent = classifyIntent(delegated);
 
   switch (intent) {
     case "navigation": {
-      const target = extractNavigationTarget(transcript);
-      const pageName = target === "/" ? "Dashboard" : target.slice(1).charAt(0).toUpperCase() + target.slice(2);
+      const target = extractNavigationTarget(delegated);
+      const pageName =
+        target === "/"
+          ? "Dashboard"
+          : target === "/shopping"
+            ? "Shopping list"
+            : target.slice(1).charAt(0).toUpperCase() + target.slice(2);
       return {
         intent: "navigation",
         action: "navigate",
         payload: { path: target },
-        message: `Navigating to ${pageName}.`,
+        message: voiceAck(`Navigating to ${pageName}.`, delegation),
       };
     }
 
     case "task_create": {
-      const details = extractTaskDetails(transcript);
+      const lower = delegated.toLowerCase();
+      if (isShoppingVoiceUtterance(lower)) {
+        let items = extractShoppingListItemsForVoice(delegated);
+        if (items.length === 0) {
+          const details = extractTaskDetails(delegated);
+          const act = stripTrailingShoppingListFromActivity(details.activity).replace(/\s{2,}/g, " ").trim();
+          if (act) items = [act];
+        }
+        if (items.length > 0) {
+          const details = extractTaskDetails(delegated);
+          const date = details.date || todayStr;
+          const time = details.time || "";
+          const capped = items.slice(0, SHOPPING_LIST_MAX_ITEMS);
+          const msg =
+            capped.length === 1
+              ? `Adding "${capped[0]}" to your shopping list.`
+              : `Adding ${capped.length} items to your shopping list.`;
+          return {
+            intent: "task_create",
+            action: "create_shopping_tasks",
+            payload: { items: capped, date, time },
+            message: voiceAck(msg, delegation),
+          };
+        }
+      }
+
+      const details = extractTaskDetails(delegated);
       return {
         intent: "task_create",
         action: "prefill_task",
@@ -217,43 +266,44 @@ export async function dispatchVoiceCommand(
           date: details.date || todayStr,
           time: details.time || "",
         },
-        message: details.activity
-          ? `Ready to create task: "${details.activity}"`
-          : "Opening task form for you.",
+        message: voiceAck(
+          details.activity ? `Ready to create task: "${details.activity}"` : "Opening task form for you.",
+          delegation,
+        ),
       };
     }
 
     case "calendar_command": {
-      const calIntent = classifyCalendarIntent(transcript);
+      const calIntent = classifyCalendarIntent(delegated);
       if (calIntent !== "unknown") {
-        const result = processCalendarCommand(transcript, tasks, todayStr, now);
+        const result = processCalendarCommand(delegated, tasks, todayStr, now);
         return {
           intent: "calendar_command",
           action: result.action,
           payload: result.payload,
-          message: result.message,
+          message: voiceAck(result.message, delegation),
         };
       }
       return {
         intent: "calendar_command",
         action: "navigate",
         payload: { path: "/calendar" },
-        message: "Opening your calendar.",
+        message: voiceAck("Opening your calendar.", delegation),
       };
     }
 
     case "planner_query": {
-      const result = processPlannerQuery(transcript, tasks, todayStr, now);
+      const result = processPlannerQuery(delegated, tasks, todayStr, now);
       return {
         intent: "planner_query",
         action: result.action,
         payload: { answer: result.answer, relatedTasks: result.relatedTasks },
-        message: result.answer,
+        message: voiceAck(result.answer, delegation),
       };
     }
 
     case "task_review": {
-      const reviewResult = processTaskReview(transcript, tasks, now);
+      const reviewResult = processTaskReview(delegated, tasks, now);
       return {
         intent: "task_review",
         action: "show_review",
@@ -261,25 +311,27 @@ export async function dispatchVoiceCommand(
           actions: reviewResult.actions,
           unmatched: reviewResult.unmatched,
         },
-        message: reviewResult.message,
+        message: voiceAck(reviewResult.message, delegation),
       };
     }
 
     case "search":
     default: {
-      const query = extractSearchQuery(transcript);
+      const query = extractSearchQuery(delegated);
       const pendingTasks = tasks.filter(t => t.status !== "completed");
       const matches = pendingTasks.filter(t =>
         t.activity.toLowerCase().includes(query.toLowerCase()) ||
         (t.notes || "").toLowerCase().includes(query.toLowerCase())
       );
+      const searchMsg =
+        matches.length > 0
+          ? `Found ${matches.length} task${matches.length !== 1 ? "s" : ""} matching "${query}".`
+          : `No tasks found matching "${query}".`;
       return {
         intent: "search",
         action: "show_results",
         payload: { query, results: matches.slice(0, 5) },
-        message: matches.length > 0
-          ? `Found ${matches.length} task${matches.length !== 1 ? "s" : ""} matching "${query}".`
-          : `No tasks found matching "${query}".`,
+        message: voiceAck(searchMsg, delegation),
       };
     }
   }

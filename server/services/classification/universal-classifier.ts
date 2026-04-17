@@ -28,6 +28,8 @@ function keywordFallbackClassifier(activity: string, notes: string): string {
   if (/\b(password|login|auth|security|breach)\b/.test(combined)) return "Security";
   if (/\b(customer|client|support|ticket|feedback)\b/.test(combined)) return "Support";
   if (/\b(design|ui|ux|prototype|wireframe)\b/.test(combined)) return "Design";
+  if (/\b(buy|grocery|groceries|pick up|shopping list|supermarket|market|store run|shop for|errand)\b/.test(combined))
+    return "Shopping";
   return DEFAULT_CLASSIFICATION;
 }
 
@@ -114,6 +116,11 @@ const KEYWORD_RULES: { label: string; re: RegExp; weight: number }[] = [
   { label: "Security", re: /\b(password|login|auth|security|breach)\b/, weight: 1 },
   { label: "Support", re: /\b(customer|client|support|ticket|feedback)\b/, weight: 1 },
   { label: "Design", re: /\b(design|ui|ux|prototype|wireframe)\b/, weight: 1 },
+  {
+    label: "Shopping",
+    re: /\b(buy|grocery|groceries|pick up|shopping list|supermarket|market|store run|shop for|errand)\b/,
+    weight: 1,
+  },
 ];
 
 export function normalizeAssociationWeights(rows: ClassificationAssociation[]): ClassificationAssociation[] {

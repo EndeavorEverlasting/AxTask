@@ -10,6 +10,7 @@ export const VALID_APP_PATHS = [
   "/import-export",
   "/google-sheets",
   "/checklist",
+  "/shopping",
   "/planner",
   "/mini-games",
   "/feedback",

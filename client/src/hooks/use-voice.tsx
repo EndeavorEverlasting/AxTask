@@ -5,8 +5,10 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Task } from "@shared/schema";
 import { hasNavigationLeadIn, matchNavigationPath } from "@shared/voice-dispatch";
-import { syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
+import { syncCreateTask, syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
+import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import type { InsertTask } from "@shared/schema";
 import { useLiveClassificationStream, type LiveClassificationSuggestion } from "./use-live-classification-stream";
 import { TUTORIAL_STEPS, useTutorial } from "@/hooks/use-tutorial";
 import { matchVoiceShortcut } from "@/lib/voice-shortcuts";
@@ -92,6 +94,7 @@ interface VoiceProviderProps {
 }
 
 export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
+  const { user } = useAuth();
   const [isBarOpen, setIsBarOpen] = useState(false);
   const [wakeSessionEnabled, setWakeSessionEnabled] = useState(false);
   const [lastResponse, setLastResponse] = useState<EngineResponse | null>(null);
@@ -135,6 +138,57 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
           };
           setTaskPrefill(prefill);
           onNavigateRef.current?.("/tasks?new=1");
+          break;
+        }
+        case "create_shopping_tasks": {
+          const items = data.payload.items as string[];
+          const date = (data.payload.date as string) || new Date().toISOString().split("T")[0];
+          const time = typeof data.payload.time === "string" ? data.payload.time : "";
+          const uid = user?.id ?? "";
+          if (!items?.length) break;
+          if (!uid) {
+            toast({
+              title: "Sign in required",
+              description: "Log in to add items to your shopping list.",
+              variant: "destructive",
+            });
+            break;
+          }
+          void (async () => {
+            try {
+              for (const activity of items) {
+                const body: InsertTask = {
+                  date,
+                  time: time || undefined,
+                  activity,
+                  notes: "",
+                  recurrence: "none",
+                  status: "pending",
+                  visibility: "private",
+                  communityShowNotes: false,
+                };
+                await syncCreateTask(body, queryClient, uid);
+              }
+              await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+              await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+              await queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+              onNavigateRef.current?.("/shopping");
+              toast({
+                title: "Shopping list updated",
+                description:
+                  items.length === 1
+                    ? `Added “${items[0]}”.`
+                    : `Added ${items.length} items.`,
+              });
+            } catch (e: unknown) {
+              if (e instanceof TaskSyncAbortedError) return;
+              toast({
+                title: "Could not add items",
+                description: e instanceof Error ? e.message : "Try again.",
+                variant: "destructive",
+              });
+            }
+          })();
           break;
         }
         case "tutorial_start":
@@ -333,6 +387,15 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
               action: "navigate",
               payload: { path: "/" },
               message: "Opening Dashboard.",
+            });
+            return;
+          case "shopping_list":
+            onNavigateRef.current?.("/shopping");
+            setLastResponse({
+              intent: "navigation",
+              action: "navigate",
+              payload: { path: "/shopping" },
+              message: "Opening your shopping list.",
             });
             return;
           case "find_tasks":

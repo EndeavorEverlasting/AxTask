@@ -57,6 +57,7 @@ Speech personalization is treated as a retrieval contract, not blind model retra
 - Cursor-elusion should be expressive but subtle enough to preserve usability.
 - Avatar identities are engine-driven personas, not user identities.
 - Mood-to-color mappings must stay stable across UI and community dialogue surfaces.
+- Shopping list voice and delegation behavior for `/shopping` are specified in [ORB_AVATAR_EXPERIENCE_CONTRACT.md](./ORB_AVATAR_EXPERIENCE_CONTRACT.md) (Voice: shopping list and delegation).
 
 ### Rollout Phases
 

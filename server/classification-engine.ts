@@ -17,6 +17,7 @@ const CLASSIFICATION_BASE_COINS: Record<string, number> = {
   Research: 12,
   Maintenance: 8,
   Administrative: 6,
+  Shopping: 6,
   General: 5,
 };
 
