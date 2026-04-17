@@ -50,6 +50,8 @@ import {
   getPremiumRetentionMetrics,
   getUserNotificationPreference,
   upsertUserNotificationPreference,
+  getUserVoicePreference,
+  upsertUserVoicePreference,
   listUserPushSubscriptions,
   upsertUserPushSubscription,
   deleteUserPushSubscription,
@@ -88,7 +90,7 @@ import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engageme
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, updateVoicePreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, count } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
@@ -2845,6 +2847,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch study stats" });
+    }
+  });
+
+  app.get("/api/voice/preferences", requireAuth, async (req, res) => {
+    try {
+      const preference = await getUserVoicePreference(req.user!.id);
+      res.json(preference);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch voice preferences" });
+    }
+  });
+
+  app.patch("/api/voice/preferences", requireAuth, async (req, res) => {
+    try {
+      const payload = updateVoicePreferenceSchema.parse(req.body || {});
+      if (Object.keys(payload).length === 0) {
+        return res.status(400).json({ message: "At least one preference field is required" });
+      }
+      const preference = await upsertUserVoicePreference({
+        userId: req.user!.id,
+        listeningMode: payload.listeningMode,
+      });
+      return res.json(preference);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      return res.status(500).json({ message: "Failed to update voice preferences" });
     }
   });
 

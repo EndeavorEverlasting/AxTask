@@ -20,6 +20,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { KBD, SUBMIT_TASK_SHORTCUTS, tutorialToggleTitle } from "@/lib/keyboard-shortcuts";
 import { NotificationIntensityPanel } from "@/components/settings/notification-intensity-panel";
 import { ImmersiveSoundsSettingsCard } from "@/components/settings/immersive-sounds-settings-card";
+import { VoicePreferencesSettingsCard } from "@/components/settings/voice-preferences-settings-card";
 import { InstallShortcutButton } from "@/components/install-shortcut-button";
 import { cn } from "@/lib/utils";
 import { GlassPanel } from "@/components/ui/glass-panel";
@@ -122,6 +123,8 @@ export default function SettingsPage() {
       </Card>
 
       <ImmersiveSoundsSettingsCard />
+
+      <VoicePreferencesSettingsCard />
 
       <Card className="glass-panel border-amber-200/50 dark:border-amber-900/40 bg-amber-50/30 dark:bg-amber-950/20">
         <CardHeader>

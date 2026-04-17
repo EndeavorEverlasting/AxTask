@@ -193,6 +193,23 @@ export const deletePushSubscriptionSchema = z.object({
 export type UserNotificationPreference = typeof userNotificationPreferences.$inferSelect;
 export type UserPushSubscription = typeof userPushSubscriptions.$inferSelect;
 
+/** How the app uses the microphone for global voice commands (synced per account). */
+export const voiceListeningModeSchema = z.enum(["manual", "wake_after_first_use"]);
+export type VoiceListeningMode = z.infer<typeof voiceListeningModeSchema>;
+
+export const userVoicePreferences = pgTable("user_voice_preferences", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  listeningMode: text("listening_mode").notNull().default("wake_after_first_use"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const updateVoicePreferenceSchema = z.object({
+  listeningMode: voiceListeningModeSchema.optional(),
+});
+
+export type UserVoicePreference = typeof userVoicePreferences.$inferSelect;
+
 export const adherenceSignalSchema = z.enum([
   "missed_due_dates",
   "reminder_ignored",

@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const INTENT_ICONS: Record<string, typeof Mic> = {
   navigation: Navigation,
@@ -67,6 +68,7 @@ export function VoiceCommandBar() {
   } = useVoice();
 
   const reducedMotion = useReducedMotion();
+  const isMobile = useIsMobile();
 
   if (!isSupported || !isBarOpen) return null;
 
@@ -254,14 +256,21 @@ export function VoiceCommandBar() {
           )}
 
           <div className="px-4 pb-2 flex items-center justify-between">
-            <div className="flex gap-2 text-[10px] text-gray-400 dark:text-gray-500">
-              <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">
-                {KBD.voice}/{KBD.voiceMac}
-              </span>
-              <span>toggle mic</span>
-              <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">Esc</span>
-              <span>close</span>
-            </div>
+            {isMobile ? (
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-gray-500 dark:text-gray-400">
+                <span>Tap the mic to start or stop listening.</span>
+                <span>Tap ✕ to close the voice bar.</span>
+              </div>
+            ) : (
+              <div className="flex gap-2 text-[10px] text-gray-400 dark:text-gray-500">
+                <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">
+                  {KBD.voice}/{KBD.voiceMac}
+                </span>
+                <span>toggle mic</span>
+                <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono">Esc</span>
+                <span>close</span>
+              </div>
+            )}
           </div>
         </div>
       </motion.div>
@@ -269,23 +278,31 @@ export function VoiceCommandBar() {
   );
 }
 
-export function VoiceBarTrigger() {
+export function VoiceBarTrigger({ variant = "default" }: { variant?: "default" | "touch" }) {
   const { isSupported, toggleBar, status } = useVoice();
 
   if (!isSupported) return null;
 
+  const touch = variant === "touch";
   return (
     <button
+      type="button"
       onClick={toggleBar}
       className={cn(
-        "flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200",
+        "flex items-center justify-center rounded-lg transition-all duration-200 shrink-0",
+        touch ? "min-h-[44px] min-w-[44px] w-11 h-11" : "w-8 h-8",
         status === "listening"
           ? "bg-red-500/10 text-red-500 animate-pulse"
           : "text-gray-400 hover:text-purple-500 hover:bg-purple-500/10"
       )}
-      title={`Voice commands (${KBD.voice} / ${KBD.voiceMac}, with focus in the page)`}
+      title={
+        touch
+          ? "Voice commands — tap to open or close the voice bar"
+          : `Voice commands (${KBD.voice} / ${KBD.voiceMac}, with focus in the page)`
+      }
+      aria-label="Voice commands"
     >
-      <Mic className="h-4 w-4" />
+      <Mic className={touch ? "h-5 w-5" : "h-4 w-4"} />
     </button>
   );
 }

@@ -432,26 +432,29 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
         <CheckSquare className="mr-2 h-5 w-5" />
         AxTask
       </button>
-      {user ? (
-        <Link
-          href="/account"
-          className={cn(
-            "inline-flex h-12 w-12 min-h-[48px] min-w-[48px] items-center justify-center rounded-full overflow-hidden shrink-0",
-            "text-sm font-medium hover:bg-accent hover:text-accent-foreground",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-          )}
-          aria-label={`Account — ${user.displayName || user.email}`}
-          title="Account"
-        >
-          <Avatar className="h-full w-full">
-            <AvatarFallback className="bg-primary text-primary-foreground text-base">
-              {(user.email || "?").charAt(0).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-        </Link>
-      ) : (
-        <div className="h-12 w-12" />
-      )}
+      <div className="flex items-center gap-0.5 shrink-0">
+        {user ? <VoiceBarTrigger variant="touch" /> : null}
+        {user ? (
+          <Link
+            href="/account"
+            className={cn(
+              "inline-flex h-12 w-12 min-h-[48px] min-w-[48px] items-center justify-center rounded-full overflow-hidden shrink-0",
+              "text-sm font-medium hover:bg-accent hover:text-accent-foreground",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            )}
+            aria-label={`Account — ${user.displayName || user.email}`}
+            title="Account"
+          >
+            <Avatar className="h-full w-full">
+              <AvatarFallback className="bg-primary text-primary-foreground text-base">
+                {(user.email || "?").charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+          </Link>
+        ) : (
+          <div className="h-12 w-12" />
+        )}
+      </div>
     </div>
   );
 }

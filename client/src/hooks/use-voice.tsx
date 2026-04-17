@@ -1,8 +1,9 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
 import { useWakeWordSpeech } from "@/hooks/use-wake-speech";
 import { useSpeechRecognition, type SpeechStatus } from "./use-speech-recognition";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import type { UserVoicePreference, VoiceListeningMode } from "@shared/schema";
 import type { Task } from "@shared/schema";
 import { hasNavigationLeadIn, matchNavigationPath } from "@shared/voice-dispatch";
 import { syncCreateTask, syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
@@ -78,6 +79,8 @@ interface VoiceContextType {
   consumeTaskPrefill: () => TaskPrefill | null;
   consumeVoiceSearch: () => string | null;
   clearReviewProposal: () => void;
+  /** Server-synced preference: background wake-style listening after first mic use, or manual-only. */
+  voiceListeningMode: VoiceListeningMode;
 }
 
 const VoiceContext = createContext<VoiceContextType | null>(null);
@@ -95,6 +98,18 @@ interface VoiceProviderProps {
 
 export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
   const { user } = useAuth();
+  const { data: voicePrefData, isError: voicePrefQueryError } = useQuery<UserVoicePreference>({
+    queryKey: ["/api/voice/preferences"],
+    enabled: Boolean(user?.id),
+  });
+  const voiceListeningMode: VoiceListeningMode =
+    voicePrefData?.listeningMode === "manual" ? "manual" : "wake_after_first_use";
+  /**
+   * Avoid treating users as wake mode before GET returns (manual pref must not briefly enable the listener).
+   * On fetch error, fall through so wake_after_first_use users are not stuck with wake disabled forever.
+   */
+  const voicePrefsHydrated = !user?.id || voicePrefData !== undefined || voicePrefQueryError;
+
   const [isBarOpen, setIsBarOpen] = useState(false);
   const [wakeSessionEnabled, setWakeSessionEnabled] = useState(false);
   const [lastResponse, setLastResponse] = useState<EngineResponse | null>(null);
@@ -485,7 +500,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
   }, [speech.status]);
 
   useWakeWordSpeech({
-    enabled: wakeSessionEnabled,
+    enabled: voicePrefsHydrated && voiceListeningMode === "wake_after_first_use" && wakeSessionEnabled,
     paused: speech.status === "listening" || processMutation.isPending,
     onWakeTranscript: (raw) => handleVoiceResultRef.current(raw),
   });
@@ -595,6 +610,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         consumeTaskPrefill,
         consumeVoiceSearch,
         clearReviewProposal,
+        voiceListeningMode,
       }}
     >
       {children}

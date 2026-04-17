@@ -35,6 +35,7 @@ import {
   premiumInsights,
   premiumEvents,
   userNotificationPreferences,
+  userVoicePreferences,
   userPushSubscriptions,
   userAdherenceState,
   userAdherenceInterventions,
@@ -80,6 +81,8 @@ import {
   type PremiumInsight,
   type PremiumEvent,
   type UserNotificationPreference,
+  type UserVoicePreference,
+  type VoiceListeningMode,
   type UserPushSubscription,
   type UserAdherenceState,
   type UserAdherenceIntervention,
@@ -335,6 +338,58 @@ export async function upsertUserNotificationPreference(input: {
     })
     .returning();
   return normalizeNotificationPreference(input.userId, updated);
+}
+
+const DEFAULT_VOICE_LISTENING_MODE: VoiceListeningMode = "wake_after_first_use";
+
+function isVoiceListeningMode(v: string | null | undefined): v is VoiceListeningMode {
+  return v === "manual" || v === "wake_after_first_use";
+}
+
+function normalizeVoicePreference(userId: string, row?: UserVoicePreference): UserVoicePreference {
+  const now = new Date();
+  const mode = row?.listeningMode && isVoiceListeningMode(row.listeningMode)
+    ? row.listeningMode
+    : DEFAULT_VOICE_LISTENING_MODE;
+  return {
+    userId,
+    listeningMode: mode,
+    createdAt: row?.createdAt ?? now,
+    updatedAt: row?.updatedAt ?? now,
+  };
+}
+
+export async function getUserVoicePreference(userId: string): Promise<UserVoicePreference> {
+  const [row] = await db
+    .select()
+    .from(userVoicePreferences)
+    .where(eq(userVoicePreferences.userId, userId));
+  return normalizeVoicePreference(userId, row);
+}
+
+export async function upsertUserVoicePreference(input: {
+  userId: string;
+  listeningMode?: VoiceListeningMode;
+}): Promise<UserVoicePreference> {
+  const existing = await getUserVoicePreference(input.userId);
+  const nextMode = input.listeningMode ?? existing.listeningMode;
+  const [updated] = await db
+    .insert(userVoicePreferences)
+    .values({
+      userId: input.userId,
+      listeningMode: nextMode,
+      createdAt: existing.createdAt,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: userVoicePreferences.userId,
+      set: {
+        listeningMode: nextMode,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return normalizeVoicePreference(input.userId, updated);
 }
 
 export async function listUserPushSubscriptions(userId: string): Promise<UserPushSubscription[]> {
