@@ -5,8 +5,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { FloatingChip } from "@/components/ui/floating-chip";
 import { TaskForm } from "@/components/task-form";
-import { TaskList } from "@/components/task-list";
 import { BarChart3, CheckCircle, AlertTriangle, ListTodo } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { useCountUp, useCountUpDecimal } from "@/hooks/use-count-up";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -150,7 +151,19 @@ export default function Dashboard() {
 
       <TaskForm />
 
-      <TaskList />
+      <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-4 md:px-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-medium text-foreground">All tasks</p>
+            <p className="text-sm text-muted-foreground">
+              Open the full list to search, filter, and reorder — kept off the dashboard so this page stays light.
+            </p>
+          </div>
+          <Button asChild className="shrink-0">
+            <Link href="/tasks">View all tasks</Link>
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

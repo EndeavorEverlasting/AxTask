@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useTutorial } from "@/hooks/use-tutorial";
 import { PersistedQueryLayer } from "./lib/app-query-provider";
 import { Toaster } from "@/components/ui/toaster";
@@ -34,7 +34,6 @@ import ChecklistPage from "@/pages/checklist";
 import ShoppingPage from "@/pages/shopping";
 import PlannerPage from "@/pages/planner";
 import MiniGamesPage from "@/pages/mini-games";
-import AdminPage from "@/pages/admin";
 import RewardsPage from "@/pages/rewards";
 import PremiumPage from "@/pages/premium";
 import BillingPage from "@/pages/billing";
@@ -60,6 +59,22 @@ import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
 import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
 import { matchHotkeyFromKeyboardEvent, voiceBarOpenRef } from "@/lib/hotkey-actions";
 
+const AdminPageLazy = lazy(() => import("@/pages/admin"));
+
+function AdminRoute() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] w-full items-center justify-center bg-background">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+        </div>
+      }
+    >
+      <AdminPageLazy />
+    </Suspense>
+  );
+}
+
 function Router() {
   return (
     <Switch>
@@ -75,7 +90,7 @@ function Router() {
       <Route path="/mini-games" component={MiniGamesPage} />
       <Route path="/feedback" component={FeedbackPage} />
       <Route path="/community" component={CommunityPage} />
-      <Route path="/admin" component={AdminPage} />
+      <Route path="/admin" component={AdminRoute} />
       <Route path="/rewards" component={RewardsPage} />
       <Route path="/premium" component={PremiumPage} />
       <Route path="/billing" component={BillingPage} />

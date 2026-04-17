@@ -6,8 +6,11 @@
  * server search payloads, and keep analytics sub-requests parallel where independent.
  */
 
+/** Dashboard does not mount the full TaskList; use /tasks for the interactive list (RAM). */
+export const DASHBOARD_MOUNTS_FULL_TASK_LIST = false;
+
 /** When visible rows exceed this count, use windowed rendering (TanStack Virtual + DnD). */
-export const TASK_LIST_VIRTUALIZE_THRESHOLD = 80;
+export const TASK_LIST_VIRTUALIZE_THRESHOLD = 50;
 
 /** Rows rendered above/below the viewport window (lower = less DOM/RAM; higher = smoother fast scroll). */
 export const TASK_LIST_VIRTUALIZER_OVERSCAN = 12;
