@@ -120,6 +120,7 @@ import { processChecklistImage } from "./ocr-processor";
 import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
 import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./services/usage-service";
+import { getApiPerformanceHeuristics } from "./services/api-performance-service";
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, readAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
@@ -4785,6 +4786,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(usage);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch usage overview" });
+    }
+  });
+
+  app.get("/api/admin/performance/heuristics", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const hours = Math.min(Math.max(Number(req.query.hours || 24), 1), 168);
+      const actorUserId = typeof req.query.actorUserId === "string" ? req.query.actorUserId : null;
+      const data = await getApiPerformanceHeuristics({ windowHours: hours, actorUserId });
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load API performance heuristics" });
     }
   });
 
