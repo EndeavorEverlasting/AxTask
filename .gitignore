@@ -26,6 +26,9 @@ docs/AxTask_Robust_Hosting_Migration_Plan_*.docx
 my_corporate_workflow_files/
 2026 Shared Task Tracker - *.xlsx
 
+# Migrated Attendance workspace (spreadsheets and roster exports; may contain PII)
+local/attendance-import/
+
 # Python billing bridge
 tools/billing_bridge/.venv/
 tools/billing_bridge/output/
