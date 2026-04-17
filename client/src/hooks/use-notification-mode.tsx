@@ -153,20 +153,10 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     },
   });
 
-  const ensureSubscription = useCallback(async (options?: { silent?: boolean }) => {
+  const ensureSubscription = useCallback(async () => {
     if (!("serviceWorker" in navigator)) return false;
     const vapidPublicKey = await resolveVapidPublicKey();
-    if (!vapidPublicKey) {
-      if (!options?.silent) {
-        toast({
-          title: "Push key missing",
-          description:
-            "Push delivery is not configured yet. You can still enable in-app notification mode, but browser push will stay off until VAPID keys are configured.",
-          variant: "destructive",
-        });
-      }
-      return false;
-    }
+    if (!vapidPublicKey) return false;
 
     const registration = await navigator.serviceWorker.ready;
     const existing = await registration.pushManager.getSubscription();
@@ -176,7 +166,7 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     }));
     await upsertSubscriptionMutation.mutateAsync(subscription);
     return true;
-  }, [toast, upsertSubscriptionMutation]);
+  }, [upsertSubscriptionMutation]);
 
   const disableAndUnsubscribe = useCallback(async () => {
     if (!("serviceWorker" in navigator)) return;
@@ -209,13 +199,18 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
 
     let pushEnabled = false;
     if (canUsePushApis()) {
-      let permission = Notification.permission;
-      if (permission !== "granted") {
-        permission = await Notification.requestPermission();
-      }
-      setPushStatus(permission as PushSupportStatus);
-      if (permission === "granted") {
-        pushEnabled = await ensureSubscription();
+      const vapidPublicKey = await resolveVapidPublicKey();
+      if (vapidPublicKey) {
+        let permission = Notification.permission;
+        if (permission !== "granted") {
+          permission = await Notification.requestPermission();
+        }
+        setPushStatus(permission as PushSupportStatus);
+        if (permission === "granted") {
+          pushEnabled = await ensureSubscription();
+        }
+      } else {
+        setPushStatus(toPushStatus());
       }
     } else {
       setPushStatus("unsupported");
@@ -265,7 +260,7 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
       if (!preferenceQuery.data?.enabled) return;
       if (toPushStatus() !== "granted") return;
       try {
-        await ensureSubscription({ silent: true });
+        await ensureSubscription();
       } catch {
         // ignore background sync errors; toggle flow surfaces user-facing errors.
       }

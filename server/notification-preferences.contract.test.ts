@@ -14,5 +14,12 @@ describe("notification preferences route contracts", () => {
     expect(routes).toContain("hasSubscription");
     expect(routes).toContain("deliveryChannel");
   });
+
+  it("exposes authenticated push public config for client-side subscription", () => {
+    const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
+    expect(routes).toContain('app.get("/api/notifications/push-public-config"');
+    expect(routes).toContain("configured:");
+    expect(routes).toContain("publicKey:");
+  });
 });
 

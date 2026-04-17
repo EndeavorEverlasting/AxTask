@@ -11,11 +11,26 @@ describe("notification mode guard wiring", () => {
       path.join(root, "client", "src", "hooks", "use-notification-mode.tsx"),
       "utf8",
     );
-    expect(src).toContain("Push key missing");
+    expect(src).not.toContain("Push key missing");
     expect(src).toContain("return false");
     expect(src).toContain("Notification mode is enabled. Push delivery is unavailable");
     expect(src).toContain("dispatchProfile");
     expect(src).toContain("deliveryChannel");
+  });
+
+  it("resolves VAPID before requesting browser notification permission when enabling", () => {
+    const src = fs.readFileSync(
+      path.join(root, "client", "src", "hooks", "use-notification-mode.tsx"),
+      "utf8",
+    );
+    const toggleStart = src.indexOf("const toggleNotificationMode = useCallback");
+    expect(toggleStart).toBeGreaterThan(-1);
+    const toggleBlock = src.slice(toggleStart, toggleStart + 4000);
+    const resolveIdx = toggleBlock.indexOf("await resolveVapidPublicKey()");
+    const permIdx = toggleBlock.indexOf("Notification.requestPermission()");
+    expect(resolveIdx).toBeGreaterThan(-1);
+    expect(permIdx).toBeGreaterThan(-1);
+    expect(resolveIdx).toBeLessThan(permIdx);
   });
 
   it("exposes public push config endpoint for runtime key resolution", () => {
