@@ -13,8 +13,14 @@ if (!process.env.DATABASE_URL) {
 function run(label, command, args) {
   console.log(`[verify-drizzle-deploy] ${label}…`);
   const r = spawnSync(command, args, { stdio: "inherit", shell: false });
-  if (r.status !== 0 && r.status !== null) process.exit(r.status);
   if (r.error) throw r.error;
+  if (r.signal != null) {
+    console.error(`[verify-drizzle-deploy] ${label} terminated by signal: ${r.signal}`);
+    process.exit(1);
+  }
+  if (r.status !== 0) {
+    process.exit(r.status ?? 1);
+  }
 }
 
 run("apply SQL migrations", "node", ["scripts/apply-migrations.mjs"]);
