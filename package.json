@@ -26,6 +26,7 @@
     "security:node-runtime-guard": "node tools/security/check_node_runtime.mjs",
     "security:axios-guard": "node tools/security/check_no_axios.mjs",
     "test": "vitest run",
+    "test:objective-contracts": "vitest run server/use-case-engagement.contract.test.ts server/release-2026-routes-contract.test.ts server/notification-preferences.contract.test.ts server/csp-reporting.contract.test.ts client/src/lib/feedback-nudge.test.ts client/src/lib/install-device-state.test.ts shared/public-client-dtos.test.ts",
     "test:docs-contracts": "vitest run server/docs-contracts/docs-doctrine-contract.test.ts server/docs-contracts/docs-privacy-contract.test.ts",
     "check:startup-seeds": "vitest run server/startup-seeds.guard.test.ts",
     "test:watch": "vitest",

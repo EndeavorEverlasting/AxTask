@@ -39,7 +39,23 @@ import { ProgressStrip } from "@/components/ui/progress-strip";
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
-import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw, Loader2 as RefreshLoader, Repeat } from "lucide-react";
+import {
+  Search,
+  Check,
+  Trash2,
+  RotateCcw,
+  ChevronUp,
+  ChevronDown,
+  GripVertical,
+  Sparkles,
+  CalendarDays,
+  RefreshCw,
+  Loader2 as RefreshLoader,
+  Repeat,
+  ClipboardList,
+  ShoppingCart,
+  Inbox,
+} from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -1311,6 +1327,12 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
     });
   }, [baseTasks, applyLocalSearch, debouncedSearchQuery, priorityFilter, statusFilter, sortField, sortDirection]);
 
+  const clearListFilters = useCallback(() => {
+    setSearchQuery("");
+    setPriorityFilter("all");
+    setStatusFilter(shoppingUi ? "pending" : "all");
+  }, [shoppingUi]);
+
   const handleEdit = useCallback((task: Task) => setEditingTask(task), []);
   const handleToggleStatus = useCallback(
     (id: string, status: string) => {
@@ -1494,13 +1516,13 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
           </div>
         </div>
         {pretextStats && (
-          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          <div className="mt-2 text-xs text-muted-foreground">
             Pretext benchmark: {pretextStats.sampleCount} samples, {pretextStats.totalLines} lines, {pretextStats.elapsedMs}ms.
           </div>
         )}
         {storageProfile && (
           <div className="mt-2 text-xs">
-            <span className="text-gray-500 dark:text-gray-400">
+            <span className="text-muted-foreground">
               Storage usage: {storageProfile.usage.taskCount}/{storageProfile.policy.maxTasks} tasks,{" "}
               {Math.round((storageProfile.usage.attachmentBytes / Math.max(1, storageProfile.policy.maxAttachmentBytes)) * 100)}% attachment quota
             </span>
@@ -1530,8 +1552,47 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
       </CardHeader>
       <CardContent className="px-4 md:px-6">
         {filteredAndSortedTasks.length === 0 ? (
-          <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-            {tasks.length === 0 ? "No tasks found. Create your first task!" : "No tasks match your filters."}
+          <div className="flex justify-center py-8 md:py-12 px-2">
+            <GlassPanel elevated className="w-full max-w-md px-6 py-10 text-center space-y-4">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 border border-border text-primary">
+                {shoppingUi ? (
+                  <ShoppingCart className="h-7 w-7" aria-hidden />
+                ) : scopedTasks.length === 0 ? (
+                  <ClipboardList className="h-7 w-7" aria-hidden />
+                ) : (
+                  <Inbox className="h-7 w-7" aria-hidden />
+                )}
+              </div>
+              <div className="space-y-2">
+                <p className="text-lg font-semibold text-foreground">
+                  {scopedTasks.length === 0
+                    ? shoppingUi
+                      ? "Shopping list is empty"
+                      : "No tasks yet"
+                    : shoppingUi
+                      ? "No items match"
+                      : "No tasks match"}
+                </p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {scopedTasks.length === 0
+                    ? shoppingUi
+                      ? "Add items with voice or create a task with the shopping category."
+                      : "Create your first task with Alt+N or the Add Task control in the sidebar."
+                    : "Try another search, or reset filters to see your list again."}
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 justify-center pt-1">
+                {scopedTasks.length === 0 ? (
+                  <Button type="button" onClick={() => window.dispatchEvent(new Event("axtask-open-new-task"))}>
+                    {shoppingUi ? "Add shopping item" : "Add task"}
+                  </Button>
+                ) : (
+                  <Button type="button" variant="outline" onClick={clearListFilters}>
+                    Clear filters
+                  </Button>
+                )}
+              </div>
+            </GlassPanel>
           </div>
         ) : isMobile ? (
           <div ref={mobileScrollRef} className="relative max-h-[60vh] overflow-y-auto -mx-1 px-1">

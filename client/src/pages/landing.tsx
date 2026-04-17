@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearch } from "wouter";
 import { motion, useScroll, useTransform } from "framer-motion";
-import { CheckSquare, Sparkles, LayoutDashboard, Zap, Shield, BarChart3, Terminal, Quote } from "lucide-react";
+import { Sparkles, LayoutDashboard, Zap, Shield, BarChart3, Terminal, Quote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CursorOrbsBackdrop } from "@/components/marketing/cursor-orbs-backdrop";
 import { PretextAmbientChips, pretextGradientCtaClassName } from "@/components/pretext/pretext-confirmation-shell";
@@ -67,9 +67,11 @@ export default function LandingPage() {
       <header className="relative z-10 border-b border-white/10 bg-black/20 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 border border-white/20">
-              <CheckSquare className="h-5 w-5 text-emerald-300" />
-            </div>
+            <img
+              src="/branding/axtask-logo.png"
+              alt=""
+              className="h-10 w-10 rounded-xl border border-white/20 bg-white/10 object-cover shadow-sm"
+            />
             <span className="text-lg font-semibold tracking-tight bg-gradient-to-r from-emerald-200 via-teal-200 to-cyan-200 bg-clip-text text-transparent">
               AxTask
             </span>
@@ -132,7 +134,7 @@ export default function LandingPage() {
             {FEATURES.map(({ title, body, icon: Icon }) => (
               <div
                 key={title}
-                className="rounded-2xl border border-white/15 bg-white/5 p-6 shadow-xl shadow-black/20 backdrop-blur-md"
+                className="rounded-2xl border border-white/15 bg-white/5 p-6 shadow-xl shadow-black/20 backdrop-blur-xl ring-1 ring-white/[0.06]"
               >
                 <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-400/15 border border-emerald-300/25">
                   <Icon className="h-5 w-5 text-emerald-300" />
@@ -166,7 +168,7 @@ export default function LandingPage() {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, amount: 0.5 }}
                   transition={{ duration: 0.5 }}
-                  className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-sm p-6 sm:p-8"
+                  className="rounded-2xl border border-white/12 bg-white/[0.05] backdrop-blur-md p-6 sm:p-8 ring-1 ring-white/[0.05]"
                 >
                   <div className="flex items-start gap-4">
                     <Quote className="mt-1 h-5 w-5 shrink-0 text-violet-400/60" />
@@ -198,7 +200,10 @@ export default function LandingPage() {
           <p className="text-sm text-slate-400 max-w-md mx-auto leading-relaxed mb-4">
             AxTask — where tasks are fleeting, the canvas is calm, and every surface is glass.
           </p>
-          <Link href="/contact" className="text-xs text-slate-500 underline-offset-4 hover:text-slate-200 hover:underline">
+          <Link
+            href="/contact"
+            className="text-xs text-slate-500 underline-offset-4 transition-colors hover:text-emerald-200/90 hover:underline"
+          >
             Contact
           </Link>
         </footer>

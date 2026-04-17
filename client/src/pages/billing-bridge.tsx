@@ -71,10 +71,29 @@ interface BridgeResult {
 
 /* ── Component ─────────────────────────────────────────────────────────── */
 
+function defaultMonthYyyyMm(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthBoundsYyyyMmDd(monthYyyyMm: string): { start: string; end: string } {
+  const [y, m] = monthYyyyMm.split("-").map(Number);
+  const last = new Date(y, m, 0);
+  return {
+    start: `${y}-${String(m).padStart(2, "0")}-01`,
+    end: `${y}-${String(m).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`,
+  };
+}
+
 export default function BillingBridgePage() {
   const [ttFile, setTtFile] = useState<File | null>(null);
   const [rbFile, setRbFile] = useState<File | null>(null);
   const [mwFile, setMwFile] = useState<File | null>(null);
+  const [hoursMonth, setHoursMonth] = useState(defaultMonthYyyyMm);
+  const [hoursTechQuery, setHoursTechQuery] = useState("");
+  const [hoursProjectFilter, setHoursProjectFilter] = useState("");
+  const [hoursFocusStart, setHoursFocusStart] = useState(() => monthBoundsYyyyMmDd(defaultMonthYyyyMm()).start);
+  const [hoursFocusEnd, setHoursFocusEnd] = useState(() => monthBoundsYyyyMmDd(defaultMonthYyyyMm()).end);
   const [nameFilter, setNameFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [generateOptions, setGenerateOptions] = useState({
@@ -111,6 +130,48 @@ export default function BillingBridgePage() {
     },
   });
 
+  const hoursReportMutation = useMutation({
+    mutationFn: async () => {
+      const fd = new FormData();
+      fd.append("taskTracker", ttFile!);
+      fd.append("roster", rbFile!);
+      if (mwFile) fd.append("manager", mwFile);
+      fd.append("technicianQuery", hoursTechQuery);
+      fd.append("projectFilter", hoursProjectFilter);
+      fd.append("month", hoursMonth);
+      fd.append("focusStart", hoursFocusStart);
+      fd.append("focusEnd", hoursFocusEnd);
+      const headers: Record<string, string> = {};
+      const csrfToken = getCsrfToken();
+      if (csrfToken) headers[AXTASK_CSRF_HEADER] = csrfToken;
+
+      const res = await fetch("/api/billing-bridge/hours-report", {
+        method: "POST",
+        body: fd,
+        headers,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        let msg = res.statusText;
+        try {
+          const j = await res.json();
+          if (j?.message) msg = j.message;
+        } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition");
+      const m = cd?.match(/filename="([^"]+)"/);
+      const name = m?.[1] ?? `technician-hours-${hoursMonth}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+  });
+
   const data = reconcileMutation.data;
 
   /* derived lists */
@@ -141,6 +202,11 @@ export default function BillingBridgePage() {
   }, [data]);
 
   const canRun = !!ttFile && !!rbFile;
+  const canRunHoursReport =
+    canRun &&
+    (hoursTechQuery.trim().length > 0 || hoursProjectFilter.trim().length > 0) &&
+    hoursFocusStart.trim().length > 0 &&
+    hoursFocusEnd.trim().length > 0;
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
@@ -243,6 +309,93 @@ export default function BillingBridgePage() {
             </Button>
             {reconcileMutation.isError && (
               <span className="text-sm text-red-500">{reconcileMutation.error.message}</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Technician hours report (Excel)</CardTitle>
+          <CardDescription>
+            Download a factual .xlsx from the same uploads: Live attendance, Billing Detail, and Manager rows
+            with source references. Set the month window for detail totals and a separate focus date range
+            (for example a specific week). Provide a technician name and/or a project filter.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <Label className="text-sm">Technician (roster name)</Label>
+              <Input
+                value={hoursTechQuery}
+                onChange={e => setHoursTechQuery(e.target.value)}
+                placeholder="e.g. Valentin Nikoliuk"
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">Project filter (optional)</Label>
+              <Input
+                value={hoursProjectFilter}
+                onChange={e => setHoursProjectFilter(e.target.value)}
+                placeholder="Substring match on roster project slots"
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">Month (detail / ByProject)</Label>
+              <Input
+                type="month"
+                value={hoursMonth}
+                onChange={e => {
+                  const v = e.target.value;
+                  setHoursMonth(v);
+                  const b = monthBoundsYyyyMmDd(v);
+                  setHoursFocusStart(b.start);
+                  setHoursFocusEnd(b.end);
+                }}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">Focus period start</Label>
+              <Input
+                type="date"
+                value={hoursFocusStart}
+                onChange={e => setHoursFocusStart(e.target.value)}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">Focus period end</Label>
+              <Input
+                type="date"
+                value={hoursFocusEnd}
+                onChange={e => setHoursFocusEnd(e.target.value)}
+                className="text-sm"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Detail sheets require one resolved technician (or a project filter that matches exactly one roster row).
+            Otherwise you still get roster-level totals by project when multiple people match.
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void hoursReportMutation.mutate()}
+              disabled={!canRunHoursReport || hoursReportMutation.isPending}
+            >
+              {hoursReportMutation.isPending ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Building…</>
+              ) : (
+                <><FileSpreadsheet className="mr-2 h-4 w-4" />Download hours report (.xlsx)</>
+              )}
+            </Button>
+            {hoursReportMutation.isError && (
+              <span className="text-sm text-red-500">{hoursReportMutation.error.message}</span>
             )}
           </div>
         </CardContent>

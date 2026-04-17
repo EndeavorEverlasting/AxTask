@@ -55,7 +55,7 @@ function StatCard({
         <CardContent className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{label}</p>
+              <p className="text-sm font-medium text-muted-foreground">{label}</p>
               <p className={`text-3xl font-bold tabular-nums ${colorClass}`}>
                 {value}
               </p>
@@ -99,8 +99,8 @@ export default function Dashboard() {
           <FloatingChip tone="warning">{avgScoreBand}</FloatingChip>
         </div>
         <div>
-          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Task Dashboard</h2>
-          <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">Manage and prioritize your tasks efficiently</p>
+          <h2 className="text-xl md:text-2xl font-bold text-foreground tracking-tight">Task Dashboard</h2>
+          <p className="text-sm md:text-base text-muted-foreground">Manage and prioritize your tasks efficiently</p>
         </div>
         <ImmersivePretextCue />
         <MobileChecklistWidget />
@@ -111,7 +111,7 @@ export default function Dashboard() {
           label="Total Tasks"
           value={isLoading ? "..." : String(totalTasks)}
           icon={<ListTodo className="text-primary text-xl h-6 w-6" />}
-          colorClass="text-gray-900 dark:text-gray-100"
+          colorClass="text-foreground"
           bgClass="bg-blue-100 dark:bg-blue-900/30"
           index={0}
           reducedMotion={reducedMotion}

@@ -120,16 +120,16 @@ function MobileBottomNav() {
   };
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 safe-area-bottom">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/75 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.45)] safe-area-bottom">
       <div className="flex items-center justify-around h-14">
         {BOTTOM_NAV_ITEMS.map(({ path, icon: Icon, label }) => (
           <Link
             key={path}
             href={path}
-            className={`flex flex-col items-center justify-center flex-1 h-full min-w-[64px] min-h-[44px] transition-colors no-underline ${
+            className={`flex flex-col items-center justify-center flex-1 h-full min-w-[64px] min-h-[44px] transition-colors duration-150 no-underline ${
               isActive(path)
                 ? "text-primary"
-                : "text-gray-400 dark:text-gray-500"
+                : "text-muted-foreground"
             }`}
           >
             <Icon className="h-5 w-5" />
@@ -337,7 +337,7 @@ function AuthenticatedApp() {
 
   if (loading) {
     return (
-      <div className="h-full min-h-0 overflow-y-auto flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="h-full min-h-0 overflow-y-auto flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -366,7 +366,7 @@ function AuthenticatedApp() {
       <TaskOfflineSyncProvider>
       <PostLoginRedirector />
       <OfflineBanner />
-      <div className="h-dvh min-h-0 flex flex-col md:flex-row bg-gray-50 dark:bg-gray-900 overflow-hidden">
+      <div className="h-dvh min-h-0 flex flex-col md:flex-row bg-background overflow-hidden">
         <Sidebar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <OfflineDataBanner />

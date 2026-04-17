@@ -1,6 +1,7 @@
 import { TaskList } from "@/components/task-list";
 import { TaskForm } from "@/components/task-form";
 import { Card, CardContent } from "@/components/ui/card";
+import { GlassPanel } from "@/components/ui/glass-panel";
 import { Sparkles } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -14,23 +15,23 @@ export default function Tasks() {
   }, []);
 
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      <div>
-        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">All Tasks</h2>
-        <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">View and manage all your tasks</p>
-      </div>
+    <div className="p-4 md:p-6 space-y-6 md:space-y-8">
+      <GlassPanel elevated className="p-4 md:p-5 space-y-1">
+        <h2 className="text-xl md:text-2xl font-bold text-foreground tracking-tight">All Tasks</h2>
+        <p className="text-sm md:text-base text-muted-foreground">View and manage all your tasks</p>
+      </GlassPanel>
 
-      <Card className="border-blue-200 dark:border-blue-800 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20">
+      <Card className="glass-panel border border-primary/20 bg-gradient-to-r from-primary/5 via-muted/40 to-primary/5">
         <CardContent className="pt-6 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="font-semibold flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-blue-600" />
+            <p className="font-semibold flex items-center gap-2 text-foreground">
+              <Sparkles className="h-4 w-4 text-primary shrink-0" />
               Add Task is front and center
             </p>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Use <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Alt+N</kbd> to add a task,{" "}
-              <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Alt+F</kbd> to find tasks,{" "}
-              and <kbd className="rounded bg-black/10 dark:bg-white/10 px-1 py-0.5 text-xs">Alt+T</kbd> for the dashboard.
+            <p className="text-sm text-muted-foreground">
+              Use <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">Alt+N</kbd> to add a task,{" "}
+              <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">Alt+F</kbd> to find tasks,{" "}
+              and <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">Alt+T</kbd> for the dashboard.
             </p>
           </div>
         </CardContent>

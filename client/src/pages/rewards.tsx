@@ -190,11 +190,11 @@ export default function RewardsPage() {
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-            <ShoppingBag className="h-6 w-6 md:h-7 md:w-7 text-amber-500" />
+          <h2 className="text-xl md:text-2xl font-bold text-foreground tracking-tight flex items-center gap-2">
+            <ShoppingBag className="h-6 w-6 md:h-7 md:w-7 text-amber-500 shrink-0" />
             Rewards Shop
           </h2>
-          <p className="text-gray-600 dark:text-gray-400">Spend your AxCoins on themes, badges, and titles</p>
+          <p className="text-muted-foreground">Spend your AxCoins on themes, badges, and titles</p>
         </div>
         <motion.div
           className="glass-panel-elevated flex items-center gap-2 bg-gradient-to-r from-amber-500/90 to-yellow-400/90 text-white px-5 py-3 rounded-xl shadow-lg"
@@ -503,7 +503,7 @@ export default function RewardsPage() {
                 <div className="text-sm text-amber-700 dark:text-amber-400 space-y-1">
                   <p>1. Classify a task to earn base coins (5-15 depending on category)</p>
                   <p>2. Each time someone confirms your classification, you earn compound interest at 8% per confirmation</p>
-                  <p>3. The formula: <code className="bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-xs">base × (1.08)^n</code> where n = number of confirmations</p>
+                  <p>3. The formula: <code className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs font-mono">base × (1.08)^n</code> where n = number of confirmations</p>
                   <p>4. Confirmers also earn 3 coins for each confirmation they give</p>
                 </div>
               </div>
@@ -593,7 +593,7 @@ export default function RewardsPage() {
               ) : (
                 <div className="space-y-2">
                   {transactions.map(tx => (
-                    <div key={tx.id} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                    <div key={tx.id} className="flex items-center justify-between py-2 border-b border-border/80 last:border-0">
                       <div>
                         <p className="text-sm font-medium capitalize">{tx.reason.replace(/_/g, " ")}</p>
                         {tx.details && <p className="text-xs text-muted-foreground">{tx.details}</p>}

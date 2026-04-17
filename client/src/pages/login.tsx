@@ -1200,7 +1200,7 @@ export default function LoginPage() {
         </div>
 
         <div className="mt-6 flex justify-center">
-          <DonateCta variant="outline" className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700" />
+          <DonateCta variant="outline" className="bg-card/90 border-border backdrop-blur-sm" />
         </div>
 
         <LoginHelpOverlay

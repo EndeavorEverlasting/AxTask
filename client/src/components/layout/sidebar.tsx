@@ -168,7 +168,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex flex-col h-full min-h-0 outline-none overflow-y-auto overscroll-contain" tabIndex={-1}>
-      <div className="p-6 border-b border-gray-200 dark:border-gray-700 shrink-0">
+      <div className="p-6 border-b border-border shrink-0">
         <div className="flex items-center justify-between">
           <button
             type="button"
@@ -185,7 +185,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </button>
           {!isMobile && <VoiceBarTrigger />}
         </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Intelligent Task Management</p>
+        <p className="text-sm text-muted-foreground mt-1">Intelligent Task Management</p>
       </div>
 
       <nav className="p-4">
@@ -195,10 +195,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               <Link href={path}>
                 <div
                   id={`sidebar-link-${path}`}
-                  className={`flex items-center p-3 rounded-lg font-medium transition-colors cursor-pointer min-h-[44px] ${
+                  className={`flex items-center p-3 rounded-lg font-medium transition-colors duration-150 cursor-pointer min-h-[44px] ${
                   isActiveRoute(path)
-                    ? "text-primary bg-blue-50 dark:bg-blue-900/30"
-                    : "text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
+                    ? "text-primary bg-primary/12 dark:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/80"
                 }`}
                   onClick={handleNavClick}
                 >
@@ -313,7 +313,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <NotificationIntensityPanel />
 
         {!isMobile && (
-          <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700/50">
+          <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-muted/60 border border-border/60">
             <Button
               variant="ghost"
               size="icon"
@@ -326,7 +326,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             </Button>
             <button
               onClick={resetZoom}
-              className="text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-primary transition-colors min-w-[3rem] text-center"
+              className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors min-w-[3rem] text-center"
               title="Reset zoom"
             >
               {zoom}%
@@ -349,8 +349,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <div
               className={cn(
                 "flex items-center gap-2 px-3 py-2 min-h-[44px] rounded-lg text-sm truncate transition-colors cursor-pointer",
-                "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-primary",
-                isActiveRoute("/account") && "bg-gray-100 dark:bg-gray-700 text-primary",
+                "text-muted-foreground hover:bg-accent/80 hover:text-foreground",
+                isActiveRoute("/account") && "bg-accent text-primary",
               )}
               onClick={handleNavClick}
               role="link"
@@ -413,7 +413,7 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
     queueMicrotask(() => startTutorial());
   };
   return (
-    <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shrink-0">
+    <div className="md:hidden flex items-center justify-between px-4 py-3 bg-card/95 backdrop-blur-sm border-b border-border shrink-0">
       <Button
         variant="ghost"
         size="icon"
@@ -500,7 +500,7 @@ export function Sidebar() {
       <>
         <MobileTopBar onMenuOpen={() => setMobileOpen(true)} />
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-[280px] p-0 bg-white dark:bg-gray-800">
+          <SheetContent side="left" className="w-[280px] p-0 bg-card border-r border-border">
             <SheetHeader className="sr-only">
               <SheetTitle>Navigation</SheetTitle>
               <SheetDescription>App navigation menu</SheetDescription>
@@ -516,7 +516,7 @@ export function Sidebar() {
     <>
       <aside
         className={cn(
-          "bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex-col shrink-0 hidden md:flex transition-[width,box-shadow] duration-200 overflow-hidden min-h-0 outline-none",
+          "bg-card shadow-lg border-r border-border flex-col shrink-0 hidden md:flex transition-[width,box-shadow] duration-200 overflow-hidden min-h-0 outline-none",
           sidebarWidthPx === 0 && "border-r-0 shadow-none",
           isNavFocus && "ring-2 ring-primary/35 shadow-2xl z-10",
         )}

@@ -5096,6 +5096,145 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
+  app.post(
+    "/api/billing-bridge/hours-report",
+    requireAuth,
+    bridgeUpload.fields([
+      { name: "taskTracker", maxCount: 1 },
+      { name: "roster", maxCount: 1 },
+      { name: "manager", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      let tmpDir: string | null = null;
+      let ttPath: string | null = null;
+      let rbPath: string | null = null;
+      let mwPath: string | null = null;
+      try {
+        const fs = await import("fs");
+        const path = await import("path");
+        const os = await import("os");
+
+        const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+        if (!files?.taskTracker?.[0] || !files?.roster?.[0]) {
+          return res.status(400).json({ message: "taskTracker and roster files are required" });
+        }
+
+        const technicianQuery = String(req.body?.technicianQuery ?? "").trim();
+        const projectFilter = String(req.body?.projectFilter ?? "").trim();
+        if (!technicianQuery && !projectFilter) {
+          return res.status(400).json({
+            message: "technicianQuery and/or projectFilter is required",
+          });
+        }
+
+        const {
+          validateHoursReportParams,
+          buildTechnicianHoursReport,
+          resolveTechnicianName,
+          personMatchesProjectFilter,
+        } = await import("./services/corporate-extractors/technician-hours-report");
+        const { buildTechnicianHoursXlsxBuffer } = await import(
+          "./services/corporate-extractors/technician-hours-xlsx"
+        );
+
+        const v = validateHoursReportParams({
+          month: req.body?.month,
+          focusStart: req.body?.focusStart,
+          focusEnd: req.body?.focusEnd,
+        });
+        if (!v.ok) {
+          return res.status(400).json({ message: v.message });
+        }
+
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "billing-bridge-hours-"));
+        ttPath = path.join(tmpDir, "task_tracker.xlsx");
+        rbPath = path.join(tmpDir, "roster.xlsx");
+        mwPath = files.manager?.[0] ? path.join(tmpDir, "manager.xlsx") : null;
+
+        fs.writeFileSync(ttPath, files.taskTracker[0].buffer);
+        fs.writeFileSync(rbPath, files.roster[0].buffer);
+        if (mwPath && files.manager?.[0]) {
+          fs.writeFileSync(mwPath, files.manager[0].buffer);
+        }
+
+        const { extractRosterBilling } = await import("./services/corporate-extractors/roster-billing-extractor");
+        const { extractManagerWorkbook } = await import("./services/corporate-extractors/manager-workbook-extractor");
+
+        const rb = extractRosterBilling(rbPath);
+        const mw = mwPath ? extractManagerWorkbook(mwPath) : null;
+
+        if (technicianQuery) {
+          const resolved = resolveTechnicianName(technicianQuery, rb.people);
+          if (!resolved) {
+            const projMatches = projectFilter
+              ? rb.people.filter((p) => personMatchesProjectFilter(p, projectFilter))
+              : [];
+            if (projMatches.length !== 1) {
+              return res.status(400).json({
+                message: `No roster match for technician: ${technicianQuery}`,
+              });
+            }
+          }
+        }
+
+        const report = buildTechnicianHoursReport({
+          attendance: rb.attendance,
+          billing_detail_existing: rb.billing_detail_existing,
+          manager_existing_rows: [
+            ...rb.manager_internal_existing,
+            ...(mw?.manager_existing_rows ?? []),
+          ],
+          people: rb.people,
+          technicianQuery,
+          projectFilter,
+          month: String(req.body.month).trim(),
+          focusStart: String(req.body.focusStart).trim(),
+          focusEnd: String(req.body.focusEnd).trim(),
+          fileNames: {
+            taskTracker: files.taskTracker[0].originalname,
+            roster: files.roster[0].originalname,
+            manager: files.manager?.[0]?.originalname,
+          },
+        });
+
+        const buffer = buildTechnicianHoursXlsxBuffer(report, {
+          taskTracker: files.taskTracker[0].originalname,
+          roster: files.roster[0].originalname,
+          manager: files.manager?.[0]?.originalname,
+        });
+
+        const slugBase =
+          report.meta.resolvedTechnician ||
+          (projectFilter ? `project-${projectFilter}` : "hours");
+        const safe = slugBase.replace(/[^\w.\- ()]+/g, "_").slice(0, 72);
+        const monthPart = String(req.body.month).trim().replace(/\s/g, "");
+        const filename = `technician-hours-${safe}-${monthPart}.xlsx`;
+
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        );
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.send(buffer);
+      } catch (error) {
+        if (error instanceof Error) return res.status(500).json({ message: error.message });
+        res.status(500).json({ message: "Failed to build hours report" });
+      } finally {
+        try {
+          const fs = await import("fs");
+          for (const fp of [ttPath, rbPath, mwPath]) {
+            if (fp && fs.existsSync(fp)) {
+              try { fs.unlinkSync(fp); } catch {}
+            }
+          }
+          if (tmpDir && fs.existsSync(tmpDir)) {
+            try { fs.rmdirSync(tmpDir); } catch {}
+          }
+        } catch {}
+      }
+    },
+  );
+
   // ─── Data Migration (Admin) ────────────────────────────────────────────────
 
   app.post("/api/admin/export", requireAdmin, migrationLimiter, async (req, res) => {

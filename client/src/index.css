@@ -22,7 +22,7 @@
   --destructive: hsl(0, 84.2%, 60.2%);
   --destructive-foreground: hsl(60, 9.1%, 97.8%);
   --ring: hsl(20, 14.3%, 4.1%);
-  --radius: 0.5rem;
+  --radius: 0.5625rem;
 }
 
 .dark {
@@ -45,7 +45,7 @@
   --destructive: hsl(0, 62.8%, 30.6%);
   --destructive-foreground: hsl(0, 0%, 98%);
   --ring: hsl(240, 4.9%, 83.9%);
-  --radius: 0.5rem;
+  --radius: 0.5625rem;
 }
 
 @layer base {
@@ -68,6 +68,15 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: hsl(207 90% 54% / 0.22);
+  }
+
+  .dark ::selection {
+    background-color: hsl(207 90% 54% / 0.35);
   }
 }
 
@@ -376,8 +385,13 @@
 }
 
 @layer components {
+  /* Split light/dark: @apply with stacked dark:.../opacity utilities fails Tailwind expandApply in prod (Docker). */
   .glass-panel {
-    @apply rounded-2xl border border-white/35 dark:border-white/10 bg-white/60 dark:bg-slate-900/45 backdrop-blur-lg shadow-sm;
+    @apply rounded-2xl border border-white/40 bg-white/65 backdrop-blur-xl shadow-sm ring-1 ring-black/5;
+  }
+
+  .dark .glass-panel {
+    @apply border-white/10 bg-slate-900/50 ring-white/10;
   }
 
   .glass-panel-elevated {
