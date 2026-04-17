@@ -103,6 +103,7 @@ import { buildSecurityEventHash } from "./security/event-hash";
 import { parseFeedbackPayload, parseFeedbackReviewPayload } from "./services/feedback-inbox-parser";
 import { maskE164ForDisplay } from "@shared/phone";
 import { displayAveragePriorityScoreFromDb } from "@shared/display-priority-score";
+import { TASK_SEARCH_RESULT_LIMIT } from "@shared/task-list-limits";
 import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
@@ -1380,7 +1381,8 @@ export class DatabaseStorage implements IStorage {
           )
         )
       )
-      .orderBy(desc(tasks.updatedAt), desc(tasks.createdAt));
+      .orderBy(desc(tasks.updatedAt), desc(tasks.createdAt))
+      .limit(TASK_SEARCH_RESULT_LIMIT);
   }
 
   async bulkUpdateTasks(userId: string, updates: UpdateTask[]): Promise<void> {

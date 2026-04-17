@@ -41,6 +41,9 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Client bundle size budget
+        run: npm run perf:bundle
+
       - name: Update test attestation
         if: success() && github.event_name == 'push'
         env:

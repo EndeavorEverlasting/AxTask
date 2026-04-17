@@ -1681,8 +1681,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return { date: key, completed };
       });
 
-      const graphParameters = await populateAnalyticsGraphParametersWithAgent(allTasks);
-      const feedbackInsights = await getFeedbackInsightsForUser(userId, 500);
+      const [graphParameters, feedbackInsights] = await Promise.all([
+        populateAnalyticsGraphParametersWithAgent(allTasks),
+        getFeedbackInsightsForUser(userId, 500),
+      ]);
       const completionCount = byStatus.completed || 0;
 
       res.json({

@@ -79,6 +79,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, AnimatePresence } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { benchmarkPretext, estimateTextLayout } from "@/lib/pretext-layout";
+import {
+  shouldVirtualizeTaskList,
+  TASK_LIST_VIRTUALIZER_OVERSCAN,
+} from "@/lib/task-list-performance";
 
 /** Minimal inline markdown renderer — handles **bold**, *italic*, `code`, and - list items. */
 function renderMarkdownInline(text: string): React.ReactNode {
@@ -150,8 +154,6 @@ function formatTaskTimestamp(value: unknown): string {
   if (!Number.isFinite(d.getTime())) return "—";
   return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
-
-const VIRTUALIZE_THRESHOLD = 100;
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -322,9 +324,11 @@ const SortableTaskRow = memo(function SortableTaskRow({
             {renderMarkdownInline(task.notes)}
           </div>
         )}
-        <div className="mt-1 text-[10px] text-gray-400">
-          Pretext est: {estimateTextLayout(`${task.activity} ${task.notes || ""}`, 320).lines} line(s)
-        </div>
+        {import.meta.env.DEV ? (
+          <div className="mt-1 text-[10px] text-gray-400">
+            Pretext est: {estimateTextLayout(`${task.activity} ${task.notes || ""}`, 320).lines} line(s)
+          </div>
+        ) : null}
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-1.5">
@@ -429,7 +433,7 @@ function VirtualizedTaskTable({
     count: tasks.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => ROW_HEIGHT,
-    overscan: 20,
+    overscan: TASK_LIST_VIRTUALIZER_OVERSCAN,
   });
 
   return (
@@ -732,7 +736,7 @@ function MobileVirtualizedTaskList({
     count: tasks.length,
     getScrollElement,
     estimateSize: () => rowHeight,
-    overscan: 10,
+    overscan: TASK_LIST_VIRTUALIZER_OVERSCAN,
   });
   const items = virtualizer.getVirtualItems();
   return (
@@ -868,8 +872,10 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
   }, []);
 
   const handlePullRefresh = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-    await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] }),
+    ]);
     await new Promise(r => setTimeout(r, 400));
   }, [queryClient]);
 
@@ -1349,7 +1355,7 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
     [deleteTaskMutation, tasks],
   );
 
-  const useVirtualized = filteredAndSortedTasks.length > VIRTUALIZE_THRESHOLD;
+  const useVirtualized = shouldVirtualizeTaskList(filteredAndSortedTasks.length);
   const activeEntourageSlots = 1 + (avatarSkillData.find((skill) => skill.skillKey === "entourage-slots")?.currentLevel ?? 0);
   const guidanceDepth = 1 + (avatarSkillData.find((skill) => skill.skillKey === "guidance-depth")?.currentLevel ?? 0);
   const contextPoints = avatarSkillData
@@ -1605,7 +1611,7 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
               </div>
             )}
             <div className="space-y-3">
-              {filteredAndSortedTasks.length > VIRTUALIZE_THRESHOLD ? (
+              {shouldVirtualizeTaskList(filteredAndSortedTasks.length) ? (
                 <MobileVirtualizedTaskList
                   getScrollElement={() => pullScrollEl}
                   tasks={filteredAndSortedTasks}
