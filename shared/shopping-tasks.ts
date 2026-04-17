@@ -27,7 +27,7 @@ export function isShoppingTask(task: {
 }): boolean {
   if (task.classification === "Shopping") return true;
   const combined = `${task.activity} ${task.notes || ""}`.toLowerCase();
-  return /\b(buy|pick up|grocery|groceries|supermarket|shopping\s+list|market|store run|errand)\b/.test(
+  return /\b(buy|pick up|grocery|groceries|supermarket|shopping\s+list|market|store run)\b/.test(
     combined,
   );
 }
@@ -48,16 +48,43 @@ export function stripTrailingShoppingListFromActivity(activity: string): string 
   return activity.replace(/\s*(?:to|on|for)\s+(?:my|the|a)?\s*(?:shopping|grocery)\s+list\.?$/i, "").trim();
 }
 
+/** Phrases where "X and Y" names one item (do not split). */
+const COMPOUND_AND_PHRASES = new Set(
+  [
+    "mac and cheese",
+    "bread and butter",
+    "oil and vinegar",
+    "salt and pepper",
+    "peanut butter and jelly",
+    "rice and beans",
+    "fish and chips",
+    "ham and cheese",
+  ].map((s) => s.toLowerCase()),
+);
+
+/** Split "a and b" into two items only when it looks like a short pair list, not a compound product name. */
+function splitSegmentOnAndForShopping(segment: string): string[] {
+  const t = segment.trim();
+  if (!t) return [];
+  if (COMPOUND_AND_PHRASES.has(t.toLowerCase())) return [t];
+  const m = /^\s*(\w+(?:[-']\w+)?)\s+and\s+(\w+(?:[-']\w+)?)\s*$/i.exec(t);
+  if (!m) return [t];
+  return [m[1], m[2]];
+}
+
 export function extractShoppingListItemsForVoice(transcript: string): string[] {
   let s = transcript.replace(/\s+/g, " ").trim();
   s = s.replace(/\s*(?:to|on|for)\s+(?:my|the|a)?\s*(?:shopping|grocery)\s+list\.?$/i, "").trim();
   s = s.replace(/^(?:remind me to|i need to|don't forget to|please)\s+/i, "");
   s = s.replace(/\b(?:create|add|new|make)\s+(?:a\s+)?(?:new\s+)?task\s*/gi, "");
   s = s.replace(/^(?:add|buy|get|pick up)\s+/i, "");
-  const parts = s
-    .split(/\s*,\s*|\s*;\s*|\s+and\s+/i)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
+  const coarse = s.split(/\s*,\s*|\s*;\s*/);
+  const parts: string[] = [];
+  for (const seg of coarse) {
+    const trimmed = seg.trim();
+    if (!trimmed) continue;
+    parts.push(...splitSegmentOnAndForShopping(trimmed));
+  }
   return parts
     .map((p) => p.replace(/^the\s+/i, "").replace(/^and\s+/i, "").trim())
     .filter((p) => p.length > 0 && p.length <= 500)

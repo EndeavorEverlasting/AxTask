@@ -383,12 +383,14 @@ export const userClassificationLabels = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     label: text("label").notNull(),
+    /** Mirrors lower(label); used for unique constraint without expression indexes (drizzle-kit push). */
+    labelLower: text("label_lower").generatedAlwaysAs(sql`lower(label)`),
     coins: integer("coins").notNull().default(3),
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => [
     index("idx_user_classification_labels_user").on(table.userId),
-    uniqueIndex("ux_user_class_labels_user_lower").on(table.userId, sql`lower(${table.label})`),
+    uniqueIndex("ux_user_class_labels_user_lower").on(table.userId, table.labelLower),
   ],
 );
 

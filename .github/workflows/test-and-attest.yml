@@ -103,8 +103,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Sync schema to empty Postgres (drizzle-kit push)
-        run: npm run db:push:ci
+      - name: Apply SQL migrations and verify idempotent drizzle push
+        run: node scripts/apply-migrations.mjs && npm run db:push:ci && npm run db:push:ci
 
       - name: Verify users TOTP columns exist in DB
         run: npm run test:pg-schema

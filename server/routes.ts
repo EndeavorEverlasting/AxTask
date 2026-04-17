@@ -2871,7 +2871,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       return res.json(preference);
     } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: error.issues[0]?.message ?? "Invalid request body",
+        });
+      }
+      console.error("[voice/preferences] PATCH failed", error);
       return res.status(500).json({ message: "Failed to update voice preferences" });
     }
   });
@@ -5179,14 +5184,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "./services/corporate-extractors/technician-hours-xlsx"
         );
 
+        const trimBodyOpt = (raw: unknown) =>
+          raw == null ? undefined : String(raw).trim();
+
         const v = validateHoursReportParams({
-          month: req.body?.month,
-          focusStart: req.body?.focusStart,
-          focusEnd: req.body?.focusEnd,
+          month: trimBodyOpt(req.body?.month),
+          focusStart: trimBodyOpt(req.body?.focusStart),
+          focusEnd: trimBodyOpt(req.body?.focusEnd),
         });
         if (!v.ok) {
           return res.status(400).json({ message: v.message });
         }
+
+        const monthStr = trimBodyOpt(req.body?.month) ?? "";
+        const focusStartStr = trimBodyOpt(req.body?.focusStart) ?? "";
+        const focusEndStr = trimBodyOpt(req.body?.focusEnd) ?? "";
 
         tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "billing-bridge-hours-"));
         ttPath = path.join(tmpDir, "task_tracker.xlsx");
@@ -5229,9 +5241,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           people: rb.people,
           technicianQuery,
           projectFilter,
-          month: String(req.body.month).trim(),
-          focusStart: String(req.body.focusStart).trim(),
-          focusEnd: String(req.body.focusEnd).trim(),
+          month: monthStr,
+          focusStart: focusStartStr,
+          focusEnd: focusEndStr,
           fileNames: {
             taskTracker: files.taskTracker[0].originalname,
             roster: files.roster[0].originalname,
@@ -5249,7 +5261,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           report.meta.resolvedTechnician ||
           (projectFilter ? `project-${projectFilter}` : "hours");
         const safe = slugBase.replace(/[^\w.\- ()]+/g, "_").slice(0, 72);
-        const monthPart = String(req.body.month).trim().replace(/\s/g, "");
+        const monthPart = monthStr.replace(/\s/g, "");
         const filename = `technician-hours-${safe}-${monthPart}.xlsx`;
 
         res.setHeader(

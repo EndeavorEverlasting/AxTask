@@ -14,10 +14,33 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
 const assetsDir = path.join(repoRoot, "dist", "public", "assets");
 
+const DEFAULT_MAX_MAIN = 3_500_000;
+const DEFAULT_MAX_TOTAL = 8_000_000;
+
+function parseByteLimit(raw, envName, fallback) {
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || Number.isNaN(n)) {
+    console.warn(
+      `[bundle-budget] Invalid ${envName}=${JSON.stringify(raw)} — using default ${fallback}`,
+    );
+    return fallback;
+  }
+  return n;
+}
+
 /** Largest single JS chunk (main bundle is currently monolithic). */
-const MAX_LARGEST_CHUNK_BYTES = Number(process.env.AXTASK_MAX_MAIN_CHUNK_BYTES || 3_500_000);
+const MAX_LARGEST_CHUNK_BYTES = parseByteLimit(
+  process.env.AXTASK_MAX_MAIN_CHUNK_BYTES,
+  "AXTASK_MAX_MAIN_CHUNK_BYTES",
+  DEFAULT_MAX_MAIN,
+);
 /** Sum of all emitted JS under assets (guards accidental duplicate heavy deps). */
-const MAX_TOTAL_JS_BYTES = Number(process.env.AXTASK_MAX_TOTAL_JS_BYTES || 8_000_000);
+const MAX_TOTAL_JS_BYTES = parseByteLimit(
+  process.env.AXTASK_MAX_TOTAL_JS_BYTES,
+  "AXTASK_MAX_TOTAL_JS_BYTES",
+  DEFAULT_MAX_TOTAL,
+);
 
 function main() {
   if (!fs.existsSync(assetsDir)) {

@@ -1270,7 +1270,7 @@ async function getUserClassificationLabelByUserLower(
     .where(
       and(
         eq(userClassificationLabels.userId, userId),
-        sql`lower(${userClassificationLabels.label}) = ${labelLower}`,
+        eq(userClassificationLabels.labelLower, labelLower),
       ),
     )
     .limit(1);

@@ -963,6 +963,11 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
     staleTime: 30_000,
   });
 
+  const scopedSearchTasks = useMemo(() => {
+    if (!shoppingUi || searchTasks === undefined) return searchTasks;
+    return searchTasks.filter((t) => isShoppingTask(t));
+  }, [shoppingUi, searchTasks]);
+
   useEffect(() => {
     if (!useServerSearchList) return;
     if (!searchTasks?.length) return;
@@ -976,9 +981,9 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
         browserOnline,
         debouncedQuery: debouncedSearchQuery,
         allTasks: scopedTasks,
-        searchResults: useServerSearchList ? searchTasks : undefined,
+        searchResults: useServerSearchList ? scopedSearchTasks : undefined,
       }),
-    [browserOnline, debouncedSearchQuery, scopedTasks, useServerSearchList, searchTasks],
+    [browserOnline, debouncedSearchQuery, scopedTasks, useServerSearchList, scopedSearchTasks],
   );
 
   useEffect(() => {

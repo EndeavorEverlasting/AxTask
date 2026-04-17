@@ -40,6 +40,10 @@ describe("extractShoppingListItemsForVoice", () => {
   it("parses buy X and Y", () => {
     expect(extractShoppingListItemsForVoice("buy milk and eggs")).toEqual(["milk", "eggs"]);
   });
+
+  it("keeps mac and cheese as one item", () => {
+    expect(extractShoppingListItemsForVoice("buy mac and cheese")).toEqual(["mac and cheese"]);
+  });
 });
 
 describe("stripTrailingShoppingListFromActivity", () => {
@@ -55,5 +59,9 @@ describe("isShoppingTask", () => {
 
   it("matches heuristic", () => {
     expect(isShoppingTask({ classification: "General", activity: "buy soap", notes: "" })).toBe(true);
+  });
+
+  it("does not treat generic errand as shopping", () => {
+    expect(isShoppingTask({ classification: "General", activity: "bank errand", notes: "" })).toBe(false);
   });
 });
