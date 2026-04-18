@@ -35,6 +35,8 @@ import {
   ClipboardCheck,
   Search,
   SlidersHorizontal,
+  MessagesSquare,
+  Video,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -141,6 +143,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     { path: "/calendar", icon: CalendarDays, label: "Calendar" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
     { path: "/community", icon: Globe2, label: "Community" },
+    { path: "/collab", icon: MessagesSquare, label: "Collab inbox" },
+    { path: "/huddle", icon: Video, label: "Video huddle" },
     { path: "/mini-games", icon: Gamepad2, label: "Mini-Games" },
     { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
     { path: "/premium", icon: Crown, label: "Premium" },

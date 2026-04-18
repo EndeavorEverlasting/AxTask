@@ -21,6 +21,7 @@ import { KBD, SUBMIT_TASK_SHORTCUTS, tutorialToggleTitle } from "@/lib/keyboard-
 import { NotificationIntensityPanel } from "@/components/settings/notification-intensity-panel";
 import { ImmersiveSoundsSettingsCard } from "@/components/settings/immersive-sounds-settings-card";
 import { VoicePreferencesSettingsCard } from "@/components/settings/voice-preferences-settings-card";
+import { LocationPlacesSettingsCard } from "@/components/settings/location-places-card";
 import { InstallShortcutButton } from "@/components/install-shortcut-button";
 import { cn } from "@/lib/utils";
 import { GlassPanel } from "@/components/ui/glass-panel";
@@ -121,6 +122,8 @@ export default function SettingsPage() {
           <NotificationIntensityPanel />
         </CardContent>
       </Card>
+
+      <LocationPlacesSettingsCard />
 
       <ImmersiveSoundsSettingsCard />
 

@@ -42,6 +42,8 @@ import SettingsPage from "@/pages/settings";
 import AppealsPage from "@/pages/appeals";
 import FeedbackPage from "@/pages/feedback";
 import CommunityPage from "@/pages/community";
+import CollabInboxPage from "@/pages/collab-inbox";
+import VideoHuddlePage from "@/pages/video-huddle";
 import ExperienceConfirmPage from "@/pages/experience-confirm";
 import LoginPage from "@/pages/login";
 import LandingPage from "@/pages/landing";
@@ -90,6 +92,8 @@ function Router() {
       <Route path="/mini-games" component={MiniGamesPage} />
       <Route path="/feedback" component={FeedbackPage} />
       <Route path="/community" component={CommunityPage} />
+      <Route path="/collab" component={CollabInboxPage} />
+      <Route path="/huddle" component={VideoHuddlePage} />
       <Route path="/admin" component={AdminRoute} />
       <Route path="/rewards" component={RewardsPage} />
       <Route path="/premium" component={PremiumPage} />

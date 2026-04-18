@@ -5,10 +5,11 @@ import { syncRawTaskRequest, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
+import { setWalletBalanceCache } from "@/lib/wallet-cache";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChevronDown, Coins, Plus, Sparkles } from "lucide-react";
+import { ChevronDown, Coins, Plus, Sparkles, ThumbsUp } from "lucide-react";
 import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
 import type { ClassificationAssociation } from "@shared/schema";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -97,6 +98,39 @@ export function ClassificationBadge({
     }
     prevOpenRef.current = open;
   }, [open, classification, classificationAssociations]);
+
+  const thumbStateQuery = useQuery({
+    queryKey: ["/api/tasks", taskId, "classification-thumb"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/tasks/${taskId}/classification-thumb`);
+      return res.json() as Promise<{ voted: boolean }>;
+    },
+    enabled: Boolean(editable && taskId && open && classification.trim() !== "" && classification !== "General"),
+    staleTime: 20_000,
+  });
+
+  const thumbMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/tasks/${taskId}/classification-thumb`, {});
+      return res.json() as Promise<{ coinsEarned: number; newBalance: number }>;
+    },
+    onSuccess: (data) => {
+      queryClientHook.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClientHook.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      queryClientHook.setQueryData(["/api/tasks", taskId, "classification-thumb"], { voted: true });
+      setWalletBalanceCache(queryClientHook, data.newBalance);
+      toast({
+        title: "Classification appreciated",
+        description: `+${data.coinsEarned} AxCoins · Balance ${data.newBalance}`,
+      });
+      playIfEligible(1);
+      requestFeedbackNudge("classification_thumbs_up");
+    },
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : "Could not apply thumb";
+      toast({ title: "Thumb not recorded", description: message, variant: "destructive" });
+    },
+  });
 
   const suggestionsQuery = useQuery({
     queryKey: ["/api/classification/suggestions", taskId, activity, notes],
@@ -421,6 +455,30 @@ export function ClassificationBadge({
         >
           Apply selected labels
         </Button>
+
+        {classification.trim() !== "" && classification !== "General" && taskId && (
+          <div className="mt-2 pt-2 border-t border-gray-200/80 dark:border-gray-700/80">
+            <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 px-1 mb-1">
+              Agreement bonus
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="w-full"
+              disabled={
+                reclassifyMutation.isPending ||
+                thumbMutation.isPending ||
+                thumbStateQuery.isLoading ||
+                thumbStateQuery.data?.voted
+              }
+              onClick={() => taskId && thumbMutation.mutate()}
+            >
+              <ThumbsUp className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+              {thumbStateQuery.data?.voted ? "Thanks — bonus claimed" : "Thumbs up this label (one-time coins)"}
+            </Button>
+          </div>
+        )}
 
         <div className="mt-2 pt-2 border-t border-gray-200/80 dark:border-gray-700/80 px-1">
           <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">

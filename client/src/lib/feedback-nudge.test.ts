@@ -23,7 +23,8 @@ describe("feedback nudge guardrails", () => {
       requestFeedbackNudge("task_complete");
       localStorage.setItem("axtask.feedbackNudge.lastAt", "0");
     }
-    expect(dispatchSpy).toHaveBeenCalledTimes(5);
+    /* Top intensity band uses sourceCap 8 (broader coverage before repeat). */
+    expect(dispatchSpy).toHaveBeenCalledTimes(6);
     dispatchSpy.mockRestore();
   });
 
@@ -42,8 +43,8 @@ describe("feedback nudge guardrails", () => {
       requestFeedbackNudge(i % 2 === 0 ? "task_complete" : "classification_confirm");
       localStorage.setItem("axtask.feedbackNudge.lastAt", "0");
     }
-    // High-intensity mode allows a large budget, but weighted events still cap.
-    expect(dispatchSpy).toHaveBeenCalledTimes(9);
+    // Session cap (10) stops the loop before day budget on long runs.
+    expect(dispatchSpy).toHaveBeenCalledTimes(10);
     dispatchSpy.mockRestore();
   });
 });

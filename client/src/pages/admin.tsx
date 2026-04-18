@@ -27,7 +27,7 @@ type AdminAppealRow = {
   denyVotes: number;
   threshold: { adminCount: number; grantNeeded: number; denyNeeded: number; ruleLabel: string };
 };
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -318,6 +318,15 @@ export default function AdminPage() {
     queryKey: ["/api/admin/analytics/overview"],
     enabled: adminApiEnabled,
     refetchInterval: 15000,
+  });
+
+  const { data: repoInventory } = useQuery({
+    queryKey: ["/api/admin/repo-inventory"],
+    enabled: adminApiEnabled,
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/repo-inventory");
+      return r.json() as Promise<{ branches: string; recentCommits: string }>;
+    },
   });
 
   const previousTotalsRef = useRef<AdminAnalyticsOverview["totals"] | null>(null);
@@ -957,6 +966,7 @@ export default function AdminPage() {
           <TabsTrigger value="users">User Management</TabsTrigger>
           <TabsTrigger value="logs">Security Logs</TabsTrigger>
           <TabsTrigger value="migration">Data Migration</TabsTrigger>
+          <TabsTrigger value="engineering">Engineering</TabsTrigger>
         </TabsList>
 
         <TabsContent value="live" className="space-y-4">
@@ -1935,6 +1945,33 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="engineering" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Repository inventory</CardTitle>
+              <CardDescription>
+                Read-only branch and recent-commit snapshot for recovery planning (requires admin step-up in production).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Branches</p>
+                  <pre className="text-xs max-h-64 overflow-auto rounded border bg-muted/40 p-2 whitespace-pre-wrap">
+                    {repoInventory?.branches ?? (adminApiEnabled ? "Loading…" : "—")}
+                  </pre>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Recent commits</p>
+                  <pre className="text-xs max-h-64 overflow-auto rounded border bg-muted/40 p-2 whitespace-pre-wrap">
+                    {repoInventory?.recentCommits ?? (adminApiEnabled ? "Loading…" : "—")}
+                  </pre>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

@@ -345,6 +345,7 @@ export default function CommunityPage() {
   const [replying, setReplying] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"forum" | "tasks">("forum");
+  const [momentum, setMomentum] = useState<{ postsLast24h: number; repliesLast24h: number } | null>(null);
 
   const fetchPage = useCallback(
     async (
@@ -383,16 +384,22 @@ export default function CommunityPage() {
       setLoading(true);
       setError(null);
       try {
-        const [taskRes, forumRes] = await Promise.all([
+        const [taskRes, forumRes, momRes] = await Promise.all([
           fetchPage(null, ac.signal),
           fetch("/api/public/community/posts", { signal: ac.signal }).then((r) =>
             r.ok ? (r.json() as Promise<{ posts: ForumPost[] }>) : { posts: [] },
+          ),
+          fetch("/api/public/community/momentum", { signal: ac.signal }).then((r) =>
+            r.ok
+              ? (r.json() as Promise<{ postsLast24h: number; repliesLast24h: number }>)
+              : { postsLast24h: 0, repliesLast24h: 0 },
           ),
         ]);
         if (!mountedRef.current) return;
         setTasks(taskRes.tasks);
         setNextCursor(taskRes.nextCursor);
         setForumPosts(forumRes.posts);
+        setMomentum(momRes);
       } catch (e) {
         if ((e as Error).name === "AbortError") return;
         if (mountedRef.current)
@@ -538,6 +545,15 @@ export default function CommunityPage() {
             <span>{forumPosts.length} thread{forumPosts.length !== 1 ? "s" : ""}</span>
             <span className="text-slate-600">·</span>
             <span>{tasks.length} task{tasks.length !== 1 ? "s" : ""} shared</span>
+            {momentum && (
+              <>
+                <span className="text-slate-600">·</span>
+                <span className="text-sky-300/90">
+                  Last 24h: {momentum.postsLast24h} post{momentum.postsLast24h !== 1 ? "s" : ""},{" "}
+                  {momentum.repliesLast24h} repl{momentum.repliesLast24h === 1 ? "y" : "ies"} (aggregate counts only)
+                </span>
+              </>
+            )}
             <span className="text-slate-600">·</span>
             <Sparkles className="h-3.5 w-3.5 text-amber-400/60" />
             <span>Powered by Orb Archetypes</span>

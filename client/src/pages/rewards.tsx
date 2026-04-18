@@ -15,6 +15,7 @@ import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, Trendi
 import { motion, AnimatePresence } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
+import { setWalletBalanceCache } from "@/lib/wallet-cache";
 
 interface Wallet {
   balance: number;
@@ -29,6 +30,8 @@ interface RewardItem {
   name: string;
   description: string;
   cost: number;
+  /** When set, redeeming is free if any avatar is at least this level. */
+  unlockAtAvatarLevel?: number | null;
   type: string;
   icon: string | null;
   data: string | null;
@@ -110,14 +113,26 @@ export default function RewardsPage() {
   const redeemMutation = useMutation({
     mutationFn: async (rewardId: string) => {
       const res = await apiRequest("POST", "/api/gamification/redeem", { rewardId });
-      return res.json();
+      return res.json() as Promise<{
+        message?: string;
+        unlockedByLevel?: boolean;
+        wallet?: Wallet;
+      }>;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      if (typeof data.wallet?.balance === "number") {
+        setWalletBalanceCache(queryClient, data.wallet.balance);
+      }
       requestFeedbackNudge("reward_redeem");
-      toast({ title: "Reward redeemed!", description: "Check your profile for your new reward." });
+      toast({
+        title: data.unlockedByLevel ? "Unlocked with avatar level" : "Reward redeemed!",
+        description: data.unlockedByLevel
+          ? "Your companion level met the unlock threshold — no coins spent."
+          : "Check your profile for your new reward.",
+      });
     },
     onError: (err: Error) => {
       toast({ title: "Redemption failed", description: err.message, variant: "destructive" });
@@ -178,6 +193,8 @@ export default function RewardsPage() {
   });
 
   const ownedRewardIds = new Set(myRewards.map(r => r.rewardId));
+
+  const maxAvatarLevel = Math.max(0, ...(avatarData?.avatars ?? []).map((a) => a.level));
 
   const groupedRewards = {
     theme: rewards.filter(r => r.type === "theme"),
@@ -518,6 +535,10 @@ export default function RewardsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {groupedRewards[type].map(reward => {
                   const owned = ownedRewardIds.has(reward.id);
+                  const levelUnlock =
+                    reward.unlockAtAvatarLevel != null && maxAvatarLevel >= reward.unlockAtAvatarLevel;
+                  const canAfford = (wallet?.balance ?? 0) >= reward.cost;
+                  const canRedeem = owned ? false : levelUnlock || canAfford;
                   return (
                     <motion.div key={reward.id} whileHover={{ y: -2 }} transition={{ duration: 0.15 }}>
                       <Card className={owned ? "glass-panel-elevated border-green-400 dark:border-green-600" : "glass-panel"}>
@@ -528,16 +549,21 @@ export default function RewardsPage() {
                           </div>
                           <h4 className="font-semibold text-base">{reward.name}</h4>
                           <p className="text-sm text-muted-foreground mt-1">{reward.description}</p>
+                          {reward.unlockAtAvatarLevel != null && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Or unlock free at companion level {reward.unlockAtAvatarLevel} (your max: {maxAvatarLevel})
+                            </p>
+                          )}
                           <div className="flex items-center justify-between mt-4">
                             <span className="flex items-center gap-1 text-amber-600 font-bold">
                               <Coins className="h-4 w-4" /> {reward.cost}
                             </span>
                             <Button
                               size="sm"
-                              disabled={owned || (wallet?.balance ?? 0) < reward.cost || redeemMutation.isPending}
+                              disabled={!canRedeem || redeemMutation.isPending}
                               onClick={() => redeemMutation.mutate(reward.id)}
                             >
-                              {owned ? "Owned" : redeemMutation.isPending ? "..." : "Redeem"}
+                              {owned ? "Owned" : redeemMutation.isPending ? "..." : levelUnlock ? "Unlock (level)" : "Redeem"}
                             </Button>
                           </div>
                         </CardContent>

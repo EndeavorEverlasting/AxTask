@@ -49,4 +49,20 @@ describe("release-2026-04-15 contracts", () => {
     expect(refetch).toBeGreaterThan(-1);
     expect(award).toBeGreaterThan(refetch);
   });
+
+  it("2026-04-18 expansion: public momentum, thumbs, collab, and migration DDL", () => {
+    const routes = fs.readFileSync(path.join(projectRoot, "server", "routes.ts"), "utf8");
+    expect(routes).toContain('app.get("/api/public/community/momentum"');
+    expect(routes).toContain('app.get("/api/tasks/:id/classification-thumb"');
+    expect(routes).toContain('app.post("/api/tasks/:id/classification-thumb"');
+    expect(routes).toContain('app.get("/api/collaboration/inbox"');
+    expect(routes).toContain('app.get("/api/alarm-snapshots"');
+    expect(routes).toContain('app.get("/api/admin/repo-inventory"');
+    const sql = fs.readFileSync(
+      path.join(projectRoot, "migrations", "0016_expansion_2026_04_18.sql"),
+      "utf8",
+    );
+    expect(sql).toContain("task_classification_thumbs");
+    expect(sql).toContain("unlock_at_avatar_level");
+  });
 });

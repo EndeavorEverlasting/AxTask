@@ -1,6 +1,10 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { timingSafeEqual } from "crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
@@ -13,7 +17,19 @@ import {
   adminResetPassword,
   banUser, unbanUser, getAllUsers, isUserBanned,
   logSecurityEvent, getSecurityLogs,
-  getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
+  getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getRewardById, getUserRewards, redeemReward, seedRewardsCatalog,
+  getMaxAvatarLevel,
+  getClassificationThumbState,
+  awardClassificationThumbUp,
+  listUserAlarmSnapshots,
+  createUserAlarmSnapshot,
+  getUserAlarmSnapshot,
+  listCollaborationInbox,
+  appendCollaborationMessage,
+  markCollaborationMessageRead,
+  listUserLocationPlaces,
+  upsertUserLocationPlace,
+  getCommunityMomentumStats,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   getFeedbackSubmissionCount, getAvatarProfiles, engageAvatarMission, spendCoinsForAvatarBoost, seedAvatarSkillTree, getAvatarSkillTree, unlockAvatarSkill,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachments, linkAttachmentToTask,
@@ -1566,6 +1582,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /** Privacy-safe aggregate activity (counts only, last 24h). */
+  app.get("/api/public/community/momentum", apiLimiter, async (_req, res) => {
+    try {
+      const stats = await getCommunityMomentumStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Community momentum error:", error);
+      res.status(500).json({ message: "Failed to fetch community momentum" });
+    }
+  });
+
   // Community avatar forum — single post with replies
   app.get("/api/public/community/posts/:id", apiLimiter, async (req, res) => {
     try {
@@ -2222,6 +2249,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: error.message });
       }
       return res.status(500).json({ message: "Failed to reclassify task" });
+    }
+  });
+
+  app.get("/api/tasks/:id/classification-thumb", requireAuth, async (req, res) => {
+    try {
+      const state = await getClassificationThumbState(req.params.id, req.user!.id);
+      res.json(state);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load classification thumb state" });
+    }
+  });
+
+  app.post("/api/tasks/:id/classification-thumb", requireAuth, async (req, res) => {
+    try {
+      const result = await awardClassificationThumbUp(req.user!.id, req.params.id);
+      if (!result.ok) {
+        const status =
+          result.code === "task_not_found"
+            ? 404
+            : result.code === "no_classification"
+              ? 400
+              : 409;
+        return res.status(status).json({ message: result.code });
+      }
+      res.json({
+        coinsEarned: result.coinsEarned,
+        newBalance: result.newBalance,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to record classification thumb" });
     }
   });
 
@@ -3189,14 +3246,140 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!rewardId || typeof rewardId !== "string") {
         return res.status(400).json({ message: "Reward ID is required" });
       }
+      const reward = await getRewardById(rewardId);
+      const maxLevel = await getMaxAvatarLevel(req.user!.id);
       const success = await redeemReward(req.user!.id, rewardId);
       if (!success) {
-        return res.status(400).json({ message: "Insufficient coins or reward not found" });
+        return res.status(400).json({ message: "Insufficient coins, ineligible level, or reward not found" });
       }
       const wallet = await getOrCreateWallet(req.user!.id);
-      res.json({ message: "Reward redeemed!", wallet: toPublicWallet(wallet) });
+      const unlockedByLevel =
+        reward?.unlockAtAvatarLevel != null && maxLevel >= reward.unlockAtAvatarLevel;
+      res.json({
+        message: unlockedByLevel ? "Reward unlocked via avatar level!" : "Reward redeemed!",
+        unlockedByLevel,
+        wallet: toPublicWallet(wallet),
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to redeem reward" });
+    }
+  });
+
+  const alarmSnapshotBodySchema = z.object({
+    deviceKey: z.string().max(80).optional(),
+    label: z.string().max(120).optional(),
+    payloadJson: z.string().min(2).max(500_000),
+  });
+
+  app.get("/api/alarm-snapshots", requireAuth, async (req, res) => {
+    try {
+      const rows = await listUserAlarmSnapshots(req.user!.id);
+      res.json({
+        snapshots: rows.map((r) => ({
+          id: r.id,
+          deviceKey: r.deviceKey,
+          label: r.label,
+          capturedAt: r.capturedAt,
+          createdAt: r.createdAt,
+        })),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to list alarm snapshots" });
+    }
+  });
+
+  app.post("/api/alarm-snapshots", requireAuth, async (req, res) => {
+    try {
+      const body = alarmSnapshotBodySchema.parse(req.body || {});
+      const row = await createUserAlarmSnapshot(req.user!.id, body);
+      res.status(201).json({
+        id: row.id,
+        deviceKey: row.deviceKey,
+        label: row.label,
+        capturedAt: row.capturedAt,
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to save alarm snapshot" });
+    }
+  });
+
+  app.get("/api/alarm-snapshots/:id/payload", requireAuth, async (req, res) => {
+    try {
+      const row = await getUserAlarmSnapshot(req.user!.id, req.params.id);
+      if (!row) return res.status(404).json({ message: "Snapshot not found" });
+      res.json({ payloadJson: row.payloadJson, label: row.label, deviceKey: row.deviceKey, capturedAt: row.capturedAt });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load alarm snapshot" });
+    }
+  });
+
+  const collabBodySchema = z.object({
+    body: z.string().min(1).max(8000),
+    taskId: z.string().uuid().optional(),
+  });
+
+  app.get("/api/collaboration/inbox", requireAuth, async (req, res) => {
+    try {
+      const rows = await listCollaborationInbox(req.user!.id);
+      res.json({ messages: rows });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load collaboration inbox" });
+    }
+  });
+
+  app.post("/api/collaboration/inbox", requireAuth, async (req, res) => {
+    try {
+      const body = collabBodySchema.parse(req.body || {});
+      const row = await appendCollaborationMessage({
+        userId: req.user!.id,
+        body: body.body,
+        taskId: body.taskId ?? null,
+        senderUserId: req.user!.id,
+      });
+      res.status(201).json(row);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to append message" });
+    }
+  });
+
+  app.post("/api/collaboration/inbox/:id/read", requireAuth, async (req, res) => {
+    try {
+      const ok = await markCollaborationMessageRead(req.user!.id, req.params.id);
+      if (!ok) return res.status(404).json({ message: "Message not found" });
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to mark read" });
+    }
+  });
+
+  const locationPlaceSchema = z.object({
+    id: z.string().uuid().optional(),
+    name: z.string().min(1).max(120),
+    lat: z.number().finite().optional().nullable(),
+    lng: z.number().finite().optional().nullable(),
+    radiusMeters: z.number().int().min(50).max(5000).optional(),
+  });
+
+  app.get("/api/location-places", requireAuth, async (req, res) => {
+    try {
+      const rows = await listUserLocationPlaces(req.user!.id);
+      res.json({ places: rows });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to list places" });
+    }
+  });
+
+  app.post("/api/location-places", requireAuth, async (req, res) => {
+    try {
+      const body = locationPlaceSchema.parse(req.body || {});
+      const row = await upsertUserLocationPlace(req.user!.id, body);
+      if (!row) return res.status(404).json({ message: "Place not found" });
+      res.status(201).json(row);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to save place" });
     }
   });
 
@@ -4440,6 +4623,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     return res.status(403).json({ message: "Admin step-up required" });
   }
+
+  app.get("/api/admin/repo-inventory", requireAdmin, requireAdminStepUp, async (_req, res) => {
+    try {
+      const { stdout: branches } = await execFileAsync("git", ["branch", "-a", "--no-color"], {
+        cwd: process.cwd(),
+        maxBuffer: 2_000_000,
+      });
+      const { stdout: recent } = await execFileAsync("git", ["log", "--oneline", "-25", "--no-color"], {
+        cwd: process.cwd(),
+        maxBuffer: 512_000,
+      });
+      res.json({
+        branches: branches.slice(0, 24_000),
+        recentCommits: recent.slice(0, 24_000),
+      });
+    } catch {
+      res.status(500).json({ message: "Git inventory unavailable" });
+    }
+  });
 
   app.get("/api/admin/step-up-status", requireAdmin, async (req, res) => {
     try {

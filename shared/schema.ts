@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, bigint, timestamp, boolean, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, bigint, timestamp, boolean, index, uniqueIndex, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -322,7 +322,7 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   date: z.string().min(1, "Date is required"),
   time: z.string().optional(),
   activity: z.string().min(1, "Activity is required").max(500, "Activity must be under 500 characters"),
-  notes: z.string().max(2000, "Notes must be under 2000 characters").optional(),
+  notes: z.string().max(10000, "Notes must be under 10000 characters").optional(),
   urgency: z.number().min(1).max(5).optional(),
   impact: z.number().min(1).max(5).optional(),
   effort: z.number().min(1).max(5).optional(),
@@ -585,6 +585,8 @@ export const rewardsCatalog = pgTable("rewards_catalog", {
   name: text("name").notNull(),
   description: text("description").notNull(),
   cost: integer("cost").notNull(),
+  /** When set, any avatar profile at or above this level can redeem without spending coins. */
+  unlockAtAvatarLevel: integer("unlock_at_avatar_level"),
   type: text("type").notNull(),
   icon: text("icon"),
   data: text("data"),
@@ -1041,6 +1043,85 @@ export const communityReplies = pgTable("community_replies", {
 ]);
 
 export type CommunityReply = typeof communityReplies.$inferSelect;
+
+// ─── Expansion 2026-04-18: thumbs, alarms, collab inbox, location ────────────
+export const taskClassificationThumbs = pgTable(
+  "task_classification_thumbs",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    taskId: varchar("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("ux_task_classification_thumbs_task_user").on(table.taskId, table.userId),
+    index("idx_task_classification_thumbs_task").on(table.taskId),
+  ],
+);
+
+export type TaskClassificationThumb = typeof taskClassificationThumbs.$inferSelect;
+
+export const userAlarmSnapshots = pgTable(
+  "user_alarm_snapshots",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    deviceKey: text("device_key").notNull().default("default"),
+    label: text("label").notNull().default("capture"),
+    payloadJson: text("payload_json").notNull(),
+    capturedAt: timestamp("captured_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [index("idx_user_alarm_snapshots_user").on(table.userId)],
+);
+
+export type UserAlarmSnapshot = typeof userAlarmSnapshots.$inferSelect;
+
+export const collaborationInboxMessages = pgTable(
+  "collaboration_inbox_messages",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    senderUserId: varchar("sender_user_id").references(() => users.id, { onDelete: "set null" }),
+    taskId: varchar("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    body: text("body").notNull(),
+    readAt: timestamp("read_at"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_collab_inbox_user").on(table.userId),
+    index("idx_collab_inbox_created").on(table.createdAt),
+  ],
+);
+
+export type CollaborationInboxMessage = typeof collaborationInboxMessages.$inferSelect;
+
+export const userLocationPlaces = pgTable(
+  "user_location_places",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    lat: doublePrecision("lat"),
+    lng: doublePrecision("lng"),
+    radiusMeters: integer("radius_meters").notNull().default(200),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [index("idx_user_location_places_user").on(table.userId)],
+);
+
+export type UserLocationPlace = typeof userLocationPlaces.$inferSelect;
 
 // ─── Pattern Learning (replit-published line; union with experimental) ───────
 export const taskPatterns = pgTable("task_patterns", {

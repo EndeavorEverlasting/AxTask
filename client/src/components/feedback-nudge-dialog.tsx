@@ -52,6 +52,8 @@ export function FeedbackNudgeDialog() {
                               ? "Did redeeming rewards feel fast and useful?"
                               : source === "coin_claim_success"
                                 ? "Was the reminder timing useful for claiming coins?"
+                                : source === "classification_thumbs_up"
+                                  ? "Did rewarding a quick thumbs-up on classification feel fair?"
                       : "A short note helps us tune AxTask for real workflows."}
           </DialogDescription>
         </DialogHeader>

@@ -13,6 +13,7 @@ import {
 import { PriorityEngine } from "@/lib/priority-engine";
 import { useToast } from "@/hooks/use-toast";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
+import { setWalletBalanceCache } from "@/lib/wallet-cache";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useAuth } from "@/lib/auth-context";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -411,6 +412,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
 
       if (d?.classificationReward) {
         const cr = d.classificationReward as { coinsEarned: number; classification: string; newBalance: number };
+        setWalletBalanceCache(queryClient, cr.newBalance);
         toast({
           title: `${task ? "Task updated" : "Task created"} — +${cr.coinsEarned} AxCoins!`,
           description: `Classified as ${cr.classification}. New balance: ${cr.newBalance}`,
@@ -419,6 +421,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       } else {
         let desc = task ? "Your task has been updated successfully." : "Your task has been added successfully.";
         if (!task && d?.uniqueTaskReward && d.uniqueTaskReward.coins > 0) {
+          setWalletBalanceCache(queryClient, d.uniqueTaskReward.newBalance);
           desc = `${desc} +${d.uniqueTaskReward.coins} AxCoins new-task bonus (balance ${d.uniqueTaskReward.newBalance}).`;
         }
         toast({
@@ -746,7 +749,11 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={(e) => { e.preventDefault(); handleSubmitWithWarnings(); }} className="space-y-6">
+          <form
+            data-feedback-guard="true"
+            onSubmit={(e) => { e.preventDefault(); handleSubmitWithWarnings(); }}
+            className="space-y-6"
+          >
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
@@ -991,6 +998,14 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               {...field}
                               className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full font-mono text-sm")}
                               style={getCollabFieldColor("notes") ? { "--tw-ring-color": getCollabFieldColor("notes") } as React.CSSProperties : undefined}
+                              onPaste={(e) => {
+                                const files = e.clipboardData?.files;
+                                if (!files?.length) return;
+                                const img = Array.from(files).find((f) => f.type.startsWith("image/"));
+                                if (!img) return;
+                                e.preventDefault();
+                                void handleImageUpload(img);
+                              }}
                               onFocus={() => { setVoiceTarget("notes"); collab.focusField("notes"); }}
                               onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); collab.blurField(); }}
                               onChange={(e) => {

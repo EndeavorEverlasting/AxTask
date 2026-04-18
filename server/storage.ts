@@ -45,6 +45,10 @@ import {
   studyReviewEvents,
   communityPosts,
   communityReplies,
+  taskClassificationThumbs,
+  userAlarmSnapshots,
+  collaborationInboxMessages,
+  userLocationPlaces,
   userClassificationLabels,
   type Task,
   type InsertTask,
@@ -97,6 +101,9 @@ import {
   type SubmitStudyAnswerInput,
   type CommunityPost,
   type CommunityReply,
+  type UserAlarmSnapshot,
+  type CollaborationInboxMessage,
+  type UserLocationPlace,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, gte, count, avg, sql, desc, inArray } from "drizzle-orm";
@@ -1902,6 +1909,14 @@ export async function getUserRewards(userId: string): Promise<(typeof userReward
   return db.select().from(userRewards).where(eq(userRewards.userId, userId)).orderBy(desc(userRewards.redeemedAt));
 }
 
+export async function getMaxAvatarLevel(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ m: sql<number>`coalesce(max(${userAvatarProfiles.level}), 0)` })
+    .from(userAvatarProfiles)
+    .where(eq(userAvatarProfiles.userId, userId));
+  return Number(row?.m) || 0;
+}
+
 export async function redeemReward(userId: string, rewardId: string): Promise<boolean> {
   const reward = await getRewardById(rewardId);
   if (!reward) return false;
@@ -1912,6 +1927,26 @@ export async function redeemReward(userId: string, rewardId: string): Promise<bo
       .from(userRewards)
       .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
     if ((Number(existing?.value) || 0) > 0) return false;
+
+    const [levelRow] = await tx
+      .select({ m: sql<number>`coalesce(max(${userAvatarProfiles.level}), 0)` })
+      .from(userAvatarProfiles)
+      .where(eq(userAvatarProfiles.userId, userId));
+    const maxLevel = Number(levelRow?.m) || 0;
+    const qualifiesByLevel =
+      reward.unlockAtAvatarLevel != null && maxLevel >= reward.unlockAtAvatarLevel;
+
+    if (qualifiesByLevel) {
+      await tx.insert(coinTransactions).values({
+        id: randomUUID(),
+        userId,
+        amount: 0,
+        reason: "reward_avatar_level_unlock",
+        details: `Unlocked at avatar level ${maxLevel}: ${reward.name}`,
+      });
+      await tx.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
+      return true;
+    }
 
     const [deducted] = await tx
       .update(wallets)
@@ -1930,6 +1965,190 @@ export async function redeemReward(userId: string, rewardId: string): Promise<bo
     await tx.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
     return true;
   });
+}
+
+const CLASSIFICATION_THUMB_COINS = 3;
+
+export async function getClassificationThumbState(
+  taskId: string,
+  userId: string,
+): Promise<{ voted: boolean }> {
+  const [row] = await db
+    .select({ id: taskClassificationThumbs.id })
+    .from(taskClassificationThumbs)
+    .where(and(eq(taskClassificationThumbs.taskId, taskId), eq(taskClassificationThumbs.userId, userId)))
+    .limit(1);
+  return { voted: !!row };
+}
+
+export type ClassificationThumbResult =
+  | { ok: true; coinsEarned: number; newBalance: number }
+  | { ok: false; code: "task_not_found" | "no_classification" | "already_voted" };
+
+export async function awardClassificationThumbUp(
+  userId: string,
+  taskId: string,
+): Promise<ClassificationThumbResult> {
+  const [task] = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
+    .limit(1);
+  if (!task) return { ok: false, code: "task_not_found" };
+  const cls = (task.classification || "").trim();
+  if (!cls || cls === "General") return { ok: false, code: "no_classification" };
+
+  const inserted = await db
+    .insert(taskClassificationThumbs)
+    .values({ id: randomUUID(), taskId, userId })
+    .onConflictDoNothing({ target: [taskClassificationThumbs.taskId, taskClassificationThumbs.userId] })
+    .returning({ id: taskClassificationThumbs.id });
+  if (!inserted.length) return { ok: false, code: "already_voted" };
+
+  const { wallet } = await addCoins(
+    userId,
+    CLASSIFICATION_THUMB_COINS,
+    "classification_thumbs_up",
+    `Thumbs up on ${cls} classification`,
+    taskId,
+  );
+  return { ok: true, coinsEarned: CLASSIFICATION_THUMB_COINS, newBalance: wallet.balance };
+}
+
+export async function listUserAlarmSnapshots(userId: string): Promise<UserAlarmSnapshot[]> {
+  return db
+    .select()
+    .from(userAlarmSnapshots)
+    .where(eq(userAlarmSnapshots.userId, userId))
+    .orderBy(desc(userAlarmSnapshots.capturedAt))
+    .limit(50);
+}
+
+export async function createUserAlarmSnapshot(
+  userId: string,
+  input: { deviceKey?: string; label?: string; payloadJson: string },
+): Promise<UserAlarmSnapshot> {
+  const [row] = await db
+    .insert(userAlarmSnapshots)
+    .values({
+      id: randomUUID(),
+      userId,
+      deviceKey: input.deviceKey ?? "default",
+      label: input.label ?? "capture",
+      payloadJson: input.payloadJson,
+    })
+    .returning();
+  return row;
+}
+
+export async function getUserAlarmSnapshot(
+  userId: string,
+  snapshotId: string,
+): Promise<UserAlarmSnapshot | undefined> {
+  const [row] = await db
+    .select()
+    .from(userAlarmSnapshots)
+    .where(and(eq(userAlarmSnapshots.id, snapshotId), eq(userAlarmSnapshots.userId, userId)))
+    .limit(1);
+  return row;
+}
+
+export async function listCollaborationInbox(
+  userId: string,
+  limit = 50,
+): Promise<CollaborationInboxMessage[]> {
+  return db
+    .select()
+    .from(collaborationInboxMessages)
+    .where(eq(collaborationInboxMessages.userId, userId))
+    .orderBy(desc(collaborationInboxMessages.createdAt))
+    .limit(limit);
+}
+
+export async function appendCollaborationMessage(input: {
+  userId: string;
+  body: string;
+  taskId?: string | null;
+  senderUserId?: string | null;
+}): Promise<CollaborationInboxMessage> {
+  const [row] = await db
+    .insert(collaborationInboxMessages)
+    .values({
+      id: randomUUID(),
+      userId: input.userId,
+      body: input.body,
+      taskId: input.taskId ?? null,
+      senderUserId: input.senderUserId ?? null,
+    })
+    .returning();
+  return row;
+}
+
+export async function markCollaborationMessageRead(userId: string, messageId: string): Promise<boolean> {
+  const [row] = await db
+    .update(collaborationInboxMessages)
+    .set({ readAt: new Date() })
+    .where(
+      and(eq(collaborationInboxMessages.id, messageId), eq(collaborationInboxMessages.userId, userId)),
+    )
+    .returning({ id: collaborationInboxMessages.id });
+  return !!row;
+}
+
+export async function listUserLocationPlaces(userId: string): Promise<UserLocationPlace[]> {
+  return db
+    .select()
+    .from(userLocationPlaces)
+    .where(eq(userLocationPlaces.userId, userId))
+    .orderBy(desc(userLocationPlaces.updatedAt));
+}
+
+export async function upsertUserLocationPlace(
+  userId: string,
+  input: { id?: string; name: string; lat?: number | null; lng?: number | null; radiusMeters?: number },
+): Promise<UserLocationPlace | undefined> {
+  if (input.id) {
+    const [u] = await db
+      .update(userLocationPlaces)
+      .set({
+        name: input.name,
+        lat: input.lat ?? null,
+        lng: input.lng ?? null,
+        radiusMeters: input.radiusMeters ?? 200,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(userLocationPlaces.id, input.id), eq(userLocationPlaces.userId, userId)))
+      .returning();
+    if (u) return u;
+  }
+  const [row] = await db
+    .insert(userLocationPlaces)
+    .values({
+      id: randomUUID(),
+      userId,
+      name: input.name,
+      lat: input.lat ?? null,
+      lng: input.lng ?? null,
+      radiusMeters: input.radiusMeters ?? 200,
+    })
+    .returning();
+  return row;
+}
+
+export async function getCommunityMomentumStats(): Promise<{
+  postsLast24h: number;
+  repliesLast24h: number;
+}> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [p] = await db
+    .select({ c: count() })
+    .from(communityPosts)
+    .where(gte(communityPosts.createdAt, since));
+  const [r] = await db
+    .select({ c: count() })
+    .from(communityReplies)
+    .where(gte(communityReplies.createdAt, since));
+  return { postsLast24h: Number(p?.c) || 0, repliesLast24h: Number(r?.c) || 0 };
 }
 
 export async function seedRewardsCatalog(): Promise<void> {

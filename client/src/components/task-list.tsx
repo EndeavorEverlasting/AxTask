@@ -22,6 +22,7 @@ import { apiFetch } from "@/lib/queryClient";
 import { resolveTaskListSearchSource } from "@/lib/task-list-search-source";
 import { useToast } from "@/hooks/use-toast";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
+import { setWalletBalanceCache } from "@/lib/wallet-cache";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useVoice } from "@/hooks/use-voice";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -1064,10 +1065,7 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       if (typeof d?.walletBalance === "number") {
-        queryClient.setQueryData(["/api/gamification/wallet"], (prev: unknown) => {
-          if (!prev || typeof prev !== "object") return prev;
-          return { ...(prev as Record<string, unknown>), balance: d.walletBalance };
-        });
+        setWalletBalanceCache(queryClient, d.walletBalance);
       }
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       if (d?.coinReward) {
@@ -1081,6 +1079,7 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
           nextComboBadgeAt?: number | null;
           nextChainBadgeAt?: number | null;
         };
+        setWalletBalanceCache(queryClient, cr.newBalance);
         const badgeText = cr.badgesEarned?.length ? ` 🏅 New badge${cr.badgesEarned.length > 1 ? "s" : ""}!` : "";
         const comboHint =
           typeof cr.nextComboBadgeAt === "number" && typeof cr.comboCount === "number"
@@ -1094,16 +1093,9 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
           title: `+${cr.coinsEarned} AxCoins earned!`,
           description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${comboHint}${chainHint}${badgeText}`,
         });
-        queryClient.setQueryData(["/api/gamification/wallet"], (prev: unknown) => {
-          if (!prev || typeof prev !== "object") return prev;
-          return { ...(prev as Record<string, unknown>), balance: cr.newBalance };
-        });
         playIfEligible(1);
       } else if (typeof d?.walletBalance === "number") {
-        queryClient.setQueryData(["/api/gamification/wallet"], (prev: unknown) => {
-          if (!prev || typeof prev !== "object") return prev;
-          return { ...(prev as Record<string, unknown>), balance: d.walletBalance };
-        });
+        setWalletBalanceCache(queryClient, d.walletBalance);
       } else if (variables.status === "completed" && d?.coinSkipReason === "already_awarded") {
         toast({
           title: "No new completion coins",

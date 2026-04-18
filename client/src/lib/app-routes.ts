@@ -15,6 +15,8 @@ export const VALID_APP_PATHS = [
   "/mini-games",
   "/feedback",
   "/community",
+  "/collab",
+  "/huddle",
   "/admin",
   "/rewards",
   "/premium",

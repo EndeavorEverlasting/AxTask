@@ -42,7 +42,8 @@ function getFeedbackNudgePolicy(): FeedbackNudgePolicy {
   if (intensity <= 70) {
     return { cooldownMs: 90_000, sourceCap: 3, dayCap: 8, dayScoreCap: 16 };
   }
-  return { cooldownMs: 45_000, sourceCap: 5, dayCap: DAY_CAP, dayScoreCap: 28 };
+  /* High intensity: more distinct sources before repeat, not just faster repeats. */
+  return { cooldownMs: 45_000, sourceCap: 8, dayCap: DAY_CAP, dayScoreCap: 36 };
 }
 
 function sourceWeight(source: string): number {
@@ -56,9 +57,17 @@ function sourceWeight(source: string): number {
   return 1;
 }
 
+function isActiveElementInsideFeedbackGuard(): boolean {
+  if (typeof document === "undefined") return false;
+  const el = document.activeElement as HTMLElement | null;
+  if (!el) return false;
+  return Boolean(el.closest('[data-feedback-guard="true"]'));
+}
+
 /** Fire-and-forget hook for embedding feedback prompts after meaningful actions. */
 export function requestFeedbackNudge(source: string): void {
   if (typeof window === "undefined") return;
+  if (isActiveElementInsideFeedbackGuard()) return;
   try {
     const policy = getFeedbackNudgePolicy();
     const now = Date.now();
