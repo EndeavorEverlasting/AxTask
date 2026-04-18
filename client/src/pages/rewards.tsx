@@ -11,11 +11,12 @@ import { GlassPanel } from "@/components/ui/glass-panel";
 import { FloatingChip } from "@/components/ui/floating-chip";
 import { AvatarGlowChip } from "@/components/ui/avatar-glow-chip";
 import { ProgressStrip } from "@/components/ui/progress-strip";
-import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp } from "lucide-react";
+import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp, FileText } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { setWalletBalanceCache } from "@/lib/wallet-cache";
+import type { ProductivityExportPrices } from "@/lib/productivity-export-download";
 
 interface Wallet {
   balance: number;
@@ -87,7 +88,9 @@ export default function RewardsPage() {
 
   const { data: wallet } = useQuery<Wallet>({ queryKey: ["/api/gamification/wallet"] });
   const { data: rewards = [] } = useQuery<RewardItem[]>({ queryKey: ["/api/gamification/rewards"] });
-  const { data: myRewards = [] } = useQuery<{ id: string; rewardId: string; redeemedAt: string }[]>({ queryKey: ["/api/gamification/my-rewards"] });
+  const { data: myRewards = [] } = useQuery<
+    { id: string; rewardId: string; redeemedAt: string; coinsSpentAtRedeem?: number }[]
+  >({ queryKey: ["/api/gamification/my-rewards"] });
   const { data: transactions = [] } = useQuery<Transaction[]>({ queryKey: ["/api/gamification/transactions"] });
   const { data: badgeData } = useQuery<{ earned: UserBadge[]; definitions: Record<string, BadgeDefinition> }>({
     queryKey: ["/api/gamification/badges"],
@@ -106,6 +109,16 @@ export default function RewardsPage() {
     rewardsToday: Array<{ reason: string; todayCount: number; dailyCap: number }>;
   }>({
     queryKey: ["/api/gamification/economy-diagnostics"],
+  });
+
+  const { data: exportPrices } = useQuery<ProductivityExportPrices>({
+    queryKey: ["/api/gamification/productivity-export-prices"],
+  });
+
+  const { data: avatarSkillTree = [] } = useQuery<
+    Array<{ skillKey: string; name: string; description: string; currentLevel: number; maxLevel: number; effectType: string }>
+  >({
+    queryKey: ["/api/gamification/avatar-skills"],
   });
 
   const animatedBalance = useCountUp(wallet?.balance ?? 0);
@@ -136,6 +149,28 @@ export default function RewardsPage() {
     },
     onError: (err: Error) => {
       toast({ title: "Redemption failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const sellBackMutation = useMutation({
+    mutationFn: async (userRewardId: string) => {
+      const res = await apiRequest("POST", "/api/gamification/rewards/sell-back", { userRewardId });
+      return res.json() as Promise<{ message?: string; refund?: number; wallet?: Wallet }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      if (typeof data.wallet?.balance === "number") {
+        setWalletBalanceCache(queryClient, data.wallet.balance);
+      }
+      toast({
+        title: data.refund && data.refund > 0 ? "Sold back" : "Removed",
+        description: data.message ?? "Shop item updated.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Sell-back failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -524,11 +559,84 @@ export default function RewardsPage() {
                   <p>4. Confirmers also earn 3 coins for each confirmation they give</p>
                 </div>
               </div>
+
+              <div className="mt-6 p-4 rounded-xl border border-border bg-muted/40">
+                <h4 className="font-semibold mb-2 flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" />
+                  Exports and avatar skills
+                </h4>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Upgrade the <span className="font-medium text-foreground">Export Efficiency</span> skill in your avatar skill tree
+                  (see task list → companion skills) to lower AxCoin costs for printable checklists, task spreadsheets, and per-task reports.
+                  Prices never go below 1 coin so the economy keeps moving.
+                </p>
+                {exportPrices?.freeInDev ? (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">Exports are free in local development.</p>
+                ) : (
+                  <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
+                    <li>Checklist PDF: {exportPrices?.checklistPdf ?? "…"} coins</li>
+                    <li>Tasks spreadsheet: {exportPrices?.tasksSpreadsheet ?? "…"} coins</li>
+                    <li>Task report (PDF / Excel): {exportPrices?.taskReportPdf ?? "…"} / {exportPrices?.taskReportXlsx ?? "…"} coins</li>
+                  </ul>
+                )}
+                {(() => {
+                  const ex = avatarSkillTree.find((s) => s.skillKey === "export-efficiency");
+                  if (!ex) return null;
+                  return (
+                    <p className="text-xs mt-2 text-muted-foreground">
+                      Your Export Efficiency: level {ex.currentLevel} / {ex.maxLevel}. {ex.description}
+                    </p>
+                  );
+                })()}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="shop" className="space-y-6 mt-4">
+          {myRewards.length > 0 && (
+            <Card className="glass-panel border-amber-200/80 dark:border-amber-800/60">
+              <CardHeader>
+                <CardTitle className="text-base">Recover coins (sell back)</CardTitle>
+                <CardDescription>
+                  Sell a shop item you own for 70% of the coins you originally spent. Items unlocked with avatar level only
+                  (0 coins spent) refund 0 but free up the item so you can unlock it again later.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {myRewards.map((mr) => {
+                  const reward = rewards.find((r) => r.id === mr.rewardId);
+                  const spent = mr.coinsSpentAtRedeem ?? 0;
+                  const est = Math.floor(spent * 0.7);
+                  return (
+                    <div
+                      key={mr.id}
+                      className="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-border/70 last:border-0"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xl shrink-0">{reward?.icon}</span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{reward?.name ?? "Reward"}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {spent > 0 ? `Est. refund: ${est} coins (70% of ${spent})` : "No coin refund (free unlock)"}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={sellBackMutation.isPending}
+                        onClick={() => sellBackMutation.mutate(mr.id)}
+                      >
+                        Sell back
+                      </Button>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+
           {(["theme", "badge", "title", "avatar_support"] as const).map(type => (
             <div key={type}>
               <h3 className="text-lg font-semibold capitalize mb-3">{type}s</h3>

@@ -33,7 +33,7 @@
     "check:startup-seeds": "vitest run server/startup-seeds.guard.test.ts",
     "test:watch": "vitest",
     "test:pg-schema": "cross-env RUN_PG_SCHEMA_TESTS=1 vitest run server/users-schema-pg.integration.test.ts",
-    "db:push": "drizzle-kit push",
+    "db:push": "node scripts/drizzle-push.mjs",
     "db:push:ci": "drizzle-kit push --force",
     "db:push:verify": "node scripts/verify-drizzle-deploy.mjs",
     "vapid:generate": "node scripts/generate-vapid-keys.mjs",
@@ -45,6 +45,7 @@
     "migration:check:full": "cross-env RUN_TESTS=1 node scripts/migration/run-migration-checks.mjs"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.7.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",

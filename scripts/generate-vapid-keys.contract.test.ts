@@ -22,10 +22,30 @@ describe("generate-vapid-keys provisioning contract", () => {
     expect(scriptSrc).toMatch(/generateVAPIDKeys\s*\(\s*\)/);
   });
 
-  it("script prints all three env-var lines the operator needs", () => {
+  it("script prints all four env-var lines the operator needs (uncommented)", () => {
     expect(scriptSrc).toContain("VAPID_PUBLIC_KEY=");
     expect(scriptSrc).toContain("VAPID_PRIVATE_KEY=");
     expect(scriptSrc).toContain("VAPID_SUBJECT=");
+    expect(scriptSrc).toContain("VITE_VAPID_PUBLIC_KEY=");
+  });
+
+  it("does not emit VITE_VAPID_PUBLIC_KEY as a commented-out (optional) line", () => {
+    const commentedMatches = scriptSrc.match(/#\s*VITE_VAPID_PUBLIC_KEY=/g);
+    expect(
+      commentedMatches,
+      "VITE_VAPID_PUBLIC_KEY must be emitted uncommented so operators don't have to edit the generator output.",
+    ).toBeNull();
+  });
+
+  it("emits VITE_VAPID_PUBLIC_KEY from the same template value as VAPID_PUBLIC_KEY", () => {
+    const publicLine = scriptSrc.match(/`VAPID_PUBLIC_KEY=\$\{(\w+)\}/);
+    const viteLine = scriptSrc.match(/`VITE_VAPID_PUBLIC_KEY=\$\{(\w+)\}/);
+    expect(publicLine, "VAPID_PUBLIC_KEY must be interpolated from a variable").toBeTruthy();
+    expect(viteLine, "VITE_VAPID_PUBLIC_KEY must be interpolated from a variable").toBeTruthy();
+    expect(
+      viteLine![1],
+      "VITE_VAPID_PUBLIC_KEY must reference the same publicKey variable so the two lines can never drift.",
+    ).toBe(publicLine![1]);
   });
 
   it("script supports a --subject override and defaults to mailto:alerts@axtask.app", () => {

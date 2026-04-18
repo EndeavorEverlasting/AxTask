@@ -18,6 +18,8 @@ import {
 import {
   AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Upload, XCircle,
 } from "lucide-react";
+import { TeamsSweepCard } from "@/components/billing/TeamsSweepCard";
+import type { TeamsSweepSnapshot } from "@/lib/teams-graph/sweep";
 
 /* ── Types mirrored from server ────────────────────────────────────────── */
 
@@ -54,6 +56,19 @@ interface AssignmentEvidence {
   exception_detail: string;
 }
 
+interface SuggestedFillRow {
+  work_date: string;
+  canonical_name: string;
+  site: string;
+  task_category: string;
+  default_workstream: string;
+  suggested_hours: number | null;
+  evidence_source: string;
+  evidence_detail: string;
+  requires_review: true;
+  reason: string;
+}
+
 interface BridgeResult {
   reconciliation: {
     exceptions: ReconciliationException[];
@@ -66,6 +81,19 @@ interface BridgeResult {
   };
   people: { canonical_name: string; active: boolean }[];
   attendance_count: number;
+  suggested_fill: {
+    rows: SuggestedFillRow[];
+    csv: string;
+  };
+  teams: null | {
+    row_count: number;
+    unmapped_display_names: string[];
+    skipped_count: number;
+    generated_at: string | null;
+    topic_pattern: string | null;
+    tool_version: string | null;
+    strict: boolean;
+  };
   ingest_errors: { source_sheet: string; field: string; message: string; workbook: string }[];
 }
 
@@ -96,6 +124,8 @@ export default function BillingBridgePage() {
   const [hoursFocusEnd, setHoursFocusEnd] = useState(() => monthBoundsYyyyMmDd(defaultMonthYyyyMm()).end);
   const [nameFilter, setNameFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [teamsSnapshot, setTeamsSnapshot] = useState<TeamsSweepSnapshot | null>(null);
+  const [strictTeamsPresence, setStrictTeamsPresence] = useState(false);
   const [generateOptions, setGenerateOptions] = useState({
     rosterLog: true,
     taskTracker: true,
@@ -115,6 +145,10 @@ export default function BillingBridgePage() {
       fd.append("roster", rbFile!);
       if (mwFile) fd.append("manager", mwFile);
       fd.append("generateOptions", JSON.stringify(generateOptions));
+      if (teamsSnapshot) {
+        fd.append("teamsSnapshot", JSON.stringify(teamsSnapshot));
+        fd.append("strictTeamsPresence", strictTeamsPresence ? "true" : "false");
+      }
       const headers: Record<string, string> = {};
       const csrfToken = getCsrfToken();
       if (csrfToken) headers[AXTASK_CSRF_HEADER] = csrfToken;
@@ -198,6 +232,14 @@ export default function BillingBridgePage() {
     if (!data) return [];
     return data.reconciliation.exceptions.filter(
       e => e.exception_type === "task_evidence_no_attendance",
+    );
+  }, [data]);
+
+  const teamsVsRosterExceptions = useMemo(() => {
+    if (!data) return [];
+    return data.reconciliation.exceptions.filter(
+      e => e.exception_type === "teams_presence_no_attendance"
+        || e.exception_type === "teams_presence_no_task_evidence",
     );
   }, [data]);
 
@@ -296,7 +338,7 @@ export default function BillingBridgePage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <Button
               onClick={() => reconcileMutation.mutate()}
               disabled={!canRun || reconcileMutation.isPending}
@@ -307,12 +349,32 @@ export default function BillingBridgePage() {
                 <><Upload className="mr-2 h-4 w-4" />Run Reconciliation</>
               )}
             </Button>
+            {teamsSnapshot && (
+              <div className="flex items-center gap-2 text-xs">
+                <Badge variant="outline">
+                  Including Teams snapshot ({teamsSnapshot.rows.length} rows)
+                </Badge>
+                <Checkbox
+                  id="strictTeamsPresence"
+                  checked={strictTeamsPresence}
+                  onCheckedChange={(v) => setStrictTeamsPresence(!!v)}
+                />
+                <label htmlFor="strictTeamsPresence" className="cursor-pointer">
+                  Strict: also flag Teams presence without task evidence
+                </label>
+              </div>
+            )}
             {reconcileMutation.isError && (
               <span className="text-sm text-red-500">{reconcileMutation.error.message}</span>
             )}
           </div>
         </CardContent>
       </Card>
+
+      <TeamsSweepCard
+        onSnapshot={setTeamsSnapshot}
+        activeSnapshot={teamsSnapshot}
+      />
 
       <Card>
         <CardHeader>
@@ -405,13 +467,63 @@ export default function BillingBridgePage() {
       {data && (
         <>
           {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             <SummaryCard label="Attendance Days" value={data.reconciliation.summary.total_attendance_days} />
             <SummaryCard label="Evidence Days" value={data.reconciliation.summary.total_evidence_days} />
             <SummaryCard label="Matched Days" value={data.reconciliation.summary.matched_days} variant="success" />
             <SummaryCard label="Total Exceptions" value={data.reconciliation.summary.exception_count} variant="warning" />
             <SummaryCard label="No-Attendance Exceptions" value={noAttendanceExceptions.length} variant="danger" />
+            <SummaryCard label="Teams vs Roster" value={teamsVsRosterExceptions.length} variant={teamsVsRosterExceptions.length > 0 ? "danger" : "success"} />
           </div>
+
+          {data.suggested_fill.rows.length > 0 && (
+            <div className="rounded-md border p-3 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <strong className="text-sm">Suggested fill rows</strong>
+                <Badge variant="outline" className="text-xs">
+                  {data.suggested_fill.rows.length} review-only
+                </Badge>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const blob = new Blob([data.suggested_fill.csv], { type: "text/csv" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `suggested-fill-${new Date().toISOString().slice(0,10)}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  <FileSpreadsheet className="mr-1 h-4 w-4" />Download CSV
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Each row is labeled <code>requires_review: true</code> and uses Task Catalog
+                defaults (e.g. Device Configuration). Nothing has been written to any
+                workbook — this is a manual review aid.
+              </p>
+            </div>
+          )}
+
+          {data.teams && data.teams.unmapped_display_names.length > 0 && (
+            <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-900/10 p-3 text-xs">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600" />
+                <div className="space-y-1">
+                  <strong>Unmapped Teams display names ({data.teams.unmapped_display_names.length}):</strong>
+                  <div className="font-mono text-[11px]">{data.teams.unmapped_display_names.join(", ")}</div>
+                  <div className="text-muted-foreground">
+                    These display names did not resolve to a canonical roster name. Add
+                    an alias row to <code>tools/billing_bridge/config/person_aliases.csv</code>
+                    (alias_name, canonical_name, source_system) and re-run.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <Tabs defaultValue="exceptions" className="w-full">
             <TabsList>
@@ -643,6 +755,8 @@ function ExceptionBadge({ type }: { type: string }) {
     multiple_categories_same_day: { variant: "secondary", label: "Multi-Category" },
     split_unsupported: { variant: "secondary", label: "Split" },
     billing_mismatch: { variant: "destructive", label: "Billing Mismatch" },
+    teams_presence_no_attendance: { variant: "destructive", label: "Teams vs Roster" },
+    teams_presence_no_task_evidence: { variant: "outline", label: "Teams No Evidence" },
   };
   const cfg = map[type] ?? { variant: "outline" as const, label: type };
   return <Badge variant={cfg.variant} className="text-[10px]">{cfg.label}</Badge>;

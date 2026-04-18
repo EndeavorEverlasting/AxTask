@@ -601,6 +601,8 @@ export const userRewards = pgTable("user_rewards", {
   rewardId: varchar("reward_id").notNull().references(() => rewardsCatalog.id),
   redeemedAt: timestamp("redeemed_at").defaultNow(),
   isActive: boolean("is_active").notNull().default(true),
+  /** Coins paid when redeeming from catalog; 0 for avatar-level unlocks. Used for sell-back refunds. */
+  coinsSpentAtRedeem: integer("coins_spent_at_redeem").notNull().default(0),
 }, (table) => [
   index("idx_user_rewards_user").on(table.userId),
 ]);

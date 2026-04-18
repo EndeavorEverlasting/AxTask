@@ -147,6 +147,27 @@ export interface ManagerExistingRow {
 }
 
 
+// ── Teams presence (Microsoft Graph deployment chat sweep) ──────────────────
+// A person-date row asserting that someone was a member of a dated deployment
+// group chat (e.g. "NSUH - 4/11/2026"). This is an attendance *signal*, not
+// a clock-in/out record, and is never written back to billing automatically.
+
+export interface TeamsPresenceRow {
+  work_date: string;                 // ISO yyyy-mm-dd parsed from chat topic
+  canonical_name: string;            // after canonicalizePerson()
+  raw_display_name?: string;         // original Teams display name
+  chat_topic: string;                // e.g. "NSUH - 4/11/2026"
+  chat_id?: string;                  // opaque Graph chat id
+  evidence_source: "teams_deployment_chat";
+}
+
+export interface TeamsPresenceSnapshot {
+  generated_at: string;              // ISO datetime
+  topic_pattern?: string;            // regex used by the sweep
+  tool_version?: string;             // browser sweep / native sweep version tag
+  rows: TeamsPresenceRow[];
+}
+
 // ── Reconciliation ───────────────────────────────────────────────────────────
 
 export interface ReconciliationException {
@@ -158,6 +179,8 @@ export interface ReconciliationException {
     | "split_unsupported"
     | "billing_mismatch"
     | "multiple_categories_same_day"
+    | "teams_presence_no_attendance"
+    | "teams_presence_no_task_evidence"
     | "other";
   detail: string;
   evidence_sources: string[];

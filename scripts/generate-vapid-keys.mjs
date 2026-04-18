@@ -26,12 +26,10 @@ function parseSubject(argv) {
 const subject = parseSubject(process.argv.slice(2));
 const { publicKey, privateKey } = webpush.generateVAPIDKeys();
 
-process.stdout.write("# AxTask VAPID keys -- paste into Render environment or .env\n");
+process.stdout.write("# AxTask VAPID keys -- paste all four lines into Render environment or .env\n");
+process.stdout.write("# VITE_VAPID_PUBLIC_KEY intentionally mirrors VAPID_PUBLIC_KEY so the SPA build\n");
+process.stdout.write("# bakes the public key in and the server reads the same value at runtime.\n");
 process.stdout.write(`VAPID_PUBLIC_KEY=${publicKey}\n`);
 process.stdout.write(`VAPID_PRIVATE_KEY=${privateKey}\n`);
 process.stdout.write(`VAPID_SUBJECT=${subject}\n`);
-process.stdout.write(
-  "# Optional: also expose the public key to the Vite build if you want the client to\n",
-);
-process.stdout.write("# resolve it without a runtime round-trip to /api/notifications/push-public-config.\n");
-process.stdout.write(`# VITE_VAPID_PUBLIC_KEY=${publicKey}\n`);
+process.stdout.write(`VITE_VAPID_PUBLIC_KEY=${publicKey}\n`);

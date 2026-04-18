@@ -51,7 +51,7 @@ sent:0}` and never throws.
 | `VAPID_PUBLIC_KEY` | Server (runtime) | Yes | Authoritative public key. |
 | `VAPID_PRIVATE_KEY` | Server (runtime) | Yes | Used by `web-push` to sign. |
 | `VAPID_SUBJECT` | Server (runtime) | Optional, default `mailto:alerts@axtask.app` | `mailto:` or `https://` identifier. |
-| `VITE_VAPID_PUBLIC_KEY` | Client (build time) | Optional | Skips a runtime round-trip. If omitted, the client pulls the key from `/api/notifications/push-public-config`. |
+| `VITE_VAPID_PUBLIC_KEY` | Client (build time) | Recommended | Same value as `VAPID_PUBLIC_KEY`. Bakes the public key into the SPA bundle so the first-subscribe path does not depend on a runtime round-trip. `npm run vapid:generate` now emits this line uncommented so operators configure all four env vars in one copy-paste. |
 
 If either `VAPID_PUBLIC_KEY` or `VAPID_PRIVATE_KEY` is missing the server logs a
 single `[push] VAPID keys missing` warning at startup (see
@@ -59,16 +59,18 @@ single `[push] VAPID keys missing` warning at startup (see
 
 ## How to actually enable push (every device)
 
-1. Generate a key pair locally and paste the output into your deploy environment:
+1. Install deps if you have not already, then generate a key pair locally:
    ```bash
-   npm run vapid:generate
-   # optional custom subject:
-   npm run vapid:generate -- --subject mailto:alerts@yourdomain.tld
+   npm install
+   npm run vapid:generate -- --subject mailto:you@example.com
    ```
-   See [`scripts/generate-vapid-keys.mjs`](../scripts/generate-vapid-keys.mjs).
-   The script only writes to stdout; it never persists the private key to disk.
-2. On Render (or your host), set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and
-   optionally `VAPID_SUBJECT` and `VITE_VAPID_PUBLIC_KEY`.
+   Use any email you actually monitor for the `--subject`; push providers only
+   use it as a contact hint, no DNS / domain ownership is required. The script
+   prints all four env-var lines uncommented to stdout and never persists the
+   private key to disk. See [`scripts/generate-vapid-keys.mjs`](../scripts/generate-vapid-keys.mjs).
+2. On Render (or your host), create all four environment variables using the
+   output: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, and
+   `VITE_VAPID_PUBLIC_KEY` (same value as `VAPID_PUBLIC_KEY`).
 3. Redeploy. Confirm the startup log no longer shows `[push] VAPID keys
    missing`.
 4. In each browser / installed PWA, hard-reload once so the service worker

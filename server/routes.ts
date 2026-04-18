@@ -17,7 +17,8 @@ import {
   adminResetPassword,
   banUser, unbanUser, getAllUsers, isUserBanned,
   logSecurityEvent, getSecurityLogs,
-  getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getRewardById, getUserRewards, redeemReward, seedRewardsCatalog,
+  getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getRewardById, getUserRewards, redeemReward, sellBackUserReward, ownerGrantCoinsToUser, seedRewardsCatalog,
+  spendCoins,
   getMaxAvatarLevel,
   getClassificationThumbState,
   awardClassificationThumbUp,
@@ -134,6 +135,8 @@ import { processTaskReview, type ReviewAction } from "./engines/review-engine";
 import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from "./engines/pattern-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { generateChecklistPDF } from "./checklist-pdf";
+import { getProductivityExportPricesForUser, priceForKind } from "./productivity-export-pricing";
+import { buildTasksSpreadsheetBuffer, generateTaskReportPdf, buildTaskReportXlsxBuffer } from "./task-export-generators";
 import { processChecklistImage } from "./ocr-processor";
 import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
@@ -1680,6 +1683,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const tasksSpreadsheetExportSchema = z.object({
+    format: z.enum(["csv", "xlsx"]),
+  });
+
+  app.post("/api/tasks/export/spreadsheet", requireAuth, async (req, res) => {
+    try {
+      const parsed = tasksSpreadsheetExportSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "format must be csv or xlsx" });
+      }
+      const userId = req.user!.id;
+      const prices = await getProductivityExportPricesForUser(userId);
+      const required = priceForKind(prices, "tasksSpreadsheet");
+      if (!prices.freeInDev && required > 0) {
+        const w = await spendCoins(userId, required, "productivity_export:tasks_spreadsheet");
+        if (!w) {
+          const bal = await getOrCreateWallet(userId);
+          return res.status(402).json({
+            code: "INSUFFICIENT_COINS",
+            required,
+            balance: bal.balance,
+            message: "Not enough AxCoins for this export.",
+          });
+        }
+      }
+      const tasks = await storage.getTasks(userId);
+      const buf = buildTasksSpreadsheetBuffer(tasks, parsed.data.format);
+      const day = new Date().toISOString().split("T")[0];
+      const ext = parsed.data.format === "csv" ? "csv" : "xlsx";
+      const mime =
+        parsed.data.format === "csv"
+          ? "text/csv; charset=utf-8"
+          : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      res.setHeader("Content-Type", mime);
+      res.setHeader("Content-Disposition", `attachment; filename="axtask-tasks-${day}.${ext}"`);
+      res.send(buf);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to export tasks" });
+    }
+  });
+
+  const taskReportBodySchema = z.object({
+    format: z.enum(["pdf", "xlsx"]),
+  });
+
+  app.post("/api/tasks/:taskId/report", requireAuth, async (req, res) => {
+    try {
+      const parsed = taskReportBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "format must be pdf or xlsx" });
+      }
+      const userId = req.user!.id;
+      const taskId = req.params.taskId;
+      const task = await storage.getTask(userId, taskId);
+      if (!task) return res.status(404).json({ message: "Task not found" });
+
+      const prices = await getProductivityExportPricesForUser(userId);
+      const kind = parsed.data.format === "pdf" ? "taskReportPdf" : "taskReportXlsx";
+      const required = priceForKind(prices, kind);
+      if (!prices.freeInDev && required > 0) {
+        const w = await spendCoins(userId, required, `productivity_export:${kind}`);
+        if (!w) {
+          const bal = await getOrCreateWallet(userId);
+          return res.status(402).json({
+            code: "INSUFFICIENT_COINS",
+            required,
+            balance: bal.balance,
+            message: "Not enough AxCoins for this export.",
+          });
+        }
+      }
+
+      const userName = req.user!.displayName || req.user!.email || "User";
+      if (parsed.data.format === "pdf") {
+        const pdfDoc = generateTaskReportPdf(task, userName);
+        res.setHeader("Content-Type", "application/pdf");
+        const slug = task.activity
+          .slice(0, 40)
+          .replace(/[^\w-]+/g, "_")
+          .replace(/_+/g, "_")
+          .replace(/^_+|_+$/g, "") || "report";
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="AxTask-Report-${task.id.slice(0, 8)}-${slug}.pdf"`,
+        );
+        pdfDoc.pipe(res);
+        pdfDoc.end();
+      } else {
+        const buf = buildTaskReportXlsxBuffer(task);
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="AxTask-Report-${task.id.slice(0, 8)}.xlsx"`,
+        );
+        res.send(buf);
+      }
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate task report" });
+    }
+  });
+
   app.get("/api/analytics/overview", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
@@ -2621,8 +2725,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })).min(1).max(500),
   });
 
+  app.post("/api/checklist/:date/download", requireAuth, async (req, res) => {
+    try {
+      const { date } = req.params;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
+      }
+      const userId = req.user!.id;
+      const prices = await getProductivityExportPricesForUser(userId);
+      const required = priceForKind(prices, "checklistPdf");
+      if (!prices.freeInDev && required > 0) {
+        const w = await spendCoins(userId, required, "productivity_export:checklist_pdf");
+        if (!w) {
+          const bal = await getOrCreateWallet(userId);
+          return res.status(402).json({
+            code: "INSUFFICIENT_COINS",
+            required,
+            balance: bal.balance,
+            message: "Not enough AxCoins for this checklist PDF.",
+          });
+        }
+      }
+
+      const allTasks = await storage.getTasks(userId);
+      const dayTasks = allTasks.filter((t) => t.date === date);
+      const userName = req.user!.displayName || req.user!.email;
+      const pdfDoc = generateChecklistPDF(dayTasks, date, userName);
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="AxTask-Checklist-${date}.pdf"`);
+
+      pdfDoc.pipe(res);
+      pdfDoc.end();
+    } catch (error) {
+      console.error("Checklist PDF download error:", error);
+      res.status(500).json({ message: "Failed to generate checklist" });
+    }
+  });
+
   app.get("/api/checklist/:date", requireAuth, async (req, res) => {
     try {
+      if (process.env.NODE_ENV === "production") {
+        return res.status(402).json({
+          code: "PAYMENT_REQUIRED",
+          message: "Use Print Checklist in the app to download the PDF (AxCoins).",
+        });
+      }
+
       const { date } = req.params;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
@@ -3237,6 +3386,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(rewards);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch your rewards" });
+    }
+  });
+
+  app.get("/api/gamification/productivity-export-prices", requireAuth, async (req, res) => {
+    try {
+      const prices = await getProductivityExportPricesForUser(req.user!.id);
+      res.json(prices);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load export prices" });
+    }
+  });
+
+  app.post("/api/gamification/rewards/sell-back", requireAuth, async (req, res) => {
+    try {
+      const body = z.object({ userRewardId: z.string().uuid() }).safeParse(req.body);
+      if (!body.success) {
+        return res.status(400).json({ message: "userRewardId is required" });
+      }
+      const result = await sellBackUserReward(req.user!.id, body.data.userRewardId);
+      if (!result.ok) {
+        return res.status(404).json({ message: "Reward not found" });
+      }
+      const wallet = await getOrCreateWallet(req.user!.id);
+      res.json({
+        message:
+          result.refund > 0
+            ? `Sold back for ${result.refund} AxCoins`
+            : "Item removed (no coin refund for avatar-level unlocks)",
+        refund: result.refund,
+        wallet: toPublicWallet(wallet),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to sell back reward" });
+    }
+  });
+
+  function ownerCoinGrantAllowlist(): Set<string> {
+    const raw = process.env.OWNER_COIN_GRANT_USER_IDS ?? "";
+    return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+  }
+
+  app.post("/api/gamification/owner/grant-coins", requireAuth, async (req, res) => {
+    try {
+      if (!ownerCoinGrantAllowlist().has(req.user!.id)) {
+        return res.status(404).json({ message: "Not found" });
+      }
+      const body = z
+        .object({
+          targetUserId: z.string().uuid(),
+          amount: z.number().int().positive().max(1_000_000_000),
+          note: z.string().max(500).optional(),
+        })
+        .safeParse(req.body);
+      if (!body.success) {
+        return res.status(400).json({ message: "targetUserId and a positive amount are required" });
+      }
+      const result = await ownerGrantCoinsToUser(body.data.targetUserId, body.data.amount, body.data.note);
+      if (!result.ok) {
+        if (result.code === "user_not_found") return res.status(404).json({ message: "User not found" });
+        return res.status(400).json({ message: "Invalid amount" });
+      }
+      await logSecurityEvent(
+        "owner_coin_grant",
+        req.user!.id,
+        body.data.targetUserId,
+        req.ip ?? undefined,
+        `amount=${body.data.amount}; note=${body.data.note ?? ""}`,
+      );
+      res.json({ ok: true, wallet: toPublicWallet(result.wallet) });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to grant coins" });
     }
   });
 
@@ -5288,16 +5508,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { extractManagerWorkbook } = await import("./services/corporate-extractors/manager-workbook-extractor");
         const { reconcile } = await import("./services/corporate-extractors/reconcile");
         const { buildContributions } = await import("./services/corporate-extractors/contributions-engine");
+        const { normalizeTeamsSnapshot } = await import("./services/corporate-extractors/teams-snapshot");
+        const { buildSuggestedFill, suggestedFillToCsv } = await import("./services/corporate-extractors/suggested-fill");
 
         const tt = extractTaskTracker(ttPath);
         const rb = extractRosterBilling(rbPath);
         const mw = mwPath ? extractManagerWorkbook(mwPath) : null;
+
+        // Optional Teams deployment-chat snapshot (posted as a multipart text
+        // field with a JSON body produced by the browser sweep).
+        let teamsNormalized: Awaited<ReturnType<typeof normalizeTeamsSnapshot>> | null = null;
+        const rawTeamsField = (req.body?.teamsSnapshot ?? "") as unknown;
+        if (typeof rawTeamsField === "string" && rawTeamsField.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(rawTeamsField);
+            teamsNormalized = normalizeTeamsSnapshot(parsed);
+          } catch {
+            // Silently ignore malformed snapshot — we still return base
+            // reconciliation rather than hard-fail the whole upload.
+            teamsNormalized = null;
+          }
+        }
+        const strictTeams = (req.body?.strictTeamsPresence === "true"
+          || req.body?.strictTeamsPresence === true);
 
         const reconResult = reconcile({
           task_evidence_daily: tt.task_evidence_daily,
           task_evidence_event: tt.task_evidence_event,
           attendance: rb.attendance,
           billing_detail_existing: rb.billing_detail_existing,
+          teams_presence: teamsNormalized?.rows,
+          strict_teams_presence: strictTeams,
         });
 
         const contribs = buildContributions({
@@ -5310,6 +5551,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ],
         });
 
+        const suggestedFillRows = buildSuggestedFill({
+          exceptions: reconResult.exceptions,
+          task_catalog: tt.task_catalog,
+          teams_presence: teamsNormalized?.rows,
+        });
+
         res.json({
           reconciliation: reconResult,
           contributions: {
@@ -5319,6 +5566,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
           people: rb.people,
           attendance_count: rb.attendance.length,
+          suggested_fill: {
+            rows: suggestedFillRows,
+            csv: suggestedFillToCsv(suggestedFillRows),
+          },
+          teams: teamsNormalized ? {
+            row_count: teamsNormalized.rows.length,
+            unmapped_display_names: teamsNormalized.unmapped_display_names,
+            skipped_count: teamsNormalized.skipped.length,
+            generated_at: teamsNormalized.generated_at ?? null,
+            topic_pattern: teamsNormalized.topic_pattern ?? null,
+            tool_version: teamsNormalized.tool_version ?? null,
+            strict: strictTeams,
+          } : null,
           ingest_errors: [
             ...tt.errors.map(e => ({ ...e, workbook: "task_tracker" })),
             ...rb.errors.map(e => ({ ...e, workbook: "roster" })),

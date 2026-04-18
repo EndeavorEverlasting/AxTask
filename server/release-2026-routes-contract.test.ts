@@ -65,4 +65,19 @@ describe("release-2026-04-15 contracts", () => {
     expect(sql).toContain("task_classification_thumbs");
     expect(sql).toContain("unlock_at_avatar_level");
   });
+
+  it("2026 shop sell-back + productivity exports + owner grant routes", () => {
+    const routes = fs.readFileSync(path.join(projectRoot, "server", "routes.ts"), "utf8");
+    expect(routes).toContain('app.get("/api/gamification/productivity-export-prices"');
+    expect(routes).toContain('app.post("/api/gamification/rewards/sell-back"');
+    expect(routes).toContain('app.post("/api/gamification/owner/grant-coins"');
+    expect(routes).toContain('app.post("/api/checklist/:date/download"');
+    expect(routes).toContain('app.post("/api/tasks/export/spreadsheet"');
+    expect(routes).toContain('app.post("/api/tasks/:taskId/report"');
+    const sql = fs.readFileSync(
+      path.join(projectRoot, "migrations", "0017_user_rewards_coins_spent.sql"),
+      "utf8",
+    );
+    expect(sql).toContain("coins_spent_at_redeem");
+  });
 });

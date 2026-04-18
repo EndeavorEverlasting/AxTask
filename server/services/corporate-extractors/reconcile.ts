@@ -1,7 +1,8 @@
 /**
  * Reconciliation engine
  *
- * Implements the 7 reconciliation rules from the extractor spec:
+ * Implements the 7 reconciliation rules from the extractor spec, plus optional
+ * Teams deployment-chat presence rules:
  *   1. Daily Narrative + Event Log decide what work happened
  *   2. Live - Mar 2026 decides presence window and cap
  *   3. Billing Detail is reviewed internal layer, not raw truth
@@ -9,6 +10,8 @@
  *   5. Task evidence exists but no attendance → flag exception
  *   6. Attendance exists but no task evidence → flag exception
  *   7. Multi-bucket splits only from explicit Event Log rows or reviewed override
+ *   8. (optional) Teams presence but no roster attendance → flag
+ *   9. (optional, strict) Teams presence but no task evidence → flag
  */
 import type {
   TaskEvidenceDaily,
@@ -17,6 +20,7 @@ import type {
   BillingDetailExisting,
   ReconciliationException,
   ReconciliationResult,
+  TeamsPresenceRow,
 } from "./types";
 
 type PersonDate = string; // "canonical_name\0yyyy-mm-dd"
@@ -30,6 +34,19 @@ export function reconcile(params: {
   task_evidence_event: TaskEvidenceEvent[];
   attendance: AttendanceRow[];
   billing_detail_existing: BillingDetailExisting[];
+  /**
+   * Optional person-date presence rows derived from Microsoft Teams
+   * deployment chats (e.g. chats named `NSUH - 4/11/2026`). Enables
+   * the `teams_presence_no_attendance` rule. If omitted, Teams rules
+   * are skipped and behavior is identical to the original extractor.
+   */
+  teams_presence?: TeamsPresenceRow[];
+  /**
+   * When true, also flag Teams presence with no task evidence
+   * (Daily Narrative / Event Log). Defaults to false because chat
+   * membership is a softer signal than roster attendance.
+   */
+  strict_teams_presence?: boolean;
 }): ReconciliationResult {
   const exceptions: ReconciliationException[] = [];
 
@@ -127,6 +144,52 @@ export function reconcile(params: {
         detail: `${name} on ${date} has ${cats.size} distinct categories [${[...cats].join(", ")}] — requires review for allocation split`,
         evidence_sources: ["Event Log"],
       });
+    }
+  }
+
+  // ── Teams presence rules (optional) ────────────────────────────────────
+  // Build a de-duplicated set of Teams presence person-days and keep a
+  // representative row per key for contextual exception details.
+  const teamsDays = new Set<PersonDate>();
+  const teamsRowByKey = new Map<PersonDate, TeamsPresenceRow>();
+  if (params.teams_presence && params.teams_presence.length > 0) {
+    for (const row of params.teams_presence) {
+      if (!row.canonical_name || !row.work_date) continue;
+      const k = key(row.canonical_name, row.work_date);
+      teamsDays.add(k);
+      if (!teamsRowByKey.has(k)) teamsRowByKey.set(k, row);
+    }
+
+    // Rule 8: Teams presence but no roster attendance
+    for (const pd of teamsDays) {
+      if (attendanceDays.has(pd)) continue;
+      const [name, date] = pd.split("\x00");
+      const representative = teamsRowByKey.get(pd);
+      const topic = representative?.chat_topic ?? "";
+      exceptions.push({
+        work_date: date,
+        canonical_name: name,
+        exception_type: "teams_presence_no_attendance",
+        detail: `${name} was a member of deployment chat${topic ? ` "${topic}"` : ""} on ${date} but has no roster attendance hours`,
+        evidence_sources: ["Microsoft Teams deployment chat"],
+      });
+    }
+
+    // Rule 9 (opt-in): Teams presence but no task evidence
+    if (params.strict_teams_presence) {
+      for (const pd of teamsDays) {
+        if (evidenceDays.has(pd)) continue;
+        const [name, date] = pd.split("\x00");
+        const representative = teamsRowByKey.get(pd);
+        const topic = representative?.chat_topic ?? "";
+        exceptions.push({
+          work_date: date,
+          canonical_name: name,
+          exception_type: "teams_presence_no_task_evidence",
+          detail: `${name} was a member of deployment chat${topic ? ` "${topic}"` : ""} on ${date} but has no Daily Narrative / Event Log evidence`,
+          evidence_sources: ["Microsoft Teams deployment chat"],
+        });
+      }
     }
   }
 

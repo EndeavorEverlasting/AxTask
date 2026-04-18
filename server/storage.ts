@@ -1944,7 +1944,12 @@ export async function redeemReward(userId: string, rewardId: string): Promise<bo
         reason: "reward_avatar_level_unlock",
         details: `Unlocked at avatar level ${maxLevel}: ${reward.name}`,
       });
-      await tx.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
+      await tx.insert(userRewards).values({
+        id: randomUUID(),
+        userId,
+        rewardId,
+        coinsSpentAtRedeem: 0,
+      });
       return true;
     }
 
@@ -1962,9 +1967,77 @@ export async function redeemReward(userId: string, rewardId: string): Promise<bo
       reason: `Redeemed: ${reward.name}`,
     });
 
-    await tx.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
+    await tx.insert(userRewards).values({
+      id: randomUUID(),
+      userId,
+      rewardId,
+      coinsSpentAtRedeem: reward.cost,
+    });
     return true;
   });
+}
+
+const REWARD_SELL_BACK_FRACTION = 0.7;
+
+export async function sellBackUserReward(
+  userId: string,
+  userRewardId: string,
+): Promise<
+  | { ok: true; refund: number; wallet: Wallet }
+  | { ok: false; code: "not_found" }
+> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(userRewards)
+      .where(and(eq(userRewards.id, userRewardId), eq(userRewards.userId, userId)));
+    if (!row) return { ok: false, code: "not_found" };
+
+    const refund = Math.floor(Number(row.coinsSpentAtRedeem) * REWARD_SELL_BACK_FRACTION);
+    if (refund > 0) {
+      await tx
+        .update(wallets)
+        .set({
+          balance: sql`${wallets.balance} + ${refund}`,
+          lifetimeEarned: sql`${wallets.lifetimeEarned} + ${refund}`,
+        })
+        .where(eq(wallets.userId, userId));
+      await tx.insert(coinTransactions).values({
+        id: randomUUID(),
+        userId,
+        amount: refund,
+        reason: "reward_sell_back",
+        details:
+          row.coinsSpentAtRedeem > 0
+            ? `Sell-back (${Math.round(REWARD_SELL_BACK_FRACTION * 100)}% of ${row.coinsSpentAtRedeem} coins spent)`
+            : "Sell-back (no coin refund — was avatar-level unlock)",
+      });
+    }
+
+    await tx.delete(userRewards).where(eq(userRewards.id, userRewardId));
+
+    const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId));
+    return { ok: true, refund, wallet: wallet! };
+  });
+}
+
+export async function ownerGrantCoinsToUser(
+  targetUserId: string,
+  amount: number,
+  note?: string,
+): Promise<{ ok: true; wallet: Wallet } | { ok: false; code: "invalid_amount" | "user_not_found" }> {
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000 || !Number.isInteger(amount)) {
+    return { ok: false, code: "invalid_amount" };
+  }
+  const target = await getUserById(targetUserId);
+  if (!target) return { ok: false, code: "user_not_found" };
+  const { wallet } = await addCoins(
+    targetUserId,
+    amount,
+    "owner_coin_grant",
+    note?.trim() ? `Owner grant: ${note.trim()}` : "Owner grant",
+  );
+  return { ok: true, wallet };
 }
 
 const CLASSIFICATION_THUMB_COINS = 3;
@@ -2306,7 +2379,7 @@ const AVATAR_SKILL_TREE: Array<{
   branch: string;
   maxLevel: number;
   baseCost: number;
-  effectType: "entourage_slots" | "guidance_depth" | "context_points" | "resource_budget";
+  effectType: "entourage_slots" | "guidance_depth" | "context_points" | "resource_budget" | "export_coin_discount";
   effectPerLevel: number;
   prerequisiteSkillKey: string | null;
   sortOrder: number;
@@ -2359,6 +2432,18 @@ const AVATAR_SKILL_TREE: Array<{
     prerequisiteSkillKey: "context-memory",
     sortOrder: 4,
   },
+  {
+    skillKey: "export-efficiency",
+    name: "Export Efficiency",
+    description: "Reduces AxCoin cost for checklist exports, spreadsheets, and task reports.",
+    branch: "productivity",
+    maxLevel: 8,
+    baseCost: 90,
+    effectType: "export_coin_discount",
+    effectPerLevel: 1,
+    prerequisiteSkillKey: null,
+    sortOrder: 5,
+  },
 ];
 
 function avatarXpThreshold(level: number): number {
@@ -2387,13 +2472,24 @@ async function getOrCreateAvatarProfiles(userId: string): Promise<UserAvatarProf
 
 export async function seedAvatarSkillTree(): Promise<void> {
   const existing = await db.select().from(avatarSkillNodes);
-  if (existing.length > 0) return;
-  await db.insert(avatarSkillNodes).values(
-    AVATAR_SKILL_TREE.map((skill) => ({
-      id: randomUUID(),
-      ...skill,
-    })),
-  );
+  if (existing.length === 0) {
+    await db.insert(avatarSkillNodes).values(
+      AVATAR_SKILL_TREE.map((skill) => ({
+        id: randomUUID(),
+        ...skill,
+      })),
+    );
+  } else {
+    for (const skill of AVATAR_SKILL_TREE) {
+      await db
+        .insert(avatarSkillNodes)
+        .values({
+          id: randomUUID(),
+          ...skill,
+        })
+        .onConflictDoNothing({ target: avatarSkillNodes.skillKey });
+    }
+  }
 }
 
 export async function getAvatarProfiles(userId: string): Promise<UserAvatarProfile[]> {
