@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { FloatingChip } from "@/components/ui/floating-chip";
 import { AvatarGlowChip } from "@/components/ui/avatar-glow-chip";
 import { AvatarOrb as PretextAvatarOrb } from "@/components/ui/avatar-orb";
+import { PasteComposer, type PasteComposerValue } from "@/components/composer/paste-composer";
+import { SafeMarkdown } from "@/lib/safe-markdown";
 
 type PublicTask = {
   id: string;
@@ -39,6 +41,15 @@ type ForumPost = {
   body: string;
   category: string;
   createdAt: string;
+  attachments?: PublicAttachmentRef[];
+};
+
+type PublicAttachmentRef = {
+  id: string;
+  mimeType: string;
+  byteSize: number;
+  fileName: string | null;
+  downloadUrl: string;
 };
 
 type ForumReply = {
@@ -49,6 +60,7 @@ type ForumReply = {
   displayName: string;
   body: string;
   createdAt: string;
+  attachments?: PublicAttachmentRef[];
 };
 
 /* ── Floating ambient orbs ─────────────────────────────────────────── */
@@ -183,12 +195,12 @@ function ForumPostCard({
   isExpanded: boolean;
   onToggle: () => void;
   replies: ForumReply[];
-  onReply: (body: string) => void;
+  onReply: (body: string, attachmentAssetIds: string[]) => void;
   replying: boolean;
   isLoggedIn: boolean;
   replyError?: string | null;
 }) {
-  const [replyText, setReplyText] = useState("");
+  const [replyDraft, setReplyDraft] = useState<PasteComposerValue>({ body: "", attachmentAssetIds: [] });
   const style = AVATAR_STYLES[post.avatarKey] || AVATAR_STYLES.mood;
   const catStyle = CATEGORY_BADGES[post.category] || CATEGORY_BADGES.general;
 
@@ -242,10 +254,11 @@ function ForumPostCard({
             transition={{ duration: 0.25 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-white/5 px-4 sm:px-5 py-3">
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
-                {post.body}
-              </p>
+            <div className="border-t border-white/5 px-4 sm:px-5 py-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
+              <SafeMarkdown
+                source={post.body}
+                allowedAttachmentIds={(post.attachments ?? []).map((a) => a.id)}
+              />
             </div>
 
             {/* Replies */}
@@ -272,7 +285,12 @@ function ForumPostCard({
                             {new Date(r.createdAt).toLocaleDateString()}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">{r.body}</p>
+                        <div className="text-xs text-slate-400 leading-relaxed mt-0.5">
+                          <SafeMarkdown
+                            source={r.body}
+                            allowedAttachmentIds={(r.attachments ?? []).map((a) => a.id)}
+                          />
+                        </div>
                       </div>
                     </div>
                   );
@@ -282,32 +300,34 @@ function ForumPostCard({
 
             {/* Reply input */}
             {isLoggedIn ? (
-              <div className="border-t border-white/5 px-4 sm:px-5 py-3">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    placeholder="Join the conversation…"
-                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/50"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && replyText.trim()) {
-                        onReply(replyText.trim());
-                        setReplyText("");
-                      }
-                    }}
-                  />
+              <div className="border-t border-white/5 px-4 sm:px-5 py-3 space-y-2">
+                <PasteComposer
+                  value={replyDraft}
+                  onChange={setReplyDraft}
+                  kind="community-reply"
+                  placeholder="Join the conversation…"
+                  ariaLabel="Reply to post"
+                  minRows={2}
+                  maxAttachments={6}
+                />
+                <div className="flex justify-end">
                   <Button
                     size="sm"
-                    disabled={!replyText.trim() || replying}
-                    onClick={() => { onReply(replyText.trim()); setReplyText(""); }}
+                    disabled={
+                      (!replyDraft.body.trim() && replyDraft.attachmentAssetIds.length === 0) || replying
+                    }
+                    onClick={() => {
+                      onReply(replyDraft.body.trim(), replyDraft.attachmentAssetIds);
+                      setReplyDraft({ body: "", attachmentAssetIds: [] });
+                    }}
                     className="gap-1 h-8"
                   >
                     <Send className="h-3 w-3" />
+                    Reply
                   </Button>
                 </div>
                 {replyError && (
-                  <p className="mt-1.5 text-[11px] text-rose-400 leading-snug px-1">{replyError}</p>
+                  <p className="text-[11px] text-rose-400 leading-snug px-1">{replyError}</p>
                 )}
               </div>
             ) : (
@@ -455,12 +475,16 @@ export default function CommunityPage() {
     }
   };
 
-  const handleReply = async (postId: string, body: string) => {
-    if (!user || !body) return;
+  const handleReply = async (postId: string, body: string, attachmentAssetIds: string[] = []) => {
+    if (!user) return;
+    if (!body && attachmentAssetIds.length === 0) return;
     setReplying(true);
     setReplyError(null);
     try {
-      const r = await apiRequest("POST", `/api/public/community/posts/${postId}/reply`, { body });
+      const r = await apiRequest("POST", `/api/public/community/posts/${postId}/reply`, {
+        body,
+        attachmentAssetIds,
+      });
       const newReply = await r.json() as ForumReply;
       // Refetch to get any orb auto-reply too
       const full = await fetch(`/api/public/community/posts/${postId}`);
@@ -648,7 +672,7 @@ export default function CommunityPage() {
                   isExpanded={expandedPost === post.id}
                   onToggle={() => togglePost(post.id)}
                   replies={forumReplies[post.id] || []}
-                  onReply={(body) => handleReply(post.id, body)}
+                  onReply={(body, attachmentAssetIds) => handleReply(post.id, body, attachmentAssetIds)}
                   replying={replying}
                   isLoggedIn={!!user}
                   replyError={expandedPost === post.id ? replyError : null}

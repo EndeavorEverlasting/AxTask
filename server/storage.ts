@@ -23,6 +23,9 @@ import {
   usageSnapshots,
   storagePolicies,
   attachmentAssets,
+  messageAttachments,
+  MESSAGE_ATTACHMENT_OWNER_TYPES,
+  type MessageAttachmentOwnerType,
   taskImportFingerprints,
   invoices,
   invoiceEvents,
@@ -3082,6 +3085,116 @@ export async function softDeleteAttachmentAsset(userId: string, assetId: string)
     .where(and(eq(attachmentAssets.id, assetId), eq(attachmentAssets.userId, userId)))
     .returning();
   return asset;
+}
+
+/**
+ * Link up to N owned attachment_assets to a composable owner (collab msg,
+ * community post, etc.). Rejects silently when an assetId does not belong to
+ * the caller or when it has been soft-deleted. Returns the AttachmentAsset
+ * rows that were successfully linked (preserving the caller's order).
+ */
+export async function linkAttachmentsToOwner(options: {
+  userId: string;
+  ownerType: MessageAttachmentOwnerType;
+  ownerId: string;
+  assetIds: string[];
+}): Promise<AttachmentAsset[]> {
+  if (!MESSAGE_ATTACHMENT_OWNER_TYPES.includes(options.ownerType)) {
+    throw new Error(`invalid attachment owner_type: ${options.ownerType}`);
+  }
+  if (options.assetIds.length === 0) return [];
+
+  const assets: AttachmentAsset[] = [];
+  for (let i = 0; i < options.assetIds.length; i += 1) {
+    const assetId = options.assetIds[i];
+    const existing = await getAttachmentAssetById(options.userId, assetId);
+    if (!existing || existing.deletedAt) continue;
+
+    await db.insert(messageAttachments).values({
+      ownerType: options.ownerType,
+      ownerId: options.ownerId,
+      assetId,
+      userId: options.userId,
+      position: i,
+    }).onConflictDoNothing();
+
+    assets.push(existing);
+  }
+  return assets;
+}
+
+/**
+ * Fetch AttachmentAsset rows linked to a given owner, scoped to the caller.
+ * Used by read endpoints that want to embed `attachments[]` alongside the
+ * composed message body.
+ */
+export async function getAttachmentsForOwner(options: {
+  userId: string;
+  ownerType: MessageAttachmentOwnerType;
+  ownerId: string;
+}): Promise<AttachmentAsset[]> {
+  const rows = await db
+    .select({
+      id: attachmentAssets.id,
+      userId: attachmentAssets.userId,
+      taskId: attachmentAssets.taskId,
+      kind: attachmentAssets.kind,
+      fileName: attachmentAssets.fileName,
+      mimeType: attachmentAssets.mimeType,
+      byteSize: attachmentAssets.byteSize,
+      storageKey: attachmentAssets.storageKey,
+      metadataJson: attachmentAssets.metadataJson,
+      createdAt: attachmentAssets.createdAt,
+      deletedAt: attachmentAssets.deletedAt,
+      position: messageAttachments.position,
+    })
+    .from(messageAttachments)
+    .innerJoin(attachmentAssets, eq(attachmentAssets.id, messageAttachments.assetId))
+    .where(and(
+      eq(messageAttachments.ownerType, options.ownerType),
+      eq(messageAttachments.ownerId, options.ownerId),
+      eq(messageAttachments.userId, options.userId),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    ))
+    .orderBy(messageAttachments.position);
+  return rows.map(({ position: _p, ...rest }) => rest as AttachmentAsset);
+}
+
+/**
+ * Same as getAttachmentsForOwner but for read endpoints where the viewer is
+ * not necessarily the author (e.g. a community post viewed by a different
+ * user). Only returns attachments that the *author* (owner) of the message
+ * uploaded - cross-user `attachment:<id>` smuggling is blocked because the
+ * link row's `user_id` always equals the author.
+ */
+export async function getAttachmentsForOwnerPublic(options: {
+  ownerType: MessageAttachmentOwnerType;
+  ownerId: string;
+}): Promise<AttachmentAsset[]> {
+  const rows = await db
+    .select({
+      id: attachmentAssets.id,
+      userId: attachmentAssets.userId,
+      taskId: attachmentAssets.taskId,
+      kind: attachmentAssets.kind,
+      fileName: attachmentAssets.fileName,
+      mimeType: attachmentAssets.mimeType,
+      byteSize: attachmentAssets.byteSize,
+      storageKey: attachmentAssets.storageKey,
+      metadataJson: attachmentAssets.metadataJson,
+      createdAt: attachmentAssets.createdAt,
+      deletedAt: attachmentAssets.deletedAt,
+      position: messageAttachments.position,
+    })
+    .from(messageAttachments)
+    .innerJoin(attachmentAssets, eq(attachmentAssets.id, messageAttachments.assetId))
+    .where(and(
+      eq(messageAttachments.ownerType, options.ownerType),
+      eq(messageAttachments.ownerId, options.ownerId),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    ))
+    .orderBy(messageAttachments.position);
+  return rows.map(({ position: _p, ...rest }) => rest as AttachmentAsset);
 }
 
 export async function retentionSweepAttachments(userId: string, retentionDays: number, dryRun = true): Promise<{

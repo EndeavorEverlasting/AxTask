@@ -6,6 +6,7 @@ import {
   isArchetypeKey,
 } from "@shared/avatar-archetypes";
 import { isFeedbackAvatarKey, type FeedbackAvatarKey } from "@shared/feedback-avatar-map";
+import { ARCHETYPE_SIGNAL_PAYLOAD_VERSION } from "./archetype-signal-payload";
 
 export type ArchetypeSignalKind =
   | "nudge_shown"
@@ -55,14 +56,13 @@ export async function recordArchetypeSignal(
     ipAddress: input.ipAddress,
     userAgent: input.userAgent,
     payload: {
+      v: ARCHETYPE_SIGNAL_PAYLOAD_VERSION,
+      schemaVersion: ARCHETYPE_SIGNAL_PAYLOAD_VERSION,
       archetypeKey,
       hashedActor,
       signal: input.signal,
       insightful: input.insightful ?? null,
       sentiment: input.sentiment ?? null,
-      // Deliberately omit raw userId and raw source (source can be a
-      // free-form string that carries behavioural context); only retain a
-      // categorical shape for downstream analytics.
       sourceCategory: categorizeSource(input.source),
     },
   });

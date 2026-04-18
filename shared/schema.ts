@@ -812,6 +812,50 @@ export const attachmentAssets = pgTable("attachment_assets", {
 
 export type AttachmentAsset = typeof attachmentAssets.$inferSelect;
 
+/**
+ * Polymorphic join linking `attachment_assets` to any composable owner
+ * (collab inbox message, community post/reply, feedback report, task note).
+ * The (ownerType, ownerId) pair is always the parent body row; the SPA
+ * references attachments in markdown via `attachment:<assetId>` which is
+ * validated against this table to prevent cross-user referencing.
+ */
+export const messageAttachments = pgTable("message_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  /** Discriminator - see docs/PASTE_COMPOSER_SECURITY.md for the closed set. */
+  ownerType: text("owner_type").notNull(),
+  ownerId: varchar("owner_id").notNull(),
+  assetId: varchar("asset_id")
+    .notNull()
+    .references(() => attachmentAssets.id, { onDelete: "cascade" }),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_message_attachments_owner").on(table.ownerType, table.ownerId),
+  index("idx_message_attachments_asset").on(table.assetId),
+  index("idx_message_attachments_user").on(table.userId),
+  uniqueIndex("ux_message_attachments_owner_asset").on(
+    table.ownerType,
+    table.ownerId,
+    table.assetId,
+  ),
+]);
+
+export type MessageAttachment = typeof messageAttachments.$inferSelect;
+
+/** Closed set of valid `ownerType` discriminators. */
+export const MESSAGE_ATTACHMENT_OWNER_TYPES = [
+  "task_note",
+  "feedback",
+  "collab_message",
+  "community_post",
+  "community_reply",
+] as const;
+export type MessageAttachmentOwnerType =
+  (typeof MESSAGE_ATTACHMENT_OWNER_TYPES)[number];
+
 export const taskImportFingerprints = pgTable("task_import_fingerprints", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

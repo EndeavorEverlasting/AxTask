@@ -62,4 +62,38 @@ describe("actor-hash", () => {
     const b = hashActor("user-z");
     expect(a).not.toEqual(b);
   });
+
+  it("is deterministic across UUID, email, unicode, and long inputs", () => {
+    const uuid = "550e8400-e29b-41d4-a716-446655440000";
+    const email = "someone+tag@example.co.jp";
+    const unicode = "ユーザー_नमस्ते_مرحبا";
+    const long = "x".repeat(512);
+
+    for (const id of [uuid, email, unicode, long]) {
+      const a = hashActor(id);
+      const b = hashActor(id);
+      expect(a, `deterministic for ${id}`).toEqual(b);
+      expect(a.length).toBeGreaterThan(20);
+      expect(a).toMatch(/^[A-Za-z0-9_-]+$/);
+    }
+  });
+
+  it("small collision smoke: 100 distinct userIds produce 100 distinct hashes", () => {
+    const hashes = new Set<string>();
+    for (let i = 0; i < 100; i++) {
+      hashes.add(hashActor(`collision-probe-${i}`));
+    }
+    expect(hashes.size).toBe(100);
+  });
+
+  it("accepts a salt exactly at the 16-char floor", () => {
+    process.env.ARCHETYPE_ANALYTICS_SALT = "1234567890abcdef"; // 16 chars
+    expect(() => hashActor("user-bound")).not.toThrow();
+  });
+
+  it("falls back in production if salt is shorter than 16 chars (treated as missing)", () => {
+    process.env.NODE_ENV = "production";
+    process.env.ARCHETYPE_ANALYTICS_SALT = "too-short"; // < 16 chars
+    expect(() => hashActor("user-x")).toThrow(/ARCHETYPE_ANALYTICS_SALT/);
+  });
 });

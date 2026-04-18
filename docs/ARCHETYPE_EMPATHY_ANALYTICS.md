@@ -203,6 +203,120 @@ configuration returns 503.
 | `ARCHETYPE_ROLLUP_INTERVAL_MS`  | optional | Worker tick interval. Default `3600000` (1h).               |
 | `DISABLE_ARCHETYPE_ROLLUP`      | optional | Set to `true` to disable the background ticker.             |
 
+Generate values with:
+
+```sh
+# Salt (64 hex chars, >=16 required, >=32 recommended)
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# Read token (43-char URL-safe base64url)
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+Local dev: both are optional. When `ARCHETYPE_ANALYTICS_SALT` is unset,
+`hashActor()` falls back to a `SESSION_SECRET`-derived key so hashes remain
+stable across restarts without any new setup. See
+[.env.example](../.env.example) and [.env.production.example](../.env.production.example)
+for the committable stanzas.
+
+### Deferred env promotions
+
+The following are currently hard-coded constants in
+[server/routes.ts](../server/routes.ts) and are **planned for promotion to
+env vars in a later sprint**, with the current values kept as safe defaults:
+
+| Constant                      | Current | Planned env var                   | Why deferred                                                                                   |
+| ----------------------------- | ------- | --------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `ARCHETYPE_K_ANON_THRESHOLD`  | `5`     | `ARCHETYPE_K_ANON_THRESHOLD`      | 5 is a conservative privacy floor; raising it requires more signal volume to be operational.  |
+| `ARCHETYPE_MAX_WINDOW_DAYS`   | `180`   | `ARCHETYPE_MAX_WINDOW_DAYS`       | 180d matches the current read-API contract; any change must be coordinated with RAG consumers. |
+
+No operator need to override these values is expected before RAG consumers
+come online, so the promotion is intentionally deferred to avoid churn on
+the read contract.
+
+## JSON payload versioning & compatibility
+
+The archetype pipeline is deliberately resilient to schema drift, rolling
+deploys, and user-tweaked JSON. This matters because `db:push`, migration
+re-runs, and even well-intentioned edits to shared JSON contracts can all
+produce payload shapes the rollup worker needs to handle gracefully.
+
+### Wire format (v1)
+
+Every new `archetype_signal` row written by `recordArchetypeSignal` stamps
+both `v` and `schemaVersion` (matching the convention already used by
+[server/account-backup.ts](../server/account-backup.ts) and
+[server/migration/export.ts](../server/migration/export.ts)):
+
+```json
+{
+  "v": 1,
+  "schemaVersion": 1,
+  "archetypeKey": "…",
+  "hashedActor": "…",
+  "signal": "…",
+  "insightful": null,
+  "sentiment": null,
+  "sourceCategory": "…"
+}
+```
+
+### Evolution rules
+
+1. **New fields MUST be optional.** Additive-only inside a major version.
+2. **Fields MUST NOT be removed** inside a major version. Mark as deprecated
+   in docs, keep writing for one release, then bump `v`.
+3. **`v` is bumped only on a breaking change** (field removal or semantics
+   change). Additive edits stay `v: 1`.
+4. **Unknown fields are preserved by the parser.** `catchall(z.unknown())`
+   in [server/lib/archetype-signal-payload.ts](../server/lib/archetype-signal-payload.ts)
+   makes v2+ payloads parse cleanly as long as the v1 required shape is
+   still present.
+
+### Parser fallback behavior
+
+The tolerant parser in
+[server/lib/archetype-signal-payload.ts](../server/lib/archetype-signal-payload.ts)
+accepts:
+
+- Legacy rows with no `v` / `schemaVersion` (version reported as `0`).
+- Current v1 rows.
+- v2+ rows whose shape is still compatible with the v1 required fields.
+
+The rollup worker tracks two separate observability counters per tick:
+
+- `skippedMalformed` — rows that failed the tolerant parse entirely
+  (invalid JSON, missing `archetypeKey`, unknown archetype/signal, etc.).
+- `skippedFutureVersion` — rows parsed successfully but carrying
+  `v > ARCHETYPE_SIGNAL_PAYLOAD_VERSION`. These are **still aggregated**
+  (forward-compat) but a sudden spike is a signal that a rolling deploy is
+  in progress.
+
+### Schema / migration stability
+
+- The Drizzle model in [shared/schema.ts](../shared/schema.ts) and the
+  migration in
+  [migrations/0019_archetype_empathy_analytics.sql](../migrations/0019_archetype_empathy_analytics.sql)
+  must declare the same column set. The parity is enforced by
+  [server/schema-stability.contract.test.ts](../server/schema-stability.contract.test.ts)
+  so a rename in one file without the other fails CI.
+- `db:push` is safe on the archetype tables because they are
+  additive-only; destructive edits (renames, drops) must go through a
+  dedicated `migrations/*.sql` file per
+  [docs/DEV_DATABASE_AND_SCHEMA.md](DEV_DATABASE_AND_SCHEMA.md).
+- Migration idempotency (re-runs of
+  [scripts/apply-migrations.mjs](../scripts/apply-migrations.mjs) after a
+  filename change) is enforced by the same contract test: every
+  `CREATE TABLE` / `CREATE INDEX` must use `IF NOT EXISTS`.
+
+### User-facing JSON export/import
+
+Account export and admin migration bundles do **not** carry archetype rows
+(confirmed via [server/account-backup.ts](../server/account-backup.ts) and
+[server/migration/export.ts](../server/migration/export.ts)). Archetype
+analytics are archetype-keyed, never user-keyed — there is nothing to move
+with a per-user bundle. When users tweak imported JSON, the archetype
+pipeline is not affected.
+
 ## Database objects
 
 - `archetype_rollup_daily (archetype_key, bucket_date, empathy_score, samples, signals_json)`

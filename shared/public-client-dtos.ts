@@ -1,4 +1,10 @@
-import type { CoinTransaction, SafeUser, UserBadge, Wallet } from "./schema";
+import type {
+  AttachmentAsset,
+  CoinTransaction,
+  SafeUser,
+  UserBadge,
+  Wallet,
+} from "./schema";
 
 /**
  * Session user returned from GET /api/auth/me (and similar).
@@ -70,4 +76,36 @@ export function toPublicBadge(badge: UserBadge): PublicBadge {
 
 export function toPublicBadges(badges: UserBadge[]): PublicBadge[] {
   return badges.map(toPublicBadge);
+}
+
+/**
+ * Attachment reference returned alongside any composable message body.
+ * Only the fields the SPA needs for rendering are included; storage keys,
+ * raw metadata JSON, and user ids never leak back.
+ *
+ * `downloadUrl` is session-scoped: /api/attachments/:id/download requires
+ * the owning user's cookie, so a raw URL copy-out does not leak the asset.
+ */
+export type PublicAttachmentRef = {
+  id: string;
+  kind: string;
+  mimeType: string;
+  fileName: string | null;
+  byteSize: number;
+  downloadUrl: string;
+};
+
+export function toPublicAttachmentRef(asset: AttachmentAsset): PublicAttachmentRef {
+  return {
+    id: asset.id,
+    kind: asset.kind,
+    mimeType: asset.mimeType,
+    fileName: asset.fileName,
+    byteSize: asset.byteSize,
+    downloadUrl: `/api/attachments/${asset.id}/download`,
+  };
+}
+
+export function toPublicAttachmentRefs(assets: AttachmentAsset[]): PublicAttachmentRef[] {
+  return assets.map(toPublicAttachmentRef);
 }

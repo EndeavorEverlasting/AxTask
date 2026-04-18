@@ -7,8 +7,8 @@ import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { isFeedbackAvatarKey, type FeedbackAvatarKey } from "@shared/feedback-avatar-map";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { PasteComposer, type PasteComposerValue } from "@/components/composer/paste-composer";
 import { Camera, Inbox, Send, Trash2 } from "lucide-react";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { AvatarOrb } from "@/components/ui/avatar-orb";
@@ -61,7 +61,12 @@ function readNudgeContextFromQuery(): NudgeContext {
 export default function FeedbackPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [message, setMessage] = useState("");
+  const [messageValue, setMessageValue] = useState<PasteComposerValue>({
+    body: "",
+    attachmentAssetIds: [],
+  });
+  const message = messageValue.body;
+  const pastedAssetIds = messageValue.attachmentAssetIds;
   const [screenshots, setScreenshots] = useState<ScreenshotItem[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
   const [nudgeContext, setNudgeContext] = useState<NudgeContext>({});
@@ -92,7 +97,7 @@ export default function FeedbackPage() {
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      const assetIds: string[] = [];
+      const assetIds: string[] = [...pastedAssetIds];
       for (const shot of screenshots) {
         const file = shot.file;
         const uploadUrlRes = await apiRequest("POST", "/api/attachments/upload-url", {
@@ -152,7 +157,7 @@ export default function FeedbackPage() {
         toast({ title: "Feedback sent", description: details });
       }
       requestFeedbackNudge("feedback_submitted");
-      setMessage("");
+      setMessageValue({ body: "", attachmentAssetIds: [] });
       setScreenshots([]);
     },
     onError: (err: Error) => {
@@ -190,11 +195,15 @@ export default function FeedbackPage() {
           <CardDescription>Include steps, expected behavior, and actual behavior.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="Describe the issue, idea, or request..."
-            className="min-h-[150px]"
+          <PasteComposer
+            value={messageValue}
+            onChange={setMessageValue}
+            placeholder="Describe the issue, idea, or request... You can paste GIFs or screenshots inline."
+            ariaLabel="Feedback message"
+            kind="feedback"
+            maxBodyLength={5000}
+            maxAttachments={8}
+            textareaClassName="min-h-[150px]"
           />
 
           <div

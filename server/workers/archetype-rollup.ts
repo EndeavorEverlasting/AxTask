@@ -18,35 +18,34 @@ import {
   archetypeRollupDaily,
   archetypeMarkovDaily,
 } from "@shared/schema";
-import { ARCHETYPE_KEYS, isArchetypeKey } from "@shared/avatar-archetypes";
 import {
-  EMPTY_SIGNAL_COUNTS,
   computeEmpathyScore,
   countMarkovTransitions,
-  type ArchetypeSignalCounts,
 } from "../engines/archetype-empathy-engine";
+import { type ParsedArchetypeSignalPayload } from "../lib/archetype-signal-payload";
+import {
+  aggregateArchetypeSignalRows,
+  sanitizeSignalsJsonForApi,
+  type AggregateResult,
+} from "./archetype-rollup-aggregate";
 
-export type ArchetypeSignalPayload = {
-  archetypeKey?: string;
-  hashedActor?: string;
-  signal?: "nudge_shown" | "nudge_dismissed" | "nudge_opened" | "feedback_submitted";
-  insightful?: "up" | "down" | null;
-  sentiment?: "positive" | "neutral" | "negative" | null;
-  sourceCategory?: string;
+// Re-export the pure helpers so existing callers (server/routes.ts, tests)
+// keep working via this module path.
+export {
+  aggregateArchetypeSignalRows,
+  sanitizeSignalsJsonForApi,
+  type AggregateResult,
 };
+
+/**
+ * Exported for backwards-compat with earlier imports (the shape matches the
+ * tolerantly-parsed payload). New callers should prefer
+ * `ParsedArchetypeSignalPayload` from `../lib/archetype-signal-payload`.
+ */
+export type ArchetypeSignalPayload = Partial<ParsedArchetypeSignalPayload>;
 
 function dayBucket(date: Date): string {
   return date.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
-}
-
-function parsePayload(raw: string | null): ArchetypeSignalPayload | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null ? (parsed as ArchetypeSignalPayload) : null;
-  } catch {
-    return null;
-  }
 }
 
 export interface RollupResult {
@@ -54,6 +53,8 @@ export interface RollupResult {
   archetypes: number;
   transitions: number;
   totalSignals: number;
+  skippedMalformed: number;
+  skippedFutureVersion: number;
 }
 
 /**
@@ -78,42 +79,14 @@ export async function runArchetypeRollupForDay(day: Date): Promise<RollupResult>
     ))
     .orderBy(securityEvents.createdAt);
 
-  const perArchetype = new Map<string, ArchetypeSignalCounts>();
-  for (const key of ARCHETYPE_KEYS) {
-    perArchetype.set(key, { ...EMPTY_SIGNAL_COUNTS });
-  }
+  const agg = aggregateArchetypeSignalRows(rows.map((r) => r.payloadJson));
+  const { perArchetype, perActorSeq, totalSignals, skippedMalformed, skippedFutureVersion } = agg;
 
-  const perActorSeq = new Map<string, string[]>();
-  let totalSignals = 0;
-
-  for (const row of rows) {
-    const payload = parsePayload(row.payloadJson);
-    if (!payload) continue;
-    const key = payload.archetypeKey;
-    if (!key || !isArchetypeKey(key)) continue;
-    const bucket = perArchetype.get(key);
-    if (!bucket) continue;
-
-    switch (payload.signal) {
-      case "nudge_shown": bucket.shown += 1; break;
-      case "nudge_opened": bucket.opened += 1; break;
-      case "nudge_dismissed": bucket.dismissed += 1; break;
-      case "feedback_submitted": bucket.submitted += 1; break;
-    }
-    if (payload.insightful === "up") bucket.insightfulUp += 1;
-    else if (payload.insightful === "down") bucket.insightfulDown += 1;
-
-    if (payload.sentiment === "positive") bucket.sentimentPositive += 1;
-    else if (payload.sentiment === "neutral") bucket.sentimentNeutral += 1;
-    else if (payload.sentiment === "negative") bucket.sentimentNegative += 1;
-
-    if (payload.hashedActor) {
-      const seq = perActorSeq.get(payload.hashedActor) ?? [];
-      seq.push(key);
-      perActorSeq.set(payload.hashedActor, seq);
-    }
-
-    totalSignals += 1;
+  if (skippedMalformed > 0 || skippedFutureVersion > 0) {
+    console.warn(
+      `[archetype-rollup] ${bucketDate}: skipped ${skippedMalformed} malformed, `
+        + `${skippedFutureVersion} future-version row(s)`,
+    );
   }
 
   // Replace the day's rollups idempotently.
@@ -157,6 +130,8 @@ export async function runArchetypeRollupForDay(day: Date): Promise<RollupResult>
     archetypes: insertedArchetypes,
     transitions: insertedTransitions,
     totalSignals,
+    skippedMalformed,
+    skippedFutureVersion,
   };
 }
 
@@ -190,35 +165,3 @@ export function startArchetypeRollupTicker(intervalMs: number = DEFAULT_TICK_MS)
   return () => clearInterval(handle);
 }
 
-/** Used by read APIs to avoid leaking hashedActor even if signalsJson is fetched. */
-export function sanitizeSignalsJsonForApi(signalsJson: unknown): {
-  counts: ArchetypeSignalCounts;
-  subScores: Record<string, number>;
-} | null {
-  if (!signalsJson || typeof signalsJson !== "object") return null;
-  const raw = signalsJson as { counts?: unknown; subScores?: unknown };
-  if (!raw.counts || typeof raw.counts !== "object") return null;
-  // Strictly whitelist known fields.
-  const c = raw.counts as Record<string, unknown>;
-  const pick = (k: keyof ArchetypeSignalCounts): number => {
-    const v = c[k];
-    return typeof v === "number" && Number.isFinite(v) ? v : 0;
-  };
-  const counts: ArchetypeSignalCounts = {
-    shown: pick("shown"),
-    opened: pick("opened"),
-    dismissed: pick("dismissed"),
-    submitted: pick("submitted"),
-    insightfulUp: pick("insightfulUp"),
-    insightfulDown: pick("insightfulDown"),
-    sentimentPositive: pick("sentimentPositive"),
-    sentimentNeutral: pick("sentimentNeutral"),
-    sentimentNegative: pick("sentimentNegative"),
-  };
-  const rawSub = raw.subScores && typeof raw.subScores === "object" ? raw.subScores as Record<string, unknown> : {};
-  const subScores: Record<string, number> = {};
-  for (const [k, v] of Object.entries(rawSub)) {
-    if (typeof v === "number" && Number.isFinite(v)) subScores[k] = v;
-  }
-  return { counts, subScores };
-}

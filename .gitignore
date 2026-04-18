@@ -35,3 +35,8 @@ tools/billing_bridge/.venv/
 tools/billing_bridge/output/
 __pycache__/
 *.pyc
+
+# Archetype analytics — personal notes and local golden-file dumps that might
+# contain raw signal payloads or un-anonymized actor sequences. Never commit.
+docs/ARCHETYPE_EMPATHY_ANALYTICS.local.md
+server/__archetype_fixtures__/

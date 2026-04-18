@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Link } from "wouter";
 import { Video } from "lucide-react";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { PasteComposer, type PasteComposerValue } from "@/components/composer/paste-composer";
+import { SafeMarkdown } from "@/lib/safe-markdown";
 
 type InboxRow = {
   id: string;
@@ -14,11 +15,14 @@ type InboxRow = {
   createdAt: string | null;
   readAt: string | null;
   taskId: string | null;
+  attachments?: Array<{ id: string }>;
 };
+
+const EMPTY: PasteComposerValue = { body: "", attachmentAssetIds: [] };
 
 export default function CollabInboxPage() {
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState<PasteComposerValue>(EMPTY);
 
   const { data, isLoading } = useQuery({
     queryKey: ["/api/collaboration/inbox"],
@@ -29,12 +33,15 @@ export default function CollabInboxPage() {
   });
 
   const appendMutation = useMutation({
-    mutationFn: async (body: string) => {
-      const r = await apiRequest("POST", "/api/collaboration/inbox", { body });
+    mutationFn: async (payload: PasteComposerValue) => {
+      const r = await apiRequest("POST", "/api/collaboration/inbox", {
+        body: payload.body,
+        attachmentAssetIds: payload.attachmentAssetIds,
+      });
       return r.json();
     },
     onSuccess: () => {
-      setDraft("");
+      setDraft(EMPTY);
       queryClient.invalidateQueries({ queryKey: ["/api/collaboration/inbox"] });
     },
   });
@@ -49,13 +56,19 @@ export default function CollabInboxPage() {
   });
 
   const messages = data?.messages ?? [];
+  const canSend = useMemo(
+    () =>
+      (draft.body.trim().length > 0 || draft.attachmentAssetIds.length > 0) &&
+      !appendMutation.isPending,
+    [draft, appendMutation.isPending],
+  );
 
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4">
       <PretextPageHeader
         eyebrow="Collaboration"
         title="Collaboration inbox"
-        subtitle="Queue-style notes for coordination. Pair with a live session when you need it."
+        subtitle="Queue-style notes for coordination. Paste screenshots, GIFs, or just a quick follow-up."
         actions={
           <Button variant="outline" asChild>
             <Link href="/huddle">
@@ -69,19 +82,26 @@ export default function CollabInboxPage() {
       <Card className="glass-panel-glossy">
         <CardHeader>
           <CardTitle>Add to your queue</CardTitle>
-          <CardDescription>Visible only to you; use for handoffs and follow-ups.</CardDescription>
+          <CardDescription>
+            Paste images or GIFs directly - they stay private to you. Markdown (`**bold**`,
+            `[link](https://…)`) is rendered safely.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          <Textarea
+          <PasteComposer
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={setDraft}
             placeholder="e.g. Ping design when the API contract is ready…"
-            rows={3}
+            ariaLabel="Collaboration inbox note"
+            kind="collab_inbox"
+            maxBodyLength={8000}
+            maxAttachments={8}
+            textareaClassName="min-h-[80px]"
           />
           <Button
             type="button"
-            disabled={draft.trim().length === 0 || appendMutation.isPending}
-            onClick={() => appendMutation.mutate(draft.trim())}
+            disabled={!canSend}
+            onClick={() => appendMutation.mutate(draft)}
           >
             {appendMutation.isPending ? "Saving…" : "Enqueue"}
           </Button>
@@ -97,23 +117,26 @@ export default function CollabInboxPage() {
           {messages.length === 0 && !isLoading && (
             <p className="text-sm text-muted-foreground">Nothing queued yet.</p>
           )}
-          {messages.map((m) => (
-            <div
-              key={m.id}
-              className={`rounded-lg border p-3 text-sm ${m.readAt ? "opacity-70" : "border-primary/30 bg-muted/30"}`}
-            >
-              <p className="whitespace-pre-wrap">{m.body}</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>{m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}</span>
-                {m.taskId && <span className="font-mono">task {m.taskId.slice(0, 8)}…</span>}
-                {!m.readAt && (
-                  <Button type="button" variant="ghost" size="sm" className="h-7" onClick={() => readMutation.mutate(m.id)}>
-                    Mark read
-                  </Button>
-                )}
+          {messages.map((m) => {
+            const allowedIds = new Set((m.attachments ?? []).map((a) => a.id));
+            return (
+              <div
+                key={m.id}
+                className={`rounded-lg border p-3 text-sm ${m.readAt ? "opacity-70" : "border-primary/30 bg-muted/30"}`}
+              >
+                <SafeMarkdown source={m.body} allowedAttachmentIds={allowedIds} />
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>{m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}</span>
+                  {m.taskId && <span className="font-mono">task {m.taskId.slice(0, 8)}…</span>}
+                  {!m.readAt && (
+                    <Button type="button" variant="ghost" size="sm" className="h-7" onClick={() => readMutation.mutate(m.id)}>
+                      Mark read
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </CardContent>
       </Card>
     </div>

@@ -1,6 +1,6 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, randomUUID } from "crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -34,6 +34,7 @@ import {
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   getFeedbackSubmissionCount, getAvatarProfiles, engageAvatarMission, spendCoinsForAvatarBoost, seedAvatarSkillTree, getAvatarSkillTree, unlockAvatarSkill,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachments, linkAttachmentToTask,
+  linkAttachmentsToOwner, getAttachmentsForOwner, getAttachmentsForOwnerPublic,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
   listBillingPaymentMethodsForUser, createBillingPaymentMethod,
@@ -112,7 +113,7 @@ import { db } from "./db";
 import { eq, and, desc, sql, count, gte, lte } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
-import { toPublicSessionUser, toPublicWallet, toPublicCoinTransactions, toPublicBadges } from "@shared/public-client-dtos";
+import { toPublicSessionUser, toPublicWallet, toPublicCoinTransactions, toPublicBadges, toPublicAttachmentRefs } from "@shared/public-client-dtos";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
 import { verifyMfaChallengeOrTotp } from "./services/mfa-totp";
 import {
@@ -146,6 +147,13 @@ import { getApiPerformanceHeuristics } from "./services/api-performance-service"
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, readAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
+import { fetchImageByUrl, UrlFetchError } from "./services/attachment-url-fetch";
+import {
+  searchGifs,
+  hasAnyGifProvider,
+  GifSearchConfigError,
+  type GifSearchProvider,
+} from "./services/gif-search";
 import { classifyWithFallback, classifyWithAssociations, normalizeAssociationWeights } from "./services/classification/universal-classifier";
 import { confirmTaskClassificationForUser, getClassificationConfirmPayload } from "./classification-confirm";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
@@ -456,6 +464,33 @@ const migrationLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   message: { message: "Too many migration requests — try again later" },
+});
+
+/**
+ * Paste-composer upload budget. Each pasted image/GIF consumes one slot on
+ * /api/attachments/upload-url plus one on /api/attachments/upload/:token.
+ * Budget assumes an enthusiastic chat-style poster: ~40 pastes every 15 min.
+ */
+const attachmentUploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 80,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Too many attachment uploads — slow down a moment" },
+});
+
+/**
+ * GIF search/resolve quota - prevents accidental runaway calls to Giphy /
+ * Tenor if a picker is held open.
+ */
+const gifSearchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Too many GIF searches — pause and try again" },
 });
 
 
@@ -1603,7 +1638,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const result = await getCommunityPostWithReplies(req.params.id);
       if (!result) return res.status(404).json({ message: "Post not found" });
-      res.json(result);
+      const postAssets = await getAttachmentsForOwnerPublic({
+        ownerType: "community_post",
+        ownerId: result.post.id,
+      });
+      const replies = await Promise.all(
+        (result.replies || []).map(async (reply: { id: string; [k: string]: unknown }) => {
+          const assets = await getAttachmentsForOwnerPublic({
+            ownerType: "community_reply",
+            ownerId: reply.id,
+          });
+          return { ...reply, attachments: toPublicAttachmentRefs(assets) };
+        }),
+      );
+      res.json({
+        post: { ...result.post, attachments: toPublicAttachmentRefs(postAssets) },
+        replies,
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch post" });
     }
@@ -1612,6 +1663,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Community avatar forum — reply to a post (auth required)
   const communityReplySchema = z.object({
     body: z.string().min(1).max(2000),
+    attachmentAssetIds: z.array(z.string().min(1)).max(8).default([]),
   });
 
   app.post("/api/public/community/posts/:id/reply", requireAuth, apiLimiter, async (req, res) => {
@@ -1639,6 +1691,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         displayName,
         body: sanitized,
       });
+      const replyAssets = await linkAttachmentsToOwner({
+        userId: req.user!.id,
+        ownerType: "community_reply",
+        ownerId: reply.id,
+        assetIds: payload.attachmentAssetIds,
+      });
 
       // ── Orb auto-reply using the dialogue engine (~50% chance) ──
       const avatarKeys = ["mood", "archetype", "productivity", "social", "lazy"] as const;
@@ -1653,7 +1711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      res.status(201).json(reply);
+      res.status(201).json({ ...reply, attachments: toPublicAttachmentRefs(replyAssets) });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to post reply" });
@@ -3539,12 +3597,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const collabBodySchema = z.object({
     body: z.string().min(1).max(8000),
     taskId: z.string().uuid().optional(),
+    attachmentAssetIds: z.array(z.string().min(1)).max(8).default([]),
   });
 
   app.get("/api/collaboration/inbox", requireAuth, async (req, res) => {
     try {
       const rows = await listCollaborationInbox(req.user!.id);
-      res.json({ messages: rows });
+      const decorated = await Promise.all(
+        rows.map(async (row) => {
+          const assets = await getAttachmentsForOwner({
+            userId: req.user!.id,
+            ownerType: "collab_message",
+            ownerId: row.id,
+          });
+          return { ...row, attachments: toPublicAttachmentRefs(assets) };
+        }),
+      );
+      res.json({ messages: decorated });
     } catch (error) {
       res.status(500).json({ message: "Failed to load collaboration inbox" });
     }
@@ -3559,7 +3628,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         taskId: body.taskId ?? null,
         senderUserId: req.user!.id,
       });
-      res.status(201).json(row);
+      const assets = await linkAttachmentsToOwner({
+        userId: req.user!.id,
+        ownerType: "collab_message",
+        ownerId: row.id,
+        assetIds: body.attachmentAssetIds,
+      });
+      res.status(201).json({ ...row, attachments: toPublicAttachmentRefs(assets) });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to append message" });
@@ -3940,7 +4015,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     attachmentCount: z.number().int().min(0).max(10).default(0),
   });
 
-  app.post("/api/attachments/upload-url", requireAuth, async (req, res) => {
+  app.post("/api/attachments/upload-url", requireAuth, attachmentUploadLimiter, async (req, res) => {
     try {
       const payload = uploadUrlSchema.parse(req.body);
       const canStore = await assertCanStoreAttachment(req.user!.id, payload.byteSize);
@@ -3984,7 +4059,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/attachments/upload/:token", requireAuth, express.raw({ type: "*/*", limit: "12mb" }), async (req, res) => {
+  app.put("/api/attachments/upload/:token", requireAuth, attachmentUploadLimiter, express.raw({ type: "*/*", limit: "12mb" }), async (req, res) => {
     try {
       const parsed = verifyUploadToken(req.params.token, getUploadSigningSecret());
       if (!parsed) {
@@ -4029,6 +4104,191 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Upload failed" });
+    }
+  });
+
+  /**
+   * Paste-as-URL fallback. The client pastes an <img> URL or a copied image
+   * link; we download via the SSRF-safe fetcher, re-host it, and return an
+   * attachment_assets row. Never lets the SPA reach the third-party origin
+   * at render time (so CSP does not have to be widened).
+   */
+  const importUrlSchema = z.object({
+    url: z.string().min(8).max(2048),
+    kind: z.string().min(2).max(40).default("paste"),
+    taskId: z.string().optional(),
+  });
+
+  app.post(
+    "/api/attachments/import-url",
+    requireAuth,
+    attachmentUploadLimiter,
+    async (req, res) => {
+      try {
+        const payload = importUrlSchema.parse(req.body);
+        let fetched;
+        try {
+          fetched = await fetchImageByUrl(payload.url);
+        } catch (err) {
+          if (err instanceof UrlFetchError) {
+            await appendSecurityEvent({
+              eventType: "attachment_url_rejected",
+              actorUserId: req.user!.id,
+              route: req.path,
+              method: req.method,
+              statusCode: 400,
+              ipAddress: req.ip,
+              userAgent: req.get("user-agent") || undefined,
+              payload: { reason: err.reason, hop: err.hop },
+            });
+            return res.status(400).json({ message: `URL import rejected: ${err.reason}` });
+          }
+          throw err;
+        }
+
+        const canStore = await assertCanStoreAttachment(req.user!.id, fetched.byteSize);
+        if (!canStore.ok) return res.status(413).json({ message: canStore.message });
+
+        const fileName = `paste-${Date.now()}.${fetched.mimeType.split("/")[1] || "bin"}`;
+        const asset = await createAttachmentAsset({
+          userId: req.user!.id,
+          kind: payload.kind,
+          taskId: payload.taskId,
+          fileName,
+          mimeType: fetched.mimeType,
+          byteSize: fetched.byteSize,
+          metadataJson: JSON.stringify({
+            status: "uploaded",
+            source: "paste_url",
+            finalUrl: fetched.finalUrl,
+          }),
+        });
+        const storageKey = buildAttachmentStorageKey(req.user!.id, asset.id, fileName);
+        await writeAttachmentObject(storageKey, fetched.buffer);
+        await markAttachmentAssetUploaded(req.user!.id, asset.id, {
+          status: "uploaded",
+          source: "paste_url",
+          storageKey,
+          uploadedAt: new Date().toISOString(),
+        });
+
+        await appendSecurityEvent({
+          eventType: "attachment_url_imported",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 201,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: { assetId: asset.id, byteSize: fetched.byteSize },
+        });
+
+        res.status(201).json({ assetId: asset.id, mimeType: fetched.mimeType, byteSize: fetched.byteSize });
+      } catch (error) {
+        if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+        if (error instanceof Error) return res.status(400).json({ message: error.message });
+        res.status(500).json({ message: "URL import failed" });
+      }
+    },
+  );
+
+  /**
+   * GIF provider search proxy. Keeps API keys on the server and normalises
+   * upstream shapes to a fixed `GifSearchResult` contract. The `previewUrl`
+   * field is safe to render via the existing img-src CSP; when the user
+   * selects one, the SPA calls /api/gif/resolve which re-hosts the bytes.
+   */
+  const gifSearchQuerySchema = z.object({
+    q: z.string().min(1).max(80),
+    provider: z.enum(["giphy", "tenor"]).default("giphy"),
+    limit: z.coerce.number().int().min(1).max(24).optional(),
+  });
+
+  app.get("/api/gif/search", requireAuth, gifSearchLimiter, async (req, res) => {
+    try {
+      const params = gifSearchQuerySchema.parse(req.query);
+      if (!hasAnyGifProvider()) {
+        return res.status(503).json({ message: "GIF search is not configured on this deployment" });
+      }
+      const results = await searchGifs(params.provider as GifSearchProvider, {
+        q: params.q,
+        limit: params.limit,
+      });
+      res.json({ provider: params.provider, results });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+      if (error instanceof GifSearchConfigError) {
+        return res.status(503).json({ message: error.message });
+      }
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "GIF search failed" });
+    }
+  });
+
+  /**
+   * Re-hosts a picked GIF so the rendered chat bubble never hotlinks
+   * giphy.com / tenor.com. Body is validated+downloaded through the
+   * SSRF-safe fetcher, then stored just like a regular paste.
+   */
+  const gifResolveSchema = z.object({
+    provider: z.enum(["giphy", "tenor"]),
+    id: z.string().min(1).max(128),
+    originalUrl: z.string().url().max(2048),
+  });
+
+  app.post("/api/gif/resolve", requireAuth, gifSearchLimiter, async (req, res) => {
+    try {
+      const payload = gifResolveSchema.parse(req.body);
+      let fetched;
+      try {
+        fetched = await fetchImageByUrl(payload.originalUrl);
+      } catch (err) {
+        if (err instanceof UrlFetchError) {
+          await appendSecurityEvent({
+            eventType: "gif_resolve_rejected",
+            actorUserId: req.user!.id,
+            route: req.path,
+            method: req.method,
+            statusCode: 400,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+            payload: { reason: err.reason, provider: payload.provider },
+          });
+          return res.status(400).json({ message: `GIF rejected: ${err.reason}` });
+        }
+        throw err;
+      }
+
+      const canStore = await assertCanStoreAttachment(req.user!.id, fetched.byteSize);
+      if (!canStore.ok) return res.status(413).json({ message: canStore.message });
+
+      const fileName = `${payload.provider}-${payload.id}.gif`;
+      const asset = await createAttachmentAsset({
+        userId: req.user!.id,
+        kind: "gif",
+        fileName,
+        mimeType: fetched.mimeType,
+        byteSize: fetched.byteSize,
+        metadataJson: JSON.stringify({
+          status: "uploaded",
+          source: `gif_${payload.provider}`,
+          providerId: payload.id,
+        }),
+      });
+      const storageKey = buildAttachmentStorageKey(req.user!.id, asset.id, fileName);
+      await writeAttachmentObject(storageKey, fetched.buffer);
+      await markAttachmentAssetUploaded(req.user!.id, asset.id, {
+        status: "uploaded",
+        source: `gif_${payload.provider}`,
+        storageKey,
+        uploadedAt: new Date().toISOString(),
+      });
+
+      res.status(201).json({ assetId: asset.id, mimeType: fetched.mimeType, byteSize: fetched.byteSize });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "GIF resolve failed" });
     }
   });
 
