@@ -19,3 +19,10 @@ High-traffic JSON paths used by the main app include: `GET /api/tasks` (and sear
 - `GET /api/gamification/transactions` (and bundled profile) uses **`toPublicCoinTransactions`**, which drops `userId` and redacts `details` for billing/payment-like reasons.
 
 When adding endpoints, extend serializers and add tests under `shared/public-client-dtos.test.ts` or a contract test rather than widening accidental exposure.
+
+## Pasted images and GIFs
+
+Endpoints that accept or return user-composed bodies (collab inbox, community post/reply, feedback) go through `PasteComposer` on write and `SafeMarkdown` on read:
+
+- Serialise attachment metadata with **`toPublicAttachmentRef` / `toPublicAttachmentRefs`**. Never return raw `attachment_assets` rows or owning `userId`s; the client only needs `{ id, mimeType, byteSize, fileName, downloadUrl }`.
+- Downloads remain session-scoped (`GET /api/attachments/:assetId/download`); tokens in the markdown body are only honoured against the explicit `attachments[]` list returned for that row. See [docs/PASTE_COMPOSER_SECURITY.md](PASTE_COMPOSER_SECURITY.md) for the full defence-in-depth matrix (SSRF fetcher, GIF proxy, rate limits, MIME / magic-byte checks).

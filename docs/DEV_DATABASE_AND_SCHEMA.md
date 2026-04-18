@@ -131,6 +131,7 @@ So: **versioned SQL migrations → forced Drizzle schema sync → Node server**.
 
 - **`npm test`** includes [`server/deploy-schema-workflow.test.ts`](../server/deploy-schema-workflow.test.ts), which asserts Docker / compose / offline-start / dev-with-db-push **ordering** and key `package.json` scripts.
 - **`npm run check:startup-seeds`** — Vitest guard for non-fatal seed patterns in `server/routes.ts` (see test file in repo).
+- **Composer attachments** — `migrations/0020_attachment_composer_links.sql` adds `message_attachments` (polymorphic join into `attachment_assets`). When adding a new composer-backed surface, extend `MESSAGE_ATTACHMENT_OWNER_TYPES` in [`shared/schema.ts`](../shared/schema.ts) alongside route wiring (see [PASTE_COMPOSER_SECURITY.md](PASTE_COMPOSER_SECURITY.md)).
 
 ## Troubleshooting
 

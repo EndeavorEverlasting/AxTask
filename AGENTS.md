@@ -12,6 +12,10 @@ Before pushing release branches that touch rewards, classification, feedback, co
 
 - Do not push experimental work directly to the remote branch that tracks **production deploy**; use a feature branch and a PR. See [docs/GIT_BRANCHING_AND_DEPLOYMENT.md](docs/GIT_BRANCHING_AND_DEPLOYMENT.md).
 
+## Pasted images, GIFs, and composer bodies
+
+- User-composed bodies (collab, community, feedback) use `PasteComposer` on write and `SafeMarkdown` on read. Every write route that accepts `attachmentAssetIds` must cap it at 8, call `linkAttachmentsToOwner`, and pair with a read route that serializes `attachments[]` via `toPublicAttachmentRef`. URL imports and GIFs go through `server/services/attachment-url-fetch.ts` (SSRF-hardened) and `server/services/gif-search.ts` (proxy). Full model: [docs/PASTE_COMPOSER_SECURITY.md](docs/PASTE_COMPOSER_SECURITY.md).
+
 ## Owner coin grants (operator policy)
 
 Discretionary AxCoin credits are **owner-allowlisted** only (`OWNER_COIN_GRANT_USER_IDS`), audited (`owner_coin_grant` / `logSecurityEvent`), and **not** a generic admin “print money” action. Read the full policy before changing this area: [docs/OPERATOR_COIN_GRANTS.md](docs/OPERATOR_COIN_GRANTS.md).

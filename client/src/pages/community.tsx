@@ -307,7 +307,6 @@ function ForumPostCard({
                   kind="community-reply"
                   placeholder="Join the conversation…"
                   ariaLabel="Reply to post"
-                  minRows={2}
                   maxAttachments={6}
                 />
                 <div className="flex justify-end">
