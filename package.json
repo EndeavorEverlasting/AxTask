@@ -36,6 +36,7 @@
     "db:push": "drizzle-kit push",
     "db:push:ci": "drizzle-kit push --force",
     "db:push:verify": "node scripts/verify-drizzle-deploy.mjs",
+    "vapid:generate": "node scripts/generate-vapid-keys.mjs",
     "postinstall": "node -e \"if(require('fs').existsSync('tools/billing_bridge/setup-python.mjs')){require('child_process').execSync('node tools/billing_bridge/setup-python.mjs',{stdio:'inherit'})}else{console.log('[billing-bridge] setup script not found, skipping')}\"",
     "billing-bridge:setup": "node tools/billing_bridge/setup-python.mjs",
     "migration:verify-schema": "node scripts/migration/verify-schema.mjs",

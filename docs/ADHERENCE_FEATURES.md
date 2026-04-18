@@ -29,6 +29,8 @@ AxTask can detect and nudge users when adherence drops, using user-only interven
 - `VAPID_PRIVATE_KEY`
 - `VAPID_SUBJECT` (optional, default `mailto:alerts@axtask.app`)
 
+Full provisioning and troubleshooting guide: [NOTIFICATIONS_AND_PUSH.md](NOTIFICATIONS_AND_PUSH.md).
+
 ## API endpoints
 
 - `GET /api/adherence/interventions?limit=10`

@@ -266,7 +266,22 @@ app.use((req, res, next) => {
   next();
 });
 
+function warnIfVapidMissing(): void {
+  const publicKey = (process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY || "").trim();
+  const privateKey = (process.env.VAPID_PRIVATE_KEY || "").trim();
+  if (publicKey && privateKey) return;
+  const missing = [
+    publicKey ? null : "VAPID_PUBLIC_KEY",
+    privateKey ? null : "VAPID_PRIVATE_KEY",
+  ].filter(Boolean);
+  console.warn(
+    `[push] VAPID keys missing (${missing.join(", ")}); /api/notifications/subscriptions accepts clients but no pushes will be dispatched until VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are set. Run \`npm run vapid:generate\` to generate a key pair. See docs/NOTIFICATIONS_AND_PUSH.md.`,
+  );
+}
+
 (async () => {
+  warnIfVapidMissing();
+
   try {
     await seedDevAccounts();
   } catch (e) {

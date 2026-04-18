@@ -337,6 +337,9 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
   - `GET /api/premium/reactivation-prompts`
 
 ### Notification Mode (Push + Intensity)
+
+See **[docs/NOTIFICATIONS_AND_PUSH.md](docs/NOTIFICATIONS_AND_PUSH.md)** for the end-to-end setup (VAPID generation with `npm run vapid:generate`, invariants, troubleshooting stale service workers).
+
 - Toggleable notification mode in the sidebar with a `0-100` intensity slider.
 - Browser push permission is requested when enabling notifications.
 - Preferences persist per account via server-backed APIs:
