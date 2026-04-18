@@ -45,6 +45,7 @@ interface TopicData {
   avgPriorityScore: number;
   classifications: string[];
   recentActivities: string[];
+  taskIds?: string[];
 }
 
 interface RecurrenceData {
@@ -56,6 +57,7 @@ interface RecurrenceData {
   typicalDayIndex: number;
   lastDate: string;
   nextExpectedDate: string;
+  taskIds?: string[];
 }
 
 interface DeadlineRhythmData {
@@ -72,6 +74,13 @@ export interface PatternInsight {
   title: string;
   description: string;
   confidence: number;
+  /**
+   * Up to 5 concrete task ids this insight points at, when available. Enables
+   * click-through from the planner insights list to the exact task's edit
+   * dialog. Aggregate-only insights (e.g. `deadline_rhythm`) omit the field
+   * so callers fall back to an activity-prefilled search.
+   */
+  taskIds?: string[];
   data: TopicData | RecurrenceData | DeadlineRhythmData | Record<string, unknown>;
 }
 
@@ -114,7 +123,7 @@ export async function analyzeTaskHistory(userId: string, allTasks: Task[]): Prom
 }
 
 async function extractTopics(userId: string, allTasks: Task[]): Promise<TaskPattern[]> {
-  const topicMap = new Map<string, { count: number; scores: number[]; classifications: Set<string>; activities: string[] }>();
+  const topicMap = new Map<string, { count: number; scores: number[]; classifications: Set<string>; activities: string[]; taskIds: string[] }>();
 
   for (const task of allTasks) {
     const tokens = tokenize(task.activity);
@@ -126,13 +135,14 @@ async function extractTopics(userId: string, allTasks: Task[]): Promise<TaskPatt
     const phrases = [...tokens, ...bigrams];
     for (const phrase of phrases) {
       if (!topicMap.has(phrase)) {
-        topicMap.set(phrase, { count: 0, scores: [], classifications: new Set(), activities: [] });
+        topicMap.set(phrase, { count: 0, scores: [], classifications: new Set(), activities: [], taskIds: [] });
       }
       const entry = topicMap.get(phrase)!;
       entry.count++;
       entry.scores.push(task.priorityScore);
       entry.classifications.add(task.classification);
       if (entry.activities.length < 5) entry.activities.push(task.activity);
+      if (entry.taskIds.length < 5) entry.taskIds.push(task.id);
     }
   }
 
@@ -152,6 +162,7 @@ async function extractTopics(userId: string, allTasks: Task[]): Promise<TaskPatt
       avgPriorityScore: Math.round(avgScore * 10) / 10,
       classifications: Array.from(data.classifications),
       recentActivities: data.activities.slice(0, 3),
+      taskIds: data.taskIds.slice(0, 5),
     };
 
     const pattern = await upsertPattern(userId, "topic", topic, topicData as unknown as Record<string, unknown>, confidence);
@@ -231,6 +242,9 @@ async function detectRecurrences(userId: string, allTasks: Task[]): Promise<Task
       typicalDayIndex: typicalDayIdx,
       lastDate,
       nextExpectedDate: nextExpectedStr,
+      /* Most recent recurrence occurrences first so the primary click target
+         is the freshest task the user is likely still thinking about. */
+      taskIds: sorted.slice(-5).reverse().map((t) => t.id),
     };
 
     const pattern = await upsertPattern(userId, "recurrence", key, recurrenceData as unknown as Record<string, unknown>, confidence);
@@ -350,6 +364,7 @@ async function buildSimilarityClusters(userId: string, allTasks: Task[]): Promis
       typicalDayOfWeek: DAYS[typicalDayIdx],
       typicalDayIndex: typicalDayIdx,
       recentDates: dates.slice(-5),
+      taskIds: cluster.tasks.slice(0, 5).map((t) => t.id),
     };
 
     const clusterKey = `cluster:${cluster.centroid.slice(0, 3).join("_")}`;
@@ -449,6 +464,7 @@ export function getInsights(patterns: TaskPattern[]): PatternInsight[] {
       title: `Frequent topic: "${data.topic}"`,
       description: `Appears in ${data.count} tasks. Average priority: ${data.avgPriorityScore}. Categories: ${data.classifications.join(", ")}.`,
       confidence: t.confidence,
+      ...(Array.isArray(data.taskIds) && data.taskIds.length > 0 ? { taskIds: data.taskIds.slice(0, 5) } : {}),
       data,
     });
   }
@@ -465,6 +481,7 @@ export function getInsights(patterns: TaskPattern[]): PatternInsight[] {
       title: `Recurring: "${data.activity}"`,
       description: `Done ${data.count} times, ${data.cadence.replace("_", " ")} (every ~${data.avgDays} days). Usually on ${data.typicalDayOfWeek}s. Next expected: ${data.nextExpectedDate}.`,
       confidence: r.confidence,
+      ...(Array.isArray(data.taskIds) && data.taskIds.length > 0 ? { taskIds: data.taskIds.slice(0, 5) } : {}),
       data,
     });
   }
@@ -492,11 +509,16 @@ export function getInsights(patterns: TaskPattern[]): PatternInsight[] {
 
   for (const c of clusters) {
     const data = JSON.parse(c.data);
+    const taskIds: unknown = (data as { taskIds?: unknown }).taskIds;
+    const taskIdList = Array.isArray(taskIds)
+      ? (taskIds.filter((id) => typeof id === "string") as string[]).slice(0, 5)
+      : [];
     insights.push({
       type: "similarity_cluster",
       title: `Task group (${data.count} similar tasks)`,
       description: `Examples: ${data.activities.slice(0, 3).join(", ")}. Usually done on ${data.typicalDayOfWeek}s.`,
       confidence: c.confidence,
+      ...(taskIdList.length > 0 ? { taskIds: taskIdList } : {}),
       data,
     });
   }

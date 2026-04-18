@@ -290,6 +290,67 @@ function clampNotificationIntensity(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+const FEEDBACK_AVATAR_KEYS_SET = new Set([
+  "archetype",
+  "productivity",
+  "mood",
+  "social",
+  "lazy",
+]);
+
+type FeedbackNudgePrefsShape = {
+  master: number;
+  byAvatar: Partial<Record<string, number>>;
+};
+
+function sanitizeFeedbackNudgePrefs(
+  raw: unknown,
+): FeedbackNudgePrefsShape {
+  const fallback: FeedbackNudgePrefsShape = { master: 50, byAvatar: {} };
+  if (!raw || typeof raw !== "object") return fallback;
+  const input = raw as Record<string, unknown>;
+  const master =
+    typeof input.master === "number" && Number.isFinite(input.master)
+      ? clampNotificationIntensity(input.master)
+      : 50;
+  const byAvatarIn =
+    input.byAvatar && typeof input.byAvatar === "object"
+      ? (input.byAvatar as Record<string, unknown>)
+      : {};
+  const byAvatar: Partial<Record<string, number>> = {};
+  for (const [k, v] of Object.entries(byAvatarIn)) {
+    if (!FEEDBACK_AVATAR_KEYS_SET.has(k)) continue;
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    byAvatar[k] = clampNotificationIntensity(v);
+  }
+  return { master, byAvatar };
+}
+
+function mergeFeedbackNudgePrefs(
+  existing: FeedbackNudgePrefsShape,
+  patch: unknown,
+): FeedbackNudgePrefsShape {
+  if (!patch || typeof patch !== "object") return existing;
+  const patchObj = patch as Record<string, unknown>;
+  const nextMaster =
+    typeof patchObj.master === "number" && Number.isFinite(patchObj.master)
+      ? clampNotificationIntensity(patchObj.master)
+      : existing.master;
+  const byAvatar: Partial<Record<string, number>> = { ...existing.byAvatar };
+  if (patchObj.byAvatar && typeof patchObj.byAvatar === "object") {
+    for (const [k, v] of Object.entries(patchObj.byAvatar as Record<string, unknown>)) {
+      if (!FEEDBACK_AVATAR_KEYS_SET.has(k)) continue;
+      if (v === null || v === undefined) {
+        delete byAvatar[k];
+        continue;
+      }
+      if (typeof v !== "number" || !Number.isFinite(v)) continue;
+      byAvatar[k] = clampNotificationIntensity(v);
+    }
+  }
+  return { master: nextMaster, byAvatar };
+}
+
 function normalizeNotificationPreference(
   userId: string,
   row?: UserNotificationPreference,
@@ -301,6 +362,7 @@ function normalizeNotificationPreference(
     intensity: clampNotificationIntensity(row?.intensity ?? DEFAULT_NOTIFICATION_INTENSITY),
     quietHoursStart: row?.quietHoursStart ?? null,
     quietHoursEnd: row?.quietHoursEnd ?? null,
+    feedbackNudgePrefs: sanitizeFeedbackNudgePrefs(row?.feedbackNudgePrefs),
     createdAt: row?.createdAt ?? now,
     updatedAt: row?.updatedAt ?? now,
   };
@@ -320,8 +382,14 @@ export async function upsertUserNotificationPreference(input: {
   intensity?: number;
   quietHoursStart?: number | null;
   quietHoursEnd?: number | null;
+  feedbackNudgePrefs?: unknown;
 }): Promise<UserNotificationPreference> {
   const existing = await getUserNotificationPreference(input.userId);
+  const existingPrefs = sanitizeFeedbackNudgePrefs(existing.feedbackNudgePrefs);
+  const nextFeedbackPrefs =
+    input.feedbackNudgePrefs === undefined
+      ? existingPrefs
+      : mergeFeedbackNudgePrefs(existingPrefs, input.feedbackNudgePrefs);
   const [updated] = await db
     .insert(userNotificationPreferences)
     .values({
@@ -330,6 +398,7 @@ export async function upsertUserNotificationPreference(input: {
       intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
       quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
       quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
+      feedbackNudgePrefs: nextFeedbackPrefs,
       createdAt: existing.createdAt,
       updatedAt: new Date(),
     })
@@ -340,6 +409,7 @@ export async function upsertUserNotificationPreference(input: {
         intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
         quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
         quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
+        feedbackNudgePrefs: nextFeedbackPrefs,
         updatedAt: new Date(),
       },
     })

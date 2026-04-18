@@ -19,6 +19,7 @@ import { useTutorial } from "@/hooks/use-tutorial";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { KBD, SUBMIT_TASK_SHORTCUTS, tutorialToggleTitle } from "@/lib/keyboard-shortcuts";
 import { NotificationIntensityPanel } from "@/components/settings/notification-intensity-panel";
+import { FeedbackNudgeSliders } from "@/components/settings/feedback-nudge-sliders";
 import { ImmersiveSoundsSettingsCard } from "@/components/settings/immersive-sounds-settings-card";
 import { VoicePreferencesSettingsCard } from "@/components/settings/voice-preferences-settings-card";
 import { LocationPlacesSettingsCard } from "@/components/settings/location-places-card";
@@ -118,8 +119,9 @@ export default function SettingsPage() {
           <CardTitle className="text-lg">Notifications</CardTitle>
           <CardDescription>Same controls as the sidebar—now in one place for obsessive tweakers.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <NotificationIntensityPanel />
+          <FeedbackNudgeSliders />
         </CardContent>
       </Card>
 

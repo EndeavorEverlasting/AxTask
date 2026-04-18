@@ -338,7 +338,7 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
 
 ### Notification Mode (Push + Intensity)
 
-See **[docs/NOTIFICATIONS_AND_PUSH.md](docs/NOTIFICATIONS_AND_PUSH.md)** for the end-to-end setup (VAPID generation with `npm run vapid:generate`, invariants, troubleshooting stale service workers).
+See **[docs/NOTIFICATIONS_AND_PUSH.md](docs/NOTIFICATIONS_AND_PUSH.md)** for the end-to-end setup (VAPID generation with `npm run vapid:generate`, invariants, troubleshooting stale service workers). For per-avatar feedback-prompt frequency sliders and the clickable AI planner insights that open the exact task, see **[docs/FEEDBACK_AVATAR_NUDGES.md](docs/FEEDBACK_AVATAR_NUDGES.md)**.
 
 - Toggleable notification mode in the sidebar with a `0-100` intensity slider.
 - Browser push permission is requested when enabling notifications.

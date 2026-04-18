@@ -4,6 +4,10 @@
 
 Codify the orb-first interaction philosophy and avatar behavior system so UX, engine behavior, and community expression stay aligned.
 
+## Related docs
+
+- [FEEDBACK_AVATAR_NUDGES.md](FEEDBACK_AVATAR_NUDGES.md) — how feedback prompts are tied to the five companion personas and made user-tunable.
+
 ## Orb UX Principles
 
 - Floating orb motion should feel ambient and alive, not distracting.

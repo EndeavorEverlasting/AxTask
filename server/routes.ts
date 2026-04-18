@@ -165,7 +165,7 @@ function safeEqual(a: string, b: string): boolean {
 
 import { computeTaskFingerprint } from "./task-fingerprint";
 import { moderateText, rejectMediaContent, sanitizeForDisplay } from "./services/content-moderation";
-import { generateOrbDialogue, getOrbReply, getOrbVoice, ensureOrbActivityLevel } from "./engines/dialogue-engine";
+import { generateOrbDialogue, getOrbReply, getOrbVoice, ensureOrbActivityLevel, listAvatarVoiceOpeners } from "./engines/dialogue-engine";
 
 function getUploadSigningSecret(): string {
   return process.env.ATTACHMENT_UPLOAD_SECRET || process.env.SESSION_SECRET || "dev-upload-secret";
@@ -1380,6 +1380,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intensity: payload.intensity,
         quietHoursStart: payload.quietHoursStart,
         quietHoursEnd: payload.quietHoursEnd,
+        feedbackNudgePrefs: payload.feedbackNudgePrefs,
       });
       const dispatchProfile = getNotificationDispatchProfile(preference.intensity);
       const subscriptions = await listUserPushSubscriptions(req.user!.id);
@@ -3755,6 +3756,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ avatars });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch avatars" });
+    }
+  });
+
+  /**
+   * Lightweight read-only feed of persona openers per avatar. The client
+   * caches this (TanStack Query `staleTime: Infinity`) and picks a random
+   * opener when rendering a feedback nudge so the dialog feels tied to a
+   * companion instead of generic copy. See docs/FEEDBACK_AVATAR_NUDGES.md.
+   */
+  app.get("/api/gamification/avatar-voices", requireAuth, async (_req, res) => {
+    try {
+      const voices = listAvatarVoiceOpeners();
+      res.json({ voices });
+    } catch {
+      res.status(500).json({ message: "Failed to fetch avatar voices" });
     }
   });
 

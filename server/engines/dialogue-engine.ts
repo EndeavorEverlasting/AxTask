@@ -207,6 +207,25 @@ export function getOrbVoice(avatarKey: string): OrbVoice | undefined {
 }
 
 /**
+ * Lightweight DTO used by `/api/gamification/avatar-voices` so the client can
+ * pick a random persona-toned opener per feedback nudge without touching the
+ * dialogue engine or forum state.
+ */
+export function listAvatarVoiceOpeners(): Array<{
+  avatarKey: string;
+  name: string;
+  tone: string;
+  openers: string[];
+}> {
+  return ALL_VOICES.map((v) => ({
+    avatarKey: v.key,
+    name: v.name,
+    tone: v.tone,
+    openers: v.openers.slice(),
+  }));
+}
+
+/**
  * Periodically generate orb dialogues to keep the forum alive.
  * Call this on a timer (e.g. every 6-12 hours) or on server startup
  * if the forum is looking thin.

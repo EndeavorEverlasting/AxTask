@@ -4,15 +4,58 @@ import { Card, CardContent } from "@/components/ui/card";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { Sparkles } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import type { Task } from "@shared/schema";
+
+function readTaskIdFromLocation(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get("task");
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function Tasks() {
   const [showForm, setShowForm] = useState(false);
+  const [, setLocation] = useLocation();
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(() => readTaskIdFromLocation());
 
   useEffect(() => {
     const onOpen = () => setShowForm(true);
     window.addEventListener("axtask-open-new-task", onOpen);
     return () => window.removeEventListener("axtask-open-new-task", onOpen);
   }, []);
+
+  const { data: pendingTask } = useQuery<Task>({
+    queryKey: ["/api/tasks", pendingTaskId],
+    enabled: !!pendingTaskId,
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/tasks/${pendingTaskId}`);
+      return (await res.json()) as Task;
+    },
+    retry: false,
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    if (!pendingTaskId || !pendingTask) return;
+    window.dispatchEvent(
+      new CustomEvent("axtask-open-task-edit", { detail: { task: pendingTask } }),
+    );
+    /* Strip the ?task= param so reloads and back navigation don't re-open the
+       dialog after the user has dismissed it. */
+    setPendingTaskId(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("task");
+    setLocation(url.pathname + (url.search || ""));
+  }, [pendingTask, pendingTaskId, setLocation]);
 
   return (
     <div className="p-4 md:p-6 space-y-6 md:space-y-8">

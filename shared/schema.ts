@@ -142,12 +142,32 @@ export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type SecurityLog = typeof securityLogs.$inferSelect;
 
 // ─── Notification Preferences + Push Subscriptions ──────────────────────────
+/**
+ * Per-avatar feedback nudge slider preferences. `master` is the 0..100 master
+ * frequency slider; `byAvatar` holds per-avatar multipliers (0..100). When a
+ * per-avatar value is absent it inherits `master` as-is.
+ *
+ * See `shared/feedback-avatar-map.ts` and `docs/FEEDBACK_AVATAR_NUDGES.md`.
+ */
+export type FeedbackNudgePrefs = {
+  master: number;
+  byAvatar: Partial<Record<"archetype" | "productivity" | "mood" | "social" | "lazy", number>>;
+};
+
+export const DEFAULT_FEEDBACK_NUDGE_PREFS: FeedbackNudgePrefs = {
+  master: 50,
+  byAvatar: {},
+};
+
 export const userNotificationPreferences = pgTable("user_notification_preferences", {
   userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   enabled: boolean("enabled").notNull().default(false),
   intensity: integer("intensity").notNull().default(50),
   quietHoursStart: integer("quiet_hours_start"),
   quietHoursEnd: integer("quiet_hours_end"),
+  feedbackNudgePrefs: jsonb("feedback_nudge_prefs")
+    .$type<FeedbackNudgePrefs>()
+    .default(DEFAULT_FEEDBACK_NUDGE_PREFS),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -169,11 +189,37 @@ export const userPushSubscriptions = pgTable("user_push_subscriptions", {
   index("idx_user_push_subscriptions_user").on(table.userId),
 ]);
 
+export const feedbackAvatarKeySchema = z.enum([
+  "archetype",
+  "productivity",
+  "mood",
+  "social",
+  "lazy",
+]);
+
+const feedbackSliderSchema = z.number().int().min(0).max(100);
+
+const feedbackByAvatarSchema = z
+  .object({
+    archetype: feedbackSliderSchema.optional(),
+    productivity: feedbackSliderSchema.optional(),
+    mood: feedbackSliderSchema.optional(),
+    social: feedbackSliderSchema.optional(),
+    lazy: feedbackSliderSchema.optional(),
+  })
+  .strict();
+
+export const feedbackNudgePrefsSchema = z.object({
+  master: feedbackSliderSchema,
+  byAvatar: feedbackByAvatarSchema,
+});
+
 export const updateNotificationPreferenceSchema = z.object({
   enabled: z.boolean().optional(),
   intensity: z.number().int().min(0).max(100).optional(),
   quietHoursStart: z.number().int().min(0).max(23).nullable().optional(),
   quietHoursEnd: z.number().int().min(0).max(23).nullable().optional(),
+  feedbackNudgePrefs: feedbackNudgePrefsSchema.partial().optional(),
 });
 
 export const createPushSubscriptionSchema = z.object({

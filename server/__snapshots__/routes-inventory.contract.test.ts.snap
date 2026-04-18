@@ -82,6 +82,7 @@ exports[`server/routes.ts inventory > matches snapshot of all Express path regis
   "/api/feedback/process",
   "/api/gamification/avatar-skills",
   "/api/gamification/avatar-skills/unlock",
+  "/api/gamification/avatar-voices",
   "/api/gamification/avatars",
   "/api/gamification/avatars/:avatarKey/engage",
   "/api/gamification/avatars/:avatarKey/spend",

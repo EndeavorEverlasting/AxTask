@@ -44,5 +44,38 @@ describe("notification preferences route contracts", () => {
     expect(routes).toContain('app.delete("/api/notifications/subscriptions"');
     expect(routes).toContain("deleteUserPushSubscription");
   });
+
+  it("accepts and round-trips feedbackNudgePrefs on notification preferences", () => {
+    const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
+    const schema = fs.readFileSync(path.join(root, "shared", "schema.ts"), "utf8");
+    const storage = fs.readFileSync(path.join(root, "server", "storage.ts"), "utf8");
+
+    /* Schema has the new jsonb column and Zod validator. */
+    expect(schema).toContain('feedbackNudgePrefs: jsonb("feedback_nudge_prefs")');
+    expect(schema).toContain("feedbackNudgePrefsSchema");
+    expect(schema).toContain("feedbackAvatarKeySchema");
+
+    /* PATCH handler threads the new field through to storage. */
+    expect(routes).toContain("feedbackNudgePrefs: payload.feedbackNudgePrefs");
+
+    /* Storage layer clamps + sanitizes round-tripped values. */
+    expect(storage).toContain("sanitizeFeedbackNudgePrefs");
+    expect(storage).toContain("mergeFeedbackNudgePrefs");
+  });
+
+  it("exposes GET /api/gamification/avatar-voices for persona openers", () => {
+    const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
+    expect(routes).toContain('"/api/gamification/avatar-voices"');
+    expect(routes).toContain("listAvatarVoiceOpeners()");
+  });
+
+  it("migration 0018 adds feedback_nudge_prefs column idempotently", () => {
+    const sql = fs.readFileSync(
+      path.join(root, "migrations", "0018_notification_preferences_feedback_nudge_prefs.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS feedback_nudge_prefs jsonb/i);
+    expect(sql).toMatch(/NOT NULL DEFAULT/i);
+  });
 });
 

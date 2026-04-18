@@ -890,14 +890,27 @@ export function TaskList({ variant = "default" }: { variant?: TaskListVariant } 
   }, [consumeVoiceSearch]);
 
   useEffect(() => {
-    const onFocusSearch = () => {
+    const onFocusSearch = (ev: Event) => {
       searchInputRef.current?.focus();
+      const detail = (ev as CustomEvent<{ query?: string }>).detail;
+      if (detail && typeof detail.query === "string" && detail.query.trim().length > 0) {
+        setSearchQuery(detail.query);
+      }
+    };
+    const onOpenEdit = (ev: Event) => {
+      const e = ev as CustomEvent<{ task?: Task }>;
+      const task = e.detail?.task;
+      if (task && typeof task.id === "string") {
+        setEditingTask(task);
+      }
     };
     window.addEventListener("axtask-voice-focus-task-search", onFocusSearch);
     window.addEventListener("axtask-focus-task-search", onFocusSearch);
+    window.addEventListener("axtask-open-task-edit", onOpenEdit);
     return () => {
       window.removeEventListener("axtask-voice-focus-task-search", onFocusSearch);
       window.removeEventListener("axtask-focus-task-search", onFocusSearch);
+      window.removeEventListener("axtask-open-task-edit", onOpenEdit);
     };
   }, []);
 

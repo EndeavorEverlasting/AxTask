@@ -29,7 +29,7 @@ AxTask can detect and nudge users when adherence drops, using user-only interven
 - `VAPID_PRIVATE_KEY`
 - `VAPID_SUBJECT` (optional, default `mailto:alerts@axtask.app`)
 
-Full provisioning and troubleshooting guide: [NOTIFICATIONS_AND_PUSH.md](NOTIFICATIONS_AND_PUSH.md).
+Full provisioning and troubleshooting guide: [NOTIFICATIONS_AND_PUSH.md](NOTIFICATIONS_AND_PUSH.md). In-app feedback prompts that piggy-back on the same push toggle are covered in [FEEDBACK_AVATAR_NUDGES.md](FEEDBACK_AVATAR_NUDGES.md).
 
 ## API endpoints
 

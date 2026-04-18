@@ -3,6 +3,10 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { applyNativeReminderPolicy } from "@/lib/native-reminder-bridge";
+import {
+  writeFeedbackPrefsCache,
+  type FeedbackNudgePrefsCache,
+} from "@/lib/feedback-nudge";
 
 type NotificationPreference = {
   userId: string;
@@ -11,6 +15,7 @@ type NotificationPreference = {
   quietHoursStart: number | null;
   quietHoursEnd: number | null;
   immersiveSoundsEnabled: boolean;
+  feedbackNudgePrefs?: FeedbackNudgePrefsCache;
   createdAt: string | Date;
   updatedAt: string | Date;
   pushConfigured?: boolean;
@@ -33,6 +38,7 @@ type NotificationModeContextValue = {
   enabled: boolean;
   intensity: number;
   immersiveSoundsEnabled: boolean;
+  feedbackNudgePrefs: FeedbackNudgePrefsCache;
   pushStatus: PushSupportStatus;
   canUsePush: boolean;
   dispatchProfile?: NotificationPreference["dispatchProfile"];
@@ -41,8 +47,11 @@ type NotificationModeContextValue = {
   setLocalIntensity: (value: number) => void;
   saveIntensity: (value: number) => Promise<void>;
   saveNotificationPreferences: (
-    payload: Partial<Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled">>,
+    payload: Partial<
+      Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled" | "feedbackNudgePrefs">
+    >,
   ) => Promise<void>;
+  saveFeedbackNudgePrefs: (prefs: Partial<FeedbackNudgePrefsCache>) => Promise<void>;
 };
 
 const NotificationModeContext = createContext<NotificationModeContextValue | null>(null);
@@ -79,7 +88,9 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 async function patchPreferences(
-  payload: Partial<Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled">>,
+  payload: Partial<
+    Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled" | "feedbackNudgePrefs">
+  >,
 ) {
   const res = await apiRequest("PATCH", "/api/notifications/preferences", payload);
   return res.json();
@@ -117,6 +128,9 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     if (!preferenceQuery.data) return;
     setLocalIntensity(clampIntensity(preferenceQuery.data.intensity));
     persistClientReminderState(Boolean(preferenceQuery.data.enabled), clampIntensity(preferenceQuery.data.intensity));
+    if (preferenceQuery.data.feedbackNudgePrefs) {
+      writeFeedbackPrefsCache(preferenceQuery.data.feedbackNudgePrefs);
+    }
   }, [preferenceQuery.data]);
 
   useEffect(() => {
@@ -129,6 +143,9 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
       preferenceQuery.refetch();
       setLocalIntensity(clampIntensity(next.intensity));
       persistClientReminderState(Boolean(next.enabled), clampIntensity(next.intensity));
+      if (next.feedbackNudgePrefs) {
+        writeFeedbackPrefsCache(next.feedbackNudgePrefs);
+      }
     },
   });
 
@@ -269,16 +286,36 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
   }, [ensureSubscription, preferenceQuery.data?.enabled]);
 
   const saveNotificationPreferences = useCallback(async (
-    payload: Partial<Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled">>,
+    payload: Partial<
+      Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled" | "feedbackNudgePrefs">
+    >,
   ) => {
     await savePreferenceMutation.mutateAsync(payload);
   }, [savePreferenceMutation]);
+
+  const saveFeedbackNudgePrefs = useCallback(
+    async (prefs: Partial<FeedbackNudgePrefsCache>) => {
+      /* Write-through: cache immediately, then persist to server. */
+      const current: FeedbackNudgePrefsCache = preferenceQuery.data?.feedbackNudgePrefs ?? {
+        master: 50,
+        byAvatar: {},
+      };
+      const merged: FeedbackNudgePrefsCache = {
+        master: clampIntensity(prefs.master ?? current.master ?? 50),
+        byAvatar: { ...current.byAvatar, ...(prefs.byAvatar ?? {}) },
+      };
+      writeFeedbackPrefsCache(merged);
+      await savePreferenceMutation.mutateAsync({ feedbackNudgePrefs: merged });
+    },
+    [preferenceQuery.data?.feedbackNudgePrefs, savePreferenceMutation],
+  );
 
   const value = useMemo<NotificationModeContextValue>(() => ({
     isLoading: preferenceQuery.isLoading,
     enabled: Boolean(preferenceQuery.data?.enabled),
     intensity: localIntensity,
     immersiveSoundsEnabled: Boolean(preferenceQuery.data?.immersiveSoundsEnabled),
+    feedbackNudgePrefs: preferenceQuery.data?.feedbackNudgePrefs ?? { master: 50, byAvatar: {} },
     pushStatus,
     canUsePush: pushStatus !== "unsupported" && pushStatus !== "denied",
     dispatchProfile: preferenceQuery.data?.dispatchProfile,
@@ -287,16 +324,19 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     setLocalIntensity: (value: number) => setLocalIntensity(clampIntensity(value)),
     saveIntensity,
     saveNotificationPreferences,
+    saveFeedbackNudgePrefs,
   }), [
     localIntensity,
     preferenceQuery.data?.enabled,
     preferenceQuery.data?.dispatchProfile,
     preferenceQuery.data?.deliveryChannel,
+    preferenceQuery.data?.feedbackNudgePrefs,
     preferenceQuery.data?.immersiveSoundsEnabled,
     preferenceQuery.isLoading,
     pushStatus,
     saveIntensity,
     saveNotificationPreferences,
+    saveFeedbackNudgePrefs,
     toggleNotificationMode,
   ]);
 
