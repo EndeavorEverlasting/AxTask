@@ -16,6 +16,7 @@ import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
 import { evaluateAdherenceForAllUsers } from "./services/adherence-evaluator";
 import { dispatchAdherencePushNotifications } from "./services/adherence-dispatch";
 import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence-thresholds";
+import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
 
 const app = express();
 
@@ -309,6 +310,13 @@ function warnIfVapidMissing(): void {
     setInterval(() => {
       void runAdherenceTick();
     }, thresholds.cronIntervalMs);
+  }
+
+  // Archetype empathy rollup worker: see docs/ARCHETYPE_EMPATHY_ANALYTICS.md.
+  // Disabled in tests to keep the suite hermetic.
+  if (process.env.NODE_ENV !== "test" && process.env.DISABLE_ARCHETYPE_ROLLUP !== "true") {
+    const intervalMs = Number(process.env.ARCHETYPE_ROLLUP_INTERVAL_MS) || 60 * 60 * 1000;
+    startArchetypeRollupTicker(intervalMs);
   }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

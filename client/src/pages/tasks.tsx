@@ -1,7 +1,8 @@
 import { TaskList } from "@/components/task-list";
 import { TaskForm } from "@/components/task-form";
 import { Card, CardContent } from "@/components/ui/card";
-import { GlassPanel } from "@/components/ui/glass-panel";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { usePretextSurface } from "@/hooks/use-pretext-surface";
 import { Sparkles } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -26,6 +27,10 @@ export default function Tasks() {
   const [showForm, setShowForm] = useState(false);
   const [, setLocation] = useLocation();
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(() => readTaskIdFromLocation());
+
+  /* Task list is a heavy grid — dim the ambient orb layer while this page
+   * is in view so the data remains the focal point. */
+  usePretextSurface("dense");
 
   useEffect(() => {
     const onOpen = () => setShowForm(true);
@@ -59,12 +64,13 @@ export default function Tasks() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 md:space-y-8">
-      <GlassPanel elevated className="p-4 md:p-5 space-y-1">
-        <h2 className="text-xl md:text-2xl font-bold text-foreground tracking-tight">All Tasks</h2>
-        <p className="text-sm md:text-base text-muted-foreground">View and manage all your tasks</p>
-      </GlassPanel>
+      <PretextPageHeader
+        eyebrow="Tasks"
+        title="All Tasks"
+        subtitle="View and manage all your tasks"
+      />
 
-      <Card className="glass-panel border border-primary/20 bg-gradient-to-r from-primary/5 via-muted/40 to-primary/5">
+      <Card className="glass-panel-glossy border border-primary/20">
         <CardContent className="pt-6 flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="font-semibold flex items-center gap-2 text-foreground">

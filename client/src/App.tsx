@@ -35,6 +35,7 @@ import ShoppingPage from "@/pages/shopping";
 import PlannerPage from "@/pages/planner";
 import MiniGamesPage from "@/pages/mini-games";
 import RewardsPage from "@/pages/rewards";
+import SkillTreePage from "@/pages/skill-tree";
 import PremiumPage from "@/pages/premium";
 import BillingPage from "@/pages/billing";
 import AccountPage from "@/pages/account";
@@ -60,6 +61,7 @@ import { Link } from "wouter";
 import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
 import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
 import { matchHotkeyFromKeyboardEvent, voiceBarOpenRef } from "@/lib/hotkey-actions";
+import { PretextShell } from "@/components/pretext/pretext-shell";
 
 const AdminPageLazy = lazy(() => import("@/pages/admin"));
 
@@ -96,6 +98,7 @@ function Router() {
       <Route path="/huddle" component={VideoHuddlePage} />
       <Route path="/admin" component={AdminRoute} />
       <Route path="/rewards" component={RewardsPage} />
+      <Route path="/skill-tree" component={SkillTreePage} />
       <Route path="/premium" component={PremiumPage} />
       <Route path="/billing" component={BillingPage} />
       <Route path="/account" component={AccountPage} />
@@ -139,7 +142,7 @@ function MobileBottomNav() {
   };
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/75 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.45)] safe-area-bottom">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass-panel-glossy rounded-none border-x-0 border-b-0 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.45)] safe-area-bottom">
       <div className="flex items-center justify-around h-14">
         {BOTTOM_NAV_ITEMS.map(({ path, icon: Icon, label }) => (
           <Link
@@ -385,38 +388,47 @@ function AuthenticatedApp() {
       <TaskOfflineSyncProvider>
       <PostLoginRedirector />
       <OfflineBanner />
-      <div className="h-dvh min-h-0 flex flex-col md:flex-row bg-background overflow-hidden">
-        <Sidebar />
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <OfflineDataBanner />
-          <WalletTopBar />
-          <InstallCtaBanner userId={user.id} />
-          <AdherenceNudges />
-          <div
-            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0 [scrollbar-gutter:stable]"
-            style={
-              scale !== 1
-                ? {
-                    transform: `scale(${scale})`,
-                    transformOrigin: "top left",
-                    width: `${100 / scale}%`,
-                    height: `${100 / scale}%`,
-                  }
-                : undefined
-            }
+      {/* PretextShell mounts the aurora + orb + ambient-chip layers ONCE for
+       * the authenticated surface so rAF loops and pointer listeners never
+       * remount across wouter route changes. See
+       * client/src/components/pretext/pretext-shell.tsx. */}
+      <PretextShell className="relative isolate h-dvh min-h-0 w-full overflow-hidden">
+        <div className="relative z-10 flex h-dvh min-h-0 flex-col md:flex-row overflow-hidden">
+          <Sidebar />
+          <main
+            data-surface="calm"
+            className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
           >
-            <Router />
-          </div>
-        </main>
-        <MobileBottomNav />
-        <MobileVoiceFAB />
-        {user ? <HotkeyHelpDialog open={hotkeyHelpOpen} onOpenChange={setHotkeyHelpOpen} /> : null}
-        <TutorialOverlay />
-        <TutorialInteractionGuide />
-        <VoiceCommandBar />
-        <ReviewDialogBridge />
-        <FeedbackNudgeDialog />
-      </div>
+            <OfflineDataBanner />
+            <WalletTopBar />
+            <InstallCtaBanner userId={user.id} />
+            <AdherenceNudges />
+            <div
+              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0 [scrollbar-gutter:stable]"
+              style={
+                scale !== 1
+                  ? {
+                      transform: `scale(${scale})`,
+                      transformOrigin: "top left",
+                      width: `${100 / scale}%`,
+                      height: `${100 / scale}%`,
+                    }
+                  : undefined
+              }
+            >
+              <Router />
+            </div>
+          </main>
+          <MobileBottomNav />
+          <MobileVoiceFAB />
+          {user ? <HotkeyHelpDialog open={hotkeyHelpOpen} onOpenChange={setHotkeyHelpOpen} /> : null}
+          <TutorialOverlay />
+          <TutorialInteractionGuide />
+          <VoiceCommandBar />
+          <ReviewDialogBridge />
+          <FeedbackNudgeDialog />
+        </div>
+      </PretextShell>
       </TaskOfflineSyncProvider>
     </VoiceProvider>
     </ImmersiveShellProvider>

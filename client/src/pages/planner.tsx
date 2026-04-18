@@ -36,6 +36,8 @@ import {
 } from "lucide-react";
 import type { Task } from "@shared/schema";
 import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { FloatingChip } from "@/components/ui/floating-chip";
 
 interface WeekDay {
   date: string;
@@ -283,15 +285,24 @@ export default function PlannerPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 md:space-y-8 max-w-5xl mx-auto">
-      <div className="flex items-center gap-3">
-        <div className="p-2 md:p-2.5 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
-          <Brain className="h-5 w-5 md:h-6 md:w-6" />
-        </div>
-        <div>
-          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">AI Planner</h2>
-          <p className="text-sm md:text-base text-gray-500 dark:text-gray-400">{todayFormatted}</p>
-        </div>
-      </div>
+      <PretextPageHeader
+        eyebrow="AI Planner"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg shadow-indigo-500/25">
+              <Brain className="h-5 w-5" />
+            </span>
+            AI Planner
+          </span>
+        }
+        subtitle={todayFormatted}
+        chips={
+          <>
+            <FloatingChip tone="neutral">Pattern-aware</FloatingChip>
+            <FloatingChip tone="success">Weekly rhythm</FloatingChip>
+          </>
+        }
+      />
 
       {isLoading ? (
         <div className="flex items-center justify-center py-16">

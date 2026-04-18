@@ -276,6 +276,8 @@ Example: 100 tasks × 150ms = 15 seconds = $0.0001
 
 **Pre-push objective-to-code checklist (rewards, classification, feedback, coins, p-score):** [OBJECTIVE_CODE_PUSH_CHECKLIST.md](./OBJECTIVE_CODE_PUSH_CHECKLIST.md)
 
+**Owner-only AxCoin grants (operator policy, `OWNER_COIN_GRANT_USER_IDS`, audit trail):** [OPERATOR_COIN_GRANTS.md](./OPERATOR_COIN_GRANTS.md)
+
 **Database and schema command order (local vs Docker vs production), flowcharts, and flags:** [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md)
 
 ### Local Development
@@ -339,6 +341,7 @@ Suggested mini-games PR sequence:
 
 ### Document Authority Map
 
+- Discretionary AxCoin credits (owner allowlist, not generic admin): [OPERATOR_COIN_GRANTS.md](./OPERATOR_COIN_GRANTS.md)
 - Local / Docker / production database and schema sync: [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md)
 - Canonical index: `docs/ACTIVE_LEGACY_INDEX.md`
 - Canonical architecture contract: `docs/ARCHITECTURE.md`

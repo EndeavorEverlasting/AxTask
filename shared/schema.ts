@@ -1225,3 +1225,47 @@ export const classificationConfirmations = pgTable("classification_confirmations
 ]);
 
 export type ClassificationConfirmation = typeof classificationConfirmations.$inferSelect;
+
+// ─── Archetype Empathy Analytics ────────────────────────────────────────────
+/**
+ * Per-archetype, per-day empathy rollup. Computed by the archetype-rollup
+ * worker from `security_events` rows with `event_type='archetype_signal'`.
+ * Only the archetype key is stored — never per-user data.
+ *
+ * See docs/ARCHETYPE_EMPATHY_ANALYTICS.md.
+ */
+export const archetypeRollupDaily = pgTable("archetype_rollup_daily", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  archetypeKey: text("archetype_key").notNull(),
+  bucketDate: text("bucket_date").notNull(),
+  empathyScore: doublePrecision("empathy_score").notNull().default(0),
+  samples: integer("samples").notNull().default(0),
+  signalsJson: jsonb("signals_json").notNull().default(sql`'{}'::jsonb`),
+  computedAt: timestamp("computed_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_archetype_rollup_daily_key_date").on(table.archetypeKey, table.bucketDate),
+  index("idx_archetype_rollup_daily_date").on(table.bucketDate),
+  index("idx_archetype_rollup_daily_key").on(table.archetypeKey),
+]);
+
+export type ArchetypeRollupDaily = typeof archetypeRollupDaily.$inferSelect;
+
+/**
+ * Per-archetype Markov transition counts per day. Computed from hashed-actor
+ * sequences of archetype_signal events. The probability matrix is derived at
+ * read time by row-normalizing counts.
+ */
+export const archetypeMarkovDaily = pgTable("archetype_markov_daily", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fromArchetype: text("from_archetype").notNull(),
+  toArchetype: text("to_archetype").notNull(),
+  bucketDate: text("bucket_date").notNull(),
+  count: integer("count").notNull().default(0),
+  computedAt: timestamp("computed_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_archetype_markov_daily_triple").on(table.fromArchetype, table.toArchetype, table.bucketDate),
+  index("idx_archetype_markov_daily_date").on(table.bucketDate),
+  index("idx_archetype_markov_daily_from").on(table.fromArchetype),
+]);
+
+export type ArchetypeMarkovDaily = typeof archetypeMarkovDaily.$inferSelect;

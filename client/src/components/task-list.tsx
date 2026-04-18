@@ -534,7 +534,7 @@ function VirtualizedTaskTable({
   );
 }
 
-function MobileTaskCard({
+const MobileTaskCard = memo(function MobileTaskCard({
   task,
   onEdit,
   onToggleStatus,
@@ -711,7 +711,7 @@ function MobileTaskCard({
       </div>
     </div>
   );
-}
+});
 
 function MobileVirtualizedTaskList({
   getScrollElement,

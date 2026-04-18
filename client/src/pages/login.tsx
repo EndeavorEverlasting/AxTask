@@ -27,8 +27,8 @@ import {
   Eye, EyeOff, User, Clock, X, KeyRound, HelpCircle, ShieldQuestion,
   ArrowRight, ToggleLeft, ToggleRight, Info,
 } from "lucide-react";
-import { CursorOrbsBackdrop } from "@/components/marketing/cursor-orbs-backdrop";
-import { PretextAmbientChips, pretextGradientCtaClassName } from "@/components/pretext/pretext-confirmation-shell";
+import { PretextShell } from "@/components/pretext/pretext-shell";
+import { pretextGradientCtaClassName } from "@/components/pretext/pretext-confirmation-shell";
 import { cn } from "@/lib/utils";
 import { rememberPostLoginRedirectForOAuth } from "@/lib/post-login-redirect";
 
@@ -487,10 +487,10 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative min-h-dvh w-full overflow-y-auto flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 px-4 py-8">
-      <CursorOrbsBackdrop />
-      <PretextAmbientChips labels={["Focus", "Flow", "Ship", "Rest", "Repeat"]} />
-
+    <PretextShell
+      chips={["Focus", "Flow", "Ship", "Rest", "Repeat"]}
+      className="relative min-h-dvh w-full overflow-y-auto flex items-center justify-center px-4 py-8"
+    >
       <div className="relative z-10 w-full max-w-md">
         <div className="text-center mb-8" id="login-help-header">
           <div className="inline-flex items-center gap-2 mb-2">
@@ -1209,6 +1209,6 @@ export default function LoginPage() {
           onOpenChange={setLoginHelpOpen}
         />
       </div>
-    </div>
+    </PretextShell>
   );
 }

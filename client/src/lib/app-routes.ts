@@ -19,6 +19,7 @@ export const VALID_APP_PATHS = [
   "/huddle",
   "/admin",
   "/rewards",
+  "/skill-tree",
   "/premium",
   "/billing",
   "/account",

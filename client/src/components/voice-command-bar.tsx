@@ -84,7 +84,7 @@ export function VoiceCommandBar() {
         transition={{ duration: 0.2 }}
         className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4"
       >
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="glass-panel-glossy rounded-2xl shadow-2xl overflow-hidden">
           <div className="flex items-center gap-3 px-4 py-3">
             <button
               onClick={toggleListening}

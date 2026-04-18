@@ -1,9 +1,26 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AxTask — tasks, rewards, and calm execution</title>
+    <script>
+      /* Pretext-centric dark-first theme bootstrap. Resolve the stored
+       * preference synchronously so the first paint matches the app's
+       * aurora backdrop without a light-mode flash. */
+      (function () {
+        try {
+          var saved = localStorage.getItem("theme");
+          var theme = saved === "light" || saved === "dark"
+            ? saved
+            : (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+          document.documentElement.classList.toggle("dark", theme === "dark");
+          document.documentElement.classList.toggle("light", theme === "light");
+        } catch (_err) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
     <meta
       name="description"
       content="AxTask is a task and priority companion with classification, rewards, and collaboration — built for real workflows without noisy defaults."

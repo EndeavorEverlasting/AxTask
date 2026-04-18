@@ -449,7 +449,7 @@ export default function BillingPage() {
     .filter((s): s is string => Boolean(s && s.length > 0));
 
   return (
-    <div className="min-h-full flex flex-col lg:flex-row bg-zinc-50 dark:bg-zinc-950">
+    <div className="min-h-full flex flex-col lg:flex-row">
       <motion.aside
         initial={{ opacity: 0, x: -12 }}
         animate={{ opacity: 1, x: 0 }}

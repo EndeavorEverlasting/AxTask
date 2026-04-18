@@ -32,6 +32,7 @@ import {
   Mail,
   Globe2,
   Gamepad2,
+  Network,
   ClipboardCheck,
   Search,
   SlidersHorizontal,
@@ -147,6 +148,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     { path: "/huddle", icon: Video, label: "Video huddle" },
     { path: "/mini-games", icon: Gamepad2, label: "Mini-Games" },
     { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
+    { path: "/skill-tree", icon: Network, label: "Skill Tree" },
     { path: "/premium", icon: Crown, label: "Premium" },
     { path: "/billing", icon: CreditCard, label: "Billing" },
     { path: "/settings", icon: SlidersHorizontal, label: "Settings" },
@@ -417,7 +419,7 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
     queueMicrotask(() => startTutorial());
   };
   return (
-    <div className="md:hidden flex items-center justify-between px-4 py-3 bg-card/95 backdrop-blur-sm border-b border-border shrink-0">
+    <div className="md:hidden flex items-center justify-between px-4 py-3 glass-panel-glossy rounded-none border-x-0 border-t-0 shrink-0">
       <Button
         variant="ghost"
         size="icon"
@@ -507,7 +509,7 @@ export function Sidebar() {
       <>
         <MobileTopBar onMenuOpen={() => setMobileOpen(true)} />
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-[280px] p-0 bg-card border-r border-border">
+          <SheetContent side="left" className="w-[280px] p-0 glass-panel-glossy rounded-none border-y-0 border-l-0">
             <SheetHeader className="sr-only">
               <SheetTitle>Navigation</SheetTitle>
               <SheetDescription>App navigation menu</SheetDescription>
@@ -523,7 +525,7 @@ export function Sidebar() {
     <>
       <aside
         className={cn(
-          "bg-card shadow-lg border-r border-border flex-col shrink-0 hidden md:flex transition-[width,box-shadow] duration-200 overflow-hidden min-h-0 outline-none",
+          "glass-panel-glossy rounded-none border-y-0 border-l-0 shadow-lg flex-col shrink-0 hidden md:flex transition-[width,box-shadow] duration-200 overflow-hidden min-h-0 outline-none",
           sidebarWidthPx === 0 && "border-r-0 shadow-none",
           isNavFocus && "ring-2 ring-primary/35 shadow-2xl z-10",
         )}

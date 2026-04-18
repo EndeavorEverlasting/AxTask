@@ -17,9 +17,9 @@ function read(p: string): string {
 describe("FeedbackNudgeDialog avatar wiring", () => {
   const dlg = read(path.join("client", "src", "components", "feedback-nudge-dialog.tsx"));
 
-  it("embeds the AvatarGlowChip with a resolved avatarKey", () => {
-    expect(dlg).toContain("AvatarGlowChip");
-    expect(dlg).toMatch(/avatarKey=\{avatarKey\}/);
+  it("embeds the glossy AvatarOrb primitive with a resolved avatarKey variant", () => {
+    expect(dlg).toContain("AvatarOrb");
+    expect(dlg).toMatch(/variant=\{avatarKey\}/);
   });
 
   it("uses getAvatarForSource (shared source map) as its fallback resolver", () => {

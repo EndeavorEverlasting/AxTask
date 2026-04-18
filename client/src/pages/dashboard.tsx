@@ -1,18 +1,17 @@
-import { useEffect } from "react";
+import { memo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { Card, CardContent } from "@/components/ui/card";
-import { GlassPanel } from "@/components/ui/glass-panel";
 import { FloatingChip } from "@/components/ui/floating-chip";
 import { TaskForm } from "@/components/task-form";
 import { BarChart3, CheckCircle, AlertTriangle, ListTodo } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { motion } from "framer-motion";
 import { useCountUp, useCountUpDecimal } from "@/hooks/use-count-up";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { ImmersivePretextCue } from "@/components/layout/immersive-pretext-cue";
 import { MobileChecklistWidget } from "@/components/mobile-checklist-widget";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 
 interface TaskStats {
   totalTasks: number;
@@ -29,7 +28,11 @@ function scoreBand(score: number): string {
   return "Light load";
 }
 
-function StatCard({
+/* Memoized so the dashboard's count-up animations (which tick ~30x during the
+ * intro) don't re-render every card each frame. The CSS-only rise-in
+ * replaces the former framer-motion stagger — see .axtask-rise-in in
+ * client/src/index.css. */
+const StatCard = memo(function StatCard({
   label,
   value,
   icon,
@@ -46,13 +49,10 @@ function StatCard({
   index: number;
   reducedMotion: boolean;
 }) {
+  const style = reducedMotion ? undefined : { animationDelay: `${index * 80}ms` };
   return (
-    <motion.div
-      initial={reducedMotion ? false : { opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, delay: index * 0.08 }}
-    >
-      <Card className="glass-panel-interactive">
+    <div className={reducedMotion ? undefined : "axtask-rise-in"} style={style}>
+      <Card className="glass-panel-glossy glass-panel-interactive">
         <CardContent className="p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -67,9 +67,9 @@ function StatCard({
           </div>
         </CardContent>
       </Card>
-    </motion.div>
+    </div>
   );
-}
+});
 
 export default function Dashboard() {
   const { data: stats, isLoading } = useQuery<TaskStats>({
@@ -93,19 +93,21 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 md:space-y-8">
-      <GlassPanel elevated className="space-y-3 p-4 md:p-5">
-        <div className="flex flex-wrap gap-2">
-          <FloatingChip tone="neutral">Glass UI</FloatingChip>
-          <FloatingChip tone="success">Guided flow</FloatingChip>
-          <FloatingChip tone="warning">{avgScoreBand}</FloatingChip>
-        </div>
-        <div>
-          <h2 className="text-xl md:text-2xl font-bold text-foreground tracking-tight">Task Dashboard</h2>
-          <p className="text-sm md:text-base text-muted-foreground">Manage and prioritize your tasks efficiently</p>
-        </div>
+      <PretextPageHeader
+        eyebrow="Dashboard"
+        title="Task Dashboard"
+        subtitle="Manage and prioritize your tasks efficiently"
+        chips={
+          <>
+            <FloatingChip tone="neutral">Glass UI</FloatingChip>
+            <FloatingChip tone="success">Guided flow</FloatingChip>
+            <FloatingChip tone="warning">{avgScoreBand}</FloatingChip>
+          </>
+        }
+      >
         <ImmersivePretextCue />
         <MobileChecklistWidget />
-      </GlassPanel>
+      </PretextPageHeader>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
         <StatCard

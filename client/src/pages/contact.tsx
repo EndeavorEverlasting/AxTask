@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowLeft, Mail, Send } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PretextShell } from "@/components/pretext/pretext-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -241,8 +242,11 @@ export default function ContactPage() {
   }
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4 py-8">
+    <PretextShell
+      chips={["Say hello", "Async", "Support"]}
+      className="h-full min-h-dvh overflow-y-auto flex items-center justify-center px-4 py-8"
+    >
       {inner}
-    </div>
+    </PretextShell>
   );
 }

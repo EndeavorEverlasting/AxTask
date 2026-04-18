@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { GlassPanel } from "@/components/ui/glass-panel";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { FloatingChip } from "@/components/ui/floating-chip";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -150,20 +151,27 @@ export default function MiniGamesPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      <GlassPanel elevated className="flex items-center justify-between p-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Gamepad2 className="h-6 w-6 text-indigo-500" />
+      <PretextPageHeader
+        eyebrow="Study"
+        title={
+          <span className="inline-flex items-center gap-2">
+            <Gamepad2 className="h-6 w-6 text-indigo-400" />
             Mini-Games
-          </h1>
-          <p className="text-sm text-muted-foreground">Study sub-experiences for focused review rounds.</p>
-          <div className="mt-2 flex flex-wrap gap-2">
+          </span>
+        }
+        subtitle="Study sub-experiences for focused review rounds."
+        chips={
+          <>
             <FloatingChip tone="neutral">Focused review</FloatingChip>
             <FloatingChip tone="success">XP + coins</FloatingChip>
-          </div>
-        </div>
-        <Badge variant="secondary" className="capitalize">{gameStatus.replace("_", " ")}</Badge>
-      </GlassPanel>
+          </>
+        }
+        actions={
+          <Badge variant="secondary" className="capitalize">
+            {gameStatus.replace("_", " ")}
+          </Badge>
+        }
+      />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <Card className="xl:col-span-2 glass-panel-interactive">

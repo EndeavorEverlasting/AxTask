@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FloatingChip } from "@/components/ui/floating-chip";
 import { AvatarGlowChip } from "@/components/ui/avatar-glow-chip";
+import { AvatarOrb as PretextAvatarOrb } from "@/components/ui/avatar-orb";
 
 type PublicTask = {
   id: string;
@@ -491,8 +492,11 @@ export default function CommunityPage() {
     }
   };
 
+  /* PretextShell supplies the aurora + ambient orbs at the app level; the
+   * community page keeps its local AmbientOrbs as a gentle extra flourish
+   * and drops its own opaque gradient so the shared backdrop reads through. */
   return (
-    <div className="relative min-h-full overflow-y-auto bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white">
+    <div className="relative min-h-full overflow-y-auto text-white">
       <AmbientOrbs />
 
       <div className="relative mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10 space-y-8">
@@ -513,21 +517,15 @@ export default function CommunityPage() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: "easeOut" }}
-          className="glass-panel-elevated p-6 sm:p-8 shadow-2xl"
+          className="glass-panel-glossy p-6 sm:p-8 shadow-2xl"
         >
           <div className="flex items-center gap-4">
-            <div className="relative h-14 w-14">
-              {/* Hero orb — a large, slowly pulsing composite orb */}
-              <motion.div
-                aria-hidden
-                animate={{ scale: [1, 1.15, 1], opacity: [0.4, 0.7, 0.4] }}
-                transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
-                className="absolute inset-0 rounded-full bg-gradient-to-br from-sky-400/30 via-indigo-500/25 to-violet-400/20 blur-lg"
-              />
-              <div className="relative h-14 w-14 rounded-full bg-gradient-to-br from-sky-400/40 via-indigo-500/30 to-violet-400/20 border border-white/20 ring-1 ring-sky-400/25 shadow-lg shadow-sky-500/20 grid place-items-center backdrop-blur-sm">
-                <div className="h-5 w-5 rounded-full bg-white/30 blur-[2px]" />
-              </div>
-            </div>
+            <PretextAvatarOrb
+              variant="social"
+              size="lg"
+              label="Community hero orb"
+            />
+
             <div>
               <p className="text-[11px] uppercase tracking-[0.22em] text-sky-300/80 font-medium">
                 AxTask Community

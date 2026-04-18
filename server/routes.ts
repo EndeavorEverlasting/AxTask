@@ -107,9 +107,9 @@ import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engageme
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, updateVoicePreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, updateVoicePreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, feedbackAvatarKeySchema, archetypeRollupDaily, archetypeMarkovDaily, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, count } from "drizzle-orm";
+import { eq, and, desc, sql, count, gte, lte } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import { toPublicSessionUser, toPublicWallet, toPublicCoinTransactions, toPublicBadges } from "@shared/public-client-dtos";
@@ -131,6 +131,7 @@ import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
 import { processFeedbackWithEngines } from "./engines/feedback-engine";
+import { recordArchetypeSignal, type ArchetypeSignalKind } from "./lib/archetype-signal";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
 import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from "./engines/pattern-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
@@ -3907,6 +3908,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Feedback + attachments ────────────────────────────────────────────────
+  const feedbackNudgeContextSchema = z
+    .object({
+      avatarKey: feedbackAvatarKeySchema.optional().nullable(),
+      source: z.string().max(128).optional().nullable(),
+      insightful: z.enum(["up", "down"]).optional().nullable(),
+    })
+    .optional();
+
   const feedbackSchema = z.object({
     message: z.string().min(5).max(5000),
     attachmentAssetIds: z.array(z.string().min(1)).max(10).default([]),
@@ -3915,6 +3924,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       mimeType: z.string().min(3),
       byteSize: z.number().int().nonnegative().max(10 * 1024 * 1024),
     })).max(10).default([]),
+    nudgeContext: feedbackNudgeContextSchema,
   });
 
   const uploadUrlSchema = z.object({
@@ -4077,6 +4087,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       });
 
+      try {
+        await recordArchetypeSignal({
+          userId: req.user!.id,
+          signal: "feedback_submitted",
+          avatarKey: parsed.nudgeContext?.avatarKey ?? null,
+          source: parsed.nudgeContext?.source ?? null,
+          insightful: parsed.nudgeContext?.insightful ?? null,
+          sentiment: analysis.sentiment,
+          route: req.path,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+      } catch (err) {
+        console.warn("[archetype] failed to record feedback signal", err);
+      }
+
       const feedbackReward = await tryCappedCoinAward({
         userId: req.user!.id,
         reason: ENGAGEMENT.feedbackSubmission.reason,
@@ -4109,6 +4135,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to process feedback" });
+    }
+  });
+
+  // ── Archetype nudge lifecycle events ─────────────────────────────────────
+  const archetypeNudgeEventSchema = z.object({
+    kind: z.enum(["shown", "dismissed", "opened"]),
+    avatarKey: feedbackAvatarKeySchema,
+    source: z.string().max(128).optional().nullable(),
+    insightful: z.enum(["up", "down"]).optional().nullable(),
+  });
+
+  app.post("/api/archetypes/nudge-event", requireAuth, async (req, res) => {
+    try {
+      const payload = archetypeNudgeEventSchema.parse(req.body);
+      const signal: ArchetypeSignalKind =
+        payload.kind === "shown" ? "nudge_shown"
+          : payload.kind === "dismissed" ? "nudge_dismissed"
+            : "nudge_opened";
+      const result = await recordArchetypeSignal({
+        userId: req.user!.id,
+        signal,
+        avatarKey: payload.avatarKey,
+        source: payload.source ?? null,
+        insightful: payload.insightful ?? null,
+        route: req.path,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+      if (!result) return res.status(400).json({ message: "Unresolvable avatar key" });
+      res.status(202).json({ recorded: true });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to record nudge event" });
     }
   });
 
@@ -5944,6 +6003,153 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: "Failed to remove collaborator" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // ARCHETYPE EMPATHY READ API (admin + scoped RAG token)
+  // See docs/ARCHETYPE_EMPATHY_ANALYTICS.md for the privacy model.
+  // ════════════════════════════════════════════════════════════════════════
+
+  const ARCHETYPE_READ_HEADER = "x-axtask-archetype-token";
+  function requireArchetypeRead(req: Request, res: Response, next: NextFunction) {
+    // Admin sessions bypass the token requirement.
+    if (req.isAuthenticated?.() && req.user?.role === "admin") return next();
+    const expected = (process.env.ARCHETYPE_READ_TOKEN || "").trim();
+    if (!expected) {
+      return res.status(503).json({ message: "Archetype read disabled (no token configured)" });
+    }
+    const provided = String(req.get(ARCHETYPE_READ_HEADER) || "").trim();
+    if (!provided || provided !== expected) {
+      return res.status(401).json({ message: "Archetype read token required" });
+    }
+    next();
+  }
+
+  const ARCHETYPE_K_ANON_THRESHOLD = 5;
+  const ARCHETYPE_MAX_WINDOW_DAYS = 180;
+
+  function parseIsoDay(raw: unknown): string | null {
+    if (typeof raw !== "string") return null;
+    const m = raw.trim().match(/^\d{4}-\d{2}-\d{2}$/);
+    return m ? m[0] : null;
+  }
+
+  function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, Math.floor(n)));
+  }
+
+  app.get("/api/archetypes/empathy", requireArchetypeRead, async (req, res) => {
+    try {
+      const to = parseIsoDay(req.query.to) || new Date().toISOString().slice(0, 10);
+      const from = parseIsoDay(req.query.from)
+        || new Date(Date.parse(`${to}T00:00:00.000Z`) - 29 * 24 * 60 * 60 * 1000)
+          .toISOString().slice(0, 10);
+      const start = Date.parse(`${from}T00:00:00.000Z`);
+      const end = Date.parse(`${to}T00:00:00.000Z`);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+        return res.status(400).json({ message: "Invalid from/to range" });
+      }
+      const spanDays = Math.round((end - start) / (24 * 60 * 60 * 1000)) + 1;
+      if (spanDays > ARCHETYPE_MAX_WINDOW_DAYS) {
+        return res.status(400).json({ message: `Window exceeds ${ARCHETYPE_MAX_WINDOW_DAYS} days` });
+      }
+
+      const rows = await db
+        .select({
+          archetypeKey: archetypeRollupDaily.archetypeKey,
+          bucketDate: archetypeRollupDaily.bucketDate,
+          empathyScore: archetypeRollupDaily.empathyScore,
+          samples: archetypeRollupDaily.samples,
+        })
+        .from(archetypeRollupDaily)
+        .where(and(
+          gte(archetypeRollupDaily.bucketDate, from),
+          lte(archetypeRollupDaily.bucketDate, to),
+        ))
+        .orderBy(archetypeRollupDaily.archetypeKey, archetypeRollupDaily.bucketDate);
+
+      const grouped = new Map<string, Array<{ date: string; empathyScore: number; samples: number }>>();
+      for (const row of rows) {
+        if (row.samples < ARCHETYPE_K_ANON_THRESHOLD) continue;
+        const bucket = grouped.get(row.archetypeKey) ?? [];
+        bucket.push({
+          date: row.bucketDate,
+          empathyScore: Number(row.empathyScore.toFixed(4)),
+          samples: row.samples,
+        });
+        grouped.set(row.archetypeKey, bucket);
+      }
+
+      const series = Array.from(grouped.entries()).map(([archetypeKey, points]) => ({
+        archetypeKey,
+        series: points,
+      }));
+
+      res.json({ from, to, kAnonymityThreshold: ARCHETYPE_K_ANON_THRESHOLD, series });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to read archetype empathy" });
+    }
+  });
+
+  app.get("/api/archetypes/markov", requireArchetypeRead, async (req, res) => {
+    try {
+      const windowRaw = String(req.query.window || "30d").trim();
+      const windowMatch = windowRaw.match(/^(\d+)d$/);
+      const windowDays = windowMatch
+        ? clampInt(windowMatch[1], 1, ARCHETYPE_MAX_WINDOW_DAYS, 30)
+        : 30;
+
+      const today = new Date().toISOString().slice(0, 10);
+      const from = new Date(Date.parse(`${today}T00:00:00.000Z`) - (windowDays - 1) * 24 * 60 * 60 * 1000)
+        .toISOString().slice(0, 10);
+
+      const rows = await db
+        .select({
+          fromArchetype: archetypeMarkovDaily.fromArchetype,
+          toArchetype: archetypeMarkovDaily.toArchetype,
+          count: archetypeMarkovDaily.count,
+        })
+        .from(archetypeMarkovDaily)
+        .where(and(
+          gte(archetypeMarkovDaily.bucketDate, from),
+          lte(archetypeMarkovDaily.bucketDate, today),
+        ));
+
+      const pairs = new Map<string, number>();
+      const fromTotals = new Map<string, number>();
+      for (const r of rows) {
+        const key = `${r.fromArchetype}->${r.toArchetype}`;
+        pairs.set(key, (pairs.get(key) ?? 0) + r.count);
+        fromTotals.set(r.fromArchetype, (fromTotals.get(r.fromArchetype) ?? 0) + r.count);
+      }
+
+      const matrix: Array<{ from: string; to: string; probability: number; samples: number }> = [];
+      for (const [key, count] of pairs.entries()) {
+        const [fromKey, toKey] = key.split("->");
+        const total = fromTotals.get(fromKey) ?? 0;
+        if (total < ARCHETYPE_K_ANON_THRESHOLD) continue;
+        matrix.push({
+          from: fromKey,
+          to: toKey,
+          probability: Number((total > 0 ? count / total : 0).toFixed(4)),
+          samples: count,
+        });
+      }
+
+      res.json({
+        window: `${windowDays}d`,
+        from,
+        to: today,
+        kAnonymityThreshold: ARCHETYPE_K_ANON_THRESHOLD,
+        transitions: matrix,
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to read archetype markov" });
     }
   });
 

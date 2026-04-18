@@ -26,6 +26,23 @@ Codify the orb-first interaction philosophy and avatar behavior system so UX, en
 - Color tokens must be reused across cards, chips, badges, and orb surfaces.
 - Changes to avatar color semantics require documentation updates first.
 
+## Glossy Orb Treatment (visual contract)
+
+- Every companion avatar rendered in product UI MUST use the `AvatarOrb` primitive at `client/src/components/ui/avatar-orb.tsx`. Ad-hoc circular divs with gradients are not a substitute and break the specular-highlight contract.
+- `AvatarOrb` variants (`mood`, `archetype`, `productivity`, `social`, `lazy`) map 1:1 to the five companion keys in `shared/feedback-avatar-map.ts`. Do not invent new variants without updating this doc and the map first.
+- Orbs are pure CSS: a base `.axtask-orb` class stacks three radial gradients (specular highlight, bottom tuck, hue body) plus two pseudo-elements (`::before` gloss, `::after` rim). No rAF, no JS state, no layout thrash per-frame.
+- Dialog headers, page headers, and mission cards use `wobble={true}` (default). Dense rows and table cells MUST pass `wobble={false}` to prevent per-row animation cost.
+- Glassy surfaces (`.glass-panel-glossy`) are the intended background for orb placement so the specular highlight reads correctly against the aurora.
+
+## Dense vs Calm surfaces
+
+- The authenticated shell exposes a `data-surface` attribute on `<main>` with values `dense` or `calm` (default `calm`). The CSS tokens in `client/src/index.css` use this attribute to dim ambient orb/chip layers (`.axtask-orb-layer`, `.axtask-chip-layer`) on data-heavy pages.
+- Pages MUST call `usePretextSurface("dense")` (from `client/src/hooks/use-pretext-surface.ts`) when:
+  - They render tables with more than ~20 rows of real-time data (Analytics, Admin, Import/Export).
+  - They render interactive grids, drag-and-drop boards, or video surfaces where background motion would compete with affordances.
+- All other pages should rely on the default `calm` surface. The hook restores the previous value on unmount to avoid stuck-dense state after navigation.
+- Reduced-motion users always receive the calm treatment regardless of `data-surface`; the CSS respects `prefers-reduced-motion: reduce` globally.
+
 ## Dialogue Engine Boundaries
 
 - Avatar engines can initiate public conversational threads.

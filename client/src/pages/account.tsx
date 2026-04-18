@@ -5,6 +5,7 @@ import { ArrowLeft, Smartphone, ShieldCheck, Cake, Mail, KeyRound, Settings } fr
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { normalizeToE164 } from "@shared/phone";
 import { useAuth } from "@/lib/auth-context";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useMfaChallenge } from "@/hooks/use-mfa-challenge";
@@ -219,23 +220,28 @@ export default function AccountPage() {
         Back to app
       </Link>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
-          <h1 className="text-2xl font-semibold tracking-tight">Account security</h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 justify-end">
-          <Link href="/settings">
-            <Button type="button" variant="outline" size="sm" className="gap-1.5">
-              <Settings className="h-4 w-4" />
-              App preferences
-            </Button>
-          </Link>
-          <DonateCta />
-        </div>
-      </div>
+      <PretextPageHeader
+        eyebrow="Account"
+        title={
+          <span className="inline-flex items-center gap-2">
+            <ShieldCheck className="h-7 w-7 text-emerald-400" />
+            Account security
+          </span>
+        }
+        actions={
+          <>
+            <Link href="/settings">
+              <Button type="button" variant="outline" size="sm" className="gap-1.5">
+                <Settings className="h-4 w-4" />
+                App preferences
+              </Button>
+            </Link>
+            <DonateCta />
+          </>
+        }
+      />
 
-      <Card>
+      <Card className="glass-panel-glossy">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Mail className="h-5 w-5" />

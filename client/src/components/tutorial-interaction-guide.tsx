@@ -9,6 +9,7 @@ const NEXT_FEATURE_MAP: Record<string, { nextPath: string; nextLabel: string }> 
   "/analytics": { nextPath: "/feedback", nextLabel: "Feedback" },
   "/feedback": { nextPath: "/checklist", nextLabel: "Print Checklist" },
   "/checklist": { nextPath: "/import-export", nextLabel: "Import/Export" },
+  "/rewards": { nextPath: "/skill-tree", nextLabel: "Skill Tree" },
 };
 
 export function TutorialInteractionGuide() {

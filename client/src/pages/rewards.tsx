@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSearch } from "wouter";
+import { Link, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { FloatingChip } from "@/components/ui/floating-chip";
 import { AvatarGlowChip } from "@/components/ui/avatar-glow-chip";
+import { AvatarOrb } from "@/components/ui/avatar-orb";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { ProgressStrip } from "@/components/ui/progress-strip";
 import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp, FileText } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -240,23 +242,32 @@ export default function RewardsPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-xl md:text-2xl font-bold text-foreground tracking-tight flex items-center gap-2">
-            <ShoppingBag className="h-6 w-6 md:h-7 md:w-7 text-amber-500 shrink-0" />
+      <PretextPageHeader
+        eyebrow="Rewards"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <ShoppingBag className="h-6 w-6 md:h-7 md:w-7 text-amber-400 shrink-0" />
             Rewards Shop
-          </h2>
-          <p className="text-muted-foreground">Spend your AxCoins on themes, badges, and titles</p>
-        </div>
-        <motion.div
-          className="glass-panel-elevated flex items-center gap-2 bg-gradient-to-r from-amber-500/90 to-yellow-400/90 text-white px-5 py-3 rounded-xl shadow-lg"
-          whileHover={{ scale: 1.05 }}
-        >
-          <Coins className="h-6 w-6" />
-          <span className="text-2xl font-bold tabular-nums">{animatedBalance}</span>
-          <span className="text-sm opacity-80">AxCoins</span>
-        </motion.div>
-      </div>
+          </span>
+        }
+        subtitle="Spend your AxCoins on themes, badges, and titles"
+        chips={
+          <>
+            <FloatingChip tone="warning">AxCoin economy</FloatingChip>
+            <FloatingChip tone="success">Avatar missions</FloatingChip>
+          </>
+        }
+        actions={
+          <motion.div
+            className="glass-panel-glossy flex items-center gap-2 bg-gradient-to-r from-amber-500/90 to-yellow-400/90 text-white px-5 py-3 rounded-xl shadow-lg"
+            whileHover={{ scale: 1.05 }}
+          >
+            <Coins className="h-6 w-6" />
+            <span className="text-2xl font-bold tabular-nums">{animatedBalance}</span>
+            <span className="text-sm opacity-80">AxCoins</span>
+          </motion.div>
+        }
+      />
 
       {wallet && (
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -417,13 +428,22 @@ export default function RewardsPage() {
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {(avatarData?.avatars ?? []).map((av) => (
-                    <GlassPanel key={av.id} elevated className="p-4 rounded-xl">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="font-semibold">{av.displayName}</p>
-                          <p className="text-xs text-muted-foreground capitalize">
-                            {av.avatarKey} archetype: {av.archetypeKey}
-                          </p>
+                    <GlassPanel key={av.id} elevated className="glass-panel-glossy p-4 rounded-xl">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <AvatarOrb
+                            variant={av.avatarKey}
+                            size="lg"
+                            label={`${av.displayName} companion orb`}
+                          >
+                            <span className="text-sm font-bold">{av.displayName.slice(0, 1)}</span>
+                          </AvatarOrb>
+                          <div className="min-w-0">
+                            <p className="font-semibold truncate">{av.displayName}</p>
+                            <p className="text-xs text-muted-foreground capitalize truncate">
+                              {av.avatarKey} archetype: {av.archetypeKey}
+                            </p>
+                          </div>
                         </div>
                         <Badge>Lvl {av.level}</Badge>
                       </div>
@@ -566,8 +586,15 @@ export default function RewardsPage() {
                   Exports and avatar skills
                 </h4>
                 <p className="text-sm text-muted-foreground mb-2">
-                  Upgrade the <span className="font-medium text-foreground">Export Efficiency</span> skill in your avatar skill tree
-                  (see task list → companion skills) to lower AxCoin costs for printable checklists, task spreadsheets, and per-task reports.
+                  Upgrade the <span className="font-medium text-foreground">Export Efficiency</span> skill in your{" "}
+                  <Link
+                    href="/skill-tree"
+                    className="underline underline-offset-2 text-primary hover:text-primary/80"
+                    data-testid="link-to-skill-tree-from-rewards"
+                  >
+                    Skill Tree
+                  </Link>{" "}
+                  to lower AxCoin costs for printable checklists, task spreadsheets, and per-task reports.
                   Prices never go below 1 coin so the economy keeps moving.
                 </p>
                 {exportPrices?.freeInDev ? (

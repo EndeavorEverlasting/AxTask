@@ -100,4 +100,17 @@ describe("deploy / schema workflow guards", () => {
     expect(pkg.scripts["dev:smart"]).toContain("offline-start.mjs");
     expect(pkg.scripts["local:env-init"]).toContain("copy-env-local.mjs");
   });
+
+  it("npm run start uses production-start (migrations + drizzle push before server)", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
+    expect(pkg.scripts.start).toContain("production-start.mjs");
+    expect(pkg.dependencies["drizzle-kit"]).toBeTruthy();
+    const src = fs.readFileSync(path.join(projectRoot, "scripts", "production-start.mjs"), "utf8");
+    const applyIdx = src.indexOf("apply-migrations.mjs");
+    const pushIdx = src.indexOf('"drizzle-kit", "bin.cjs"');
+    const serverSpawn = src.indexOf("spawn(process.execPath, [distIndex]");
+    expect(applyIdx).toBeGreaterThan(-1);
+    expect(pushIdx).toBeGreaterThan(applyIdx);
+    expect(serverSpawn).toBeGreaterThan(pushIdx);
+  });
 });

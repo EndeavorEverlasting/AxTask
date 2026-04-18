@@ -82,8 +82,15 @@ export function CursorOrbsBackdrop() {
   }, []);
 
   return (
-    <div ref={containerRef} className="pointer-events-none absolute inset-0 overflow-hidden">
-      {/* Neon aurora base layer */}
+    <div
+      ref={containerRef}
+      className="axtask-orb-layer pointer-events-none absolute inset-0 overflow-hidden"
+      aria-hidden
+    >
+      {/* Neon aurora base layer — kept for backwards-compat with landing/login
+       * rendering directly. When PretextShell wraps the app, the fixed
+       * .axtask-aurora-body provides the base wash and these local glows
+       * layer softly over it. */}
       <div className="absolute inset-0">
         <div className="absolute -top-1/4 left-1/4 h-[60vh] w-[80vw] rotate-12 rounded-full bg-gradient-to-r from-emerald-600/10 via-cyan-500/8 to-transparent blur-[120px]" />
         <div className="absolute -bottom-1/4 right-1/4 h-[50vh] w-[70vw] -rotate-12 rounded-full bg-gradient-to-l from-violet-600/10 via-indigo-500/8 to-transparent blur-[100px]" />

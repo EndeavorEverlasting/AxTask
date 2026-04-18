@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { TeamsSweepCard } from "@/components/billing/TeamsSweepCard";
 import type { TeamsSweepSnapshot } from "@/lib/teams-graph/sweep";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 
 /* ── Types mirrored from server ────────────────────────────────────────── */
 
@@ -252,18 +253,19 @@ export default function BillingBridgePage() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center gap-3">
-        <FileSpreadsheet className="h-7 w-7 text-primary" />
-        <div>
-          <h1 className="text-2xl font-bold">Billing Bridge Conjuration Station</h1>
-          <p className="text-sm text-muted-foreground">
-            Feed the AxTask beast your earthly spreadsheets and watch the digital magic happen! We bend time, space, and billable hours to our will.
-          </p>
-        </div>
-      </div>
+      <PretextPageHeader
+        eyebrow="Operator"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <FileSpreadsheet className="h-7 w-7 text-primary" />
+            Billing Bridge Conjuration Station
+          </span>
+        }
+        subtitle="Feed the AxTask beast your earthly spreadsheets and watch the digital magic happen! We bend time, space, and billable hours to our will."
+      />
 
       {/* Upload section */}
-      <Card>
+      <Card className="glass-panel-glossy">
         <CardHeader>
           <CardTitle className="text-lg">Summon the Truth</CardTitle>
           <CardDescription>

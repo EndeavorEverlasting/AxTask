@@ -1,14 +1,23 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import { useToast } from "@/hooks/use-toast";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
+import { isFeedbackAvatarKey, type FeedbackAvatarKey } from "@shared/feedback-avatar-map";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Camera, Inbox, Send, Trash2 } from "lucide-react";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { AvatarOrb } from "@/components/ui/avatar-orb";
+import { FloatingChip } from "@/components/ui/floating-chip";
+import {
+  FEEDBACK_AVATAR_NAMES,
+  DEFAULT_FEEDBACK_AVATAR,
+  getAvatarForSource,
+} from "@shared/feedback-avatar-map";
 
 type ScreenshotItem = {
   file: File;
@@ -30,12 +39,36 @@ type FeedbackSubmitResponse = {
   feedbackReward?: { coins: number; newBalance: number } | null;
 };
 
+type NudgeContext = {
+  avatarKey?: FeedbackAvatarKey;
+  source?: string;
+  insightful?: "up" | "down";
+};
+
+function readNudgeContextFromQuery(): NudgeContext {
+  if (typeof window === "undefined") return {};
+  const params = new URLSearchParams(window.location.search);
+  const avatarRaw = params.get("avatar");
+  const source = params.get("source") ?? undefined;
+  const insightfulRaw = params.get("insightful");
+  const ctx: NudgeContext = {};
+  if (avatarRaw && isFeedbackAvatarKey(avatarRaw)) ctx.avatarKey = avatarRaw;
+  if (source) ctx.source = source.slice(0, 128);
+  if (insightfulRaw === "up" || insightfulRaw === "down") ctx.insightful = insightfulRaw;
+  return ctx;
+}
+
 export default function FeedbackPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [message, setMessage] = useState("");
   const [screenshots, setScreenshots] = useState<ScreenshotItem[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
+  const [nudgeContext, setNudgeContext] = useState<NudgeContext>({});
+
+  useEffect(() => {
+    setNudgeContext(readNudgeContextFromQuery());
+  }, []);
 
   const totalBytes = useMemo(
     () => screenshots.reduce((acc, cur) => acc + cur.file.size, 0),
@@ -89,10 +122,19 @@ export default function FeedbackPage() {
         }
       }
 
-      const response = await apiRequest("POST", "/api/feedback", {
+      const body: Record<string, unknown> = {
         message,
         attachmentAssetIds: assetIds,
-      });
+      };
+      const hasNudge = nudgeContext.avatarKey || nudgeContext.source || nudgeContext.insightful;
+      if (hasNudge) {
+        body.nudgeContext = {
+          avatarKey: nudgeContext.avatarKey ?? null,
+          source: nudgeContext.source ?? null,
+          insightful: nudgeContext.insightful ?? null,
+        };
+      }
+      const response = await apiRequest("POST", "/api/feedback", body);
       return response.json() as Promise<FeedbackSubmitResponse>;
     },
     onSuccess: (payload) => {
@@ -118,16 +160,31 @@ export default function FeedbackPage() {
     },
   });
 
+  const companionKey =
+    nudgeContext.avatarKey ??
+    (nudgeContext.source ? getAvatarForSource(nudgeContext.source) : DEFAULT_FEEDBACK_AVATAR);
+  const companionName = FEEDBACK_AVATAR_NAMES[companionKey];
+
   return (
     <div className="p-6 space-y-6 max-w-5xl">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Feedback & Screenshots</h2>
-        <p className="text-gray-600 dark:text-gray-400">
-          Paste, drag, or drop screenshots directly into this form for richer bug reports.
-        </p>
-      </div>
+      <PretextPageHeader
+        eyebrow="Feedback"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <AvatarOrb variant={companionKey} size="md" label={`${companionName} companion orb`} />
+            <span>Feedback &amp; Screenshots</span>
+          </span>
+        }
+        subtitle={`Paste, drag, or drop screenshots directly into this form. ${companionName} is listening.`}
+        chips={
+          <>
+            <FloatingChip tone="neutral">Companion: {companionName}</FloatingChip>
+            <FloatingChip tone="success">Rewards feedback</FloatingChip>
+          </>
+        }
+      />
 
-      <Card>
+      <Card className="glass-panel-glossy">
         <CardHeader>
           <CardTitle>Tell us what happened</CardTitle>
           <CardDescription>Include steps, expected behavior, and actual behavior.</CardDescription>

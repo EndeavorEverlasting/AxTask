@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Link } from "wouter";
 import { Video } from "lucide-react";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 
 type InboxRow = {
   id: string;
@@ -51,22 +52,21 @@ export default function CollabInboxPage() {
 
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Collaboration inbox</h1>
-          <p className="text-muted-foreground text-sm">
-            Queue-style notes for coordination. Pair with a live session when you need it.
-          </p>
-        </div>
-        <Button variant="outline" asChild>
-          <Link href="/huddle">
-            <Video className="h-4 w-4 mr-2" />
-            Video huddle
-          </Link>
-        </Button>
-      </div>
+      <PretextPageHeader
+        eyebrow="Collaboration"
+        title="Collaboration inbox"
+        subtitle="Queue-style notes for coordination. Pair with a live session when you need it."
+        actions={
+          <Button variant="outline" asChild>
+            <Link href="/huddle">
+              <Video className="h-4 w-4 mr-2" />
+              Video huddle
+            </Link>
+          </Button>
+        }
+      />
 
-      <Card>
+      <Card className="glass-panel-glossy">
         <CardHeader>
           <CardTitle>Add to your queue</CardTitle>
           <CardDescription>Visible only to you; use for handoffs and follow-ups.</CardDescription>

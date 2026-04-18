@@ -5,6 +5,7 @@ services:
     plan: starter
     rootDir: .
     buildCommand: npm ci && npm run build
+    # npm run start runs scripts/production-start.mjs: migrations → drizzle push → dist/index.js
     startCommand: npm run start
     healthCheckPath: /ready
     autoDeploy: false

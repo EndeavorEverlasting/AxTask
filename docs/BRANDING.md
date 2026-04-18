@@ -18,6 +18,22 @@ This document defines where branding assets live and how to keep deployment fall
    - tab icon updates
    - no 404s for `/branding/axtask-logo.png` or `/favicon.png`
 
+## Glossy Pretext System (visual brand)
+
+Every authenticated page in AxTask renders through the **Pretext shell**, a single-mount background rig that owns the aurora body, cursor-reactive orbs, and ambient chip layer so route changes don't re-mount those effects. Branding anywhere inside the app should layer on top of this system rather than fight it.
+
+Core primitives and tokens:
+
+- `PretextShell` (`client/src/components/pretext/pretext-shell.tsx`) — mounted once in `AuthenticatedApp` (and individually on unauthenticated surfaces like `/login`, `/landing`, `/contact`). Renders the `.axtask-aurora-body` gradient, `CursorOrbsBackdrop`, and `PretextAmbientChips`. Do not duplicate these layers on individual pages.
+- `PretextPageHeader` (`client/src/components/pretext/pretext-page-header.tsx`) — canonical header block for in-app pages. Uses `.glass-panel-glossy` and exposes `eyebrow / title / subtitle / chips / actions / children` slots. New pages MUST use this instead of bespoke `<div><h1>` headers.
+- `AvatarOrb` (`client/src/components/ui/avatar-orb.tsx`) — the only supported way to render companion avatars. See `docs/ORB_AVATAR_EXPERIENCE_CONTRACT.md` for the glossy orb contract.
+- `.glass-panel` vs `.glass-panel-glossy` (in `client/src/index.css`) — `.glass-panel` is the base translucent card; `.glass-panel-glossy` adds the specular top sheen used for hero surfaces, page headers, and dialogs. Pick glossy for statement surfaces, plain glass for dense clusters.
+- `data-surface="dense"` — opt in on pages where background motion distracts (see contract doc). The default `calm` treatment is what branding screenshots should use.
+
+Theme default:
+
+- The app is **dark-first**. `client/index.html` pre-applies the `dark` class before hydration to avoid FOUC, and `ThemeProvider` defaults to `dark` with an opt-in `light` variant behind the theme toggle. Marketing assets and screenshots should favor the dark treatment unless the light variant is explicitly being demonstrated.
+
 ## Local Staging Artifacts
 
 - Use `pics/` only as a local staging folder.

@@ -3,8 +3,8 @@ import { Link, useSearch } from "wouter";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { Sparkles, LayoutDashboard, Zap, Shield, BarChart3, Terminal, Quote } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CursorOrbsBackdrop } from "@/components/marketing/cursor-orbs-backdrop";
-import { PretextAmbientChips, pretextGradientCtaClassName } from "@/components/pretext/pretext-confirmation-shell";
+import { PretextShell } from "@/components/pretext/pretext-shell";
+import { pretextGradientCtaClassName } from "@/components/pretext/pretext-confirmation-shell";
 import { cn } from "@/lib/utils";
 import { getSafePostLoginPath } from "@/lib/post-login-redirect";
 
@@ -20,7 +20,7 @@ const PHILOSOPHY_LINES = [
   { heading: "Glass, not walls", body: "Every surface in AxTask is translucent — the confirm shell, the login card, the orbs behind them. Transparency is the point: nothing hides, nothing pretends." },
 ];
 
-const AMBIENT_CHIP_LABELS = ["Done", "Shipped", "Closed", "Nailed It", "Checked", "Complete"];
+const AMBIENT_CHIP_LABELS = ["Done", "Shipped", "Closed", "Nailed It", "Checked", "Complete"] as const;
 
 /** Placeholder slides until a hero MP4 ships; swap URLs without code changes. */
 const SHOWCASE_SLIDES = [
@@ -60,10 +60,10 @@ export default function LandingPage() {
   const featuresY = useTransform(scrollYProgress, [0, 1], [48, -48]);
 
   return (
-    <div className="relative min-h-dvh w-full overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white">
-      <CursorOrbsBackdrop />
-      <PretextAmbientChips labels={AMBIENT_CHIP_LABELS} />
-
+    <PretextShell
+      chips={AMBIENT_CHIP_LABELS}
+      className="relative min-h-dvh w-full overflow-x-hidden text-white"
+    >
       <header className="relative z-10 border-b border-white/10 bg-black/20 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-2">
@@ -208,7 +208,7 @@ export default function LandingPage() {
           </Link>
         </footer>
       </main>
-    </div>
+    </PretextShell>
   );
 }
 

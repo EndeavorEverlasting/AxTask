@@ -1,5 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { usePretextSurface } from "@/hooks/use-pretext-surface";
+import { FloatingChip } from "@/components/ui/floating-chip";
 import {
   ChartContainer,
   ChartLegend,
@@ -48,24 +51,27 @@ type AnalyticsOverview = {
 };
 
 export default function Analytics() {
+  /* Chart-heavy surface: dim the ambient orb layer so the data reads cleanly. */
+  usePretextSurface("dense");
+
   const { data, isLoading } = useQuery<AnalyticsOverview>({
     queryKey: ["/api/analytics/overview"],
+    staleTime: 60_000,
   });
 
   if (isLoading || !data) {
     return (
       <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-        <div>
-          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
-          <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">
-            Agent-driven productivity, feedback insights, and task performance metrics
-          </p>
-        </div>
+        <PretextPageHeader
+          eyebrow="Analytics"
+          title="Analytics"
+          subtitle="Agent-driven productivity, feedback insights, and task performance metrics"
+        />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           {[1, 2, 3, 4].map((i) => (
-            <Card key={i}>
+            <Card key={i} className="glass-panel-glossy">
               <CardContent className="p-4 md:p-6">
-                <div className="h-32 md:h-40 bg-gray-200 dark:bg-gray-700 animate-pulse rounded" />
+                <div className="h-32 md:h-40 bg-white/5 animate-pulse rounded" />
               </CardContent>
             </Card>
           ))}
@@ -79,15 +85,20 @@ export default function Analytics() {
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      <div>
-        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
-        <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">
-          Completed tasks flow into a web graph, with agent-classified parameters, feedback prioritization, and performance metrics.
-        </p>
-      </div>
+      <PretextPageHeader
+        eyebrow="Analytics"
+        title="Analytics"
+        subtitle="Completed tasks flow into a web graph, with agent-classified parameters, feedback prioritization, and performance metrics."
+        chips={
+          <>
+            <FloatingChip tone="neutral">Web graph</FloatingChip>
+            <FloatingChip tone="success">Live metrics</FloatingChip>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-        <Card>
+        <Card className="glass-panel-glossy">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Completion Rate</CardTitle>
           </CardHeader>
@@ -98,7 +109,7 @@ export default function Analytics() {
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="glass-panel-glossy">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Feedback Volume</CardTitle>
           </CardHeader>
@@ -107,7 +118,7 @@ export default function Analytics() {
             <p className="text-sm text-muted-foreground">Processed feedback submissions</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="glass-panel-glossy">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Urgent Feedback</CardTitle>
           </CardHeader>
@@ -119,7 +130,7 @@ export default function Analytics() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <Card>
+        <Card className="glass-panel-glossy">
           <CardHeader>
             <CardTitle>Completed Tasks Trend</CardTitle>
             <CardDescription>Daily completion totals for the last 14 days</CardDescription>
@@ -140,7 +151,7 @@ export default function Analytics() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="glass-panel-glossy">
           <CardHeader>
             <CardTitle>Agent Web Graph</CardTitle>
             <CardDescription>Agent-classified performance dimensions from completed task behavior</CardDescription>
@@ -174,7 +185,7 @@ export default function Analytics() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="glass-panel-glossy">
           <CardHeader>
             <CardTitle>Task Priority Distribution</CardTitle>
             <CardDescription>How work is classified by priority levels</CardDescription>
@@ -195,7 +206,7 @@ export default function Analytics() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="glass-panel-glossy">
           <CardHeader>
             <CardTitle>Feedback Prioritization</CardTitle>
             <CardDescription>Agent-prioritized feedback queue by severity</CardDescription>
@@ -220,3 +231,4 @@ export default function Analytics() {
     </div>
   );
 }
+

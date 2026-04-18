@@ -84,7 +84,11 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
   }, [labels]);
 
   return (
-    <div ref={containerRef} className="absolute inset-0 pointer-events-none overflow-hidden z-[1]">
+    <div
+      ref={containerRef}
+      className="axtask-chip-layer absolute inset-0 pointer-events-none overflow-hidden z-[1]"
+      aria-hidden
+    >
       {labels.map((label, idx) => (
         <div
           key={`${label}-${idx}`}

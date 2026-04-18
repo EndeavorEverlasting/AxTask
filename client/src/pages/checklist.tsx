@@ -26,6 +26,7 @@ import {
 import { postPaidDownload, triggerBlobDownload, type ProductivityExportPrices } from "@/lib/productivity-export-download";
 import type { Task } from "@shared/schema";
 import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { format, addDays, subDays } from "date-fns";
 
 interface ScanResult {
@@ -217,26 +218,26 @@ export default function ChecklistPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6 max-w-4xl mx-auto">
-      <div>
-        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">
-          Print Checklist
-        </h2>
-        <p className="text-gray-600 dark:text-gray-400">
-          Download a printable daily checklist, then scan it back to update your
-          tasks.{" "}
-          {exportPrices?.freeInDev ? (
-            <span className="text-emerald-600 dark:text-emerald-400">PDF export is free in local dev.</span>
-          ) : (
-            <span className="inline-flex items-center gap-1">
-              <Coins className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-              PDF download costs {exportPrices?.checklistPdf ?? "…"} AxCoins
-              {wallet != null ? ` · you have ${wallet.balance}` : ""}.
-            </span>
-          )}
-        </p>
-      </div>
+      <PretextPageHeader
+        eyebrow="Checklist"
+        title="Print Checklist"
+        subtitle={
+          <>
+            Download a printable daily checklist, then scan it back to update your tasks.{" "}
+            {exportPrices?.freeInDev ? (
+              <span className="text-emerald-400">PDF export is free in local dev.</span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                <Coins className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                PDF download costs {exportPrices?.checklistPdf ?? "…"} AxCoins
+                {wallet != null ? ` · you have ${wallet.balance}` : ""}.
+              </span>
+            )}
+          </>
+        }
+      />
 
-      <Card>
+      <Card className="glass-panel-glossy">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />

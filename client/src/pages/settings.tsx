@@ -27,6 +27,7 @@ import { InstallShortcutButton } from "@/components/install-shortcut-button";
 import { cn } from "@/lib/utils";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { FloatingChip } from "@/components/ui/floating-chip";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 
 export default function SettingsPage() {
   const [, setLocation] = useLocation();
@@ -51,35 +52,36 @@ export default function SettingsPage() {
         Back to app
       </Link>
 
-      <GlassPanel
+      <PretextPageHeader
+        eyebrow="Mission control"
+        title={
+          <span className="inline-flex items-center gap-2">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/20 ring-2 ring-primary/30 -rotate-3">
+              <SlidersHorizontal className="h-5 w-5 text-primary" />
+            </span>
+            Settings
+          </span>
+        }
+        subtitle={
+          <>
+            Tweak how AxTask feels—without digging through sidebars. Still flat? That&apos;s just the calm before the
+            productivity storm.
+          </>
+        }
+        chips={
+          <>
+            <FloatingChip tone="neutral">Mission control</FloatingChip>
+            <FloatingChip tone="success">Guided setup</FloatingChip>
+          </>
+        }
         className={cn(
-          "relative overflow-hidden rounded-2xl border-2 border-dashed border-primary/25 bg-gradient-to-br from-violet-500/10 via-background to-amber-500/10 p-6 shadow-sm",
-          "dark:from-violet-900/20 dark:via-background dark:to-amber-900/15",
+          "relative overflow-hidden border-2 border-dashed border-primary/25",
         )}
       >
         <div className="pointer-events-none absolute -right-6 -top-4 rotate-12 text-primary/15">
           <Sparkles className="h-24 w-24" aria-hidden />
         </div>
-        <div className="relative flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-primary/80">Mission control</p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight flex items-center gap-2">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 ring-2 ring-primary/20 -rotate-3">
-                <SlidersHorizontal className="h-5 w-5 text-primary" />
-              </span>
-              Settings
-            </h1>
-            <p className="mt-2 text-sm text-muted-foreground max-w-md">
-              Tweak how AxTask feels—without digging through sidebars. Still flat? That&apos;s just the calm before the
-              productivity storm.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <FloatingChip tone="neutral">Mission control</FloatingChip>
-              <FloatingChip tone="success">Guided setup</FloatingChip>
-            </div>
-          </div>
-        </div>
-      </GlassPanel>
+      </PretextPageHeader>
 
       <Card className="glass-panel-interactive border-primary/15 shadow-md shadow-primary/5">
         <CardHeader>

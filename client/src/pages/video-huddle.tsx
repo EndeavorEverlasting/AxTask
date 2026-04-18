@@ -1,19 +1,25 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 
 const VIDEO_BASE = import.meta.env.VITE_VIDEO_ROOM_BASE_URL as string | undefined;
 
 export default function VideoHuddlePage() {
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-4">
-      <h1 className="text-2xl font-bold tracking-tight">Video huddle</h1>
-      <p className="text-muted-foreground text-sm">
-        Escalate from async collab to a short live session. The host environment can supply{" "}
-        <code className="text-xs rounded bg-muted px-1 py-0.5">VITE_VIDEO_ROOM_BASE_URL</code> to embed a provider.
-      </p>
+      <PretextPageHeader
+        eyebrow="Live"
+        title="Video huddle"
+        subtitle={
+          <>
+            Escalate from async collab to a short live session. The host environment can supply{" "}
+            <code className="text-xs rounded bg-muted px-1 py-0.5">VITE_VIDEO_ROOM_BASE_URL</code> to embed a provider.
+          </>
+        }
+      />
 
-      <Card>
+      <Card className="glass-panel-glossy">
         <CardHeader>
           <CardTitle>Launch</CardTitle>
           <CardDescription>

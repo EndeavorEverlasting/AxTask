@@ -93,6 +93,16 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     glowClass: "field-glow-tutorial-success",
   },
   {
+    id: "skill-tree",
+    title: "Skill Tree",
+    description: "Spend AxCoins to unlock Avatar skills (companion slots, guidance depth, export discounts) and Offline generator skills (idle coin rate and capacity). Prerequisite nodes must be unlocked before their children become available.",
+    page: "/skill-tree",
+    targetId: "sidebar-link-/skill-tree",
+    position: "right",
+    glowClass: "field-glow-tutorial-success",
+    inlineWidget: "skill-tree-mini-avatar",
+  },
+  {
     id: "checklist",
     title: "Print Checklist",
     description: "Generate a printable PDF checklist for any day. You can even scan a completed checklist photo to update task statuses automatically!",

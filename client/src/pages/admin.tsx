@@ -3,6 +3,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { usePretextSurface } from "@/hooks/use-pretext-surface";
 import { useCountUp } from "@/hooks/use-count-up";
 import type { SafeUser, SecurityLog } from "@shared/schema";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
@@ -202,6 +204,8 @@ function formatCurrency(cents: number, currency = "USD") {
 }
 
 export default function AdminPage() {
+  /* Operator console — densest surface in the app, dim ambient orbs. */
+  usePretextSurface("dense");
   const { user } = useAuth();
   const { toast } = useToast();
   const [banTarget, setBanTarget] = useState<SafeUser | null>(null);
@@ -914,10 +918,16 @@ export default function AdminPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
-      <div className="flex items-center gap-3">
-        <Shield className="h-7 w-7 text-primary" />
-        <h1 className="text-2xl font-bold dark:text-white">Security & Operations Admin</h1>
-      </div>
+      <PretextPageHeader
+        eyebrow="Operator"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <Shield className="h-7 w-7 text-primary" />
+            Security &amp; Operations Admin
+          </span>
+        }
+        subtitle="Administer suspensions, feedback inbox, security events, and operator grants. This surface is gated by owner-allowlisted permissions."
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
