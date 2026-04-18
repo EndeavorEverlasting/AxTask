@@ -49,14 +49,14 @@ When you genuinely want to block until CI settles, run the watch truly backgroun
 
 Shell call:
 
-```
+```yaml
 block_until_ms: 0
 command: gh pr checks 3 --watch --interval 15
 ```
 
 Then:
 
-```
+```yaml
 Await
   task_id: <shell id from the previous call>
   block_until_ms: 600000
