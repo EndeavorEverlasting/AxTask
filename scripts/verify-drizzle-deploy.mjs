@@ -10,9 +10,12 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-function run(label, command, args) {
+function run(label, command, args, { closeStdin = false } = {}) {
   console.log(`[verify-drizzle-deploy] ${label}…`);
-  const r = spawnSync(command, args, { stdio: "inherit", shell: false });
+  const stdio = closeStdin
+    ? ["ignore", "inherit", "inherit"]
+    : "inherit";
+  const r = spawnSync(command, args, { stdio, shell: false });
   if (r.error) throw r.error;
   if (r.signal != null) {
     console.error(`[verify-drizzle-deploy] ${label} terminated by signal: ${r.signal}`);
@@ -24,6 +27,6 @@ function run(label, command, args) {
 }
 
 run("apply SQL migrations", "node", ["scripts/apply-migrations.mjs"]);
-run("drizzle-kit push (1)", "npx", ["drizzle-kit", "push", "--force"]);
-run("drizzle-kit push (2)", "npx", ["drizzle-kit", "push", "--force"]);
+run("drizzle-kit push (1)", "npx", ["drizzle-kit", "push", "--force"], { closeStdin: true });
+run("drizzle-kit push (2)", "npx", ["drizzle-kit", "push", "--force"], { closeStdin: true });
 console.log("[verify-drizzle-deploy] ok");

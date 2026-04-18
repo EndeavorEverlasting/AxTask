@@ -104,7 +104,7 @@ jobs:
         run: npm ci
 
       - name: Apply SQL migrations and verify idempotent drizzle push
-        run: node scripts/apply-migrations.mjs && npm run db:push:ci && npm run db:push:ci
+        run: node scripts/apply-migrations.mjs && npm run db:push:ci </dev/null && npm run db:push:ci </dev/null
 
       - name: Verify users TOTP columns exist in DB
         run: npm run test:pg-schema

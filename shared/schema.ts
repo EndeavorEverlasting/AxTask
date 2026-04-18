@@ -6,7 +6,7 @@ import { z } from "zod";
 // ─── Users ───────────────────────────────────────────────────────────────────
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: text("email").notNull().unique(),
+  email: text("email").notNull().unique("users_email_unique"),
   passwordHash: text("password_hash"),
   displayName: text("display_name"),
   role: text("role").notNull().default("user"),
@@ -622,7 +622,7 @@ export type OfflineGenerator = typeof offlineGenerators.$inferSelect;
 
 export const offlineSkillNodes = pgTable("offline_skill_nodes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  skillKey: text("skill_key").notNull().unique(),
+  skillKey: text("skill_key").notNull().unique("offline_skill_nodes_skill_key_unique"),
   name: text("name").notNull(),
   description: text("description").notNull(),
   branch: text("branch").notNull(),
@@ -656,7 +656,7 @@ export type UserOfflineSkill = typeof userOfflineSkills.$inferSelect;
 
 export const avatarSkillNodes = pgTable("avatar_skill_nodes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  skillKey: text("skill_key").notNull().unique(),
+  skillKey: text("skill_key").notNull().unique("avatar_skill_nodes_skill_key_unique"),
   name: text("name").notNull(),
   description: text("description").notNull(),
   branch: text("branch").notNull(),

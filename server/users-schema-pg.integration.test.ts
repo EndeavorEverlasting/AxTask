@@ -71,4 +71,28 @@ describe.skipIf(!RUN)("Postgres schema after db:push", () => {
       db.execute(sql`SELECT id, user_id, activity, notes, status, date, priority FROM tasks LIMIT 0`),
     ).resolves.toBeDefined();
   });
+
+  // ── constraint name alignment (regression: avatar_skill_nodes Render prompt) ──
+  it("avatar_skill_nodes unique constraint is named avatar_skill_nodes_skill_key_unique", async () => {
+    const result: unknown = await db.execute(
+      sql`SELECT conname FROM pg_constraint WHERE conrelid = 'avatar_skill_nodes'::regclass AND contype = 'u'`,
+    );
+    const rows = (result as { rows?: Array<{ conname: string }> }).rows
+      ?? (Array.isArray(result) ? (result as Array<{ conname: string }>) : []);
+    const names = rows.map((r) => r.conname);
+    expect(names, "drizzle-kit push will prompt for table truncate if the name drifts").toContain(
+      "avatar_skill_nodes_skill_key_unique",
+    );
+    expect(names).not.toContain("avatar_skill_nodes_skill_key_key");
+  });
+
+  it("users.email unique constraint matches the Drizzle-declared name", async () => {
+    const result: unknown = await db.execute(
+      sql`SELECT conname FROM pg_constraint WHERE conrelid = 'users'::regclass AND contype = 'u'`,
+    );
+    const rows = (result as { rows?: Array<{ conname: string }> }).rows
+      ?? (Array.isArray(result) ? (result as Array<{ conname: string }>) : []);
+    const names = rows.map((r) => r.conname);
+    expect(names).toContain("users_email_unique");
+  });
 });

@@ -13,8 +13,8 @@ describe("deploy / schema workflow guards", () => {
     const compose = fs.readFileSync(composePath, "utf8");
 
     expect(compose).toContain("migrate:");
-    expect(compose).toContain(
-      'command: ["sh", "-c", "node scripts/apply-migrations.mjs && npm run db:push"]',
+    expect(compose).toMatch(
+      /command:\s*\[\s*"sh",\s*"-c",\s*"node scripts\/apply-migrations\.mjs && npm run db:push\s*<\s*\/dev\/null"\s*\]/,
     );
     const migrateIdx = compose.indexOf("migrate:");
     const cmdIdx = compose.indexOf("node scripts/apply-migrations.mjs && npm run db:push");
@@ -31,6 +31,42 @@ describe("deploy / schema workflow guards", () => {
     const nodeIdx = shellBody.indexOf("node dist/index.js");
     expect(applyIdx).toBeLessThan(pushIdx);
     expect(pushIdx).toBeLessThan(nodeIdx);
+    expect(shellBody).toMatch(/drizzle-kit push --force[^&|;]*<\s*\/dev\/null/);
+  });
+
+  it("docker-compose migrate closes stdin on drizzle-kit push", () => {
+    const compose = fs.readFileSync(path.join(projectRoot, "docker-compose.yml"), "utf8");
+    expect(compose).toMatch(/npm run db:push\s*<\s*\/dev\/null/);
+  });
+
+  it("verify-drizzle-deploy closes stdin on drizzle-kit push invocations", () => {
+    const src = fs.readFileSync(
+      path.join(projectRoot, "scripts", "verify-drizzle-deploy.mjs"),
+      "utf8",
+    );
+    expect(src).toContain('closeStdin: true');
+    expect(src).toContain('["ignore", "inherit", "inherit"]');
+    const firstPush = src.indexOf('run("drizzle-kit push (1)"');
+    const secondPush = src.indexOf('run("drizzle-kit push (2)"');
+    expect(firstPush).toBeGreaterThan(-1);
+    expect(secondPush).toBeGreaterThan(firstPush);
+    expect(src.slice(firstPush, firstPush + 200)).toContain("closeStdin: true");
+    expect(src.slice(secondPush, secondPush + 200)).toContain("closeStdin: true");
+  });
+
+  it("CI workflow applies SQL migrations and runs db:push:ci twice with stdin closed", () => {
+    const wf = fs.readFileSync(
+      path.join(projectRoot, ".github", "workflows", "test-and-attest.yml"),
+      "utf8",
+    );
+    const line = wf
+      .split("\n")
+      .find((l) => l.includes("apply-migrations.mjs") && l.includes("db:push:ci"));
+    expect(line, "CI push step").toBeTruthy();
+    const pushCount = (line!.match(/db:push:ci/g) || []).length;
+    expect(pushCount).toBe(2);
+    const stdinCount = (line!.match(/<\s*\/dev\/null/g) || []).length;
+    expect(stdinCount).toBeGreaterThanOrEqual(2);
   });
 
   it("offline-start applies SQL migrations and fingerprints migrations/*.sql", () => {
@@ -59,6 +95,7 @@ describe("deploy / schema workflow guards", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"));
     expect(pkg.scripts["db:push"]).toBeTruthy();
     expect(pkg.scripts["db:push:ci"]).toBeTruthy();
+    expect(pkg.scripts["db:push:verify"]).toContain("verify-drizzle-deploy.mjs");
     expect(pkg.scripts["start:local"]).toContain("offline-start.mjs");
     expect(pkg.scripts["dev:smart"]).toContain("offline-start.mjs");
     expect(pkg.scripts["local:env-init"]).toContain("copy-env-local.mjs");
