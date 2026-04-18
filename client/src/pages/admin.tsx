@@ -3,6 +3,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { usePretextSurface } from "@/hooks/use-pretext-surface";
 import { useCountUp } from "@/hooks/use-count-up";
 import type { SafeUser, SecurityLog } from "@shared/schema";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
@@ -27,7 +29,7 @@ type AdminAppealRow = {
   denyVotes: number;
   threshold: { adminCount: number; grantNeeded: number; denyNeeded: number; ruleLabel: string };
 };
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -68,6 +70,7 @@ import {
   XCircle,
   Loader2,
   Gavel,
+  Gauge,
 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import {
@@ -93,6 +96,31 @@ type UsageOverview = {
     spendMtdCents: number;
   };
   series: Array<{ snapshotDate: string }>;
+};
+
+type ApiPerfHeuristicsPayload = {
+  windowHours: number;
+  sampledEvents: number;
+  actorUserId: string | null;
+  generatedAt: string;
+  routes: Array<{
+    module: string;
+    method: string;
+    normalizedRoute: string;
+    count: number;
+    serverErrorCount: number;
+    errorRate: number;
+    avgMs: number;
+    p50Ms: number;
+    p95Ms: number;
+    p99Ms: number;
+  }>;
+  signals: Array<{
+    severity: "info" | "warning" | "critical";
+    code: string;
+    title: string;
+    detail: string;
+  }>;
 };
 
 type StorageOverview = {
@@ -176,6 +204,8 @@ function formatCurrency(cents: number, currency = "USD") {
 }
 
 export default function AdminPage() {
+  /* Operator console — densest surface in the app, dim ambient orbs. */
+  usePretextSurface("dense");
   const { user } = useAuth();
   const { toast } = useToast();
   const [banTarget, setBanTarget] = useState<SafeUser | null>(null);
@@ -282,10 +312,25 @@ export default function AdminPage() {
     enabled: adminApiEnabled,
   });
 
+  const [perfWindowHours, setPerfWindowHours] = useState(24);
+  const { data: perfHeuristics } = useQuery<ApiPerfHeuristicsPayload>({
+    queryKey: [`/api/admin/performance/heuristics?hours=${perfWindowHours}`],
+    enabled: adminApiEnabled,
+  });
+
   const { data: liveAnalytics } = useQuery<AdminAnalyticsOverview>({
     queryKey: ["/api/admin/analytics/overview"],
     enabled: adminApiEnabled,
     refetchInterval: 15000,
+  });
+
+  const { data: repoInventory } = useQuery({
+    queryKey: ["/api/admin/repo-inventory"],
+    enabled: adminApiEnabled,
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/repo-inventory");
+      return r.json() as Promise<{ branches: string; recentCommits: string }>;
+    },
   });
 
   const previousTotalsRef = useRef<AdminAnalyticsOverview["totals"] | null>(null);
@@ -873,10 +918,16 @@ export default function AdminPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
-      <div className="flex items-center gap-3">
-        <Shield className="h-7 w-7 text-primary" />
-        <h1 className="text-2xl font-bold dark:text-white">Security & Operations Admin</h1>
-      </div>
+      <PretextPageHeader
+        eyebrow="Operator"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <Shield className="h-7 w-7 text-primary" />
+            Security &amp; Operations Admin
+          </span>
+        }
+        subtitle="Administer suspensions, feedback inbox, security events, and operator grants. This surface is gated by owner-allowlisted permissions."
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -917,6 +968,7 @@ export default function AdminPage() {
         <TabsList className="flex flex-wrap">
           <TabsTrigger value="live">Live Analytics</TabsTrigger>
           <TabsTrigger value="usage">Usage & Storage</TabsTrigger>
+          <TabsTrigger value="performance">API Performance</TabsTrigger>
           <TabsTrigger value="intel">Security Intelligence</TabsTrigger>
           <TabsTrigger value="feedback">Feedback Inbox</TabsTrigger>
           <TabsTrigger value="appeals">Appeals</TabsTrigger>
@@ -924,6 +976,7 @@ export default function AdminPage() {
           <TabsTrigger value="users">User Management</TabsTrigger>
           <TabsTrigger value="logs">Security Logs</TabsTrigger>
           <TabsTrigger value="migration">Data Migration</TabsTrigger>
+          <TabsTrigger value="engineering">Engineering</TabsTrigger>
         </TabsList>
 
         <TabsContent value="live" className="space-y-4">
@@ -1140,6 +1193,103 @@ export default function AdminPage() {
               <p>Tasks: {storage?.usage.taskCount ?? 0} / {storage?.policy.maxTasks ?? 0} ({storage?.warnings.task ?? 0}%)</p>
               <p>Attachments: {storage?.usage.attachmentCount ?? 0} / {storage?.policy.maxAttachmentCount ?? 0} ({storage?.warnings.attachmentCount ?? 0}%)</p>
               <p>Attachment bytes: {storage?.usage.attachmentBytes ?? 0} / {storage?.policy.maxAttachmentBytes ?? 0} ({storage?.warnings.attachmentBytes ?? 0}%)</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="performance" className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Gauge className="h-4 w-4 text-primary" />
+              Rollups from <code className="rounded bg-muted px-1 py-0.5 text-xs">security_events</code> (
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">api_request</code>, capped sample)
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="perf-hours" className="text-xs text-muted-foreground whitespace-nowrap">
+                Window (hours)
+              </Label>
+              <Input
+                id="perf-hours"
+                type="number"
+                min={1}
+                max={168}
+                className="h-9 w-20"
+                value={perfWindowHours}
+                onChange={(e) => setPerfWindowHours(Math.min(168, Math.max(1, Number(e.target.value) || 24)))}
+              />
+            </div>
+          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Heuristic signals</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {(perfHeuristics?.signals ?? []).length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No automated signals in this window (or insufficient traffic). Routes table below still shows slow
+                  handlers when sampled.
+                </p>
+              )}
+              {(perfHeuristics?.signals ?? []).map((s) => (
+                <div
+                  key={`${s.code}-${s.title}`}
+                  className="rounded-md border px-3 py-2 text-sm"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{s.title}</span>
+                    <Badge variant={s.severity === "critical" ? "destructive" : s.severity === "warning" ? "secondary" : "outline"}>
+                      {s.severity}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{s.detail}</p>
+                </div>
+              ))}
+              {perfHeuristics?.generatedAt && (
+                <p className="text-xs text-muted-foreground pt-1">
+                  Generated {new Date(perfHeuristics.generatedAt).toLocaleString()} · sampled{" "}
+                  {perfHeuristics.sampledEvents} events with duration · window {perfHeuristics.windowHours}h
+                </p>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Routes by normalized path</CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="border-b">
+                    <th className="py-2 pr-3 font-medium">Module</th>
+                    <th className="py-2 pr-3 font-medium">Method</th>
+                    <th className="py-2 pr-3 font-medium">Route</th>
+                    <th className="py-2 pr-3 font-medium text-right">n</th>
+                    <th className="py-2 pr-3 font-medium text-right">p50</th>
+                    <th className="py-2 pr-3 font-medium text-right">p95</th>
+                    <th className="py-2 pr-3 font-medium text-right">p99</th>
+                    <th className="py-2 pr-3 font-medium text-right">5xx%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(perfHeuristics?.routes ?? []).slice(0, 80).map((r) => (
+                    <tr key={`${r.method}-${r.normalizedRoute}`} className="border-b border-muted/50">
+                      <td className="py-1.5 pr-3 whitespace-nowrap">{r.module}</td>
+                      <td className="py-1.5 pr-3">{r.method}</td>
+                      <td className="py-1.5 pr-3 font-mono text-[11px] max-w-[280px] truncate" title={r.normalizedRoute}>
+                        {r.normalizedRoute}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r.count}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r.p50Ms}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r.p95Ms}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r.p99Ms}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{(r.errorRate * 100).toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {(perfHeuristics?.routes ?? []).length === 0 && (
+                <p className="text-sm text-muted-foreground py-4">No API request samples in this window.</p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1805,6 +1955,33 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="engineering" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Repository inventory</CardTitle>
+              <CardDescription>
+                Read-only branch and recent-commit snapshot for recovery planning (requires admin step-up in production).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Branches</p>
+                  <pre className="text-xs max-h-64 overflow-auto rounded border bg-muted/40 p-2 whitespace-pre-wrap">
+                    {repoInventory?.branches ?? (adminApiEnabled ? "Loading…" : "—")}
+                  </pre>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Recent commits</p>
+                  <pre className="text-xs max-h-64 overflow-auto rounded border bg-muted/40 p-2 whitespace-pre-wrap">
+                    {repoInventory?.recentCommits ?? (adminApiEnabled ? "Loading…" : "—")}
+                  </pre>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

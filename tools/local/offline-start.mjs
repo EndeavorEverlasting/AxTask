@@ -18,10 +18,14 @@ const packageLockPath = path.join(projectRoot, "package-lock.json");
 const packageJsonPath = path.join(projectRoot, "package.json");
 const schemaPath = path.join(projectRoot, "shared", "schema.ts");
 const drizzleConfigPath = path.join(projectRoot, "drizzle.config.ts");
+const migrationsDirPath = path.join(projectRoot, "migrations");
+const applyMigrationsScriptPath = path.join(projectRoot, "scripts", "apply-migrations.mjs");
 
 function runStep(stepLabel, command, args) {
   console.log(`\n[offline:start] ${stepLabel}`);
-  const result = spawnSync(command, args, {
+  // Quote the command on Windows so paths with spaces (e.g. C:\Program Files\…) survive shell splitting.
+  const safeCmd = isWin && command.includes(" ") ? `"${command}"` : command;
+  const result = spawnSync(safeCmd, args, {
     cwd: projectRoot,
     stdio: "inherit",
     shell: isWin,
@@ -77,12 +81,44 @@ function buildDependencyFingerprint() {
   return fileHashIfExists(packageLockPath) || fileHashIfExists(packageJsonPath);
 }
 
+function buildMigrationsDirFingerprint() {
+  if (!fs.existsSync(migrationsDirPath)) return "";
+  const files = fs
+    .readdirSync(migrationsDirPath)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+  const h = createHash("sha256");
+  for (const f of files) {
+    h.update(f);
+    h.update(":");
+    h.update(fileHashIfExists(path.join(migrationsDirPath, f)));
+    h.update("|");
+  }
+  return h.digest("hex");
+}
+
 function buildSchemaFingerprint() {
   const schemaHash = fileHashIfExists(schemaPath);
   const drizzleHash = fileHashIfExists(drizzleConfigPath);
+  const migrationsFp = buildMigrationsDirFingerprint();
   return createHash("sha256")
-    .update(`${schemaHash}:${drizzleHash}`)
+    .update(`${schemaHash}:${drizzleHash}:${migrationsFp}`)
     .digest("hex");
+}
+
+/** Same ordering as Docker / compose migrate service: versioned SQL first. */
+function ensureSqlMigrationsApplied() {
+  const code = runStep(
+    "Applying SQL migrations (migrations/*.sql via scripts/apply-migrations.mjs)",
+    process.execPath,
+    [applyMigrationsScriptPath],
+  );
+  if (code !== 0) {
+    console.error(
+      "[offline:start] SQL migrations failed. Fix migrations/*.sql or DATABASE_URL, then retry.",
+    );
+    process.exit(code);
+  }
 }
 
 function ensureDependenciesSynced(state) {
@@ -106,10 +142,9 @@ function validateLocalEnv() {
   dotenv.config({ path: envPath, override: false });
 
   if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.trim()) {
-    console.error(
-      "[offline:start] DATABASE_URL is missing in .env. Set it to a local PostgreSQL URL.",
+    console.warn(
+      "[offline:start] DATABASE_URL is missing in .env — running in UI-only mode (no database).",
     );
-    process.exit(1);
   }
 
   if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.includes("replace-with")) {
@@ -117,6 +152,10 @@ function validateLocalEnv() {
       "[offline:start] SESSION_SECRET still uses placeholder text. Update it before sharing builds.",
     );
   }
+}
+
+function hasDatabaseUrl() {
+  return !!(process.env.DATABASE_URL && process.env.DATABASE_URL.trim());
 }
 
 function ensureSchemaApplied(state) {
@@ -146,7 +185,7 @@ function ensureSchemaApplied(state) {
 
 function startDevServer() {
   console.log("\n[offline:start] Starting dev server on http://localhost:5000");
-  // Spawn tsx directly so we do not chain through `npm run dev` (which runs db:push again).
+  // Spawn tsx directly so we do not chain through `npm run dev` (plain dev skips db:push).
   const child = spawn("npx", ["tsx", "server/index.ts"], {
     cwd: projectRoot,
     stdio: "inherit",
@@ -160,7 +199,7 @@ function startDevServer() {
 }
 
 console.log("[offline:start] Bootstrapping local offline workflow");
-const bootstrap = spawnSync(process.execPath, [path.join(__dirname, "repo-bootstrap.mjs")], {
+const bootstrap = spawnSync(`"${process.execPath}"`, [path.join(__dirname, "repo-bootstrap.mjs")], {
   cwd: projectRoot,
   stdio: "inherit",
   shell: isWin,
@@ -171,8 +210,17 @@ const previousState = readState();
 ensureLocalEnvInit();
 ensureNodeModules();
 validateLocalEnv();
-const dependencyFingerprint = ensureDependenciesSynced(previousState);
-const schemaFingerprint = ensureSchemaApplied(previousState);
+let dependencyFingerprint;
+let schemaFingerprint;
+if (hasDatabaseUrl()) {
+  ensureSqlMigrationsApplied();
+  dependencyFingerprint = ensureDependenciesSynced(previousState);
+  schemaFingerprint = ensureSchemaApplied(previousState);
+} else {
+  console.log("[offline:start] Skipping DB migrations & schema push (no DATABASE_URL).");
+  dependencyFingerprint = ensureDependenciesSynced(previousState);
+  schemaFingerprint = previousState.schemaFingerprint || "";
+}
 
 writeState({
   dependencyFingerprint,

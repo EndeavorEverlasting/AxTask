@@ -1,9 +1,15 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, randomUUID } from "crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
+import { exportFullDatabase, exportUserData } from "./migration/export";
+import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
 import {
   storage, createUser, getUserByEmail, recordFailedLogin, resetFailedLogins,
   createResetToken, verifyResetToken, consumeResetToken,
@@ -11,9 +17,24 @@ import {
   adminResetPassword,
   banUser, unbanUser, getAllUsers, isUserBanned,
   logSecurityEvent, getSecurityLogs,
-  getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getUserRewards, redeemReward, seedRewardsCatalog,
+  getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getRewardById, getUserRewards, redeemReward, sellBackUserReward, ownerGrantCoinsToUser, seedRewardsCatalog,
+  spendCoins,
+  getMaxAvatarLevel,
+  getClassificationThumbState,
+  awardClassificationThumbUp,
+  listUserAlarmSnapshots,
+  createUserAlarmSnapshot,
+  getUserAlarmSnapshot,
+  listCollaborationInbox,
+  appendCollaborationMessage,
+  markCollaborationMessageRead,
+  listUserLocationPlaces,
+  upsertUserLocationPlace,
+  getCommunityMomentumStats,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
+  getFeedbackSubmissionCount, getAvatarProfiles, engageAvatarMission, spendCoinsForAvatarBoost, seedAvatarSkillTree, getAvatarSkillTree, unlockAvatarSkill,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachments, linkAttachmentToTask,
+  linkAttachmentsToOwner, getAttachmentsForOwner, getAttachmentsForOwnerPublic,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
   listBillingPaymentMethodsForUser, createBillingPaymentMethod,
@@ -47,9 +68,13 @@ import {
   getPremiumRetentionMetrics,
   getUserNotificationPreference,
   upsertUserNotificationPreference,
+  getUserVoicePreference,
+  upsertUserVoicePreference,
   listUserPushSubscriptions,
   upsertUserPushSubscription,
   deleteUserPushSubscription,
+  listOpenAdherenceInterventions,
+  acknowledgeAdherenceIntervention,
   listStudyDecks,
   createStudyDeck,
   listStudyCards,
@@ -62,14 +87,33 @@ import {
   getCommunityPostWithReplies,
   createCommunityReply,
   seedCommunityPosts,
+  addCoins,
+  hasTaskBeenAwarded,
+  listUserClassificationLabels,
+  addUserClassificationLabel,
+  addCollaborator,
+  removeCollaborator,
+  getTaskCollaborators,
+  updateCollaboratorRole,
+  getSharedTasks,
+  canAccessTask,
+  isTaskOwner,
+  resetStreak,
+  getPatterns,
+  getPatternsByType,
+  getUserClassificationStats,
 } from "./storage";
-import { awardCoinsForCompletion, BADGE_DEFINITIONS } from "./coin-engine";
+import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS } from "./coin-engine";
+import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
+import { completionCoinSkipReason } from "@shared/completion-coin-skip";
+import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, type UpdateTask, type Task, tasks } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, updateVoicePreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, feedbackAvatarKeySchema, archetypeRollupDaily, archetypeMarkovDaily, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc, sql, count, gte, lte } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
+import { toPublicSessionUser, toPublicWallet, toPublicCoinTransactions, toPublicBadges, toPublicAttachmentRefs } from "@shared/public-client-dtos";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
 import { verifyMfaChallengeOrTotp } from "./services/mfa-totp";
 import {
@@ -88,17 +132,34 @@ import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
 import { processFeedbackWithEngines } from "./engines/feedback-engine";
+import { recordArchetypeSignal, type ArchetypeSignalKind } from "./lib/archetype-signal";
+import { processTaskReview, type ReviewAction } from "./engines/review-engine";
+import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from "./engines/pattern-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { generateChecklistPDF } from "./checklist-pdf";
+import { getProductivityExportPricesForUser, priceForKind } from "./productivity-export-pricing";
+import { buildTasksSpreadsheetBuffer, generateTaskReportPdf, buildTaskReportXlsxBuffer } from "./task-export-generators";
 import { processChecklistImage } from "./ocr-processor";
 import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
 import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./services/usage-service";
+import { getApiPerformanceHeuristics } from "./services/api-performance-service";
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, readAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
-import { classifyWithFallback } from "./services/classification/universal-classifier";
+import { fetchImageByUrl, UrlFetchError } from "./services/attachment-url-fetch";
+import {
+  searchGifs,
+  hasAnyGifProvider,
+  GifSearchConfigError,
+  type GifSearchProvider,
+} from "./services/gif-search";
+import { classifyWithFallback, classifyWithAssociations, normalizeAssociationWeights } from "./services/classification/universal-classifier";
+import { confirmTaskClassificationForUser, getClassificationConfirmPayload } from "./classification-confirm";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
+import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
+import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
+import { evaluateAdherenceForUser } from "./services/adherence-evaluator";
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
 function safeEqual(a: string, b: string): boolean {
@@ -113,7 +174,7 @@ function safeEqual(a: string, b: string): boolean {
 
 import { computeTaskFingerprint } from "./task-fingerprint";
 import { moderateText, rejectMediaContent, sanitizeForDisplay } from "./services/content-moderation";
-import { generateOrbDialogue, getOrbReply, getOrbVoice, ensureOrbActivityLevel } from "./engines/dialogue-engine";
+import { generateOrbDialogue, getOrbReply, getOrbVoice, ensureOrbActivityLevel, listAvatarVoiceOpeners } from "./engines/dialogue-engine";
 
 function getUploadSigningSecret(): string {
   return process.env.ATTACHMENT_UPLOAD_SECRET || process.env.SESSION_SECRET || "dev-upload-secret";
@@ -126,7 +187,7 @@ function buildAttachmentStorageKey(userId: string, assetId: string, fileName?: s
 }
 
 async function classifyTaskWithFallback(activity: string, notes: string, preferExternal = true): Promise<string> {
-  const result = await classifyWithFallback(activity, notes, { preferExternal });
+  const { result } = await classifyWithAssociations(activity, notes, { preferExternal });
   return result.classification;
 }
 
@@ -134,7 +195,16 @@ function hasFeature(entitlements: { features: string[] }, feature: string): bool
   return entitlements.features.includes(feature);
 }
 
-async function callNodeWeaverBatchClassify(items: Array<{ id: string; activity: string; notes?: string }>) {
+type NodeWeaverBatchResponse = {
+  results?: Array<{
+    predicted_category?: string;
+    confidence_score?: number;
+  }>;
+};
+
+async function callNodeWeaverBatchClassify(
+  items: Array<{ id: string; activity: string; notes?: string }>,
+): Promise<NodeWeaverBatchResponse> {
   const baseUrl = process.env.NODEWEAVER_URL;
   if (!baseUrl) {
     throw new Error("NODEWEAVER_URL is not configured");
@@ -154,7 +224,31 @@ async function callNodeWeaverBatchClassify(items: Array<{ id: string; activity: 
   if (!response.ok) {
     throw new Error(`NodeWeaver classify failed with status ${response.status}`);
   }
-  return response.json();
+  const parsed = await parseLooseJsonResponse(response, "NodeWeaver classify");
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("NodeWeaver classify returned an empty or non-object payload.");
+  }
+  return parsed as NodeWeaverBatchResponse;
+}
+
+function stripJsonMarkdownFence(input: string): string {
+  const trimmed = input.trim();
+  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : trimmed;
+}
+
+async function parseLooseJsonResponse(response: globalThis.Response, source: string): Promise<unknown> {
+  const raw = await response.text();
+  const normalized = stripJsonMarkdownFence(raw);
+  if (!normalized) return null;
+  try {
+    return JSON.parse(normalized);
+  } catch (error) {
+    const preview = normalized.slice(0, 140).replace(/\s+/g, " ");
+    throw new Error(
+      `${source} returned invalid JSON payload (preview: ${preview || "<empty>"}).`,
+    );
+  }
 }
 
 function toIsoDate(date: Date): string {
@@ -363,6 +457,42 @@ const voiceLimiter = rateLimit({
   message: { message: "Too many voice requests — try again shortly" },
 });
 
+const migrationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Too many migration requests — try again later" },
+});
+
+/**
+ * Paste-composer upload budget. Each pasted image/GIF consumes one slot on
+ * /api/attachments/upload-url plus one on /api/attachments/upload/:token.
+ * Budget assumes an enthusiastic chat-style poster: ~40 pastes every 15 min.
+ */
+const attachmentUploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 80,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Too many attachment uploads — slow down a moment" },
+});
+
+/**
+ * GIF search/resolve quota - prevents accidental runaway calls to Giphy /
+ * Tenor if a picker is held open.
+ */
+const gifSearchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Too many GIF searches — pause and try again" },
+});
+
 
 // ── Invite-code / registration gate ─────────────────────────────────────────
 // In production, set REGISTRATION_MODE=invite in .env and provide INVITE_CODE.
@@ -384,6 +514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const userAgent = req.get("user-agent") || undefined;
     res.on("finish", async () => {
       try {
+        const ctx = req.monitor;
         await appendSecurityEvent({
           eventType: "api_request",
           actorUserId,
@@ -394,8 +525,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userAgent,
           payload: {
             durationMs: Date.now() - startedAt,
+            requestId: ctx?.requestId,
+            params: ctx?.params,
+            query: ctx?.query,
+            body: ctx?.body,
+            headers: ctx?.headers,
           },
         });
+
+        // Fallback: ensure we record a dedicated error event for 5xx even if the route handler
+        // caught the error and returned 500 without throwing into the global error handler.
+        if (res.statusCode >= 500 && !(req as any).__axtaskApiErrorEmitted) {
+          const errorName = "Http5xx";
+          const errorMessage = `Response status ${res.statusCode}`;
+          await appendSecurityEvent({
+            eventType: "api_error",
+            actorUserId,
+            route: req.path,
+            method: req.method,
+            statusCode: res.statusCode,
+            ipAddress,
+            userAgent,
+            payload: {
+              requestId: ctx?.requestId,
+              params: ctx?.params,
+              query: ctx?.query,
+              body: ctx?.body,
+              headers: ctx?.headers,
+              errorName,
+              errorMessage,
+            },
+          });
+          void notifyAdminsOfApiError({
+            requestId: ctx?.requestId,
+            route: req.path,
+            method: req.method,
+            statusCode: res.statusCode,
+            errorName,
+            errorMessage,
+          });
+        }
       } catch {
         // Avoid breaking request lifecycle because of audit sink failures.
       }
@@ -441,7 +610,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Auto-login after registration
       req.login(user, (err) => {
         if (err) return res.status(500).json({ message: "Registration succeeded but login failed" });
-        res.status(201).json(user);
+        res.status(201).json(toPublicSessionUser(user));
       });
     } catch (error) {
       if (error instanceof Error) {
@@ -527,7 +696,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         req.login(user, (err) => {
           if (err) return next(err);
-          res.json(user);
+          void evaluateAdherenceForUser(user.id, "login");
+          res.json(toPublicSessionUser(user));
         });
       })(req, res, next);
     } catch (error) {
@@ -572,7 +742,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.logout(() => {});
       return res.status(401).json({ message: "Not authenticated" });
     }
-    res.json(fresh);
+    void evaluateAdherenceForUser(req.user!.id, "login");
+    res.json(toPublicSessionUser(fresh));
   });
 
   // Return registration mode + auth provider so the UI can adapt
@@ -651,7 +822,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ipAddress: req.ip,
           userAgent: req.get("user-agent") || undefined,
         });
-        res.json(safe);
+        res.json(toPublicSessionUser(safe));
       });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
@@ -681,7 +852,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const resetUrl = `${req.protocol}://${req.get("host")}/?reset_token=${result.token}`;
-      console.log(`[PASSWORD RESET] Token for ${email}: ${resetUrl}`);
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[PASSWORD RESET] (non-production) ${email}: ${resetUrl}`);
+      }
       await logSecurityEvent("password_reset_requested", undefined, undefined, req.ip, `Reset requested for: ${email}`);
 
       // Check if security question is available as fallback
@@ -1210,9 +1383,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/notifications/preferences", requireAuth, async (req, res) => {
     try {
       const preference = await getUserNotificationPreference(req.user!.id);
+      const dispatchProfile = getNotificationDispatchProfile(preference.intensity);
+      const subscriptions = await listUserPushSubscriptions(req.user!.id);
+      const pushConfigured = Boolean(
+        (process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY || "").trim(),
+      );
+      const hasSubscription = subscriptions.length > 0;
+      const deliveryChannel =
+        preference.enabled && pushConfigured && hasSubscription ? "push" : "in_app";
       res.json({
         ...preference,
-        dispatchProfile: getNotificationDispatchProfile(preference.intensity),
+        dispatchProfile,
+        pushConfigured,
+        hasSubscription,
+        deliveryChannel,
       });
     } catch {
       res.status(500).json({ message: "Failed to fetch notification preferences" });
@@ -1232,15 +1416,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intensity: payload.intensity,
         quietHoursStart: payload.quietHoursStart,
         quietHoursEnd: payload.quietHoursEnd,
+        feedbackNudgePrefs: payload.feedbackNudgePrefs,
       });
+      const dispatchProfile = getNotificationDispatchProfile(preference.intensity);
+      const subscriptions = await listUserPushSubscriptions(req.user!.id);
+      const pushConfigured = Boolean(
+        (process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY || "").trim(),
+      );
+      const hasSubscription = subscriptions.length > 0;
+      const deliveryChannel =
+        preference.enabled && pushConfigured && hasSubscription ? "push" : "in_app";
       return res.json({
         ...preference,
-        dispatchProfile: getNotificationDispatchProfile(preference.intensity),
+        dispatchProfile,
+        pushConfigured,
+        hasSubscription,
+        deliveryChannel,
       });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       return res.status(500).json({ message: "Failed to update notification preferences" });
     }
+  });
+
+  app.get("/api/notifications/push-public-config", requireAuth, async (_req, res) => {
+    const publicKey = (
+      process.env.VAPID_PUBLIC_KEY ||
+      process.env.VITE_VAPID_PUBLIC_KEY ||
+      ""
+    ).trim();
+    res.json({
+      configured: !!publicKey,
+      publicKey: publicKey || undefined,
+    });
   });
 
   app.get("/api/notifications/subscriptions", requireAuth, async (req, res) => {
@@ -1279,6 +1487,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to remove push subscription" });
+    }
+  });
+
+  app.get("/api/adherence/interventions", requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+      const rows = await listOpenAdherenceInterventions(req.user!.id, limit);
+      const items = rows.map((row) => ({
+        ...row,
+        context: row.contextJson ? (() => {
+          try {
+            return JSON.parse(row.contextJson);
+          } catch {
+            return null;
+          }
+        })() : null,
+      }));
+      res.json(items);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch adherence interventions" });
+    }
+  });
+
+  app.post("/api/adherence/interventions/:id/acknowledge", requireAuth, async (req, res) => {
+    try {
+      const { action } = acknowledgeAdherenceInterventionSchema.parse(req.body || {});
+      const ok = await acknowledgeAdherenceIntervention(req.user!.id, req.params.id, action);
+      if (!ok) return res.status(404).json({ message: "Intervention not found" });
+      res.status(204).send();
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to acknowledge intervention" });
+    }
+  });
+
+  app.post("/api/adherence/refresh", requireAuth, async (req, res) => {
+    try {
+      const result = await evaluateAdherenceForUser(req.user!.id, "manual");
+      res.json(result);
+    } catch {
+      res.status(500).json({ message: "Failed to refresh adherence evaluation" });
     }
   });
 
@@ -1373,12 +1622,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /** Privacy-safe aggregate activity (counts only, last 24h). */
+  app.get("/api/public/community/momentum", apiLimiter, async (_req, res) => {
+    try {
+      const stats = await getCommunityMomentumStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Community momentum error:", error);
+      res.status(500).json({ message: "Failed to fetch community momentum" });
+    }
+  });
+
   // Community avatar forum — single post with replies
   app.get("/api/public/community/posts/:id", apiLimiter, async (req, res) => {
     try {
       const result = await getCommunityPostWithReplies(req.params.id);
       if (!result) return res.status(404).json({ message: "Post not found" });
-      res.json(result);
+      const postAssets = await getAttachmentsForOwnerPublic({
+        ownerType: "community_post",
+        ownerId: result.post.id,
+      });
+      const replies = await Promise.all(
+        (result.replies || []).map(async (reply: { id: string; [k: string]: unknown }) => {
+          const assets = await getAttachmentsForOwnerPublic({
+            ownerType: "community_reply",
+            ownerId: reply.id,
+          });
+          return { ...reply, attachments: toPublicAttachmentRefs(assets) };
+        }),
+      );
+      res.json({
+        post: { ...result.post, attachments: toPublicAttachmentRefs(postAssets) },
+        replies,
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch post" });
     }
@@ -1387,6 +1663,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Community avatar forum — reply to a post (auth required)
   const communityReplySchema = z.object({
     body: z.string().min(1).max(2000),
+    attachmentAssetIds: z.array(z.string().min(1)).max(8).default([]),
   });
 
   app.post("/api/public/community/posts/:id/reply", requireAuth, apiLimiter, async (req, res) => {
@@ -1414,6 +1691,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         displayName,
         body: sanitized,
       });
+      const replyAssets = await linkAttachmentsToOwner({
+        userId: req.user!.id,
+        ownerType: "community_reply",
+        ownerId: reply.id,
+        assetIds: payload.attachmentAssetIds,
+      });
 
       // ── Orb auto-reply using the dialogue engine (~50% chance) ──
       const avatarKeys = ["mood", "archetype", "productivity", "social", "lazy"] as const;
@@ -1428,7 +1711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      res.status(201).json(reply);
+      res.status(201).json({ ...reply, attachments: toPublicAttachmentRefs(replyAssets) });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to post reply" });
@@ -1457,6 +1740,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch task stats" });
+    }
+  });
+
+  const tasksSpreadsheetExportSchema = z.object({
+    format: z.enum(["csv", "xlsx"]),
+  });
+
+  app.post("/api/tasks/export/spreadsheet", requireAuth, async (req, res) => {
+    try {
+      const parsed = tasksSpreadsheetExportSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "format must be csv or xlsx" });
+      }
+      const userId = req.user!.id;
+      const prices = await getProductivityExportPricesForUser(userId);
+      const required = priceForKind(prices, "tasksSpreadsheet");
+      if (!prices.freeInDev && required > 0) {
+        const w = await spendCoins(userId, required, "productivity_export:tasks_spreadsheet");
+        if (!w) {
+          const bal = await getOrCreateWallet(userId);
+          return res.status(402).json({
+            code: "INSUFFICIENT_COINS",
+            required,
+            balance: bal.balance,
+            message: "Not enough AxCoins for this export.",
+          });
+        }
+      }
+      const tasks = await storage.getTasks(userId);
+      const buf = buildTasksSpreadsheetBuffer(tasks, parsed.data.format);
+      const day = new Date().toISOString().split("T")[0];
+      const ext = parsed.data.format === "csv" ? "csv" : "xlsx";
+      const mime =
+        parsed.data.format === "csv"
+          ? "text/csv; charset=utf-8"
+          : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      res.setHeader("Content-Type", mime);
+      res.setHeader("Content-Disposition", `attachment; filename="axtask-tasks-${day}.${ext}"`);
+      res.send(buf);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to export tasks" });
+    }
+  });
+
+  const taskReportBodySchema = z.object({
+    format: z.enum(["pdf", "xlsx"]),
+  });
+
+  app.post("/api/tasks/:taskId/report", requireAuth, async (req, res) => {
+    try {
+      const parsed = taskReportBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "format must be pdf or xlsx" });
+      }
+      const userId = req.user!.id;
+      const taskId = req.params.taskId;
+      const task = await storage.getTask(userId, taskId);
+      if (!task) return res.status(404).json({ message: "Task not found" });
+
+      const prices = await getProductivityExportPricesForUser(userId);
+      const kind = parsed.data.format === "pdf" ? "taskReportPdf" : "taskReportXlsx";
+      const required = priceForKind(prices, kind);
+      if (!prices.freeInDev && required > 0) {
+        const w = await spendCoins(userId, required, `productivity_export:${kind}`);
+        if (!w) {
+          const bal = await getOrCreateWallet(userId);
+          return res.status(402).json({
+            code: "INSUFFICIENT_COINS",
+            required,
+            balance: bal.balance,
+            message: "Not enough AxCoins for this export.",
+          });
+        }
+      }
+
+      const userName = req.user!.displayName || req.user!.email || "User";
+      if (parsed.data.format === "pdf") {
+        const pdfDoc = generateTaskReportPdf(task, userName);
+        res.setHeader("Content-Type", "application/pdf");
+        const slug = task.activity
+          .slice(0, 40)
+          .replace(/[^\w-]+/g, "_")
+          .replace(/_+/g, "_")
+          .replace(/^_+|_+$/g, "") || "report";
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="AxTask-Report-${task.id.slice(0, 8)}-${slug}.pdf"`,
+        );
+        pdfDoc.pipe(res);
+        pdfDoc.end();
+      } else {
+        const buf = buildTaskReportXlsxBuffer(task);
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="AxTask-Report-${task.id.slice(0, 8)}.xlsx"`,
+        );
+        res.send(buf);
+      }
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate task report" });
     }
   });
 
@@ -1491,8 +1875,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return { date: key, completed };
       });
 
-      const graphParameters = await populateAnalyticsGraphParametersWithAgent(allTasks);
-      const feedbackInsights = await getFeedbackInsightsForUser(userId, 500);
+      const [graphParameters, feedbackInsights] = await Promise.all([
+        populateAnalyticsGraphParametersWithAgent(allTasks),
+        getFeedbackInsightsForUser(userId, 500),
+      ]);
       const completionCount = byStatus.completed || 0;
 
       res.json({
@@ -1528,7 +1914,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Search tasks
   app.get("/api/tasks/search/:query", requireAuth, async (req, res) => {
     try {
-      const tasks = await storage.searchTasks(req.user!.id, req.params.query);
+      const userId = req.user!.id;
+      const raw = req.params.query ?? "";
+      let decoded = raw;
+      try {
+        decoded = decodeURIComponent(raw);
+      } catch {
+        decoded = raw;
+      }
+      const tasks = await storage.searchTasks(userId, decoded);
+      const q = decoded.trim();
+      if (tasks.length > 0 && q.length >= 2) {
+        await tryCappedCoinAward({
+          userId,
+          reason: ENGAGEMENT.taskSearch.reason,
+          amount: ENGAGEMENT.taskSearch.amount,
+          dailyCap: ENGAGEMENT.taskSearch.dailyCap,
+          details: `Search: ${q.slice(0, 80)}`,
+        });
+      }
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ message: "Failed to search tasks" });
@@ -1552,6 +1956,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks by priority" });
+    }
+  });
+
+  app.get("/api/tasks/:id/classifications", requireAuth, async (req, res) => {
+    try {
+      const task = await storage.getTask(req.user!.id, req.params.id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const payload = await getClassificationConfirmPayload(req.user!.id, task);
+      res.json(payload);
+    } catch (error) {
+      console.error("Classifications fetch error:", error);
+      res.status(500).json({ message: "Failed to fetch classifications" });
+    }
+  });
+
+  app.post("/api/tasks/:id/confirm-classification", requireAuth, async (req, res) => {
+    try {
+      const task = await storage.getTask(req.user!.id, req.params.id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const out = await confirmTaskClassificationForUser(req.user!.id, task);
+      res.json(out);
+    } catch (error: unknown) {
+      const pgCode = error && typeof error === "object" && "code" in error ? (error as { code?: string }).code : undefined;
+      if (pgCode === "23505") {
+        return res.status(400).json({ message: "Already confirmed" });
+      }
+      if (error instanceof Error) {
+        const m = error.message;
+        if (m === "Already confirmed" || m === "Contributor cannot confirm own classification reward") {
+          return res.status(400).json({ message: m });
+        }
+        if (m === "No classification to confirm") {
+          return res.status(400).json({ message: m });
+        }
+      }
+      console.error("Confirm classification error:", error);
+      res.status(500).json({ message: "Failed to confirm classification" });
     }
   });
 
@@ -1629,21 +2074,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 task.activity, task.notes || "", task.urgency, task.impact, task.effort,
                 contextTasks
               );
-              const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
+              const { result: clsRes, associations } = await classifyWithAssociations(
+                task.activity,
+                task.notes || "",
+                { preferExternal: false },
+              );
               updates.push({
                 id: task.id,
                 priority: priorityResult.priority,
                 priorityScore: Math.round(priorityResult.score * 10),
-                classification,
+                classification: clsRes.classification,
+                classificationAssociations: associations,
                 isRepeated: priorityResult.isRepeated,
               });
             } catch (e) {
-              const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
+              const { result: clsRes, associations } = await classifyWithAssociations(
+                task.activity,
+                task.notes || "",
+                { preferExternal: false },
+              );
               updates.push({
                 id: task.id,
                 priority: "Low",
                 priorityScore: 0,
-                classification,
+                classification: clsRes.classification,
+                classificationAssociations: associations,
                 isRepeated: false,
               });
             }
@@ -1709,17 +2164,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allTasks.filter(t => t.id !== task.id)
       );
 
-      const classification = await classifyTaskWithFallback(task.activity, task.notes || "", true);
+      const { result: clsRes, associations } = await classifyWithAssociations(
+        task.activity,
+        task.notes || "",
+        { preferExternal: true },
+      );
 
       task = await storage.updateTask(userId, {
         id: task.id,
         priority: priorityResult.priority,
         priorityScore: Math.round(priorityResult.score * 10),
-        classification,
+        classification: clsRes.classification,
+        classificationAssociations: associations,
         isRepeated: priorityResult.isRepeated,
       }) || task;
 
-      res.status(201).json(task);
+      learnFromTask(userId, task, allTasks).catch(err =>
+        console.error("[PatternEngine] learn error:", err)
+      );
+
+      const uniqueTaskReward = await tryCappedCoinAward({
+        userId,
+        reason: ENGAGEMENT.uniqueTaskCreate.reason,
+        amount: ENGAGEMENT.uniqueTaskCreate.amount,
+        dailyCap: ENGAGEMENT.uniqueTaskCreate.dailyCap,
+        details: `New task: ${task.activity.slice(0, 100)}`,
+        taskId: task.id,
+      });
+
+      res.status(201).json({ ...task, uniqueTaskReward });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
@@ -1746,8 +2219,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Task not found" });
       }
 
-      console.log(`[TASK UPDATE] Task ${req.params.id}: ${previousStatus} → ${task.status}`);
-
       if (validatedData.activity || validatedData.notes) {
         const allTasks = await storage.getTasks(userId);
         const priorityResult = await PriorityEngine.calculatePriority(
@@ -1759,27 +2230,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
           allTasks.filter(t => t.id !== task!.id)
         );
 
-        const classification = await classifyTaskWithFallback(task!.activity, task!.notes || "", true);
+        const { result: clsRes, associations } = await classifyWithAssociations(
+          task!.activity,
+          task!.notes || "",
+          { preferExternal: true },
+        );
 
         task = await storage.updateTask(userId, {
           id: task!.id,
           priority: priorityResult.priority,
           priorityScore: Math.round(priorityResult.score * 10),
-          classification,
+          classification: clsRes.classification,
+          classificationAssociations: associations,
           isRepeated: priorityResult.isRepeated,
         }) || task;
       }
 
+      const latestTask = await storage.getTask(userId, req.params.id);
+      task = latestTask || task;
+
       let coinReward = null;
+      let coinSkipReason: string | null = null;
+      let walletBalance: number | null = null;
       if (task!.status === "completed" && previousStatus !== "completed") {
-        console.log(`[COIN REWARD] Awarding coins for task ${task.id}`);
         coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
-        console.log(`[COIN REWARD] Result:`, coinReward);
-      } else {
-        console.log(`[COIN REWARD] Skipped: status=${task.status}, prev=${previousStatus}`);
+        if (!coinReward) {
+          const alreadyAwarded = await hasTaskBeenAwarded(userId, task!.id);
+          coinSkipReason = completionCoinSkipReason({
+            previousStatus,
+            taskStatus: task!.status,
+            coinReward,
+            alreadyAwarded,
+          });
+          walletBalance = (await getOrCreateWallet(userId)).balance;
+        } else {
+          walletBalance = coinReward.newBalance;
+        }
+      }
+      let classificationReward = null;
+      const previousClassification = existingTask?.classification;
+      if (task!.classification && task!.classification !== "General" && task!.classification !== previousClassification) {
+        classificationReward = await awardCoinsForClassification(userId, task!);
       }
 
-      res.json({ ...task, coinReward });
+      res.json({ ...task, coinReward, coinSkipReason, walletBalance, classificationReward });
     } catch (error) {
       console.error("[TASK UPDATE ERROR]", error);
       if (error instanceof Error) {
@@ -1787,6 +2281,168 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         res.status(500).json({ message: "Failed to update task" });
       }
+    }
+  });
+
+  const reclassifyTaskSchema = z
+    .object({
+      classification: z.string().min(2).max(64).optional(),
+      associations: classificationAssociationsSchema.optional(),
+      baseUpdatedAt: z.string().optional(),
+    })
+    .refine(
+      (d) =>
+        Boolean(d.classification?.trim() && d.classification.trim().length >= 2) ||
+        (Array.isArray(d.associations) && d.associations.length >= 1),
+      { message: "Provide classification or associations" },
+    );
+
+  function associationsFingerprint(rows: ClassificationAssociation[] | null | undefined): string {
+    const list = [...(rows ?? [])].map((r) => `${r.label.toLowerCase()}:${Math.round(r.confidence * 1000)}`);
+    list.sort();
+    return list.join("|");
+  }
+
+  app.post("/api/tasks/:id/reclassify", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const payload = reclassifyTaskSchema.parse(req.body || {});
+      const task = await storage.getTask(userId, req.params.id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      let nextAssociations: ClassificationAssociation[];
+      let nextPrimary: string;
+      if (payload.associations && payload.associations.length > 0) {
+        nextAssociations = normalizeAssociationWeights(payload.associations);
+        nextAssociations = [...nextAssociations].sort((a, b) => b.confidence - a.confidence);
+        nextPrimary = nextAssociations[0].label;
+      } else {
+        nextPrimary = payload.classification!.trim();
+        nextAssociations = [{ label: nextPrimary, confidence: 1 }];
+      }
+
+      const samePrimary =
+        task.classification.trim().toLowerCase() === nextPrimary.trim().toLowerCase();
+      const sameAssoc =
+        associationsFingerprint(task.classificationAssociations) === associationsFingerprint(nextAssociations);
+      if (samePrimary && sameAssoc) {
+        return res.json({ ...task, classification: task.classification });
+      }
+
+      const primaryChanged = !samePrimary;
+
+      const updatedTask = await storage.updateTask(userId, {
+        id: task.id,
+        classification: nextPrimary,
+        classificationAssociations: nextAssociations,
+      });
+      if (!updatedTask) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      if (!primaryChanged) {
+        return res.json({
+          ...updatedTask,
+          classification: nextPrimary,
+          classificationReward: undefined,
+          consensusCorrectionReward: null,
+          consensusTierBonus: null,
+        });
+      }
+
+      const [confirmationCountRow] = await db
+        .select({ value: count() })
+        .from(taskClassificationConfirmations)
+        .where(eq(taskClassificationConfirmations.taskId, task.id));
+      const confirmationCount = Number(confirmationCountRow?.value) || 0;
+
+      const coinsByLabel = new Map(
+        BUILT_IN_CLASSIFICATIONS.map((entry) => [entry.label.toLowerCase(), entry.coins]),
+      );
+      const coinsEarned = Math.max(1, coinsByLabel.get(nextPrimary.toLowerCase()) ?? 2);
+      const { wallet: classificationWallet } = await addCoins(
+        userId,
+        coinsEarned,
+        "task_classification",
+        `Reclassified task as ${nextPrimary}`,
+        task.id,
+      );
+      const consensusReward =
+        confirmationCount >= 2
+          ? await tryCappedCoinAward({
+              userId,
+              reason: ENGAGEMENT.classificationCorrectionConsensus.reason,
+              amount: ENGAGEMENT.classificationCorrectionConsensus.amount,
+              dailyCap: ENGAGEMENT.classificationCorrectionConsensus.dailyCap,
+              details: `Consensus correction: ${nextPrimary} (${confirmationCount} confirmations)`,
+              taskId: task.id,
+            })
+          : null;
+      const consensusTierBonus =
+        confirmationCount >= 4
+          ? await tryCappedCoinAward({
+              userId,
+              reason: ENGAGEMENT.consensusTierBonus.reason,
+              amount: ENGAGEMENT.consensusTierBonus.amount,
+              dailyCap: ENGAGEMENT.consensusTierBonus.dailyCap,
+              details: `Consensus tier bonus: ${nextPrimary} (${confirmationCount} confirmations)`,
+              taskId: task.id,
+            })
+          : null;
+      const walletBalanceAfterAllRewards =
+        consensusTierBonus?.newBalance ??
+        consensusReward?.newBalance ??
+        classificationWallet.balance;
+
+      return res.json({
+        ...updatedTask,
+        classification: nextPrimary,
+        classificationReward: {
+          coinsEarned,
+          classification: nextPrimary,
+          newBalance: walletBalanceAfterAllRewards,
+        },
+        consensusCorrectionReward: consensusReward,
+        consensusTierBonus,
+        confirmationCount,
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({ message: error.message });
+      }
+      return res.status(500).json({ message: "Failed to reclassify task" });
+    }
+  });
+
+  app.get("/api/tasks/:id/classification-thumb", requireAuth, async (req, res) => {
+    try {
+      const state = await getClassificationThumbState(req.params.id, req.user!.id);
+      res.json(state);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load classification thumb state" });
+    }
+  });
+
+  app.post("/api/tasks/:id/classification-thumb", requireAuth, async (req, res) => {
+    try {
+      const result = await awardClassificationThumbUp(req.user!.id, req.params.id);
+      if (!result.ok) {
+        const status =
+          result.code === "task_not_found"
+            ? 404
+            : result.code === "no_classification"
+              ? 400
+              : 409;
+        return res.status(status).json({ message: result.code });
+      }
+      res.json({
+        coinsEarned: result.coinsEarned,
+        newBalance: result.newBalance,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to record classification thumb" });
     }
   });
 
@@ -1834,20 +2490,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
           allTasks.filter(t => t.id !== task.id)
         );
 
-        const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
+        const { result: clsRes, associations } = await classifyWithAssociations(
+          task.activity,
+          task.notes || "",
+          { preferExternal: false },
+        );
 
         await storage.updateTask(userId, {
           id: task.id,
           priority: priorityResult.priority,
           priorityScore: Math.round(priorityResult.score * 10),
-          classification,
+          classification: clsRes.classification,
+          classificationAssociations: associations,
           isRepeated: priorityResult.isRepeated,
         });
       }
 
-      res.json({ message: "All priorities recalculated successfully" });
+      const recalculateReward =
+        allTasks.length > 0
+          ? await tryCappedCoinAward({
+              userId,
+              reason: ENGAGEMENT.recalculate.reason,
+              amount: ENGAGEMENT.recalculate.amount,
+              dailyCap: ENGAGEMENT.recalculate.dailyCap,
+              details: `Recalculated ${allTasks.length} task priorities`,
+            })
+          : null;
+
+      res.json({ message: "All priorities recalculated successfully", recalculateReward });
     } catch (error) {
       res.status(500).json({ message: "Failed to recalculate priorities" });
+    }
+  });
+
+  const recalculateRatingSchema = z.object({
+    rating: z.number().int().min(1).max(5),
+  });
+
+  app.post("/api/tasks/recalculate/rating", requireAuth, async (req, res) => {
+    try {
+      const { rating } = recalculateRatingSchema.parse(req.body || {});
+      const reward =
+        rating >= 4
+          ? await tryCappedCoinAward({
+              userId: req.user!.id,
+              reason: ENGAGEMENT.recalculateRating.reason,
+              amount: ENGAGEMENT.recalculateRating.amount,
+              dailyCap: ENGAGEMENT.recalculateRating.dailyCap,
+              details: `Urgency recalculate rating submitted: ${rating}/5`,
+            })
+          : null;
+      res.status(201).json({ ok: true, rating, reward });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to submit recalculate rating" });
     }
   });
 
@@ -1996,13 +2692,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             allTasks.filter(t => t.id !== task.id)
           );
 
-          const classification = await classifyTaskWithFallback(task.activity, task.notes || "", false);
+          const { result: clsRes, associations } = await classifyWithAssociations(
+            task.activity,
+            task.notes || "",
+            { preferExternal: false },
+          );
 
           const updatedTask = await storage.updateTask(userId, {
             id: task.id,
             priority: priorityResult.priority,
             priorityScore: Math.round(priorityResult.score * 10),
-            classification,
+            classification: clsRes.classification,
+            classificationAssociations: associations,
             isRepeated: priorityResult.isRepeated,
           });
 
@@ -2084,8 +2785,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })).min(1).max(500),
   });
 
+  app.post("/api/checklist/:date/download", requireAuth, async (req, res) => {
+    try {
+      const { date } = req.params;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
+      }
+      const userId = req.user!.id;
+      const prices = await getProductivityExportPricesForUser(userId);
+      const required = priceForKind(prices, "checklistPdf");
+      if (!prices.freeInDev && required > 0) {
+        const w = await spendCoins(userId, required, "productivity_export:checklist_pdf");
+        if (!w) {
+          const bal = await getOrCreateWallet(userId);
+          return res.status(402).json({
+            code: "INSUFFICIENT_COINS",
+            required,
+            balance: bal.balance,
+            message: "Not enough AxCoins for this checklist PDF.",
+          });
+        }
+      }
+
+      const allTasks = await storage.getTasks(userId);
+      const dayTasks = allTasks.filter((t) => t.date === date);
+      const userName = req.user!.displayName || req.user!.email;
+      const pdfDoc = generateChecklistPDF(dayTasks, date, userName);
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="AxTask-Checklist-${date}.pdf"`);
+
+      pdfDoc.pipe(res);
+      pdfDoc.end();
+    } catch (error) {
+      console.error("Checklist PDF download error:", error);
+      res.status(500).json({ message: "Failed to generate checklist" });
+    }
+  });
+
   app.get("/api/checklist/:date", requireAuth, async (req, res) => {
     try {
+      if (process.env.NODE_ENV === "production") {
+        return res.status(402).json({
+          code: "PAYMENT_REQUIRED",
+          message: "Use Print Checklist in the app to download the PDF (AxCoins).",
+        });
+      }
+
       const { date } = req.params;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD." });
@@ -2370,6 +3116,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/voice/preferences", requireAuth, async (req, res) => {
+    try {
+      const preference = await getUserVoicePreference(req.user!.id);
+      res.json(preference);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch voice preferences" });
+    }
+  });
+
+  app.patch("/api/voice/preferences", requireAuth, async (req, res) => {
+    try {
+      const payload = updateVoicePreferenceSchema.parse(req.body || {});
+      if (Object.keys(payload).length === 0) {
+        return res.status(400).json({ message: "At least one preference field is required" });
+      }
+      const preference = await upsertUserVoicePreference({
+        userId: req.user!.id,
+        listeningMode: payload.listeningMode,
+      });
+      return res.json(preference);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: error.issues[0]?.message ?? "Invalid request body",
+        });
+      }
+      console.error("[voice/preferences] PATCH failed", error);
+      return res.status(500).json({ message: "Failed to update voice preferences" });
+    }
+  });
+
   app.post("/api/voice/process", voiceLimiter, requireAuth, async (req, res) => {
     try {
       const { transcript } = req.body;
@@ -2395,6 +3172,162 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ════════════════════════════════════════════════════════════════════════
+  //  Task Review routes (bulk voice-driven task management)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.post("/api/tasks/review", requireAuth, async (req, res) => {
+    try {
+      const { transcript } = req.body;
+      if (!transcript || typeof transcript !== "string") {
+        return res.status(400).json({ message: "Transcript is required" });
+      }
+      if (transcript.length > 2000) {
+        return res.status(400).json({ message: "Transcript must be under 2000 characters" });
+      }
+      const sanitized = transcript.replace(/<[^>]*>/g, "").trim();
+
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const now = new Date();
+      const result = processTaskReview(sanitized, allTasks, now);
+      res.json(result);
+    } catch (error) {
+      console.error("Task review error:", error);
+      res.status(500).json({ message: "Failed to process task review" });
+    }
+  });
+
+  app.post("/api/tasks/review/apply", requireAuth, async (req, res) => {
+    try {
+      const { actions } = req.body;
+      if (!Array.isArray(actions) || actions.length === 0) {
+        return res.status(400).json({ message: "Actions array is required" });
+      }
+      if (actions.length > 50) {
+        return res.status(400).json({ message: "Maximum 50 actions per batch" });
+      }
+
+      const userId = req.user!.id;
+      const results: Array<{ taskId: string; success: boolean; error?: string }> = [];
+
+      for (const action of actions as ReviewAction[]) {
+        try {
+          if (!action.taskId || !action.type) {
+            results.push({ taskId: action.taskId || "unknown", success: false, error: "Invalid action" });
+            continue;
+          }
+
+          const existingTask = await storage.getTask(userId, action.taskId);
+          if (!existingTask) {
+            results.push({ taskId: action.taskId, success: false, error: "Task not found or access denied" });
+            continue;
+          }
+
+          const previousStatus = existingTask.status;
+
+          switch (action.type) {
+            case "complete": {
+              const updatedTask = await storage.updateTask(userId, { id: action.taskId, status: "completed" });
+              if (updatedTask) {
+                try {
+                  await awardCoinsForCompletion(userId, updatedTask, previousStatus);
+                } catch (coinErr) {
+                  console.error(`Coin award failed for task ${action.taskId}:`, coinErr);
+                }
+              }
+              results.push({ taskId: action.taskId, success: true });
+              break;
+            }
+            case "reschedule": {
+              const newDate = action.details?.newDate;
+              if (typeof newDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+                await storage.updateTask(userId, { id: action.taskId, date: newDate });
+                results.push({ taskId: action.taskId, success: true });
+              } else {
+                results.push({ taskId: action.taskId, success: false, error: "Invalid date" });
+              }
+              break;
+            }
+            case "update": {
+              const updatePayload: UpdateTask = { id: action.taskId };
+              const validPriorities = ["Lowest", "Low", "Medium", "Medium-High", "High", "Highest"];
+              if (action.details?.priority && typeof action.details.priority === "string" && validPriorities.includes(action.details.priority)) {
+                updatePayload.priority = action.details.priority;
+              }
+              if (action.details?.notes && typeof action.details.notes === "string") {
+                updatePayload.notes = action.details.notes.slice(0, 2000);
+              }
+              if (Object.keys(updatePayload).length > 1) {
+                await storage.updateTask(userId, updatePayload);
+                results.push({ taskId: action.taskId, success: true });
+              } else {
+                results.push({ taskId: action.taskId, success: false, error: "No valid updates" });
+              }
+              break;
+            }
+            default:
+              results.push({ taskId: action.taskId, success: false, error: "Unknown action type" });
+          }
+        } catch (err) {
+          results.push({ taskId: action.taskId, success: false, error: "Processing error" });
+        }
+      }
+
+      const applied = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      res.json({ applied, failed, results });
+    } catch (error) {
+      console.error("Task review apply error:", error);
+      res.status(500).json({ message: "Failed to apply task review" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Pattern Learning routes (protected)
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/patterns/insights", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const patterns = await getPatterns(userId);
+      const insights = getInsights(patterns);
+      res.json({ insights, patternCount: patterns.length });
+    } catch (error) {
+      console.error("Pattern insights error:", error);
+      res.status(500).json({ message: "Failed to get pattern insights" });
+    }
+  });
+
+  app.post("/api/patterns/learn", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const allTasks = await storage.getTasks(userId);
+      const patterns = await analyzeTaskHistory(userId, allTasks);
+      const insights = getInsights(patterns);
+      res.json({ learned: patterns.length, insights });
+    } catch (error) {
+      console.error("Pattern learning error:", error);
+      res.status(500).json({ message: "Failed to analyze patterns" });
+    }
+  });
+
+  app.post("/api/patterns/suggest-deadline", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const { activity } = req.body;
+      if (!activity || typeof activity !== "string") {
+        return res.status(400).json({ message: "Activity is required" });
+      }
+      const patterns = await getPatterns(userId);
+      const suggestion = suggestDeadline(activity, patterns);
+      res.json({ suggestion });
+    } catch (error) {
+      console.error("Deadline suggestion error:", error);
+      res.status(500).json({ message: "Failed to suggest deadline" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
   //  Gamification routes (protected)
   // ════════════════════════════════════════════════════════════════════════
 
@@ -2403,8 +3336,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/account", apiLimiter);
   app.use("/api/billing", apiLimiter);
 
-  await seedRewardsCatalog();
-  await seedOfflineSkillTree();
+  try {
+    await seedRewardsCatalog();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[seed] Rewards catalog seed failed (${msg}). Start PostgreSQL and ensure DATABASE_URL is correct. The server will continue; gamification data may be incomplete until the database is reachable.`,
+    );
+  }
+  try {
+    await seedOfflineSkillTree();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[seed] Offline skill tree seed failed (${msg}). Start PostgreSQL and ensure DATABASE_URL is correct. The server will continue.`,
+    );
+  }
+  try {
+    await seedAvatarSkillTree();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[seed] Avatar skill tree seed failed (${msg}). Start PostgreSQL and ensure DATABASE_URL is correct. The server will continue.`,
+    );
+  }
 
   app.get("/api/gamification/wallet", requireAuth, async (req, res) => {
     try {
@@ -2417,11 +3372,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const diffDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
         if (diffDays > 1) {
           wallet.currentStreak = 0;
+          await resetStreak(req.user!.id);
         }
       }
-      res.json(wallet);
+      res.json(toPublicWallet(wallet));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch wallet" });
+    }
+  });
+
+  app.get("/api/gamification/classification-stats", requireAuth, async (req, res) => {
+    try {
+      const [stats] = await db
+        .select({
+          totalClassifications: sql<number>`
+            coalesce(sum(case when ${coinTransactions.reason} = 'task_classification' then 1 else 0 end), 0)
+          `,
+          totalConfirmationsReceived: sql<number>`
+            coalesce(sum(case when ${coinTransactions.reason} = 'classification_confirmation_received' then 1 else 0 end), 0)
+          `,
+          totalClassificationCoins: sql<number>`
+            coalesce(sum(case when ${coinTransactions.reason} in (
+              'task_classification',
+              'classification_confirmation_received',
+              'classification_confirmer'
+            ) then ${coinTransactions.amount} else 0 end), 0)
+          `,
+        })
+        .from(coinTransactions)
+        .where(eq(coinTransactions.userId, req.user!.id));
+
+      res.json({
+        totalClassifications: Number(stats?.totalClassifications ?? 0),
+        totalConfirmationsReceived: Number(stats?.totalConfirmationsReceived ?? 0),
+        totalClassificationCoins: Number(stats?.totalClassificationCoins ?? 0),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch classification stats" });
     }
   });
 
@@ -2429,7 +3416,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
       const txs = await getTransactions(req.user!.id, limit);
-      res.json(txs);
+      res.json(toPublicCoinTransactions(txs));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch transactions" });
     }
@@ -2438,7 +3425,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/gamification/badges", requireAuth, async (req, res) => {
     try {
       const earned = await getUserBadges(req.user!.id);
-      res.json({ earned, definitions: BADGE_DEFINITIONS });
+      res.json({ earned: toPublicBadges(earned), definitions: BADGE_DEFINITIONS });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch badges" });
     }
@@ -2462,39 +3449,307 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/gamification/productivity-export-prices", requireAuth, async (req, res) => {
+    try {
+      const prices = await getProductivityExportPricesForUser(req.user!.id);
+      res.json(prices);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load export prices" });
+    }
+  });
+
+  app.post("/api/gamification/rewards/sell-back", requireAuth, async (req, res) => {
+    try {
+      const body = z.object({ userRewardId: z.string().uuid() }).safeParse(req.body);
+      if (!body.success) {
+        return res.status(400).json({ message: "userRewardId is required" });
+      }
+      const result = await sellBackUserReward(req.user!.id, body.data.userRewardId);
+      if (!result.ok) {
+        return res.status(404).json({ message: "Reward not found" });
+      }
+      const wallet = await getOrCreateWallet(req.user!.id);
+      res.json({
+        message:
+          result.refund > 0
+            ? `Sold back for ${result.refund} AxCoins`
+            : "Item removed (no coin refund for avatar-level unlocks)",
+        refund: result.refund,
+        wallet: toPublicWallet(wallet),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to sell back reward" });
+    }
+  });
+
+  function ownerCoinGrantAllowlist(): Set<string> {
+    const raw = process.env.OWNER_COIN_GRANT_USER_IDS ?? "";
+    return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+  }
+
+  app.post("/api/gamification/owner/grant-coins", requireAuth, async (req, res) => {
+    try {
+      if (!ownerCoinGrantAllowlist().has(req.user!.id)) {
+        return res.status(404).json({ message: "Not found" });
+      }
+      const body = z
+        .object({
+          targetUserId: z.string().uuid(),
+          amount: z.number().int().positive().max(1_000_000_000),
+          note: z.string().max(500).optional(),
+        })
+        .safeParse(req.body);
+      if (!body.success) {
+        return res.status(400).json({ message: "targetUserId and a positive amount are required" });
+      }
+      const result = await ownerGrantCoinsToUser(body.data.targetUserId, body.data.amount, body.data.note);
+      if (!result.ok) {
+        if (result.code === "user_not_found") return res.status(404).json({ message: "User not found" });
+        return res.status(400).json({ message: "Invalid amount" });
+      }
+      await logSecurityEvent(
+        "owner_coin_grant",
+        req.user!.id,
+        body.data.targetUserId,
+        req.ip ?? undefined,
+        `amount=${body.data.amount}; note=${body.data.note ?? ""}`,
+      );
+      res.json({ ok: true, wallet: toPublicWallet(result.wallet) });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to grant coins" });
+    }
+  });
+
   app.post("/api/gamification/redeem", requireAuth, async (req, res) => {
     try {
       const { rewardId } = req.body;
       if (!rewardId || typeof rewardId !== "string") {
         return res.status(400).json({ message: "Reward ID is required" });
       }
+      const reward = await getRewardById(rewardId);
+      const maxLevel = await getMaxAvatarLevel(req.user!.id);
       const success = await redeemReward(req.user!.id, rewardId);
       if (!success) {
-        return res.status(400).json({ message: "Insufficient coins or reward not found" });
+        return res.status(400).json({ message: "Insufficient coins, ineligible level, or reward not found" });
       }
       const wallet = await getOrCreateWallet(req.user!.id);
-      res.json({ message: "Reward redeemed!", wallet });
+      const unlockedByLevel =
+        reward?.unlockAtAvatarLevel != null && maxLevel >= reward.unlockAtAvatarLevel;
+      res.json({
+        message: unlockedByLevel ? "Reward unlocked via avatar level!" : "Reward redeemed!",
+        unlockedByLevel,
+        wallet: toPublicWallet(wallet),
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to redeem reward" });
+    }
+  });
+
+  const alarmSnapshotBodySchema = z.object({
+    deviceKey: z.string().max(80).optional(),
+    label: z.string().max(120).optional(),
+    payloadJson: z.string().min(2).max(500_000),
+  });
+
+  app.get("/api/alarm-snapshots", requireAuth, async (req, res) => {
+    try {
+      const rows = await listUserAlarmSnapshots(req.user!.id);
+      res.json({
+        snapshots: rows.map((r) => ({
+          id: r.id,
+          deviceKey: r.deviceKey,
+          label: r.label,
+          capturedAt: r.capturedAt,
+          createdAt: r.createdAt,
+        })),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to list alarm snapshots" });
+    }
+  });
+
+  app.post("/api/alarm-snapshots", requireAuth, async (req, res) => {
+    try {
+      const body = alarmSnapshotBodySchema.parse(req.body || {});
+      const row = await createUserAlarmSnapshot(req.user!.id, body);
+      res.status(201).json({
+        id: row.id,
+        deviceKey: row.deviceKey,
+        label: row.label,
+        capturedAt: row.capturedAt,
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to save alarm snapshot" });
+    }
+  });
+
+  app.get("/api/alarm-snapshots/:id/payload", requireAuth, async (req, res) => {
+    try {
+      const row = await getUserAlarmSnapshot(req.user!.id, req.params.id);
+      if (!row) return res.status(404).json({ message: "Snapshot not found" });
+      res.json({ payloadJson: row.payloadJson, label: row.label, deviceKey: row.deviceKey, capturedAt: row.capturedAt });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load alarm snapshot" });
+    }
+  });
+
+  const collabBodySchema = z.object({
+    body: z.string().min(1).max(8000),
+    taskId: z.string().uuid().optional(),
+    attachmentAssetIds: z.array(z.string().min(1)).max(8).default([]),
+  });
+
+  app.get("/api/collaboration/inbox", requireAuth, async (req, res) => {
+    try {
+      const rows = await listCollaborationInbox(req.user!.id);
+      const decorated = await Promise.all(
+        rows.map(async (row) => {
+          const assets = await getAttachmentsForOwner({
+            userId: req.user!.id,
+            ownerType: "collab_message",
+            ownerId: row.id,
+          });
+          return { ...row, attachments: toPublicAttachmentRefs(assets) };
+        }),
+      );
+      res.json({ messages: decorated });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load collaboration inbox" });
+    }
+  });
+
+  app.post("/api/collaboration/inbox", requireAuth, async (req, res) => {
+    try {
+      const body = collabBodySchema.parse(req.body || {});
+      const row = await appendCollaborationMessage({
+        userId: req.user!.id,
+        body: body.body,
+        taskId: body.taskId ?? null,
+        senderUserId: req.user!.id,
+      });
+      const assets = await linkAttachmentsToOwner({
+        userId: req.user!.id,
+        ownerType: "collab_message",
+        ownerId: row.id,
+        assetIds: body.attachmentAssetIds,
+      });
+      res.status(201).json({ ...row, attachments: toPublicAttachmentRefs(assets) });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to append message" });
+    }
+  });
+
+  app.post("/api/collaboration/inbox/:id/read", requireAuth, async (req, res) => {
+    try {
+      const ok = await markCollaborationMessageRead(req.user!.id, req.params.id);
+      if (!ok) return res.status(404).json({ message: "Message not found" });
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to mark read" });
+    }
+  });
+
+  const locationPlaceSchema = z.object({
+    id: z.string().uuid().optional(),
+    name: z.string().min(1).max(120),
+    lat: z.number().finite().optional().nullable(),
+    lng: z.number().finite().optional().nullable(),
+    radiusMeters: z.number().int().min(50).max(5000).optional(),
+  });
+
+  app.get("/api/location-places", requireAuth, async (req, res) => {
+    try {
+      const rows = await listUserLocationPlaces(req.user!.id);
+      res.json({ places: rows });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to list places" });
+    }
+  });
+
+  app.post("/api/location-places", requireAuth, async (req, res) => {
+    try {
+      const body = locationPlaceSchema.parse(req.body || {});
+      const row = await upsertUserLocationPlace(req.user!.id, body);
+      if (!row) return res.status(404).json({ message: "Place not found" });
+      res.status(201).json(row);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to save place" });
     }
   });
 
   app.get("/api/gamification/profile", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const [wallet, badges, rewards, txs] = await Promise.all([
+      const [wallet, badges, rewards, txs, classificationStats] = await Promise.all([
         getOrCreateWallet(userId),
         getUserBadges(userId),
         getUserRewards(userId),
         getTransactions(userId, 20),
+        getUserClassificationStats(userId),
       ]);
-      res.json({ wallet, badges, rewards, transactions: txs, definitions: BADGE_DEFINITIONS });
+      res.json({
+        wallet: toPublicWallet(wallet),
+        badges: toPublicBadges(badges),
+        rewards,
+        transactions: toPublicCoinTransactions(txs),
+        definitions: BADGE_DEFINITIONS,
+        classificationStats,
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch profile" });
     }
   });
 
+  app.get("/api/gamification/economy-diagnostics", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const tasks = await storage.getTasks(userId);
+      const rewardsToday = await Promise.all(
+        Object.values(ENGAGEMENT).map(async (entry) => ({
+          reason: entry.reason,
+          todayCount: await countCoinEventsToday(userId, entry.reason),
+          dailyCap: entry.dailyCap,
+        })),
+      );
+      const averagePScore =
+        tasks.length > 0
+          ? Number(
+              (
+                tasks.reduce((sum, task) => sum + Number(task.priorityScore ?? 0), 0) /
+                tasks.length /
+                10
+              ).toFixed(2),
+            )
+          : 0;
+      res.json({
+        rewardsToday,
+        averagePScore,
+        pScoreScale: "0-10",
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch economy diagnostics" });
+    }
+  });
+
   const offlineSkillUnlockSchema = z.object({
+    skillKey: z.string().min(2).max(80),
+  });
+
+  const avatarEngageSchema = z.object({
+    sourceType: z.enum(["task", "feedback", "post"]),
+    sourceRef: z.string().min(2).max(160),
+    text: z.string().min(1).max(2000),
+    completed: z.boolean().default(false),
+  });
+
+  const avatarSpendSchema = z.object({
+    coins: z.number().int().min(1).max(10000),
+  });
+
+  const avatarSkillUnlockSchema = z.object({
     skillKey: z.string().min(2).max(80),
   });
 
@@ -2571,6 +3826,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/gamification/avatars", requireAuth, async (req, res) => {
+    try {
+      const avatars = await getAvatarProfiles(req.user!.id);
+      res.json({ avatars });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch avatars" });
+    }
+  });
+
+  /**
+   * Lightweight read-only feed of persona openers per avatar. The client
+   * caches this (TanStack Query `staleTime: Infinity`) and picks a random
+   * opener when rendering a feedback nudge so the dialog feels tied to a
+   * companion instead of generic copy. See docs/FEEDBACK_AVATAR_NUDGES.md.
+   */
+  app.get("/api/gamification/avatar-voices", requireAuth, async (_req, res) => {
+    try {
+      const voices = listAvatarVoiceOpeners();
+      res.json({ voices });
+    } catch {
+      res.status(500).json({ message: "Failed to fetch avatar voices" });
+    }
+  });
+
+  app.post("/api/gamification/avatars/:avatarKey/engage", requireAuth, async (req, res) => {
+    try {
+      const payload = avatarEngageSchema.parse(req.body ?? {});
+      const result = await engageAvatarMission({
+        userId: req.user!.id,
+        avatarKey: req.params.avatarKey,
+        sourceType: payload.sourceType,
+        sourceRef: payload.sourceRef,
+        text: payload.text,
+        completed: payload.completed,
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to engage avatar mission" });
+    }
+  });
+
+  app.post("/api/gamification/avatars/:avatarKey/spend", requireAuth, async (req, res) => {
+    try {
+      const { coins } = avatarSpendSchema.parse(req.body ?? {});
+      const result = await spendCoinsForAvatarBoost(req.user!.id, req.params.avatarKey, coins);
+      if (!result.ok) return res.status(400).json(result);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to spend coins on avatar" });
+    }
+  });
+
+  app.get("/api/gamification/avatar-skills", requireAuth, async (req, res) => {
+    try {
+      const skills = await getAvatarSkillTree(req.user!.id);
+      res.json(skills);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch avatar skills" });
+    }
+  });
+
+  app.post("/api/gamification/avatar-skills/unlock", requireAuth, async (req, res) => {
+    try {
+      const { skillKey } = avatarSkillUnlockSchema.parse(req.body);
+      const result = await unlockAvatarSkill(req.user!.id, skillKey);
+      if (!result.ok) {
+        return res.status(400).json(result);
+      }
+      const skills = await getAvatarSkillTree(req.user!.id);
+      res.json({ ...result, skills });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to unlock avatar skill" });
+    }
+  });
+
+  // ── Classification categories + suggestions (protected) ───────────────────
+  app.get("/api/classification/categories", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const custom = await listUserClassificationLabels(userId);
+      res.json({
+        builtIn: BUILT_IN_CLASSIFICATIONS.map((c) => ({ label: c.label, coins: c.coins })),
+        custom: custom.map((c) => ({ id: c.id, label: c.label, coins: c.coins })),
+      });
+    } catch {
+      res.status(500).json({ message: "Failed to load categories" });
+    }
+  });
+
+  app.post("/api/classification/categories", requireAuth, async (req, res) => {
+    try {
+      const { name } = z.object({ name: z.string().min(2).max(48) }).parse(req.body ?? {});
+      const row = await addUserClassificationLabel(req.user!.id, name);
+      res.json(row);
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({ message: error.message });
+      }
+      res.status(500).json({ message: "Failed to add category" });
+    }
+  });
+
+  const classificationSuggestionsSchema = z.object({
+    activity: z.string().min(1).max(500),
+    notes: z.string().max(5000).optional().default(""),
+  });
+
+  app.post("/api/classification/suggestions", requireAuth, async (req, res) => {
+    try {
+      const body = classificationSuggestionsSchema.parse(req.body ?? {});
+      const { result, associations } = await classifyWithAssociations(body.activity, body.notes || "", {
+        preferExternal: true,
+      });
+      const sourceTag =
+        result.source === "external_api"
+          ? "nodeweaver"
+          : result.source === "priority_engine"
+            ? "axtask"
+            : "catalog";
+      const suggestions = associations.map((a) => ({
+        label: a.label,
+        confidence: a.confidence,
+        source: sourceTag,
+      }));
+      res.json({ suggestions });
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({ message: error.message });
+      }
+      res.status(500).json({ message: "Suggestions failed" });
+    }
+  });
+
   // ── Universal classifier API (protected) ───────────────────────────────────
   const classifySchema = z.object({
     activity: z.string().min(1).max(500),
@@ -2592,6 +3983,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Feedback + attachments ────────────────────────────────────────────────
+  const feedbackNudgeContextSchema = z
+    .object({
+      avatarKey: feedbackAvatarKeySchema.optional().nullable(),
+      source: z.string().max(128).optional().nullable(),
+      insightful: z.enum(["up", "down"]).optional().nullable(),
+    })
+    .optional();
+
   const feedbackSchema = z.object({
     message: z.string().min(5).max(5000),
     attachmentAssetIds: z.array(z.string().min(1)).max(10).default([]),
@@ -2600,6 +3999,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       mimeType: z.string().min(3),
       byteSize: z.number().int().nonnegative().max(10 * 1024 * 1024),
     })).max(10).default([]),
+    nudgeContext: feedbackNudgeContextSchema,
   });
 
   const uploadUrlSchema = z.object({
@@ -2615,7 +4015,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     attachmentCount: z.number().int().min(0).max(10).default(0),
   });
 
-  app.post("/api/attachments/upload-url", requireAuth, async (req, res) => {
+  app.post("/api/attachments/upload-url", requireAuth, attachmentUploadLimiter, async (req, res) => {
     try {
       const payload = uploadUrlSchema.parse(req.body);
       const canStore = await assertCanStoreAttachment(req.user!.id, payload.byteSize);
@@ -2659,7 +4059,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/attachments/upload/:token", requireAuth, express.raw({ type: "*/*", limit: "12mb" }), async (req, res) => {
+  app.put("/api/attachments/upload/:token", requireAuth, attachmentUploadLimiter, express.raw({ type: "*/*", limit: "12mb" }), async (req, res) => {
     try {
       const parsed = verifyUploadToken(req.params.token, getUploadSigningSecret());
       if (!parsed) {
@@ -2704,6 +4104,191 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Upload failed" });
+    }
+  });
+
+  /**
+   * Paste-as-URL fallback. The client pastes an <img> URL or a copied image
+   * link; we download via the SSRF-safe fetcher, re-host it, and return an
+   * attachment_assets row. Never lets the SPA reach the third-party origin
+   * at render time (so CSP does not have to be widened).
+   */
+  const importUrlSchema = z.object({
+    url: z.string().min(8).max(2048),
+    kind: z.string().min(2).max(40).default("paste"),
+    taskId: z.string().optional(),
+  });
+
+  app.post(
+    "/api/attachments/import-url",
+    requireAuth,
+    attachmentUploadLimiter,
+    async (req, res) => {
+      try {
+        const payload = importUrlSchema.parse(req.body);
+        let fetched;
+        try {
+          fetched = await fetchImageByUrl(payload.url);
+        } catch (err) {
+          if (err instanceof UrlFetchError) {
+            await appendSecurityEvent({
+              eventType: "attachment_url_rejected",
+              actorUserId: req.user!.id,
+              route: req.path,
+              method: req.method,
+              statusCode: 400,
+              ipAddress: req.ip,
+              userAgent: req.get("user-agent") || undefined,
+              payload: { reason: err.reason, hop: err.hop },
+            });
+            return res.status(400).json({ message: `URL import rejected: ${err.reason}` });
+          }
+          throw err;
+        }
+
+        const canStore = await assertCanStoreAttachment(req.user!.id, fetched.byteSize);
+        if (!canStore.ok) return res.status(413).json({ message: canStore.message });
+
+        const fileName = `paste-${Date.now()}.${fetched.mimeType.split("/")[1] || "bin"}`;
+        const asset = await createAttachmentAsset({
+          userId: req.user!.id,
+          kind: payload.kind,
+          taskId: payload.taskId,
+          fileName,
+          mimeType: fetched.mimeType,
+          byteSize: fetched.byteSize,
+          metadataJson: JSON.stringify({
+            status: "uploaded",
+            source: "paste_url",
+            finalUrl: fetched.finalUrl,
+          }),
+        });
+        const storageKey = buildAttachmentStorageKey(req.user!.id, asset.id, fileName);
+        await writeAttachmentObject(storageKey, fetched.buffer);
+        await markAttachmentAssetUploaded(req.user!.id, asset.id, {
+          status: "uploaded",
+          source: "paste_url",
+          storageKey,
+          uploadedAt: new Date().toISOString(),
+        });
+
+        await appendSecurityEvent({
+          eventType: "attachment_url_imported",
+          actorUserId: req.user!.id,
+          route: req.path,
+          method: req.method,
+          statusCode: 201,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: { assetId: asset.id, byteSize: fetched.byteSize },
+        });
+
+        res.status(201).json({ assetId: asset.id, mimeType: fetched.mimeType, byteSize: fetched.byteSize });
+      } catch (error) {
+        if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+        if (error instanceof Error) return res.status(400).json({ message: error.message });
+        res.status(500).json({ message: "URL import failed" });
+      }
+    },
+  );
+
+  /**
+   * GIF provider search proxy. Keeps API keys on the server and normalises
+   * upstream shapes to a fixed `GifSearchResult` contract. The `previewUrl`
+   * field is safe to render via the existing img-src CSP; when the user
+   * selects one, the SPA calls /api/gif/resolve which re-hosts the bytes.
+   */
+  const gifSearchQuerySchema = z.object({
+    q: z.string().min(1).max(80),
+    provider: z.enum(["giphy", "tenor"]).default("giphy"),
+    limit: z.coerce.number().int().min(1).max(24).optional(),
+  });
+
+  app.get("/api/gif/search", requireAuth, gifSearchLimiter, async (req, res) => {
+    try {
+      const params = gifSearchQuerySchema.parse(req.query);
+      if (!hasAnyGifProvider()) {
+        return res.status(503).json({ message: "GIF search is not configured on this deployment" });
+      }
+      const results = await searchGifs(params.provider as GifSearchProvider, {
+        q: params.q,
+        limit: params.limit,
+      });
+      res.json({ provider: params.provider, results });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+      if (error instanceof GifSearchConfigError) {
+        return res.status(503).json({ message: error.message });
+      }
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "GIF search failed" });
+    }
+  });
+
+  /**
+   * Re-hosts a picked GIF so the rendered chat bubble never hotlinks
+   * giphy.com / tenor.com. Body is validated+downloaded through the
+   * SSRF-safe fetcher, then stored just like a regular paste.
+   */
+  const gifResolveSchema = z.object({
+    provider: z.enum(["giphy", "tenor"]),
+    id: z.string().min(1).max(128),
+    originalUrl: z.string().url().max(2048),
+  });
+
+  app.post("/api/gif/resolve", requireAuth, gifSearchLimiter, async (req, res) => {
+    try {
+      const payload = gifResolveSchema.parse(req.body);
+      let fetched;
+      try {
+        fetched = await fetchImageByUrl(payload.originalUrl);
+      } catch (err) {
+        if (err instanceof UrlFetchError) {
+          await appendSecurityEvent({
+            eventType: "gif_resolve_rejected",
+            actorUserId: req.user!.id,
+            route: req.path,
+            method: req.method,
+            statusCode: 400,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+            payload: { reason: err.reason, provider: payload.provider },
+          });
+          return res.status(400).json({ message: `GIF rejected: ${err.reason}` });
+        }
+        throw err;
+      }
+
+      const canStore = await assertCanStoreAttachment(req.user!.id, fetched.byteSize);
+      if (!canStore.ok) return res.status(413).json({ message: canStore.message });
+
+      const fileName = `${payload.provider}-${payload.id}.gif`;
+      const asset = await createAttachmentAsset({
+        userId: req.user!.id,
+        kind: "gif",
+        fileName,
+        mimeType: fetched.mimeType,
+        byteSize: fetched.byteSize,
+        metadataJson: JSON.stringify({
+          status: "uploaded",
+          source: `gif_${payload.provider}`,
+          providerId: payload.id,
+        }),
+      });
+      const storageKey = buildAttachmentStorageKey(req.user!.id, asset.id, fileName);
+      await writeAttachmentObject(storageKey, fetched.buffer);
+      await markAttachmentAssetUploaded(req.user!.id, asset.id, {
+        status: "uploaded",
+        source: `gif_${payload.provider}`,
+        storageKey,
+        uploadedAt: new Date().toISOString(),
+      });
+
+      res.status(201).json({ assetId: asset.id, mimeType: fetched.mimeType, byteSize: fetched.byteSize });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "GIF resolve failed" });
     }
   });
 
@@ -2761,10 +4346,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
           analysis,
         },
       });
+
+      try {
+        await recordArchetypeSignal({
+          userId: req.user!.id,
+          signal: "feedback_submitted",
+          avatarKey: parsed.nudgeContext?.avatarKey ?? null,
+          source: parsed.nudgeContext?.source ?? null,
+          insightful: parsed.nudgeContext?.insightful ?? null,
+          sentiment: analysis.sentiment,
+          route: req.path,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+      } catch (err) {
+        console.warn("[archetype] failed to record feedback signal", err);
+      }
+
+      const feedbackReward = await tryCappedCoinAward({
+        userId: req.user!.id,
+        reason: ENGAGEMENT.feedbackSubmission.reason,
+        amount: ENGAGEMENT.feedbackSubmission.amount,
+        dailyCap: ENGAGEMENT.feedbackSubmission.dailyCap,
+        details: `Feedback (${parsed.message.slice(0, 80)}${parsed.message.length > 80 ? "…" : ""})`,
+      });
+
+      const feedbackCount = await getFeedbackSubmissionCount(req.user!.id);
+      const feedbackBadgesEarned = await awardFeedbackBadges(req.user!.id, feedbackCount);
+
       res.status(201).json({
         message: "Feedback submitted",
         attachments: totalAttachments,
         analysis,
+        feedbackReward,
+        feedbackBadgesEarned,
       });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
@@ -2780,6 +4395,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to process feedback" });
+    }
+  });
+
+  // ── Archetype nudge lifecycle events ─────────────────────────────────────
+  const archetypeNudgeEventSchema = z.object({
+    kind: z.enum(["shown", "dismissed", "opened"]),
+    avatarKey: feedbackAvatarKeySchema,
+    source: z.string().max(128).optional().nullable(),
+    insightful: z.enum(["up", "down"]).optional().nullable(),
+  });
+
+  app.post("/api/archetypes/nudge-event", requireAuth, async (req, res) => {
+    try {
+      const payload = archetypeNudgeEventSchema.parse(req.body);
+      const signal: ArchetypeSignalKind =
+        payload.kind === "shown" ? "nudge_shown"
+          : payload.kind === "dismissed" ? "nudge_dismissed"
+            : "nudge_opened";
+      const result = await recordArchetypeSignal({
+        userId: req.user!.id,
+        signal,
+        avatarKey: payload.avatarKey,
+        source: payload.source ?? null,
+        insightful: payload.insightful ?? null,
+        route: req.path,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+      if (!result) return res.status(400).json({ message: "Unresolvable avatar key" });
+      res.status(202).json({ recorded: true });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to record nudge event" });
     }
   });
 
@@ -3248,8 +4896,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const isFullUserBundle = (bundle: unknown): bundle is import("./migration/export").ExportBundle => {
+    if (!bundle || typeof bundle !== "object") return false;
+    const record = bundle as Record<string, unknown>;
+    const metadata = (record.metadata || {}) as Record<string, unknown>;
+    const data = (record.data || {}) as Record<string, unknown>;
+    return (
+      metadata.exportMode === "user" &&
+      (Array.isArray(data.tasks) || Array.isArray(data.userBadges) || Array.isArray(data.coinTransactions))
+    );
+  };
+
   app.post("/api/account/import/challenge", requireAuth, requireDataExportStepUp, async (req, res) => {
     try {
+      // Full user export bundles use migration import and do not require legacy ownership quiz prompts.
+      if (isFullUserBundle(req.body?.bundle)) {
+        return res.json({
+          ownershipQuizRequired: false,
+          tasksFingerprint: "",
+          questionCount: 0,
+          questions: [],
+        });
+      }
       const ch = buildImportChallenge(req.body?.bundle);
       if (ch.message) {
         return res.status(400).json(ch);
@@ -3277,6 +4945,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .optional(),
         })
         .parse(req.body);
+      if (isFullUserBundle(body.bundle)) {
+        const validation = validateBundle(body.bundle);
+        if (validation.errors.length > 0) {
+          return res.status(400).json({ message: "Bundle validation failed", errors: validation.errors });
+        }
+        const result = await importUserBundle(body.bundle, req.user!.id, { dryRun: body.dryRun });
+        return res.json(result);
+      }
       const result = await runAccountImport({
         userId: req.user!.id,
         bundle: body.bundle,
@@ -3352,6 +5028,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.session.save((err) => (err ? reject(err) : resolve()));
       });
       const fresh = await getUserById(req.user!.id);
+      if (!fresh) {
+        return res.status(500).json({ message: "Account not found after enrollment" });
+      }
       await appendSecurityEvent({
         eventType: "totp_enabled",
         actorUserId: req.user!.id,
@@ -3361,7 +5040,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
       });
-      res.json({ message: "Authenticator enabled", user: fresh });
+      res.json({ message: "Authenticator enabled", user: toPublicSessionUser(fresh) });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to confirm enrollment" });
@@ -3403,6 +5082,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await clearUserTotp(req.user!.id);
       const fresh = await getUserById(req.user!.id);
+      if (!fresh) {
+        return res.status(500).json({ message: "Account not found after disabling authenticator" });
+      }
       await appendSecurityEvent({
         eventType: "totp_disabled",
         actorUserId: req.user!.id,
@@ -3412,7 +5094,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
       });
-      res.json({ message: "Authenticator removed", user: fresh });
+      res.json({ message: "Authenticator removed", user: toPublicSessionUser(fresh) });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to disable authenticator" });
@@ -3448,6 +5130,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await setUserVerifiedPhone(req.user!.id, result.smsDestinationE164);
       const fresh = await getUserById(req.user!.id);
+      if (!fresh) {
+        return res.status(500).json({ message: "Account not found after phone verification" });
+      }
       await appendSecurityEvent({
         eventType: "phone_verified",
         actorUserId: req.user!.id,
@@ -3458,7 +5143,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userAgent: req.get("user-agent") || undefined,
         payload: {},
       });
-      res.json({ message: "Phone verified", user: fresh });
+      res.json({ message: "Phone verified", user: toPublicSessionUser(fresh) });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to verify phone" });
@@ -3493,6 +5178,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     return res.status(403).json({ message: "Admin step-up required" });
   }
+
+  app.get("/api/admin/repo-inventory", requireAdmin, requireAdminStepUp, async (_req, res) => {
+    try {
+      const { stdout: branches } = await execFileAsync("git", ["branch", "-a", "--no-color"], {
+        cwd: process.cwd(),
+        maxBuffer: 2_000_000,
+      });
+      const { stdout: recent } = await execFileAsync("git", ["log", "--oneline", "-25", "--no-color"], {
+        cwd: process.cwd(),
+        maxBuffer: 512_000,
+      });
+      res.json({
+        branches: branches.slice(0, 24_000),
+        recentCommits: recent.slice(0, 24_000),
+      });
+    } catch {
+      res.status(500).json({ message: "Git inventory unavailable" });
+    }
+  });
 
   app.get("/api/admin/step-up-status", requireAdmin, async (req, res) => {
     try {
@@ -3875,6 +5579,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/admin/performance/heuristics", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const hours = Math.min(Math.max(Number(req.query.hours || 24), 1), 168);
+      const actorUserId = typeof req.query.actorUserId === "string" ? req.query.actorUserId : null;
+      const data = await getApiPerformanceHeuristics({ windowHours: hours, actorUserId });
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load API performance heuristics" });
+    }
+  });
+
   app.get("/api/admin/premium/retention", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
       const days = Math.min(Math.max(Number(req.query.days || 30), 7), 180);
@@ -3958,14 +5673,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Only allow filenames (no directory separators) and resolve against a fixed base dir
       const allowedBaseDir = path.resolve(__dirname, "../my_corporate_workflow_files");
-      function safePath(input: string): string {
+      const safePath = (input: string): string => {
         const basename = path.basename(input); // strip any directory components
         const resolved = path.resolve(allowedBaseDir, basename);
         if (!resolved.startsWith(allowedBaseDir + path.sep) && resolved !== allowedBaseDir) {
           throw new Error(`Invalid file path: ${input}`);
         }
         return resolved;
-      }
+      };
 
       let safeTaskTracker: string, safeRoster: string, safeManager: string;
       try {
@@ -4128,27 +5843,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { extractManagerWorkbook } = await import("./services/corporate-extractors/manager-workbook-extractor");
         const { reconcile } = await import("./services/corporate-extractors/reconcile");
         const { buildContributions } = await import("./services/corporate-extractors/contributions-engine");
+        const { normalizeTeamsSnapshot } = await import("./services/corporate-extractors/teams-snapshot");
+        const { buildSuggestedFill, suggestedFillToCsv } = await import("./services/corporate-extractors/suggested-fill");
 
         const tt = extractTaskTracker(ttPath);
         const rb = extractRosterBilling(rbPath);
         const mw = mwPath ? extractManagerWorkbook(mwPath) : null;
+
+        // Optional Teams deployment-chat snapshot (posted as a multipart text
+        // field with a JSON body produced by the browser sweep).
+        let teamsNormalized: Awaited<ReturnType<typeof normalizeTeamsSnapshot>> | null = null;
+        const rawTeamsField = (req.body?.teamsSnapshot ?? "") as unknown;
+        if (typeof rawTeamsField === "string" && rawTeamsField.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(rawTeamsField);
+            teamsNormalized = normalizeTeamsSnapshot(parsed);
+          } catch {
+            // Silently ignore malformed snapshot — we still return base
+            // reconciliation rather than hard-fail the whole upload.
+            teamsNormalized = null;
+          }
+        }
+        const strictTeams = (req.body?.strictTeamsPresence === "true"
+          || req.body?.strictTeamsPresence === true);
 
         const reconResult = reconcile({
           task_evidence_daily: tt.task_evidence_daily,
           task_evidence_event: tt.task_evidence_event,
           attendance: rb.attendance,
           billing_detail_existing: rb.billing_detail_existing,
+          teams_presence: teamsNormalized?.rows,
+          strict_teams_presence: strictTeams,
         });
 
         const contribs = buildContributions({
           task_evidence_daily: tt.task_evidence_daily,
           task_evidence_event: tt.task_evidence_event,
-          attendance: rb.attendance,
           billing_detail_existing: rb.billing_detail_existing,
           manager_existing_rows: [
             ...rb.manager_internal_existing,
             ...(mw?.manager_existing_rows ?? []),
           ],
+        });
+
+        const suggestedFillRows = buildSuggestedFill({
+          exceptions: reconResult.exceptions,
+          task_catalog: tt.task_catalog,
+          teams_presence: teamsNormalized?.rows,
         });
 
         res.json({
@@ -4160,6 +5901,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
           people: rb.people,
           attendance_count: rb.attendance.length,
+          suggested_fill: {
+            rows: suggestedFillRows,
+            csv: suggestedFillToCsv(suggestedFillRows),
+          },
+          teams: teamsNormalized ? {
+            row_count: teamsNormalized.rows.length,
+            unmapped_display_names: teamsNormalized.unmapped_display_names,
+            skipped_count: teamsNormalized.skipped.length,
+            generated_at: teamsNormalized.generated_at ?? null,
+            topic_pattern: teamsNormalized.topic_pattern ?? null,
+            tool_version: teamsNormalized.tool_version ?? null,
+            strict: strictTeams,
+          } : null,
           ingest_errors: [
             ...tt.errors.map(e => ({ ...e, workbook: "task_tracker" })),
             ...rb.errors.map(e => ({ ...e, workbook: "roster" })),
@@ -4185,6 +5939,479 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     },
   );
+
+  app.post(
+    "/api/billing-bridge/hours-report",
+    requireAuth,
+    bridgeUpload.fields([
+      { name: "taskTracker", maxCount: 1 },
+      { name: "roster", maxCount: 1 },
+      { name: "manager", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      let tmpDir: string | null = null;
+      let ttPath: string | null = null;
+      let rbPath: string | null = null;
+      let mwPath: string | null = null;
+      try {
+        const fs = await import("fs");
+        const path = await import("path");
+        const os = await import("os");
+
+        const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+        if (!files?.taskTracker?.[0] || !files?.roster?.[0]) {
+          return res.status(400).json({ message: "taskTracker and roster files are required" });
+        }
+
+        const technicianQuery = String(req.body?.technicianQuery ?? "").trim();
+        const projectFilter = String(req.body?.projectFilter ?? "").trim();
+        if (!technicianQuery && !projectFilter) {
+          return res.status(400).json({
+            message: "technicianQuery and/or projectFilter is required",
+          });
+        }
+
+        const {
+          validateHoursReportParams,
+          buildTechnicianHoursReport,
+          resolveTechnicianName,
+          personMatchesProjectFilter,
+        } = await import("./services/corporate-extractors/technician-hours-report");
+        const { buildTechnicianHoursXlsxBuffer } = await import(
+          "./services/corporate-extractors/technician-hours-xlsx"
+        );
+
+        const trimBodyOpt = (raw: unknown) =>
+          raw == null ? undefined : String(raw).trim();
+
+        const v = validateHoursReportParams({
+          month: trimBodyOpt(req.body?.month),
+          focusStart: trimBodyOpt(req.body?.focusStart),
+          focusEnd: trimBodyOpt(req.body?.focusEnd),
+        });
+        if (!v.ok) {
+          return res.status(400).json({ message: v.message });
+        }
+
+        const monthStr = trimBodyOpt(req.body?.month) ?? "";
+        const focusStartStr = trimBodyOpt(req.body?.focusStart) ?? "";
+        const focusEndStr = trimBodyOpt(req.body?.focusEnd) ?? "";
+
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "billing-bridge-hours-"));
+        ttPath = path.join(tmpDir, "task_tracker.xlsx");
+        rbPath = path.join(tmpDir, "roster.xlsx");
+        mwPath = files.manager?.[0] ? path.join(tmpDir, "manager.xlsx") : null;
+
+        fs.writeFileSync(ttPath, files.taskTracker[0].buffer);
+        fs.writeFileSync(rbPath, files.roster[0].buffer);
+        if (mwPath && files.manager?.[0]) {
+          fs.writeFileSync(mwPath, files.manager[0].buffer);
+        }
+
+        const { extractRosterBilling } = await import("./services/corporate-extractors/roster-billing-extractor");
+        const { extractManagerWorkbook } = await import("./services/corporate-extractors/manager-workbook-extractor");
+
+        const rb = extractRosterBilling(rbPath);
+        const mw = mwPath ? extractManagerWorkbook(mwPath) : null;
+
+        if (technicianQuery) {
+          const resolved = resolveTechnicianName(technicianQuery, rb.people);
+          if (!resolved) {
+            const projMatches = projectFilter
+              ? rb.people.filter((p) => personMatchesProjectFilter(p, projectFilter))
+              : [];
+            if (projMatches.length !== 1) {
+              return res.status(400).json({
+                message: `No roster match for technician: ${technicianQuery}`,
+              });
+            }
+          }
+        }
+
+        const report = buildTechnicianHoursReport({
+          attendance: rb.attendance,
+          billing_detail_existing: rb.billing_detail_existing,
+          manager_existing_rows: [
+            ...rb.manager_internal_existing,
+            ...(mw?.manager_existing_rows ?? []),
+          ],
+          people: rb.people,
+          technicianQuery,
+          projectFilter,
+          month: monthStr,
+          focusStart: focusStartStr,
+          focusEnd: focusEndStr,
+          fileNames: {
+            taskTracker: files.taskTracker[0].originalname,
+            roster: files.roster[0].originalname,
+            manager: files.manager?.[0]?.originalname,
+          },
+        });
+
+        const buffer = buildTechnicianHoursXlsxBuffer(report, {
+          taskTracker: files.taskTracker[0].originalname,
+          roster: files.roster[0].originalname,
+          manager: files.manager?.[0]?.originalname,
+        });
+
+        const slugBase =
+          report.meta.resolvedTechnician ||
+          (projectFilter ? `project-${projectFilter}` : "hours");
+        const safe = slugBase.replace(/[^\w.\- ()]+/g, "_").slice(0, 72);
+        const monthPart = monthStr.replace(/\s/g, "");
+        const filename = `technician-hours-${safe}-${monthPart}.xlsx`;
+
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        );
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.send(buffer);
+      } catch (error) {
+        if (error instanceof Error) return res.status(500).json({ message: error.message });
+        res.status(500).json({ message: "Failed to build hours report" });
+      } finally {
+        try {
+          const fs = await import("fs");
+          for (const fp of [ttPath, rbPath, mwPath]) {
+            if (fp && fs.existsSync(fp)) {
+              try { fs.unlinkSync(fp); } catch {}
+            }
+          }
+          if (tmpDir && fs.existsSync(tmpDir)) {
+            try { fs.rmdirSync(tmpDir); } catch {}
+          }
+        } catch {}
+      }
+    },
+  );
+
+  // ─── Data Migration (Admin) ────────────────────────────────────────────────
+
+  app.post("/api/admin/export", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const { userId } = req.body;
+      const bundle = userId
+        ? await exportUserData(userId, { adminMode: true })
+        : await exportFullDatabase();
+
+      await logSecurityEvent(
+        "data_export",
+        req.user!.id,
+        userId || undefined,
+        req.ip,
+        `${userId ? "User" : "Full"} database export (${Object.values(bundle.metadata.tableCounts).reduce((a, b) => a + b, 0)} records)`
+      );
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="axtask-export-${userId ? "user-" + userId.slice(0, 8) : "full"}-${new Date().toISOString().slice(0, 10)}.json"`
+      );
+      res.json(bundle);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Export failed" });
+    }
+  });
+
+  app.get("/api/admin/export/:userId", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const bundle = await exportUserData(req.params.userId, { adminMode: true });
+
+      await logSecurityEvent(
+        "data_export",
+        req.user!.id,
+        req.params.userId,
+        req.ip,
+        `User data export for ${req.params.userId.slice(0, 8)}... (${Object.values(bundle.metadata.tableCounts).reduce((a: number, b: number) => a + b, 0)} records)`
+      );
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="axtask-user-${req.params.userId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json"`
+      );
+      res.json(bundle);
+    } catch (error: any) {
+      const msg = error.message || "Export failed";
+      const status = msg.includes("not found") ? 404 : 500;
+      res.status(status).json({ message: msg });
+    }
+  });
+
+  app.post("/api/admin/import", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const { bundle, dryRun, mode } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+
+      const importMode = mode === "remap" ? "remap" : "preserve";
+
+      if (!dryRun) {
+        const preCheck = await validateBundleWithDb(bundle);
+        if (preCheck.errors.length > 0) {
+          return res.json({
+            success: false,
+            dryRun: false,
+            mode: importMode,
+            inserted: {},
+            skipped: {},
+            conflicts: preCheck.conflicts,
+            errors: preCheck.errors,
+            warnings: preCheck.warnings,
+          });
+        }
+      }
+
+      const result = await importBundle(bundle, { dryRun: !!dryRun, mode: importMode });
+
+      if (!dryRun && result.success) {
+        const totalInserted = Object.values(result.inserted).reduce((a, b) => a + b, 0);
+        await logSecurityEvent(
+          "data_import",
+          req.user!.id,
+          undefined,
+          req.ip,
+          `Database import (${importMode}): ${totalInserted} records inserted, ${result.errors.length} errors`
+        );
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Import failed" });
+    }
+  });
+
+  app.post("/api/admin/import/validate", requireAdmin, migrationLimiter, async (req, res) => {
+    try {
+      const { bundle } = req.body;
+      if (!bundle || !bundle.metadata || !bundle.data) {
+        return res.status(400).json({ message: "Invalid export bundle format" });
+      }
+      const validation = await validateBundleWithDb(bundle);
+      res.json(validation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Validation failed" });
+    }
+  });
+
+  // ─── User Self-Service Export & Import (GDPR) routes are handled above with step-up auth.
+
+  // ─── Collaboration routes ──────────────────────────────────────────────────
+
+  app.get("/api/tasks/shared", requireAuth, async (req, res) => {
+    try {
+      const shared = await getSharedTasks(req.user!.id);
+      res.json(shared);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch shared tasks" });
+    }
+  });
+
+  app.get("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
+    try {
+      const access = await canAccessTask(req.user!.id, req.params.id);
+      if (!access.canAccess) return res.status(403).json({ message: "Access denied" });
+      const collaborators = await getTaskCollaborators(req.params.id);
+      res.json(collaborators);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch collaborators" });
+    }
+  });
+
+  app.post("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can add collaborators" });
+      const { email, role } = req.body;
+      if (!email) return res.status(400).json({ message: "Email is required" });
+      const validRoles = ["editor", "viewer"];
+      if (role && !validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
+      const user = await getUserByEmail(email);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (user.id === req.user!.id) return res.status(400).json({ message: "Cannot add yourself" });
+      const collab = await addCollaborator(req.params.id, user.id, role || "editor", req.user!.id);
+      res.json(collab);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to add collaborator" });
+    }
+  });
+
+  app.put("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can change roles" });
+      const { role } = req.body;
+      const validRoles = ["editor", "viewer"];
+      if (!validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
+      const updated = await updateCollaboratorRole(req.params.id, req.params.userId, role);
+      if (!updated) return res.status(404).json({ message: "Collaborator not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update collaborator" });
+    }
+  });
+
+  app.delete("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
+    try {
+      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
+      const isSelf = req.params.userId === req.user!.id;
+      if (!ownerCheck && !isSelf) return res.status(403).json({ message: "Access denied" });
+      const removed = await removeCollaborator(req.params.id, req.params.userId);
+      if (!removed) return res.status(404).json({ message: "Collaborator not found" });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to remove collaborator" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // ARCHETYPE EMPATHY READ API (admin + scoped RAG token)
+  // See docs/ARCHETYPE_EMPATHY_ANALYTICS.md for the privacy model.
+  // ════════════════════════════════════════════════════════════════════════
+
+  const ARCHETYPE_READ_HEADER = "x-axtask-archetype-token";
+  function requireArchetypeRead(req: Request, res: Response, next: NextFunction) {
+    // Admin sessions bypass the token requirement.
+    if (req.isAuthenticated?.() && req.user?.role === "admin") return next();
+    const expected = (process.env.ARCHETYPE_READ_TOKEN || "").trim();
+    if (!expected) {
+      return res.status(503).json({ message: "Archetype read disabled (no token configured)" });
+    }
+    const provided = String(req.get(ARCHETYPE_READ_HEADER) || "").trim();
+    if (!provided || provided !== expected) {
+      return res.status(401).json({ message: "Archetype read token required" });
+    }
+    next();
+  }
+
+  const ARCHETYPE_K_ANON_THRESHOLD = 5;
+  const ARCHETYPE_MAX_WINDOW_DAYS = 180;
+
+  function parseIsoDay(raw: unknown): string | null {
+    if (typeof raw !== "string") return null;
+    const m = raw.trim().match(/^\d{4}-\d{2}-\d{2}$/);
+    return m ? m[0] : null;
+  }
+
+  function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, Math.floor(n)));
+  }
+
+  app.get("/api/archetypes/empathy", requireArchetypeRead, async (req, res) => {
+    try {
+      const to = parseIsoDay(req.query.to) || new Date().toISOString().slice(0, 10);
+      const from = parseIsoDay(req.query.from)
+        || new Date(Date.parse(`${to}T00:00:00.000Z`) - 29 * 24 * 60 * 60 * 1000)
+          .toISOString().slice(0, 10);
+      const start = Date.parse(`${from}T00:00:00.000Z`);
+      const end = Date.parse(`${to}T00:00:00.000Z`);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+        return res.status(400).json({ message: "Invalid from/to range" });
+      }
+      const spanDays = Math.round((end - start) / (24 * 60 * 60 * 1000)) + 1;
+      if (spanDays > ARCHETYPE_MAX_WINDOW_DAYS) {
+        return res.status(400).json({ message: `Window exceeds ${ARCHETYPE_MAX_WINDOW_DAYS} days` });
+      }
+
+      const rows = await db
+        .select({
+          archetypeKey: archetypeRollupDaily.archetypeKey,
+          bucketDate: archetypeRollupDaily.bucketDate,
+          empathyScore: archetypeRollupDaily.empathyScore,
+          samples: archetypeRollupDaily.samples,
+        })
+        .from(archetypeRollupDaily)
+        .where(and(
+          gte(archetypeRollupDaily.bucketDate, from),
+          lte(archetypeRollupDaily.bucketDate, to),
+        ))
+        .orderBy(archetypeRollupDaily.archetypeKey, archetypeRollupDaily.bucketDate);
+
+      const grouped = new Map<string, Array<{ date: string; empathyScore: number; samples: number }>>();
+      for (const row of rows) {
+        if (row.samples < ARCHETYPE_K_ANON_THRESHOLD) continue;
+        const bucket = grouped.get(row.archetypeKey) ?? [];
+        bucket.push({
+          date: row.bucketDate,
+          empathyScore: Number(row.empathyScore.toFixed(4)),
+          samples: row.samples,
+        });
+        grouped.set(row.archetypeKey, bucket);
+      }
+
+      const series = Array.from(grouped.entries()).map(([archetypeKey, points]) => ({
+        archetypeKey,
+        series: points,
+      }));
+
+      res.json({ from, to, kAnonymityThreshold: ARCHETYPE_K_ANON_THRESHOLD, series });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to read archetype empathy" });
+    }
+  });
+
+  app.get("/api/archetypes/markov", requireArchetypeRead, async (req, res) => {
+    try {
+      const windowRaw = String(req.query.window || "30d").trim();
+      const windowMatch = windowRaw.match(/^(\d+)d$/);
+      const windowDays = windowMatch
+        ? clampInt(windowMatch[1], 1, ARCHETYPE_MAX_WINDOW_DAYS, 30)
+        : 30;
+
+      const today = new Date().toISOString().slice(0, 10);
+      const from = new Date(Date.parse(`${today}T00:00:00.000Z`) - (windowDays - 1) * 24 * 60 * 60 * 1000)
+        .toISOString().slice(0, 10);
+
+      const rows = await db
+        .select({
+          fromArchetype: archetypeMarkovDaily.fromArchetype,
+          toArchetype: archetypeMarkovDaily.toArchetype,
+          count: archetypeMarkovDaily.count,
+        })
+        .from(archetypeMarkovDaily)
+        .where(and(
+          gte(archetypeMarkovDaily.bucketDate, from),
+          lte(archetypeMarkovDaily.bucketDate, today),
+        ));
+
+      const pairs = new Map<string, number>();
+      const fromTotals = new Map<string, number>();
+      for (const r of rows) {
+        const key = `${r.fromArchetype}->${r.toArchetype}`;
+        pairs.set(key, (pairs.get(key) ?? 0) + r.count);
+        fromTotals.set(r.fromArchetype, (fromTotals.get(r.fromArchetype) ?? 0) + r.count);
+      }
+
+      const matrix: Array<{ from: string; to: string; probability: number; samples: number }> = [];
+      for (const [key, count] of pairs.entries()) {
+        const [fromKey, toKey] = key.split("->");
+        const total = fromTotals.get(fromKey) ?? 0;
+        if (total < ARCHETYPE_K_ANON_THRESHOLD) continue;
+        matrix.push({
+          from: fromKey,
+          to: toKey,
+          probability: Number((total > 0 ? count / total : 0).toFixed(4)),
+          samples: count,
+        });
+      }
+
+      res.json({
+        window: `${windowDays}d`,
+        from,
+        to: today,
+        kAnonymityThreshold: ARCHETYPE_K_ANON_THRESHOLD,
+        transitions: matrix,
+      });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to read archetype markov" });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

@@ -16,6 +16,43 @@ AxTask is built using modern web development practices with a focus on type safe
 
 Treat classifier outputs (source, fallback layer, confidence) as the foundation for higher-level engines, agents, and product features. The short-term active boundary is: universal classifier plus feedback engine plus AxTask fallback orchestration. Mid-term work should extend those contract points rather than adding parallel, unsynchronized classification paths.
 
+## Completion-first reporting and dialogue contracts
+
+Architecture decisions that involve reporting assistants, orb dialogue, or automated community behavior must follow the canonical doctrine in [`docs/README.md`](README.md) and the dedicated contracts:
+
+- [`docs/REPORT_ENGINE_AGENT_CONTRACTS.md`](REPORT_ENGINE_AGENT_CONTRACTS.md)
+- [`docs/CLARIFICATION_PROTOCOL.md`](CLARIFICATION_PROTOCOL.md)
+- [`docs/RAG_CLASSIFICATION_BLUEPRINT.md`](RAG_CLASSIFICATION_BLUEPRINT.md)
+- [`docs/ORB_AVATAR_EXPERIENCE_CONTRACT.md`](ORB_AVATAR_EXPERIENCE_CONTRACT.md)
+- [`docs/COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md`](COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)
+
+### Required architecture invariants
+
+- Report-generation agents must support ambiguity gates before drafting.
+- Retrieval/classification confidence must drive fallback behavior.
+- Avatar engines may automate dialogue but must enforce privacy and moderation contracts.
+- Mood/color/avatar semantics should remain stable across UI and engine boundaries.
+- Voice personalization must be retrieval-driven first (user -> cohort -> baseline), not direct base-model retraining in v1.
+- Voice personalization memory must remain privacy-safe (hashed identity keys, TTL, opt-in controls, delete/export support).
+
+## Voice Personalization Architecture (RAG)
+
+Voice understanding personalization is an additive contract layer across ASR and NLU:
+
+1. Base ASR generates transcript hypotheses and confidence values.
+2. Retrieval query composer uses hypothesis + runtime context (`locale`, `region`, flow).
+3. Retriever resolves top-k hints from user memory, then cohort memory on sparse evidence.
+4. ASR rescoring/biasing applies preferred terms and pronunciation variants.
+5. Post-ASR correction applies constrained priors from accepted historical corrections.
+6. NLU disambiguation consumes retrieved entity/intent priors.
+7. Feedback loop writes correction events back to memory store with policy enforcement.
+
+Cross-document authority for this architecture:
+
+- Retrieval and interface contracts: [`docs/RAG_CLASSIFICATION_BLUEPRINT.md`](RAG_CLASSIFICATION_BLUEPRINT.md)
+- Privacy and user rights: [`docs/COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md`](COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)
+- Security controls and incident safeguards: [`docs/SECURITY.md`](SECURITY.md)
+
 ## High-Level Architecture
 
 ```
@@ -94,6 +131,24 @@ App (Root)
   - Theme preference (light/dark)
   - Toast notifications
   - Query client configuration
+
+### Routing & Cross-Component Communication
+
+- **Router**: Wouter (lightweight, pathname-only)
+  - ⚠️ `useLocation()` returns **only the pathname** — never query strings
+  - ⚠️ `setLocation("/path?q=1")` is a **no-op** when already on `/path`
+  - Use `useSearch()` if you must read query params (rare — prefer events)
+
+- **Cross-Component Signals**: Custom `window` events (not URL query params)
+  - Hotkeys and sidebar buttons dispatch named events (e.g. `axtask-open-new-task`)
+  - Target components listen via `useEffect` + `addEventListener`
+  - Use `setTimeout(..., 50)` when dispatching after `setLocation` to allow mount
+  - Full event contract table: see `docs/DEBUGGING_REFERENCE.md`
+
+- **Keyboard Shortcuts**: Canonical source is `client/src/lib/keyboard-shortcuts.ts` (`KBD` object)
+  - Global handlers registered in `App.tsx`
+  - Sidebar buttons must fire identical events to the hotkeys
+  - Unit tests in `keyboard-shortcuts.test.ts` enforce mappings, collision-freedom, and event contracts
 
 ### Data Flow Patterns
 

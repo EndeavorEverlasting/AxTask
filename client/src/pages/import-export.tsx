@@ -13,6 +13,8 @@ import { formatAxTaskCsvAttribution } from "@shared/attribution";
 import { parseTasksFromCSV, downloadCSV, parseExcelSheetInfo } from "@/lib/csv-utils";
 import { postPaidDownload, triggerBlobDownload, type ProductivityExportPrices } from "@/lib/productivity-export-download";
 import { useToast } from "@/hooks/use-toast";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { usePretextSurface } from "@/hooks/use-pretext-surface";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -74,6 +76,8 @@ interface AccountImportChallengeResponse {
 }
 
 export default function ImportExport() {
+  /* Dense operator data surface — dim ambient orb motion while mounted. */
+  usePretextSurface("dense");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { requestChallenge: requestDataExportChallenge, isRequesting: dataExportCodeSending } = useMfaChallenge();
@@ -593,12 +597,11 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      <div>
-        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Import/Export</h2>
-        <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">
-          Google Sheets–friendly CSV/Excel plus a full JSON backup. Same task (date, time, activity, notes) is deduplicated across both.
-        </p>
-      </div>
+      <PretextPageHeader
+        eyebrow="Data"
+        title="Import/Export"
+        subtitle="Google Sheets–friendly CSV/Excel plus a full JSON backup. Same task (date, time, activity, notes) is deduplicated across both."
+      />
 
       <MfaVerificationPanel
         open={dataExportMfaOpen}

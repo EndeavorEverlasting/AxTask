@@ -1,4 +1,5 @@
 import { PriorityEngine } from "../../../client/src/lib/priority-engine";
+import type { ClassificationAssociation } from "@shared/schema";
 
 export type ClassifierSource = "external_api" | "priority_engine" | "keyword_fallback";
 
@@ -27,6 +28,8 @@ function keywordFallbackClassifier(activity: string, notes: string): string {
   if (/\b(password|login|auth|security|breach)\b/.test(combined)) return "Security";
   if (/\b(customer|client|support|ticket|feedback)\b/.test(combined)) return "Support";
   if (/\b(design|ui|ux|prototype|wireframe)\b/.test(combined)) return "Design";
+  if (/\b(buy|grocery|groceries|pick up|shopping list|supermarket|market|store run|shop for|errand)\b/.test(combined))
+    return "Shopping";
   return DEFAULT_CLASSIFICATION;
 }
 
@@ -106,4 +109,70 @@ export async function classifyWithFallback(
     source: "keyword_fallback",
     fallbackLayer: preferExternal ? 3 : 2,
   };
+}
+
+const KEYWORD_RULES: { label: string; re: RegExp; weight: number }[] = [
+  { label: "Finance", re: /\b(invoice|billing|payment|receipt|expense)\b/, weight: 1 },
+  { label: "Security", re: /\b(password|login|auth|security|breach)\b/, weight: 1 },
+  { label: "Support", re: /\b(customer|client|support|ticket|feedback)\b/, weight: 1 },
+  { label: "Design", re: /\b(design|ui|ux|prototype|wireframe)\b/, weight: 1 },
+  {
+    label: "Shopping",
+    re: /\b(buy|grocery|groceries|pick up|shopping list|supermarket|market|store run|shop for|errand)\b/,
+    weight: 1,
+  },
+];
+
+export function normalizeAssociationWeights(rows: ClassificationAssociation[]): ClassificationAssociation[] {
+  const sum = rows.reduce((s, r) => s + r.confidence, 0);
+  if (sum <= 0) {
+    const n = rows.length || 1;
+    return rows.map((r) => ({ label: r.label, confidence: Math.round((1 / n) * 1000) / 1000 }));
+  }
+  return rows.map((r) => ({
+    label: r.label,
+    confidence: Math.round((r.confidence / sum) * 1000) / 1000,
+  }));
+}
+
+/** All keyword hits in rule order; confidences normalized to sum ~1. */
+function keywordFallbackAssociations(activity: string, notes: string): ClassificationAssociation[] {
+  const combined = `${activity} ${notes}`.toLowerCase();
+  const ordered: ClassificationAssociation[] = [];
+  for (const rule of KEYWORD_RULES) {
+    if (rule.re.test(combined)) {
+      ordered.push({ label: rule.label, confidence: rule.weight });
+    }
+  }
+  if (ordered.length === 0) {
+    return [{ label: DEFAULT_CLASSIFICATION, confidence: 1 }];
+  }
+  return normalizeAssociationWeights(ordered);
+}
+
+/**
+ * Primary label (same as classifyWithFallback) plus ranked multi-label confidences.
+ */
+export async function classifyWithAssociations(
+  activity: string,
+  notes = "",
+  options: UniversalClassifierOptions = {},
+): Promise<{ result: ClassificationResult; associations: ClassificationAssociation[] }> {
+  const result = await classifyWithFallback(activity, notes, options);
+  let associations: ClassificationAssociation[];
+  if (result.source === "keyword_fallback") {
+    associations = keywordFallbackAssociations(activity, notes);
+    const primary = result.classification;
+    const primaryIdx = associations.findIndex((a) => a.label === primary);
+    if (primaryIdx > 0) {
+      const [p] = associations.splice(primaryIdx, 1);
+      associations.unshift(p);
+    } else if (primaryIdx < 0) {
+      associations = [{ label: primary, confidence: result.confidence }, ...associations];
+      associations = normalizeAssociationWeights(associations);
+    }
+  } else {
+    associations = [{ label: result.classification, confidence: result.confidence }];
+  }
+  return { result, associations };
 }

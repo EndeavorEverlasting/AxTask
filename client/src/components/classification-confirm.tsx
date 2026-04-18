@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ThumbsUp, TrendingUp, Users, Coins } from "lucide-react";
@@ -57,12 +58,25 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
       const r = result as {
         confirmerCoins?: number;
         contributorBonuses?: Array<{ displayName: string; bonus: number }>;
+        newBalance?: number;
       };
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "classifications"] });
+      if (typeof r.newBalance === "number") {
+        queryClient.setQueryData(["/api/gamification/wallet"], (prev: unknown) => {
+          if (!prev || typeof prev !== "object") return prev;
+          return { ...(prev as Record<string, unknown>), balance: r.newBalance };
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      if (typeof r.newBalance === "number") {
+        queryClient.setQueryData(["/api/gamification/wallet"], (prev: unknown) => {
+          if (!prev || typeof prev !== "object") return prev;
+          return { ...(prev as Record<string, unknown>), balance: r.newBalance };
+        });
+      }
 
       const bonusDetails = r.contributorBonuses
         ?.map((b: { displayName: string; bonus: number }) => `${b.displayName || "User"}: +${b.bonus}`)
@@ -71,9 +85,10 @@ export function ClassificationConfirm({ taskId, classification, compact = false 
       toast({
         title: `Classification Confirmed! +${r.confirmerCoins ?? 0} coins`,
         description: bonusDetails
-          ? `Compound interest paid to classifiers: ${bonusDetails}`
-          : "Your confirmation has been recorded.",
+          ? `Compound interest paid to classifiers: ${bonusDetails}${typeof r.newBalance === "number" ? ` · Balance: ${r.newBalance}` : ""}`
+          : `Your confirmation has been recorded.${typeof r.newBalance === "number" ? ` Balance: ${r.newBalance}.` : ""}`,
       });
+      requestFeedbackNudge("classification_confirm");
     },
     onError: () => {
       toast({ title: "Cannot confirm", description: "You may have already confirmed or be the original classifier.", variant: "destructive" });

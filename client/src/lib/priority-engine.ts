@@ -112,7 +112,13 @@ export class PriorityEngine {
     if (combined.match(/\b(research|investigate|explore|analyze|study|learn)\b/)) return "Research";
     if (combined.match(/\b(install|setup|configure|maintain|update|upgrade)\b/)) return "Maintenance";
     if (combined.match(/\b(submit|confirm|approve|sign|document|paperwork|admin)\b/)) return "Administrative";
-    
+    if (
+      combined.match(
+        /\b(buy|grocery|groceries|pick up|shopping list|supermarket|market|store run|shop for|errand)\b/,
+      )
+    )
+      return "Shopping";
+
     return "General";
   }
 

@@ -4,6 +4,7 @@ import { X, ChevronLeft, ChevronRight, GraduationCap } from "lucide-react";
 import { splitSentencesForBubbles, wrapTextToLines } from "@/lib/pretext-layout";
 import { cn } from "@/lib/utils";
 import type { TutorialStep } from "@/lib/tutorial-types";
+import { TutorialInlineWidget } from "@/components/tutorial-widgets";
 
 const PRETEXT_FONT = "14px ui-sans-serif, system-ui, sans-serif";
 const BUBBLE_TEXT_MAX_WIDTH = 248;
@@ -327,7 +328,7 @@ export function GuidedTourOverlay({
       >
         <div
           className={cn(
-            "relative rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 p-4 mb-2",
+            "relative glass-panel-glossy shadow-2xl p-4 mb-2",
             wrappedThoughts.length > 0 && primaryTail,
           )}
         >
@@ -355,6 +356,12 @@ export function GuidedTourOverlay({
                   {line}
                 </p>
               ))}
+            </div>
+          )}
+
+          {currentStep.inlineWidget && (
+            <div className="mb-3">
+              <TutorialInlineWidget widget={currentStep.inlineWidget} />
             </div>
           )}
 

@@ -22,30 +22,32 @@
   --destructive: hsl(0, 84.2%, 60.2%);
   --destructive-foreground: hsl(60, 9.1%, 97.8%);
   --ring: hsl(20, 14.3%, 4.1%);
-  --radius: 0.5rem;
+  --radius: 0.5625rem;
 }
 
 .dark {
-  --background: hsl(240, 10%, 3.9%);
-  --foreground: hsl(0, 0%, 98%);
-  --muted: hsl(240, 3.7%, 15.9%);
-  --muted-foreground: hsl(240, 5%, 64.9%);
-  --popover: hsl(240, 10%, 3.9%);
-  --popover-foreground: hsl(0, 0%, 98%);
-  --card: hsl(240, 10%, 3.9%);
-  --card-foreground: hsl(0, 0%, 98%);
-  --border: hsl(240, 3.7%, 15.9%);
-  --input: hsl(240, 3.7%, 15.9%);
-  --primary: hsl(207, 90%, 54%);
-  --primary-foreground: hsl(211, 100%, 99%);
-  --secondary: hsl(240, 3.7%, 15.9%);
-  --secondary-foreground: hsl(0, 0%, 98%);
-  --accent: hsl(240, 3.7%, 15.9%);
-  --accent-foreground: hsl(0, 0%, 98%);
+  /* Pretext-centric dark tokens: slate -> indigo aurora base, luminous text,
+   * translucent cards so the orb backdrop reads through. */
+  --background: hsl(222, 47%, 6%);
+  --foreground: hsl(210, 40%, 98%);
+  --muted: hsl(222, 36%, 14%);
+  --muted-foreground: hsl(215, 20%, 72%);
+  --popover: hsl(222, 47%, 10%);
+  --popover-foreground: hsl(210, 40%, 98%);
+  --card: hsl(222, 47%, 9%);
+  --card-foreground: hsl(210, 40%, 98%);
+  --border: hsl(222, 30%, 22%);
+  --input: hsl(222, 30%, 18%);
+  --primary: hsl(160, 84%, 55%);
+  --primary-foreground: hsl(222, 47%, 8%);
+  --secondary: hsl(222, 36%, 16%);
+  --secondary-foreground: hsl(210, 40%, 98%);
+  --accent: hsl(237, 48%, 20%);
+  --accent-foreground: hsl(210, 40%, 98%);
   --destructive: hsl(0, 62.8%, 30.6%);
   --destructive-foreground: hsl(0, 0%, 98%);
-  --ring: hsl(240, 4.9%, 83.9%);
-  --radius: 0.5rem;
+  --ring: hsl(160, 84%, 55%);
+  --radius: 0.5625rem;
 }
 
 @layer base {
@@ -62,12 +64,21 @@
 
   #root {
     height: 100%;
-    min-height: 0;
-    overflow: hidden;
+    min-height: 100dvh;
+    overflow: auto;
   }
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: hsl(207 90% 54% / 0.22);
+  }
+
+  .dark ::selection {
+    background-color: hsl(207 90% 54% / 0.35);
   }
 }
 
@@ -368,4 +379,474 @@
   .axtask-animate-task-flash-priority {
     animation: none !important;
   }
+}
+
+@keyframes axtask-float-gentle {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-4px); }
+}
+
+/* --------------------------------------------------------------------------
+ * Pretext aurora body + orb density flags.
+ * A single fixed layer behind the entire app (mounted once by PretextShell
+ * at the AuthenticatedApp level) provides the slate-950 -> indigo-950 wash
+ * plus two rotating soft radial glows that echo the landing hero.
+ * The orb layer (CursorOrbsBackdrop) and ambient chips (PretextAmbientChips)
+ * sit on top of this in the same single-mount shell.
+ * ------------------------------------------------------------------------*/
+
+.axtask-aurora-body {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, hsl(222 47% 6%) 0%, hsl(222 39% 11%) 50%, hsl(237 48% 16%) 100%);
+  overflow: hidden;
+  contain: strict;
+}
+
+.axtask-aurora-body::before,
+.axtask-aurora-body::after {
+  content: "";
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(120px);
+  opacity: 0.85;
+}
+
+.axtask-aurora-body::before {
+  top: -25%;
+  left: 25%;
+  height: 60vh;
+  width: 80vw;
+  transform: rotate(12deg);
+  background: linear-gradient(to right, rgba(5, 150, 105, 0.10), rgba(6, 182, 212, 0.08), transparent);
+}
+
+.axtask-aurora-body::after {
+  bottom: -25%;
+  right: 25%;
+  height: 50vh;
+  width: 70vw;
+  transform: rotate(-12deg);
+  background: linear-gradient(to left, rgba(124, 58, 237, 0.10), rgba(99, 102, 241, 0.08), transparent);
+}
+
+/* Light mode: retain the polished glass vocabulary but on a far softer wash. */
+.light .axtask-aurora-body {
+  background: linear-gradient(135deg, hsl(210 40% 99%) 0%, hsl(214 32% 96%) 55%, hsl(234 60% 94%) 100%);
+}
+
+.light .axtask-aurora-body::before {
+  opacity: 0.55;
+  background: linear-gradient(to right, rgba(5, 150, 105, 0.12), rgba(6, 182, 212, 0.08), transparent);
+}
+
+.light .axtask-aurora-body::after {
+  opacity: 0.55;
+  background: linear-gradient(to left, rgba(124, 58, 237, 0.12), rgba(99, 102, 241, 0.08), transparent);
+}
+
+/* Orb layer opacity/saturation is controlled at the <main data-surface> level
+ * so dense pages (Tasks, Admin, Import/Export, Analytics, Collab Inbox) dim
+ * the ambient layer without remounting the rAF loop. */
+.axtask-orb-layer {
+  transition: opacity 0.6s ease, filter 0.6s ease;
+}
+
+[data-surface="calm"] .axtask-orb-layer {
+  opacity: 1;
+  filter: none;
+}
+
+[data-surface="dense"] .axtask-orb-layer {
+  opacity: 0.45;
+  filter: saturate(0.85);
+}
+
+[data-surface="dense"] .axtask-chip-layer {
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .axtask-orb-layer,
+  .axtask-chip-layer {
+    animation: none !important;
+  }
+}
+
+@layer components {
+  /* Split light/dark: @apply with stacked dark:.../opacity utilities fails Tailwind expandApply in prod (Docker). */
+  .glass-panel {
+    @apply rounded-2xl border border-white/60 bg-white/70 backdrop-blur-xl shadow-sm ring-1 ring-black/[0.04];
+  }
+
+  .dark .glass-panel {
+    @apply border-white/15 bg-white/[0.05] ring-white/[0.06] shadow-2xl shadow-black/20;
+  }
+
+  .glass-panel-elevated {
+    @apply glass-panel shadow-lg shadow-slate-900/10 dark:shadow-2xl dark:shadow-black/30;
+  }
+
+  .glass-panel-interactive {
+    @apply glass-panel-elevated transition-transform duration-200 ease-out hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-900/10 dark:hover:shadow-black/40 focus-within:ring-2 focus-within:ring-primary focus-within:ring-opacity-30;
+  }
+
+  /* Glossy specular treatment: top sheen + inner highlight, pairs with any
+   * .glass-panel variant. Used by PretextPageHeader and AvatarOrb. */
+  .glass-panel-glossy {
+    @apply glass-panel-elevated relative overflow-hidden;
+  }
+
+  .glass-panel-glossy::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0.06) 18%, transparent 38%);
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+    mix-blend-mode: screen;
+    opacity: 0.9;
+  }
+
+  .dark .glass-panel-glossy::before {
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 22%, transparent 42%);
+    opacity: 1;
+  }
+
+  .glass-panel-glossy::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.35), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05);
+  }
+
+  .dark .glass-panel-glossy::after {
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.09), inset 0 -1px 0 0 rgba(0, 0, 0, 0.35);
+  }
+
+  .chip-row {
+    @apply mt-2 flex flex-wrap items-center gap-2;
+  }
+
+  .floating-chip {
+    @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium leading-none shadow-sm;
+  }
+
+  .floating-chip-neutral {
+    @apply floating-chip border-slate-300/70 bg-white/80 text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/60 dark:text-slate-200;
+  }
+
+  .floating-chip-success {
+    @apply floating-chip border-emerald-300/70 bg-emerald-50/90 text-emerald-700 dark:border-emerald-700/60 dark:bg-emerald-900/40 dark:text-emerald-200;
+  }
+
+  .floating-chip-warning {
+    @apply floating-chip border-amber-300/70 bg-amber-50/90 text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/40 dark:text-amber-200;
+  }
+
+  .avatar-glow-chip {
+    @apply floating-chip bg-white/85 dark:bg-slate-900/70 border-white/60 dark:border-slate-600/70;
+    animation: axtask-float-gentle 3.2s ease-in-out infinite;
+  }
+
+  .avatar-glow-mood {
+    box-shadow: 0 0 0 1px rgba(236, 72, 153, 0.28), 0 0 18px rgba(236, 72, 153, 0.24);
+  }
+  .avatar-glow-archetype {
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.28), 0 0 18px rgba(99, 102, 241, 0.24);
+  }
+  .avatar-glow-productivity {
+    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.28), 0 0 18px rgba(16, 185, 129, 0.24);
+  }
+  .avatar-glow-social {
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.28), 0 0 18px rgba(59, 130, 246, 0.24);
+  }
+  .avatar-glow-lazy {
+    box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.28), 0 0 18px rgba(234, 179, 8, 0.24);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-glow-chip {
+    animation: none;
+  }
+}
+
+/* ---- Perf: content-visibility for long scrolling regions.
+ * Browsers skip layout/paint for off-screen children until they approach the
+ * viewport. Used by task list, analytics tables, admin tables, community
+ * threads, and collab inbox rows. Paired with a stable intrinsic size so
+ * scroll height stays accurate. */
+.axtask-cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 160px;
+}
+
+.axtask-cv-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 64px;
+}
+
+/* ---- AvatarOrb: glossy circular orb with specular highlight and rim light.
+ * Base (`.axtask-orb`) renders the body + rim; `::before` paints the top-left
+ * specular gloss, `::after` paints the soft inner shadow rim. Per-variant
+ * classes apply the mood-color families from shared/feedback-avatar-map.ts
+ * (contract: docs/ORB_AVATAR_EXPERIENCE_CONTRACT.md). */
+.axtask-orb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  isolation: isolate;
+  will-change: transform;
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.18) 14%, transparent 42%),
+    radial-gradient(circle at 70% 80%, rgba(0, 0, 0, 0.18) 0%, transparent 55%),
+    radial-gradient(circle at 50% 50%, var(--orb-accent, rgba(99, 102, 241, 0.55)) 0%, var(--orb-base, rgba(30, 41, 59, 0.85)) 90%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 10px 24px -10px rgba(0, 0, 0, 0.5),
+    0 0 18px var(--orb-glow, rgba(99, 102, 241, 0.35));
+}
+
+.axtask-orb::before {
+  content: "";
+  position: absolute;
+  inset: 6%;
+  border-radius: 9999px;
+  background: radial-gradient(ellipse at 30% 22%, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0.1) 28%, transparent 55%);
+  pointer-events: none;
+  mix-blend-mode: screen;
+  z-index: 1;
+}
+
+.axtask-orb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  pointer-events: none;
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.35), inset 0 -8px 16px rgba(0, 0, 0, 0.25);
+}
+
+.axtask-orb > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Five companion keys — stable mood-color mapping. */
+.axtask-orb-mood {
+  --orb-accent: rgba(236, 72, 153, 0.65);
+  --orb-base: rgba(88, 28, 135, 0.85);
+  --orb-glow: rgba(236, 72, 153, 0.45);
+}
+
+.axtask-orb-archetype {
+  --orb-accent: rgba(99, 102, 241, 0.65);
+  --orb-base: rgba(30, 27, 75, 0.9);
+  --orb-glow: rgba(99, 102, 241, 0.45);
+}
+
+.axtask-orb-productivity {
+  --orb-accent: rgba(16, 185, 129, 0.65);
+  --orb-base: rgba(6, 78, 59, 0.88);
+  --orb-glow: rgba(16, 185, 129, 0.45);
+}
+
+.axtask-orb-social {
+  --orb-accent: rgba(59, 130, 246, 0.65);
+  --orb-base: rgba(23, 37, 84, 0.88);
+  --orb-glow: rgba(59, 130, 246, 0.45);
+}
+
+.axtask-orb-lazy {
+  --orb-accent: rgba(234, 179, 8, 0.6);
+  --orb-base: rgba(66, 32, 6, 0.85);
+  --orb-glow: rgba(234, 179, 8, 0.4);
+}
+
+@keyframes axtask-orb-wobble {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  33% { transform: translateY(-2px) rotate(0.6deg); }
+  66% { transform: translateY(1px) rotate(-0.5deg); }
+}
+
+.axtask-orb-wobble {
+  animation: axtask-orb-wobble 5.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .axtask-orb-wobble {
+    animation: none;
+  }
+}
+
+/* Pretext gradient CTA (exported as string from
+ * client/src/components/pretext/pretext-confirmation-shell.tsx), promoted
+ * to a shared utility so buttons in forms, dialogs, and the tutorial can
+ * opt in without importing the string. */
+.axtask-pretext-cta {
+  @apply rounded-xl bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-300 text-slate-900 hover:brightness-105 font-semibold shadow-lg disabled:opacity-60;
+}
+
+/* Subtle CSS-only stagger used by dashboard stat cards and similar grids
+ * that previously paid the framer-motion bootstrap cost for a 350ms fade. */
+@keyframes axtask-rise-in {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.axtask-rise-in {
+  animation: axtask-rise-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .axtask-rise-in {
+    animation: none;
+  }
+}
+
+/* ── Paste composer + safe markdown ────────────────────────────────────── */
+.axtask-paste-composer__thumbs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+.axtask-paste-composer__thumbs li {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.axtask-paste-composer__thumbs img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.axtask-paste-composer__thumbs button {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.75);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  font-size: 0.875rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.axtask-paste-composer__actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.axtask-gif-picker {
+  position: relative;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 1rem;
+}
+.axtask-gif-picker__toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.axtask-gif-picker__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: inherit;
+}
+.axtask-gif-picker__provider {
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.5rem;
+  color: inherit;
+  padding: 0.4rem 0.5rem;
+}
+.axtask-gif-picker__close {
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.5);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.axtask-gif-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+}
+.axtask-gif-picker__tile button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.axtask-gif-picker__tile img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.axtask-gif-picker__error,
+.axtask-gif-picker__loading {
+  font-size: 0.8rem;
+  opacity: 0.8;
+  margin: 0.25rem 0;
+}
+
+.axtask-md-paragraph {
+  margin: 0 0 0.5rem 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.axtask-md-paragraph:last-child { margin-bottom: 0; }
+.axtask-md-image {
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 0.75rem;
+  display: block;
+  margin: 0.25rem 0;
+}
+.axtask-md-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.4rem;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }

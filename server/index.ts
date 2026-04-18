@@ -9,6 +9,14 @@ import { registerOAuthRoutes } from "./auth-providers";
 import { seedDevAccounts } from "./seed-dev";
 import { pool } from "./db";
 import { installProbeSink } from "./probe-sink";
+import { setupCollaborationWs } from "./collaboration";
+import { attachMonitorContext } from "./monitoring/request-context";
+import { appendSecurityEvent } from "./storage";
+import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
+import { evaluateAdherenceForAllUsers } from "./services/adherence-evaluator";
+import { dispatchAdherencePushNotifications } from "./services/adherence-dispatch";
+import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence-thresholds";
+import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
 
 const app = express();
 
@@ -61,11 +69,11 @@ app.use(
     contentSecurityPolicy: isDev ? false : {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
+        scriptSrc: ["'self'", "https://replit.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'", "https://accounts.google.com", "https://oauth2.googleapis.com"],
+        connectSrc: ["'self'", "wss:", "ws:", "https://accounts.google.com", "https://oauth2.googleapis.com"],
         frameSrc: ["'none'"],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
@@ -109,8 +117,45 @@ if (!isDev) {
 }
 
 app.use(cookieParser());
-app.use(express.json({ limit: "2mb" }));
+const LARGE_BODY_PATHS = ["/api/admin/import", "/api/account/import", "/api/admin/import/validate"];
+app.use((req, res, next) => {
+  if (LARGE_BODY_PATHS.some(p => req.path.startsWith(p))) {
+    return express.json({ limit: "50mb" })(req, res, next);
+  }
+  return express.json({ limit: "2mb" })(req, res, next);
+});
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
+
+// Attach a privacy-safe snapshot of allowlisted request parameters for monitoring.
+// Must run after body parsers so req.body is available.
+app.use("/api", attachMonitorContext());
+
+if (!isDev) {
+  app.use((_, res, next) => {
+    res.setHeader(
+      "Content-Security-Policy-Report-Only",
+      "default-src 'self'; script-src 'self' https://replit.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; object-src 'none'; base-uri 'self'; frame-src 'none'; form-action 'self' https://accounts.google.com; report-uri /csp-report",
+    );
+    next();
+  });
+}
+
+app.post(
+  "/csp-report",
+  express.json({ type: ["application/csp-report", "application/reports+json", "application/json"] }),
+  (req, res) => {
+    const report = (req.body && (req.body["csp-report"] || req.body)) as
+      | Record<string, unknown>
+      | undefined;
+    if (report) {
+      const blockedUri = String(report["blocked-uri"] || "");
+      const violated = String(report["violated-directive"] || "");
+      const sourceFile = String(report["source-file"] || "");
+      log(`[csp-report] violated="${violated}" blocked="${blockedUri}" source="${sourceFile}"`);
+    }
+    res.status(204).send();
+  },
+);
 
 if (!isDev) {
   app.use("/api", (req, res, next) => {
@@ -209,28 +254,12 @@ registerOAuthRoutes(app);
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
 
-      const isSensitive = path.startsWith("/api/auth");
-      if (capturedJsonResponse && !isSensitive) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
+      // Never append response bodies to access logs: they may contain PII and land in log aggregators.
       log(logLine);
     }
   });
@@ -238,12 +267,60 @@ app.use((req, res, next) => {
   next();
 });
 
+function warnIfVapidMissing(): void {
+  const publicKey = (process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY || "").trim();
+  const privateKey = (process.env.VAPID_PRIVATE_KEY || "").trim();
+  if (publicKey && privateKey) return;
+  const missing = [
+    publicKey ? null : "VAPID_PUBLIC_KEY",
+    privateKey ? null : "VAPID_PRIVATE_KEY",
+  ].filter(Boolean);
+  console.warn(
+    `[push] VAPID keys missing (${missing.join(", ")}); /api/notifications/subscriptions accepts clients but no pushes will be dispatched until VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are set. Run \`npm run vapid:generate\` to generate a key pair. See docs/NOTIFICATIONS_AND_PUSH.md.`,
+  );
+}
+
 (async () => {
-  await seedDevAccounts();
+  warnIfVapidMissing();
+
+  try {
+    await seedDevAccounts();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[seed] Dev account seed failed (${msg}). Start PostgreSQL and ensure DATABASE_URL is correct, or set DISABLE_DEV_SEED=true to skip seeding. The server will continue; auth DB calls will still fail until the database is reachable.`,
+    );
+  }
 
   const server = await registerRoutes(app);
 
+  setupCollaborationWs(server);
+
+  if (isAdherenceEnabled()) {
+    const thresholds = getAdherenceThresholds();
+    const runAdherenceTick = async () => {
+      try {
+        await evaluateAdherenceForAllUsers("cron");
+        await dispatchAdherencePushNotifications(100);
+      } catch (error) {
+        console.warn("[adherence] background tick failed:", (error as Error)?.message || String(error));
+      }
+    };
+    void runAdherenceTick();
+    setInterval(() => {
+      void runAdherenceTick();
+    }, thresholds.cronIntervalMs);
+  }
+
+  // Archetype empathy rollup worker: see docs/ARCHETYPE_EMPATHY_ANALYTICS.md.
+  // Disabled in tests to keep the suite hermetic.
+  if (process.env.NODE_ENV !== "test" && process.env.DISABLE_ARCHETYPE_ROLLUP !== "true") {
+    const intervalMs = Number(process.env.ARCHETYPE_ROLLUP_INTERVAL_MS) || 60 * 60 * 1000;
+    startArchetypeRollupTicker(intervalMs);
+  }
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    const req = _req as Request & { monitor?: { requestId?: string; params?: any; query?: any; body?: any; headers?: any } };
     const status = err.status || err.statusCode || 500;
     const message =
       process.env.NODE_ENV === "production" && status >= 500
@@ -251,6 +328,43 @@ app.use((req, res, next) => {
         : err.message || "Internal Server Error";
 
     console.error(`[error] ${status} — ${err.message || err}`);
+
+    // Best-effort audit event for server-side errors (never blocks response).
+    try {
+      (req as any).__axtaskApiErrorEmitted = true;
+      const ctx = req.monitor;
+      const errorName = err?.name ? String(err.name) : "Error";
+      const errorMessage = err?.message ? String(err.message) : String(err);
+      void appendSecurityEvent({
+        eventType: "api_error",
+        actorUserId: (req.user as any)?.id,
+        route: req.path,
+        method: req.method,
+        statusCode: status,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {
+          requestId: ctx?.requestId,
+          params: ctx?.params,
+          query: ctx?.query,
+          body: ctx?.body,
+          headers: ctx?.headers,
+          errorName,
+          errorMessage,
+          ...(process.env.NODE_ENV !== "production" ? { stack: err?.stack ? String(err.stack) : undefined } : {}),
+        },
+      });
+      void notifyAdminsOfApiError({
+        requestId: ctx?.requestId,
+        route: req.path,
+        method: req.method,
+        statusCode: status,
+        errorName,
+        errorMessage,
+      });
+    } catch {
+      // ignore
+    }
     if (!res.headersSent) {
       res.status(status).json({ message });
     }

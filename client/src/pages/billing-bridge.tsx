@@ -18,6 +18,9 @@ import {
 import {
   AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Upload, XCircle,
 } from "lucide-react";
+import { TeamsSweepCard } from "@/components/billing/TeamsSweepCard";
+import type { TeamsSweepSnapshot } from "@/lib/teams-graph/sweep";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 
 /* ── Types mirrored from server ────────────────────────────────────────── */
 
@@ -54,6 +57,19 @@ interface AssignmentEvidence {
   exception_detail: string;
 }
 
+interface SuggestedFillRow {
+  work_date: string;
+  canonical_name: string;
+  site: string;
+  task_category: string;
+  default_workstream: string;
+  suggested_hours: number | null;
+  evidence_source: string;
+  evidence_detail: string;
+  requires_review: true;
+  reason: string;
+}
+
 interface BridgeResult {
   reconciliation: {
     exceptions: ReconciliationException[];
@@ -66,17 +82,51 @@ interface BridgeResult {
   };
   people: { canonical_name: string; active: boolean }[];
   attendance_count: number;
+  suggested_fill: {
+    rows: SuggestedFillRow[];
+    csv: string;
+  };
+  teams: null | {
+    row_count: number;
+    unmapped_display_names: string[];
+    skipped_count: number;
+    generated_at: string | null;
+    topic_pattern: string | null;
+    tool_version: string | null;
+    strict: boolean;
+  };
   ingest_errors: { source_sheet: string; field: string; message: string; workbook: string }[];
 }
 
 /* ── Component ─────────────────────────────────────────────────────────── */
 
+function defaultMonthYyyyMm(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthBoundsYyyyMmDd(monthYyyyMm: string): { start: string; end: string } {
+  const [y, m] = monthYyyyMm.split("-").map(Number);
+  const last = new Date(y, m, 0);
+  return {
+    start: `${y}-${String(m).padStart(2, "0")}-01`,
+    end: `${y}-${String(m).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`,
+  };
+}
+
 export default function BillingBridgePage() {
   const [ttFile, setTtFile] = useState<File | null>(null);
   const [rbFile, setRbFile] = useState<File | null>(null);
   const [mwFile, setMwFile] = useState<File | null>(null);
+  const [hoursMonth, setHoursMonth] = useState(defaultMonthYyyyMm);
+  const [hoursTechQuery, setHoursTechQuery] = useState("");
+  const [hoursProjectFilter, setHoursProjectFilter] = useState("");
+  const [hoursFocusStart, setHoursFocusStart] = useState(() => monthBoundsYyyyMmDd(defaultMonthYyyyMm()).start);
+  const [hoursFocusEnd, setHoursFocusEnd] = useState(() => monthBoundsYyyyMmDd(defaultMonthYyyyMm()).end);
   const [nameFilter, setNameFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [teamsSnapshot, setTeamsSnapshot] = useState<TeamsSweepSnapshot | null>(null);
+  const [strictTeamsPresence, setStrictTeamsPresence] = useState(false);
   const [generateOptions, setGenerateOptions] = useState({
     rosterLog: true,
     taskTracker: true,
@@ -96,6 +146,10 @@ export default function BillingBridgePage() {
       fd.append("roster", rbFile!);
       if (mwFile) fd.append("manager", mwFile);
       fd.append("generateOptions", JSON.stringify(generateOptions));
+      if (teamsSnapshot) {
+        fd.append("teamsSnapshot", JSON.stringify(teamsSnapshot));
+        fd.append("strictTeamsPresence", strictTeamsPresence ? "true" : "false");
+      }
       const headers: Record<string, string> = {};
       const csrfToken = getCsrfToken();
       if (csrfToken) headers[AXTASK_CSRF_HEADER] = csrfToken;
@@ -108,6 +162,48 @@ export default function BillingBridgePage() {
       });
       if (!res.ok) throw new Error((await res.json()).message ?? res.statusText);
       return res.json() as Promise<BridgeResult>;
+    },
+  });
+
+  const hoursReportMutation = useMutation({
+    mutationFn: async () => {
+      const fd = new FormData();
+      fd.append("taskTracker", ttFile!);
+      fd.append("roster", rbFile!);
+      if (mwFile) fd.append("manager", mwFile);
+      fd.append("technicianQuery", hoursTechQuery);
+      fd.append("projectFilter", hoursProjectFilter);
+      fd.append("month", hoursMonth);
+      fd.append("focusStart", hoursFocusStart);
+      fd.append("focusEnd", hoursFocusEnd);
+      const headers: Record<string, string> = {};
+      const csrfToken = getCsrfToken();
+      if (csrfToken) headers[AXTASK_CSRF_HEADER] = csrfToken;
+
+      const res = await fetch("/api/billing-bridge/hours-report", {
+        method: "POST",
+        body: fd,
+        headers,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        let msg = res.statusText;
+        try {
+          const j = await res.json();
+          if (j?.message) msg = j.message;
+        } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition");
+      const m = cd?.match(/filename="([^"]+)"/);
+      const name = m?.[1] ?? `technician-hours-${hoursMonth}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
     },
   });
 
@@ -140,22 +236,36 @@ export default function BillingBridgePage() {
     );
   }, [data]);
 
+  const teamsVsRosterExceptions = useMemo(() => {
+    if (!data) return [];
+    return data.reconciliation.exceptions.filter(
+      e => e.exception_type === "teams_presence_no_attendance"
+        || e.exception_type === "teams_presence_no_task_evidence",
+    );
+  }, [data]);
+
   const canRun = !!ttFile && !!rbFile;
+  const canRunHoursReport =
+    canRun &&
+    (hoursTechQuery.trim().length > 0 || hoursProjectFilter.trim().length > 0) &&
+    hoursFocusStart.trim().length > 0 &&
+    hoursFocusEnd.trim().length > 0;
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center gap-3">
-        <FileSpreadsheet className="h-7 w-7 text-primary" />
-        <div>
-          <h1 className="text-2xl font-bold">Billing Bridge Conjuration Station</h1>
-          <p className="text-sm text-muted-foreground">
-            Feed the AxTask beast your earthly spreadsheets and watch the digital magic happen! We bend time, space, and billable hours to our will.
-          </p>
-        </div>
-      </div>
+      <PretextPageHeader
+        eyebrow="Operator"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <FileSpreadsheet className="h-7 w-7 text-primary" />
+            Billing Bridge Conjuration Station
+          </span>
+        }
+        subtitle="Feed the AxTask beast your earthly spreadsheets and watch the digital magic happen! We bend time, space, and billable hours to our will."
+      />
 
       {/* Upload section */}
-      <Card>
+      <Card className="glass-panel-glossy">
         <CardHeader>
           <CardTitle className="text-lg">Summon the Truth</CardTitle>
           <CardDescription>
@@ -230,7 +340,7 @@ export default function BillingBridgePage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <Button
               onClick={() => reconcileMutation.mutate()}
               disabled={!canRun || reconcileMutation.isPending}
@@ -241,8 +351,115 @@ export default function BillingBridgePage() {
                 <><Upload className="mr-2 h-4 w-4" />Run Reconciliation</>
               )}
             </Button>
+            {teamsSnapshot && (
+              <div className="flex items-center gap-2 text-xs">
+                <Badge variant="outline">
+                  Including Teams snapshot ({teamsSnapshot.rows.length} rows)
+                </Badge>
+                <Checkbox
+                  id="strictTeamsPresence"
+                  checked={strictTeamsPresence}
+                  onCheckedChange={(v) => setStrictTeamsPresence(!!v)}
+                />
+                <label htmlFor="strictTeamsPresence" className="cursor-pointer">
+                  Strict: also flag Teams presence without task evidence
+                </label>
+              </div>
+            )}
             {reconcileMutation.isError && (
               <span className="text-sm text-red-500">{reconcileMutation.error.message}</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <TeamsSweepCard
+        onSnapshot={setTeamsSnapshot}
+        activeSnapshot={teamsSnapshot}
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Technician hours report (Excel)</CardTitle>
+          <CardDescription>
+            Download a factual .xlsx from the same uploads: Live attendance, Billing Detail, and Manager rows
+            with source references. Set the month window for detail totals and a separate focus date range
+            (for example a specific week). Provide a technician name and/or a project filter.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <Label className="text-sm">Technician (roster name)</Label>
+              <Input
+                value={hoursTechQuery}
+                onChange={e => setHoursTechQuery(e.target.value)}
+                placeholder="e.g. Valentin Nikoliuk"
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">Project filter (optional)</Label>
+              <Input
+                value={hoursProjectFilter}
+                onChange={e => setHoursProjectFilter(e.target.value)}
+                placeholder="Substring match on roster project slots"
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">Month (detail / ByProject)</Label>
+              <Input
+                type="month"
+                value={hoursMonth}
+                onChange={e => {
+                  const v = e.target.value;
+                  setHoursMonth(v);
+                  const b = monthBoundsYyyyMmDd(v);
+                  setHoursFocusStart(b.start);
+                  setHoursFocusEnd(b.end);
+                }}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">Focus period start</Label>
+              <Input
+                type="date"
+                value={hoursFocusStart}
+                onChange={e => setHoursFocusStart(e.target.value)}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">Focus period end</Label>
+              <Input
+                type="date"
+                value={hoursFocusEnd}
+                onChange={e => setHoursFocusEnd(e.target.value)}
+                className="text-sm"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Detail sheets require one resolved technician (or a project filter that matches exactly one roster row).
+            Otherwise you still get roster-level totals by project when multiple people match.
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void hoursReportMutation.mutate()}
+              disabled={!canRunHoursReport || hoursReportMutation.isPending}
+            >
+              {hoursReportMutation.isPending ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Building…</>
+              ) : (
+                <><FileSpreadsheet className="mr-2 h-4 w-4" />Download hours report (.xlsx)</>
+              )}
+            </Button>
+            {hoursReportMutation.isError && (
+              <span className="text-sm text-red-500">{hoursReportMutation.error.message}</span>
             )}
           </div>
         </CardContent>
@@ -252,13 +469,63 @@ export default function BillingBridgePage() {
       {data && (
         <>
           {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             <SummaryCard label="Attendance Days" value={data.reconciliation.summary.total_attendance_days} />
             <SummaryCard label="Evidence Days" value={data.reconciliation.summary.total_evidence_days} />
             <SummaryCard label="Matched Days" value={data.reconciliation.summary.matched_days} variant="success" />
             <SummaryCard label="Total Exceptions" value={data.reconciliation.summary.exception_count} variant="warning" />
             <SummaryCard label="No-Attendance Exceptions" value={noAttendanceExceptions.length} variant="danger" />
+            <SummaryCard label="Teams vs Roster" value={teamsVsRosterExceptions.length} variant={teamsVsRosterExceptions.length > 0 ? "danger" : "success"} />
           </div>
+
+          {data.suggested_fill.rows.length > 0 && (
+            <div className="rounded-md border p-3 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <strong className="text-sm">Suggested fill rows</strong>
+                <Badge variant="outline" className="text-xs">
+                  {data.suggested_fill.rows.length} review-only
+                </Badge>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const blob = new Blob([data.suggested_fill.csv], { type: "text/csv" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `suggested-fill-${new Date().toISOString().slice(0,10)}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  <FileSpreadsheet className="mr-1 h-4 w-4" />Download CSV
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Each row is labeled <code>requires_review: true</code> and uses Task Catalog
+                defaults (e.g. Device Configuration). Nothing has been written to any
+                workbook — this is a manual review aid.
+              </p>
+            </div>
+          )}
+
+          {data.teams && data.teams.unmapped_display_names.length > 0 && (
+            <div className="rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-900/10 p-3 text-xs">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600" />
+                <div className="space-y-1">
+                  <strong>Unmapped Teams display names ({data.teams.unmapped_display_names.length}):</strong>
+                  <div className="font-mono text-[11px]">{data.teams.unmapped_display_names.join(", ")}</div>
+                  <div className="text-muted-foreground">
+                    These display names did not resolve to a canonical roster name. Add
+                    an alias row to <code>tools/billing_bridge/config/person_aliases.csv</code>
+                    (alias_name, canonical_name, source_system) and re-run.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <Tabs defaultValue="exceptions" className="w-full">
             <TabsList>
@@ -490,6 +757,8 @@ function ExceptionBadge({ type }: { type: string }) {
     multiple_categories_same_day: { variant: "secondary", label: "Multi-Category" },
     split_unsupported: { variant: "secondary", label: "Split" },
     billing_mismatch: { variant: "destructive", label: "Billing Mismatch" },
+    teams_presence_no_attendance: { variant: "destructive", label: "Teams vs Roster" },
+    teams_presence_no_task_evidence: { variant: "outline", label: "Teams No Evidence" },
   };
   const cfg = map[type] ?? { variant: "outline" as const, label: type };
   return <Badge variant={cfg.variant} className="text-[10px]">{cfg.label}</Badge>;

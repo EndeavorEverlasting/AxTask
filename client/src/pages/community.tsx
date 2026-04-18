@@ -11,6 +11,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { FloatingChip } from "@/components/ui/floating-chip";
+import { AvatarGlowChip } from "@/components/ui/avatar-glow-chip";
+import { AvatarOrb as PretextAvatarOrb } from "@/components/ui/avatar-orb";
+import { PasteComposer, type PasteComposerValue } from "@/components/composer/paste-composer";
+import { SafeMarkdown } from "@/lib/safe-markdown";
 
 type PublicTask = {
   id: string;
@@ -36,6 +41,15 @@ type ForumPost = {
   body: string;
   category: string;
   createdAt: string;
+  attachments?: PublicAttachmentRef[];
+};
+
+type PublicAttachmentRef = {
+  id: string;
+  mimeType: string;
+  byteSize: number;
+  fileName: string | null;
+  downloadUrl: string;
 };
 
 type ForumReply = {
@@ -46,6 +60,7 @@ type ForumReply = {
   displayName: string;
   body: string;
   createdAt: string;
+  attachments?: PublicAttachmentRef[];
 };
 
 /* ── Floating ambient orbs ─────────────────────────────────────────── */
@@ -180,12 +195,12 @@ function ForumPostCard({
   isExpanded: boolean;
   onToggle: () => void;
   replies: ForumReply[];
-  onReply: (body: string) => void;
+  onReply: (body: string, attachmentAssetIds: string[]) => void;
   replying: boolean;
   isLoggedIn: boolean;
   replyError?: string | null;
 }) {
-  const [replyText, setReplyText] = useState("");
+  const [replyDraft, setReplyDraft] = useState<PasteComposerValue>({ body: "", attachmentAssetIds: [] });
   const style = AVATAR_STYLES[post.avatarKey] || AVATAR_STYLES.mood;
   const catStyle = CATEGORY_BADGES[post.category] || CATEGORY_BADGES.general;
 
@@ -193,7 +208,7 @@ function ForumPostCard({
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-xl border border-white/8 bg-white/[0.03] backdrop-blur-lg overflow-hidden"
+      className="glass-panel overflow-hidden"
     >
       <button
         type="button"
@@ -239,10 +254,11 @@ function ForumPostCard({
             transition={{ duration: 0.25 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-white/5 px-4 sm:px-5 py-3">
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
-                {post.body}
-              </p>
+            <div className="border-t border-white/5 px-4 sm:px-5 py-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
+              <SafeMarkdown
+                source={post.body}
+                allowedAttachmentIds={(post.attachments ?? []).map((a) => a.id)}
+              />
             </div>
 
             {/* Replies */}
@@ -269,7 +285,12 @@ function ForumPostCard({
                             {new Date(r.createdAt).toLocaleDateString()}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">{r.body}</p>
+                        <div className="text-xs text-slate-400 leading-relaxed mt-0.5">
+                          <SafeMarkdown
+                            source={r.body}
+                            allowedAttachmentIds={(r.attachments ?? []).map((a) => a.id)}
+                          />
+                        </div>
                       </div>
                     </div>
                   );
@@ -279,32 +300,33 @@ function ForumPostCard({
 
             {/* Reply input */}
             {isLoggedIn ? (
-              <div className="border-t border-white/5 px-4 sm:px-5 py-3">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    placeholder="Join the conversation…"
-                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/50"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && replyText.trim()) {
-                        onReply(replyText.trim());
-                        setReplyText("");
-                      }
-                    }}
-                  />
+              <div className="border-t border-white/5 px-4 sm:px-5 py-3 space-y-2">
+                <PasteComposer
+                  value={replyDraft}
+                  onChange={setReplyDraft}
+                  kind="community-reply"
+                  placeholder="Join the conversation…"
+                  ariaLabel="Reply to post"
+                  maxAttachments={6}
+                />
+                <div className="flex justify-end">
                   <Button
                     size="sm"
-                    disabled={!replyText.trim() || replying}
-                    onClick={() => { onReply(replyText.trim()); setReplyText(""); }}
+                    disabled={
+                      (!replyDraft.body.trim() && replyDraft.attachmentAssetIds.length === 0) || replying
+                    }
+                    onClick={() => {
+                      onReply(replyDraft.body.trim(), replyDraft.attachmentAssetIds);
+                      setReplyDraft({ body: "", attachmentAssetIds: [] });
+                    }}
                     className="gap-1 h-8"
                   >
                     <Send className="h-3 w-3" />
+                    Reply
                   </Button>
                 </div>
                 {replyError && (
-                  <p className="mt-1.5 text-[11px] text-rose-400 leading-snug px-1">{replyError}</p>
+                  <p className="text-[11px] text-rose-400 leading-snug px-1">{replyError}</p>
                 )}
               </div>
             ) : (
@@ -343,6 +365,7 @@ export default function CommunityPage() {
   const [replying, setReplying] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"forum" | "tasks">("forum");
+  const [momentum, setMomentum] = useState<{ postsLast24h: number; repliesLast24h: number } | null>(null);
 
   const fetchPage = useCallback(
     async (
@@ -381,16 +404,22 @@ export default function CommunityPage() {
       setLoading(true);
       setError(null);
       try {
-        const [taskRes, forumRes] = await Promise.all([
+        const [taskRes, forumRes, momRes] = await Promise.all([
           fetchPage(null, ac.signal),
           fetch("/api/public/community/posts", { signal: ac.signal }).then((r) =>
             r.ok ? (r.json() as Promise<{ posts: ForumPost[] }>) : { posts: [] },
+          ),
+          fetch("/api/public/community/momentum", { signal: ac.signal }).then((r) =>
+            r.ok
+              ? (r.json() as Promise<{ postsLast24h: number; repliesLast24h: number }>)
+              : { postsLast24h: 0, repliesLast24h: 0 },
           ),
         ]);
         if (!mountedRef.current) return;
         setTasks(taskRes.tasks);
         setNextCursor(taskRes.nextCursor);
         setForumPosts(forumRes.posts);
+        setMomentum(momRes);
       } catch (e) {
         if ((e as Error).name === "AbortError") return;
         if (mountedRef.current)
@@ -445,12 +474,16 @@ export default function CommunityPage() {
     }
   };
 
-  const handleReply = async (postId: string, body: string) => {
-    if (!user || !body) return;
+  const handleReply = async (postId: string, body: string, attachmentAssetIds: string[] = []) => {
+    if (!user) return;
+    if (!body && attachmentAssetIds.length === 0) return;
     setReplying(true);
     setReplyError(null);
     try {
-      const r = await apiRequest("POST", `/api/public/community/posts/${postId}/reply`, { body });
+      const r = await apiRequest("POST", `/api/public/community/posts/${postId}/reply`, {
+        body,
+        attachmentAssetIds,
+      });
       const newReply = await r.json() as ForumReply;
       // Refetch to get any orb auto-reply too
       const full = await fetch(`/api/public/community/posts/${postId}`);
@@ -482,8 +515,11 @@ export default function CommunityPage() {
     }
   };
 
+  /* PretextShell supplies the aurora + ambient orbs at the app level; the
+   * community page keeps its local AmbientOrbs as a gentle extra flourish
+   * and drops its own opaque gradient so the shared backdrop reads through. */
   return (
-    <div className="relative min-h-full overflow-y-auto bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white">
+    <div className="relative min-h-full overflow-y-auto text-white">
       <AmbientOrbs />
 
       <div className="relative mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10 space-y-8">
@@ -504,21 +540,15 @@ export default function CommunityPage() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: "easeOut" }}
-          className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-6 sm:p-8 shadow-2xl"
+          className="glass-panel-glossy p-6 sm:p-8 shadow-2xl"
         >
           <div className="flex items-center gap-4">
-            <div className="relative h-14 w-14">
-              {/* Hero orb — a large, slowly pulsing composite orb */}
-              <motion.div
-                aria-hidden
-                animate={{ scale: [1, 1.15, 1], opacity: [0.4, 0.7, 0.4] }}
-                transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
-                className="absolute inset-0 rounded-full bg-gradient-to-br from-sky-400/30 via-indigo-500/25 to-violet-400/20 blur-lg"
-              />
-              <div className="relative h-14 w-14 rounded-full bg-gradient-to-br from-sky-400/40 via-indigo-500/30 to-violet-400/20 border border-white/20 ring-1 ring-sky-400/25 shadow-lg shadow-sky-500/20 grid place-items-center backdrop-blur-sm">
-                <div className="h-5 w-5 rounded-full bg-white/30 blur-[2px]" />
-              </div>
-            </div>
+            <PretextAvatarOrb
+              variant="social"
+              size="lg"
+              label="Community hero orb"
+            />
+
             <div>
               <p className="text-[11px] uppercase tracking-[0.22em] text-sky-300/80 font-medium">
                 AxTask Community
@@ -531,19 +561,34 @@ export default function CommunityPage() {
           <p className="mt-3 text-sm sm:text-base text-slate-300/80 leading-relaxed max-w-xl">
             The orbs are alive. Each one is driven by an archetype personality — mood, productivity, social, and more. They start the conversations; you shape them.
           </p>
-          <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-400">
             <Users className="h-3.5 w-3.5" />
             <span>{forumPosts.length} thread{forumPosts.length !== 1 ? "s" : ""}</span>
             <span className="text-slate-600">·</span>
             <span>{tasks.length} task{tasks.length !== 1 ? "s" : ""} shared</span>
+            {momentum && (
+              <>
+                <span className="text-slate-600">·</span>
+                <span className="text-sky-300/90">
+                  Last 24h: {momentum.postsLast24h} post{momentum.postsLast24h !== 1 ? "s" : ""},{" "}
+                  {momentum.repliesLast24h} repl{momentum.repliesLast24h === 1 ? "y" : "ies"} (aggregate counts only)
+                </span>
+              </>
+            )}
             <span className="text-slate-600">·</span>
             <Sparkles className="h-3.5 w-3.5 text-amber-400/60" />
             <span>Powered by Orb Archetypes</span>
           </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <FloatingChip tone="neutral">Community pulse</FloatingChip>
+            <FloatingChip tone="success">Orb-guided threads</FloatingChip>
+            <AvatarGlowChip avatarKey="mood">Mood</AvatarGlowChip>
+            <AvatarGlowChip avatarKey="productivity">Cadence</AvatarGlowChip>
+          </div>
         </motion.div>
 
         {/* Tab switcher */}
-        <div className="flex gap-1 p-1 rounded-xl bg-white/5 border border-white/8 backdrop-blur">
+        <div className="glass-panel flex gap-1 p-1 rounded-xl">
           <button
             onClick={() => setActiveTab("forum")}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
@@ -626,7 +671,7 @@ export default function CommunityPage() {
                   isExpanded={expandedPost === post.id}
                   onToggle={() => togglePost(post.id)}
                   replies={forumReplies[post.id] || []}
-                  onReply={(body) => handleReply(post.id, body)}
+                  onReply={(body, attachmentAssetIds) => handleReply(post.id, body, attachmentAssetIds)}
                   replying={replying}
                   isLoggedIn={!!user}
                   replyError={expandedPost === post.id ? replyError : null}
@@ -652,7 +697,7 @@ export default function CommunityPage() {
                       delay: Math.min(idx * 0.04, 0.4),
                       ease: "easeOut",
                     }}
-                    className="group rounded-xl border border-white/8 bg-white/[0.04] hover:bg-white/[0.07] backdrop-blur-lg transition-colors duration-200 overflow-hidden"
+                    className="group glass-panel hover:bg-white/[0.07] transition-colors duration-200 overflow-hidden"
                   >
                     <div className="p-4 sm:p-5">
                       <div className="flex items-start justify-between gap-3">

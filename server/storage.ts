@@ -1,11 +1,122 @@
-import { tasks, users, passwordResetTokens, securityLogs, securityEvents, securityAlerts, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, offlineGenerators, offlineSkillNodes, userOfflineSkills, usageSnapshots, storagePolicies, attachmentAssets, taskImportFingerprints, invoices, invoiceEvents, mfaChallenges, billingPaymentMethods, idempotencyKeys, premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents, userNotificationPreferences, userPushSubscriptions, studyDecks, studyCards, studySessions, studyReviewEvents, communityPosts, communityReplies, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type SecurityEvent, type SecurityAlert, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type OfflineGenerator, type OfflineSkillNode, type UserOfflineSkill, type UsageSnapshot, type StoragePolicy, type AttachmentAsset, type Invoice, type InvoiceEvent, type BillingPaymentMethod, type PremiumSubscription, type PremiumSavedView, type PremiumReviewWorkflow, type PremiumInsight, type PremiumEvent, type UserNotificationPreference, type UserPushSubscription, type StudyDeck, type StudyCard, type StudySession, type StudyReviewEvent, type CreateStudyDeckInput, type CreateStudyCardInput, type StartStudySessionInput, type SubmitStudyAnswerInput, type CommunityPost, type CommunityReply } from "@shared/schema";
+import {
+  tasks,
+  users,
+  passwordResetTokens,
+  securityLogs,
+  securityEvents,
+  securityAlerts,
+  wallets,
+  coinTransactions,
+  userBadges,
+  rewardsCatalog,
+  userRewards,
+  taskCollaborators,
+  taskPatterns,
+  classificationContributions,
+  classificationConfirmations,
+  offlineGenerators,
+  offlineSkillNodes,
+  userOfflineSkills,
+  avatarSkillNodes,
+  userAvatarSkills,
+  userAvatarProfiles,
+  usageSnapshots,
+  storagePolicies,
+  attachmentAssets,
+  messageAttachments,
+  MESSAGE_ATTACHMENT_OWNER_TYPES,
+  type MessageAttachmentOwnerType,
+  taskImportFingerprints,
+  invoices,
+  invoiceEvents,
+  mfaChallenges,
+  billingPaymentMethods,
+  idempotencyKeys,
+  premiumSubscriptions,
+  premiumSavedViews,
+  premiumReviewWorkflows,
+  premiumInsights,
+  premiumEvents,
+  userNotificationPreferences,
+  userVoicePreferences,
+  userPushSubscriptions,
+  userAdherenceState,
+  userAdherenceInterventions,
+  studyDecks,
+  studyCards,
+  studySessions,
+  studyReviewEvents,
+  communityPosts,
+  communityReplies,
+  taskClassificationThumbs,
+  userAlarmSnapshots,
+  collaborationInboxMessages,
+  userLocationPlaces,
+  userClassificationLabels,
+  type Task,
+  type InsertTask,
+  type UpdateTask,
+  type User,
+  type SafeUser,
+  type SecurityLog,
+  type SecurityEvent,
+  type SecurityAlert,
+  type Wallet,
+  type CoinTransaction,
+  type UserBadge,
+  type RewardItem,
+  type TaskCollaborator,
+  type TaskPattern,
+  type InsertTaskPattern,
+  type ClassificationContribution,
+  type ClassificationConfirmation,
+  type OfflineGenerator,
+  type OfflineSkillNode,
+  type UserOfflineSkill,
+  type AvatarSkillNode,
+  type UserAvatarSkill,
+  type UserAvatarProfile,
+  type UsageSnapshot,
+  type StoragePolicy,
+  type AttachmentAsset,
+  type Invoice,
+  type InvoiceEvent,
+  type BillingPaymentMethod,
+  type PremiumSubscription,
+  type PremiumSavedView,
+  type PremiumReviewWorkflow,
+  type PremiumInsight,
+  type PremiumEvent,
+  type UserNotificationPreference,
+  type UserVoicePreference,
+  type VoiceListeningMode,
+  type UserPushSubscription,
+  type UserAdherenceState,
+  type UserAdherenceIntervention,
+  type AdherenceSignal,
+  type StudyDeck,
+  type StudyCard,
+  type StudySession,
+  type StudyReviewEvent,
+  type CreateStudyDeckInput,
+  type CreateStudyCardInput,
+  type StartStudySessionInput,
+  type SubmitStudyAnswerInput,
+  type CommunityPost,
+  type CommunityReply,
+  type UserAlarmSnapshot,
+  type CollaborationInboxMessage,
+  type UserLocationPlace,
+} from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray } from "drizzle-orm";
+import { eq, and, ilike, or, asc, lt, gte, count, avg, sql, desc, inArray } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
 import { parseFeedbackPayload, parseFeedbackReviewPayload } from "./services/feedback-inbox-parser";
 import { maskE164ForDisplay } from "@shared/phone";
+import { displayAveragePriorityScoreFromDb } from "@shared/display-priority-score";
+import { TASK_SEARCH_RESULT_LIMIT } from "@shared/task-list-limits";
 import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
@@ -182,6 +293,67 @@ function clampNotificationIntensity(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+const FEEDBACK_AVATAR_KEYS_SET = new Set([
+  "archetype",
+  "productivity",
+  "mood",
+  "social",
+  "lazy",
+]);
+
+type FeedbackNudgePrefsShape = {
+  master: number;
+  byAvatar: Partial<Record<string, number>>;
+};
+
+function sanitizeFeedbackNudgePrefs(
+  raw: unknown,
+): FeedbackNudgePrefsShape {
+  const fallback: FeedbackNudgePrefsShape = { master: 50, byAvatar: {} };
+  if (!raw || typeof raw !== "object") return fallback;
+  const input = raw as Record<string, unknown>;
+  const master =
+    typeof input.master === "number" && Number.isFinite(input.master)
+      ? clampNotificationIntensity(input.master)
+      : 50;
+  const byAvatarIn =
+    input.byAvatar && typeof input.byAvatar === "object"
+      ? (input.byAvatar as Record<string, unknown>)
+      : {};
+  const byAvatar: Partial<Record<string, number>> = {};
+  for (const [k, v] of Object.entries(byAvatarIn)) {
+    if (!FEEDBACK_AVATAR_KEYS_SET.has(k)) continue;
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    byAvatar[k] = clampNotificationIntensity(v);
+  }
+  return { master, byAvatar };
+}
+
+function mergeFeedbackNudgePrefs(
+  existing: FeedbackNudgePrefsShape,
+  patch: unknown,
+): FeedbackNudgePrefsShape {
+  if (!patch || typeof patch !== "object") return existing;
+  const patchObj = patch as Record<string, unknown>;
+  const nextMaster =
+    typeof patchObj.master === "number" && Number.isFinite(patchObj.master)
+      ? clampNotificationIntensity(patchObj.master)
+      : existing.master;
+  const byAvatar: Partial<Record<string, number>> = { ...existing.byAvatar };
+  if (patchObj.byAvatar && typeof patchObj.byAvatar === "object") {
+    for (const [k, v] of Object.entries(patchObj.byAvatar as Record<string, unknown>)) {
+      if (!FEEDBACK_AVATAR_KEYS_SET.has(k)) continue;
+      if (v === null || v === undefined) {
+        delete byAvatar[k];
+        continue;
+      }
+      if (typeof v !== "number" || !Number.isFinite(v)) continue;
+      byAvatar[k] = clampNotificationIntensity(v);
+    }
+  }
+  return { master: nextMaster, byAvatar };
+}
+
 function normalizeNotificationPreference(
   userId: string,
   row?: UserNotificationPreference,
@@ -193,6 +365,7 @@ function normalizeNotificationPreference(
     intensity: clampNotificationIntensity(row?.intensity ?? DEFAULT_NOTIFICATION_INTENSITY),
     quietHoursStart: row?.quietHoursStart ?? null,
     quietHoursEnd: row?.quietHoursEnd ?? null,
+    feedbackNudgePrefs: sanitizeFeedbackNudgePrefs(row?.feedbackNudgePrefs),
     createdAt: row?.createdAt ?? now,
     updatedAt: row?.updatedAt ?? now,
   };
@@ -212,8 +385,14 @@ export async function upsertUserNotificationPreference(input: {
   intensity?: number;
   quietHoursStart?: number | null;
   quietHoursEnd?: number | null;
+  feedbackNudgePrefs?: unknown;
 }): Promise<UserNotificationPreference> {
   const existing = await getUserNotificationPreference(input.userId);
+  const existingPrefs = sanitizeFeedbackNudgePrefs(existing.feedbackNudgePrefs);
+  const nextFeedbackPrefs =
+    input.feedbackNudgePrefs === undefined
+      ? existingPrefs
+      : mergeFeedbackNudgePrefs(existingPrefs, input.feedbackNudgePrefs);
   const [updated] = await db
     .insert(userNotificationPreferences)
     .values({
@@ -222,6 +401,7 @@ export async function upsertUserNotificationPreference(input: {
       intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
       quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
       quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
+      feedbackNudgePrefs: nextFeedbackPrefs,
       createdAt: existing.createdAt,
       updatedAt: new Date(),
     })
@@ -232,11 +412,64 @@ export async function upsertUserNotificationPreference(input: {
         intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
         quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
         quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
+        feedbackNudgePrefs: nextFeedbackPrefs,
         updatedAt: new Date(),
       },
     })
     .returning();
   return normalizeNotificationPreference(input.userId, updated);
+}
+
+const DEFAULT_VOICE_LISTENING_MODE: VoiceListeningMode = "wake_after_first_use";
+
+function isVoiceListeningMode(v: string | null | undefined): v is VoiceListeningMode {
+  return v === "manual" || v === "wake_after_first_use";
+}
+
+function normalizeVoicePreference(userId: string, row?: UserVoicePreference): UserVoicePreference {
+  const now = new Date();
+  const mode = row?.listeningMode && isVoiceListeningMode(row.listeningMode)
+    ? row.listeningMode
+    : DEFAULT_VOICE_LISTENING_MODE;
+  return {
+    userId,
+    listeningMode: mode,
+    createdAt: row?.createdAt ?? now,
+    updatedAt: row?.updatedAt ?? now,
+  };
+}
+
+export async function getUserVoicePreference(userId: string): Promise<UserVoicePreference> {
+  const [row] = await db
+    .select()
+    .from(userVoicePreferences)
+    .where(eq(userVoicePreferences.userId, userId));
+  return normalizeVoicePreference(userId, row);
+}
+
+export async function upsertUserVoicePreference(input: {
+  userId: string;
+  listeningMode?: VoiceListeningMode;
+}): Promise<UserVoicePreference> {
+  const existing = await getUserVoicePreference(input.userId);
+  const nextMode = input.listeningMode ?? existing.listeningMode;
+  const [updated] = await db
+    .insert(userVoicePreferences)
+    .values({
+      userId: input.userId,
+      listeningMode: nextMode,
+      createdAt: existing.createdAt,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: userVoicePreferences.userId,
+      set: {
+        listeningMode: nextMode,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return normalizeVoicePreference(input.userId, updated);
 }
 
 export async function listUserPushSubscriptions(userId: string): Promise<UserPushSubscription[]> {
@@ -340,6 +573,186 @@ export async function markPushSubscriptionDispatched(endpoint: string): Promise<
       updatedAt: new Date(),
     })
     .where(eq(userPushSubscriptions.endpoint, endpoint));
+}
+
+type AdherenceStatePatch = {
+  lastEvaluatedAt?: Date;
+  lastLoginAt?: Date;
+  lastTaskMutationAt?: Date;
+  lastMissedDueAt?: Date;
+  lastReminderIgnoredAt?: Date;
+  lastStreakDropAt?: Date;
+  lastNoEngagementAt?: Date;
+};
+
+export async function getUserAdherenceState(userId: string): Promise<UserAdherenceState | null> {
+  const [row] = await db
+    .select()
+    .from(userAdherenceState)
+    .where(eq(userAdherenceState.userId, userId));
+  return row ?? null;
+}
+
+export async function upsertUserAdherenceState(userId: string, patch: AdherenceStatePatch): Promise<UserAdherenceState> {
+  const existing = await getUserAdherenceState(userId);
+  const [row] = await db
+    .insert(userAdherenceState)
+    .values({
+      userId,
+      lastEvaluatedAt: patch.lastEvaluatedAt ?? existing?.lastEvaluatedAt ?? null,
+      lastLoginAt: patch.lastLoginAt ?? existing?.lastLoginAt ?? null,
+      lastTaskMutationAt: patch.lastTaskMutationAt ?? existing?.lastTaskMutationAt ?? null,
+      lastMissedDueAt: patch.lastMissedDueAt ?? existing?.lastMissedDueAt ?? null,
+      lastReminderIgnoredAt: patch.lastReminderIgnoredAt ?? existing?.lastReminderIgnoredAt ?? null,
+      lastStreakDropAt: patch.lastStreakDropAt ?? existing?.lastStreakDropAt ?? null,
+      lastNoEngagementAt: patch.lastNoEngagementAt ?? existing?.lastNoEngagementAt ?? null,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: userAdherenceState.userId,
+      set: {
+        lastEvaluatedAt: patch.lastEvaluatedAt ?? existing?.lastEvaluatedAt ?? null,
+        lastLoginAt: patch.lastLoginAt ?? existing?.lastLoginAt ?? null,
+        lastTaskMutationAt: patch.lastTaskMutationAt ?? existing?.lastTaskMutationAt ?? null,
+        lastMissedDueAt: patch.lastMissedDueAt ?? existing?.lastMissedDueAt ?? null,
+        lastReminderIgnoredAt: patch.lastReminderIgnoredAt ?? existing?.lastReminderIgnoredAt ?? null,
+        lastStreakDropAt: patch.lastStreakDropAt ?? existing?.lastStreakDropAt ?? null,
+        lastNoEngagementAt: patch.lastNoEngagementAt ?? existing?.lastNoEngagementAt ?? null,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return row;
+}
+
+export async function createAdherenceIntervention(input: {
+  userId: string;
+  signal: AdherenceSignal;
+  title: string;
+  message: string;
+  channel?: "in_app" | "push";
+  context?: Record<string, unknown>;
+  dedupeKey: string;
+}): Promise<UserAdherenceIntervention | null> {
+  try {
+    const [row] = await db
+      .insert(userAdherenceInterventions)
+      .values({
+        id: randomUUID(),
+        userId: input.userId,
+        signal: input.signal,
+        status: "open",
+        title: input.title,
+        message: input.message,
+        channel: input.channel ?? "in_app",
+        contextJson: input.context ? JSON.stringify(input.context) : null,
+        dedupeKey: input.dedupeKey,
+        updatedAt: new Date(),
+      })
+      .returning();
+    return row ?? null;
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? (error as { code?: string }).code : undefined;
+    if (code === "23505") return null;
+    throw error;
+  }
+}
+
+export async function listOpenAdherenceInterventions(userId: string, limit = 10): Promise<UserAdherenceIntervention[]> {
+  return db
+    .select()
+    .from(userAdherenceInterventions)
+    .where(and(
+      eq(userAdherenceInterventions.userId, userId),
+      eq(userAdherenceInterventions.status, "open"),
+    ))
+    .orderBy(desc(userAdherenceInterventions.createdAt))
+    .limit(Math.min(Math.max(limit, 1), 100));
+}
+
+export async function listDispatchableAdherenceInterventions(limit = 100): Promise<UserAdherenceIntervention[]> {
+  return db
+    .select()
+    .from(userAdherenceInterventions)
+    .where(and(
+      eq(userAdherenceInterventions.status, "open"),
+      sql`${userAdherenceInterventions.pushSentAt} IS NULL`,
+    ))
+    .orderBy(desc(userAdherenceInterventions.createdAt))
+    .limit(Math.min(Math.max(limit, 1), 500));
+}
+
+export async function markAdherenceInterventionPushSent(id: string): Promise<void> {
+  await db
+    .update(userAdherenceInterventions)
+    .set({
+      pushSentAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(userAdherenceInterventions.id, id));
+}
+
+export async function acknowledgeAdherenceIntervention(
+  userId: string,
+  id: string,
+  action: "acknowledge" | "dismiss" = "acknowledge",
+): Promise<boolean> {
+  const setValues = action === "dismiss"
+    ? {
+        status: "dismissed",
+        dismissedAt: new Date(),
+        updatedAt: new Date(),
+      }
+    : {
+        status: "acknowledged",
+        acknowledgedAt: new Date(),
+        updatedAt: new Date(),
+      };
+  const rows = await db
+    .update(userAdherenceInterventions)
+    .set(setValues)
+    .where(and(
+      eq(userAdherenceInterventions.userId, userId),
+      eq(userAdherenceInterventions.id, id),
+      eq(userAdherenceInterventions.status, "open"),
+    ))
+    .returning({ id: userAdherenceInterventions.id });
+  return rows.length > 0;
+}
+
+export async function listRecentAdherenceInterventions(
+  userId: string,
+  signal?: AdherenceSignal,
+  limit = 20,
+): Promise<UserAdherenceIntervention[]> {
+  const whereClause = signal
+    ? and(eq(userAdherenceInterventions.userId, userId), eq(userAdherenceInterventions.signal, signal))
+    : eq(userAdherenceInterventions.userId, userId);
+  return db
+    .select()
+    .from(userAdherenceInterventions)
+    .where(whereClause)
+    .orderBy(desc(userAdherenceInterventions.createdAt))
+    .limit(Math.min(Math.max(limit, 1), 200));
+}
+
+export async function getLatestTaskMutationAt(userId: string): Promise<Date | null> {
+  const [row] = await db
+    .select({ value: sql<Date | null>`max(${tasks.updatedAt})` })
+    .from(tasks)
+    .where(eq(tasks.userId, userId));
+  return row?.value ?? null;
+}
+
+export async function getLatestLoginAt(userId: string): Promise<Date | null> {
+  const [row] = await db
+    .select({ value: sql<Date | null>`max(${securityEvents.createdAt})` })
+    .from(securityEvents)
+    .where(and(
+      eq(securityEvents.actorUserId, userId),
+      eq(securityEvents.eventType, "auth_login_success"),
+    ));
+  return row?.value ?? null;
 }
 
 export async function verifyPassword(
@@ -901,6 +1314,79 @@ export async function analyzeAndCreateSecurityAlerts(): Promise<{ created: numbe
   return { created };
 }
 
+// ─── User classification labels ───────────────────────────────────────────────
+
+export async function listUserClassificationLabels(
+  userId: string,
+): Promise<{ id: string; label: string; coins: number }[]> {
+  return db
+    .select({
+      id: userClassificationLabels.id,
+      label: userClassificationLabels.label,
+      coins: userClassificationLabels.coins,
+    })
+    .from(userClassificationLabels)
+    .where(eq(userClassificationLabels.userId, userId))
+    .orderBy(asc(userClassificationLabels.label));
+}
+
+function isPostgresUniqueViolation(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const o = e as { code?: string; cause?: unknown };
+  if (o.code === "23505") return true;
+  if (o.cause && typeof o.cause === "object" && (o.cause as { code?: string }).code === "23505") {
+    return true;
+  }
+  return false;
+}
+
+async function getUserClassificationLabelByUserLower(
+  userId: string,
+  labelLower: string,
+): Promise<{ id: string; label: string; coins: number } | undefined> {
+  const [row] = await db
+    .select()
+    .from(userClassificationLabels)
+    .where(
+      and(
+        eq(userClassificationLabels.userId, userId),
+        eq(userClassificationLabels.labelLower, labelLower),
+      ),
+    )
+    .limit(1);
+  if (!row) return undefined;
+  return { id: row.id, label: row.label, coins: row.coins };
+}
+
+export async function addUserClassificationLabel(
+  userId: string,
+  rawLabel: string,
+): Promise<{ id: string; label: string; coins: number }> {
+  const label = rawLabel.trim();
+  if (label.length < 2) {
+    throw new Error("Name must be at least 2 characters.");
+  }
+  if (label.length > 48) {
+    throw new Error("Name must be at most 48 characters.");
+  }
+
+  try {
+    const [row] = await db
+      .insert(userClassificationLabels)
+      .values({ id: randomUUID(), userId, label, coins: 3 })
+      .returning();
+    if (row) {
+      return { id: row.id, label: row.label, coins: row.coins };
+    }
+  } catch (e: unknown) {
+    if (!isPostgresUniqueViolation(e)) throw e;
+  }
+
+  const existing = await getUserClassificationLabelByUserLower(userId, label.toLowerCase());
+  if (existing) return existing;
+  throw new Error("Could not create or load classification label.");
+}
+
 // ─── Task storage ────────────────────────────────────────────────────────────
 
 export interface IStorage {
@@ -1029,7 +1515,9 @@ export class DatabaseStorage implements IStorage {
             ilike(tasks.classification, lowercaseQuery)
           )
         )
-      );
+      )
+      .orderBy(desc(tasks.updatedAt), desc(tasks.createdAt))
+      .limit(TASK_SEARCH_RESULT_LIMIT);
   }
 
   async bulkUpdateTasks(userId: string, updates: UpdateTask[]): Promise<void> {
@@ -1049,6 +1537,22 @@ export class DatabaseStorage implements IStorage {
         return sql.join([sql`CASE`, ...parts, sql`ELSE ${sql.raw(column)} END`], sql` `);
       };
 
+      const associationsCase = sql.join(
+        [
+          sql`CASE`,
+          ...batch.map((u) => {
+            const val = u.classificationAssociations;
+            if (val === undefined) {
+              return sql`WHEN id = ${u.id} THEN classification_associations`;
+            }
+            const escaped = JSON.stringify(val).replace(/\\/g, "\\\\").replace(/'/g, "''");
+            return sql`WHEN id = ${u.id} THEN ${sql.raw(`'${escaped}'::jsonb`)}`;
+          }),
+          sql`ELSE classification_associations END`,
+        ],
+        sql` `,
+      );
+
       const idParams = batch.map(u => sql`${u.id}`);
 
       await db.execute(sql`
@@ -1056,6 +1560,7 @@ export class DatabaseStorage implements IStorage {
           priority = ${buildCase('priority', u => u.priority)},
           priority_score = ${buildCase('priority_score', u => u.priorityScore)},
           classification = ${buildCase('classification', u => u.classification)},
+          classification_associations = ${associationsCase},
           is_repeated = ${buildCase('is_repeated', u => u.isRepeated)},
           updated_at = ${now}
         WHERE user_id = ${userId} AND id IN (${sql.join(idParams, sql`, `)})
@@ -1105,11 +1610,13 @@ export class DatabaseStorage implements IStorage {
       db.select({ value: avg(tasks.priorityScore) }).from(tasks).where(eq(tasks.userId, userId)),
     ]);
 
+    const rawAvg = Number(avgRow?.value) || 0;
     return {
       totalTasks: Number(totalRow?.value) || 0,
       highPriorityTasks: Number(highPriorityRow?.value) || 0,
       completedToday: Number(completedTodayRow?.value) || 0,
-      avgPriorityScore: Number(avgRow?.value) || 0,
+      /** Same scale as task list / planner: DB stores score × 10. */
+      avgPriorityScore: displayAveragePriorityScoreFromDb(rawAvg),
     };
   }
 }
@@ -1316,12 +1823,12 @@ export async function addCoins(
   details?: string,
   taskId?: string
 ): Promise<{ wallet: Wallet; transaction: CoinTransaction }> {
-  const wallet = await getOrCreateWallet(userId);
+  await getOrCreateWallet(userId);
   const [updated] = await db
     .update(wallets)
     .set({
-      balance: wallet.balance + amount,
-      lifetimeEarned: wallet.lifetimeEarned + amount,
+      balance: sql`${wallets.balance} + ${amount}`,
+      lifetimeEarned: sql`${wallets.lifetimeEarned} + ${amount}`,
     })
     .where(eq(wallets.userId, userId))
     .returning();
@@ -1345,13 +1852,13 @@ export async function hasTaskBeenAwarded(userId: string, taskId: string): Promis
 }
 
 export async function spendCoins(userId: string, amount: number, reason: string): Promise<Wallet | null> {
-  const wallet = await getOrCreateWallet(userId);
-  if (wallet.balance < amount) return null;
+  await getOrCreateWallet(userId);
   const [updated] = await db
     .update(wallets)
-    .set({ balance: wallet.balance - amount })
-    .where(eq(wallets.userId, userId))
+    .set({ balance: sql`${wallets.balance} - ${amount}` })
+    .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${amount}`))
     .returning();
+  if (!updated) return null;
   await db.insert(coinTransactions).values({ id: randomUUID(), userId, amount: -amount, reason });
   return updated;
 }
@@ -1390,6 +1897,64 @@ export async function updateStreak(userId: string): Promise<Wallet> {
   return updated;
 }
 
+export async function resetStreak(userId: string): Promise<void> {
+  await db
+    .update(wallets)
+    .set({ currentStreak: 0 })
+    .where(eq(wallets.userId, userId));
+}
+
+const COMBO_WINDOW_MINUTES = 60;
+
+export async function updateComboChainOnCompletion(userId: string, completedAt = new Date()): Promise<Wallet> {
+  const wallet = await getOrCreateWallet(userId);
+  const comboWindowMs = COMBO_WINDOW_MINUTES * 60 * 1000;
+  const lastCompletionAt = wallet.lastCompletionAt ? new Date(wallet.lastCompletionAt) : null;
+  const comboWindowStartedAt = wallet.comboWindowStartedAt ? new Date(wallet.comboWindowStartedAt) : completedAt;
+  const isInComboWindow = lastCompletionAt && (completedAt.getTime() - lastCompletionAt.getTime()) <= comboWindowMs;
+
+  const comboCount = isInComboWindow ? wallet.comboCount + 1 : 1;
+  const bestComboCount = Math.max(wallet.bestComboCount, comboCount);
+  const nextComboWindowStartedAt = isInComboWindow ? comboWindowStartedAt : completedAt;
+
+  const since = new Date(completedAt.getTime() - (24 * 60 * 60 * 1000));
+  const [chainRow] = await db
+    .select({ value: count() })
+    .from(coinTransactions)
+    .where(and(
+      eq(coinTransactions.userId, userId),
+      eq(coinTransactions.reason, "task_completion"),
+      gte(coinTransactions.createdAt, since),
+    ));
+  const chainCount24h = Number(chainRow?.value) || 0;
+  const bestChainCount24h = Math.max(wallet.bestChainCount24h, chainCount24h);
+
+  const [updated] = await db
+    .update(wallets)
+    .set({
+      comboCount,
+      bestComboCount,
+      comboWindowStartedAt: nextComboWindowStartedAt,
+      lastCompletionAt: completedAt,
+      chainCount24h,
+      bestChainCount24h,
+    })
+    .where(eq(wallets.userId, userId))
+    .returning();
+  return updated;
+}
+
+export async function getFeedbackSubmissionCount(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(coinTransactions)
+    .where(and(
+      eq(coinTransactions.userId, userId),
+      eq(coinTransactions.reason, "feedback_submission_reward"),
+    ));
+  return Number(row?.value) || 0;
+}
+
 export async function getUserBadges(userId: string): Promise<UserBadge[]> {
   return db.select().from(userBadges).where(eq(userBadges.userId, userId)).orderBy(desc(userBadges.earnedAt));
 }
@@ -1417,18 +1982,319 @@ export async function getUserRewards(userId: string): Promise<(typeof userReward
   return db.select().from(userRewards).where(eq(userRewards.userId, userId)).orderBy(desc(userRewards.redeemedAt));
 }
 
+export async function getMaxAvatarLevel(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ m: sql<number>`coalesce(max(${userAvatarProfiles.level}), 0)` })
+    .from(userAvatarProfiles)
+    .where(eq(userAvatarProfiles.userId, userId));
+  return Number(row?.m) || 0;
+}
+
 export async function redeemReward(userId: string, rewardId: string): Promise<boolean> {
   const reward = await getRewardById(rewardId);
   if (!reward) return false;
-  const [existing] = await db
-    .select({ value: count() })
-    .from(userRewards)
-    .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
-  if ((Number(existing?.value) || 0) > 0) return false;
-  const wallet = await spendCoins(userId, reward.cost, `Redeemed: ${reward.name}`);
-  if (!wallet) return false;
-  await db.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
-  return true;
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ value: count() })
+      .from(userRewards)
+      .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
+    if ((Number(existing?.value) || 0) > 0) return false;
+
+    const [levelRow] = await tx
+      .select({ m: sql<number>`coalesce(max(${userAvatarProfiles.level}), 0)` })
+      .from(userAvatarProfiles)
+      .where(eq(userAvatarProfiles.userId, userId));
+    const maxLevel = Number(levelRow?.m) || 0;
+    const qualifiesByLevel =
+      reward.unlockAtAvatarLevel != null && maxLevel >= reward.unlockAtAvatarLevel;
+
+    if (qualifiesByLevel) {
+      await tx.insert(coinTransactions).values({
+        id: randomUUID(),
+        userId,
+        amount: 0,
+        reason: "reward_avatar_level_unlock",
+        details: `Unlocked at avatar level ${maxLevel}: ${reward.name}`,
+      });
+      await tx.insert(userRewards).values({
+        id: randomUUID(),
+        userId,
+        rewardId,
+        coinsSpentAtRedeem: 0,
+      });
+      return true;
+    }
+
+    const [deducted] = await tx
+      .update(wallets)
+      .set({ balance: sql`${wallets.balance} - ${reward.cost}` })
+      .where(and(eq(wallets.userId, userId), sql`${wallets.balance} >= ${reward.cost}`))
+      .returning();
+    if (!deducted) return false;
+
+    await tx.insert(coinTransactions).values({
+      id: randomUUID(),
+      userId,
+      amount: -reward.cost,
+      reason: `Redeemed: ${reward.name}`,
+    });
+
+    await tx.insert(userRewards).values({
+      id: randomUUID(),
+      userId,
+      rewardId,
+      coinsSpentAtRedeem: reward.cost,
+    });
+    return true;
+  });
+}
+
+const REWARD_SELL_BACK_FRACTION = 0.7;
+
+export async function sellBackUserReward(
+  userId: string,
+  userRewardId: string,
+): Promise<
+  | { ok: true; refund: number; wallet: Wallet }
+  | { ok: false; code: "not_found" }
+> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(userRewards)
+      .where(and(eq(userRewards.id, userRewardId), eq(userRewards.userId, userId)));
+    if (!row) return { ok: false, code: "not_found" };
+
+    const refund = Math.floor(Number(row.coinsSpentAtRedeem) * REWARD_SELL_BACK_FRACTION);
+    if (refund > 0) {
+      await tx
+        .update(wallets)
+        .set({
+          balance: sql`${wallets.balance} + ${refund}`,
+          lifetimeEarned: sql`${wallets.lifetimeEarned} + ${refund}`,
+        })
+        .where(eq(wallets.userId, userId));
+      await tx.insert(coinTransactions).values({
+        id: randomUUID(),
+        userId,
+        amount: refund,
+        reason: "reward_sell_back",
+        details:
+          row.coinsSpentAtRedeem > 0
+            ? `Sell-back (${Math.round(REWARD_SELL_BACK_FRACTION * 100)}% of ${row.coinsSpentAtRedeem} coins spent)`
+            : "Sell-back (no coin refund — was avatar-level unlock)",
+      });
+    }
+
+    await tx.delete(userRewards).where(eq(userRewards.id, userRewardId));
+
+    const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId));
+    return { ok: true, refund, wallet: wallet! };
+  });
+}
+
+export async function ownerGrantCoinsToUser(
+  targetUserId: string,
+  amount: number,
+  note?: string,
+): Promise<{ ok: true; wallet: Wallet } | { ok: false; code: "invalid_amount" | "user_not_found" }> {
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000 || !Number.isInteger(amount)) {
+    return { ok: false, code: "invalid_amount" };
+  }
+  const target = await getUserById(targetUserId);
+  if (!target) return { ok: false, code: "user_not_found" };
+  const { wallet } = await addCoins(
+    targetUserId,
+    amount,
+    "owner_coin_grant",
+    note?.trim() ? `Owner grant: ${note.trim()}` : "Owner grant",
+  );
+  return { ok: true, wallet };
+}
+
+const CLASSIFICATION_THUMB_COINS = 3;
+
+export async function getClassificationThumbState(
+  taskId: string,
+  userId: string,
+): Promise<{ voted: boolean }> {
+  const [row] = await db
+    .select({ id: taskClassificationThumbs.id })
+    .from(taskClassificationThumbs)
+    .where(and(eq(taskClassificationThumbs.taskId, taskId), eq(taskClassificationThumbs.userId, userId)))
+    .limit(1);
+  return { voted: !!row };
+}
+
+export type ClassificationThumbResult =
+  | { ok: true; coinsEarned: number; newBalance: number }
+  | { ok: false; code: "task_not_found" | "no_classification" | "already_voted" };
+
+export async function awardClassificationThumbUp(
+  userId: string,
+  taskId: string,
+): Promise<ClassificationThumbResult> {
+  const [task] = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
+    .limit(1);
+  if (!task) return { ok: false, code: "task_not_found" };
+  const cls = (task.classification || "").trim();
+  if (!cls || cls === "General") return { ok: false, code: "no_classification" };
+
+  const inserted = await db
+    .insert(taskClassificationThumbs)
+    .values({ id: randomUUID(), taskId, userId })
+    .onConflictDoNothing({ target: [taskClassificationThumbs.taskId, taskClassificationThumbs.userId] })
+    .returning({ id: taskClassificationThumbs.id });
+  if (!inserted.length) return { ok: false, code: "already_voted" };
+
+  const { wallet } = await addCoins(
+    userId,
+    CLASSIFICATION_THUMB_COINS,
+    "classification_thumbs_up",
+    `Thumbs up on ${cls} classification`,
+    taskId,
+  );
+  return { ok: true, coinsEarned: CLASSIFICATION_THUMB_COINS, newBalance: wallet.balance };
+}
+
+export async function listUserAlarmSnapshots(userId: string): Promise<UserAlarmSnapshot[]> {
+  return db
+    .select()
+    .from(userAlarmSnapshots)
+    .where(eq(userAlarmSnapshots.userId, userId))
+    .orderBy(desc(userAlarmSnapshots.capturedAt))
+    .limit(50);
+}
+
+export async function createUserAlarmSnapshot(
+  userId: string,
+  input: { deviceKey?: string; label?: string; payloadJson: string },
+): Promise<UserAlarmSnapshot> {
+  const [row] = await db
+    .insert(userAlarmSnapshots)
+    .values({
+      id: randomUUID(),
+      userId,
+      deviceKey: input.deviceKey ?? "default",
+      label: input.label ?? "capture",
+      payloadJson: input.payloadJson,
+    })
+    .returning();
+  return row;
+}
+
+export async function getUserAlarmSnapshot(
+  userId: string,
+  snapshotId: string,
+): Promise<UserAlarmSnapshot | undefined> {
+  const [row] = await db
+    .select()
+    .from(userAlarmSnapshots)
+    .where(and(eq(userAlarmSnapshots.id, snapshotId), eq(userAlarmSnapshots.userId, userId)))
+    .limit(1);
+  return row;
+}
+
+export async function listCollaborationInbox(
+  userId: string,
+  limit = 50,
+): Promise<CollaborationInboxMessage[]> {
+  return db
+    .select()
+    .from(collaborationInboxMessages)
+    .where(eq(collaborationInboxMessages.userId, userId))
+    .orderBy(desc(collaborationInboxMessages.createdAt))
+    .limit(limit);
+}
+
+export async function appendCollaborationMessage(input: {
+  userId: string;
+  body: string;
+  taskId?: string | null;
+  senderUserId?: string | null;
+}): Promise<CollaborationInboxMessage> {
+  const [row] = await db
+    .insert(collaborationInboxMessages)
+    .values({
+      id: randomUUID(),
+      userId: input.userId,
+      body: input.body,
+      taskId: input.taskId ?? null,
+      senderUserId: input.senderUserId ?? null,
+    })
+    .returning();
+  return row;
+}
+
+export async function markCollaborationMessageRead(userId: string, messageId: string): Promise<boolean> {
+  const [row] = await db
+    .update(collaborationInboxMessages)
+    .set({ readAt: new Date() })
+    .where(
+      and(eq(collaborationInboxMessages.id, messageId), eq(collaborationInboxMessages.userId, userId)),
+    )
+    .returning({ id: collaborationInboxMessages.id });
+  return !!row;
+}
+
+export async function listUserLocationPlaces(userId: string): Promise<UserLocationPlace[]> {
+  return db
+    .select()
+    .from(userLocationPlaces)
+    .where(eq(userLocationPlaces.userId, userId))
+    .orderBy(desc(userLocationPlaces.updatedAt));
+}
+
+export async function upsertUserLocationPlace(
+  userId: string,
+  input: { id?: string; name: string; lat?: number | null; lng?: number | null; radiusMeters?: number },
+): Promise<UserLocationPlace | undefined> {
+  if (input.id) {
+    const [u] = await db
+      .update(userLocationPlaces)
+      .set({
+        name: input.name,
+        lat: input.lat ?? null,
+        lng: input.lng ?? null,
+        radiusMeters: input.radiusMeters ?? 200,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(userLocationPlaces.id, input.id), eq(userLocationPlaces.userId, userId)))
+      .returning();
+    if (u) return u;
+  }
+  const [row] = await db
+    .insert(userLocationPlaces)
+    .values({
+      id: randomUUID(),
+      userId,
+      name: input.name,
+      lat: input.lat ?? null,
+      lng: input.lng ?? null,
+      radiusMeters: input.radiusMeters ?? 200,
+    })
+    .returning();
+  return row;
+}
+
+export async function getCommunityMomentumStats(): Promise<{
+  postsLast24h: number;
+  repliesLast24h: number;
+}> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [p] = await db
+    .select({ c: count() })
+    .from(communityPosts)
+    .where(gte(communityPosts.createdAt, since));
+  const [r] = await db
+    .select({ c: count() })
+    .from(communityReplies)
+    .where(gte(communityReplies.createdAt, since));
+  return { postsLast24h: Number(p?.c) || 0, repliesLast24h: Number(r?.c) || 0 };
 }
 
 export async function seedRewardsCatalog(): Promise<void> {
@@ -1445,6 +2311,7 @@ export async function seedRewardsCatalog(): Promise<void> {
     { id: randomUUID(), name: "Task Master Title", description: "Display 'Task Master' on your profile", cost: 150, type: "title", icon: "🏅", data: "Task Master" },
     { id: randomUUID(), name: "Productivity Guru Title", description: "Display 'Productivity Guru' on your profile", cost: 250, type: "title", icon: "🧠", data: "Productivity Guru" },
     { id: randomUUID(), name: "Legend Title", description: "Display 'Legend' on your profile", cost: 500, type: "title", icon: "🏆", data: "Legend" },
+    { id: randomUUID(), name: "Avatar Support Unlock", description: "Unlock the avatar support tree for guided task management", cost: 220, type: "avatar_support", icon: "🧭", data: "avatar-support-unlock" },
   ]);
 }
 
@@ -1563,6 +2430,320 @@ export async function seedOfflineSkillTree(): Promise<void> {
       sortOrder: 4,
     },
   ]);
+}
+
+const DEFAULT_AVATAR_PROFILES: Array<{
+  avatarKey: "mood" | "archetype" | "productivity" | "social" | "lazy";
+  displayName: string;
+  archetypeKey: string;
+  mission: string;
+}> = [
+  { avatarKey: "mood", displayName: "Moodweaver", archetypeKey: "momentum", mission: "Complete tasks while tracking your energy shifts." },
+  { avatarKey: "archetype", displayName: "Archon", archetypeKey: "strategy", mission: "Clarify one high-leverage next action and complete it." },
+  { avatarKey: "productivity", displayName: "Cadence", archetypeKey: "execution", mission: "Ship a focused task block without context switching." },
+  { avatarKey: "social", displayName: "Nexus", archetypeKey: "collaboration", mission: "Complete a task that helps or unblocks someone else." },
+  { avatarKey: "lazy", displayName: "Drift", archetypeKey: "recovery", mission: "Balance progress with recovery and calmer pacing." },
+];
+
+const AVATAR_SKILL_TREE: Array<{
+  skillKey: string;
+  name: string;
+  description: string;
+  branch: string;
+  maxLevel: number;
+  baseCost: number;
+  effectType: "entourage_slots" | "guidance_depth" | "context_points" | "resource_budget" | "export_coin_discount";
+  effectPerLevel: number;
+  prerequisiteSkillKey: string | null;
+  sortOrder: number;
+}> = [
+  {
+    skillKey: "entourage-slots",
+    name: "Entourage Slots",
+    description: "Increase simultaneous active task companions.",
+    branch: "companions",
+    maxLevel: 4,
+    baseCost: 130,
+    effectType: "entourage_slots",
+    effectPerLevel: 1,
+    prerequisiteSkillKey: null,
+    sortOrder: 1,
+  },
+  {
+    skillKey: "guidance-depth",
+    name: "Guidance Depth",
+    description: "Companions provide more specific task guidance.",
+    branch: "guidance",
+    maxLevel: 5,
+    baseCost: 170,
+    effectType: "guidance_depth",
+    effectPerLevel: 1,
+    prerequisiteSkillKey: null,
+    sortOrder: 2,
+  },
+  {
+    skillKey: "context-memory",
+    name: "Context Memory",
+    description: "Uses more historical data points in recommendations.",
+    branch: "analysis",
+    maxLevel: 4,
+    baseCost: 220,
+    effectType: "context_points",
+    effectPerLevel: 2,
+    prerequisiteSkillKey: "guidance-depth",
+    sortOrder: 3,
+  },
+  {
+    skillKey: "resource-orchestration",
+    name: "Resource Orchestration",
+    description: "Allocates more resource budget to contextualized guidance.",
+    branch: "analysis",
+    maxLevel: 3,
+    baseCost: 280,
+    effectType: "resource_budget",
+    effectPerLevel: 1,
+    prerequisiteSkillKey: "context-memory",
+    sortOrder: 4,
+  },
+  {
+    skillKey: "export-efficiency",
+    name: "Export Efficiency",
+    description: "Reduces AxCoin cost for checklist exports, spreadsheets, and task reports.",
+    branch: "productivity",
+    maxLevel: 8,
+    baseCost: 90,
+    effectType: "export_coin_discount",
+    effectPerLevel: 1,
+    prerequisiteSkillKey: null,
+    sortOrder: 5,
+  },
+];
+
+function avatarXpThreshold(level: number): number {
+  return 100 + Math.max(0, level - 1) * 25;
+}
+
+async function getOrCreateAvatarProfiles(userId: string): Promise<UserAvatarProfile[]> {
+  const existing = await db.select().from(userAvatarProfiles).where(eq(userAvatarProfiles.userId, userId));
+  if (existing.length > 0) return existing;
+  await db.insert(userAvatarProfiles).values(
+    DEFAULT_AVATAR_PROFILES.map((profile) => ({
+      id: randomUUID(),
+      userId,
+      avatarKey: profile.avatarKey,
+      displayName: profile.displayName,
+      archetypeKey: profile.archetypeKey,
+      mission: profile.mission,
+      level: 1,
+      xp: 0,
+      totalXp: 0,
+      updatedAt: new Date(),
+    })),
+  );
+  return db.select().from(userAvatarProfiles).where(eq(userAvatarProfiles.userId, userId));
+}
+
+export async function seedAvatarSkillTree(): Promise<void> {
+  const existing = await db.select().from(avatarSkillNodes);
+  if (existing.length === 0) {
+    await db.insert(avatarSkillNodes).values(
+      AVATAR_SKILL_TREE.map((skill) => ({
+        id: randomUUID(),
+        ...skill,
+      })),
+    );
+  } else {
+    for (const skill of AVATAR_SKILL_TREE) {
+      await db
+        .insert(avatarSkillNodes)
+        .values({
+          id: randomUUID(),
+          ...skill,
+        })
+        .onConflictDoNothing({ target: avatarSkillNodes.skillKey });
+    }
+  }
+}
+
+export async function getAvatarProfiles(userId: string): Promise<UserAvatarProfile[]> {
+  const profiles = await getOrCreateAvatarProfiles(userId);
+  return [...profiles].sort((a, b) => a.avatarKey.localeCompare(b.avatarKey));
+}
+
+async function getUserAvatarSkillLevels(userId: string): Promise<Array<UserAvatarSkill & { skillNode: AvatarSkillNode }>> {
+  const rows = await db.select().from(userAvatarSkills).where(eq(userAvatarSkills.userId, userId));
+  if (rows.length === 0) return [];
+  const nodeIds = rows.map((row) => row.skillNodeId);
+  const nodes = await db.select().from(avatarSkillNodes).where(inArray(avatarSkillNodes.id, nodeIds));
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  return rows
+    .map((row) => {
+      const skillNode = nodeById.get(row.skillNodeId);
+      if (!skillNode) return null;
+      return { ...row, skillNode };
+    })
+    .filter((row): row is UserAvatarSkill & { skillNode: AvatarSkillNode } => Boolean(row));
+}
+
+export async function getAvatarSkillTree(userId: string): Promise<Array<{
+  id: string;
+  skillKey: string;
+  name: string;
+  description: string;
+  branch: string;
+  maxLevel: number;
+  currentLevel: number;
+  nextCost: number | null;
+  prerequisiteSkillKey: string | null;
+  isUnlocked: boolean;
+  isAvailable: boolean;
+  effectType: string;
+  effectPerLevel: number;
+}>> {
+  await seedAvatarSkillTree();
+  const [nodes, userSkills] = await Promise.all([
+    db.select().from(avatarSkillNodes).orderBy(asc(avatarSkillNodes.sortOrder), asc(avatarSkillNodes.name)),
+    getUserAvatarSkillLevels(userId),
+  ]);
+  const byNodeId = new Map(userSkills.map((row) => [row.skillNode.id, row]));
+  const bySkillKey = new Map(userSkills.map((row) => [row.skillNode.skillKey, row]));
+  return nodes.map((node) => {
+    const unlocked = byNodeId.get(node.id);
+    const currentLevel = unlocked?.level ?? 0;
+    const hasPrereq = !node.prerequisiteSkillKey || (bySkillKey.get(node.prerequisiteSkillKey)?.level ?? 0) > 0;
+    const atMax = currentLevel >= node.maxLevel;
+    return {
+      id: node.id,
+      skillKey: node.skillKey,
+      name: node.name,
+      description: node.description,
+      branch: node.branch,
+      maxLevel: node.maxLevel,
+      currentLevel,
+      nextCost: atMax ? null : computeSkillUpgradeCost(node.baseCost, currentLevel),
+      prerequisiteSkillKey: node.prerequisiteSkillKey,
+      isUnlocked: currentLevel > 0,
+      isAvailable: hasPrereq && !atMax,
+      effectType: node.effectType,
+      effectPerLevel: node.effectPerLevel,
+    };
+  });
+}
+
+export async function unlockAvatarSkill(userId: string, skillKey: string): Promise<{ ok: boolean; message: string }> {
+  const [node] = await db.select().from(avatarSkillNodes).where(eq(avatarSkillNodes.skillKey, skillKey));
+  if (!node) return { ok: false, message: "Avatar skill not found." };
+  const unlockedSkills = await getUserAvatarSkillLevels(userId);
+  const existing = unlockedSkills.find((row) => row.skillNode.id === node.id);
+  const currentLevel = existing?.level ?? 0;
+  if (currentLevel >= node.maxLevel) return { ok: false, message: "Avatar skill is already maxed." };
+  if (node.prerequisiteSkillKey) {
+    const prereqLevel = unlockedSkills.find((row) => row.skillNode.skillKey === node.prerequisiteSkillKey)?.level ?? 0;
+    if (prereqLevel <= 0) return { ok: false, message: `Unlock prerequisite skill '${node.prerequisiteSkillKey}' first.` };
+  }
+  const cost = computeSkillUpgradeCost(node.baseCost, currentLevel);
+  const wallet = await spendCoins(userId, cost, `avatar_skill_upgrade:${skillKey}`);
+  if (!wallet) return { ok: false, message: `Need ${cost} coins to unlock or upgrade this skill.` };
+  if (existing) {
+    await db.update(userAvatarSkills).set({ level: existing.level + 1, updatedAt: new Date() }).where(eq(userAvatarSkills.id, existing.id));
+  } else {
+    await db.insert(userAvatarSkills).values({
+      id: randomUUID(),
+      userId,
+      skillNodeId: node.id,
+      level: 1,
+      updatedAt: new Date(),
+    });
+  }
+  return { ok: true, message: "Avatar skill upgraded successfully." };
+}
+
+export async function engageAvatarMission(input: {
+  userId: string;
+  avatarKey: string;
+  sourceType: "task" | "feedback" | "post";
+  sourceRef: string;
+  text: string;
+  completed: boolean;
+}): Promise<{ awarded: boolean; xp: number; coins: number; message?: string; avatarNextLevelXp?: number; avatarLevel?: number }> {
+  const profileRows = await getOrCreateAvatarProfiles(input.userId);
+  const profile = profileRows.find((row) => row.avatarKey === input.avatarKey);
+  if (!profile) return { awarded: false, xp: 0, coins: 0, message: "Avatar not found." };
+  const [alreadyClaimed] = await db.select({ value: count() }).from(coinTransactions).where(and(
+    eq(coinTransactions.userId, input.userId),
+    eq(coinTransactions.reason, "avatar_mission"),
+    eq(coinTransactions.taskId, input.sourceRef),
+  ));
+  if ((Number(alreadyClaimed?.value) || 0) > 0) {
+    return { awarded: false, xp: 0, coins: 0, message: "This mission source was already claimed." };
+  }
+  if (!input.completed) {
+    return { awarded: false, xp: 0, coins: 0, message: "Mission progress only counts for completed submissions." };
+  }
+  const archetypeMentioned = input.text.toLowerCase().includes(profile.archetypeKey.toLowerCase());
+  const xpGain = 18 + (archetypeMentioned ? 8 : 0) + (input.sourceType === "feedback" ? 4 : 0);
+  let nextLevel = profile.level;
+  let nextXp = profile.xp + xpGain;
+  let levelUps = 0;
+  while (nextXp >= avatarXpThreshold(nextLevel)) {
+    nextXp -= avatarXpThreshold(nextLevel);
+    nextLevel += 1;
+    levelUps += 1;
+  }
+  const totalXp = profile.totalXp + xpGain;
+  const missionCoins = 6 + (levelUps * 8);
+  const flavorByAvatar: Record<string, string> = {
+    mood: "Moodweaver tracks your momentum and keeps your streak emotionally sustainable.",
+    archetype: "Archon sharpened your next-step strategy with stronger context.",
+    productivity: "Cadence tightened your execution rhythm for cleaner completions.",
+    social: "Nexus amplified your collaborative signal and follow-through.",
+    lazy: "Drift helped preserve calm pacing while still moving the plan forward.",
+  };
+  await db.update(userAvatarProfiles).set({
+    level: nextLevel,
+    xp: nextXp,
+    totalXp,
+    updatedAt: new Date(),
+  }).where(eq(userAvatarProfiles.id, profile.id));
+  await db.insert(coinTransactions).values({
+    id: randomUUID(),
+    userId: input.userId,
+    amount: 0,
+    reason: "avatar_mission",
+    details: `Mission ${input.avatarKey}/${input.sourceType}`,
+    taskId: input.sourceRef,
+  });
+  await addCoins(input.userId, missionCoins, "avatar_mission_reward", `${profile.displayName} mission reward`, input.sourceRef);
+  return {
+    awarded: true,
+    xp: xpGain,
+    coins: missionCoins,
+    message: flavorByAvatar[input.avatarKey] ?? "Your avatar support has become more precise.",
+    avatarNextLevelXp: avatarXpThreshold(nextLevel),
+    avatarLevel: nextLevel,
+  };
+}
+
+export async function spendCoinsForAvatarBoost(userId: string, avatarKey: string, coins: number): Promise<{ ok: boolean; message: string; profile?: UserAvatarProfile }> {
+  if (!Number.isFinite(coins) || coins <= 0) return { ok: false, message: "Invalid coin amount." };
+  const profileRows = await getOrCreateAvatarProfiles(userId);
+  const profile = profileRows.find((row) => row.avatarKey === avatarKey);
+  if (!profile) return { ok: false, message: "Avatar not found." };
+  const wallet = await spendCoins(userId, coins, `avatar_boost:${avatarKey}`);
+  if (!wallet) return { ok: false, message: `Need ${coins} coins to boost this avatar.` };
+  let nextLevel = profile.level;
+  let nextXp = profile.xp + coins;
+  while (nextXp >= avatarXpThreshold(nextLevel)) {
+    nextXp -= avatarXpThreshold(nextLevel);
+    nextLevel += 1;
+  }
+  const [updated] = await db.update(userAvatarProfiles).set({
+    level: nextLevel,
+    xp: nextXp,
+    totalXp: profile.totalXp + coins,
+    updatedAt: new Date(),
+  }).where(eq(userAvatarProfiles.id, profile.id)).returning();
+  return { ok: true, message: "Avatar boosted.", profile: updated };
 }
 
 export async function getOfflineGeneratorStatus(userId: string): Promise<{
@@ -1904,6 +3085,116 @@ export async function softDeleteAttachmentAsset(userId: string, assetId: string)
     .where(and(eq(attachmentAssets.id, assetId), eq(attachmentAssets.userId, userId)))
     .returning();
   return asset;
+}
+
+/**
+ * Link up to N owned attachment_assets to a composable owner (collab msg,
+ * community post, etc.). Rejects silently when an assetId does not belong to
+ * the caller or when it has been soft-deleted. Returns the AttachmentAsset
+ * rows that were successfully linked (preserving the caller's order).
+ */
+export async function linkAttachmentsToOwner(options: {
+  userId: string;
+  ownerType: MessageAttachmentOwnerType;
+  ownerId: string;
+  assetIds: string[];
+}): Promise<AttachmentAsset[]> {
+  if (!MESSAGE_ATTACHMENT_OWNER_TYPES.includes(options.ownerType)) {
+    throw new Error(`invalid attachment owner_type: ${options.ownerType}`);
+  }
+  if (options.assetIds.length === 0) return [];
+
+  const assets: AttachmentAsset[] = [];
+  for (let i = 0; i < options.assetIds.length; i += 1) {
+    const assetId = options.assetIds[i];
+    const existing = await getAttachmentAssetById(options.userId, assetId);
+    if (!existing || existing.deletedAt) continue;
+
+    await db.insert(messageAttachments).values({
+      ownerType: options.ownerType,
+      ownerId: options.ownerId,
+      assetId,
+      userId: options.userId,
+      position: i,
+    }).onConflictDoNothing();
+
+    assets.push(existing);
+  }
+  return assets;
+}
+
+/**
+ * Fetch AttachmentAsset rows linked to a given owner, scoped to the caller.
+ * Used by read endpoints that want to embed `attachments[]` alongside the
+ * composed message body.
+ */
+export async function getAttachmentsForOwner(options: {
+  userId: string;
+  ownerType: MessageAttachmentOwnerType;
+  ownerId: string;
+}): Promise<AttachmentAsset[]> {
+  const rows = await db
+    .select({
+      id: attachmentAssets.id,
+      userId: attachmentAssets.userId,
+      taskId: attachmentAssets.taskId,
+      kind: attachmentAssets.kind,
+      fileName: attachmentAssets.fileName,
+      mimeType: attachmentAssets.mimeType,
+      byteSize: attachmentAssets.byteSize,
+      storageKey: attachmentAssets.storageKey,
+      metadataJson: attachmentAssets.metadataJson,
+      createdAt: attachmentAssets.createdAt,
+      deletedAt: attachmentAssets.deletedAt,
+      position: messageAttachments.position,
+    })
+    .from(messageAttachments)
+    .innerJoin(attachmentAssets, eq(attachmentAssets.id, messageAttachments.assetId))
+    .where(and(
+      eq(messageAttachments.ownerType, options.ownerType),
+      eq(messageAttachments.ownerId, options.ownerId),
+      eq(messageAttachments.userId, options.userId),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    ))
+    .orderBy(messageAttachments.position);
+  return rows.map(({ position: _p, ...rest }) => rest as AttachmentAsset);
+}
+
+/**
+ * Same as getAttachmentsForOwner but for read endpoints where the viewer is
+ * not necessarily the author (e.g. a community post viewed by a different
+ * user). Only returns attachments that the *author* (owner) of the message
+ * uploaded - cross-user `attachment:<id>` smuggling is blocked because the
+ * link row's `user_id` always equals the author.
+ */
+export async function getAttachmentsForOwnerPublic(options: {
+  ownerType: MessageAttachmentOwnerType;
+  ownerId: string;
+}): Promise<AttachmentAsset[]> {
+  const rows = await db
+    .select({
+      id: attachmentAssets.id,
+      userId: attachmentAssets.userId,
+      taskId: attachmentAssets.taskId,
+      kind: attachmentAssets.kind,
+      fileName: attachmentAssets.fileName,
+      mimeType: attachmentAssets.mimeType,
+      byteSize: attachmentAssets.byteSize,
+      storageKey: attachmentAssets.storageKey,
+      metadataJson: attachmentAssets.metadataJson,
+      createdAt: attachmentAssets.createdAt,
+      deletedAt: attachmentAssets.deletedAt,
+      position: messageAttachments.position,
+    })
+    .from(messageAttachments)
+    .innerJoin(attachmentAssets, eq(attachmentAssets.id, messageAttachments.assetId))
+    .where(and(
+      eq(messageAttachments.ownerType, options.ownerType),
+      eq(messageAttachments.ownerId, options.ownerId),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    ))
+    .orderBy(messageAttachments.position);
+  return rows.map(({ position: _p, ...rest }) => rest as AttachmentAsset);
 }
 
 export async function retentionSweepAttachments(userId: string, retentionDays: number, dryRun = true): Promise<{
@@ -2836,4 +4127,297 @@ export async function seedCommunityPosts(): Promise<void> {
   for (const post of AVATAR_SEED_POSTS) {
     await createCommunityPost(post);
   }
+}
+
+// ─── Collaboration helpers ──────────────────────────────────────────────────
+
+export async function addCollaborator(
+  taskId: string,
+  userId: string,
+  role: string,
+  invitedBy: string
+): Promise<TaskCollaborator> {
+  const existing = await db
+    .select()
+    .from(taskCollaborators)
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)));
+  if (existing.length > 0) {
+    const [updated] = await db
+      .update(taskCollaborators)
+      .set({ role })
+      .where(eq(taskCollaborators.id, existing[0].id))
+      .returning();
+    return updated;
+  }
+  const [collab] = await db
+    .insert(taskCollaborators)
+    .values({ id: randomUUID(), taskId, userId, role, invitedBy })
+    .returning();
+  return collab;
+}
+
+export async function removeCollaborator(taskId: string, userId: string): Promise<boolean> {
+  const result = await db
+    .delete(taskCollaborators)
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)))
+    .returning();
+  return result.length > 0;
+}
+
+export async function getTaskCollaborators(taskId: string): Promise<(TaskCollaborator & { email: string; displayName: string | null })[]> {
+  const rows = await db
+    .select({
+      id: taskCollaborators.id,
+      taskId: taskCollaborators.taskId,
+      userId: taskCollaborators.userId,
+      role: taskCollaborators.role,
+      invitedBy: taskCollaborators.invitedBy,
+      invitedAt: taskCollaborators.invitedAt,
+      email: users.email,
+      displayName: users.displayName,
+    })
+    .from(taskCollaborators)
+    .innerJoin(users, eq(taskCollaborators.userId, users.id))
+    .where(eq(taskCollaborators.taskId, taskId));
+  return rows;
+}
+
+export async function updateCollaboratorRole(taskId: string, userId: string, role: string): Promise<TaskCollaborator | null> {
+  const [updated] = await db
+    .update(taskCollaborators)
+    .set({ role })
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)))
+    .returning();
+  return updated ?? null;
+}
+
+export async function getSharedTasks(userId: string): Promise<Task[]> {
+  const rows = await db
+    .select({ taskId: taskCollaborators.taskId })
+    .from(taskCollaborators)
+    .where(eq(taskCollaborators.userId, userId));
+  if (rows.length === 0) return [];
+  const taskIds = rows.map(r => r.taskId);
+  const result = await db.select().from(tasks).where(
+    or(...taskIds.map(id => eq(tasks.id, id)))
+  );
+  return result;
+}
+
+export async function canAccessTask(userId: string, taskId: string): Promise<{ canAccess: boolean; role: string }> {
+  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
+  if (task?.userId === userId) return { canAccess: true, role: "owner" };
+  const [collab] = await db
+    .select({ role: taskCollaborators.role })
+    .from(taskCollaborators)
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)));
+  if (collab) return { canAccess: true, role: collab.role };
+  return { canAccess: false, role: "" };
+}
+
+export async function isTaskOwner(userId: string, taskId: string): Promise<boolean> {
+  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
+  return task?.userId === userId;
+}
+
+// ─── Pattern Learning Storage ────────────────────────────────────────────────
+
+export async function upsertPattern(
+  userId: string,
+  patternType: string,
+  patternKey: string,
+  data: Record<string, unknown>,
+  confidence: number
+): Promise<TaskPattern> {
+  const now = new Date();
+  const dataStr = JSON.stringify(data);
+
+  const result = await db.execute(sql`
+    INSERT INTO task_patterns (id, user_id, pattern_type, pattern_key, data, confidence, occurrences, last_seen, created_at)
+    VALUES (${randomUUID()}, ${userId}, ${patternType}, ${patternKey}, ${dataStr}, ${confidence}, 1, ${now}, ${now})
+    ON CONFLICT (user_id, pattern_type, pattern_key)
+    DO UPDATE SET
+      data = ${dataStr},
+      confidence = ${confidence},
+      occurrences = task_patterns.occurrences + 1,
+      last_seen = ${now}
+    RETURNING *
+  `);
+
+  return result.rows[0] as unknown as TaskPattern;
+}
+
+export async function getPatterns(userId: string): Promise<TaskPattern[]> {
+  return db
+    .select()
+    .from(taskPatterns)
+    .where(eq(taskPatterns.userId, userId))
+    .orderBy(desc(taskPatterns.occurrences));
+}
+
+export async function getPatternsByType(userId: string, patternType: string): Promise<TaskPattern[]> {
+  return db
+    .select()
+    .from(taskPatterns)
+    .where(and(eq(taskPatterns.userId, userId), eq(taskPatterns.patternType, patternType)))
+    .orderBy(desc(taskPatterns.occurrences));
+}
+
+export async function deleteStalePatterns(userId: string, olderThanDays: number = 90): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+  const result = await db
+    .delete(taskPatterns)
+    .where(and(eq(taskPatterns.userId, userId), lt(taskPatterns.lastSeen, cutoff)))
+    .returning();
+  return result.length;
+}
+
+export async function clearPatterns(userId: string): Promise<void> {
+  await db.delete(taskPatterns).where(eq(taskPatterns.userId, userId));
+}
+
+// ─── Classification Contributions ──────────────────────────────────────────
+
+export async function createClassificationContribution(
+  taskId: string,
+  userId: string,
+  classification: string,
+  baseCoinsAwarded: number
+): Promise<ClassificationContribution> {
+  const [existing] = await db
+    .select()
+    .from(classificationContributions)
+    .where(and(
+      eq(classificationContributions.taskId, taskId),
+      eq(classificationContributions.userId, userId)
+    ))
+    .limit(1);
+
+  if (existing) {
+    const [updated] = await db
+      .update(classificationContributions)
+      .set({
+        classification,
+        baseCoinsAwarded,
+      })
+      .where(eq(classificationContributions.id, existing.id))
+      .returning();
+    return updated;
+  }
+
+  const [contrib] = await db
+    .insert(classificationContributions)
+    .values({
+      id: randomUUID(),
+      taskId,
+      userId,
+      classification,
+      baseCoinsAwarded,
+      totalCoinsEarned: baseCoinsAwarded,
+      confirmationCount: 0,
+    })
+    .returning();
+  return contrib;
+}
+
+export async function getContributionsForTask(taskId: string): Promise<(ClassificationContribution & { displayName: string | null })[]> {
+  const rows = await db
+    .select({
+      id: classificationContributions.id,
+      taskId: classificationContributions.taskId,
+      userId: classificationContributions.userId,
+      classification: classificationContributions.classification,
+      baseCoinsAwarded: classificationContributions.baseCoinsAwarded,
+      totalCoinsEarned: classificationContributions.totalCoinsEarned,
+      confirmationCount: classificationContributions.confirmationCount,
+      createdAt: classificationContributions.createdAt,
+      displayName: users.displayName,
+    })
+    .from(classificationContributions)
+    .innerJoin(users, eq(users.id, classificationContributions.userId))
+    .where(eq(classificationContributions.taskId, taskId))
+    .orderBy(desc(classificationContributions.createdAt));
+  return rows;
+}
+
+export async function getContribution(taskId: string, userId: string): Promise<ClassificationContribution | null> {
+  const [row] = await db
+    .select()
+    .from(classificationContributions)
+    .where(and(
+      eq(classificationContributions.taskId, taskId),
+      eq(classificationContributions.userId, userId)
+    ))
+    .limit(1);
+  return row || null;
+}
+
+export async function hasUserConfirmedTask(taskId: string, userId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(classificationConfirmations)
+    .where(and(
+      eq(classificationConfirmations.taskId, taskId),
+      eq(classificationConfirmations.userId, userId)
+    ));
+  return (Number(row?.value) || 0) > 0;
+}
+
+export async function recordConfirmation(
+  contributionId: string,
+  taskId: string,
+  confirmingUserId: string,
+  coinsAwarded: number
+): Promise<ClassificationConfirmation> {
+  const [confirmation] = await db
+    .insert(classificationConfirmations)
+    .values({
+      id: randomUUID(),
+      contributionId,
+      taskId,
+      userId: confirmingUserId,
+      coinsAwarded,
+    })
+    .returning();
+
+  return confirmation;
+}
+
+export async function incrementContributionConfirmCount(contributionId: string): Promise<void> {
+  await db
+    .update(classificationContributions)
+    .set({
+      confirmationCount: sql`${classificationContributions.confirmationCount} + 1`,
+    })
+    .where(eq(classificationContributions.id, contributionId));
+}
+
+export async function updateContributionEarnings(contributionId: string, additionalCoins: number): Promise<void> {
+  await db
+    .update(classificationContributions)
+    .set({
+      totalCoinsEarned: sql`${classificationContributions.totalCoinsEarned} + ${additionalCoins}`,
+    })
+    .where(eq(classificationContributions.id, contributionId));
+}
+
+export async function getUserClassificationStats(userId: string): Promise<{
+  totalClassifications: number;
+  totalConfirmationsReceived: number;
+  totalClassificationCoins: number;
+}> {
+  const [classRow] = await db
+    .select({
+      total: count(),
+      totalCoins: sql<number>`COALESCE(SUM(${classificationContributions.totalCoinsEarned}), 0)`,
+      totalConfirmations: sql<number>`COALESCE(SUM(${classificationContributions.confirmationCount}), 0)`,
+    })
+    .from(classificationContributions)
+    .where(eq(classificationContributions.userId, userId));
+
+  return {
+    totalClassifications: Number(classRow?.total) || 0,
+    totalConfirmationsReceived: Number(classRow?.totalConfirmations) || 0,
+    totalClassificationCoins: Number(classRow?.totalCoins) || 0,
+  };
 }

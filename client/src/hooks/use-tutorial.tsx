@@ -1,6 +1,6 @@
 import { useState, useCallback, createContext, useContext } from "react";
 import type { TutorialStep } from "@/lib/tutorial-types";
-import { KBD, SHORTCUT_FOCUS_NOTE } from "@/lib/keyboard-shortcuts";
+import { KBD, SHORTCUT_FOCUS_NOTE, SUBMIT_TASK_SHORTCUTS } from "@/lib/keyboard-shortcuts";
 
 export type { TutorialStep };
 
@@ -93,6 +93,16 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     glowClass: "field-glow-tutorial-success",
   },
   {
+    id: "skill-tree",
+    title: "Skill Tree",
+    description: "Spend AxCoins to unlock Avatar skills (companion slots, guidance depth, export discounts) and Offline generator skills (idle coin rate and capacity). Prerequisite nodes must be unlocked before their children become available.",
+    page: "/skill-tree",
+    targetId: "sidebar-link-/skill-tree",
+    position: "right",
+    glowClass: "field-glow-tutorial-success",
+    inlineWidget: "skill-tree-mini-avatar",
+  },
+  {
     id: "checklist",
     title: "Print Checklist",
     description: "Generate a printable PDF checklist for any day. You can even scan a completed checklist photo to update task statuses automatically!",
@@ -122,7 +132,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "shortcuts",
     title: "Keyboard Shortcuts & Sidebar",
-    description: `Power user tips: ${KBD.sidebar} (${KBD.sidebarMac}) toggles the sidebar, ${KBD.hotkeyHelp} (${KBD.hotkeyHelpMac}) opens the shortcut reference, ${KBD.voice} (${KBD.voiceMac}) starts voice input, ${KBD.submitTask} (${KBD.submitTaskMac}) submits the task form, and ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) toggles this tutorial. ${SHORTCUT_FOCUS_NOTE}`,
+    description: `Power user tips: ${KBD.sidebar} (${KBD.sidebarMac}) toggles the sidebar, ${KBD.hotkeyHelp} (${KBD.hotkeyHelpMac}) opens the shortcut reference, ${KBD.voice} (${KBD.voiceMac}) starts voice input, ${SUBMIT_TASK_SHORTCUTS} submits the task form, and ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) toggles this tutorial. ${SHORTCUT_FOCUS_NOTE}`,
     position: "bottom",
   },
   {

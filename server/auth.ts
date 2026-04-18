@@ -40,20 +40,43 @@ function resolveSessionSecret(): string {
   return ephemeral;
 }
 
+function useDevMemorySessionStore(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  const v = (process.env.DEV_SESSION_MEMORY_STORE || "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 export function setupAuth(app: Express) {
   const sessionSecret = resolveSessionSecret();
 
-  // ── Session store backed by PostgreSQL ──────────────────────────────────
+  const memoryStore = useDevMemorySessionStore();
+  if (memoryStore) {
+    console.warn(
+      "[auth] DEV_SESSION_MEMORY_STORE is on — using in-memory sessions (no Postgres session table). " +
+        "Sessions reset on restart; login/OAuth still need the database for user records.",
+    );
+  }
+
+  // ── Session store: Postgres (default) or in-memory (dev-only escape hatch) ─
   const PgStore = connectPgSimple(session);
+  const store = memoryStore
+    ? undefined
+    : new PgStore({
+        pool: pool as any, // Neon Pool is compatible
+        createTableIfMissing: true,
+      });
+
+  const sessionStore = new PgStore({
+    pool: pool as any,
+    createTableIfMissing: true,
+  });
+  (global as { __sessionStore?: InstanceType<typeof PgStore> }).__sessionStore = sessionStore;
 
   app.use(
     session({
-      store: new PgStore({
-        pool: pool as any, // Neon Pool is compatible
-        createTableIfMissing: true,
-      }),
+      store,
       secret: sessionSecret,
-      name: "axtask.sid",        // non-default name — hides framework identity
+      name: "axtask.sid",
       resave: false,
       saveUninitialized: false,
       cookie: {

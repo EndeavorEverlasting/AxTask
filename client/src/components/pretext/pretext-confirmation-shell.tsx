@@ -2,7 +2,7 @@
  * Full-viewport pretext confirmation layout (gradient shell + glass card).
  * Use `PretextGlassCard` alone inside main app chrome when a full bleed shell is not needed.
  */
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
@@ -10,20 +10,98 @@ export type PretextAmbientChipsProps = {
   labels: string[];
 };
 
+/** Chip positions in viewport %. Each chip wanders and flees the cursor. */
+function chipHome(idx: number) {
+  return { x: 6 + ((idx * 17) % 80), y: 55 + ((idx * 11) % 30) };
+}
+
+/**
+ * Ambient floating chips that drift and flee the cursor.
+ * Uses direct DOM manipulation (no React state) for smooth 60 fps.
+ */
 export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chipRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const mouse = { x: -1, y: -1 };
+    const pos = labels.map((_, i) => chipHome(i));
+    let t = 0;
+    let last = performance.now();
+    let raf = 0;
+
+    const onMove = (e: MouseEvent) => {
+      const r = container.getBoundingClientRect();
+      mouse.x = ((e.clientX - r.left) / r.width) * 100;
+      mouse.y = ((e.clientY - r.top) / r.height) * 100;
+    };
+    const onLeave = () => { mouse.x = -1; mouse.y = -1; };
+    window.addEventListener("mousemove", onMove, { passive: true });
+    window.addEventListener("mouseleave", onLeave, { passive: true });
+
+    const tick = (now: number) => {
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+      t += dt;
+      const hasMouse = mouse.x >= 0;
+
+      for (let i = 0; i < labels.length; i++) {
+        const home = chipHome(i);
+        const driftX = Math.sin(t / (4 + i) + i * 2.1) * 6;
+        const driftY = Math.cos(t / (5 + i) + i * 1.7) * 4;
+        let repelX = 0, repelY = 0;
+        if (hasMouse) {
+          const dx = pos[i].x - mouse.x;
+          const dy = pos[i].y - mouse.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+          if (dist < 28) {
+            const force = ((28 - dist) / 28) * 22;
+            repelX = (dx / dist) * force;
+            repelY = (dy / dist) * force;
+          }
+        }
+        const tx = home.x + driftX + repelX;
+        const ty = home.y + driftY + repelY;
+        pos[i].x += (tx - pos[i].x) * dt * 2;
+        pos[i].y += (ty - pos[i].y) * dt * 2;
+
+        const el = chipRefs.current[i];
+        if (el) {
+          el.style.left = `${pos[i].x}%`;
+          el.style.top = `${pos[i].y}%`;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseleave", onLeave);
+      cancelAnimationFrame(raf);
+    };
+  }, [labels]);
+
   return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden">
+    <div
+      ref={containerRef}
+      className="axtask-chip-layer absolute inset-0 pointer-events-none overflow-hidden z-[1]"
+      aria-hidden
+    >
       {labels.map((label, idx) => (
-        <motion.div
+        <div
           key={`${label}-${idx}`}
-          initial={{ opacity: 0, y: 16, x: (idx % 2 === 0 ? -1 : 1) * 30, scale: 0.9 }}
-          animate={{ opacity: [0, 1, 0], y: [-8, -32, -50], x: [0, (idx % 2 === 0 ? -1 : 1) * 12, 0], scale: [0.9, 1, 0.98] }}
-          transition={{ duration: 1.8, delay: 0.08 * idx, repeat: Infinity, repeatDelay: 0.6 }}
-          className="absolute text-xs sm:text-sm rounded-full border border-emerald-300/50 bg-emerald-50/80 px-3 py-1 text-emerald-700"
-          style={{ left: `${10 + (idx * 14) % 75}%`, top: `${56 + (idx * 9) % 28}%` }}
+          ref={(el) => { chipRefs.current[idx] = el; }}
+          className="absolute text-xs sm:text-sm rounded-full border border-emerald-300/40 bg-emerald-900/30 backdrop-blur-sm px-3 py-1 text-emerald-200/80 shadow-lg shadow-emerald-500/10 opacity-70"
+          style={{
+            left: `${chipHome(idx).x}%`,
+            top: `${chipHome(idx).y}%`,
+            willChange: "left, top",
+          }}
         >
           {label}
-        </motion.div>
+        </div>
       ))}
     </div>
   );
@@ -45,8 +123,13 @@ export function PretextConfirmationShell({
   const renderChips = showChips && chips.length > 0;
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white">
+      {/* Aurora glow layers */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-1/4 left-1/3 h-[50vh] w-[70vw] rotate-6 rounded-full bg-gradient-to-r from-emerald-600/8 via-cyan-500/6 to-transparent blur-[100px]" />
+        <div className="absolute -bottom-1/4 right-1/4 h-[40vh] w-[60vw] -rotate-12 rounded-full bg-gradient-to-l from-violet-600/8 via-indigo-500/6 to-transparent blur-[80px]" />
+      </div>
       {renderChips ? <PretextAmbientChips labels={chips} /> : null}
-      <div className="mx-auto max-w-2xl px-6 py-16 sm:py-24 relative">{children}</div>
+      <div className="mx-auto max-w-2xl px-6 py-16 sm:py-24 relative z-10">{children}</div>
     </div>
   );
 }

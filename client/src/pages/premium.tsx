@@ -30,8 +30,8 @@ export default function PremiumPage() {
   const plans = catalog?.plans ?? [];
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-6 md:p-10">
-      {/* Ambient orbs */}
+    <div className="relative min-h-screen overflow-hidden p-6 md:p-10">
+      {/* Local amber/violet glows layer over the shared aurora for the premium hero. */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-amber-500/10 blur-3xl animate-pulse" />
         <div className="absolute top-1/3 right-0 h-80 w-80 rounded-full bg-violet-500/10 blur-3xl animate-pulse [animation-delay:1.5s]" />

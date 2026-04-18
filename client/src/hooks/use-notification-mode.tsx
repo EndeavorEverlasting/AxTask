@@ -2,6 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { applyNativeReminderPolicy } from "@/lib/native-reminder-bridge";
+import {
+  writeFeedbackPrefsCache,
+  type FeedbackNudgePrefsCache,
+} from "@/lib/feedback-nudge";
 
 type NotificationPreference = {
   userId: string;
@@ -10,8 +15,20 @@ type NotificationPreference = {
   quietHoursStart: number | null;
   quietHoursEnd: number | null;
   immersiveSoundsEnabled: boolean;
+  feedbackNudgePrefs?: FeedbackNudgePrefsCache;
   createdAt: string | Date;
   updatedAt: string | Date;
+  pushConfigured?: boolean;
+  hasSubscription?: boolean;
+  deliveryChannel?: "push" | "in_app";
+  dispatchProfile?: {
+    intensity: number;
+    band: "off" | "low" | "balanced" | "frequent";
+    cadenceMinutes: number | null;
+    maxPerDay: number;
+    feedbackCooldownSeconds: number | null;
+    feedbackMaxPerDay: number;
+  };
 };
 
 type PushSupportStatus = "unsupported" | "denied" | "default" | "granted";
@@ -21,20 +38,35 @@ type NotificationModeContextValue = {
   enabled: boolean;
   intensity: number;
   immersiveSoundsEnabled: boolean;
+  feedbackNudgePrefs: FeedbackNudgePrefsCache;
   pushStatus: PushSupportStatus;
   canUsePush: boolean;
+  dispatchProfile?: NotificationPreference["dispatchProfile"];
+  deliveryChannel?: NotificationPreference["deliveryChannel"];
   toggleNotificationMode: () => Promise<void>;
   setLocalIntensity: (value: number) => void;
   saveIntensity: (value: number) => Promise<void>;
   saveNotificationPreferences: (
-    payload: Partial<Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled">>,
+    payload: Partial<
+      Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled" | "feedbackNudgePrefs">
+    >,
   ) => Promise<void>;
+  saveFeedbackNudgePrefs: (prefs: Partial<FeedbackNudgePrefsCache>) => Promise<void>;
 };
 
 const NotificationModeContext = createContext<NotificationModeContextValue | null>(null);
 
 function clampIntensity(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function persistClientReminderState(enabled: boolean, intensity: number): void {
+  try {
+    localStorage.setItem("axtask.notification.enabled", String(enabled));
+    localStorage.setItem("axtask.notification.intensity", String(intensity));
+  } catch {
+    // ignore storage quota/private mode
+  }
 }
 
 function toPushStatus(): PushSupportStatus {
@@ -56,7 +88,9 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 async function patchPreferences(
-  payload: Partial<Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled">>,
+  payload: Partial<
+    Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled" | "feedbackNudgePrefs">
+  >,
 ) {
   const res = await apiRequest("PATCH", "/api/notifications/preferences", payload);
   return res.json();
@@ -76,6 +110,10 @@ async function resolveVapidPublicKey(): Promise<string | null> {
   return null;
 }
 
+function canUsePushApis(): boolean {
+  return "Notification" in window && "serviceWorker" in navigator;
+}
+
 export function NotificationModeProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const [localIntensity, setLocalIntensity] = useState<number>(50);
@@ -89,6 +127,10 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
   useEffect(() => {
     if (!preferenceQuery.data) return;
     setLocalIntensity(clampIntensity(preferenceQuery.data.intensity));
+    persistClientReminderState(Boolean(preferenceQuery.data.enabled), clampIntensity(preferenceQuery.data.intensity));
+    if (preferenceQuery.data.feedbackNudgePrefs) {
+      writeFeedbackPrefsCache(preferenceQuery.data.feedbackNudgePrefs);
+    }
   }, [preferenceQuery.data]);
 
   useEffect(() => {
@@ -100,6 +142,10 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     onSuccess: (next) => {
       preferenceQuery.refetch();
       setLocalIntensity(clampIntensity(next.intensity));
+      persistClientReminderState(Boolean(next.enabled), clampIntensity(next.intensity));
+      if (next.feedbackNudgePrefs) {
+        writeFeedbackPrefsCache(next.feedbackNudgePrefs);
+      }
     },
   });
 
@@ -125,25 +171,19 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
   });
 
   const ensureSubscription = useCallback(async () => {
-    if (!("serviceWorker" in navigator)) return;
+    if (!("serviceWorker" in navigator)) return false;
     const vapidPublicKey = await resolveVapidPublicKey();
-    if (!vapidPublicKey) {
-      toast({
-        title: "Push key missing",
-        description: "The server has not published a VAPID key yet. Ensure the database is migrated (npm run db:push) and CANONICAL_HOST or VAPID_SUBJECT is set in production.",
-        variant: "destructive",
-      });
-      throw new Error("VAPID public key not configured");
-    }
+    if (!vapidPublicKey) return false;
 
     const registration = await navigator.serviceWorker.ready;
     const existing = await registration.pushManager.getSubscription();
-    const subscription = existing || await registration.pushManager.subscribe({
+    const subscription = existing || (await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-    });
+    }));
     await upsertSubscriptionMutation.mutateAsync(subscription);
-  }, [toast, upsertSubscriptionMutation]);
+    return true;
+  }, [upsertSubscriptionMutation]);
 
   const disableAndUnsubscribe = useCallback(async () => {
     if (!("serviceWorker" in navigator)) return;
@@ -162,45 +202,74 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
 
     if (currentlyEnabled) {
       await disableAndUnsubscribe();
-      await savePreferenceMutation.mutateAsync({ enabled: false });
+      const nextPref = await savePreferenceMutation.mutateAsync({ enabled: false });
+      const dispatchProfile = nextPref.dispatchProfile;
+      await applyNativeReminderPolicy({
+        enabled: false,
+        intensity: nextPref.intensity ?? localIntensity,
+        cadenceMinutes: dispatchProfile?.cadenceMinutes ?? null,
+        maxPerDay: dispatchProfile?.maxPerDay ?? 0,
+      });
       toast({ title: "Notifications off", description: "Notification mode has been disabled." });
       return;
     }
 
-    if (!("Notification" in window) || !("serviceWorker" in navigator)) {
+    let pushEnabled = false;
+    if (canUsePushApis()) {
+      const vapidPublicKey = await resolveVapidPublicKey();
+      if (vapidPublicKey) {
+        let permission = Notification.permission;
+        if (permission !== "granted") {
+          permission = await Notification.requestPermission();
+        }
+        setPushStatus(permission as PushSupportStatus);
+        if (permission === "granted") {
+          pushEnabled = await ensureSubscription();
+        }
+      } else {
+        setPushStatus(toPushStatus());
+      }
+    } else {
       setPushStatus("unsupported");
+    }
+
+    const nextPref = await savePreferenceMutation.mutateAsync({ enabled: true });
+    const dispatchProfile = nextPref.dispatchProfile;
+    await applyNativeReminderPolicy({
+      enabled: true,
+      intensity: nextPref.intensity ?? localIntensity,
+      cadenceMinutes: dispatchProfile?.cadenceMinutes ?? null,
+      maxPerDay: dispatchProfile?.maxPerDay ?? 0,
+    });
+    if (pushEnabled) {
+      toast({ title: "Notifications on", description: "Push notifications are now enabled." });
+    } else {
       toast({
-        title: "Push not supported",
-        description: "This browser does not support push notifications.",
-        variant: "destructive",
+        title: "Notifications on",
+        description: "Notification mode is enabled. Push delivery is unavailable on this device/configuration.",
       });
-      return;
     }
-
-    let permission = Notification.permission;
-    if (permission !== "granted") {
-      permission = await Notification.requestPermission();
-    }
-    setPushStatus(permission as PushSupportStatus);
-
-    if (permission !== "granted") {
-      toast({
-        title: "Push permission denied",
-        description: "Allow browser notifications to enable notification mode.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    await ensureSubscription();
-    await savePreferenceMutation.mutateAsync({ enabled: true });
-    toast({ title: "Notifications on", description: "Push notifications are now enabled." });
-  }, [disableAndUnsubscribe, ensureSubscription, preferenceQuery.data?.enabled, savePreferenceMutation, toast]);
+  }, [
+    disableAndUnsubscribe,
+    ensureSubscription,
+    localIntensity,
+    preferenceQuery.data?.enabled,
+    savePreferenceMutation,
+    toast,
+  ]);
 
   const saveIntensity = useCallback(async (value: number) => {
     const intensity = clampIntensity(value);
     setLocalIntensity(intensity);
-    await savePreferenceMutation.mutateAsync({ intensity });
+    const nextPref = await savePreferenceMutation.mutateAsync({ intensity });
+    const profile = nextPref.dispatchProfile;
+    await applyNativeReminderPolicy({
+      enabled: Boolean(nextPref.enabled),
+      intensity,
+      cadenceMinutes: profile?.cadenceMinutes ?? null,
+      maxPerDay: profile?.maxPerDay ?? 0,
+    });
+    persistClientReminderState(Boolean(nextPref.enabled), intensity);
   }, [savePreferenceMutation]);
 
   useEffect(() => {
@@ -217,30 +286,57 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
   }, [ensureSubscription, preferenceQuery.data?.enabled]);
 
   const saveNotificationPreferences = useCallback(async (
-    payload: Partial<Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled">>,
+    payload: Partial<
+      Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled" | "feedbackNudgePrefs">
+    >,
   ) => {
     await savePreferenceMutation.mutateAsync(payload);
   }, [savePreferenceMutation]);
+
+  const saveFeedbackNudgePrefs = useCallback(
+    async (prefs: Partial<FeedbackNudgePrefsCache>) => {
+      /* Write-through: cache immediately, then persist to server. */
+      const current: FeedbackNudgePrefsCache = preferenceQuery.data?.feedbackNudgePrefs ?? {
+        master: 50,
+        byAvatar: {},
+      };
+      const merged: FeedbackNudgePrefsCache = {
+        master: clampIntensity(prefs.master ?? current.master ?? 50),
+        byAvatar: { ...current.byAvatar, ...(prefs.byAvatar ?? {}) },
+      };
+      writeFeedbackPrefsCache(merged);
+      await savePreferenceMutation.mutateAsync({ feedbackNudgePrefs: merged });
+    },
+    [preferenceQuery.data?.feedbackNudgePrefs, savePreferenceMutation],
+  );
 
   const value = useMemo<NotificationModeContextValue>(() => ({
     isLoading: preferenceQuery.isLoading,
     enabled: Boolean(preferenceQuery.data?.enabled),
     intensity: localIntensity,
     immersiveSoundsEnabled: Boolean(preferenceQuery.data?.immersiveSoundsEnabled),
+    feedbackNudgePrefs: preferenceQuery.data?.feedbackNudgePrefs ?? { master: 50, byAvatar: {} },
     pushStatus,
     canUsePush: pushStatus !== "unsupported" && pushStatus !== "denied",
+    dispatchProfile: preferenceQuery.data?.dispatchProfile,
+    deliveryChannel: preferenceQuery.data?.deliveryChannel,
     toggleNotificationMode,
     setLocalIntensity: (value: number) => setLocalIntensity(clampIntensity(value)),
     saveIntensity,
     saveNotificationPreferences,
+    saveFeedbackNudgePrefs,
   }), [
     localIntensity,
     preferenceQuery.data?.enabled,
+    preferenceQuery.data?.dispatchProfile,
+    preferenceQuery.data?.deliveryChannel,
+    preferenceQuery.data?.feedbackNudgePrefs,
     preferenceQuery.data?.immersiveSoundsEnabled,
     preferenceQuery.isLoading,
     pushStatus,
     saveIntensity,
     saveNotificationPreferences,
+    saveFeedbackNudgePrefs,
     toggleNotificationMode,
   ]);
 

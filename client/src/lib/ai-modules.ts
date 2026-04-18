@@ -4,6 +4,9 @@ import type { Task } from "@shared/schema";
  * AI-driven task management modules.
  * These modules use heuristic intelligence to analyze tasks and
  * provide smart ordering, scheduling, and behavior recommendations.
+ *
+ * **Task list "AI Sort"** (`suggestOptimalOrder`) runs entirely on the client; it does not call a remote model.
+ * The task list applies the resulting order by PATCHing `/api/tasks/reorder`, which persists `sort_order` (same as drag-and-drop).
  */
 
 export interface AIScheduleSuggestion {
@@ -31,6 +34,7 @@ export class TaskAIEngine {
   /**
    * AI-driven sort: ranks tasks by a composite score that weighs
    * priority, urgency keywords, deadline proximity, status, and effort.
+   * Persisted order is updated separately by the caller via task reorder (see task-list AI Sort).
    */
   static suggestOptimalOrder(tasks: Task[]): Task[] {
     const scored = tasks.map((task) => ({

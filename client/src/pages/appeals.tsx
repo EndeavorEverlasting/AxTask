@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Gavel } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -148,23 +149,23 @@ export default function AppealsPage() {
 
   return (
     <div className="container max-w-3xl py-8 space-y-8">
-      <div className="flex items-center gap-3">
-        <Link href="/account">
-          <Button variant="ghost" size="icon" aria-label="Back">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        </Link>
-        <Gavel className="h-8 w-8 text-primary" />
-        <div>
-          <h1 className="text-2xl font-semibold">Appeals</h1>
-          <p className="text-sm text-muted-foreground">
-            Request review of a suspension or dispute feedback handling. Admins resolve appeals by vote
-            (unanimous when two admins, two-thirds when three or more).
-          </p>
-        </div>
-      </div>
+      <PretextPageHeader
+        eyebrow="Account"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <Link href="/account">
+              <Button variant="ghost" size="icon" aria-label="Back">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            </Link>
+            <Gavel className="h-7 w-7 text-primary" />
+            Appeals
+          </span>
+        }
+        subtitle="Request review of a suspension or dispute feedback handling. Admins resolve appeals by vote (unanimous when two admins, two-thirds when three or more)."
+      />
 
-      <Card>
+      <Card className="glass-panel-glossy">
         <CardHeader>
           <CardTitle>File an appeal</CardTitle>
           <CardDescription>

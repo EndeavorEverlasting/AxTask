@@ -12,10 +12,14 @@ import {
 } from "@/lib/task-sync-api";
 import { PriorityEngine } from "@/lib/priority-engine";
 import { useToast } from "@/hooks/use-toast";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
+import { setWalletBalanceCache } from "@/lib/wallet-cache";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useAuth } from "@/lib/auth-context";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
+import { matchTaskFormSubmitHotkey } from "@/lib/hotkey-actions";
+import { matchTaskFormVoiceSubmit } from "@/lib/voice-shortcuts";
 import { parseVoiceCommands, stripCommandText } from "@/lib/voice-commands";
 import { useVoice } from "@/hooks/use-voice";
 import { useCollaboration } from "@/hooks/use-collaboration";
@@ -184,6 +188,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const draftContext = task ? `edit_${task.id}` : defaultDate ? `date_${defaultDate}` : "new";
   const draftKey = getDraftKey(user?.id, draftContext);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSubmitWithWarningsRef = useRef<() => void>(() => {});
 
   const freshDefaults: InsertTask = task
     ? {
@@ -264,6 +269,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const isWarned = useCallback((fieldName: string) => warningFields.has(fieldName), [warningFields]);
 
   const handleVoiceResult = useCallback((transcript: string) => {
+    if (matchTaskFormVoiceSubmit(transcript)) {
+      handleSubmitWithWarningsRef.current();
+      return;
+    }
     const commands = parseVoiceCommands(transcript);
     const cleanText = commands.length > 0 ? stripCommandText(transcript) : transcript;
 
@@ -347,7 +356,13 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       return syncCreateTask(taskData, queryClient, user?.id ?? "");
     },
     onSuccess: async (data: unknown) => {
-      const d = data as { id?: string; offlineQueued?: boolean; classificationReward?: unknown; coinReward?: unknown };
+      const d = data as {
+        id?: string;
+        offlineQueued?: boolean;
+        classificationReward?: unknown;
+        coinReward?: unknown;
+        uniqueTaskReward?: { coins: number; newBalance: number } | null;
+      };
       if (d?.offlineQueued) {
         toast({
           title: "Saved offline",
@@ -389,7 +404,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
 
-      if (d?.coinReward || d?.classificationReward) {
+      if (d?.coinReward || d?.classificationReward || d?.uniqueTaskReward) {
         queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
         queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
         queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
@@ -397,18 +412,28 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
 
       if (d?.classificationReward) {
         const cr = d.classificationReward as { coinsEarned: number; classification: string; newBalance: number };
+        setWalletBalanceCache(queryClient, cr.newBalance);
         toast({
           title: `${task ? "Task updated" : "Task created"} — +${cr.coinsEarned} AxCoins!`,
           description: `Classified as ${cr.classification}. New balance: ${cr.newBalance}`,
         });
         playIfEligible(1);
       } else {
+        let desc = task ? "Your task has been updated successfully." : "Your task has been added successfully.";
+        if (!task && d?.uniqueTaskReward && d.uniqueTaskReward.coins > 0) {
+          setWalletBalanceCache(queryClient, d.uniqueTaskReward.newBalance);
+          desc = `${desc} +${d.uniqueTaskReward.coins} AxCoins new-task bonus (balance ${d.uniqueTaskReward.newBalance}).`;
+        }
         toast({
           title: task ? "Task updated" : "Task created",
-          description: task ? "Your task has been updated successfully." : "Your task has been added successfully.",
+          description: desc,
         });
-        if (d?.coinReward) playIfEligible(1);
+        if (d?.coinReward || (!task && d?.uniqueTaskReward && d.uniqueTaskReward.coins > 0)) playIfEligible(1);
         else playIfEligible(3);
+      }
+
+      if (!task && !d?.offlineQueued) {
+        requestFeedbackNudge("task_create");
       }
 
       if (!task) {
@@ -594,6 +619,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     form.handleSubmit(onSubmit)();
   }, [form, addWarning, clearWarning, toast, onSubmit]);
 
+  useEffect(() => {
+    handleSubmitWithWarningsRef.current = handleSubmitWithWarnings;
+  }, [handleSubmitWithWarnings]);
+
   const { consumeTaskPrefill } = useVoice();
 
   useEffect(() => {
@@ -619,10 +648,9 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-        e.preventDefault();
-        handleSubmitWithWarnings();
-      }
+      if (!matchTaskFormSubmitHotkey(e)) return;
+      e.preventDefault();
+      handleSubmitWithWarnings();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -721,7 +749,11 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={(e) => { e.preventDefault(); handleSubmitWithWarnings(); }} className="space-y-6">
+          <form
+            data-feedback-guard="true"
+            onSubmit={(e) => { e.preventDefault(); handleSubmitWithWarnings(); }}
+            className="space-y-6"
+          >
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
@@ -966,6 +998,14 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               {...field}
                               className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full font-mono text-sm")}
                               style={getCollabFieldColor("notes") ? { "--tw-ring-color": getCollabFieldColor("notes") } as React.CSSProperties : undefined}
+                              onPaste={(e) => {
+                                const files = e.clipboardData?.files;
+                                if (!files?.length) return;
+                                const img = Array.from(files).find((f) => f.type.startsWith("image/"));
+                                if (!img) return;
+                                e.preventDefault();
+                                void handleImageUpload(img);
+                              }}
                               onFocus={() => { setVoiceTarget("notes"); collab.focusField("notes"); }}
                               onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); collab.blurField(); }}
                               onChange={(e) => {

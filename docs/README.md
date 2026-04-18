@@ -8,6 +8,64 @@
 
 AxTask is a full-stack intelligent task management application that automatically calculates task priorities using an advanced scoring engine. Originally designed to upgrade Google Sheets-based workflows, AxTask provides comprehensive task management with seamless import/export capabilities and real-time Google Sheets integration.
 
+## Axiomatic Completion Philosophy (Canonical)
+
+This document is the canonical philosophy source for AxTask.
+
+AxTask is built to help users **complete** meaningful work, not only track tasks. Every engine, agent, and interface flow should prioritize:
+
+- **Completion-first outcomes** over passive status display.
+- **Clarify-before-generate behavior** whenever intent, audience, scope, or evidence is ambiguous.
+- **Retrieval-grounded outputs** for reports and recommendations using RAG + classification contracts.
+- **Privacy-preserving assistance** where automation never leaks private user data to public surfaces.
+- **Coherent avatar experience** where orb/avatar behavior stays consistent across UI, dialogue, and automation.
+
+### Canonical Doctrine Contracts
+
+- [REPORT_ENGINE_AGENT_CONTRACTS.md](./REPORT_ENGINE_AGENT_CONTRACTS.md)
+- [CLARIFICATION_PROTOCOL.md](./CLARIFICATION_PROTOCOL.md)
+- [RAG_CLASSIFICATION_BLUEPRINT.md](./RAG_CLASSIFICATION_BLUEPRINT.md)
+- [ORB_AVATAR_EXPERIENCE_CONTRACT.md](./ORB_AVATAR_EXPERIENCE_CONTRACT.md)
+- [COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md](./COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)
+- [CLIENT_VISIBLE_PRIVACY.md](./CLIENT_VISIBLE_PRIVACY.md) — browser Network/Console exposure, API serializers, and logging discipline
+
+### Report Generation Definition Of Done
+
+A report workflow is complete only when:
+
+1. the agent selected the correct report mode (draft-only or guided),
+2. ambiguity checks ran and clarifying questions were asked when required,
+3. retrieval/classification evidence supported major claims,
+4. privacy constraints were enforced for any shared/public outputs.
+
+### Voice Personalization Doctrine (RAG)
+
+Speech personalization is treated as a retrieval contract, not blind model retraining:
+
+- Use correction-memory retrieval to adapt to user phrasing, accents, and dialect signals.
+- Keep personalization additive and feature-flagged with baseline fallback.
+- Require explicit user control (opt-in/opt-out, export, deletion).
+- Apply fairness and regression checks before broad rollout.
+- Enforce privacy and security constraints in:
+  - [RAG_CLASSIFICATION_BLUEPRINT.md](./RAG_CLASSIFICATION_BLUEPRINT.md)
+  - [COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md](./COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)
+  - [SECURITY.md](./SECURITY.md)
+
+### Orb + Avatar Doctrine
+
+- Floating orbs are a deliberate UX metaphor for fleeting tasks; movement should remain ambient and non-obstructive.
+- Cursor-elusion should be expressive but subtle enough to preserve usability.
+- Avatar identities are engine-driven personas, not user identities.
+- Mood-to-color mappings must stay stable across UI and community dialogue surfaces.
+- Shopping list voice and delegation behavior for `/shopping` are specified in [ORB_AVATAR_EXPERIENCE_CONTRACT.md](./ORB_AVATAR_EXPERIENCE_CONTRACT.md) (Voice: shopping list and delegation).
+
+### Rollout Phases
+
+1. **Doctrine Foundation**: publish and cross-link all canonical contracts.
+2. **Architecture Alignment**: align engine boundaries and fallback behavior language in architecture docs.
+3. **Operational Adoption**: ensure feature specs and implementation docs reference canonical contracts.
+4. **Verification**: maintain unit tests that guard canonical references and doctrine anchors.
+
 ## Architecture
 
 ### System Components
@@ -126,6 +184,7 @@ All inputs validated using Zod schemas:
 ### Analytics & Search
 - `GET /api/tasks/stats` - Task statistics and metrics
 - `GET /api/tasks/search/:query` - Full-text search
+- **Tasks page search:** When the browser is online and the search box has **at least two** non-space characters, the main task list loads matches from this endpoint (so results match server search and capped **task search** AxCoin awards can apply). Shorter queries or offline mode use the cached `GET /api/tasks` list with client-side substring filtering only.
 - `GET /api/tasks/status/:status` - Filter by status
 - `GET /api/tasks/priority/:priority` - Filter by priority level
 
@@ -215,12 +274,20 @@ Example: 100 tasks × 150ms = 15 seconds = $0.0001
 
 ## Development Workflow
 
+**Pre-push objective-to-code checklist (rewards, classification, feedback, coins, p-score):** [OBJECTIVE_CODE_PUSH_CHECKLIST.md](./OBJECTIVE_CODE_PUSH_CHECKLIST.md)
+
+**Owner-only AxCoin grants (operator policy, `OWNER_COIN_GRANT_USER_IDS`, audit trail):** [OPERATOR_COIN_GRANTS.md](./OPERATOR_COIN_GRANTS.md)
+
+**Database and schema command order (local vs Docker vs production), flowcharts, and flags:** [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md)
+
 ### Local Development
 ```bash
 npm install           # Install dependencies
-npm run db:push      # Sync database schema
-npm run dev          # Start development server
+npm run db:push       # Sync Drizzle schema (run when shared/schema or DB is out of date)
+npm run dev           # Start development server only (no migrations, no push)
 ```
+
+For versioned SQL under `migrations/*.sql`, run `node scripts/apply-migrations.mjs` before or with your usual sync; full ordering is in [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md).
 
 ### One-Click Startup (Recommended for non-technical users)
 - Windows users: double-click `start-offline.cmd`
@@ -228,12 +295,14 @@ npm run dev          # Start development server
 - Optional setup for Windows users: `npm run offline:shortcut` (creates a Desktop icon)
 - In-app option: click `Install App Shortcut` in the sidebar to add AxTask to desktop/mobile home screen
 - First-login users also get a top install CTA banner with dismiss + "don't show again"
-- Auto-steps performed:
+- Auto-steps performed by `npm run offline:start` / `dev:smart` ([`tools/local/offline-start.mjs`](../tools/local/offline-start.mjs)):
   - Install dependencies if missing
-  - Create `.env` from `.env.example` if needed
+  - Create `.env` via `local:env-init` when needed
   - Validate `DATABASE_URL`
-  - Run `npm run db:push`
-  - Start dev server
+  - **`node scripts/apply-migrations.mjs`** (every run)
+  - Sync dependencies if lockfile / `package.json` fingerprint changed
+  - **`npm run db:push`** only when the schema fingerprint changed (`shared/schema.ts`, `drizzle.config.ts`, `migrations/*.sql`)
+  - Start dev server with `npx tsx server/index.ts`
 
 ### Offline Development (Commit Later)
 - Use a local PostgreSQL instance so the app can run without internet
@@ -272,6 +341,8 @@ Suggested mini-games PR sequence:
 
 ### Document Authority Map
 
+- Discretionary AxCoin credits (owner allowlist, not generic admin): [OPERATOR_COIN_GRANTS.md](./OPERATOR_COIN_GRANTS.md)
+- Local / Docker / production database and schema sync: [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md)
 - Canonical index: `docs/ACTIVE_LEGACY_INDEX.md`
 - Canonical architecture contract: `docs/ARCHITECTURE.md`
 - Deployment-impact test sweep and debugging patterns: `docs/DEBUGGING_REFERENCE.md`

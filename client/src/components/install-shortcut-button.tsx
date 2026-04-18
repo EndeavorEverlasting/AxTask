@@ -12,6 +12,7 @@ import {
 import { useInstallShortcut } from "@/hooks/use-install-shortcut";
 import { getInstallInstructions } from "@/lib/install-shortcut";
 import { useToast } from "@/hooks/use-toast";
+import { markInstallDismissed, writeInstallDeviceState } from "@/lib/install-device-state";
 
 export function InstallShortcutButton() {
   const [open, setOpen] = useState(false);
@@ -33,11 +34,13 @@ export function InstallShortcutButton() {
       try {
         const result = await install();
         if (result === "accepted") {
+          writeInstallDeviceState({ installed: true });
           toast({
             title: "Shortcut installed",
             description: "You can now launch AxTask from your home screen or desktop.",
           });
         } else if (result === "dismissed") {
+          markInstallDismissed();
           toast({
             title: "Install canceled",
             description: "You can install again anytime from this button.",

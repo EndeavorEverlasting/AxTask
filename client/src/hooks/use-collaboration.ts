@@ -115,7 +115,11 @@ export function useCollaboration(taskId: string | null) {
       try {
         msg = JSON.parse(raw) as Record<string, unknown>;
       } catch (parseErr) {
-        console.warn("[collab] Invalid JSON from server:", raw, parseErr);
+        if (import.meta.env.DEV) {
+          console.warn("[collab] Invalid JSON from server:", raw, parseErr);
+        } else {
+          console.warn("[collab] Invalid JSON from server (payload omitted in production)");
+        }
         return;
       }
       const type = msg.type;

@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
+import { isShoppingTask } from "@shared/shopping-tasks";
 import {
   isBrowserOnline,
   syncDeleteTask,
@@ -17,7 +18,11 @@ import {
   syncUpdateTask,
   TaskSyncAbortedError,
 } from "@/lib/task-sync-api";
+import { apiFetch } from "@/lib/queryClient";
+import { resolveTaskListSearchSource } from "@/lib/task-list-search-source";
 import { useToast } from "@/hooks/use-toast";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
+import { setWalletBalanceCache } from "@/lib/wallet-cache";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useVoice } from "@/hooks/use-voice";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -27,10 +32,31 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ToastAction } from "@/components/ui/toast";
+import { GlassPanel } from "@/components/ui/glass-panel";
+import { FloatingChip } from "@/components/ui/floating-chip";
+import { AvatarGlowChip } from "@/components/ui/avatar-glow-chip";
+import { ProgressStrip } from "@/components/ui/progress-strip";
 import { PriorityBadge } from "./priority-badge";
 import { ClassificationBadge } from "./classification-badge";
 import { TaskForm } from "./task-form";
-import { Search, Check, Trash2, RotateCcw, ChevronUp, ChevronDown, GripVertical, Sparkles, CalendarDays, RefreshCw, Loader2 as RefreshLoader, Repeat } from "lucide-react";
+import {
+  Search,
+  Check,
+  Trash2,
+  RotateCcw,
+  ChevronUp,
+  ChevronDown,
+  GripVertical,
+  Sparkles,
+  CalendarDays,
+  RefreshCw,
+  Loader2 as RefreshLoader,
+  Repeat,
+  ClipboardList,
+  ShoppingCart,
+  Inbox,
+} from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -54,6 +80,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, AnimatePresence } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { benchmarkPretext, estimateTextLayout } from "@/lib/pretext-layout";
+import {
+  shouldVirtualizeTaskList,
+  TASK_LIST_VIRTUALIZER_OVERSCAN,
+} from "@/lib/task-list-performance";
 
 /** Minimal inline markdown renderer — handles **bold**, *italic*, `code`, and - list items. */
 function renderMarkdownInline(text: string): React.ReactNode {
@@ -91,10 +121,40 @@ function renderMarkdownInline(text: string): React.ReactNode {
   return <>{elements}</>;
 }
 
-type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'manual';
+type SortField = 'date' | 'priority' | 'activity' | 'classification' | 'priorityScore' | 'status' | 'createdAt' | 'updatedAt' | 'manual';
 type SortDirection = 'asc' | 'desc';
 
-const VIRTUALIZE_THRESHOLD = 100;
+type AvatarSupportProfile = {
+  id: string;
+  avatarKey: string;
+  displayName: string;
+  archetypeKey: string;
+  level: number;
+  xp: number;
+  totalXp: number;
+  mission: string;
+};
+
+type AvatarSupportSkill = {
+  skillKey: string;
+  currentLevel: number;
+  effectType: string;
+  effectPerLevel: number;
+};
+
+function taskTimestampMs(value: unknown): number {
+  if (value == null) return 0;
+  if (value instanceof Date) return value.getTime();
+  const t = new Date(value as string).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+function formatTaskTimestamp(value: unknown): string {
+  if (value == null) return "—";
+  const d = value instanceof Date ? value : new Date(value as string);
+  if (!Number.isFinite(d.getTime())) return "—";
+  return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+}
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -145,6 +205,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
   isUpdating,
   isDeleting,
   reducedMotion,
+  shoppingVariant = false,
 }: {
   task: Task;
   isDragMode: boolean;
@@ -154,6 +215,7 @@ const SortableTaskRow = memo(function SortableTaskRow({
   isUpdating: boolean;
   isDeleting: boolean;
   reducedMotion: boolean;
+  shoppingVariant?: boolean;
 }) {
   const {
     attributes,
@@ -247,6 +309,12 @@ const SortableTaskRow = memo(function SortableTaskRow({
           )}
         </div>
       </TableCell>
+      <TableCell className="max-w-[140px] font-mono text-xs text-muted-foreground whitespace-nowrap">
+        {formatTaskTimestamp(task.createdAt)}
+      </TableCell>
+      <TableCell className="max-w-[140px] font-mono text-xs text-muted-foreground whitespace-nowrap">
+        {formatTaskTimestamp(task.updatedAt)}
+      </TableCell>
       <TableCell>
         <PriorityBadge priority={task.priority} />
       </TableCell>
@@ -257,14 +325,17 @@ const SortableTaskRow = memo(function SortableTaskRow({
             {renderMarkdownInline(task.notes)}
           </div>
         )}
-        <div className="mt-1 text-[10px] text-gray-400">
-          Pretext est: {estimateTextLayout(`${task.activity} ${task.notes || ""}`, 320).lines} line(s)
-        </div>
+        {import.meta.env.DEV ? (
+          <div className="mt-1 text-[10px] text-gray-400">
+            Pretext est: {estimateTextLayout(`${task.activity} ${task.notes || ""}`, 320).lines} line(s)
+          </div>
+        ) : null}
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-1.5">
           <ClassificationBadge
             classification={task.classification}
+            classificationAssociations={task.classificationAssociations}
             taskId={task.id}
             activity={task.activity}
             notes={task.notes ?? ""}
@@ -291,6 +362,15 @@ const SortableTaskRow = memo(function SortableTaskRow({
               onToggleStatus(task.id, task.status === "completed" ? "pending" : "completed");
             }}
             disabled={isUpdating}
+            aria-label={
+              shoppingVariant
+                ? task.status === "completed"
+                  ? "Mark as not purchased"
+                  : "Mark as purchased"
+                : task.status === "completed"
+                  ? "Mark as not complete"
+                  : "Mark complete"
+            }
           >
             <Check className="h-4 w-4" />
           </Button>
@@ -315,7 +395,8 @@ const SortableTaskRow = memo(function SortableTaskRow({
     prev.isDragMode === next.isDragMode &&
     prev.isUpdating === next.isUpdating &&
     prev.isDeleting === next.isDeleting &&
-    prev.reducedMotion === next.reducedMotion
+    prev.reducedMotion === next.reducedMotion &&
+    prev.shoppingVariant === next.shoppingVariant
   );
 });
 
@@ -331,6 +412,7 @@ function VirtualizedTaskTable({
   sortField,
   sortDirection,
   handleSort,
+  shoppingVariant = false,
 }: {
   tasks: Task[];
   isDragMode: boolean;
@@ -343,6 +425,7 @@ function VirtualizedTaskTable({
   sortField: SortField;
   sortDirection: SortDirection;
   handleSort: (field: SortField) => void;
+  shoppingVariant?: boolean;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const ROW_HEIGHT = 52;
@@ -351,7 +434,7 @@ function VirtualizedTaskTable({
     count: tasks.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => ROW_HEIGHT,
-    overscan: 20,
+    overscan: TASK_LIST_VIRTUALIZER_OVERSCAN,
   });
 
   return (
@@ -364,6 +447,18 @@ function VirtualizedTaskTable({
               <div className="flex items-center">
                 Date
                 {sortField === 'date' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+              </div>
+            </TableHead>
+            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('createdAt')}>
+              <div className="flex items-center">
+                Created
+                {sortField === 'createdAt' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+              </div>
+            </TableHead>
+            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('updatedAt')}>
+              <div className="flex items-center">
+                Updated
+                {sortField === 'updatedAt' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
               </div>
             </TableHead>
             <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priority')}>
@@ -384,15 +479,19 @@ function VirtualizedTaskTable({
                 {sortField === 'classification' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
               </div>
             </TableHead>
-            <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priorityScore')}>
+            <TableHead
+              className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
+              onClick={() => handleSort('priorityScore')}
+              title="Priority engine score in 0–10 units (stored as ×10 in the database). Same scale as dashboard “avg priority”."
+            >
               <div className="flex items-center">
-                Score
+                Priority (0–10)
                 {sortField === 'priorityScore' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
               </div>
             </TableHead>
             <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('status')}>
               <div className="flex items-center">
-                Status
+                {shoppingVariant ? "Purchased" : "Status"}
                 {sortField === 'status' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
               </div>
             </TableHead>
@@ -403,7 +502,7 @@ function VirtualizedTaskTable({
           <TableBody>
             {virtualizer.getVirtualItems().length > 0 && (
               <tr style={{ height: `${virtualizer.getVirtualItems()[0].start}px` }} aria-hidden="true">
-                <td colSpan={isDragMode ? 8 : 7} />
+                <td colSpan={isDragMode ? 10 : 9} />
               </tr>
             )}
             {virtualizer.getVirtualItems().map((virtualItem) => {
@@ -419,12 +518,13 @@ function VirtualizedTaskTable({
                   isUpdating={isUpdatingRow(task.id)}
                   isDeleting={isDeletingRow(task.id)}
                   reducedMotion={reducedMotion}
+                  shoppingVariant={shoppingVariant}
                 />
               );
             })}
             {virtualizer.getVirtualItems().length > 0 && (
               <tr style={{ height: `${virtualizer.getTotalSize() - (virtualizer.getVirtualItems()[virtualizer.getVirtualItems().length - 1].end)}px` }} aria-hidden="true">
-                <td colSpan={isDragMode ? 8 : 7} />
+                <td colSpan={isDragMode ? 10 : 9} />
               </tr>
             )}
           </TableBody>
@@ -434,13 +534,14 @@ function VirtualizedTaskTable({
   );
 }
 
-function MobileTaskCard({
+const MobileTaskCard = memo(function MobileTaskCard({
   task,
   onEdit,
   onToggleStatus,
   onDelete,
   isUpdating,
   isDeleting,
+  shoppingVariant = false,
 }: {
   task: Task;
   onEdit: (task: Task) => void;
@@ -448,6 +549,7 @@ function MobileTaskCard({
   onDelete: (id: string) => void;
   isUpdating: boolean;
   isDeleting: boolean;
+  shoppingVariant?: boolean;
 }) {
   const [swipeX, setSwipeX] = useState(0);
   const [swiping, setSwiping] = useState(false);
@@ -571,6 +673,7 @@ function MobileTaskCard({
         <div className="flex items-center gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
           <ClassificationBadge
             classification={task.classification}
+            classificationAssociations={task.classificationAssociations}
             taskId={task.id}
             activity={task.activity}
             notes={task.notes ?? ""}
@@ -587,7 +690,13 @@ function MobileTaskCard({
             disabled={isUpdating}
           >
             <Check className="h-4 w-4 mr-1" />
-            {task.status === "completed" ? "Undo" : "Done"}
+            {shoppingVariant
+              ? task.status === "completed"
+                ? "Not purchased"
+                : "Mark purchased"
+              : task.status === "completed"
+                ? "Undo"
+                : "Done"}
           </Button>
           <Button
             variant="outline"
@@ -602,7 +711,7 @@ function MobileTaskCard({
       </div>
     </div>
   );
-}
+});
 
 function MobileVirtualizedTaskList({
   getScrollElement,
@@ -612,6 +721,7 @@ function MobileVirtualizedTaskList({
   onEdit,
   onToggleStatus,
   onDelete,
+  shoppingVariant = false,
 }: {
   getScrollElement: () => HTMLElement | null;
   tasks: Task[];
@@ -620,13 +730,14 @@ function MobileVirtualizedTaskList({
   onEdit: (task: Task) => void;
   onToggleStatus: (id: string, status: string) => void;
   onDelete: (id: string) => void;
+  shoppingVariant?: boolean;
 }) {
   const rowHeight = 118;
   const virtualizer = useVirtualizer({
     count: tasks.length,
     getScrollElement,
     estimateSize: () => rowHeight,
-    overscan: 10,
+    overscan: TASK_LIST_VIRTUALIZER_OVERSCAN,
   });
   const items = virtualizer.getVirtualItems();
   return (
@@ -647,6 +758,7 @@ function MobileVirtualizedTaskList({
                 onDelete={onDelete}
                 isUpdating={updatingTaskIds.has(task.id)}
                 isDeleting={deletingTaskIds.has(task.id)}
+                shoppingVariant={shoppingVariant}
               />
             </div>
           </div>
@@ -735,15 +847,18 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollEl: HTMLElement 
   return { pullDistance, isRefreshing };
 }
 
-export function TaskList() {
+export type TaskListVariant = "default" | "shopping";
+
+export function TaskList({ variant = "default" }: { variant?: TaskListVariant } = {}) {
   const { toast } = useToast();
   const { playIfEligible } = useImmersiveSounds();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
+  const shoppingUi = variant === "shopping";
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 200);
   const [priorityFilter, setPriorityFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(() => (shoppingUi ? "pending" : "all"));
   const [sortField, setSortField] = useState<SortField>('manual');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -758,8 +873,10 @@ export function TaskList() {
   }, []);
 
   const handlePullRefresh = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-    await queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] }),
+    ]);
     await new Promise(r => setTimeout(r, 400));
   }, [queryClient]);
 
@@ -773,22 +890,121 @@ export function TaskList() {
   }, [consumeVoiceSearch]);
 
   useEffect(() => {
-    const onFocusSearch = () => {
+    const onFocusSearch = (ev: Event) => {
       searchInputRef.current?.focus();
+      const detail = (ev as CustomEvent<{ query?: string }>).detail;
+      if (detail && typeof detail.query === "string" && detail.query.trim().length > 0) {
+        setSearchQuery(detail.query);
+      }
+    };
+    const onOpenEdit = (ev: Event) => {
+      const e = ev as CustomEvent<{ task?: Task }>;
+      const task = e.detail?.task;
+      if (task && typeof task.id === "string") {
+        setEditingTask(task);
+      }
     };
     window.addEventListener("axtask-voice-focus-task-search", onFocusSearch);
-    return () => window.removeEventListener("axtask-voice-focus-task-search", onFocusSearch);
+    window.addEventListener("axtask-focus-task-search", onFocusSearch);
+    window.addEventListener("axtask-open-task-edit", onOpenEdit);
+    return () => {
+      window.removeEventListener("axtask-voice-focus-task-search", onFocusSearch);
+      window.removeEventListener("axtask-focus-task-search", onFocusSearch);
+      window.removeEventListener("axtask-open-task-edit", onOpenEdit);
+    };
   }, []);
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
   });
+
+  const scopedTasks = useMemo(
+    () => (shoppingUi ? tasks.filter((t) => isShoppingTask(t)) : tasks),
+    [tasks, shoppingUi],
+  );
   const { data: storageProfile } = useQuery<{
     policy: { maxTasks: number; maxAttachmentBytes: number };
     usage: { taskCount: number; attachmentBytes: number };
   }>({
     queryKey: ["/api/storage/me"],
   });
+  const { data: avatarSupportData } = useQuery<{ avatars: AvatarSupportProfile[] }>({
+    queryKey: ["/api/gamification/avatars"],
+  });
+  const { data: avatarSkillData = [] } = useQuery<AvatarSupportSkill[]>({
+    queryKey: ["/api/gamification/avatar-skills"],
+  });
+
+  const [browserOnline, setBrowserOnline] = useState(
+    () => typeof navigator !== "undefined" && navigator.onLine,
+  );
+  useEffect(() => {
+    const up = () => setBrowserOnline(true);
+    const down = () => setBrowserOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+
+  const serverQueryTrimmed = debouncedSearchQuery.trim();
+  const useServerSearchList = browserOnline && serverQueryTrimmed.length >= 2;
+
+  const {
+    data: searchTasks,
+    isFetching: isSearchFetching,
+    dataUpdatedAt: searchDataUpdatedAt,
+  } = useQuery<Task[]>({
+    queryKey: ["/api/tasks/search", serverQueryTrimmed],
+    queryFn: async ({ queryKey, signal }) => {
+      const q = queryKey[1] as string;
+      const res = await apiFetch(
+        "GET",
+        `/api/tasks/search/${encodeURIComponent(q)}`,
+        undefined,
+        undefined,
+        signal,
+      );
+      if (!res.ok) {
+        const text = (await res.text()) || res.statusText;
+        throw new Error(`${res.status}: ${text}`);
+      }
+      return res.json() as Promise<Task[]>;
+    },
+    enabled: useServerSearchList,
+    staleTime: 30_000,
+  });
+
+  const scopedSearchTasks = useMemo(() => {
+    if (!shoppingUi || searchTasks === undefined) return searchTasks;
+    return searchTasks.filter((t) => isShoppingTask(t));
+  }, [shoppingUi, searchTasks]);
+
+  useEffect(() => {
+    if (!useServerSearchList) return;
+    if (!searchTasks?.length) return;
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+    requestFeedbackNudge("task_search_success");
+  }, [useServerSearchList, searchDataUpdatedAt, searchTasks, queryClient]);
+
+  const { baseTasks, applyLocalSearch, serverSearchActive } = useMemo(
+    () =>
+      resolveTaskListSearchSource({
+        browserOnline,
+        debouncedQuery: debouncedSearchQuery,
+        allTasks: scopedTasks,
+        searchResults: useServerSearchList ? scopedSearchTasks : undefined,
+      }),
+    [browserOnline, debouncedSearchQuery, scopedTasks, useServerSearchList, scopedSearchTasks],
+  );
+
+  useEffect(() => {
+    if (serverSearchActive && isDragMode) setIsDragMode(false);
+  }, [serverSearchActive, isDragMode]);
+
+  const dragModeEffective = isDragMode && !serverSearchActive;
 
   const [updatingTaskIds, setUpdatingTaskIds] = useState<Set<string>>(() => new Set());
   const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(() => new Set());
@@ -845,8 +1061,13 @@ export function TaskList() {
         return next;
       });
     },
-    onSuccess: (data) => {
-      const d = data as { offlineQueued?: boolean; coinReward?: unknown } | undefined;
+    onSuccess: (data, variables) => {
+      const d = data as {
+        offlineQueued?: boolean;
+        coinReward?: unknown;
+        coinSkipReason?: string | null;
+        walletBalance?: number | null;
+      } | undefined;
       if (d?.offlineQueued) {
         toast({
           title: "Saved offline",
@@ -856,6 +1077,9 @@ export function TaskList() {
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      if (typeof d?.walletBalance === "number") {
+        setWalletBalanceCache(queryClient, d.walletBalance);
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       if (d?.coinReward) {
         const cr = d.coinReward as {
@@ -863,19 +1087,50 @@ export function TaskList() {
           newBalance: number;
           streak: number;
           badgesEarned?: unknown[];
+          comboCount?: number;
+          chainCount24h?: number;
+          nextComboBadgeAt?: number | null;
+          nextChainBadgeAt?: number | null;
         };
+        setWalletBalanceCache(queryClient, cr.newBalance);
         const badgeText = cr.badgesEarned?.length ? ` 🏅 New badge${cr.badgesEarned.length > 1 ? "s" : ""}!` : "";
+        const comboHint =
+          typeof cr.nextComboBadgeAt === "number" && typeof cr.comboCount === "number"
+            ? ` · Combo ${cr.comboCount}/${cr.nextComboBadgeAt}`
+            : "";
+        const chainHint =
+          typeof cr.nextChainBadgeAt === "number" && typeof cr.chainCount24h === "number"
+            ? ` · Chain ${cr.chainCount24h}/${cr.nextChainBadgeAt}`
+            : "";
         toast({
           title: `+${cr.coinsEarned} AxCoins earned!`,
-          description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${badgeText}`,
+          description: `Balance: ${cr.newBalance} · Streak: ${cr.streak} day${cr.streak !== 1 ? "s" : ""}${comboHint}${chainHint}${badgeText}`,
         });
         playIfEligible(1);
+      } else if (typeof d?.walletBalance === "number") {
+        setWalletBalanceCache(queryClient, d.walletBalance);
+      } else if (variables.status === "completed" && d?.coinSkipReason === "already_awarded") {
+        toast({
+          title: "No new completion coins",
+          description: "This task already earned its one-time completion reward.",
+        });
+        playIfEligible(3);
+      } else if (variables.status === "completed" && d?.coinSkipReason === "not_awarded") {
+        toast({
+          title: "Completed — no coins this time",
+          description:
+            "The server did not award completion coins for this transition. Check your balance after a refresh; if it keeps happening, the completion may not have persisted before the payout step.",
+        });
+        playIfEligible(3);
       } else {
         toast({
           title: "Task updated",
           description: "Task status has been updated successfully.",
         });
         playIfEligible(3);
+      }
+      if (variables.status === "completed") {
+        requestFeedbackNudge("task_complete");
       }
     },
     onError: (e: unknown) => {
@@ -901,10 +1156,31 @@ export function TaskList() {
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      toast({
-        title: "Priorities recalculated",
-        description: "All task priorities have been recalculated successfully.",
-      });
+      const payload = data as {
+        recalculateReward?: { coins: number; newBalance: number } | null;
+      };
+      if (payload.recalculateReward && payload.recalculateReward.coins > 0) {
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+        toast({
+          title: "Priorities recalculated",
+          description: `All task priorities updated. +${payload.recalculateReward.coins} AxCoins (balance ${payload.recalculateReward.newBalance}).`,
+          action: (
+            <ToastAction
+              altText="Rate recalculation"
+              onClick={() => rateRecalculateMutation.mutate({ rating: 5 })}
+            >
+              Rate +5
+            </ToastAction>
+          ),
+        });
+      } else {
+        toast({
+          title: "Priorities recalculated",
+          description: "All task priorities have been recalculated successfully.",
+        });
+      }
+      requestFeedbackNudge("recalculate");
     },
     onError: () => {
       toast({
@@ -912,6 +1188,29 @@ export function TaskList() {
         description: "Failed to recalculate priorities",
         variant: "destructive",
       });
+    },
+  });
+
+  const rateRecalculateMutation = useMutation({
+    mutationFn: async ({ rating }: { rating: number }) => {
+      return syncRawTaskRequest("POST", "/api/tasks/recalculate/rating", { rating }, queryClient);
+    },
+    onSuccess: (data) => {
+      const payload = data as { reward?: { coins: number; newBalance: number } | null; rating?: number };
+      if (payload.reward && payload.reward.coins > 0) {
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+        toast({
+          title: "Thanks for rating",
+          description: `Recalculate rated ${payload.rating ?? 5}/5. +${payload.reward.coins} AxCoins (balance ${payload.reward.newBalance}).`,
+        });
+      } else {
+        toast({
+          title: "Rating received",
+          description: "Thanks for helping tune urgency recalculation.",
+        });
+      }
+      requestFeedbackNudge("recalculate_rating");
     },
   });
 
@@ -946,7 +1245,7 @@ export function TaskList() {
   const handleSort = useCallback((field: SortField) => {
     if (field === 'manual') {
       setSortField('manual');
-      setIsDragMode(true);
+      setIsDragMode(false);
       return;
     }
     setIsDragMode(false);
@@ -955,13 +1254,14 @@ export function TaskList() {
         setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
         return prev;
       }
-      setSortDirection('asc');
+      const defaultDir = field === 'createdAt' || field === 'updatedAt' ? 'desc' : 'asc';
+      setSortDirection(defaultDir);
       return field;
     });
   }, []);
 
   const handleAISort = () => {
-    const sorted = TaskAIEngine.suggestOptimalOrder(tasks);
+    const sorted = TaskAIEngine.suggestOptimalOrder(baseTasks);
     const taskIds = sorted.map(t => t.id);
     reorderMutation.mutate(taskIds);
     setSortField('manual');
@@ -973,15 +1273,16 @@ export function TaskList() {
   };
 
   const runPretextBenchmark = useCallback(() => {
-    const samples = tasks.map((t) => `${t.activity} ${t.notes || ""}`);
+    const samples = baseTasks.map((t) => `${t.activity} ${t.notes || ""}`);
     setPretextStats(benchmarkPretext(samples, 320));
     toast({
       title: "Pretext benchmark complete",
       description: `Processed ${samples.length} samples.`,
     });
-  }, [tasks, toast]);
+  }, [baseTasks, toast]);
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (serverSearchActive) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -995,11 +1296,14 @@ export function TaskList() {
   };
 
   const filteredAndSortedTasks = useMemo(() => {
-    const filtered = tasks.filter((task) => {
-      const matchesSearch = !debouncedSearchQuery ||
-        task.activity.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        task.notes?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        task.classification.toLowerCase().includes(debouncedSearchQuery.toLowerCase());
+    const qLower = debouncedSearchQuery.toLowerCase();
+    const filtered = baseTasks.filter((task) => {
+      const matchesSearch =
+        !applyLocalSearch ||
+        !debouncedSearchQuery ||
+        task.activity.toLowerCase().includes(qLower) ||
+        (task.notes?.toLowerCase().includes(qLower) ?? false) ||
+        task.classification.toLowerCase().includes(qLower);
 
       const matchesPriority = priorityFilter === "all" || task.priority === priorityFilter;
       const matchesStatus = statusFilter === "all" || task.status === statusFilter;
@@ -1012,26 +1316,38 @@ export function TaskList() {
     }
 
     return [...filtered].sort((a, b) => {
-      let aValue: any = a[sortField];
-      let bValue: any = b[sortField];
+      let aValue: number | string;
+      let bValue: number | string;
 
       if (sortField === 'date') {
-        aValue = new Date(aValue).getTime();
-        bValue = new Date(bValue).getTime();
+        aValue = new Date(a.date).getTime();
+        bValue = new Date(b.date).getTime();
+      } else if (sortField === 'createdAt' || sortField === 'updatedAt') {
+        aValue = taskTimestampMs(a[sortField]);
+        bValue = taskTimestampMs(b[sortField]);
       } else if (sortField === 'priority') {
         const priorityOrder = { 'Highest': 5, 'High': 4, 'Medium-High': 3, 'Medium': 2, 'Low': 1 };
-        aValue = priorityOrder[aValue as keyof typeof priorityOrder] || 0;
-        bValue = priorityOrder[bValue as keyof typeof priorityOrder] || 0;
+        aValue = priorityOrder[a.priority as keyof typeof priorityOrder] || 0;
+        bValue = priorityOrder[b.priority as keyof typeof priorityOrder] || 0;
       } else if (sortField === 'priorityScore') {
-        aValue = Number(aValue) || 0;
-        bValue = Number(bValue) || 0;
+        aValue = Number(a.priorityScore) || 0;
+        bValue = Number(b.priorityScore) || 0;
+      } else {
+        aValue = String(a[sortField] ?? "");
+        bValue = String(b[sortField] ?? "");
       }
 
       if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
       if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [tasks, debouncedSearchQuery, priorityFilter, statusFilter, sortField, sortDirection]);
+  }, [baseTasks, applyLocalSearch, debouncedSearchQuery, priorityFilter, statusFilter, sortField, sortDirection]);
+
+  const clearListFilters = useCallback(() => {
+    setSearchQuery("");
+    setPriorityFilter("all");
+    setStatusFilter(shoppingUi ? "pending" : "all");
+  }, [shoppingUi]);
 
   const handleEdit = useCallback((task: Task) => setEditingTask(task), []);
   const handleToggleStatus = useCallback(
@@ -1049,7 +1365,15 @@ export function TaskList() {
     [deleteTaskMutation, tasks],
   );
 
-  const useVirtualized = filteredAndSortedTasks.length > VIRTUALIZE_THRESHOLD;
+  const useVirtualized = shouldVirtualizeTaskList(filteredAndSortedTasks.length);
+  const activeEntourageSlots = 1 + (avatarSkillData.find((skill) => skill.skillKey === "entourage-slots")?.currentLevel ?? 0);
+  const guidanceDepth = 1 + (avatarSkillData.find((skill) => skill.skillKey === "guidance-depth")?.currentLevel ?? 0);
+  const contextPoints = avatarSkillData
+    .filter((skill) => skill.effectType === "context_points")
+    .reduce((sum, skill) => sum + (skill.currentLevel * skill.effectPerLevel), 0);
+  const resourceBudget = avatarSkillData
+    .filter((skill) => skill.effectType === "resource_budget")
+    .reduce((sum, skill) => sum + (skill.currentLevel * skill.effectPerLevel), 0);
 
   if (isLoading) {
     return (
@@ -1066,11 +1390,11 @@ export function TaskList() {
   }
 
   return (
-    <Card>
+    <Card className="glass-panel-elevated">
       <CardHeader className="px-4 md:px-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center justify-between">
-            <CardTitle>Task List</CardTitle>
+            <CardTitle>{shoppingUi ? "Shopping list" : "Task List"}</CardTitle>
             {isMobile && (
               <Button variant="ghost" size="icon" className="h-10 w-10" onClick={handlePullRefresh} disabled={isRefreshing}>
                 <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
@@ -1080,14 +1404,20 @@ export function TaskList() {
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:space-x-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              {useServerSearchList && isSearchFetching && searchTasks === undefined ? (
+                <RefreshLoader
+                  className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground"
+                  aria-hidden
+                />
+              ) : null}
               <Input
                 id="task-list-search"
                 ref={searchInputRef}
-                placeholder="Search tasks..."
+                placeholder={shoppingUi ? "Search shopping items…" : "Search tasks..."}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 w-full md:w-64 h-10"
-                aria-label="Search tasks"
+                className={`pl-10 w-full md:w-64 h-10 ${useServerSearchList && isSearchFetching && searchTasks === undefined ? "pr-10" : ""}`}
+                aria-label={shoppingUi ? "Search shopping items" : "Search tasks"}
               />
             </div>
             <div className="flex gap-2">
@@ -1112,15 +1442,62 @@ export function TaskList() {
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="in-progress">In Progress</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="completed">{shoppingUi ? "Purchased" : "Completed"}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {isMobile && (
+              <div className="flex gap-2 w-full">
+                <Select
+                  value={sortField}
+                  onValueChange={(v) => {
+                    if (v === "manual") {
+                      setSortField("manual");
+                      setIsDragMode(false);
+                      return;
+                    }
+                    handleSort(v as Exclude<SortField, "manual">);
+                  }}
+                >
+                  <SelectTrigger className="flex-1 h-10">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="manual">Saved order</SelectItem>
+                    <SelectItem value="date">Scheduled date</SelectItem>
+                    <SelectItem value="priority">Priority</SelectItem>
+                    <SelectItem value="activity">Activity</SelectItem>
+                    <SelectItem value="classification">Classification</SelectItem>
+                    <SelectItem value="priorityScore">Priority (0–10)</SelectItem>
+                    <SelectItem value="status">Status</SelectItem>
+                    <SelectItem value="createdAt">Created</SelectItem>
+                    <SelectItem value="updatedAt">Updated</SelectItem>
+                  </SelectContent>
+                </Select>
+                {sortField !== "manual" && (
+                  <Select value={sortDirection} onValueChange={(d) => setSortDirection(d as SortDirection)}>
+                    <SelectTrigger className="w-[128px] h-10 shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="asc">Ascending</SelectItem>
+                      <SelectItem value="desc">Descending</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
             {!isMobile && (
               <div className="flex flex-wrap items-center gap-2 md:space-x-3">
                 <Button
                   variant={isDragMode ? "default" : "outline"}
                   size="sm"
+                  disabled={serverSearchActive}
+                  title={
+                    serverSearchActive
+                      ? "Clear search or shorten it to reorder the full list with drag mode."
+                      : undefined
+                  }
                   onClick={() => {
                     setIsDragMode(!isDragMode);
                     if (!isDragMode) setSortField('manual');
@@ -1155,23 +1532,83 @@ export function TaskList() {
           </div>
         </div>
         {pretextStats && (
-          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          <div className="mt-2 text-xs text-muted-foreground">
             Pretext benchmark: {pretextStats.sampleCount} samples, {pretextStats.totalLines} lines, {pretextStats.elapsedMs}ms.
           </div>
         )}
         {storageProfile && (
           <div className="mt-2 text-xs">
-            <span className="text-gray-500 dark:text-gray-400">
+            <span className="text-muted-foreground">
               Storage usage: {storageProfile.usage.taskCount}/{storageProfile.policy.maxTasks} tasks,{" "}
               {Math.round((storageProfile.usage.attachmentBytes / Math.max(1, storageProfile.policy.maxAttachmentBytes)) * 100)}% attachment quota
             </span>
           </div>
         )}
+        {avatarSupportData?.avatars?.length ? (
+          <GlassPanel elevated className="mt-3 p-3">
+            <p className="text-sm font-medium">Companion Guidance</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Active entourage slots: {activeEntourageSlots} · Guidance depth: {guidanceDepth} · Context points: {contextPoints} · Resource budget: {resourceBudget}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <FloatingChip tone="neutral">Slots {activeEntourageSlots}</FloatingChip>
+              <FloatingChip tone="success">Depth {guidanceDepth}</FloatingChip>
+              <FloatingChip tone="warning">Context {contextPoints}</FloatingChip>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {avatarSupportData.avatars.slice(0, activeEntourageSlots).map((avatar) => (
+                <AvatarGlowChip key={avatar.id} avatarKey={avatar.avatarKey}>
+                  {avatar.displayName} L{avatar.level}
+                </AvatarGlowChip>
+              ))}
+            </div>
+            <ProgressStrip className="mt-2" tone="success" value={Math.min(100, guidanceDepth * 20)} />
+          </GlassPanel>
+        ) : null}
       </CardHeader>
       <CardContent className="px-4 md:px-6">
         {filteredAndSortedTasks.length === 0 ? (
-          <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-            {tasks.length === 0 ? "No tasks found. Create your first task!" : "No tasks match your filters."}
+          <div className="flex justify-center py-8 md:py-12 px-2">
+            <GlassPanel elevated className="w-full max-w-md px-6 py-10 text-center space-y-4">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 border border-border text-primary">
+                {shoppingUi ? (
+                  <ShoppingCart className="h-7 w-7" aria-hidden />
+                ) : scopedTasks.length === 0 ? (
+                  <ClipboardList className="h-7 w-7" aria-hidden />
+                ) : (
+                  <Inbox className="h-7 w-7" aria-hidden />
+                )}
+              </div>
+              <div className="space-y-2">
+                <p className="text-lg font-semibold text-foreground">
+                  {scopedTasks.length === 0
+                    ? shoppingUi
+                      ? "Shopping list is empty"
+                      : "No tasks yet"
+                    : shoppingUi
+                      ? "No items match"
+                      : "No tasks match"}
+                </p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {scopedTasks.length === 0
+                    ? shoppingUi
+                      ? "Add items with voice or create a task with the shopping category."
+                      : "Create your first task with Alt+N or the Add Task control in the sidebar."
+                    : "Try another search, or reset filters to see your list again."}
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 justify-center pt-1">
+                {scopedTasks.length === 0 ? (
+                  <Button type="button" onClick={() => window.dispatchEvent(new Event("axtask-open-new-task"))}>
+                    {shoppingUi ? "Add shopping item" : "Add task"}
+                  </Button>
+                ) : (
+                  <Button type="button" variant="outline" onClick={clearListFilters}>
+                    Clear filters
+                  </Button>
+                )}
+              </div>
+            </GlassPanel>
           </div>
         ) : isMobile ? (
           <div ref={mobileScrollRef} className="relative max-h-[60vh] overflow-y-auto -mx-1 px-1">
@@ -1184,7 +1621,7 @@ export function TaskList() {
               </div>
             )}
             <div className="space-y-3">
-              {filteredAndSortedTasks.length > VIRTUALIZE_THRESHOLD ? (
+              {shouldVirtualizeTaskList(filteredAndSortedTasks.length) ? (
                 <MobileVirtualizedTaskList
                   getScrollElement={() => pullScrollEl}
                   tasks={filteredAndSortedTasks}
@@ -1193,6 +1630,7 @@ export function TaskList() {
                   onEdit={handleEdit}
                   onToggleStatus={handleToggleStatus}
                   onDelete={handleDelete}
+                  shoppingVariant={shoppingUi}
                 />
               ) : (
                 filteredAndSortedTasks.map((task: Task) => (
@@ -1204,6 +1642,7 @@ export function TaskList() {
                     onDelete={handleDelete}
                     isUpdating={updatingTaskIds.has(task.id)}
                     isDeleting={deletingTaskIds.has(task.id)}
+                    shoppingVariant={shoppingUi}
                   />
                 ))
               )}
@@ -1214,7 +1653,7 @@ export function TaskList() {
             {useVirtualized ? (
               <VirtualizedTaskTable
                 tasks={filteredAndSortedTasks}
-                isDragMode={isDragMode}
+                isDragMode={dragModeEffective}
                 onEdit={handleEdit}
                 onToggleStatus={handleToggleStatus}
                 onDelete={handleDelete}
@@ -1224,17 +1663,30 @@ export function TaskList() {
                 sortField={sortField}
                 sortDirection={sortDirection}
                 handleSort={handleSort}
+                shoppingVariant={shoppingUi}
               />
             ) : (
               <div className="overflow-x-auto">
                 <Table containerClassName="overflow-visible max-h-none">
                   <TableHeader>
                     <TableRow>
-                      {isDragMode && <TableHead className="w-8"></TableHead>}
+                      {dragModeEffective && <TableHead className="w-8"></TableHead>}
                       <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('date')}>
                         <div className="flex items-center">
                           Date
                           {sortField === 'date' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+                        </div>
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('createdAt')}>
+                        <div className="flex items-center">
+                          Created
+                          {sortField === 'createdAt' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
+                        </div>
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('updatedAt')}>
+                        <div className="flex items-center">
+                          Updated
+                          {sortField === 'updatedAt' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
                         </div>
                       </TableHead>
                       <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priority')}>
@@ -1255,15 +1707,19 @@ export function TaskList() {
                           {sortField === 'classification' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
                         </div>
                       </TableHead>
-                      <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('priorityScore')}>
+                      <TableHead
+                        className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none"
+                        onClick={() => handleSort('priorityScore')}
+                        title="Priority engine score in 0–10 units (stored as ×10 in the database). Same scale as dashboard “avg priority”."
+                      >
                         <div className="flex items-center">
-                          Score
+                          Priority (0–10)
                           {sortField === 'priorityScore' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
                         </div>
                       </TableHead>
                       <TableHead className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 select-none" onClick={() => handleSort('status')}>
                         <div className="flex items-center">
-                          Status
+                          {shoppingUi ? "Purchased" : "Status"}
                           {sortField === 'status' && (sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />)}
                         </div>
                       </TableHead>
@@ -1277,13 +1733,14 @@ export function TaskList() {
                           <SortableTaskRow
                             key={task.id}
                             task={task}
-                            isDragMode={isDragMode}
+                            isDragMode={dragModeEffective}
                             onEdit={handleEdit}
                             onToggleStatus={handleToggleStatus}
                             onDelete={handleDelete}
                             isUpdating={updatingTaskIds.has(task.id)}
                             isDeleting={deletingTaskIds.has(task.id)}
                             reducedMotion={reducedMotion}
+                            shoppingVariant={shoppingUi}
                           />
                         ))}
                       </AnimatePresence>

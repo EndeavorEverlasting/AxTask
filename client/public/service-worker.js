@@ -1,21 +1,32 @@
-const CACHE_NAME = "axtask-offline-v1";
+// Bump CACHE_VERSION on any service-worker change so previously installed
+// clients rotate to the latest bundle/copy. See docs/NOTIFICATIONS_AND_PUSH.md
+// for why this matters for push delivery (stale bundles can keep showing
+// pre-refactor toasts that no longer exist in the current client source).
+const CACHE_VERSION = "v2026-04-18-push";
+const CACHE_NAME = `axtask-offline-${CACHE_VERSION}`;
 const OFFLINE_ASSETS = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(OFFLINE_ASSETS)),
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.addAll(OFFLINE_ASSETS);
+      await self.skipWaiting();
+    })(),
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(
         keys
           .filter((key) => key !== CACHE_NAME)
           .map((key) => caches.delete(key)),
-      ),
-    ),
+      );
+      await self.clients.claim();
+    })(),
   );
 });
 
@@ -61,8 +72,10 @@ self.addEventListener("push", (event) => {
     body: payload.body || "You have a new notification.",
     icon: payload.icon || "/branding/axtask-logo.png",
     badge: payload.badge || "/branding/axtask-logo.png",
+    tag: payload.meta?.type === "adherence" ? "axtask-adherence" : undefined,
     data: {
       url: payload.url || "/planner",
+      meta: payload.meta || null,
     },
   };
 

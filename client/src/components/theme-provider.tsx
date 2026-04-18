@@ -10,24 +10,33 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("light");
+  /* Pretext visual sweep: dark-first default. Light mode is still fully
+   * supported via the toggle and localStorage persistence. */
+  const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
-    // Load saved theme preference
-    const savedTheme = localStorage.getItem("theme") as Theme;
-    if (savedTheme) {
+    const savedTheme = localStorage.getItem("theme") as Theme | null;
+    if (savedTheme === "light" || savedTheme === "dark") {
       setTheme(savedTheme);
-    } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      return;
+    }
+    /* No saved preference — honor OS preference but default to dark so the
+     * Pretext aurora reads correctly on first paint. */
+    if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+      setTheme("light");
+    } else {
       setTheme("dark");
     }
   }, []);
 
   useEffect(() => {
-    // Apply theme to document
+    const root = document.documentElement;
     if (theme === "dark") {
-      document.documentElement.classList.add("dark");
+      root.classList.add("dark");
+      root.classList.remove("light");
     } else {
-      document.documentElement.classList.remove("dark");
+      root.classList.remove("dark");
+      root.classList.add("light");
     }
     localStorage.setItem("theme", theme);
   }, [theme]);

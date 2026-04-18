@@ -1,14 +1,18 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { syncRawTaskRequest, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
+import { setWalletBalanceCache } from "@/lib/wallet-cache";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChevronDown, Coins, Plus, Sparkles } from "lucide-react";
+import { ChevronDown, Coins, Plus, Sparkles, ThumbsUp } from "lucide-react";
 import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
+import type { ClassificationAssociation } from "@shared/schema";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type CategoriesResponse = {
   builtIn: { label: string; coins: number }[];
@@ -46,6 +50,8 @@ export function getClassificationColor(classification: string) {
 
 interface ClassificationBadgeProps {
   classification: string;
+  /** Multi-label model from API; primary remains `classification`. */
+  classificationAssociations?: ClassificationAssociation[] | null;
   taskId?: string;
   editable?: boolean;
   /** Used with NodeWeaver / AxTask suggestions when the popover opens. */
@@ -57,6 +63,7 @@ interface ClassificationBadgeProps {
 
 export function ClassificationBadge({
   classification,
+  classificationAssociations,
   taskId,
   editable = false,
   activity = "",
@@ -64,6 +71,8 @@ export function ClassificationBadge({
   baseUpdatedAt,
 }: ClassificationBadgeProps) {
   const [open, setOpen] = useState(false);
+  const [selectedLabels, setSelectedLabels] = useState<Set<string>>(() => new Set());
+  const prevOpenRef = useRef(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const queryClientHook = useQueryClient();
   const { toast } = useToast();
@@ -77,6 +86,50 @@ export function ClassificationBadge({
     },
     enabled: Boolean(editable && taskId && open),
     staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (open && !prevOpenRef.current) {
+      const base =
+        classificationAssociations && classificationAssociations.length > 0
+          ? classificationAssociations.map((a) => a.label)
+          : [classification];
+      setSelectedLabels(new Set(base));
+    }
+    prevOpenRef.current = open;
+  }, [open, classification, classificationAssociations]);
+
+  const thumbStateQuery = useQuery({
+    queryKey: ["/api/tasks", taskId, "classification-thumb"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/tasks/${taskId}/classification-thumb`);
+      return res.json() as Promise<{ voted: boolean }>;
+    },
+    enabled: Boolean(editable && taskId && open && classification.trim() !== "" && classification !== "General"),
+    staleTime: 20_000,
+  });
+
+  const thumbMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/tasks/${taskId}/classification-thumb`, {});
+      return res.json() as Promise<{ coinsEarned: number; newBalance: number }>;
+    },
+    onSuccess: (data) => {
+      queryClientHook.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      queryClientHook.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      queryClientHook.setQueryData(["/api/tasks", taskId, "classification-thumb"], { voted: true });
+      setWalletBalanceCache(queryClientHook, data.newBalance);
+      toast({
+        title: "Classification appreciated",
+        description: `+${data.coinsEarned} AxCoins · Balance ${data.newBalance}`,
+      });
+      playIfEligible(1);
+      requestFeedbackNudge("classification_thumbs_up");
+    },
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : "Could not apply thumb";
+      toast({ title: "Thumb not recorded", description: message, variant: "destructive" });
+    },
   });
 
   const suggestionsQuery = useQuery({
@@ -115,8 +168,11 @@ export function ClassificationBadge({
   }, [suggestionsQuery.data, classification]);
 
   const reclassifyMutation = useMutation({
-    mutationFn: async (newClassification: string) => {
-      const payload: Record<string, string> = { classification: newClassification };
+    mutationFn: async (input: string | { associations: ClassificationAssociation[] }) => {
+      const payload: Record<string, unknown> =
+        typeof input === "string"
+          ? { classification: input }
+          : { associations: input.associations };
       if (baseUpdatedAt) payload.baseUpdatedAt = baseUpdatedAt;
       return syncRawTaskRequest(
         "POST",
@@ -144,21 +200,25 @@ export function ClassificationBadge({
       const r = result as {
         classification: string;
         classificationReward?: { coinsEarned: number; classification: string; newBalance: number };
+        consensusCorrectionReward?: { coins: number; newBalance: number } | null;
       };
       if (r.classificationReward) {
         const cr = r.classificationReward;
         toast({
           title: `Reclassified! +${cr.coinsEarned} coins`,
-          description: `Now classified as ${cr.classification}. Balance: ${cr.newBalance}`,
+          description: r.consensusCorrectionReward
+            ? `Primary topic: ${cr.classification}. +${r.consensusCorrectionReward.coins} consensus bonus. Balance: ${r.consensusCorrectionReward.newBalance}`
+            : `Primary topic: ${cr.classification}. Balance: ${cr.newBalance}`,
         });
         playIfEligible(1);
       } else {
         toast({
-          title: "Reclassified",
-          description: `Task is now classified as ${r.classification}`,
+          title: "Topics updated",
+          description: `Primary label: ${r.classification}. Multi-label weights saved (coins apply when the primary topic changes).`,
         });
         playIfEligible(3);
       }
+      requestFeedbackNudge("classification_reclassify");
       setOpen(false);
     },
     onError: (err: unknown) => {
@@ -198,15 +258,70 @@ export function ClassificationBadge({
 
   const coinsFor = (label: string) => coinByLabel.get(label.toLowerCase()) ?? 5;
 
-  const isCurrent = (label: string) => label.toLowerCase() === classification.toLowerCase();
+  const toggleLabel = (label: string) => {
+    setSelectedLabels((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) {
+        if (next.size <= 1) return next;
+        next.delete(label);
+      } else {
+        next.add(label);
+      }
+      return next;
+    });
+  };
+
+  const applySelectedLabels = () => {
+    const selectedArray = Array.from(selectedLabels);
+    const fromCatalog = selectedArray.filter((l) => categoryRows.some((c) => c.label === l));
+    const extra = selectedArray.filter((l) => !fromCatalog.includes(l));
+    const labels = [...fromCatalog, ...extra.sort((a, b) => a.localeCompare(b))];
+    if (labels.length === 0) return;
+    const n = labels.length;
+    const associations: ClassificationAssociation[] = labels.map((label) => ({
+      label,
+      confidence: Math.round((1 / n) * 1000) / 1000,
+    }));
+    reclassifyMutation.mutate({ associations });
+  };
+
+  const associationAlts = (classificationAssociations ?? []).filter(
+    (a) => a.label.trim().toLowerCase() !== classification.trim().toLowerCase(),
+  );
+  const hasAssociationDetail =
+    (classificationAssociations?.length ?? 0) > 1 || associationAlts.length > 0;
+
+  const associationTooltip = hasAssociationDetail ? (
+    <div className="text-xs space-y-1 max-w-[220px]">
+      <p className="font-medium text-foreground">Labels & confidence</p>
+      {(classificationAssociations ?? [{ label: classification, confidence: 1 }]).map((a) => (
+        <div key={a.label} className="flex justify-between gap-3 tabular-nums">
+          <span className={a.label === classification ? "font-semibold" : ""}>{a.label}</span>
+          <span className="text-muted-foreground">{Math.round(a.confidence * 100)}%</span>
+        </div>
+      ))}
+    </div>
+  ) : null;
 
   if (!editable || !taskId) {
-    return (
+    const pill = (
       <span
-        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getClassificationColor(classification)}`}
+        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${getClassificationColor(classification)}`}
       >
         {classification}
+        {hasAssociationDetail && (
+          <span className="text-[10px] opacity-80 font-normal tabular-nums">+{associationAlts.length || 0}</span>
+        )}
       </span>
+    );
+    if (!associationTooltip) return pill;
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>{pill}</TooltipTrigger>
+          <TooltipContent side="top">{associationTooltip}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
 
@@ -219,6 +334,9 @@ export function ClassificationBadge({
           onClick={(e) => e.stopPropagation()}
         >
           {classification}
+          {hasAssociationDetail && (
+            <span className="text-[10px] opacity-80 font-normal tabular-nums">+{associationAlts.length || 0}</span>
+          )}
           <ChevronDown className="h-3 w-3 opacity-60" />
         </button>
       </PopoverTrigger>
@@ -228,6 +346,21 @@ export function ClassificationBadge({
         side="bottom"
         onClick={(e) => e.stopPropagation()}
       >
+        {hasAssociationDetail && (
+          <div className="mb-2 pb-2 border-b border-gray-200 dark:border-gray-700">
+            <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
+              Multi-label confidence
+            </div>
+            <div className="px-2 space-y-1 text-xs">
+              {(classificationAssociations ?? [{ label: classification, confidence: 1 }]).map((a) => (
+                <div key={`${a.label}-${a.confidence}`} className="flex justify-between gap-2 tabular-nums">
+                  <span className={a.label === classification ? "font-semibold text-foreground" : ""}>{a.label}</span>
+                  <span className="text-muted-foreground">{Math.round(a.confidence * 100)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {activity.trim().length > 0 && (
           <div className="mb-2 pb-2 border-b border-gray-200 dark:border-gray-700">
             <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
@@ -237,7 +370,9 @@ export function ClassificationBadge({
               <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1">Loading suggestions…</div>
             )}
             {suggestionsQuery.isError && (
-              <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1">Suggestions unavailable offline.</div>
+              <div className="text-xs text-amber-800/90 dark:text-amber-200/90 px-2 py-1">
+                Could not load suggestions. Check your connection — they refresh when you reopen this panel after editing the task text.
+              </div>
             )}
             {!suggestionsQuery.isLoading && !suggestionsQuery.isError && topSuggestions.length === 0 && (
               <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1">No alternate suggestions.</div>
@@ -274,40 +409,76 @@ export function ClassificationBadge({
         )}
 
         <div className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
-          Your Categories
+          Your categories (multi-select)
         </div>
+        <p className="text-[10px] text-muted-foreground px-2 pb-1 leading-snug">
+          Check one or more topics; the first row after save is the primary label (highest weight). Equal split for now — refine with quick single-topic picks above.
+        </p>
         <div className="max-h-[240px] overflow-y-auto space-y-0.5">
           {categoriesQuery.isLoading && (
             <div className="text-xs text-gray-500 dark:text-gray-400 px-2 py-2">Loading categories...</div>
           )}
           {!categoriesQuery.isLoading &&
             categoryRows.map((cat) => (
-              <button
+              <label
                 key={cat.label}
-                type="button"
-                disabled={isCurrent(cat.label) || reclassifyMutation.isPending}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm min-h-[40px] transition-colors ${
-                  isCurrent(cat.label)
-                    ? "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-default"
-                    : "hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300 cursor-pointer active:bg-gray-100 dark:active:bg-gray-700"
-                }`}
-                onClick={() => reclassifyMutation.mutate(cat.label)}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm min-h-[40px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300"
               >
-                <span className="flex items-center gap-2.5">
-                  <span
-                    className={`inline-block w-3 h-3 rounded-full ${getClassificationColor(cat.label).split(" ")[0]}`}
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-gray-400 shrink-0"
+                    checked={selectedLabels.has(cat.label)}
+                    disabled={reclassifyMutation.isPending}
+                    onChange={() => toggleLabel(cat.label)}
                   />
-                  <span className="font-medium">{cat.label}</span>
+                  <span
+                    className={`inline-block w-3 h-3 rounded-full shrink-0 ${getClassificationColor(cat.label).split(" ")[0]}`}
+                  />
+                  <span className="font-medium truncate">{cat.label}</span>
                 </span>
-                {coinsFor(cat.label) > 0 && !isCurrent(cat.label) && (
-                  <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-semibold tabular-nums">
+                {coinsFor(cat.label) > 0 && (
+                  <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-semibold tabular-nums shrink-0">
                     <Coins className="h-3.5 w-3.5" />
                     +{coinsFor(cat.label)}
                   </span>
                 )}
-              </button>
+              </label>
             ))}
         </div>
+        <Button
+          type="button"
+          className="w-full mt-2"
+          size="sm"
+          disabled={reclassifyMutation.isPending || selectedLabels.size === 0}
+          onClick={applySelectedLabels}
+        >
+          Apply selected labels
+        </Button>
+
+        {classification.trim() !== "" && classification !== "General" && taskId && (
+          <div className="mt-2 pt-2 border-t border-gray-200/80 dark:border-gray-700/80">
+            <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 px-1 mb-1">
+              Agreement bonus
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="w-full"
+              disabled={
+                reclassifyMutation.isPending ||
+                thumbMutation.isPending ||
+                thumbStateQuery.isLoading ||
+                thumbStateQuery.data?.voted
+              }
+              onClick={() => taskId && thumbMutation.mutate()}
+            >
+              <ThumbsUp className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+              {thumbStateQuery.data?.voted ? "Thanks — bonus claimed" : "Thumbs up this label (one-time coins)"}
+            </Button>
+          </div>
+        )}
 
         <div className="mt-2 pt-2 border-t border-gray-200/80 dark:border-gray-700/80 px-1">
           <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">

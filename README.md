@@ -14,11 +14,12 @@ A full-stack task management application with an intelligent priority scoring en
 ```bash
 npm install
 cp .env.example .env
-npm run db:push
-npm run dev
+npm run start:local
 ```
 
 Visit `http://localhost:5000` to access the application.
+
+`npm run start:local` runs the smart local startup flow (SQL migrations first, then `db:push` when needed, then dev server). Use `npm run dev` only when you intentionally want server-only startup without schema automation. For command ordering details, see **[docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)**.
 
 ## Docker Quick Start (Recommended for Workstations)
 
@@ -52,7 +53,7 @@ Then open `http://localhost:5000`.
 - In-app: use `Install App Shortcut` in the left sidebar to install on desktop/mobile home screen (or show setup steps if browser prompt is unavailable)
 - First-login CTA: users also see a top install banner with `Dismiss` and `Don't show again` controls
 
-This flow automatically installs dependencies (first run), creates `.env` from `.env.example` if missing, runs `db:push`, and starts the app.
+This flow runs [`tools/local/offline-start.mjs`](tools/local/offline-start.mjs): installs dependencies when needed, ensures `.env` via `local:env-init`, runs **`node scripts/apply-migrations.mjs` every time**, runs **`npm run db:push`** only when the schema fingerprint changed (`shared/schema.ts`, `drizzle.config.ts`, `migrations/*.sql`), then starts the dev server with `npx tsx server/index.ts`. Details: [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md).
 
 ## Local + Offline Workflow
 
@@ -64,8 +65,10 @@ You can run AxTask fully local (including when offline) as long as your PostgreS
 2. Ensure `.env` has a local `DATABASE_URL` (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
 3. Run from the AxTask project directory:
    - `npm install`
-   - `npm run db:push`
-   - `npm run dev`
+   - After schema or migration changes: `node scripts/apply-migrations.mjs` (if `migrations/*.sql` changed) and/or `npm run db:push`
+  - `npm run start:local` (recommended; auto-applies migrations/schema before dev server)
+  - `npm run dev` (server only; does not run migrations or push)
+  - `npm run dev:smart` (same workflow as `start:local`)
 4. Work offline as needed, then commit and push changes later when back online.
 
 ### Why local runs fail most often
@@ -132,8 +135,9 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 ## Development
 
 ### Scripts
-- `npm run dev` - Start development server
-- `npm run dev:smart` - Smart local startup: sync deps only if lockfile changed, run `db:push` only if schema changed, then start dev server
+- `npm run dev` - Start development server only (no `apply-migrations`, no `db:push`)
+- `npm run start:local` - Recommended local startup: SQL migrations first, then conditional `db:push`, then dev server
+- `npm run dev:smart` - Smart local startup: SQL migrations every run, `db:push` when fingerprint changes, deps sync when lockfile changes; see [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)
 - `npm run deps:sync` - Sync dependencies from lockfile (`npm ci` fallback to `npm install`)
 - `npm run docker:start` - Build/start Docker app + Postgres stack
 - `npm run docker:stop` - Stop Docker stack (preserves named-volume data)
@@ -144,6 +148,10 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - `npm run db:push` - Sync database schema
 - `npm run test` - Run the full compendium of unit/integration/sweep tests (includes local login and Docker workflow guardrails)
 - `npm run check` - Run TypeScript checks
+
+### Git: testing vs deploy branch
+
+Running the app **locally** (or on a personal/staging URL) is the right place to try changes live. **Pushing** to the remote branch your hosting or CD pipeline deploys from can ship unfinished work or trigger production builds without a review gate. Prefer a **feature branch** for day-to-day commits, then open a **PR** into your team’s integration branch when you are ready to merge. See **[docs/GIT_BRANCHING_AND_DEPLOYMENT.md](docs/GIT_BRANCHING_AND_DEPLOYMENT.md)** for a short checklist (confirm current branch before `git push`, avoid using the deploy-connected branch as a scratchpad).
 
 ### PR Size and Segmentation Policy
 
@@ -235,10 +243,16 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
 
 ## Documentation
 
+- **[Canonical Philosophy](docs/README.md)** - Completion-first doctrine, clarify-before-generate behavior, and avatar/privacy contract links
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - Technical architecture details
 - **[NodeWeaver in this repo](docs/NODEWEAVER.md)** - Standalone classifier vs vendored monorepo path (`services/nodeweaver/upstream`)
 - **[Active/Legacy Index](docs/ACTIVE_LEGACY_INDEX.md)** - Canonical active vs transitional vs legacy classification
 - **[Debugging Reference](docs/DEBUGGING_REFERENCE.md)** - Deployment-impact test sweep checklist and common fixes
+- **[Report Engine and Agent Contracts](docs/REPORT_ENGINE_AGENT_CONTRACTS.md)** - Report engine lifecycle and ambiguity gates
+- **[Clarification Protocol](docs/CLARIFICATION_PROTOCOL.md)** - Mandatory question-asking rules before report generation
+- **[RAG and Classification Blueprint](docs/RAG_CLASSIFICATION_BLUEPRINT.md)** - Retrieval + classification architecture for trusted output
+- **[Orb and Avatar Experience Contract](docs/ORB_AVATAR_EXPERIENCE_CONTRACT.md)** - Orb UX philosophy and mood/avatar behavior system
+- **[Community Automation Privacy Contract](docs/COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)** - Public community automation and data-minimization guardrails
 - **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
 - **[Security Guidelines](docs/SECURITY.md)** - Security best practices
 - **[Version History](VERSION.md)** - Release notes and changelog
@@ -323,6 +337,9 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
   - `GET /api/premium/reactivation-prompts`
 
 ### Notification Mode (Push + Intensity)
+
+See **[docs/NOTIFICATIONS_AND_PUSH.md](docs/NOTIFICATIONS_AND_PUSH.md)** for the end-to-end setup (VAPID generation with `npm run vapid:generate`, invariants, troubleshooting stale service workers). For per-avatar feedback-prompt frequency sliders and the clickable AI planner insights that open the exact task, see **[docs/FEEDBACK_AVATAR_NUDGES.md](docs/FEEDBACK_AVATAR_NUDGES.md)**.
+
 - Toggleable notification mode in the sidebar with a `0-100` intensity slider.
 - Browser push permission is requested when enabling notifications.
 - Preferences persist per account via server-backed APIs:
@@ -340,6 +357,12 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
 Required env for browser push subscription:
 ```env
 VITE_VAPID_PUBLIC_KEY=...
+```
+
+Optional server-side fallback for runtime push-key publication (used by
+`/api/notifications/push-public-config`):
+```env
+VAPID_PUBLIC_KEY=...
 ```
 
 After pulling these changes, run:

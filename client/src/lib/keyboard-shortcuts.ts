@@ -5,12 +5,18 @@
 export const KBD = {
   tutorialToggle: "Ctrl+Shift+Y",
   tutorialToggleMac: "Cmd+Shift+Y",
-  newTask: "Alt+T",
-  newTaskMac: "Alt+T",
+  dashboard: "Alt+T",
+  dashboardMac: "Alt+T",
+  newTask: "Alt+N",
+  newTaskMac: "Alt+N",
+  findTasks: "Alt+F",
+  findTasksMac: "Alt+F",
   voice: "Ctrl+M",
   voiceMac: "Cmd+M",
   submitTask: "Ctrl+Enter",
   submitTaskMac: "Cmd+Enter",
+  /** Windows/Linux: Enter key with Alt; same handler as Ctrl+Enter on the task form. */
+  submitTaskAlt: "Alt+Enter",
   sidebar: "Ctrl+Shift+B",
   sidebarMac: "Cmd+Shift+B",
   hotkeyHelp: "Ctrl+Shift+/",
@@ -26,3 +32,6 @@ export const SHORTCUT_FOCUS_NOTE =
 export function tutorialToggleTitle(): string {
   return `${KBD.tutorialToggle} / ${KBD.tutorialToggleMac}`;
 }
+
+/** Human-readable chord list for task form submit (docs, tutorials, settings). */
+export const SUBMIT_TASK_SHORTCUTS = `${KBD.submitTask} / ${KBD.submitTaskMac} / ${KBD.submitTaskAlt}`;

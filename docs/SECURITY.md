@@ -317,6 +317,41 @@ app.use(cors(corsOptions));
 
 ## Data Protection & Privacy
 
+### Community Automation and Avatar Privacy Contract
+
+Automated avatar/community systems must preserve strict user privacy:
+
+- Avatar-generated posts and replies must never expose private task data.
+- Public community surfaces may only include fields explicitly marked as public.
+- Optional note content must remain hidden unless sharing controls allow it.
+- Automated narrative content should use aggregate or anonymized patterns, not identifiable personal data.
+- Moderation and safety controls apply equally to human and automated community content.
+
+### Voice Personalization Retrieval Security (RAG)
+
+RAG-based speech personalization must follow strict guardrails:
+
+- Personalization memory uses hashed user identifiers (`user_id_hash`) only.
+- Index writes require PII scrubbing before embedding generation.
+- Private task notes, hidden metadata, and secrets are excluded from correction-memory payloads.
+- User controls must support opt-in/opt-out and delete/export for personalization memory.
+- TTL expiration (`expires_at`) is mandatory for all personalization records.
+- Retrieval fallback is constrained: user memory -> cohort aggregate memory -> baseline pipeline.
+- Global kill switch must disable retrieval injection paths for ASR/NLU if incidents occur.
+
+Minimum telemetry and audit fields for personalization events:
+
+- retrieval tier used (`user`, `cohort`, `none`)
+- memory provenance ids
+- safety check result (`pass`/`bypass`)
+- latency overhead contribution
+
+Security monitoring alerts should include:
+
+- unusual retrieval miss spikes by locale/cohort
+- elevated false-correction rates after rollout
+- cohort-level quality regressions beyond release thresholds
+
 ### Sensitive Data Handling
 
 #### Data Classification

@@ -307,6 +307,43 @@ def build_outputs(task_df: pd.DataFrame, attendance_df: pd.DataFrame, cfg: dict)
     )
 
 
+def aggregate_hours_by_project(billing_df: pd.DataFrame) -> pd.DataFrame:
+    """Roll up billable hours by roster project (``Worked Project``) for summary sheets.
+
+    Expects billing detail columns from :func:`build_outputs`: ``Staff Name``, ``Worked Project``, ``Hours``.
+    Returns columns: Worked Project, Tech Count, Worked Rows, Billable Hours — sorted by billable hours
+    descending, then project name.
+    """
+    required = {"Staff Name", "Worked Project", "Hours"}
+    missing = required - set(billing_df.columns)
+    if missing:
+        raise ValueError(f"billing_df missing columns: {sorted(missing)}")
+    if billing_df.empty:
+        return pd.DataFrame(columns=["Worked Project", "Tech Count", "Worked Rows", "Billable Hours"])
+    grouped = (
+        billing_df.groupby("Worked Project", dropna=False)
+        .agg(
+            Tech_Count=("Staff Name", "nunique"),
+            Worked_Rows=("Hours", "count"),
+            Billable_Hours=("Hours", "sum"),
+        )
+        .reset_index()
+    )
+    grouped = grouped.rename(
+        columns={
+            "Tech_Count": "Tech Count",
+            "Worked_Rows": "Worked Rows",
+            "Billable_Hours": "Billable Hours",
+        }
+    )
+    grouped["Billable Hours"] = grouped["Billable Hours"].astype(float).round(10)
+    return grouped.sort_values(
+        ["Billable Hours", "Worked Project"],
+        ascending=[False, True],
+        na_position="last",
+    ).reset_index(drop=True)
+
+
 def clear_values(ws, start_row: int, max_col: int) -> None:
     for r in range(start_row, ws.max_row + 1):
         for c in range(1, max_col + 1):

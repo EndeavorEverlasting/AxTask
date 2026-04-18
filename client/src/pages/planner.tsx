@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isBrowserOnline, syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
@@ -35,6 +36,8 @@ import {
 } from "lucide-react";
 import type { Task } from "@shared/schema";
 import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { FloatingChip } from "@/components/ui/floating-chip";
 
 interface WeekDay {
   date: string;
@@ -74,6 +77,7 @@ const SUGGESTED_QUESTIONS = [
 
 export default function PlannerPage() {
   const reducedMotion = useReducedMotion();
+  const [, setLocation] = useLocation();
   const [question, setQuestion] = useState("");
   const [chatHistory, setChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [reviewInput, setReviewInput] = useState("");
@@ -98,8 +102,39 @@ export default function PlannerPage() {
     title: string;
     description: string;
     confidence: number;
+    taskIds?: string[];
     data: Record<string, unknown>;
   }
+
+  const handleInsightClick = useCallback(
+    (insight: PatternInsight) => {
+      const firstId = insight.taskIds?.[0];
+      if (firstId) {
+        setLocation(`/tasks?task=${encodeURIComponent(firstId)}`);
+        return;
+      }
+      const dataActivities =
+        typeof insight.data === "object" && insight.data
+          ? ((insight.data as { activities?: unknown; recentActivities?: unknown; activity?: unknown; topic?: unknown }))
+          : {};
+      const fallbackQuery = (() => {
+        if (Array.isArray(dataActivities.activities) && typeof dataActivities.activities[0] === "string") {
+          return dataActivities.activities[0] as string;
+        }
+        if (Array.isArray(dataActivities.recentActivities) && typeof dataActivities.recentActivities[0] === "string") {
+          return dataActivities.recentActivities[0] as string;
+        }
+        if (typeof dataActivities.activity === "string") return dataActivities.activity;
+        if (typeof dataActivities.topic === "string") return dataActivities.topic;
+        return insight.title;
+      })();
+      setLocation("/tasks");
+      window.dispatchEvent(
+        new CustomEvent("axtask-focus-task-search", { detail: { query: fallbackQuery } }),
+      );
+    },
+    [setLocation],
+  );
 
   const { data: patternData, isLoading: patternsLoading } = useQuery<{
     insights: PatternInsight[];
@@ -250,15 +285,24 @@ export default function PlannerPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-6 md:space-y-8 max-w-5xl mx-auto">
-      <div className="flex items-center gap-3">
-        <div className="p-2 md:p-2.5 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
-          <Brain className="h-5 w-5 md:h-6 md:w-6" />
-        </div>
-        <div>
-          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">AI Planner</h2>
-          <p className="text-sm md:text-base text-gray-500 dark:text-gray-400">{todayFormatted}</p>
-        </div>
-      </div>
+      <PretextPageHeader
+        eyebrow="AI Planner"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg shadow-indigo-500/25">
+              <Brain className="h-5 w-5" />
+            </span>
+            AI Planner
+          </span>
+        }
+        subtitle={todayFormatted}
+        chips={
+          <>
+            <FloatingChip tone="neutral">Pattern-aware</FloatingChip>
+            <FloatingChip tone="success">Weekly rhythm</FloatingChip>
+          </>
+        }
+      />
 
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
@@ -644,36 +688,49 @@ export default function PlannerPage() {
                       const InsightIcon = iconMap[insight.type] || Lightbulb;
                       const colorClass = colorMap[insight.type] || "text-gray-500 bg-gray-50 dark:bg-gray-900/20";
 
+                      const hasTaskId = Boolean(insight.taskIds && insight.taskIds.length > 0);
+                      const clickHint = hasTaskId
+                        ? "Open this task"
+                        : "Search tasks like this";
                       return (
                         <motion.div
                           key={idx}
                           initial={reducedMotion ? false : { opacity: 0, x: -8 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: idx * 0.05 }}
-                          className="flex items-start gap-3 p-3 rounded-lg bg-white/60 dark:bg-gray-800/40 border border-emerald-100 dark:border-emerald-900/30"
                         >
-                          <div className={`p-1.5 rounded-md shrink-0 ${colorClass}`}>
-                            <InsightIcon className="h-3.5 w-3.5" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                              {insight.title}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
-                              {insight.description}
-                            </p>
-                          </div>
-                          <div className="shrink-0">
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                              insight.confidence >= 70
-                                ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
-                                : insight.confidence >= 40
-                                  ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400"
-                                  : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-                            }`}>
-                              {insight.confidence}%
-                            </span>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleInsightClick(insight)}
+                            title={clickHint}
+                            aria-label={`${insight.title}. ${clickHint}.`}
+                            data-testid={`planner-insight-${insight.type}`}
+                            data-has-task-id={hasTaskId ? "true" : "false"}
+                            className="w-full text-left flex items-start gap-3 p-3 rounded-lg bg-white/60 dark:bg-gray-800/40 border border-emerald-100 dark:border-emerald-900/30 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 transition-colors"
+                          >
+                            <div className={`p-1.5 rounded-md shrink-0 ${colorClass}`}>
+                              <InsightIcon className="h-3.5 w-3.5" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                {insight.title}
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+                                {insight.description}
+                              </p>
+                            </div>
+                            <div className="shrink-0">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                                insight.confidence >= 70
+                                  ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                                  : insight.confidence >= 40
+                                    ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400"
+                                    : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+                              }`}>
+                                {insight.confidence}%
+                              </span>
+                            </div>
+                          </button>
                         </motion.div>
                       );
                     })}
