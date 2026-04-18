@@ -12,6 +12,10 @@ Before pushing release branches that touch rewards, classification, feedback, co
 
 - Do not push experimental work directly to the remote branch that tracks **production deploy**; use a feature branch and a PR. See [docs/GIT_BRANCHING_AND_DEPLOYMENT.md](docs/GIT_BRANCHING_AND_DEPLOYMENT.md).
 
+## CI polling (agent sessions)
+
+Before watching PR checks, use snapshot polls (`gh pr checks <N> --json name,status,conclusion --jq ...`) or headless `--watch` with an `Await` pattern; **never** pipe a long-running `--watch` into `Select-Object -Last N` or `Select-String` in the foreground — they buffer the whole stream and hang the shell. Full patterns, anti-patterns, and a copy-paste baseline recipe: [docs/CI_POLLING_FOR_AGENTS.md](docs/CI_POLLING_FOR_AGENTS.md).
+
 ## Pasted images, GIFs, and composer bodies
 
 - User-composed bodies (collab, community, feedback) use `PasteComposer` on write and `SafeMarkdown` on read. Every write route that accepts `attachmentAssetIds` must cap it at 8, call `linkAttachmentsToOwner`, and pair with a read route that serializes `attachments[]` via `toPublicAttachmentRef`. URL imports and GIFs go through `server/services/attachment-url-fetch.ts` (SSRF-hardened) and `server/services/gif-search.ts` (proxy). Full model: [docs/PASTE_COMPOSER_SECURITY.md](docs/PASTE_COMPOSER_SECURITY.md).
