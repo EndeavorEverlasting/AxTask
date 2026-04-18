@@ -2312,6 +2312,16 @@ export async function seedRewardsCatalog(): Promise<void> {
     { id: randomUUID(), name: "Productivity Guru Title", description: "Display 'Productivity Guru' on your profile", cost: 250, type: "title", icon: "🧠", data: "Productivity Guru" },
     { id: randomUUID(), name: "Legend Title", description: "Display 'Legend' on your profile", cost: 500, type: "title", icon: "🏆", data: "Legend" },
     { id: randomUUID(), name: "Avatar Support Unlock", description: "Unlock the avatar support tree for guided task management", cost: 220, type: "avatar_support", icon: "🧭", data: "avatar-support-unlock" },
+    {
+      id: randomUUID(),
+      name: "Gantt Timeline Pack",
+      description: "Unlock swimlanes by classification, dependency arrows, critical-path highlight, priority coloring, and PNG export for the task Gantt view.",
+      cost: 250,
+      unlockAtAvatarLevel: 3,
+      type: "gantt_pack",
+      icon: "📊",
+      data: "gantt-custom",
+    },
   ]);
 }
 
