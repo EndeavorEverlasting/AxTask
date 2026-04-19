@@ -57,13 +57,71 @@ describe("buildPerformanceSignals", () => {
         count: 15,
         serverErrorCount: 0,
         errorRate: 0,
-        avgMs: 900,
-        p50Ms: 850,
-        p95Ms: 900,
-        p99Ms: 950,
+        avgMs: 700,
+        p50Ms: 650,
+        p95Ms: 700,
+        p99Ms: 750,
       },
     ]);
     expect(sig.some((s) => s.code === "tasks_list_latency")).toBe(true);
+  });
+
+  it("uses the tightened GET /api/tasks p95 threshold (600ms)", () => {
+    // p95 = 550ms, below the 600ms post-pass threshold — must not fire.
+    const quiet = buildPerformanceSignals([
+      {
+        module: "Tasks",
+        method: "GET",
+        route: "GET /api/tasks",
+        normalizedRoute: "/api/tasks",
+        count: 15,
+        serverErrorCount: 0,
+        errorRate: 0,
+        avgMs: 450,
+        p50Ms: 400,
+        p95Ms: 550,
+        p99Ms: 600,
+      },
+    ]);
+    expect(quiet.some((s) => s.code === "tasks_list_latency")).toBe(false);
+  });
+
+  it("emits mutation_latency for slow writes so optimistic UI regressions fail loudly", () => {
+    const sig = buildPerformanceSignals([
+      {
+        module: "Tasks",
+        method: "POST",
+        route: "POST /api/tasks",
+        normalizedRoute: "/api/tasks",
+        count: 20,
+        serverErrorCount: 0,
+        errorRate: 0,
+        avgMs: 1600,
+        p50Ms: 1500,
+        p95Ms: 1800,
+        p99Ms: 2000,
+      },
+    ]);
+    expect(sig.some((s) => s.code === "mutation_latency")).toBe(true);
+  });
+
+  it("does not emit mutation_latency for reads even when slow (they have their own signals)", () => {
+    const sig = buildPerformanceSignals([
+      {
+        module: "Tasks",
+        method: "GET",
+        route: "GET /api/tasks/:id",
+        normalizedRoute: "/api/tasks/:id",
+        count: 20,
+        serverErrorCount: 0,
+        errorRate: 0,
+        avgMs: 1800,
+        p50Ms: 1700,
+        p95Ms: 2000,
+        p99Ms: 2200,
+      },
+    ]);
+    expect(sig.some((s) => s.code === "mutation_latency")).toBe(false);
   });
 
   it("emits elevated server errors when rate is high", () => {
