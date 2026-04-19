@@ -38,6 +38,10 @@ import type { Task } from "@shared/schema";
 import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { FloatingChip } from "@/components/ui/floating-chip";
+import {
+  buildTaskListHref,
+  type TaskListRouteFilter,
+} from "@/lib/task-list-route-filters";
 
 interface WeekDay {
   date: string;
@@ -311,9 +315,10 @@ export default function PlannerPage() {
       ) : briefing ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
+            {([
               {
                 label: "Overdue",
+                filter: "overdue" as const satisfies TaskListRouteFilter,
                 value: briefing.overdue.count,
                 icon: <AlertTriangle className="h-5 w-5" />,
                 color: briefing.overdue.count > 0
@@ -325,6 +330,7 @@ export default function PlannerPage() {
               },
               {
                 label: "Due Today",
+                filter: "today" as const satisfies TaskListRouteFilter,
                 value: briefing.dueToday.count,
                 icon: <Clock className="h-5 w-5" />,
                 color: "text-blue-600 dark:text-blue-400",
@@ -332,6 +338,7 @@ export default function PlannerPage() {
               },
               {
                 label: "Week Total",
+                filter: "week" as const satisfies TaskListRouteFilter,
                 value: briefing.thisWeek.total,
                 icon: <CalendarDays className="h-5 w-5" />,
                 color: "text-purple-600 dark:text-purple-400",
@@ -339,27 +346,55 @@ export default function PlannerPage() {
               },
               {
                 label: "Total Pending",
+                filter: "pending" as const satisfies TaskListRouteFilter,
                 value: briefing.totalPending,
                 icon: <TrendingUp className="h-5 w-5" />,
                 color: "text-gray-700 dark:text-gray-300",
                 bg: "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700",
               },
-            ].map((stat, i) => (
+            ] satisfies {
+              label: string;
+              filter: TaskListRouteFilter;
+              value: number;
+              icon: JSX.Element;
+              color: string;
+              bg: string;
+            }[]).map((stat, i) => (
               <motion.div
                 key={stat.label}
                 initial={reducedMotion ? false : { opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, delay: i * 0.06 }}
               >
-                <Card className={`border ${stat.bg}`}>
-                  <CardContent className="p-4 flex items-center gap-3">
-                    <div className={stat.color}>{stat.icon}</div>
-                    <div>
-                      <p className={`text-2xl font-bold tabular-nums ${stat.color}`}>{stat.value}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{stat.label}</p>
-                    </div>
-                  </CardContent>
-                </Card>
+                {/* Tile is a button that deep-links into /tasks with a
+                 * saved filter. TaskListHost reads `?filter=` on mount
+                 * and renders a dismissable "Showing: …" chip so the
+                 * user can always clear the filter and see everything. */}
+                <button
+                  type="button"
+                  onClick={() => setLocation(buildTaskListHref(stat.filter))}
+                  aria-label={`Open ${stat.label} tasks in All Tasks`}
+                  data-testid={`planner-tile-${stat.filter}`}
+                  className="w-full text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                >
+                  <Card
+                    className={`border ${stat.bg} transition-colors hover:brightness-[1.02]`}
+                  >
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <div className={stat.color}>{stat.icon}</div>
+                      <div>
+                        <p
+                          className={`text-2xl font-bold tabular-nums ${stat.color}`}
+                        >
+                          {stat.value}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {stat.label}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </button>
               </motion.div>
             ))}
           </div>
