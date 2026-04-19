@@ -1,0 +1,4 @@
+==> Running 'npm run start'
+[production-start] SQL migrations (apply-migrations.mjs)…
+[migrate] DATABASE_URL is not set.
+==> Exited with status 1

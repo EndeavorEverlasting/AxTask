@@ -1,0 +1,42 @@
+==> Building...
+==> Running build command 'npm ci && npm run build'...
+added 756 packages in 22s
+> rest-express@1.0.0 build
+> vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
+vite v5.4.19 building for production...
+transforming...
+✓ 3421 modules transformed.
+rendering chunks...
+(!) Some chunks are larger than 500 kBs after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+dist/public/index.html    0.67 kB │ gzip:   0.37 kB
+dist/public/assets/index-abc123.css  145.42 kB │ gzip:  24.70 kB
+dist/public/assets/index-def456.js  2529.50 kB │ gzip: 663.76 kB
+✓ built in 44.21s
+  dist/index.js  747.7kb
+⚡ Done in 1.2s
+==> Uploading build...
+==> Build uploaded in 4s
+==> Deploying...
+==> Running 'npm run start'
+> rest-express@1.0.0 start
+> cross-env NODE_ENV=production node scripts/production-start.mjs
+[production-start] SQL migrations (apply-migrations.mjs)…
+[migrate] skip (already applied): 0001_initial.sql
+[migrate] skip (already applied): 0010_attachment_assets.sql
+[migrate] applying: 0042_archetype_rollup.sql …
+[migrate] ✗ 0042_archetype_rollup.sql — could not extend file "base/16384/2619": No space left on device
+HINT:  Check free disk space.
+error: project size limit (512 MB) has been exceeded (code 53100)
+    at /opt/render/project/src/node_modules/pg-pool/index.js:45:11
+    at /app/scripts/apply-migrations.mjs:33:5
+    at async main (/app/scripts/apply-migrations.mjs:21:3) {
+  length: 182,
+  severity: 'ERROR',
+  code: '53100',
+  hint: 'Upgrade your plan or reduce storage usage. neon.max_cluster_size=512MB'
+}
+[migrate] fatal: Error: project size limit (512 MB) has been exceeded
+==> Exited with status 1
+==> Deploy failed
