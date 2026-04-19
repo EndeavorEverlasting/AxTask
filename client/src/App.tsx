@@ -59,8 +59,10 @@ import BillingBridgePage from "@/pages/billing-bridge";
 import NotFound from "@/pages/not-found";
 import { Link } from "wouter";
 import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
+import { GlobalSearch } from "@/components/global-search";
 import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
 import { matchHotkeyFromKeyboardEvent, voiceBarOpenRef } from "@/lib/hotkey-actions";
+import type { Task } from "@shared/schema";
 import { PretextShell } from "@/components/pretext/pretext-shell";
 
 const AdminPageLazy = lazy(() => import("@/pages/admin"));
@@ -285,6 +287,19 @@ function AuthenticatedApp() {
   }, [setLocation]);
 
   const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+
+  const handleGlobalSearchSelect = useCallback(
+    (task: Task) => {
+      setLocation("/tasks");
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("axtask-open-task-edit", { detail: { task } }),
+        );
+      }, 50);
+    },
+    [setLocation],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -329,6 +344,12 @@ function AuthenticatedApp() {
         }
         case "closeMobileNav": {
           window.dispatchEvent(new Event("axtask-close-mobile-nav"));
+          break;
+        }
+        case "openGlobalSearch": {
+          if (!user || loading) return;
+          e.preventDefault();
+          setGlobalSearchOpen((v) => !v);
           break;
         }
         default:
@@ -422,6 +443,13 @@ function AuthenticatedApp() {
           <MobileBottomNav />
           <MobileVoiceFAB />
           {user ? <HotkeyHelpDialog open={hotkeyHelpOpen} onOpenChange={setHotkeyHelpOpen} /> : null}
+          {user ? (
+            <GlobalSearch
+              open={globalSearchOpen}
+              onOpenChange={setGlobalSearchOpen}
+              onSelectTask={handleGlobalSearchSelect}
+            />
+          ) : null}
           <TutorialOverlay />
           <TutorialInteractionGuide />
           <VoiceCommandBar />
