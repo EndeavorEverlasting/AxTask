@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   matchAltNavigationHotkey,
   matchEscapeHotkey,
+  matchGlobalSearchChord,
   matchHotkeyFromKeyboardEvent,
   matchLoginHelpChord,
   matchSidebarChord,
@@ -57,6 +58,72 @@ describe("KBD.newTask / Alt+N", () => {
 describe("KBD.findTasks / Alt+F", () => {
   it("matchAltNavigationHotkey opens /tasks with axtask-focus-task-search", () => {
     expect(matchAltNavigationHotkey(key({ key: "f", altKey: true }))).toEqual({
+      kind: "navigate",
+      path: "/tasks",
+      postEvents: [{ name: "axtask-focus-task-search", delayMs: 50 }],
+    });
+  });
+});
+
+describe("KBD.calendar / Alt+C", () => {
+  it("matchAltNavigationHotkey navigates to /calendar", () => {
+    expect(matchAltNavigationHotkey(key({ key: "c", altKey: true }))).toEqual({
+      kind: "navigate",
+      path: "/calendar",
+    });
+  });
+
+  it("matchHotkeyFromKeyboardEvent returns navigate for Alt+C", () => {
+    expect(
+      matchHotkeyFromKeyboardEvent(key({ key: "c", altKey: true }), ctx(false, false)),
+    ).toEqual({ kind: "navigate", path: "/calendar" });
+  });
+
+  it("plain C does not trigger calendar navigation", () => {
+    expect(matchAltNavigationHotkey(key({ key: "c" }))).toBeNull();
+  });
+});
+
+describe("KBD.globalSearch / Ctrl|Cmd+F", () => {
+  it("matchGlobalSearchChord matches Ctrl+F", () => {
+    expect(matchGlobalSearchChord(key({ key: "f", ctrlKey: true }))).toEqual({
+      kind: "openGlobalSearch",
+    });
+  });
+
+  it("matchGlobalSearchChord matches Cmd+F (mac)", () => {
+    expect(matchGlobalSearchChord(key({ key: "f", metaKey: true }))).toEqual({
+      kind: "openGlobalSearch",
+    });
+  });
+
+  it("Ctrl+Shift+F does NOT match (browser find-in-files passes through)", () => {
+    expect(matchGlobalSearchChord(key({ key: "f", ctrlKey: true, shiftKey: true }))).toBeNull();
+  });
+
+  it("Alt+F does NOT match global search (kept for task-search focus)", () => {
+    expect(matchGlobalSearchChord(key({ key: "f", altKey: true }))).toBeNull();
+  });
+
+  it("plain F does not match", () => {
+    expect(matchGlobalSearchChord(key({ key: "f" }))).toBeNull();
+  });
+
+  it("matchHotkeyFromKeyboardEvent routes Ctrl+F to openGlobalSearch", () => {
+    expect(
+      matchHotkeyFromKeyboardEvent(key({ key: "f", ctrlKey: true }), ctx(false, false)),
+    ).toEqual({ kind: "openGlobalSearch" });
+  });
+
+  it("matchHotkeyFromKeyboardEvent routes Cmd+F to openGlobalSearch", () => {
+    expect(
+      matchHotkeyFromKeyboardEvent(key({ key: "f", metaKey: true }), ctx(false, false)),
+    ).toEqual({ kind: "openGlobalSearch" });
+  });
+
+  it("matchHotkeyFromKeyboardEvent keeps Alt+F as task-search focus (global search does not hijack)", () => {
+    const m = matchHotkeyFromKeyboardEvent(key({ key: "f", altKey: true }), ctx(false, false));
+    expect(m).toEqual({
       kind: "navigate",
       path: "/tasks",
       postEvents: [{ name: "axtask-focus-task-search", delayMs: 50 }],

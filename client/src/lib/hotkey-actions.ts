@@ -13,6 +13,7 @@ export type HotkeyMatch =
   | { kind: "voiceCloseBar" }
   | { kind: "closeHotkeyHelp" }
   | { kind: "closeMobileNav" }
+  | { kind: "openGlobalSearch" }
   | { kind: "submitTask" };
 
 export interface HotkeyMatchContext {
@@ -41,6 +42,22 @@ export function matchAltNavigationHotkey(e: KeyboardEvent): HotkeyMatch | null {
       path: "/tasks",
       postEvents: [{ name: "axtask-focus-task-search", delayMs: 50 }],
     };
+  }
+  if (k === "c") {
+    return { kind: "navigate", path: "/calendar" };
+  }
+  return null;
+}
+
+/**
+ * Ctrl/Cmd+F opens the full-screen GlobalSearch overlay (overrides browser
+ * in-page Find — matches baseline/published). Guarded by !shiftKey so
+ * Ctrl+Shift+F (browser "find in files") passes through untouched, and by
+ * !altKey so Alt+F still focuses the task-list search input.
+ */
+export function matchGlobalSearchChord(e: KeyboardEvent): HotkeyMatch | null {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+    return { kind: "openGlobalSearch" };
   }
   return null;
 }
@@ -90,8 +107,9 @@ export function matchEscapeHotkey(e: KeyboardEvent, ctx: HotkeyMatchContext): Ho
 }
 
 /**
- * Alt+T/N/F, Ctrl+Shift+/, Ctrl+Shift+Y, Escape (with voice bar ref in ctx).
- * Does not include sidebar, voice mic, or login — those use dedicated matchers in their components.
+ * Alt+T/N/F/C, Ctrl/Cmd+F (global search), Ctrl+Shift+/, Ctrl+Shift+Y, Escape
+ * (with voice bar ref in ctx). Does not include sidebar, voice mic, or login —
+ * those use dedicated matchers in their components.
  */
 export function matchHotkeyFromKeyboardEvent(
   e: KeyboardEvent,
@@ -99,6 +117,9 @@ export function matchHotkeyFromKeyboardEvent(
 ): HotkeyMatch | null {
   const esc = matchEscapeHotkey(e, ctx);
   if (esc) return esc;
+
+  const search = matchGlobalSearchChord(e);
+  if (search) return search;
 
   const alt = matchAltNavigationHotkey(e);
   if (alt) return alt;
