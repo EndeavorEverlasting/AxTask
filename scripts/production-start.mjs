@@ -18,6 +18,30 @@ if (!existsSync(distIndex)) {
   process.exit(1);
 }
 
+// DB capacity gate (Phase J): runs BEFORE migrations. This catches the
+// Neon 512 MB failure class that killed a prior manual deploy *before* we
+// start modifying the schema, so a capacity miss is a clean abort rather
+// than a half-migrated database. Exit codes: 0 ok, 1 soft fail
+// (ACK-able via AXTASK_DB_CAPACITY_ACK=1), 2 hard fail (never proceeds).
+// Skippable with AXTASK_SKIP_DB_CAPACITY_CHECK=true — use only when you
+// have already verified capacity out-of-band.
+if (process.env.AXTASK_SKIP_DB_CAPACITY_CHECK === "true") {
+  console.warn("[production-start] AXTASK_SKIP_DB_CAPACITY_CHECK=true — skipping DB capacity gate.");
+} else {
+  console.log("[production-start] DB capacity gate (check-db-capacity.mjs)…");
+  const cap = spawnSync(
+    process.execPath,
+    [join(root, "scripts/deploy/check-db-capacity.mjs")],
+    { cwd: root, stdio: "inherit", env: process.env },
+  );
+  if (cap.status !== 0) {
+    console.error(
+      `[production-start] DB capacity gate exited with status ${cap.status} — aborting before migrations.`,
+    );
+    process.exit(cap.status ?? 1);
+  }
+}
+
 console.log("[production-start] SQL migrations (apply-migrations.mjs)…");
 const m = spawnSync(process.execPath, [join(root, "scripts/apply-migrations.mjs")], {
   cwd: root,

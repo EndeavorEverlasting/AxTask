@@ -106,4 +106,9 @@ hit a new failure mode, add the log there and extend
 - [`docs/DEV_DATABASE_AND_SCHEMA.md`](DEV_DATABASE_AND_SCHEMA.md) — how
   migrations, `apply-migrations.mjs`, and drizzle-kit fit together.
 - [`render.yaml`](../render.yaml) — Render service config
-  (`autoDeploy: false`, `healthCheckPath: /ready`).
+  (`autoDeploy: true`, `healthCheckPath: /ready`). With autoDeploy on,
+  every push to the deploy branch ships, and the only thing between the
+  push and a live migration is the capacity gate wired at the top of
+  `scripts/production-start.mjs`. If you ever set `autoDeploy: false`
+  (e.g. a migration freeze window), update the contract test in
+  `tests/deploy/06-health/health-contract.test.ts` to match.

@@ -49,7 +49,25 @@ describe("[06-health] render.yaml health config", () => {
     expect(renderYaml).toMatch(/healthCheckPath:\s*\/ready/);
   });
 
-  it("autoDeploy is false (so a push to main does not ship to prod)", () => {
-    expect(renderYaml).toMatch(/autoDeploy:\s*false/);
+  it("autoDeploy is explicitly set (true or false) — no silent default", () => {
+    // We don't pin the value: manual-promote (false) and push-to-ship
+    // (true) are both valid postures. What matters is that the posture
+    // is declared in render.yaml and reviewable in PRs — a missing key
+    // means Render falls back to its own default, which is invisible
+    // to the deploy-test suite.
+    expect(renderYaml).toMatch(/autoDeploy:\s*(true|false)/);
+  });
+
+  it("if autoDeploy is true, the capacity gate must be wired to run before migrations", () => {
+    // autoDeploy=true means every push to main ships. The only thing
+    // between `git push origin main` and a live migration is the
+    // capacity gate (Phase J) — it has to be present in the start path.
+    const autoOn = /autoDeploy:\s*true/.test(renderYaml);
+    if (!autoOn) return;
+    const startScript = fs.readFileSync(
+      path.join(repoRoot, "scripts", "production-start.mjs"),
+      "utf8",
+    );
+    expect(startScript).toMatch(/check-db-capacity\.mjs/);
   });
 });

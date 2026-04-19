@@ -88,6 +88,17 @@ describe("[04-migrations] production-start.mjs chain order", () => {
     .replace(/^\s*\*.*$/gm, "")
     .replace(/\/\/.*$/gm, "");
 
+  it("runs the DB capacity gate before apply-migrations.mjs", () => {
+    // With render.yaml autoDeploy=true, every push to main ships and the
+    // capacity gate is the only thing between the push and a live
+    // migration against the Neon 512 MB ceiling. It MUST run first.
+    const capIdx = codeOnly.indexOf("check-db-capacity.mjs");
+    const applyIdx = codeOnly.indexOf("apply-migrations.mjs");
+    expect(capIdx).toBeGreaterThan(-1);
+    expect(applyIdx).toBeGreaterThan(-1);
+    expect(capIdx).toBeLessThan(applyIdx);
+  });
+
   it("runs apply-migrations.mjs before drizzle-kit push", () => {
     const applyIdx = codeOnly.indexOf("apply-migrations.mjs");
     const drizzleIdx = codeOnly.indexOf("drizzle-kit");
