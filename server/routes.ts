@@ -159,6 +159,7 @@ import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
 import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./services/usage-service";
 import { getApiPerformanceHeuristics } from "./services/api-performance-service";
+import { getDbSizeCached } from "./services/db-size";
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, readAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
@@ -5834,6 +5835,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to load API performance heuristics" });
+    }
+  });
+
+  // Neon / Postgres size gauge for the Admin > Performance tab. Mirrors
+  // the same number the deploy-time capacity gate checks
+  // (scripts/deploy/check-db-capacity.mjs), so operators see headroom
+  // trending toward the ceiling long before a migration trips 53100.
+  app.get("/api/admin/db-size", requireAdmin, requireAdminStepUp, async (_req, res) => {
+    try {
+      const report = await getDbSizeCached();
+      res.json(report);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to read database size" });
     }
   });
 

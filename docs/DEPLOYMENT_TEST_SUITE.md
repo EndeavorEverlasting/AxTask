@@ -99,6 +99,30 @@ Fixture logs for each bucket live in `test-fixtures/deploy-logs/`. When you
 hit a new failure mode, add the log there and extend
 `CLASSIFIERS` in `scripts/deploy/classify-deploy-failure.mjs`.
 
+## In-app visibility (Admin > Performance)
+
+The pre-deploy capacity gate is paired with two runtime pieces so the
+ceiling never sneaks up on anyone:
+
+- **Retention prune worker** — [`server/workers/retention-prune.ts`](../server/workers/retention-prune.ts).
+  Runs once a day (2 minutes after boot, then every 24h). Deletes rows
+  older than their per-table retention window from `security_events`
+  (30d), `security_logs` (30d), `usage_snapshots` (60d), and expired
+  `password_reset_tokens` (7d). No `VACUUM FULL` — that's an operator
+  cleanup step, not a scheduler step. Disable with
+  `DISABLE_RETENTION_PRUNE=true`; tune with
+  `RETENTION_PRUNE_INTERVAL_MS`.
+- **DB size gauge** — `GET /api/admin/db-size` (admin + step-up), 60s
+  cache, rendered as a progress bar in Admin > Performance via
+  [`client/src/components/admin/db-size-card.tsx`](../client/src/components/admin/db-size-card.tsx).
+  Thresholds match the pre-deploy gate: OK < 70%, WARN 70–85%, BAD ≥ 85%.
+
+If the bar hits red and the prune worker isn't keeping up, the next
+things to investigate (by contribution, biggest first) are attachments
+(binary columns in `attachments`), `security_events` (hot-path audit
+trail), and `archetype_rollup_daily` + `archetype_markov_daily`
+(bounded but chunky).
+
 ## Related
 
 - [`docs/GIT_BRANCHING_AND_DEPLOYMENT.md`](GIT_BRANCHING_AND_DEPLOYMENT.md) —
