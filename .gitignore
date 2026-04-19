@@ -44,4 +44,13 @@ server/__archetype_fixtures__/
 # Full-scale backup fixtures drop zone (real user JSON exports; real PII).
 # Use test-fixtures/account-backup-v1-sample.json in CI; run the zip locally
 # via `npm run smoke:v1-zip`.
+#
+# The scanner in scripts/smoke-v1-backup-zip.mjs auto-picks up any docs/*.json
+# whose filename contains backup / axtask / import, so ignore the extracted
+# JSONs with matching patterns too — an unclean working tree must never be
+# able to leak PII-bearing backup contents.
 docs/json imports of *.zip
+docs/json imports of *.json
+docs/*backup*.json
+docs/*axtask*.json
+docs/*import*.json

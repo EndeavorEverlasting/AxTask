@@ -1,12 +1,14 @@
 // tsx runner invoked by scripts/smoke-v1-backup-zip.mjs. Reads a single JSON
-// backup file, runs every task row through normalizeV1TaskRow + insertTaskSchema,
-// and prints a one-line JSON summary on stdout. Kept separate so the .mjs
-// entry point stays dependency-free and the TypeScript import chain (which
-// loads server/account-backup.ts and transitively server/db.ts) is isolated
-// to a child process that receives a stubbed DATABASE_URL.
+// backup file and delegates to planAccountImport (the same pure function the
+// account-import route uses) to fully validate both the bundle shape and
+// every task row. Prints a one-line JSON summary on stdout.
+//
+// Kept separate so the .mjs entry point stays dependency-free and the
+// TypeScript import chain (which loads server/account-backup.ts and
+// transitively server/db.ts) is isolated to a child process that receives
+// a stubbed DATABASE_URL.
 import { readFileSync } from "node:fs";
-import { normalizeV1TaskRow } from "../server/account-backup";
-import { insertTaskSchema } from "../shared/schema";
+import { planAccountImport } from "../server/account-backup";
 
 type Summary = {
   ok: boolean;
@@ -15,6 +17,12 @@ type Summary = {
   schemaVersion: number | undefined;
   errors: { field: string; message: string }[];
 };
+
+function extractSchemaVersion(bundle: unknown): number | undefined {
+  const md = (bundle as { metadata?: { schemaVersion?: unknown } } | null)?.metadata;
+  const v = md?.schemaVersion;
+  return typeof v === "number" ? v : undefined;
+}
 
 function main() {
   const filePath = process.argv[2];
@@ -38,34 +46,27 @@ function main() {
     return;
   }
 
-  const b = bundle as {
-    metadata?: { schemaVersion?: number };
-    data?: { tasks?: unknown[] };
-  };
-  const schemaVersion = b?.metadata?.schemaVersion;
-  const rawTasks = Array.isArray(b?.data?.tasks) ? (b!.data!.tasks as unknown[]) : [];
+  // planAccountImport runs bundleSchema.safeParse first, so a non-backup JSON
+  // (e.g. {}, package.json, anything without metadata/data.tasks in the right
+  // shape) fails fast here instead of silently reporting "ok: true, tasks: 0".
+  const plan = planAccountImport(bundle);
+  const schemaVersion = extractSchemaVersion(bundle);
 
-  let valid = 0;
-  const errors: { field: string; message: string }[] = [];
-  for (let i = 0; i < rawTasks.length; i++) {
-    try {
-      insertTaskSchema.parse(normalizeV1TaskRow(rawTasks[i]));
-      valid++;
-    } catch (e) {
-      errors.push({
-        field: String(i),
-        message: e instanceof Error ? e.message.split("\n")[0] : "Validation failed",
-      });
-    }
-  }
-
-  const out: Summary = {
-    ok: errors.length === 0,
-    tasks: valid,
-    rejected: errors.length,
-    schemaVersion,
-    errors,
-  };
+  const out: Summary = plan.ok
+    ? {
+        ok: true,
+        tasks: plan.tasks.length,
+        rejected: 0,
+        schemaVersion: plan.schemaVersion ?? schemaVersion,
+        errors: [],
+      }
+    : {
+        ok: false,
+        tasks: 0,
+        rejected: plan.errors.length,
+        schemaVersion,
+        errors: plan.errors.map((e) => ({ field: e.field, message: e.message })),
+      };
   process.stdout.write(JSON.stringify(out));
 }
 
