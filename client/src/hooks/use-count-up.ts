@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useReducedMotion } from "./use-reduced-motion";
+import { isAnimationAllowed } from "@/lib/animation-budget";
 
 export function useCountUp(target: number, duration: number = 400): number {
   const [value, setValue] = useState(0);
@@ -8,7 +9,7 @@ export function useCountUp(target: number, duration: number = 400): number {
   const reduced = useReducedMotion();
 
   useEffect(() => {
-    if (reduced) {
+    if (reduced || !isAnimationAllowed()) {
       setValue(target);
       prevTarget.current = target;
       return;
@@ -21,6 +22,11 @@ export function useCountUp(target: number, duration: number = 400): number {
     const startTime = performance.now();
 
     const animate = (now: number) => {
+      if (!isAnimationAllowed()) {
+        setValue(target);
+        prevTarget.current = target;
+        return;
+      }
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
@@ -50,7 +56,7 @@ export function useCountUpDecimal(target: number, decimals: number = 3, duration
   const reduced = useReducedMotion();
 
   useEffect(() => {
-    if (reduced) {
+    if (reduced || !isAnimationAllowed()) {
       setValue(target);
       prevTarget.current = target;
       return;
@@ -63,6 +69,11 @@ export function useCountUpDecimal(target: number, decimals: number = 3, duration
     const startTime = performance.now();
 
     const animate = (now: number) => {
+      if (!isAnimationAllowed()) {
+        setValue(target);
+        prevTarget.current = target;
+        return;
+      }
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);

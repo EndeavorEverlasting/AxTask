@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { startSharedLongTaskAttributor } from "./lib/long-task-attributor";
+import { startSharedAnimationBudget } from "./lib/animation-budget";
 
 function injectReplitDevBanner() {
   try {
@@ -30,6 +31,10 @@ if (typeof window !== "undefined") {
   // the admin Performance panel can show which part of the app is burning
   // main-thread time. Client-local; nothing is sent to the server.
   startSharedLongTaskAttributor();
+  // Pause ambient rAF animations (orbs, count-ups, chips) on scroll, long
+  // tasks, hidden tabs, or when the user prefers reduced motion. See
+  // `client/src/lib/animation-budget.ts`.
+  startSharedAnimationBudget();
 }
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
