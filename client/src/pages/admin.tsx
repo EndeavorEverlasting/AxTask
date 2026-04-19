@@ -4,6 +4,8 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { ClientPerfPanel } from "@/components/admin/client-perf-panel";
+import { DbSizeCard } from "@/components/admin/db-size-card";
 import { usePretextSurface } from "@/hooks/use-pretext-surface";
 import { useCountUp } from "@/hooks/use-count-up";
 import type { SafeUser, SecurityLog } from "@shared/schema";
@@ -1198,6 +1200,8 @@ export default function AdminPage() {
         </TabsContent>
 
         <TabsContent value="performance" className="space-y-4">
+          <ClientPerfPanel />
+          <DbSizeCard />
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Gauge className="h-4 w-4 text-primary" />

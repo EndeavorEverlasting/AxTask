@@ -28,6 +28,10 @@ Discretionary AxCoin credits are **owner-allowlisted** only (`OWNER_COIN_GRANT_U
 
 Archetype-level analytics layered on the existing feedback-with-avatars pipeline. Signals are written with `hashedActor = HMAC-SHA256(ARCHETYPE_ANALYTICS_SALT, userId)` to `security_events (event_type='archetype_signal')`, rolled up daily into `archetype_rollup_daily` + `archetype_markov_daily`, and exposed via read APIs gated by admin session or `ARCHETYPE_READ_TOKEN`. Rollup tables must never carry a user column. Full model (privacy, empathy formula, Markov contract, env vars): [docs/ARCHETYPE_EMPATHY_ANALYTICS.md](docs/ARCHETYPE_EMPATHY_ANALYTICS.md).
 
+## Module layout (current + target)
+
+- Today the domain weight lives in a handful of monoliths (`server/routes.ts`, `server/storage.ts`, `shared/schema.ts`, `client/src/pages/admin.tsx`, `client/src/components/task-list.tsx`, `client/src/components/task-form.tsx`). The per-domain target folder layout (and a phase-by-phase status matrix) is captured in [docs/MODULE_LAYOUT.md](docs/MODULE_LAYOUT.md). Physical splits must go through one monolith per PR, preserving the old file as a barrel so existing imports keep working.
+
 ## Database / schema
 
 - Edit Drizzle models in [`shared/schema.ts`](shared/schema.ts) and config in [`drizzle.config.ts`](drizzle.config.ts). Run **`npm run db:push`** when the database must match schema changes (Drizzle sync).

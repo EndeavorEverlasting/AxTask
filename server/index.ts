@@ -17,6 +17,7 @@ import { evaluateAdherenceForAllUsers } from "./services/adherence-evaluator";
 import { dispatchAdherencePushNotifications } from "./services/adherence-dispatch";
 import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence-thresholds";
 import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
+import { startRetentionPruneTicker } from "./workers/retention-prune";
 
 const app = express();
 
@@ -317,6 +318,16 @@ function warnIfVapidMissing(): void {
   if (process.env.NODE_ENV !== "test" && process.env.DISABLE_ARCHETYPE_ROLLUP !== "true") {
     const intervalMs = Number(process.env.ARCHETYPE_ROLLUP_INTERVAL_MS) || 60 * 60 * 1000;
     startArchetypeRollupTicker(intervalMs);
+  }
+
+  // Retention prune worker: daily sweep of append-only tables so Neon's
+  // 512 MB ceiling doesn't surprise us again (see server/workers/
+  // retention-prune.ts for windows). Opt-out with DISABLE_RETENTION_PRUNE
+  // or override the 24h cadence with RETENTION_PRUNE_INTERVAL_MS.
+  if (process.env.NODE_ENV !== "test" && process.env.DISABLE_RETENTION_PRUNE !== "true") {
+    const intervalMs = Number(process.env.RETENTION_PRUNE_INTERVAL_MS) || 24 * 60 * 60 * 1000;
+    const initialDelayMs = Number(process.env.RETENTION_PRUNE_INITIAL_DELAY_MS) || 2 * 60 * 1000;
+    startRetentionPruneTicker({ intervalMs, initialDelayMs });
   }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

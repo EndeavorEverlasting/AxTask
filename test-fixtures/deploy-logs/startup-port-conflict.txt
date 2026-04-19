@@ -1,0 +1,7 @@
+[production-start] Starting server…
+node:events:497
+      throw er; // Unhandled 'error' event
+      ^
+Error: listen EADDRINUSE: address already in use :::5000
+    at Server.setupListenHandle [as _listen2] (node:net:1860:16)
+[production-start] fatal: Error: listen EADDRINUSE: address already in use :::5000

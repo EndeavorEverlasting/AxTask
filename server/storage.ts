@@ -3204,6 +3204,102 @@ export async function getAttachmentsForOwnerPublic(options: {
   return rows.map(({ position: _p, ...rest }) => rest as AttachmentAsset);
 }
 
+/**
+ * Batched variant of `getAttachmentsForOwner` for a list of ownerIds under
+ * one ownerType. Collapses N separate queries into a single JOIN, returning
+ * a Map<ownerId, AttachmentAsset[]>. Ownership (userId) is still enforced
+ * so a caller can't fetch someone else's attachments via ID guessing.
+ *
+ * Introduced to kill the N+1 in GET /api/collaboration/inbox where each
+ * inbox row previously triggered its own round trip.
+ */
+export async function getAttachmentsForOwnersBatch(options: {
+  userId: string;
+  ownerType: MessageAttachmentOwnerType;
+  ownerIds: readonly string[];
+}): Promise<Map<string, AttachmentAsset[]>> {
+  const result = new Map<string, AttachmentAsset[]>();
+  if (options.ownerIds.length === 0) return result;
+  const rows = await db
+    .select({
+      id: attachmentAssets.id,
+      userId: attachmentAssets.userId,
+      taskId: attachmentAssets.taskId,
+      kind: attachmentAssets.kind,
+      fileName: attachmentAssets.fileName,
+      mimeType: attachmentAssets.mimeType,
+      byteSize: attachmentAssets.byteSize,
+      storageKey: attachmentAssets.storageKey,
+      metadataJson: attachmentAssets.metadataJson,
+      createdAt: attachmentAssets.createdAt,
+      deletedAt: attachmentAssets.deletedAt,
+      ownerId: messageAttachments.ownerId,
+      position: messageAttachments.position,
+    })
+    .from(messageAttachments)
+    .innerJoin(attachmentAssets, eq(attachmentAssets.id, messageAttachments.assetId))
+    .where(and(
+      eq(messageAttachments.userId, options.userId),
+      eq(messageAttachments.ownerType, options.ownerType),
+      inArray(messageAttachments.ownerId, [...options.ownerIds]),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    ))
+    .orderBy(messageAttachments.ownerId, messageAttachments.position);
+  for (const row of rows) {
+    const { ownerId, position: _p, ...rest } = row;
+    const bucket = result.get(ownerId) ?? [];
+    bucket.push(rest as AttachmentAsset);
+    result.set(ownerId, bucket);
+  }
+  return result;
+}
+
+/**
+ * Public/read-side batched variant used by endpoints where the viewer is
+ * not necessarily the author (community post + its replies). Does not
+ * filter by caller userId — ownership is implied by the link rows' own
+ * userId column (author uploads only), same guarantee as
+ * getAttachmentsForOwnerPublic.
+ */
+export async function getAttachmentsForOwnersPublicBatch(options: {
+  ownerType: MessageAttachmentOwnerType;
+  ownerIds: readonly string[];
+}): Promise<Map<string, AttachmentAsset[]>> {
+  const result = new Map<string, AttachmentAsset[]>();
+  if (options.ownerIds.length === 0) return result;
+  const rows = await db
+    .select({
+      id: attachmentAssets.id,
+      userId: attachmentAssets.userId,
+      taskId: attachmentAssets.taskId,
+      kind: attachmentAssets.kind,
+      fileName: attachmentAssets.fileName,
+      mimeType: attachmentAssets.mimeType,
+      byteSize: attachmentAssets.byteSize,
+      storageKey: attachmentAssets.storageKey,
+      metadataJson: attachmentAssets.metadataJson,
+      createdAt: attachmentAssets.createdAt,
+      deletedAt: attachmentAssets.deletedAt,
+      ownerId: messageAttachments.ownerId,
+      position: messageAttachments.position,
+    })
+    .from(messageAttachments)
+    .innerJoin(attachmentAssets, eq(attachmentAssets.id, messageAttachments.assetId))
+    .where(and(
+      eq(messageAttachments.ownerType, options.ownerType),
+      inArray(messageAttachments.ownerId, [...options.ownerIds]),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    ))
+    .orderBy(messageAttachments.ownerId, messageAttachments.position);
+  for (const row of rows) {
+    const { ownerId, position: _p, ...rest } = row;
+    const bucket = result.get(ownerId) ?? [];
+    bucket.push(rest as AttachmentAsset);
+    result.set(ownerId, bucket);
+  }
+  return result;
+}
+
 export async function retentionSweepAttachments(userId: string, retentionDays: number, dryRun = true): Promise<{
   candidateCount: number;
   candidates: AttachmentAsset[];

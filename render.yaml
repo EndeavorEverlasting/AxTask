@@ -8,7 +8,18 @@ services:
     # npm run start runs scripts/production-start.mjs: migrations → drizzle push → dist/index.js
     startCommand: npm run start
     healthCheckPath: /ready
-    autoDeploy: false
+    # autoDeploy: every push to main ships. Safety is delegated to:
+    #   1. the Phase J capacity gate (scripts/deploy/check-db-capacity.mjs)
+    #      which runs before apply-migrations.mjs and blocks the Neon
+    #      512 MB class of failure that killed the prior manual deploy;
+    #   2. scripts/deploy/check-env.mjs which fails-closed on missing
+    #      DATABASE_URL / SESSION_SECRET before the server starts;
+    #   3. healthCheckPath=/ready so Render rolls back if the new image
+    #      cannot reach the DB.
+    # If you need a deploy window (e.g. schema migration freeze), flip
+    # this back to false temporarily and update the contract test at
+    # tests/deploy/06-health/health-contract.test.ts to match.
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
@@ -40,3 +51,8 @@ services:
         sync: false
       - key: AUTH_PROVIDER
         sync: false
+      # Neon Launch tier includes 10 GiB storage. Keep the gate's budget
+      # aligned with the plan so scripts/deploy/check-db-capacity.mjs
+      # reflects reality instead of the default 512 MB free-tier ceiling.
+      - key: AXTASK_DB_SIZE_BUDGET_BYTES
+        value: "10737418240"

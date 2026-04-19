@@ -4,6 +4,18 @@ This project is safe to **run and test live on your machine** (local dev server,
 
 Risk appears when you **push commits to the remote branch that your hosting or CI/CD treats as production** (or as the automatic deploy target). A push there can trigger builds, releases, or simply merge unfinished work into the line everyone else assumes is stable.
 
+> **AxTask / Render specifics.** `render.yaml` is configured with
+> `autoDeploy: true`, meaning every push (or merge) that lands on the
+> production-deploy branch triggers a build and deploy immediately. Safety
+> is delegated to the deploy-start chain in
+> [`scripts/production-start.mjs`](../scripts/production-start.mjs):
+> capacity gate → SQL migrations → drizzle-kit push → server. If the
+> capacity gate fails, the deploy aborts before migrations run and Render
+> rolls back to the previous image via `healthCheckPath: /ready`.
+> Because there is no human in the loop, the branching rules below are
+> the *only* protection against shipping unfinished work — take them
+> literally.
+
 ## Principles
 
 1. **Experiment freely locally** — use `npm run start:local`, Docker, or your preferred flow; break things in your workspace without guilt.

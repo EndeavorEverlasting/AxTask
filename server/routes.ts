@@ -35,6 +35,7 @@ import {
   getFeedbackSubmissionCount, getAvatarProfiles, engageAvatarMission, spendCoinsForAvatarBoost, seedAvatarSkillTree, getAvatarSkillTree, unlockAvatarSkill,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachments, linkAttachmentToTask,
   linkAttachmentsToOwner, getAttachmentsForOwner, getAttachmentsForOwnerPublic,
+  getAttachmentsForOwnersBatch, getAttachmentsForOwnersPublicBatch,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
   createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
   listBillingPaymentMethodsForUser, createBillingPaymentMethod,
@@ -158,6 +159,7 @@ import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
 import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./services/usage-service";
 import { getApiPerformanceHeuristics } from "./services/api-performance-service";
+import { getDbSizeCached } from "./services/db-size";
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, readAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
@@ -1652,19 +1654,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const result = await getCommunityPostWithReplies(req.params.id);
       if (!result) return res.status(404).json({ message: "Post not found" });
-      const postAssets = await getAttachmentsForOwnerPublic({
-        ownerType: "community_post",
-        ownerId: result.post.id,
-      });
-      const replies = await Promise.all(
-        (result.replies || []).map(async (reply: { id: string; [k: string]: unknown }) => {
-          const assets = await getAttachmentsForOwnerPublic({
-            ownerType: "community_reply",
-            ownerId: reply.id,
-          });
-          return { ...reply, attachments: toPublicAttachmentRefs(assets) };
+      // Single batched fetch for post + every reply's attachments. Previously
+      // each reply triggered its own query (N+1). See Phase E of the
+      // perf/refactor sweep.
+      const replyList = (result.replies || []) as Array<{ id: string; [k: string]: unknown }>;
+      const [postAssets, replyAssetsMap] = await Promise.all([
+        getAttachmentsForOwnerPublic({
+          ownerType: "community_post",
+          ownerId: result.post.id,
         }),
-      );
+        getAttachmentsForOwnersPublicBatch({
+          ownerType: "community_reply",
+          ownerIds: replyList.map((r) => r.id),
+        }),
+      ]);
+      const replies = replyList.map((reply) => ({
+        ...reply,
+        attachments: toPublicAttachmentRefs(replyAssetsMap.get(reply.id) ?? []),
+      }));
       res.json({
         post: { ...result.post, attachments: toPublicAttachmentRefs(postAssets) },
         replies,
@@ -3788,16 +3795,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/collaboration/inbox", requireAuth, async (req, res) => {
     try {
       const rows = await listCollaborationInbox(req.user!.id);
-      const decorated = await Promise.all(
-        rows.map(async (row) => {
-          const assets = await getAttachmentsForOwner({
-            userId: req.user!.id,
-            ownerType: "collab_message",
-            ownerId: row.id,
-          });
-          return { ...row, attachments: toPublicAttachmentRefs(assets) };
-        }),
-      );
+      // Single batched query instead of one per row (N+1 fix, Phase E).
+      const assetsByOwner = await getAttachmentsForOwnersBatch({
+        userId: req.user!.id,
+        ownerType: "collab_message",
+        ownerIds: rows.map((r) => r.id),
+      });
+      const decorated = rows.map((row) => ({
+        ...row,
+        attachments: toPublicAttachmentRefs(assetsByOwner.get(row.id) ?? []),
+      }));
       res.json({ messages: decorated });
     } catch (error) {
       res.status(500).json({ message: "Failed to load collaboration inbox" });
@@ -5828,6 +5835,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(data);
     } catch (error) {
       res.status(500).json({ message: "Failed to load API performance heuristics" });
+    }
+  });
+
+  // Neon / Postgres size gauge for the Admin > Performance tab. Mirrors
+  // the same number the deploy-time capacity gate checks
+  // (scripts/deploy/check-db-capacity.mjs), so operators see headroom
+  // trending toward the ceiling long before a migration trips 53100.
+  app.get("/api/admin/db-size", requireAdmin, requireAdminStepUp, async (_req, res) => {
+    try {
+      const report = await getDbSizeCached();
+      res.json(report);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to read database size" });
     }
   });
 
