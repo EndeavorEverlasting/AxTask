@@ -89,6 +89,30 @@ describe("PriorityEngine", () => {
       expect(result.score).toBeGreaterThanOrEqual(12);
     });
 
+    it("scores non-zero with urgency only (single-slider fix)", () => {
+      const result = PriorityEngine.calculatePreviewPriority("simple task", "", 5, null);
+      expect(result.score).toBe(4);
+      expect(result.priority).toBe("Medium-High");
+    });
+
+    it("scores non-zero with impact only (single-slider fix)", () => {
+      const result = PriorityEngine.calculatePreviewPriority("simple task", "", null, 5);
+      expect(result.score).toBe(4);
+      expect(result.priority).toBe("Medium-High");
+    });
+
+    it("scores everyday keywords: upgrade, order, schedule", () => {
+      expect(PriorityEngine.calculatePreviewPriority("upgrade SSD", "").score).toBeGreaterThanOrEqual(2);
+      expect(PriorityEngine.calculatePreviewPriority("order supplies", "").score).toBeGreaterThanOrEqual(2);
+      expect(PriorityEngine.calculatePreviewPriority("schedule dentist", "").score).toBeGreaterThanOrEqual(2);
+    });
+
+    it("scores everyday keywords: buy, pay, renew", () => {
+      expect(PriorityEngine.calculatePreviewPriority("buy groceries", "").score).toBeGreaterThanOrEqual(2);
+      expect(PriorityEngine.calculatePreviewPriority("pay bills", "").score).toBeGreaterThanOrEqual(3);
+      expect(PriorityEngine.calculatePreviewPriority("renew license", "").score).toBeGreaterThanOrEqual(3);
+    });
+
     it("applies effort penalty for effort > 3", () => {
       const withoutEffort = PriorityEngine.calculatePreviewPriority("urgent deadline", "", null, null, null);
       const withHighEffort = PriorityEngine.calculatePreviewPriority("urgent deadline", "", null, null, 4);
@@ -102,6 +126,23 @@ describe("PriorityEngine", () => {
       expect(result).toHaveProperty("score");
       expect(result).toHaveProperty("priority");
       expect(result).toHaveProperty("isRepeated");
+    });
+
+    it("scores non-zero with urgency only (single-slider fix)", async () => {
+      const result = await PriorityEngine.calculatePriority("", "", 5, null);
+      expect(result.score).toBe(4);
+      expect(result.priority).toBe("Medium-High");
+    });
+
+    it("scores non-zero with impact only (single-slider fix)", async () => {
+      const result = await PriorityEngine.calculatePriority("", "", null, 5);
+      expect(result.score).toBe(4);
+      expect(result.priority).toBe("Medium-High");
+    });
+
+    it("scores everyday keywords in async path", async () => {
+      const result = await PriorityEngine.calculatePriority("upgrade SSD", "");
+      expect(result.score).toBeGreaterThanOrEqual(2);
     });
 
     it("detects repetition with similar existing tasks", async () => {
