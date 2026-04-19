@@ -44,6 +44,12 @@ jobs:
       - name: Client bundle size budget
         run: npm run perf:bundle
 
+      - name: API latency heuristics replay
+        # Fails if the canned security_events fixture emits any critical
+        # signal. Safe to run on every PR because the fixture is
+        # deterministic. See docs/PERF_PERFORMANCE_BUDGETS.md.
+        run: npm run perf:api-replay
+
       - name: Update test attestation
         if: success() && github.event_name == 'push'
         env:
