@@ -115,14 +115,25 @@ export function aggregateApiRequestEvents(events: RawApiRequestEvent[]): ApiPerf
   return rows;
 }
 
+/**
+ * API performance thresholds, surfaced to the admin Performance tab and to
+ * the `perf:api-replay` CI gate. Tightened during the holistic perf pass so
+ * that newly-slow routes fail loudly instead of silently lingering. Tune
+ * these only after measuring on a representative production window — the
+ * accompanying unit + replay tests pin the exact thresholds.
+ */
 const THRESH = {
-  getTasksP95Ms: 800,
-  anyP95Ms: 3000,
+  getTasksP95Ms: 600,
+  anyP95Ms: 2500,
+  mutationP95Ms: 1500,
   minSamplesLatency: 12,
   minSamplesSlow: 5,
+  minSamplesMutation: 8,
   errorRate: 0.04,
   minSamplesErrors: 25,
 };
+
+const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export function buildPerformanceSignals(rows: ApiPerfRouteRow[]): ApiPerfSignal[] {
   const signals: ApiPerfSignal[] = [];
@@ -147,6 +158,20 @@ export function buildPerformanceSignals(rows: ApiPerfRouteRow[]): ApiPerfSignal[
         code: "slow_route",
         title: `Slow route: ${r.method} ${r.normalizedRoute}`,
         detail: `p95 ≈ ${r.p95Ms}ms, n=${r.count}, module ${r.module}.`,
+      });
+    }
+    if (
+      MUTATION_METHODS.has(r.method) &&
+      r.p95Ms >= THRESH.mutationP95Ms &&
+      r.count >= THRESH.minSamplesMutation
+    ) {
+      // Slow mutations are worse than slow reads — they hold the user's
+      // optimistic UI in a pending state and tend to cascade into retries.
+      signals.push({
+        severity: "warning",
+        code: "mutation_latency",
+        title: `Slow mutation: ${r.method} ${r.normalizedRoute}`,
+        detail: `${r.method} ${r.normalizedRoute} p95 ≈ ${r.p95Ms}ms over ${r.count} samples — investigate DB writes, fan-out, or serializer cost.`,
       });
     }
     if (r.errorRate >= THRESH.errorRate && r.count >= THRESH.minSamplesErrors) {

@@ -22,6 +22,7 @@ const REQUIRED_SCRIPTS = [
   "test",
   "db:push",
   "perf:bundle",
+  "perf:api-replay",
   "perf:ci",
 ];
 

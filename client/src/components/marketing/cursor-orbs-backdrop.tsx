@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { isAnimationAllowed, startSharedAnimationBudget } from "@/lib/animation-budget";
 
 const ORB_DEFS = [
   { size: 380, baseX: 10, baseY: 8, color: "from-sky-500/30 to-indigo-500/18", drift: 44, speed: 7 },
@@ -38,7 +39,14 @@ export function CursorOrbsBackdrop() {
     window.addEventListener("mousemove", onMove, { passive: true });
     window.addEventListener("mouseleave", onLeave, { passive: true });
 
+    startSharedAnimationBudget();
+
     const tick = (now: number) => {
+      if (!isAnimationAllowed()) {
+        last = now;
+        raf = requestAnimationFrame(tick);
+        return;
+      }
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       t += dt;

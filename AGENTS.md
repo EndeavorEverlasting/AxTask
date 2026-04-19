@@ -4,6 +4,10 @@
 
 Before pushing release branches that touch rewards, classification, feedback, coins, or p-score UX, run the objective-to-code checklist: [docs/OBJECTIVE_CODE_PUSH_CHECKLIST.md](docs/OBJECTIVE_CODE_PUSH_CHECKLIST.md).
 
+## Performance budgets
+
+CI enforces client bundle size (`npm run perf:bundle`) and API latency heuristics (`npm run perf:api-replay`) on every PR. Tightening a budget requires bumping the paired fixture/test; loosening requires an operator-visible note in the PR. Full map of budgets, signals, fixtures, and runtime knobs: [docs/PERF_PERFORMANCE_BUDGETS.md](docs/PERF_PERFORMANCE_BUDGETS.md).
+
 ## Client-visible privacy
 
 - Anything returned to the SPA can be read in DevTools; use serializers such as `toPublicSessionUser` / `toPublicWallet` / `toPublicCoinTransactions` from [`shared/public-client-dtos.ts`](shared/public-client-dtos.ts), avoid `console.log` of API payloads in production client code, and never attach full `res.json` bodies to HTTP access logs. See [docs/CLIENT_VISIBLE_PRIVACY.md](docs/CLIENT_VISIBLE_PRIVACY.md).

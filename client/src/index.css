@@ -476,6 +476,31 @@
 }
 
 @layer components {
+  /* ---- Calm mode ----------------------------------------------------------
+   * `animation-budget.ts` sets `data-axtask-calm` on <body> whenever the user
+   * is scrolling, a longtask just fired, or the tab is hidden. While that
+   * attribute is present we drop the two heaviest compositor inputs —
+   * backdrop-filter (per-frame re-sample of everything behind an element)
+   * and `transition-all` (re-composites the entire transitioning subtree) —
+   * so the main thread can spend its budget on user scroll instead of
+   * background glass. Surfaces that need animation for interactivity should
+   * use `transition-transform` / `transition-opacity` / `motion-safe:` and
+   * are not affected by this rule. */
+  body[data-axtask-calm] .backdrop-blur-xl,
+  body[data-axtask-calm] .backdrop-blur-lg,
+  body[data-axtask-calm] .backdrop-blur-md,
+  body[data-axtask-calm] .backdrop-blur-sm,
+  body[data-axtask-calm] .backdrop-blur,
+  body[data-axtask-calm] .glass-panel,
+  body[data-axtask-calm] .glass-panel-elevated,
+  body[data-axtask-calm] .glass-panel-glossy {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  body[data-axtask-calm] .transition-all {
+    transition-property: none !important;
+  }
+
   /* Split light/dark: @apply with stacked dark:.../opacity utilities fails Tailwind expandApply in prod (Docker). */
   .glass-panel {
     @apply rounded-2xl border border-white/60 bg-white/70 backdrop-blur-xl shadow-sm ring-1 ring-black/[0.04];
