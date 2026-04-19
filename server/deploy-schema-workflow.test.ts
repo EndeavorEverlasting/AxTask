@@ -54,19 +54,89 @@ describe("deploy / schema workflow guards", () => {
     expect(src.slice(secondPush, secondPush + 200)).toContain("closeStdin: true");
   });
 
-  it("CI workflow applies SQL migrations and runs db:push:ci twice with stdin closed", () => {
+  it("CI postgres-schema-check bootstraps Drizzle before SQL migrations, with stdin closed twice", () => {
+    // Greenfield CI service containers need drizzle-kit push to run BEFORE
+    // scripts/apply-migrations.mjs, because migrations/0001_youtube_probe_tables.sql
+    // FK-references users(id) which only exists after Drizzle pushes. The trailing
+    // db:push:ci re-run proves schema convergence (idempotency). Narrower assertions
+    // on naming / denylisting the legacy one-liner live in
+    // server/ci-migration-order.contract.test.ts.
+    //
+    // This guard scopes all ordering / count assertions to the bootstrap step's
+    // `run:` block (comments stripped), so a YAML comment or some other step
+    // that happens to mention db:push:ci can NEVER satisfy the ordering.
     const wf = fs.readFileSync(
       path.join(projectRoot, ".github", "workflows", "test-and-attest.yml"),
       "utf8",
     );
-    const line = wf
-      .split("\n")
-      .find((l) => l.includes("apply-migrations.mjs") && l.includes("db:push:ci"));
-    expect(line, "CI push step").toBeTruthy();
-    const pushCount = (line!.match(/db:push:ci/g) || []).length;
-    expect(pushCount).toBe(2);
-    const stdinCount = (line!.match(/<\s*\/dev\/null/g) || []).length;
-    expect(stdinCount).toBeGreaterThanOrEqual(2);
+    const lines = wf.split(/\r?\n/);
+    const jobStart = lines.findIndex((l) => l.trim() === "postgres-schema-check:");
+    expect(jobStart, "postgres-schema-check job header").toBeGreaterThan(-1);
+    let jobEnd = lines.length;
+    for (let i = jobStart + 1; i < lines.length; i++) {
+      if (/^ {2}[\w-]+:\s*$/.test(lines[i])) {
+        jobEnd = i;
+        break;
+      }
+    }
+    const jobLines = lines.slice(jobStart, jobEnd);
+    const jobBlock = jobLines.join("\n");
+
+    const stepHeaderIdx = jobLines.findIndex(
+      (l) => /^ {6}- name:\s+/.test(l) && /Bootstrap Drizzle schema/i.test(l),
+    );
+    expect(stepHeaderIdx, "Bootstrap Drizzle schema step header").toBeGreaterThan(-1);
+    let runIdx = -1;
+    for (let i = stepHeaderIdx + 1; i < jobLines.length; i++) {
+      if (/^ {6}- name:\s+/.test(jobLines[i])) break;
+      if (/^ {8}run:\s*\|?\s*$/.test(jobLines[i])) {
+        runIdx = i;
+        break;
+      }
+    }
+    expect(runIdx, "bootstrap step must have a run: | block").toBeGreaterThan(-1);
+    const runCmds: string[] = [];
+    for (let i = runIdx + 1; i < jobLines.length; i++) {
+      if (/^ {6}- name:\s+/.test(jobLines[i])) break;
+      if (/^ {8}[\w-]+:/.test(jobLines[i])) break;
+      if (!/^ {10}/.test(jobLines[i]) && jobLines[i].trim() !== "") break;
+      const content = jobLines[i].replace(/^ {10}/, "");
+      if (content.trim().startsWith("#")) continue;
+      runCmds.push(content);
+    }
+    const runBlock = runCmds.join("\n");
+
+    const pushPositions: number[] = [];
+    const pushRe = /\bdb:push:ci\b/g;
+    let m: RegExpExecArray | null;
+    while ((m = pushRe.exec(runBlock)) !== null) pushPositions.push(m.index);
+    const applyIdx = runBlock.search(/\bscripts\/apply-migrations\.mjs\b/);
+
+    expect(pushPositions.length, "bootstrap step must run db:push:ci exactly twice").toBe(2);
+    expect(applyIdx, "apply-migrations.mjs must appear in the bootstrap step").toBeGreaterThan(-1);
+    expect(
+      pushPositions[0],
+      "drizzle-kit push (db:push:ci) must run BEFORE scripts/apply-migrations.mjs on greenfield CI",
+    ).toBeLessThan(applyIdx);
+    expect(
+      pushPositions[1],
+      "Second db:push:ci must run AFTER apply-migrations.mjs to prove schema convergence",
+    ).toBeGreaterThan(applyIdx);
+
+    const stdinCount = (runBlock.match(/<\s*\/dev\/null/g) || []).length;
+    expect(
+      stdinCount,
+      "both db:push:ci invocations must close stdin (</dev/null)",
+    ).toBeGreaterThanOrEqual(2);
+
+    expect(
+      runBlock,
+      "legacy one-liner with apply-migrations before db:push:ci must not return",
+    ).not.toMatch(/node\s+scripts\/apply-migrations\.mjs\s*&&\s*npm\s+run\s+db:push:ci/);
+
+    // Sanity: the enclosing job block must still name the hardened step, so
+    // renaming the step silently cannot disable this guard.
+    expect(jobBlock).toMatch(/name:\s+Bootstrap Drizzle schema/);
   });
 
   it("offline-start applies SQL migrations and fingerprints migrations/*.sql", () => {

@@ -103,8 +103,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply SQL migrations and verify idempotent drizzle push
-        run: node scripts/apply-migrations.mjs && npm run db:push:ci </dev/null && npm run db:push:ci </dev/null
+      - name: Bootstrap Drizzle schema, apply SQL migrations, verify idempotent push
+        # Greenfield CI DBs have no tables yet, so migrations/0001_youtube_probe_tables.sql
+        # (which FK-references users) cannot run until drizzle-kit push has materialized
+        # the baseline. Production DBs have had `users` since long before 0001 was
+        # authored, so their start scripts legitimately run apply-migrations.mjs first.
+        # Ordering invariant is guarded by server/ci-migration-order.contract.test.ts.
+        run: |
+          npm run db:push:ci </dev/null
+          node scripts/apply-migrations.mjs
+          npm run db:push:ci </dev/null
 
       - name: Verify users TOTP columns exist in DB
         run: npm run test:pg-schema
