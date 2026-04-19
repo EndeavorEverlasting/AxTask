@@ -47,7 +47,17 @@ describe("notification preferences route contracts", () => {
 
   it("accepts and round-trips feedbackNudgePrefs on notification preferences", () => {
     const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
-    const schema = fs.readFileSync(path.join(root, "shared", "schema.ts"), "utf8");
+    // Phase F-1: concatenate every per-domain schema file so the static match
+    // still finds declarations that moved out of the monolith barrel.
+    const schema = [
+      "shared/schema.ts",
+      "shared/schema/core.ts",
+      "shared/schema/tasks.ts",
+      "shared/schema/gamification.ts",
+      "shared/schema/ops.ts",
+    ]
+      .map((rel) => fs.readFileSync(path.join(root, rel), "utf8"))
+      .join("\n\n");
     const storage = fs.readFileSync(path.join(root, "server", "storage.ts"), "utf8");
 
     /* Schema has the new jsonb column and Zod validator. */

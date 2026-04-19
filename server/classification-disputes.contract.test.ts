@@ -27,7 +27,18 @@ function read(rel: string): string {
  *   6. Idempotent migration: CREATE TABLE IF NOT EXISTS / CREATE UNIQUE INDEX IF NOT EXISTS.
  */
 describe("classification disputes — contract", () => {
-  const schemaSrc = read("shared/schema.ts");
+  // After the Phase F-1 split (docs/MODULE_LAYOUT.md), table declarations live
+  // under shared/schema/*.ts. Concatenate all per-domain files so textual
+  // assertions below don't break when declarations migrate between files.
+  const schemaSrc = [
+    "shared/schema.ts",
+    "shared/schema/core.ts",
+    "shared/schema/tasks.ts",
+    "shared/schema/gamification.ts",
+    "shared/schema/ops.ts",
+  ]
+    .map((rel) => read(rel))
+    .join("\n\n");
   const storageSrc = read("server/storage.ts");
   const routesSrc = read("server/routes.ts");
   const migrationSrc = read("migrations/0022_classification_disputes.sql");
