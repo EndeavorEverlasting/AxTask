@@ -1,4 +1,4 @@
-import { TaskList } from "@/components/task-list";
+import { TaskListHost } from "@/components/task-list-host";
 import { TaskForm } from "@/components/task-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
@@ -87,7 +87,7 @@ export default function Tasks() {
       </Card>
 
       {showForm && <TaskForm />}
-      <TaskList />
+      <TaskListHost />
     </div>
   );
 }
