@@ -265,10 +265,62 @@ potential follow-up PR; numbers in brackets are the sections above.
 - [ ] `port/baseline-backup-dedup` -- Full Account Backup dedup (UI + server + fingerprint). **Medium risk** (must not regress coin-gated exports). [4b #3]
 - [ ] `port/baseline-coin-collab-earn` -- collaboration coin-earn mechanic, only if gap confirmed against main's coin-engine. **Medium risk** ([docs/OPERATOR_COIN_GRANTS.md](./OPERATOR_COIN_GRANTS.md) must be respected). [4b #6]
 - [ ] `project/nodeweaver-ts-engine` -- NodeWeaver TS engine + dispute/consensus system. **High risk / large scope** (schema migrations, dispatcher wiring, archetype-analytics compatibility). Treat as a project, not a backport. [4b #7]
-- [ ] `audit/mfa-gap-check` -- read-only confirmation that main's MFA/OTP/step-up work covers Task #23. No code port expected. [4b #8]
+- [x] `audit/mfa-gap-check` -- DONE; see Section 7. Outcome: main supersedes baseline MFA/OTP/step-up. Optional follow-up added: `port/baseline-danger-zone-clear-all`.
+- [ ] `port/baseline-danger-zone-clear-all` -- NEW (from Section 7): "Clear All Tasks" bulk action gated by main's step-up pattern. **Low-medium risk.**
 
 ## 6. Out of scope (explicitly)
 
 - No merges, cherry-picks, or non-markdown edits performed.
 - Working tree: uncommitted task-gantt timeline work was already committed to local branch `feat/gantt-timeline-freemium` (commit `f9e547e`) before this audit; local `main` was fast-forwarded to `origin/main` (`803a3769`).
 - No pushes; this document lives on branch `docs/baseline-published-audit` off `origin/main`.
+
+## 7. MFA and Danger Zone gap check
+
+Read-only comparison of baseline `Task #23` MFA / Danger Zone surface vs `origin/main`'s auth stack. **Main significantly exceeds baseline** in MFA coverage; the only meaningful gap is a small Danger-Zone bulk-delete action.
+
+### 7a. Surface inventory
+
+**Baseline (`origin/baseline/published`) MFA surface:**
+- Routes (plaintext secret in DB): `POST /api/mfa/setup`, `POST /api/mfa/verify`, `POST /api/mfa/disable`, `GET /api/mfa/status` (see `server/routes.ts` on baseline).
+- Danger Zone: `POST /api/tasks/clear-all` requires `mfaCode` in body and calls `logSecurityEvent("danger_zone_mfa_failed", ...)` / `all_tasks_cleared`.
+- Schema: `users.mfaSecret text`, `users.mfaEnabled boolean` (plaintext secret storage).
+- Library: `OTPAuth`.
+- UI: MFA setup/verify dialogs inside `client/src/pages/import-export.tsx`; "Clear All Tasks" button in the same page gated by MFA code entry.
+- No step-up sessions, no SMS/email OTP, no phone verification, no encrypted secret storage.
+
+**Main (`origin/main`) MFA/auth surface:**
+- Routes (AES-GCM encrypted secret):
+  - `GET /api/auth/totp/pending`, `POST /api/auth/totp/verify` ([server/routes.ts](../server/routes.ts) lines 767, 781) -- login-time TOTP challenge
+  - `GET /api/account/totp/status`, `POST /api/account/totp/enrollment/start`, `POST /api/account/totp/enrollment/confirm`, `POST /api/account/totp/disable` (lines 4971, 4987, 5011, 5050) -- account-settings enrolment/disable with a confirm-code-before-persist pattern
+  - `POST /api/mfa/challenge`, `POST /api/invoices/mfa/challenge` (line 4600) -- generic step-up challenge
+  - `POST /api/account/data-export-step-up` (line 4832) -- data-export-specific step-up
+  - `POST /api/auth/verify-security-answer` (line 892) -- security-question fallback
+- Step-up session state ([server/types/session.d.ts](../server/types/session.d.ts)): `pendingTotpLogin`, `totpEnrollment`, `adminStepUp`, `dataExportStepUp`.
+- Schema: `users.totp_secret_ciphertext`, `users.totp_enabled_at` (see [migrations/0006_user_totp.sql](../migrations/0006_user_totp.sql) and `server/users-schema-pg.integration.test.ts`).
+- Library: `otplib` + custom AES-256-GCM encryption with `TOTP_ENCRYPTION_KEY` env var ([server/services/totp.ts](../server/services/totp.ts)).
+- SMS/email OTP + phone verification: `phoneVerifiedAt`, `phoneE164` fields, `postMfaChallenge` dispatches based on verified contact (main commit `5b4ea92`).
+- Ownership quiz: `POST /api/account/import/challenge` returns `ownershipQuizRequired` with a fingerprint seed derived from tasks (see [server/account-backup.ts](../server/account-backup.ts) line 145 onward). Full-user-bundle imports bypass the quiz.
+- UI: [client/src/components/mfa/mfa-verification-panel.tsx](../client/src/components/mfa/mfa-verification-panel.tsx), `input-otp.tsx`, MFA-gated flows in `login.tsx`, `account.tsx`, `billing.tsx`.
+
+### 7b. Feature-by-feature gap
+
+- **TOTP enrolment**: on main (encrypted, confirm-before-persist). On baseline (plaintext). **Gap? No -- main supersedes.** Do not port baseline.
+- **TOTP login challenge**: on main (`/api/auth/totp/verify` + `pendingTotpLogin` session state). On baseline (verify endpoint only). **Gap? No -- main supersedes.**
+- **TOTP disable**: on main (`/api/account/totp/disable`). On baseline (`/api/mfa/disable`). **Gap? No.**
+- **SMS / email OTP delivery**: on main (main commit `5b4ea92`). Not on baseline. **Gap? No (main > baseline).**
+- **Step-up sessions (admin, data-export)**: on main (`adminStepUp`, `dataExportStepUp`, probe logging via `5feaf19`). Not on baseline. **Gap? No (main > baseline).**
+- **JSON-import ownership quiz**: on main ([server/account-backup.ts](../server/account-backup.ts)). Baseline has JSON import (commit `2561124`) but no quiz (quiz landed on `coin-gated` branch as `9544707`, later merged to main). **Gap? No.**
+- **Phone verification**: on main (`phoneVerifiedAt`, `phoneE164`). Not on baseline. **Gap? No (main > baseline).**
+- **Encrypted TOTP secret at rest**: on main (AES-256-GCM, `TOTP_ENCRYPTION_KEY`). Baseline stores plaintext `mfaSecret`. **Gap? No (main > baseline -- porting baseline would be a regression).**
+- **Danger Zone: "Clear All Tasks" bulk action gated by MFA**: on baseline only (`POST /api/tasks/clear-all` + UI button in import-export.tsx). **No equivalent bulk-delete endpoint or UI on main** (grep for `clear.?all|bulk.?delete|/api/tasks/.*delete` returns zero matches on main). **Gap? Yes -- minor.**
+- **Danger Zone: account deletion**: not on baseline, not on main. **Gap? No (neither side has it).**
+
+### 7c. Recommendation
+
+Drop the `audit/mfa-gap-check` task from Section 5; main's MFA/step-up/OTP/backup-quiz stack is strictly more complete than baseline's. The only live gap is a small Danger-Zone bulk-delete ("Clear All Tasks") UX.
+
+Add a new, optional, Wave 2 candidate:
+
+- [ ] `port/baseline-danger-zone-clear-all` -- port the "Clear All Tasks" endpoint and UI behind main's `requireMfaStepUp` pattern (not baseline's plaintext `mfaCode` body check). Low-medium risk; net-new feature.
+
+Baseline's plaintext `mfaSecret` schema and `/api/mfa/{setup,verify,disable}` routes are **do-not-port** -- porting would regress main's encrypted TOTP storage.
