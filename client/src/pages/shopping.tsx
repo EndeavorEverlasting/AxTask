@@ -1,7 +1,18 @@
-import { TaskList } from "@/components/task-list";
+import { TaskListHost } from "@/components/task-list-host";
 import { ShoppingCart } from "lucide-react";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 
+/**
+ * Shopping list surface — now powered by the pretext-centric
+ * `TaskListHost` via its `variant="shopping"` switch. That drops the
+ * ~1,700-line legacy framer-motion + dnd-kit `<TaskList />` from the
+ * initial bundle for every user who never visits /shopping, and ties
+ * the view to the same imperative row controller used by /tasks.
+ *
+ * Voice add / bulk import for shopping items still flows through the
+ * standard POST /api/tasks path (invoked from the top-nav voice bar);
+ * this page is read-focused.
+ */
 export default function ShoppingPage() {
   return (
     <div className="p-4 md:p-6 space-y-6 md:space-y-8">
@@ -15,7 +26,7 @@ export default function ShoppingPage() {
         }
         subtitle="Check items off as you buy them. Voice can add line items as tasks; marking an item purchased completes that task."
       />
-      <TaskList variant="shopping" />
+      <TaskListHost variant="shopping" />
     </div>
   );
 }

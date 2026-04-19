@@ -520,6 +520,27 @@
     will-change: auto !important;
   }
 
+  /* CSS-only fade-in-up used by planner tiles (replaces framer-motion).
+   * This runs once per mount and doesn't register any JS observers, so
+   * the per-tile cost is a single compositor-driven keyframe rather
+   * than a MotionValue subscription. Reduced-motion users get the
+   * no-op variant below. */
+  @keyframes axtask-fade-in-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .axtask-fade-in-up {
+    animation: axtask-fade-in-up 260ms ease-out both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .axtask-fade-in-up {
+      animation: none;
+    }
+  }
+  body[data-axtask-calm] .axtask-fade-in-up {
+    animation: none !important;
+  }
+
   /* Split light/dark: @apply with stacked dark:.../opacity utilities fails Tailwind expandApply in prod (Docker). */
   .glass-panel {
     @apply rounded-2xl border border-white/60 bg-white/70 backdrop-blur-xl shadow-sm ring-1 ring-black/[0.04];

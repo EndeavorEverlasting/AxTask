@@ -42,6 +42,13 @@ jobs:
         run: npm run build
 
       - name: Client bundle size budget
+        # AXTASK_STRICT_CHUNKS promotes the per-vendor-chunk soft ceilings
+        # from warnings to CI failures. We ratcheted the ceilings in
+        # perf/pass-3-sprint to ~20% over measured sizes, so an accidental
+        # static import of a heavy vendor into the main chunk will fail
+        # fast here instead of silently inflating the user's first paint.
+        env:
+          AXTASK_STRICT_CHUNKS: "1"
         run: npm run perf:bundle
 
       - name: API latency heuristics replay

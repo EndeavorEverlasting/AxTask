@@ -133,6 +133,8 @@ import {
   toPublicBadges,
   toPublicBadgeDefinitions,
   toPublicAttachmentRefs,
+  toPublicTaskListItems,
+  toPublicTaskDetail,
 } from "@shared/public-client-dtos";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
 import { verifyMfaChallengeOrTotp } from "./services/mfa-totp";
@@ -1778,8 +1780,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/tasks", requireAuth, async (req, res) => {
     try {
-      const tasks = await storage.getTasks(req.user!.id);
-      res.json(tasks);
+      /* Slim DTO: drops `userId` (privacy, per CLIENT_VISIBLE_PRIVACY.md)
+       * and replaces the `classificationAssociations` jsonb array with a
+       * single `classificationExtraCount` integer (bandwidth — the list
+       * view only renders a "+N" pill, the classify dialog lazy-fetches
+       * the full associations via GET /api/tasks/:id). */
+      const rows = await storage.getTasks(req.user!.id);
+      res.json(toPublicTaskListItems(rows));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks" });
     }
@@ -1985,7 +1992,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           details: `Search: ${q.slice(0, 80)}`,
         });
       }
-      res.json(tasks);
+      res.json(toPublicTaskListItems(tasks));
     } catch (error) {
       res.status(500).json({ message: "Failed to search tasks" });
     }
@@ -1995,7 +2002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/tasks/status/:status", requireAuth, async (req, res) => {
     try {
       const tasks = await storage.getTasksByStatus(req.user!.id, req.params.status);
-      res.json(tasks);
+      res.json(toPublicTaskListItems(tasks));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks by status" });
     }
@@ -2005,7 +2012,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/tasks/priority/:priority", requireAuth, async (req, res) => {
     try {
       const tasks = await storage.getTasksByPriority(req.user!.id, req.params.priority);
-      res.json(tasks);
+      res.json(toPublicTaskListItems(tasks));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks by priority" });
     }
@@ -2230,7 +2237,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!task) {
         return res.status(404).json({ message: "Task not found" });
       }
-      res.json(task);
+      /* Detail DTO: keeps classificationAssociations for the classify
+       * dialog but still strips `userId`. */
+      res.json(toPublicTaskDetail(task));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch task" });
     }

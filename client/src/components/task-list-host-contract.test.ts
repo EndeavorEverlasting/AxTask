@@ -30,8 +30,13 @@ describe("TaskListHost :: source contract", () => {
     expect(HOST_SRC).toContain('"@/lib/pretext-imperative-list"');
   });
 
-  it("tags itself as the task-list surface for perf accounting", () => {
-    expect(HOST_SRC).toContain('usePerfSurface<HTMLDivElement>("task-list")');
+  it("tags itself as the correct perf surface per variant", () => {
+    /* Post pass-3 the host is variant-aware (default → "task-list",
+     * shopping → "shopping-list") so the perf surface id tracks the
+     * page, not the component. Both literals must be present. */
+    expect(HOST_SRC).toContain('"task-list"');
+    expect(HOST_SRC).toContain('"shopping-list"');
+    expect(HOST_SRC).toMatch(/usePerfSurface<HTMLDivElement>\(/);
   });
 
   it("lazy-loads write-path components (TaskForm, ClassificationBadge)", () => {

@@ -29,6 +29,7 @@ import {
 import { Search, ClipboardList, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Task } from "@shared/schema";
+import type { PublicTaskListItem } from "@shared/public-client-dtos";
 import {
   PretextImperativeList,
   type ImperativeRowTask,
@@ -41,6 +42,7 @@ import {
   describeRouteFilter,
   type TaskListRouteFilter,
 } from "@/lib/task-list-route-filters";
+import { isShoppingTask } from "@shared/shopping-tasks";
 
 /**
  * Lazy React components for the write-path. These are only resolved when the
@@ -58,6 +60,68 @@ const ClassificationBadge = lazy(() =>
 
 type StatusFilter = "all" | "pending" | "in-progress" | "completed";
 
+/**
+ * Variant switch for this shared host.
+ *
+ *   - `default` — All Tasks page (/tasks).
+ *   - `shopping` — Shopping list page (/shopping). Narrows the cache
+ *     to tasks classified as Shopping (or whose activity/notes look
+ *     shoppy per `isShoppingTask`), defaults the status filter to
+ *     `pending` (unpurchased items), and relabels surface copy so
+ *     "Completed" reads as "Purchased" end-to-end.
+ *
+ * Adding a new variant is a matter of extending `TaskListHostVariant`,
+ * plumbing a `prefilter` + `copy` function through, and writing a
+ * contract test that pins the filter predicate.
+ */
+export type TaskListHostVariant = "default" | "shopping";
+
+interface VariantCopy {
+  title: string;
+  emptyNoResults: string;
+  emptyZero: string;
+  searchPlaceholder: string;
+  completedLabel: string;
+  statusColumnLabel: string;
+}
+
+const DEFAULT_COPY: VariantCopy = {
+  title: "All Tasks",
+  emptyNoResults: "No tasks match the current filters.",
+  emptyZero: "No tasks yet. Create one to get started.",
+  searchPlaceholder: "Search tasks…",
+  completedLabel: "Completed",
+  statusColumnLabel: "Status",
+};
+
+const SHOPPING_COPY: VariantCopy = {
+  title: "Shopping list",
+  emptyNoResults: "No shopping items match the current filters.",
+  emptyZero: "No shopping items yet. Add one with voice or by creating a Shopping task.",
+  searchPlaceholder: "Search shopping items…",
+  completedLabel: "Purchased",
+  statusColumnLabel: "Purchased",
+};
+
+function copyFor(variant: TaskListHostVariant): VariantCopy {
+  return variant === "shopping" ? SHOPPING_COPY : DEFAULT_COPY;
+}
+
+/**
+ * Variant-level cache pre-filter. Runs before the user-visible search /
+ * priority / status filters so the `visibleTasks` memo already shows
+ * the correct "universe" for the page. Kept as a pure function so the
+ * shopping contract test can assert it against fixture tasks without
+ * mounting the component.
+ */
+export function applyVariantPrefilter<T extends { classification: string; activity: string; notes?: string | null }>(
+  variant: TaskListHostVariant,
+  tasks: T[],
+): T[] {
+  if (variant === "shopping") return tasks.filter((t) => isShoppingTask(t));
+  return tasks;
+}
+
 function formatTimestamp(value: unknown): string {
   if (value == null) return "—";
   const d = value instanceof Date ? value : new Date(value as string);
@@ -65,10 +129,30 @@ function formatTimestamp(value: unknown): string {
   return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
 
-function toRowTask(task: Task): ImperativeRowTask {
-  const assoc = Array.isArray(task.classificationAssociations)
-    ? task.classificationAssociations
-    : [];
+/**
+ * Row type accepted by `toRowTask`. The GET /api/tasks endpoint now
+ * returns `PublicTaskListItem` — which drops `userId` and replaces
+ * `classificationAssociations` with a single `classificationExtraCount`
+ * integer — but the client cache also holds optimistic `Task` objects
+ * produced by `optimisticTaskFromInsert` during offline writes. So this
+ * helper tolerates either shape: pick up the integer when present,
+ * fall back to `associations.length - 1` otherwise.
+ */
+type TaskListRow = PublicTaskListItem | Task;
+
+function toRowTask(task: TaskListRow): ImperativeRowTask {
+  let extras: number;
+  if (
+    "classificationExtraCount" in task &&
+    typeof task.classificationExtraCount === "number"
+  ) {
+    extras = task.classificationExtraCount;
+  } else {
+    const assoc = Array.isArray((task as Task).classificationAssociations)
+      ? ((task as Task).classificationAssociations as unknown[])
+      : [];
+    extras = Math.max(0, assoc.length - 1);
+  }
   return {
     id: task.id,
     date: task.date,
@@ -78,7 +162,7 @@ function toRowTask(task: Task): ImperativeRowTask {
     activity: task.activity,
     notes: task.notes ?? "",
     classification: task.classification,
-    classificationExtraCount: Math.max(0, assoc.length - 1),
+    classificationExtraCount: extras,
     priorityScoreTenths: task.priorityScore,
     status: (task.status as ImperativeRowTask["status"]) ?? "pending",
     recurrence: task.recurrence ?? null,
@@ -106,10 +190,46 @@ function matchesFilters(
   return true;
 }
 
-export function TaskListHost() {
+/**
+ * Lazy detail hydration for the classify dialog.
+ *
+ * The /tasks list cache is now slim — no `classificationAssociations`.
+ * This dialog body fetches the full task on demand so the dialog body
+ * can render the per-label confidence pills. The extra network call is
+ * trivial (one row, sub-1KB) and only fires when the user intentionally
+ * clicks the classification chip.
+ */
+function ClassifyTaskDialogBody({ task }: { task: TaskListRow }) {
+  const { data: full } = useQuery<Task>({
+    queryKey: [`/api/tasks/${task.id}`],
+  });
+  const associations = full?.classificationAssociations
+    ?? (task as Partial<Task>).classificationAssociations
+    ?? null;
+  return (
+    <ClassificationBadge
+      classification={task.classification}
+      classificationAssociations={associations}
+      taskId={task.id}
+      activity={task.activity}
+      notes={task.notes ?? ""}
+      editable
+    />
+  );
+}
+
+export interface TaskListHostProps {
+  /** Page variant ("default" = /tasks, "shopping" = /shopping). */
+  variant?: TaskListHostVariant;
+}
+
+export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const surfaceRef = usePerfSurface<HTMLDivElement>("task-list");
+  const surfaceRef = usePerfSurface<HTMLDivElement>(
+    variant === "shopping" ? "shopping-list" : "task-list",
+  );
+  const copy = copyFor(variant);
 
   /* Hydrate initial search + saved filter from the URL so planner tile
    * deep-links like /tasks?filter=overdue&q=report land on a pre-filtered
@@ -119,7 +239,11 @@ export function TaskListHost() {
   const [searchQuery, setSearchQuery] = useState(initialRoute.q);
   const deferredSearch = useDeferredValue(searchQuery);
   const [priorityFilter, setPriorityFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  /* Shopping defaults to "pending" (unpurchased items) to match the
+   * legacy /shopping behavior. Task view defaults to "all". */
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
+    variant === "shopping" ? "pending" : "all",
+  );
   const [routeFilter, setRouteFilter] = useState<TaskListRouteFilter>(
     initialRoute.filter,
   );
@@ -150,13 +274,47 @@ export function TaskListHost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /*
+   * Server-side search beacon.
+   *
+   * The legacy `TaskList` called GET /api/tasks/search/:query on every
+   * query change — not for its results (we filter client-side for
+   * instant UX) but because that endpoint is the server-side trigger
+   * for the capped `task_search_reward` engagement coin. Users would
+   * silently stop earning that coin when we migrated /tasks to the
+   * pretext host in pass 2, which is a UX regression we hadn't meant
+   * to ship.
+   *
+   * This effect restores the trigger without re-introducing the render
+   * cost: fire-and-forget fetch, 800ms debounce, min 2-char query, no
+   * result handling. The server applies the daily cap server-side via
+   * `tryCappedCoinAward`, so spamming the search bar is a no-op.
+   */
+  useEffect(() => {
+    const q = deferredSearch.trim();
+    if (q.length < 2) return;
+    const handle = window.setTimeout(() => {
+      fetch(`/api/tasks/search/${encodeURIComponent(q)}`, {
+        credentials: "include",
+      }).catch(() => {
+        /* Engagement beacon — network errors are silent. */
+      });
+    }, 800);
+    return () => window.clearTimeout(handle);
+  }, [deferredSearch]);
+
   const visibleTasks = useMemo(() => {
-    return tasks.filter(
+    /* Variant prefilter first (cheap classification check), then the
+     * per-user search/priority/status/route filters. Kept in this
+     * order so the pure `applyVariantPrefilter` helper can be
+     * exercised by a contract test without doing any UI mounting. */
+    const prefiltered = applyVariantPrefilter(variant, tasks);
+    return prefiltered.filter(
       (t) =>
         matchesFilters(t, priorityFilter, statusFilter, deferredSearch) &&
         taskMatchesRouteFilter(t, routeFilter),
     );
-  }, [tasks, priorityFilter, statusFilter, deferredSearch, routeFilter]);
+  }, [tasks, priorityFilter, statusFilter, deferredSearch, routeFilter, variant]);
 
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
   const controllerRef = useRef<PretextImperativeList | null>(null);
@@ -338,7 +496,7 @@ export function TaskListHost() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ClipboardList className="h-5 w-5 text-primary" aria-hidden />
-          All Tasks
+          {copy.title}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -352,7 +510,7 @@ export function TaskListHost() {
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search tasks…"
+              placeholder={copy.searchPlaceholder}
               className="pl-9"
               data-testid="task-search"
             />
@@ -382,7 +540,7 @@ export function TaskListHost() {
               <SelectItem value="all">All statuses</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="in-progress">In progress</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="completed">{copy.completedLabel}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -423,7 +581,7 @@ export function TaskListHost() {
                 <th className="py-2 pr-4 font-medium">Activity</th>
                 <th className="py-2 pr-4 font-medium">Classification</th>
                 <th className="py-2 pr-4 font-medium">Priority (0–10)</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
+                <th className="py-2 pr-4 font-medium">{copy.statusColumnLabel}</th>
                 <th className="py-2 pr-4 font-medium">Actions</th>
               </tr>
             </thead>
@@ -468,9 +626,7 @@ export function TaskListHost() {
               className="py-10 text-center text-muted-foreground text-sm"
               data-testid="task-list-empty"
             >
-              {tasks.length === 0
-                ? "No tasks yet. Create one to get started."
-                : "No tasks match the current filters."}
+              {tasks.length === 0 ? copy.emptyZero : copy.emptyNoResults}
             </div>
           ) : null}
         </div>
@@ -508,14 +664,11 @@ export function TaskListHost() {
           </DialogHeader>
           {classifyTask && (
             <Suspense fallback={<div className="p-4">Loading…</div>}>
-              <ClassificationBadge
-                classification={classifyTask.classification}
-                classificationAssociations={classifyTask.classificationAssociations}
-                taskId={classifyTask.id}
-                activity={classifyTask.activity}
-                notes={classifyTask.notes ?? ""}
-                editable
-              />
+              {/* List reads no longer carry `classificationAssociations`
+               * (slim DTO). Delegate to a lazy detail fetcher that hits
+               * GET /api/tasks/:id (still returns the full associations
+               * array) so the dialog renders per-label confidence pills. */}
+              <ClassifyTaskDialogBody task={classifyTask} />
             </Suspense>
           )}
         </DialogContent>

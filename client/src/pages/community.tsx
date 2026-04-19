@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/auth-context";
@@ -14,8 +14,25 @@ import { Badge } from "@/components/ui/badge";
 import { FloatingChip } from "@/components/ui/floating-chip";
 import { AvatarGlowChip } from "@/components/ui/avatar-glow-chip";
 import { AvatarOrb as PretextAvatarOrb } from "@/components/ui/avatar-orb";
-import { PasteComposer, type PasteComposerValue } from "@/components/composer/paste-composer";
-import { SafeMarkdown } from "@/lib/safe-markdown";
+import type { PasteComposerValue } from "@/components/composer/paste-composer";
+/**
+ * PasteComposer + SafeMarkdown both pull meaningful code:
+ *   - PasteComposer owns the image/GIF/paste upload pipeline and is only
+ *     ever rendered when a forum post is expanded to reveal its reply
+ *     composer. Lazy-loading keeps its attachment + GIF-search modules
+ *     out of the initial /community bundle for users who don't reply.
+ *   - SafeMarkdown bundles DOMPurify, marked, and the sanitizer schema.
+ *     It's rendered per reply + per expanded post body, but only once
+ *     the user expands a post, so the same lazy gate applies.
+ */
+const PasteComposer = lazy(() =>
+  import("@/components/composer/paste-composer").then((m) => ({
+    default: m.PasteComposer,
+  })),
+);
+const SafeMarkdown = lazy(() =>
+  import("@/lib/safe-markdown").then((m) => ({ default: m.SafeMarkdown })),
+);
 
 type PublicTask = {
   id: string;
@@ -255,10 +272,12 @@ function ForumPostCard({
             className="overflow-hidden"
           >
             <div className="border-t border-white/5 px-4 sm:px-5 py-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
-              <SafeMarkdown
-                source={post.body}
-                allowedAttachmentIds={(post.attachments ?? []).map((a) => a.id)}
-              />
+              <Suspense fallback={<div className="text-xs text-slate-500">Loading…</div>}>
+                <SafeMarkdown
+                  source={post.body}
+                  allowedAttachmentIds={(post.attachments ?? []).map((a) => a.id)}
+                />
+              </Suspense>
             </div>
 
             {/* Replies */}
@@ -286,10 +305,12 @@ function ForumPostCard({
                           </span>
                         </div>
                         <div className="text-xs text-slate-400 leading-relaxed mt-0.5">
-                          <SafeMarkdown
-                            source={r.body}
-                            allowedAttachmentIds={(r.attachments ?? []).map((a) => a.id)}
-                          />
+                          <Suspense fallback={<span className="text-[11px] text-slate-500">…</span>}>
+                            <SafeMarkdown
+                              source={r.body}
+                              allowedAttachmentIds={(r.attachments ?? []).map((a) => a.id)}
+                            />
+                          </Suspense>
                         </div>
                       </div>
                     </div>
@@ -301,14 +322,16 @@ function ForumPostCard({
             {/* Reply input */}
             {isLoggedIn ? (
               <div className="border-t border-white/5 px-4 sm:px-5 py-3 space-y-2">
-                <PasteComposer
-                  value={replyDraft}
-                  onChange={setReplyDraft}
-                  kind="community-reply"
-                  placeholder="Join the conversation…"
-                  ariaLabel="Reply to post"
-                  maxAttachments={6}
-                />
+                <Suspense fallback={<div className="h-20 rounded bg-white/5 animate-pulse" aria-label="Loading composer" />}>
+                  <PasteComposer
+                    value={replyDraft}
+                    onChange={setReplyDraft}
+                    kind="community-reply"
+                    placeholder="Join the conversation…"
+                    ariaLabel="Reply to post"
+                    maxAttachments={6}
+                  />
+                </Suspense>
                 <div className="flex justify-end">
                   <Button
                     size="sm"
@@ -685,20 +708,24 @@ export default function CommunityPage() {
         {!loading && activeTab === "tasks" && (
           <>
             <div className="space-y-3">
-              <AnimatePresence mode="popLayout">
-                {tasks.map((t, idx) => (
-                  <motion.div
-                    key={t.id}
-                    initial={{ opacity: 0, y: 20, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{
-                      duration: 0.35,
-                      delay: Math.min(idx * 0.04, 0.4),
-                      ease: "easeOut",
-                    }}
-                    className="group glass-panel hover:bg-white/[0.07] transition-colors duration-200 overflow-hidden"
-                  >
+              {/*
+                Community task feed.
+                Replaces the previous AnimatePresence + per-row
+                framer-motion wrapper with:
+                  - plain <div> rows (saves one MotionValue subscription
+                    observer per card — cheap but adds up in feeds),
+                  - a one-shot CSS fade-in (`axtask-fade-in-up`) for the
+                    entrance transition, and
+                  - `axtask-cv-row` which turns on `content-visibility:
+                    auto` and `contain-intrinsic-size`. Browsers skip
+                    layout + paint for rows that are off-screen, which
+                    is what makes long feeds feel like /tasks again.
+              */}
+              {tasks.map((t) => (
+                <div
+                  key={t.id}
+                  className="axtask-fade-in-up axtask-cv-row group glass-panel hover:bg-white/[0.07] transition-colors duration-200 overflow-hidden"
+                >
                     <div className="p-4 sm:p-5">
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="text-sm sm:text-base font-semibold text-slate-100 leading-snug group-hover:text-white transition-colors">
@@ -730,16 +757,15 @@ export default function CommunityPage() {
                       </div>
                     </div>
 
-                    {t.notes && (
-                      <div className="border-t border-white/5 px-4 sm:px-5 py-3">
-                        <p className="text-xs sm:text-sm text-slate-400 leading-relaxed whitespace-pre-wrap">
-                          {t.notes}
-                        </p>
-                      </div>
-                    )}
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+                  {t.notes && (
+                    <div className="border-t border-white/5 px-4 sm:px-5 py-3">
+                      <p className="text-xs sm:text-sm text-slate-400 leading-relaxed whitespace-pre-wrap">
+                        {t.notes}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
 
             {/* Empty state */}

@@ -15,25 +15,44 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
 const assetsDir = path.join(repoRoot, "dist", "public", "assets");
 
-const DEFAULT_MAX_MAIN = 3_500_000;
-const DEFAULT_MAX_TOTAL = 8_000_000;
+/*
+ * Ratcheted post-pass-3 (perf/pass-3-sprint). Measured values on
+ * 2026-04-19 with a fresh production build:
+ *   - Largest single chunk (main `index`): 422 KB
+ *   - Total JS across all chunks:          2.49 MB
+ * Defaults below keep ~2x headroom: normal growth is fine but silent
+ * regressions (e.g. accidental static import of a heavy vendor into
+ * the main chunk) trip the budget. Override via AXTASK_MAX_MAIN_CHUNK_BYTES
+ * or AXTASK_MAX_TOTAL_JS_BYTES when landing a measured, intentional
+ * increase.
+ */
+const DEFAULT_MAX_MAIN = 900_000;
+const DEFAULT_MAX_TOTAL = 4_500_000;
 
 /**
  * Per-vendor-chunk soft ceilings in bytes. These WARN only — they do not
  * fail the build. Set AXTASK_STRICT_CHUNKS=1 to promote to hard failures.
+ *
+ * All values tightened after pass-3 measurements to reflect current
+ * reality plus ~20% headroom. Goal: a silent re-import of a heavy dep
+ * into the wrong chunk trips a warning on the next CI run instead of
+ * sliding in unnoticed. Bump a number here only after confirming the
+ * growth is intentional.
  */
 const SOFT_CHUNK_CEILINGS = {
-  "react-vendor": 350_000,
-  "radix": 500_000,
-  "tanstack": 200_000,
-  "recharts": 500_000,
-  "framer-motion": 200_000,
-  "spreadsheet": 1_200_000,
-  "icons": 150_000,
-  "date": 100_000,
-  "dnd": 100_000,
+  "react-vendor": 200_000, // measured 170 KB
+  "radix": 180_000, // measured 140 KB
+  "tanstack": 80_000, // measured ~63 KB
+  "recharts": 500_000, // measured 411 KB
+  "framer-motion": 150_000, // measured 122 KB
+  "spreadsheet": 400_000, // measured 352 KB
+  "icons": 80_000, // measured 62 KB
+  "date": 60_000, // measured 45 KB
+  "dnd": 70_000, // measured 50 KB
   "embla": 80_000,
-  "forms": 80_000,
+  "forms": 140_000, // measured 125 KB (old soft 80 KB was already violated)
+  "billing-bridge": 300_000, // measured 261 KB
+  "index": 500_000, // main entry; measured 422 KB
 };
 
 function parseByteLimit(raw, envName, fallback) {

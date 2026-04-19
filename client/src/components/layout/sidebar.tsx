@@ -1,6 +1,7 @@
 import { matchSidebarChord } from "@/lib/hotkey-actions";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { useBriefingBadge } from "@/hooks/use-briefing";
 import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard,
@@ -113,11 +114,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   };
   const isMobile = useIsMobile();
 
-  const { data: briefing } = useQuery<{ overdue: { count: number }; dueWithinHour: { count: number } }>({
-    queryKey: ["/api/planner/briefing"],
-    refetchInterval: 60000,
-  });
-  const overdueCount = (briefing?.overdue?.count || 0) + (briefing?.dueWithinHour?.count || 0);
+  /* Shared subscription — see client/src/hooks/use-briefing.ts. The
+   * `select`-based badge variant re-renders this surface only when the
+   * attention count changes, not on every briefing payload delta. */
+  const { data: briefingBadge } = useBriefingBadge();
+  const overdueCount = briefingBadge?.attentionCount ?? 0;
 
   const { data: wallet } = useQuery<{ balance: number; currentStreak: number }>({
     queryKey: ["/api/gamification/wallet"],
