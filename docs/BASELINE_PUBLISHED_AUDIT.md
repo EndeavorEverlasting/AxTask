@@ -147,7 +147,7 @@ key:
 
 | Path | Main lines | Baseline lines | Classification | Notes |
 | --- | ---: | ---: | --- | --- |
-| `client/src/lib/pending-edit.ts` | -- | 29 | NET-NEW | Small helper for Clear+Close safeguard (Task #19). **Port candidate** if equivalent not on main. |
+| `client/src/lib/pending-edit.ts` | -- | 29 | NET-NEW | Cross-page task-handoff module used by baseline's Ctrl+F global search: `setPendingEditTask()` from the search overlay, `consumePendingEditTask()` + `subscribePendingEdit()` on the Tasks page to auto-open the edit dialog. **Not** the Clear+Close safeguard (that's a separate task-form.tsx change). Port only if Global Search is ported (Wave 2). See Section 8 for the Clear+Close correction. |
 | `client/src/lib/priority-engine.ts` | 189 | 201 | OVERLAP | Baseline has the Task #16 priority fix (+27 lines). Main has its own small variant (-12 lines). **Investigate diff before porting.** |
 | `client/src/lib/priority-engine.test.ts` | 121 | 162 | OVERLAP | Test expansions that accompany priority fix. Port together with `priority-engine.ts` if the fix still applies. |
 | `client/src/hooks/use-mobile.tsx` | 47 | 19 | **SUPERSEDED** | Main is larger. Baseline +9 lines already likely absorbed. |
@@ -260,7 +260,7 @@ potential follow-up PR; numbers in brackets are the sections above.
 
 - [ ] `port/baseline-privacy-terms` -- 2 NET-NEW pages + login/sidebar link wiring. **Low risk.** [4a #1]
 - [ ] `port/baseline-priority-fix` -- priority engine Task #16 fix + tests, only if gap confirmed. **Low risk.** [4b #4]
-- [ ] `port/baseline-pending-edit-clear-close` -- `client/src/lib/pending-edit.ts` + task-form wiring for the Clear+Close safeguard. **Low-medium risk.** [4b #5]
+- [ ] `port/baseline-clear-close-safeguard` -- task-form `onClearedChange` + discard-confirm AlertDialog in `<TaskForm>` dialog consumers (task-list, task-calendar, tasks/dashboard). **Low-medium risk**, ~80-120 lines, no schema/routes. See Section 8. [4b #5]
 - [ ] `port/baseline-global-search` -- `client/src/components/global-search.tsx` wired into main's centralized chord dispatch. **Medium risk** (may duplicate existing hotkey work). [4b #5]
 - [ ] `port/baseline-backup-dedup` -- Full Account Backup dedup (UI + server + fingerprint). **Medium risk** (must not regress coin-gated exports). [4b #3]
 - [ ] `port/baseline-coin-collab-earn` -- collaboration coin-earn mechanic, only if gap confirmed against main's coin-engine. **Medium risk** ([docs/OPERATOR_COIN_GRANTS.md](./OPERATOR_COIN_GRANTS.md) must be respected). [4b #6]
@@ -324,3 +324,35 @@ Add a new, optional, Wave 2 candidate:
 - [ ] `port/baseline-danger-zone-clear-all` -- port the "Clear All Tasks" endpoint and UI behind main's `requireMfaStepUp` pattern (not baseline's plaintext `mfaCode` body check). Low-medium risk; net-new feature.
 
 Baseline's plaintext `mfaSecret` schema and `/api/mfa/{setup,verify,disable}` routes are **do-not-port** -- porting would regress main's encrypted TOTP storage.
+
+## 8. Pending-edit / Clear+Close findings
+
+### 8a. Correction to Section 3c
+
+The original audit (Section 3c, `client/src/lib/pending-edit.ts`) described the file as "Small helper for Clear+Close safeguard (Task #19)". That's **wrong**. Re-reading baseline's `9eab941` commit body and the actual usage sites:
+
+- `pending-edit.ts` is the **cross-page task-handoff** module for baseline's Task #19 T003 (Ctrl+F global search). The global-search overlay in `client/src/App.tsx` calls `setPendingEditTask(task)` and navigates to `/tasks`; `client/src/components/task-list.tsx` subscribes via `subscribePendingEdit` / `getPendingVersion` and consumes the pending task with `consumePendingEditTask()` to auto-open the edit dialog. This is the "no timing dependency" replacement for a `setTimeout`-based handoff mentioned in the commit body.
+- The **Clear+Close safeguard** (Task #19 T001) is a separate set of changes inside `client/src/components/task-form.tsx`: an `onClearedChange?: (cleared: boolean) => void` prop, a `formClearedRef` ref, an `onChangeCapture` handler that flips `cleared` back to `false` once the user types again, and a confirmation dialog at the dialog-close site that blocks silent discard when `cleared === true`.
+
+Those are two different features. Section 3c above has been corrected.
+
+### 8b. Main-side search
+
+Verified on `origin/main` (grep for `onClearedChange|formClearedRef|wasCleared|unsaved|isDirty|confirm.*discard|discardChanges` across `client/src/components/task-form.tsx`, `client/src/components/task-list.tsx`, `client/src/pages/tasks.tsx`, `client/src/pages/dashboard.tsx`, `client/src/components/task-calendar.tsx`):
+
+- `client/src/components/task-form.tsx` on main has **no** `onClearedChange` prop, no `formClearedRef`, no dirty-state ref, no "unsaved changes" / discard confirmation anywhere.
+- `client/src/components/task-list.tsx` line 1756: `<Dialog open={!!editingTask} onOpenChange={() => setEditingTask(null)}>` -- unconditionally nulls the editing task on any open-state change (backdrop click, Escape, X button). **Silent discard.**
+- No other consumer of `<TaskForm>` (`task-calendar.tsx`, `dashboard.tsx`, `tasks.tsx`) has a discard-confirmation.
+
+### 8c. Verdict
+
+**Gap confirmed** for the Clear+Close safeguard. Scope is small:
+
+- `client/src/components/task-form.tsx`: add `onClearedChange?: (cleared: boolean) => void` prop, a `formClearedRef`, `ignoreWatchUntilRef`, and the `onChangeCapture` auto-reset logic on the `<form>`. Trigger `onClearedChange(true)` on the existing Clear button's click handler.
+- `client/src/components/task-list.tsx` (plus any other `<TaskForm>` consumer that renders inside a dialog in edit mode): track a `clearedInEdit` state, show an `AlertDialog` ("You cleared the form. Discard changes?") from `onOpenChange(false)` if the flag is set.
+
+Estimated surface: ~80-120 lines across task-form + the three dialog consumers (task-list, task-calendar, and whichever dashboard/tasks page mounts the form in a dialog). **Low-medium risk**; no schema, no routes, no server changes.
+
+### 8d. Section 5 follow-up update
+
+- [ ] `port/baseline-pending-edit-clear-close` is now scoped as **"Clear+Close safeguard only"** -- add `onClearedChange` + discard-confirm AlertDialog to `task-form.tsx` and its dialog consumers. Baseline's `pending-edit.ts` module does **not** belong to this port; it belongs with the Global Search port. Candidate for Wave 2 (low-medium risk).
