@@ -200,12 +200,32 @@ export default function LandingPage() {
           <p className="text-sm text-slate-400 max-w-md mx-auto leading-relaxed mb-4">
             AxTask — where tasks are fleeting, the canvas is calm, and every surface is glass.
           </p>
-          <Link
-            href="/contact"
-            className="text-xs text-slate-500 underline-offset-4 transition-colors hover:text-emerald-200/90 hover:underline"
-          >
-            Contact
-          </Link>
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-500">
+            <Link
+              href="/contact"
+              className="underline-offset-4 transition-colors hover:text-emerald-200/90 hover:underline"
+            >
+              Contact
+            </Link>
+            <span className="text-slate-700" aria-hidden>
+              &middot;
+            </span>
+            <Link
+              href="/privacy"
+              className="underline-offset-4 transition-colors hover:text-emerald-200/90 hover:underline"
+            >
+              Privacy
+            </Link>
+            <span className="text-slate-700" aria-hidden>
+              &middot;
+            </span>
+            <Link
+              href="/terms"
+              className="underline-offset-4 transition-colors hover:text-emerald-200/90 hover:underline"
+            >
+              Terms
+            </Link>
+          </div>
         </footer>
       </main>
     </PretextShell>
