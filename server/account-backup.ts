@@ -16,6 +16,35 @@ import { computeTaskFingerprint } from "./task-fingerprint";
 
 const SCHEMA_VERSION = 1;
 
+/**
+ * v1 backup exports wrote SQL NULL values for optional task fields as JSON `null`
+ * (see `docs/json imports of rich perez account.zip`, schemaVersion 1). The shared
+ * [`insertTaskSchema`](../shared/schema.ts) uses `z.*.optional()` which accepts
+ * `undefined` but rejects `null`. We narrowly strip nulls on the import boundary
+ * only — the shared schema stays strict for `POST /api/tasks` and friends.
+ * Extra DB-side keys (id, userId, priority, priorityScore, classification,
+ * isRepeated, sortOrder, contentHash, forceImported, createdAt, updatedAt,
+ * bounty, bountySetBy) are dropped by zod's default `strip` behaviour, and
+ * missing visibility/communityShowNotes fall back to the schema's defaults.
+ */
+const V1_NULLABLE_TASK_FIELDS = [
+  "time",
+  "urgency",
+  "impact",
+  "effort",
+  "notes",
+  "prerequisites",
+] as const;
+
+export function normalizeV1TaskRow(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  for (const k of V1_NULLABLE_TASK_FIELDS) {
+    if (out[k] === null) delete out[k];
+  }
+  return out;
+}
+
 export type UserExportBundle = {
   metadata: {
     exportMode: "user";
@@ -55,6 +84,69 @@ const bundleSchema = z.object({
 export function computeBundleTasksFingerprint(taskRows: InsertTask[]): string {
   const fps = taskRows.map((t) => computeTaskFingerprint(t)).sort();
   return createHash("sha256").update(fps.join("|")).digest("hex");
+}
+
+/**
+ * Pure validation + normalization step of the account import pipeline.
+ *
+ * Given any backup bundle (v1 or current), returns either the per-row parse
+ * errors OR the full set of InsertTask rows plus a stable tasks fingerprint and
+ * the badges list. Does not touch the DB, dedup against existing import
+ * fingerprints, enforce quotas, or verify the ownership quiz — those all live
+ * in `runAccountImport` because they depend on the caller's user context.
+ *
+ * This is the function the v1 backward-compat test exercises, so it also
+ * guards that `normalizeV1TaskRow` keeps accepting every edge case the v1
+ * exports produced (null time/urgency/impact/effort, missing visibility, extra
+ * DB columns).
+ */
+export type PlanAccountImportResult =
+  | {
+      ok: false;
+      errors: { table: string; field: string; message: string }[];
+    }
+  | {
+      ok: true;
+      tasks: InsertTask[];
+      tasksFingerprint: string;
+      badges: { badgeId: string }[];
+      schemaVersion: number | undefined;
+    };
+
+export function planAccountImport(bundle: unknown): PlanAccountImportResult {
+  const parsed = bundleSchema.safeParse(bundle);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      errors: [{ table: "bundle", field: "root", message: "Invalid backup JSON shape" }],
+    };
+  }
+
+  const rawTasks = parsed.data.data.tasks;
+  const errors: { table: string; field: string; message: string }[] = [];
+  const tasks: InsertTask[] = [];
+  for (let i = 0; i < rawTasks.length; i++) {
+    try {
+      tasks.push(insertTaskSchema.parse(normalizeV1TaskRow(rawTasks[i])));
+    } catch (e) {
+      errors.push({
+        table: "tasks",
+        field: String(i),
+        message: e instanceof Error ? e.message : "Validation failed",
+      });
+    }
+  }
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    tasks,
+    tasksFingerprint: computeBundleTasksFingerprint(tasks),
+    badges: parsed.data.data.badges || [],
+    schemaVersion: parsed.data.metadata.schemaVersion,
+  };
 }
 
 function shuffleWithSeed<T>(items: T[], seedHex: string): T[] {
@@ -190,7 +282,7 @@ export function buildImportChallenge(bundle: unknown): AccountImportChallengeRes
   const tasks: InsertTask[] = [];
   for (let i = 0; i < rawTasks.length; i++) {
     try {
-      tasks.push(insertTaskSchema.parse(rawTasks[i]));
+      tasks.push(insertTaskSchema.parse(normalizeV1TaskRow(rawTasks[i])));
     } catch {
       return {
         ownershipQuizRequired: false,
@@ -293,7 +385,7 @@ export async function runAccountImport(params: {
   const tasks: InsertTask[] = [];
   for (let i = 0; i < rawTasks.length; i++) {
     try {
-      tasks.push(insertTaskSchema.parse(rawTasks[i]));
+      tasks.push(insertTaskSchema.parse(normalizeV1TaskRow(rawTasks[i])));
     } catch (e) {
       errors.push({
         table: "tasks",

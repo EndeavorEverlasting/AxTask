@@ -26,3 +26,7 @@ Endpoints that accept or return user-composed bodies (collab inbox, community po
 
 - Serialise attachment metadata with **`toPublicAttachmentRef` / `toPublicAttachmentRefs`**. Never return raw `attachment_assets` rows or owning `userId`s; the client only needs `{ id, mimeType, byteSize, fileName, downloadUrl }`.
 - Downloads remain session-scoped (`GET /api/attachments/:assetId/download`); tokens in the markdown body are only honoured against the explicit `attachments[]` list returned for that row. See [docs/PASTE_COMPOSER_SECURITY.md](PASTE_COMPOSER_SECURITY.md) for the full defence-in-depth matrix (SSRF fetcher, GIF proxy, rate limits, MIME / magic-byte checks).
+
+## Account backup imports (v1 backward compatibility)
+
+`POST /api/account/import` and its challenge endpoint accept both the current export shape and older `schemaVersion: 1` exports (pre-`visibility` / pre-`communityShowNotes`, with `time`/`urgency`/`impact`/`effort` as JSON `null`). [`server/account-backup.ts`](../server/account-backup.ts) applies `normalizeV1TaskRow` on the import boundary so these legacy rows pass `insertTaskSchema` without widening the shared schema — `POST /api/tasks` and other write paths stay strict. Real user zips (for example, `docs/json imports of rich perez account.zip`) are gitignored and must never be committed; CI exercises the compat layer via the PII-free [`test-fixtures/account-backup-v1-sample.json`](../test-fixtures/account-backup-v1-sample.json), and developers can smoke a full extract locally with `npm run smoke:v1-zip <path-to-extracted.json>`.

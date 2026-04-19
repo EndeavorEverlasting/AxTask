@@ -40,3 +40,8 @@ __pycache__/
 # contain raw signal payloads or un-anonymized actor sequences. Never commit.
 docs/ARCHETYPE_EMPATHY_ANALYTICS.local.md
 server/__archetype_fixtures__/
+
+# Full-scale backup fixtures drop zone (real user JSON exports; real PII).
+# Use test-fixtures/account-backup-v1-sample.json in CI; run the zip locally
+# via `npm run smoke:v1-zip`.
+docs/json imports of *.zip
