@@ -67,3 +67,6 @@ docs/json imports of *.json
 docs/*backup*.json
 docs/*axtask*.json
 docs/*import*.json
+.tmp-*.txt
+.tmp-*.log
+
