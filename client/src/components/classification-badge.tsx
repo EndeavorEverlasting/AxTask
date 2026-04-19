@@ -9,10 +9,12 @@ import { setWalletBalanceCache } from "@/lib/wallet-cache";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChevronDown, Coins, Plus, Sparkles, ThumbsUp } from "lucide-react";
+import { ChevronDown, Coins, Plus, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
 import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
 import type { ClassificationAssociation } from "@shared/schema";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ClassificationDisputeDialog } from "@/components/classification-dispute-dialog";
+import { ClassificationDisputeVotes } from "@/components/classification-dispute-votes";
 
 type CategoriesResponse = {
   builtIn: { label: string; coins: number }[];
@@ -71,6 +73,7 @@ export function ClassificationBadge({
   baseUpdatedAt,
 }: ClassificationBadgeProps) {
   const [open, setOpen] = useState(false);
+  const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
   const [selectedLabels, setSelectedLabels] = useState<Set<string>>(() => new Set());
   const prevOpenRef = useRef(false);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -477,6 +480,20 @@ export function ClassificationBadge({
               <ThumbsUp className="h-3.5 w-3.5 mr-1.5 shrink-0" />
               {thumbStateQuery.data?.voted ? "Thanks — bonus claimed" : "Thumbs up this label (one-time coins)"}
             </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full mt-1"
+              onClick={() => setDisputeDialogOpen(true)}
+              data-testid="classification-dispute-open"
+            >
+              <ThumbsDown className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+              Dispute this classification
+            </Button>
+            <div className="mt-2">
+              <ClassificationDisputeVotes taskId={taskId} />
+            </div>
           </div>
         )}
 
@@ -513,6 +530,14 @@ export function ClassificationBadge({
           </div>
         </div>
       </PopoverContent>
+      {taskId && (
+        <ClassificationDisputeDialog
+          taskId={taskId}
+          originalCategory={classification}
+          open={disputeDialogOpen}
+          onOpenChange={setDisputeDialogOpen}
+        />
+      )}
     </Popover>
   );
 }
