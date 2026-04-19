@@ -176,6 +176,15 @@ class AnimationBudget {
     }
     if (allowed === this.state.allowed && reason === this.state.reason) return;
     this.state = { allowed, reason, version: this.state.version + 1 };
+
+    // Mirror onto a body attribute so CSS can drop expensive compositor work
+    // (backdrop-filter, box-shadow, transition-all) during scroll/longtask
+    // bursts without needing every surface to subscribe explicitly.
+    const body = this.doc?.body;
+    if (body) {
+      if (allowed) body.removeAttribute("data-axtask-calm");
+      else body.setAttribute("data-axtask-calm", reason || "paused");
+    }
     for (const cb of this.listeners) cb(this.state);
   }
 }

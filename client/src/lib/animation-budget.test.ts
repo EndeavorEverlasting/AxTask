@@ -111,6 +111,35 @@ describe("AnimationBudget", () => {
     b.stop();
   });
 
+  it("mirrors state onto body[data-axtask-calm] for CSS compositing suppression", () => {
+    const body = document.createElement("body");
+    const doc = {
+      visibilityState: "visible" as DocumentVisibilityState,
+      body,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    } as unknown as Document;
+    const win = {
+      matchMedia: () => ({
+        matches: false,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    } as unknown as Window;
+    const b = new AnimationBudget({ win, doc, now: () => 0 });
+    b.start();
+    expect(body.hasAttribute("data-axtask-calm")).toBe(false);
+
+    b.pauseFor(100, "scroll");
+    expect(body.getAttribute("data-axtask-calm")).toBe("scroll");
+
+    vi.advanceTimersByTime(150);
+    expect(body.hasAttribute("data-axtask-calm")).toBe(false);
+    b.stop();
+  });
+
   it("unsubscribe detaches the listener", () => {
     const { b } = makeBudget();
     b.start();
