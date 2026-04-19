@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { startSharedLongTaskAttributor } from "./lib/long-task-attributor";
 
 function injectReplitDevBanner() {
   try {
@@ -25,6 +26,10 @@ createRoot(document.getElementById("root")!).render(<App />);
 
 if (typeof window !== "undefined") {
   injectReplitDevBanner();
+  // Attribute browser longtasks to the largest on-screen AxTask surface so
+  // the admin Performance panel can show which part of the app is burning
+  // main-thread time. Client-local; nothing is sent to the server.
+  startSharedLongTaskAttributor();
 }
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
