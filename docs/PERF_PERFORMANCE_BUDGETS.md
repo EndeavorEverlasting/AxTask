@@ -12,9 +12,16 @@ Enforced by `npm run perf:bundle`
 
 | Budget                      | Default           | Env override                        | Severity |
 | --------------------------- | ----------------- | ----------------------------------- | -------- |
-| Largest JS chunk            | 3,500,000 B       | `AXTASK_MAX_MAIN_CHUNK_BYTES`       | Hard fail |
-| Total JS across all chunks  | 8,000,000 B       | `AXTASK_MAX_TOTAL_JS_BYTES`         | Hard fail |
-| Per-chunk soft ceilings     | see `SOFT_CHUNK_CEILINGS` in the script | `AXTASK_STRICT_CHUNKS=1` promotes to fail | Warning |
+| Largest JS chunk            | 900,000 B         | `AXTASK_MAX_MAIN_CHUNK_BYTES`       | Hard fail |
+| Total JS across all chunks  | 4,500,000 B       | `AXTASK_MAX_TOTAL_JS_BYTES`         | Hard fail |
+| Per-chunk soft ceilings     | see `SOFT_CHUNK_CEILINGS` in the script | `AXTASK_STRICT_CHUNKS=1` promotes to fail | **Hard fail in CI** (strict mode is on) |
+
+The defaults were ratcheted in `perf/pass-3-sprint` after measuring a fresh
+production build (main chunk 422 KB, total 2.49 MB). They keep ~2x headroom
+over measured sizes so normal growth lands cleanly, while a silent static
+import of a heavy vendor into the main chunk will fail the build. The CI
+workflow sets `AXTASK_STRICT_CHUNKS=1` so per-chunk ceilings are also
+enforced.
 
 ## Client — surface resource accounting
 

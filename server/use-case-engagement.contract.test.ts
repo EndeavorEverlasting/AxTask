@@ -41,13 +41,16 @@ describe("use-case engagement wiring", () => {
   });
 
   it("wires task list to server search for engagement coins", () => {
-    const taskList = fs.readFileSync(
-      path.join(root, "client", "src", "components", "task-list.tsx"),
+    /* Migrated from `task-list.tsx` → `task-list-host.tsx` in pass 3.
+     * The host fires a debounced beacon to /api/tasks/search so users
+     * keep earning the capped `task_search_reward` coin even though
+     * the host filters client-side for instant narrowing. */
+    const taskListHost = fs.readFileSync(
+      path.join(root, "client", "src", "components", "task-list-host.tsx"),
       "utf8",
     );
-    expect(taskList).toContain("resolveTaskListSearchSource");
-    expect(taskList).toContain('"/api/tasks/search"');
-    expect(taskList).toContain("encodeURIComponent");
+    expect(taskListHost).toContain("/api/tasks/search/");
+    expect(taskListHost).toContain("encodeURIComponent");
   });
 
   it("wires chip hunt sync and redacted badge definitions", () => {

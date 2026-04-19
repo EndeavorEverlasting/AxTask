@@ -48,23 +48,7 @@ import {
   buildTaskListHref,
   type TaskListRouteFilter,
 } from "@/lib/task-list-route-filters";
-
-interface WeekDay {
-  date: string;
-  dayName: string;
-  count: number;
-  load: "none" | "light" | "moderate" | "heavy";
-}
-
-interface BriefingData {
-  today: string;
-  overdue: { count: number; tasks: Task[] };
-  dueToday: { count: number; tasks: Task[] };
-  dueWithinHour: { count: number; tasks: Task[] };
-  thisWeek: { total: number; days: WeekDay[] };
-  topRecommended: (Task & { reason: string })[];
-  totalPending: number;
-}
+import { useBriefing } from "@/hooks/use-briefing";
 
 interface QAResponse {
   answer: string;
@@ -102,10 +86,7 @@ export default function PlannerPage() {
     sendProductFunnelBeacon("planner_viewed");
   }, []);
 
-  const { data: briefing, isLoading } = useQuery<BriefingData>({
-    queryKey: ["/api/planner/briefing"],
-    refetchInterval: 60000,
-  });
+  const { data: briefing, isLoading } = useBriefing();
 
   interface PatternInsight {
     type: "topic" | "recurrence" | "deadline_rhythm" | "similarity_cluster";
@@ -365,43 +346,38 @@ export default function PlannerPage() {
               icon: JSX.Element;
               color: string;
               bg: string;
-            }[]).map((stat, i) => (
-              <motion.div
+            }[]).map((stat) => (
+              /* Plain button + CSS fade-in (no framer-motion). Tiles
+               * need one-shot entrance animation, not a persistent
+               * MotionValue observer — CSS keyframes cost us zero JS
+               * heap on every re-render. Reduced-motion users get the
+               * `motion-reduce:` no-op variant automatically. */
+              <button
                 key={stat.label}
-                initial={reducedMotion ? false : { opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: i * 0.06 }}
+                type="button"
+                onClick={() => setLocation(buildTaskListHref(stat.filter))}
+                aria-label={`Open ${stat.label} tasks in All Tasks`}
+                data-testid={`planner-tile-${stat.filter}`}
+                className="axtask-fade-in-up w-full text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
               >
-                {/* Tile is a button that deep-links into /tasks with a
-                 * saved filter. TaskListHost reads `?filter=` on mount
-                 * and renders a dismissable "Showing: …" chip so the
-                 * user can always clear the filter and see everything. */}
-                <button
-                  type="button"
-                  onClick={() => setLocation(buildTaskListHref(stat.filter))}
-                  aria-label={`Open ${stat.label} tasks in All Tasks`}
-                  data-testid={`planner-tile-${stat.filter}`}
-                  className="w-full text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                <Card
+                  className={`border ${stat.bg} transition-colors hover:brightness-[1.02]`}
                 >
-                  <Card
-                    className={`border ${stat.bg} transition-colors hover:brightness-[1.02]`}
-                  >
-                    <CardContent className="p-4 flex items-center gap-3">
-                      <div className={stat.color}>{stat.icon}</div>
-                      <div>
-                        <p
-                          className={`text-2xl font-bold tabular-nums ${stat.color}`}
-                        >
-                          {stat.value}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {stat.label}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </button>
-              </motion.div>
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className={stat.color}>{stat.icon}</div>
+                    <div>
+                      <p
+                        className={`text-2xl font-bold tabular-nums ${stat.color}`}
+                      >
+                        {stat.value}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {stat.label}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </button>
             ))}
           </div>
 

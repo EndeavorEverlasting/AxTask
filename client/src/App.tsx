@@ -13,7 +13,18 @@ import { VoiceProvider, useVoice } from "@/hooks/use-voice";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TutorialOverlay } from "@/components/tutorial-overlay";
 import { TutorialInteractionGuide } from "@/components/tutorial-interaction-guide";
-import { VoiceCommandBar } from "@/components/voice-command-bar";
+/* VoiceCommandBar hosts the speech-recognition wiring, hotkey listener,
+ * and its own Radix dialog. The bar is rendered on every authed surface
+ * but only _activates_ on user input (Alt+V or the voice hotkey), so
+ * the heavy speech-recognition pipeline behind it can wait until first
+ * interaction. Lazy-load and wrap it in `<Suspense fallback={null}>`
+ * — the hotkey dispatches through a ref on `useVoice()`, so the bar
+ * can be absent at first paint without breaking shortcuts. */
+const VoiceCommandBar = lazy(() =>
+  import("@/components/voice-command-bar").then((m) => ({
+    default: m.VoiceCommandBar,
+  })),
+);
 import { InstallCtaBanner } from "@/components/install-cta-banner";
 import { WalletTopBar } from "@/components/wallet-top-bar";
 import { FeedbackNudgeDialog } from "@/components/feedback-nudge-dialog";
@@ -67,7 +78,17 @@ import {
 } from "@/lib/post-login-redirect";
 import { Link } from "wouter";
 import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
-import { GlobalSearch } from "@/components/global-search";
+/* GlobalSearch is a modal fired by Ctrl/⌘+K (and the sidebar magnifying
+ * glass). It pulls in the task-search query chain + keyboard nav, none
+ * of which is needed at first paint. Lazy-load so the initial shell
+ * chunk ships without the search dialog's deps. The callsite below
+ * uses a null Suspense fallback: the dialog is closed on first render,
+ * so there's nothing to flicker during chunk hydration. */
+const GlobalSearch = lazy(() =>
+  import("@/components/global-search").then((m) => ({
+    default: m.GlobalSearch,
+  })),
+);
 import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
 import { matchHotkeyFromKeyboardEvent, voiceBarOpenRef } from "@/lib/hotkey-actions";
 import type { Task } from "@shared/schema";
@@ -473,15 +494,24 @@ function AuthenticatedApp() {
           <MobileVoiceFAB />
           {user ? <HotkeyHelpDialog open={hotkeyHelpOpen} onOpenChange={setHotkeyHelpOpen} /> : null}
           {user ? (
-            <GlobalSearch
-              open={globalSearchOpen}
-              onOpenChange={setGlobalSearchOpen}
-              onSelectTask={handleGlobalSearchSelect}
-            />
+            /* Lazy Suspense with a null fallback — the dialog isn't
+             * visible until the user triggers it, so there's nothing
+             * to flicker during chunk hydration. */
+            <Suspense fallback={null}>
+              <GlobalSearch
+                open={globalSearchOpen}
+                onOpenChange={setGlobalSearchOpen}
+                onSelectTask={handleGlobalSearchSelect}
+              />
+            </Suspense>
           ) : null}
           <TutorialOverlay />
           <TutorialInteractionGuide />
-          <VoiceCommandBar />
+          {/* Voice bar chunk is also lazy — null fallback is safe
+           * because the bar itself only opens on user input. */}
+          <Suspense fallback={null}>
+            <VoiceCommandBar />
+          </Suspense>
           <ReviewDialogBridge />
           <FeedbackNudgeDialog />
         </div>

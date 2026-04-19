@@ -47,7 +47,9 @@ export default defineConfig({
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     // Tune the main-chunk warning ceiling so our own budget script in
-    // tools/perf/bundle-budget.mjs is the source of truth (it caps at 3.5 MB).
+    // tools/perf/bundle-budget.mjs is the source of truth (post-pass-3 it
+    // caps the main chunk at 900 KB and total JS at 4.5 MB; strict mode
+    // in CI also promotes per-vendor soft ceilings to hard failures).
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {

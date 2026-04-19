@@ -39,7 +39,12 @@ describe("planner insight click wiring", () => {
 
 describe("tasks page query-param handler", () => {
   const tasks = read(path.join("client", "src", "pages", "tasks.tsx"));
-  const taskList = read(path.join("client", "src", "components", "task-list.tsx"));
+  /* Legacy `task-list.tsx` is gone — both /tasks and /shopping now
+   * render `TaskListHost`, so the event-wiring assertions target the
+   * host component directly. */
+  const taskListHost = read(
+    path.join("client", "src", "components", "task-list-host.tsx"),
+  );
 
   it("reads ?task=<id> from the URL on mount", () => {
     expect(tasks).toMatch(/URLSearchParams\(window\.location\.search\)/);
@@ -55,15 +60,15 @@ describe("tasks page query-param handler", () => {
     expect(tasks).toMatch(/url\.searchParams\.delete\("task"\)/);
   });
 
-  it("task-list listens for axtask-open-task-edit and calls setEditingTask", () => {
-    expect(taskList).toContain('"axtask-open-task-edit"');
-    expect(taskList).toMatch(/setEditingTask\(task\)/);
+  it("task-list-host listens for axtask-open-task-edit and calls setEditingTask", () => {
+    expect(taskListHost).toContain('"axtask-open-task-edit"');
+    expect(taskListHost).toMatch(/setEditingTask\(t\)/);
   });
 
   it("axtask-focus-task-search now seeds the search query with detail.query when provided", () => {
     /* Hybrid plan: without a taskId, the planner pre-fills the search via the
        focus event's detail.query. */
-    expect(taskList).toMatch(/detail\.query/);
-    expect(taskList).toMatch(/setSearchQuery\(detail\.query\)/);
+    expect(taskListHost).toMatch(/detail\.query/);
+    expect(taskListHost).toMatch(/setSearchQuery\(detail\.query\)/);
   });
 });

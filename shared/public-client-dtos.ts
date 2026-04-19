@@ -2,6 +2,7 @@ import type {
   AttachmentAsset,
   CoinTransaction,
   SafeUser,
+  Task,
   UserBadge,
   Wallet,
 } from "./schema";
@@ -23,6 +24,61 @@ export function toPublicSessionUser(user: SafeUser): PublicSessionUser {
     bannedAt: _ba,
     ...rest
   } = user;
+  return rest;
+}
+
+/**
+ * List-view task DTO for `/api/tasks` and `/api/tasks/:id`.
+ *
+ * Privacy: strips `userId` so the main task cache in a browser tab doesn't
+ * carry raw user ids. The caller is already the authenticated user, so
+ * `req.user!.id` is enough on the server side.
+ *
+ * Bandwidth: replaces `classificationAssociations` (a jsonb array of
+ * `{label, confidence}` objects that can be ~200B+ per task) with a
+ * single-integer `classificationExtraCount`. The associations are only
+ * needed by the classify dialog, which lazy-fetches the full task via
+ * GET /api/tasks/:id (this same slimmer returns the full associations
+ * array on single-row reads, because the dialog needs them). List reads
+ * only render a "+N" pill, so the array is pure dead weight on list.
+ *
+ * Editing: `TaskForm` uses every other field on this shape, so edits
+ * continue to work off the cache without a round-trip.
+ *
+ * Shape version bumps belong in `PublicTaskListItem` so the contract
+ * test below locks the field set to prevent silent drift.
+ */
+export type PublicTaskListItem = Omit<Task, "userId" | "classificationAssociations"> & {
+  /** `classificationAssociations.length - 1` (clamped to 0). */
+  classificationExtraCount: number;
+};
+
+export function toPublicTaskListItem(task: Task): PublicTaskListItem {
+  const { userId: _uid, classificationAssociations, ...rest } = task;
+  const extras = Array.isArray(classificationAssociations)
+    ? Math.max(0, classificationAssociations.length - 1)
+    : 0;
+  return {
+    ...rest,
+    classificationExtraCount: extras,
+  };
+}
+
+export function toPublicTaskListItems(rows: Task[]): PublicTaskListItem[] {
+  /* Hot path on /tasks; a simple `.map` beats a for-loop by one less
+   * allocation under V8 for arrays < ~1e4 entries. Keep allocation-light. */
+  return rows.map(toPublicTaskListItem);
+}
+
+/**
+ * Detail DTO used by the edit/classify dialog (GET /api/tasks/:id).
+ * Same as list item but keeps the full `classificationAssociations`
+ * array so the classify dialog can render per-label confidence pills.
+ */
+export type PublicTaskDetail = Omit<Task, "userId">;
+
+export function toPublicTaskDetail(task: Task): PublicTaskDetail {
+  const { userId: _uid, ...rest } = task;
   return rest;
 }
 
