@@ -20,10 +20,10 @@ barrels for the duration of the migration.
 
 | File | Lines (approx) | Role |
 | --- | --- | --- |
-| `server/routes.ts` | ~6100 | All HTTP routes; builds and returns the Express app. Single `registerRoutes(app)` export. |
-| `server/storage.ts` | ~4400 | All database reads/writes. Many top-level `export async function` symbols. |
-| `shared/schema.ts` | ~1250 | Drizzle table defs, Zod input schemas, inferred types (used by client and server). |
-| `client/src/pages/admin.tsx` | ~2150 | Admin SPA page — tabs for live analytics, usage/storage, performance, intel, feedback, appeals, invoicing, users, logs, migration, engineering. |
+| `server/routes.ts` | ~6700 | All HTTP routes; builds and returns the Express app. Single `registerRoutes(app)` export. |
+| `server/storage.ts` | ~4800 | All database reads/writes. Many top-level `export async function` symbols. |
+| `shared/schema.ts` | 13 (barrel, post F-1) | Drizzle table defs, Zod input schemas, inferred types (used by client and server). **The 1,396-line monolith was retired** in Phase F-1; declarations now live under `shared/schema/{core,tasks,gamification,ops}.ts` behind a single-line `export * from "./schema/index"` barrel. |
+| `client/src/pages/admin.tsx` | ~2250 | Admin SPA page — tabs for live analytics, usage/storage, performance, intel, feedback, appeals, invoicing, users, logs, migration, engineering. |
 | `client/src/components/task-list.tsx` | ~1700 | Task-list view used across dashboard + pages. |
 | `client/src/components/task-form.tsx` | ~1260 | Task create/edit form. |
 
@@ -37,35 +37,50 @@ anywhere; the target layout re-exports from them.
 
 ### `shared/schema/` (was `shared/schema.ts`)
 
-Goal: one file per domain, each one pgTable/Zod schema/type group.
+Phase F-1 (shipped 2026-04-19) did a **coarse 4-file split** that retires the
+monolith without fanning out to 17 micro-files in a single PR. The back-compat
+barrel works across ~90 existing callers because every one of them imports
+from `@shared/schema` (never from an internal sub-path).
 
 ```
 shared/schema/
-  index.ts                     # re-exports the whole public surface
-  auth.ts                      # users, passwordResetTokens, register/login schemas
-  security.ts                  # securityLogs, securityEvents, securityAlerts
-  notifications.ts             # userNotificationPreferences, userPushSubscriptions, prefs schemas
-  voice.ts                     # userVoicePreferences
-  adherence.ts                 # userAdherenceState, userAdherenceInterventions
-  tasks.ts                     # tasks, insertTaskSchema, updateTaskSchema
-  collaboration.ts             # taskCollaborators, collaborationInboxMessages
-  study.ts                     # studyDecks, studyCards, studySessions, studyReviewEvents
-  gamification.ts              # wallets, coinTransactions, userBadges, rewardsCatalog, userRewards
-  offline.ts                   # offlineGenerators, offlineSkillNodes, userOfflineSkills
-  avatars.ts                   # avatarSkillNodes, userAvatarSkills, userAvatarProfiles
-  storage.ts                   # usageSnapshots, storagePolicies, attachmentAssets, messageAttachments
-  invoicing.ts                 # invoices, invoiceEvents, mfaChallenges, billingPaymentMethods, idempotencyKeys
-  premium.ts                   # premiumSubscriptions, premiumSavedViews, premiumReviewWorkflows, premiumInsights, premiumEvents
-  community.ts                 # communityPosts, communityReplies
-  classification.ts            # taskClassificationConfirmations, userClassificationLabels, taskClassificationThumbs,
-                               # classificationContributions, classificationConfirmations, classificationDisputes, categoryReviewTriggers
-  patterns.ts                  # taskPatterns
-  archetype.ts                 # archetypeRollupDaily, archetypeMarkovDaily
+  index.ts                     # re-exports the whole public surface (ordered core → tasks → ops)
+  core.ts                      # users, passwordResetTokens, securityLogs/Events/Alerts,
+                               # register/login schemas, userNotificationPreferences,
+                               # userPushSubscriptions, feedback nudge prefs, voice prefs,
+                               # adherence state + interventions + enums
+  tasks.ts                     # tasks, insertTaskSchema/updateTaskSchema, classification
+                               # confirmations/labels/thumbs/contributions/disputes/votes/
+                               # categoryReviewTriggers, studyDecks/Cards/Sessions/Events,
+                               # taskCollaborators, taskImportFingerprints,
+                               # collaborationInboxMessages, taskPatterns
+  gamification.ts              # wallets, coinTransactions, userBadges, rewardsCatalog,
+                               # userRewards, offlineGenerators + skill tree, avatar skill
+                               # tree + profiles
+  ops.ts                       # usageSnapshots, storagePolicies, attachmentAssets,
+                               # messageAttachments, invoices/events/mfaChallenges/
+                               # billingPaymentMethods/idempotencyKeys, premium* tables,
+                               # communityPosts/Replies, userAlarmSnapshots,
+                               # userLocationPlaces, archetypeRollup/Markov daily rollups
+  __fixtures__/
+    public-symbols.json        # frozen list of 88 public runtime symbols, guarded by
+                               # shared/schema/schema-split.contract.test.ts
 ```
 
-**Back-compat rule:** `shared/schema.ts` stays as a one-line re-export
-`export * from "./schema/index";` when we do the move, so every
-`import { users } from "@shared/schema"` keeps working unchanged.
+**Back-compat rule:** `shared/schema.ts` is now a one-line re-export
+`export * from "./schema/index";` — every `import { users } from "@shared/schema"`
+call site (client, server, tests, drizzle-kit, apply-migrations) keeps
+working unchanged, and the Phase F-1 contract test guards against silent
+drops from the public symbol inventory.
+
+**Phase F-2 (staged):** the 17-domain fine-grained split from the previous
+revision of this doc is still the long-term target — e.g. pulling `auth`,
+`security`, `notifications`, `voice`, `adherence` out of `core.ts`, and
+splitting `tasks.ts` into separate `tasks` / `classification` / `study` /
+`collaboration` / `patterns` files. The F-1 split was designed to keep
+F-2 a non-disruptive follow-up: fixtures already lock the public surface,
+and the dependency edges in `shared/schema/index.ts` are ready to be
+replaced with more imports once each domain lands.
 
 ### `server/storage/` (was `server/storage.ts`)
 
@@ -195,7 +210,8 @@ stay as barrel stubs (e.g. `admin.tsx` becomes `export * from "./admin";`).
 | J — Deployment test suite + DB-capacity gate | **Shipped** | `tests/deploy/**`, `scripts/deploy/**`, `docs/DEPLOYMENT_TEST_SUITE.md`. Directly prevents the Neon 512 MB migration-time failure class. |
 | C — `server/routes.ts` split | **Staged (docs only)** | Target layout above; full physical split is follow-up PR scope. |
 | D — `server/storage.ts` split | **Staged (docs only)** | Target layout above; phase E batched helpers already live in storage.ts awaiting migration. |
-| F — `shared/schema.ts` split | **Staged (docs only)** | Target layout above; module-resolution safety requires the physical split to land in one atomic commit, not barrel stubs. |
+| F-1 — `shared/schema.ts` coarse 4-file domain split | **Shipped** | `shared/schema/{core,tasks,gamification,ops}.ts` behind the barrel. Contract test at `shared/schema/schema-split.contract.test.ts` with frozen symbol fixture. Drizzle-kit config, apply-migrations, and every `@shared/schema` caller keep working unchanged. |
+| F-2 — `shared/schema/` fine-grained 17-file split | **Staged (docs only)** | See Phase F-2 note above. F-1 leaves the bar open for this by locking the public surface. |
 | G — admin.tsx / task-list.tsx / task-form.tsx split | **Staged (docs only)** | Target layout above. |
 | I — docs (this file, AGENTS.md link) | **Shipped** | This document. |
 

@@ -57,7 +57,17 @@ const EXPECTED_MARKOV_INDEXES = [
 ];
 
 describe("archetype schema / migration parity", () => {
-  const schema = read("shared/schema.ts");
+  // After the Phase F-1 split (docs/MODULE_LAYOUT.md) `shared/schema.ts` is a
+  // barrel; the real declarations live under `shared/schema/*.ts`. Concatenate
+  // all per-domain files so the static checks below still cover every table.
+  const SCHEMA_SOURCES = [
+    "shared/schema.ts",
+    "shared/schema/core.ts",
+    "shared/schema/tasks.ts",
+    "shared/schema/gamification.ts",
+    "shared/schema/ops.ts",
+  ];
+  const schema = SCHEMA_SOURCES.map((p) => read(p)).join("\n\n");
   const migration = read("migrations/0019_archetype_empathy_analytics.sql");
 
   describe("shared/schema.ts vs migration column lists", () => {

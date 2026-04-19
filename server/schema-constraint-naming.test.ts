@@ -11,10 +11,21 @@ import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
-const schemaPath = path.join(projectRoot, "shared", "schema.ts");
 const migrationsDir = path.join(projectRoot, "migrations");
 
-const schemaSrc = fs.readFileSync(schemaPath, "utf8");
+// After the Phase F-1 split (docs/MODULE_LAYOUT.md), declarations live under
+// shared/schema/*.ts. Concatenate every file in the schema module graph so the
+// text-based `.unique()` / `pgTable(...)` regexes still see every table.
+const SCHEMA_SOURCES = [
+  "shared/schema.ts",
+  "shared/schema/core.ts",
+  "shared/schema/tasks.ts",
+  "shared/schema/gamification.ts",
+  "shared/schema/ops.ts",
+];
+const schemaSrc = SCHEMA_SOURCES.map((rel) =>
+  fs.readFileSync(path.join(projectRoot, rel), "utf8"),
+).join("\n\n");
 
 /** Strip block and line comments so we do not match string examples in doc comments. */
 function stripComments(src: string): string {
