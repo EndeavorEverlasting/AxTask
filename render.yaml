@@ -51,3 +51,8 @@ services:
         sync: false
       - key: AUTH_PROVIDER
         sync: false
+      # Neon Launch tier includes 10 GiB storage. Keep the gate's budget
+      # aligned with the plan so scripts/deploy/check-db-capacity.mjs
+      # reflects reality instead of the default 512 MB free-tier ceiling.
+      - key: AXTASK_DB_SIZE_BUDGET_BYTES
+        value: "10737418240"
