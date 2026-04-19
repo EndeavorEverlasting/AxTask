@@ -5,6 +5,16 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { isAnimationAllowed, startSharedAnimationBudget } from "@/lib/animation-budget";
+import { flushChipHuntSync } from "@/lib/chip-hunt-sync";
+
+const CHIP_REPEL_OUTER = 28;
+const CHIP_REPEL_INNER = 12;
+const CHIP_REPEL_INNER_SCALE = 0.38;
+const CHIP_CHASE_RADIUS = 28;
+const CHIP_CATCH_RADIUS = 11;
+const CHIP_CATCH_HOLD_MS = 380;
+const CHIP_FLUSH_INTERVAL_MS = 22_000;
 
 export type PretextAmbientChipsProps = {
   labels: string[];
@@ -28,20 +38,73 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
     if (!container) return;
     const mouse = { x: -1, y: -1 };
     const pos = labels.map((_, i) => chipHome(i));
+    const catchHold = labels.map(() => 0);
     let t = 0;
     let last = performance.now();
     let raf = 0;
+    let pendingChaseMs = 0;
+    let catchQueued = false;
+
+    startSharedAnimationBudget();
+
+    const setPointerFromClient = (clientX: number, clientY: number) => {
+      const r = container.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return;
+      mouse.x = ((clientX - r.left) / r.width) * 100;
+      mouse.y = ((clientY - r.top) / r.height) * 100;
+    };
 
     const onMove = (e: MouseEvent) => {
-      const r = container.getBoundingClientRect();
-      mouse.x = ((e.clientX - r.left) / r.width) * 100;
-      mouse.y = ((e.clientY - r.top) / r.height) * 100;
+      setPointerFromClient(e.clientX, e.clientY);
     };
-    const onLeave = () => { mouse.x = -1; mouse.y = -1; };
+    const onLeave = () => {
+      mouse.x = -1;
+      mouse.y = -1;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 0) return;
+      setPointerFromClient(e.touches[0].clientX, e.touches[0].clientY);
+    };
+    const onTouchEnd = () => {
+      mouse.x = -1;
+      mouse.y = -1;
+    };
+
     window.addEventListener("mousemove", onMove, { passive: true });
     window.addEventListener("mouseleave", onLeave, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("touchend", onTouchEnd, { passive: true });
+
+    const MAX_MS_PER_REQUEST = 20_000;
+
+    const flush = async () => {
+      let guard = 0;
+      while ((pendingChaseMs > 0 || catchQueued) && guard++ < 40) {
+        const chunk = Math.min(Math.floor(pendingChaseMs), MAX_MS_PER_REQUEST);
+        const sendCatch = catchQueued;
+        if (chunk <= 0 && !sendCatch) break;
+        const ok = await flushChipHuntSync(chunk, sendCatch);
+        if (!ok) break;
+        if (chunk > 0) pendingChaseMs -= chunk;
+        if (sendCatch) catchQueued = false;
+      }
+    };
+
+    const interval = window.setInterval(() => {
+      void flush();
+    }, CHIP_FLUSH_INTERVAL_MS);
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") void flush();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     const tick = (now: number) => {
+      if (!isAnimationAllowed()) {
+        last = now;
+        raf = requestAnimationFrame(tick);
+        return;
+      }
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       t += dt;
@@ -51,13 +114,15 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
         const home = chipHome(i);
         const driftX = Math.sin(t / (4 + i) + i * 2.1) * 6;
         const driftY = Math.cos(t / (5 + i) + i * 1.7) * 4;
-        let repelX = 0, repelY = 0;
+        let repelX = 0;
+        let repelY = 0;
         if (hasMouse) {
           const dx = pos[i].x - mouse.x;
           const dy = pos[i].y - mouse.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-          if (dist < 28) {
-            const force = ((28 - dist) / 28) * 22;
+          if (dist < CHIP_REPEL_OUTER) {
+            let force = ((CHIP_REPEL_OUTER - dist) / CHIP_REPEL_OUTER) * 22;
+            if (dist < CHIP_REPEL_INNER) force *= CHIP_REPEL_INNER_SCALE;
             repelX = (dx / dist) * force;
             repelY = (dy / dist) * force;
           }
@@ -73,13 +138,45 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
           el.style.top = `${pos[i].y}%`;
         }
       }
+
+      if (hasMouse) {
+        let minDist = Infinity;
+        for (let i = 0; i < labels.length; i++) {
+          const dx = pos[i].x - mouse.x;
+          const dy = pos[i].y - mouse.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+          if (dist < minDist) minDist = dist;
+          if (dist < CHIP_CATCH_RADIUS) {
+            catchHold[i] += dt * 1000;
+          } else {
+            catchHold[i] = 0;
+          }
+        }
+        if (minDist < CHIP_CHASE_RADIUS) {
+          pendingChaseMs += dt * 1000;
+        }
+        let bestHold = 0;
+        for (let i = 0; i < labels.length; i++) {
+          if (catchHold[i] > bestHold) bestHold = catchHold[i];
+        }
+        if (bestHold >= CHIP_CATCH_HOLD_MS) {
+          catchQueued = true;
+          for (let i = 0; i < labels.length; i++) catchHold[i] = 0;
+        }
+      }
+
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseleave", onLeave);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearInterval(interval);
       cancelAnimationFrame(raf);
+      void flush();
     };
   }, [labels]);
 

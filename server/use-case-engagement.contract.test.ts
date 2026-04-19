@@ -50,6 +50,14 @@ describe("use-case engagement wiring", () => {
     expect(taskList).toContain("encodeURIComponent");
   });
 
+  it("wires chip hunt sync and redacted badge definitions", () => {
+    const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
+    const dtos = fs.readFileSync(path.join(root, "shared", "public-client-dtos.ts"), "utf8");
+    expect(routes).toContain('app.post("/api/gamification/chip-hunt/sync"');
+    expect(routes).toContain("toPublicBadgeDefinitions");
+    expect(dtos).toContain("toPublicBadgeDefinitions");
+  });
+
   it("keeps multi-label confidence visible across UI and route updates", () => {
     const badgeUi = fs.readFileSync(
       path.join(root, "client", "src", "components", "classification-badge.tsx"),

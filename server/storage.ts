@@ -1823,6 +1823,47 @@ export async function getOrCreateWallet(userId: string): Promise<Wallet> {
   return wallet;
 }
 
+const MAX_CHIP_REQUEST_MS = 20_000;
+const CHIP_CLOCK_SLACK_MS = 1_500;
+
+/**
+ * Applies client-reported ambient chip hunt deltas with per-request and wall-clock caps.
+ */
+export async function applyChipHuntSync(
+  userId: string,
+  chaseMsDeltaRaw: number,
+  catchRequested: boolean,
+): Promise<{ wallet: Wallet; acceptedChaseMs: number; catchIncremented: boolean }> {
+  const wallet = await getOrCreateWallet(userId);
+  const now = new Date();
+  let accepted = Math.min(Math.max(0, Math.floor(chaseMsDeltaRaw)), MAX_CHIP_REQUEST_MS);
+  if (wallet.chipHuntLastSyncAt) {
+    const elapsed = now.getTime() - new Date(wallet.chipHuntLastSyncAt).getTime();
+    accepted = Math.min(accepted, Math.max(0, elapsed) + CHIP_CLOCK_SLACK_MS);
+  }
+
+  const catchIncremented = Boolean(catchRequested && wallet.chipCatchesCount === 0);
+  const prevTotal = Number(wallet.chipChaseMsTotal) || 0;
+  const newChaseTotal = Math.min(prevTotal + accepted, Number.MAX_SAFE_INTEGER);
+  const newCatchCount = catchIncremented ? 1 : wallet.chipCatchesCount;
+
+  const [updated] = await db
+    .update(wallets)
+    .set({
+      chipChaseMsTotal: newChaseTotal,
+      chipCatchesCount: newCatchCount,
+      chipHuntLastSyncAt: now,
+    })
+    .where(eq(wallets.userId, userId))
+    .returning();
+
+  return {
+    wallet: updated!,
+    acceptedChaseMs: accepted,
+    catchIncremented,
+  };
+}
+
 export async function addCoins(
   userId: string,
   amount: number,

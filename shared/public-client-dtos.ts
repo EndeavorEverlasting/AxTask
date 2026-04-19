@@ -27,10 +27,19 @@ export function toPublicSessionUser(user: SafeUser): PublicSessionUser {
 }
 
 /** Wallet row without redundant owner id (caller is always the authenticated user). */
-export type PublicWallet = Omit<Wallet, "userId">;
+export type PublicWallet = Omit<
+  Wallet,
+  "userId" | "chipChaseMsTotal" | "chipCatchesCount" | "chipHuntLastSyncAt"
+>;
 
 export function toPublicWallet(wallet: Wallet): PublicWallet {
-  const { userId: _uid, ...rest } = wallet;
+  const {
+    userId: _uid,
+    chipChaseMsTotal: _chase,
+    chipCatchesCount: _catches,
+    chipHuntLastSyncAt: _sync,
+    ...rest
+  } = wallet;
   return rest;
 }
 
@@ -76,6 +85,31 @@ export function toPublicBadge(badge: UserBadge): PublicBadge {
 
 export function toPublicBadges(badges: UserBadge[]): PublicBadge[] {
   return badges.map(toPublicBadge);
+}
+
+/** Badge catalog entry (may include `hidden` before redaction for the client). */
+export type BadgeDefinitionInput = {
+  name: string;
+  description: string;
+  icon: string;
+  hidden?: boolean;
+};
+
+/** Strip spoilers for hidden badges the user has not earned yet. */
+export function toPublicBadgeDefinitions(
+  definitions: Record<string, BadgeDefinitionInput>,
+  earnedBadgeIds: Iterable<string>,
+): Record<string, { name: string; description: string; icon: string }> {
+  const earned = new Set(earnedBadgeIds);
+  const out: Record<string, { name: string; description: string; icon: string }> = {};
+  for (const [id, def] of Object.entries(definitions)) {
+    if (def.hidden && !earned.has(id)) {
+      out[id] = { name: "???", description: "Secret achievement", icon: "❓" };
+    } else {
+      out[id] = { name: def.name, description: def.description, icon: def.icon };
+    }
+  }
+  return out;
 }
 
 /**

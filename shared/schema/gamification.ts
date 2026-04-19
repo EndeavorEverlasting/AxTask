@@ -4,7 +4,7 @@
 // from tasks or ops belongs here.
 
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, bigint, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "./core";
 
 // ─── Gamification: Wallets ──────────────────────────────────────────────────
@@ -21,6 +21,10 @@ export const wallets = pgTable("wallets", {
   lastCompletionAt: timestamp("last_completion_at"),
   chainCount24h: integer("chain_count_24h").notNull().default(0),
   bestChainCount24h: integer("best_chain_count_24h").notNull().default(0),
+  /** Cumulative ms cursor spent in ambient chip “chase” zone (not exposed on PublicWallet). */
+  chipChaseMsTotal: bigint("chip_chase_ms_total", { mode: "number" }).notNull().default(0),
+  chipCatchesCount: integer("chip_catches_count").notNull().default(0),
+  chipHuntLastSyncAt: timestamp("chip_hunt_last_sync_at"),
 });
 
 export type Wallet = typeof wallets.$inferSelect;

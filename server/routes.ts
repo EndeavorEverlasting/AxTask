@@ -116,7 +116,7 @@ import {
   getCategoryReviewTriggerById,
   resolveCategoryReview,
 } from "./storage";
-import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS } from "./coin-engine";
+import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS, processChipHuntSync } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
@@ -126,7 +126,14 @@ import { db } from "./db";
 import { eq, and, desc, sql, count, gte, lte } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
-import { toPublicSessionUser, toPublicWallet, toPublicCoinTransactions, toPublicBadges, toPublicAttachmentRefs } from "@shared/public-client-dtos";
+import {
+  toPublicSessionUser,
+  toPublicWallet,
+  toPublicCoinTransactions,
+  toPublicBadges,
+  toPublicBadgeDefinitions,
+  toPublicAttachmentRefs,
+} from "@shared/public-client-dtos";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
 import { verifyMfaChallengeOrTotp } from "./services/mfa-totp";
 import {
@@ -3641,9 +3648,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/gamification/badges", requireAuth, async (req, res) => {
     try {
       const earned = await getUserBadges(req.user!.id);
-      res.json({ earned: toPublicBadges(earned), definitions: BADGE_DEFINITIONS });
+      const earnedIds = earned.map((b) => b.badgeId);
+      res.json({
+        earned: toPublicBadges(earned),
+        definitions: toPublicBadgeDefinitions(BADGE_DEFINITIONS, earnedIds),
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch badges" });
+    }
+  });
+
+  app.post("/api/gamification/chip-hunt/sync", requireAuth, async (req, res) => {
+    try {
+      const parsed = z
+        .object({
+          chaseMsDelta: z.number().finite().min(0).max(2_000_000),
+          catchEvent: z.boolean().optional(),
+        })
+        .safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid body" });
+      }
+      const { chaseMsDelta, catchEvent } = parsed.data;
+      if (chaseMsDelta === 0 && !catchEvent) {
+        return res.json({ badgesEarned: [] as string[] });
+      }
+      const { badgesEarned } = await processChipHuntSync(req.user!.id, chaseMsDelta, Boolean(catchEvent));
+      res.json({ badgesEarned });
+    } catch (error) {
+      res.status(500).json({ message: "Chip hunt sync failed" });
     }
   });
 
@@ -3906,12 +3939,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         getTransactions(userId, 20),
         getUserClassificationStats(userId),
       ]);
+      const earnedIds = badges.map((b) => b.badgeId);
       res.json({
         wallet: toPublicWallet(wallet),
         badges: toPublicBadges(badges),
         rewards,
         transactions: toPublicCoinTransactions(txs),
-        definitions: BADGE_DEFINITIONS,
+        definitions: toPublicBadgeDefinitions(BADGE_DEFINITIONS, earnedIds),
         classificationStats,
       });
     } catch (error) {

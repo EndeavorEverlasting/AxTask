@@ -68,6 +68,7 @@ describe("release-2026-04-15 contracts", () => {
 
   it("2026 shop sell-back + productivity exports + owner grant routes", () => {
     const routes = fs.readFileSync(path.join(projectRoot, "server", "routes.ts"), "utf8");
+    expect(routes).toContain('app.post("/api/gamification/chip-hunt/sync"');
     expect(routes).toContain('app.get("/api/gamification/productivity-export-prices"');
     expect(routes).toContain('app.post("/api/gamification/rewards/sell-back"');
     expect(routes).toContain('app.post("/api/gamification/owner/grant-coins"');

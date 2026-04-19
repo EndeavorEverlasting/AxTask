@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { CoinTransaction, UserBadge } from "./schema";
-import { toPublicBadge, toPublicCoinTransaction, toPublicSessionUser, toPublicWallet } from "./public-client-dtos";
+import {
+  toPublicBadge,
+  toPublicBadgeDefinitions,
+  toPublicCoinTransaction,
+  toPublicSessionUser,
+  toPublicWallet,
+} from "./public-client-dtos";
 import type { SafeUser } from "./schema";
 
 const safeUser = (over: Partial<SafeUser> = {}): SafeUser =>
@@ -34,7 +40,18 @@ describe("public client DTOs", () => {
     expect(pub.id).toBe("u1");
   });
 
-  it("drops wallet userId", () => {
+  it("redacts hidden badge definitions until earned", () => {
+    const defs = {
+      pub: { name: "Public", description: "Hi", icon: "a" },
+      sec: { name: "Secret", description: "X", icon: "b", hidden: true },
+    };
+    const out = toPublicBadgeDefinitions(defs, new Set(["pub"]));
+    expect(out.pub.name).toBe("Public");
+    expect(out.sec.name).toBe("???");
+    expect(out.sec.description).toBe("Secret achievement");
+  });
+
+  it("drops wallet userId and chip hunt internals", () => {
     const w = toPublicWallet({
       userId: "u1",
       balance: 3,
@@ -42,8 +59,20 @@ describe("public client DTOs", () => {
       currentStreak: 1,
       longestStreak: 2,
       lastCompletionDate: "2026-01-01",
+      comboCount: 0,
+      bestComboCount: 0,
+      comboWindowStartedAt: null,
+      lastCompletionAt: null,
+      chainCount24h: 0,
+      bestChainCount24h: 0,
+      chipChaseMsTotal: 999,
+      chipCatchesCount: 1,
+      chipHuntLastSyncAt: new Date(),
     });
     expect(w).not.toHaveProperty("userId");
+    expect(w).not.toHaveProperty("chipChaseMsTotal");
+    expect(w).not.toHaveProperty("chipCatchesCount");
+    expect(w).not.toHaveProperty("chipHuntLastSyncAt");
     expect(w.balance).toBe(3);
   });
 

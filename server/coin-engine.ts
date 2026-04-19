@@ -1,5 +1,14 @@
-import { type Task, tasks } from "@shared/schema";
-import { addCoins, updateStreak, awardBadge, getOrCreateWallet, getCompletedTaskCount, hasTaskBeenAwarded, updateComboChainOnCompletion } from "./storage";
+import { type Task, tasks, type Wallet } from "@shared/schema";
+import {
+  addCoins,
+  applyChipHuntSync,
+  updateStreak,
+  awardBadge,
+  getOrCreateWallet,
+  getCompletedTaskCount,
+  hasTaskBeenAwarded,
+  updateComboChainOnCompletion,
+} from "./storage";
 import { db } from "./db";
 import { eq, and, sql, count } from "drizzle-orm";
 
@@ -43,7 +52,13 @@ const COMBO_BADGES: Record<number, string> = {
   5: "combo-5",
 };
 
-export const BADGE_DEFINITIONS: Record<string, { name: string; description: string; icon: string }> = {
+const CHIP_CHASE_BADGE_THRESHOLDS: [number, string][] = [
+  [60_000, "chip-chase-1m"],
+  [600_000, "chip-chase-10m"],
+  [3_600_000, "chip-chase-1h"],
+];
+
+export const BADGE_DEFINITIONS: Record<string, { name: string; description: string; icon: string; hidden?: boolean }> = {
   "first-task": { name: "First Step", description: "Complete your first task", icon: "🎯" },
   "task-10": { name: "Getting Going", description: "Complete 10 tasks", icon: "🔥" },
   "task-25": { name: "Quarter Century", description: "Complete 25 tasks", icon: "💪" },
@@ -63,6 +78,30 @@ export const BADGE_DEFINITIONS: Record<string, { name: string; description: stri
   "chain-10": { name: "Chain Reactor", description: "Complete 10 tasks in 24 hours", icon: "⚙️" },
   "combo-3": { name: "Combo Spark", description: "Complete 3 tasks inside a combo window", icon: "⚡" },
   "combo-5": { name: "Combo Surge", description: "Complete 5 tasks inside a combo window", icon: "🌩️" },
+  "chip-chase-1m": {
+    name: "Drift Pursuit",
+    description: "Spend a minute chasing the ambient task chips",
+    icon: "🌿",
+    hidden: true,
+  },
+  "chip-chase-10m": {
+    name: "Persistent Drift",
+    description: "Spend ten minutes in the chip chase zone",
+    icon: "🌀",
+    hidden: true,
+  },
+  "chip-chase-1h": {
+    name: "Chasing Shadows",
+    description: "Spend an hour with the fleeing chips",
+    icon: "🌌",
+    hidden: true,
+  },
+  "chip-caught": {
+    name: "Chip Snared",
+    description: "Catch an ambient chip before it slips away",
+    icon: "✨",
+    hidden: true,
+  },
 };
 
 export interface CoinAwardResult {
@@ -228,4 +267,36 @@ export async function awardFeedbackBadges(userId: string, feedbackCount: number)
     }
   }
   return earned;
+}
+
+export async function awardChipHuntBadges(userId: string, wallet: Wallet): Promise<string[]> {
+  const earned: string[] = [];
+  const totalMs = Number(wallet.chipChaseMsTotal) || 0;
+  for (const [thresholdMs, badgeId] of CHIP_CHASE_BADGE_THRESHOLDS) {
+    if (totalMs >= thresholdMs) {
+      const awarded = await awardBadge(userId, badgeId);
+      if (awarded) {
+        earned.push(badgeId);
+        await addCoins(userId, 10, "chip_hunt_badge", `Badge: ${BADGE_DEFINITIONS[badgeId]?.name}`);
+      }
+    }
+  }
+  if (wallet.chipCatchesCount >= 1) {
+    const awarded = await awardBadge(userId, "chip-caught");
+    if (awarded) {
+      earned.push("chip-caught");
+      await addCoins(userId, 12, "chip_hunt_badge", `Badge: ${BADGE_DEFINITIONS["chip-caught"]?.name}`);
+    }
+  }
+  return earned;
+}
+
+export async function processChipHuntSync(
+  userId: string,
+  chaseMsDelta: number,
+  catchEvent: boolean,
+): Promise<{ badgesEarned: string[] }> {
+  const { wallet } = await applyChipHuntSync(userId, chaseMsDelta, catchEvent);
+  const badgesEarned = await awardChipHuntBadges(userId, wallet);
+  return { badgesEarned };
 }
