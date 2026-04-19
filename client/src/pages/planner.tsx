@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -11,7 +11,13 @@ import { Input } from "@/components/ui/input";
 import { PriorityBadge } from "@/components/priority-badge";
 import { motion, AnimatePresence } from "framer-motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-import BulkActionDialog, { type ProposedAction } from "@/components/bulk-action-dialog";
+import type { ProposedAction } from "@/components/bulk-action-dialog";
+
+/* BulkActionDialog owns a large framer-motion AnimatePresence subtree.
+ * It only mounts once the user has sent a review phrase AND the server
+ * has matched at least one task; until then we keep its JS out of the
+ * planner chunk entirely. */
+const BulkActionDialog = lazy(() => import("@/components/bulk-action-dialog"));
 import {
   AlertTriangle,
   CalendarDays,
@@ -874,13 +880,17 @@ export default function PlannerPage() {
         </div>
       )}
 
-      <BulkActionDialog
-        open={reviewDialogOpen}
-        onOpenChange={setReviewDialogOpen}
-        actions={reviewActions}
-        message={reviewMessage}
-        unmatched={reviewUnmatched}
-      />
+      {reviewDialogOpen ? (
+        <Suspense fallback={null}>
+          <BulkActionDialog
+            open={reviewDialogOpen}
+            onOpenChange={setReviewDialogOpen}
+            actions={reviewActions}
+            message={reviewMessage}
+            unmatched={reviewUnmatched}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }
