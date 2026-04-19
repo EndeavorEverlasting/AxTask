@@ -28,6 +28,10 @@ Before watching PR checks, use snapshot polls (`gh pr checks <N> --json name,sta
 
 Discretionary AxCoin credits are **owner-allowlisted** only (`OWNER_COIN_GRANT_USER_IDS`), audited (`owner_coin_grant` / `logSecurityEvent`), and **not** a generic admin “print money” action. Read the full policy before changing this area: [docs/OPERATOR_COIN_GRANTS.md](docs/OPERATOR_COIN_GRANTS.md).
 
+## Admin access model
+
+`role === "admin"` is assigned **out of band** (no self-service promote route in the API inventory); production MFA step-up applies to most `/api/admin/*` routes, with documented exceptions (e.g. export/import). Full diagram and file pointers: [docs/ADMIN_ACCESS_MODEL.md](docs/ADMIN_ACCESS_MODEL.md).
+
 ## Archetype empathy analytics
 
 Archetype-level analytics layered on the existing feedback-with-avatars pipeline. Signals are written with `hashedActor = HMAC-SHA256(ARCHETYPE_ANALYTICS_SALT, userId)` to `security_events (event_type='archetype_signal')`, rolled up daily into `archetype_rollup_daily` + `archetype_markov_daily`, and exposed via read APIs gated by admin session or `ARCHETYPE_READ_TOKEN`. Rollup tables must never carry a user column. Full model (privacy, empathy formula, Markov contract, env vars): [docs/ARCHETYPE_EMPATHY_ANALYTICS.md](docs/ARCHETYPE_EMPATHY_ANALYTICS.md).
