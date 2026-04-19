@@ -26,7 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, ClipboardList } from "lucide-react";
+import { Search, ClipboardList, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Task } from "@shared/schema";
 import {
@@ -34,6 +34,13 @@ import {
   type ImperativeRowTask,
   type RowEvent,
 } from "@/lib/pretext-imperative-list";
+import {
+  readTaskListRouteFilters,
+  clearTaskListRouteFilters,
+  taskMatchesRouteFilter,
+  describeRouteFilter,
+  type TaskListRouteFilter,
+} from "@/lib/task-list-route-filters";
 
 /**
  * Lazy React components for the write-path. These are only resolved when the
@@ -104,23 +111,52 @@ export function TaskListHost() {
   const queryClient = useQueryClient();
   const surfaceRef = usePerfSurface<HTMLDivElement>("task-list");
 
-  const [searchQuery, setSearchQuery] = useState("");
+  /* Hydrate initial search + saved filter from the URL so planner tile
+   * deep-links like /tasks?filter=overdue&q=report land on a pre-filtered
+   * view. The params are stripped from the location after hydration so
+   * reloads / back-nav don't re-apply them. */
+  const initialRoute = useMemo(() => readTaskListRouteFilters(), []);
+  const [searchQuery, setSearchQuery] = useState(initialRoute.q);
   const deferredSearch = useDeferredValue(searchQuery);
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [routeFilter, setRouteFilter] = useState<TaskListRouteFilter>(
+    initialRoute.filter,
+  );
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [classifyTask, setClassifyTask] = useState<Task | null>(null);
   const [, startListTransition] = useTransition();
 
-  const { data: tasks = [], isLoading } = useQuery<Task[]>({
+  const {
+    data: tasks = [],
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
   });
 
+  /* React Query is `offlineFirst` + `refetchOnWindowFocus: false`. If the
+   * cache is empty AND we're not already fetching AND we haven't errored,
+   * the user would otherwise see a permanent "no tasks" empty state while
+   * the server actually has tasks. Kick a single refetch on mount so a
+   * cold navigation to /tasks always pulls fresh data. */
+  useEffect(() => {
+    if (tasks.length === 0 && !isFetching && !isError) {
+      void refetch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const visibleTasks = useMemo(() => {
-    return tasks.filter((t) =>
-      matchesFilters(t, priorityFilter, statusFilter, deferredSearch),
+    return tasks.filter(
+      (t) =>
+        matchesFilters(t, priorityFilter, statusFilter, deferredSearch) &&
+        taskMatchesRouteFilter(t, routeFilter),
     );
-  }, [tasks, priorityFilter, statusFilter, deferredSearch]);
+  }, [tasks, priorityFilter, statusFilter, deferredSearch, routeFilter]);
 
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
   const controllerRef = useRef<PretextImperativeList | null>(null);
@@ -239,9 +275,37 @@ export function TaskListHost() {
       const t = detail?.task;
       if (t && typeof t.id === "string") setEditingTask(t);
     };
+    const onFocusSearch = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ query?: string }>).detail;
+      if (detail && typeof detail.query === "string") {
+        setSearchQuery(detail.query);
+      }
+    };
     window.addEventListener("axtask-open-task-edit", onOpenEdit);
-    return () => window.removeEventListener("axtask-open-task-edit", onOpenEdit);
+    window.addEventListener("axtask-focus-task-search", onFocusSearch);
+    return () => {
+      window.removeEventListener("axtask-open-task-edit", onOpenEdit);
+      window.removeEventListener("axtask-focus-task-search", onFocusSearch);
+    };
   }, []);
+
+  /* Strip ?filter= / ?q= from the URL once we've hydrated so the saved
+   * filter doesn't reapply after the user clears it. We keep state in
+   * React so the chip stays clickable until the user dismisses it. */
+  useEffect(() => {
+    if (initialRoute.filter !== "none" || initialRoute.q !== "") {
+      clearTaskListRouteFilters();
+    }
+  }, [initialRoute]);
+
+  /* Carry the latest-visible rows in a ref so the controller-mount effect
+   * can seed them synchronously. Without this ref we hit a mount-order
+   * bug: React renders pass 1 with `controllerRef.current === null`, the
+   * visibleTasks effect no-ops, then pass 2 mounts the controller — but
+   * visibleTasks hasn't changed reference, so the visibleTasks effect
+   * doesn't re-fire, and the tbody stays empty forever. */
+  const visibleTasksRef = useRef<Task[]>(visibleTasks);
+  visibleTasksRef.current = visibleTasks;
 
   useEffect(() => {
     const tbody = tbodyRef.current;
@@ -250,6 +314,10 @@ export function TaskListHost() {
       onRowEvent: handleRowEvent,
     });
     controllerRef.current = list;
+    /* Seed the controller with whatever visible rows we already have so
+     * the first paint after mount shows real <tr> elements even though
+     * visibleTasks hasn't changed reference since pass 1. */
+    list.setTasks(visibleTasksRef.current.map(toRowTask));
     return () => {
       list.destroy();
       controllerRef.current = null;
@@ -319,6 +387,27 @@ export function TaskListHost() {
           </Select>
         </div>
 
+        {routeFilter !== "none" && (
+          <div
+            className="flex items-center gap-2 text-xs text-muted-foreground"
+            data-testid="task-list-route-chip"
+          >
+            <span>Showing:</span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 font-medium text-primary">
+              {describeRouteFilter(routeFilter)}
+              <button
+                type="button"
+                onClick={() => setRouteFilter("none")}
+                className="ml-1 -mr-1 rounded-full hover:bg-primary/20 p-0.5"
+                aria-label="Clear saved filter"
+                data-testid="task-list-route-chip-clear"
+              >
+                <X className="h-3 w-3" aria-hidden />
+              </button>
+            </span>
+          </div>
+        )}
+
         <div
           className="overflow-x-auto overflow-y-auto"
           style={{ maxHeight: "70vh" }}
@@ -340,13 +429,50 @@ export function TaskListHost() {
             </thead>
             <tbody ref={tbodyRef} data-testid="task-list-body" />
           </table>
-          {!isLoading && visibleTasks.length === 0 && (
-            <div className="py-10 text-center text-muted-foreground text-sm" data-testid="task-list-empty">
+          {/*
+            Always-visible state surface — one of {loading, error, empty}
+            renders whenever the controller hasn't attached row elements
+            yet. Previously only the empty state rendered, and it was
+            gated on `!isLoading`, which meant an `offlineFirst` + no
+            `refetchOnWindowFocus` combination could leave the view with
+            zero rows and zero feedback.
+          */}
+          {isError ? (
+            <div
+              className="py-10 text-center text-destructive text-sm"
+              role="alert"
+              data-testid="task-list-error"
+            >
+              <p className="font-medium">Couldn't load your tasks.</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {(error as Error | null)?.message ?? "Please try again."}
+              </p>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="mt-3 inline-flex items-center rounded-md border border-border bg-background px-3 py-1 text-xs hover:bg-accent"
+                data-testid="task-list-error-retry"
+              >
+                Retry
+              </button>
+            </div>
+          ) : isLoading && visibleTasks.length === 0 ? (
+            <div
+              className="py-10 text-center text-muted-foreground text-sm"
+              data-testid="task-list-loading"
+            >
+              Loading tasks…
+            </div>
+          ) : visibleTasks.length === 0 ? (
+            <div
+              className="py-10 text-center text-muted-foreground text-sm"
+              data-testid="task-list-empty"
+            >
               {tasks.length === 0
                 ? "No tasks yet. Create one to get started."
                 : "No tasks match the current filters."}
             </div>
-          )}
+          ) : null}
         </div>
       </CardContent>
 

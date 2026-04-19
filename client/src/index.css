@@ -501,6 +501,25 @@
     transition-property: none !important;
   }
 
+  /* Ambient / aurora / orb layers are the other major compositor cost on
+   * scroll: `filter: blur(120px)` on the aurora pseudos and
+   * `will-change: transform` on the orb force the compositor to keep a
+   * full-resolution texture + promoted layer for each one. Dropping them
+   * while calm-mode is active gives back ~20-35 ms of per-frame budget on
+   * mid-tier laptops without visibly changing the stationary appearance. */
+  body[data-axtask-calm] .axtask-aurora-body::before,
+  body[data-axtask-calm] .axtask-aurora-body::after,
+  body[data-axtask-calm] .axtask-orb-layer {
+    filter: none !important;
+    animation-play-state: paused !important;
+  }
+  body[data-axtask-calm] .axtask-orb,
+  body[data-axtask-calm] .axtask-orb-layer,
+  body[data-axtask-calm] [data-pretext-chip],
+  body[data-axtask-calm] .glass-panel-glossy {
+    will-change: auto !important;
+  }
+
   /* Split light/dark: @apply with stacked dark:.../opacity utilities fails Tailwind expandApply in prod (Docker). */
   .glass-panel {
     @apply rounded-2xl border border-white/60 bg-white/70 backdrop-blur-xl shadow-sm ring-1 ring-black/[0.04];

@@ -21,7 +21,6 @@ import { AdherenceNudges } from "@/components/adherence-nudges";
 import { OfflineDataBanner } from "@/components/offline-data-banner";
 import { OfflineBanner } from "@/components/offline-banner";
 import { TaskOfflineSyncProvider } from "@/components/task-offline-sync-provider";
-import BulkActionDialog from "@/components/bulk-action-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LayoutDashboard, List, CalendarDays, Brain, Mic, MicOff, Loader2, Gamepad2 } from "lucide-react";
 // Eager: first-paint / auth-critical pages. Kept static so the initial chunk
@@ -75,6 +74,14 @@ import type { Task } from "@shared/schema";
 import { PretextShell } from "@/components/pretext/pretext-shell";
 
 const AdminPageLazy = lazy(() => import("@/pages/admin"));
+
+/* Lazy-load the voice/review bulk-action dialog + its framer-motion
+ * AnimatePresence subtree. The dialog is only opened after a voice or
+ * planner review match, so keeping it out of the initial shell chunk
+ * saves framer-motion from the first-paint critical path. */
+const BulkActionDialogLazy = lazy(
+  () => import("@/components/bulk-action-dialog"),
+);
 
 function RouteFallback() {
   return (
@@ -137,13 +144,15 @@ function ReviewDialogBridge() {
   const { reviewProposal, clearReviewProposal } = useVoice();
   if (!reviewProposal) return null;
   return (
-    <BulkActionDialog
-      open={!!reviewProposal}
-      onOpenChange={(open) => { if (!open) clearReviewProposal(); }}
-      actions={reviewProposal.actions}
-      message={reviewProposal.message}
-      unmatched={reviewProposal.unmatched}
-    />
+    <Suspense fallback={null}>
+      <BulkActionDialogLazy
+        open={!!reviewProposal}
+        onOpenChange={(open) => { if (!open) clearReviewProposal(); }}
+        actions={reviewProposal.actions}
+        message={reviewProposal.message}
+        unmatched={reviewProposal.unmatched}
+      />
+    </Suspense>
   );
 }
 

@@ -87,53 +87,86 @@ type RowBinding = {
 
 const TEMPLATE_ID = "axtask-imperative-row-template";
 
+/**
+ * Per-document cache of the parsed row template so we only pay the HTML
+ * parse once per app lifetime instead of once per PretextImperativeList
+ * instance. Keyed by Document (WeakMap) so tests that swap out jsdom
+ * windows don't accidentally reuse a template from a detached document.
+ */
+const TEMPLATE_CACHE = new WeakMap<Document, HTMLTemplateElement>();
+
+/**
+ * Browsers parse `<template>.innerHTML = "<tr>..."` using the "in body"
+ * insertion mode by default, which DROPS orphan `<tr>` tokens and leaves
+ * the `<td>` children to appear as loose inline text — this is the root
+ * cause of the "Repeat / Ship chips floating with no row" regression.
+ *
+ * The HTML-spec-blessed fix is to parse the row inside a real table context
+ * and then extract the `<tr>` from the parsed subtree. That keeps the HTML
+ * parser in "in table body" insertion mode so the row is preserved intact.
+ *
+ * We do NOT append the template to document.body (the previous behavior),
+ * because doing so left an id-colliding element in the page that broke
+ * subsequent remounts after fast-refresh / HMR in dev and exposed template
+ * internals to a11y / DOM test tooling.
+ */
 function ensureTemplate(doc: Document): HTMLTemplateElement {
-  let tpl = doc.getElementById(TEMPLATE_ID) as HTMLTemplateElement | null;
-  if (tpl) return tpl;
-  tpl = doc.createElement("template");
-  tpl.id = TEMPLATE_ID;
-  tpl.innerHTML = `
-    <tr class="axtask-cv-row hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" data-action="open">
-      <td class="axtask-drag-cell hidden w-8" data-action="drag-handle">
-        <button type="button" class="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded" data-action="drag-handle" aria-label="Drag">
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 4h2v2H9zm4 0h2v2h-2zM9 8h2v2H9zm4 0h2v2h-2zM9 12h2v2H9zm4 0h2v2h-2zM9 16h2v2H9zm4 0h2v2h-2zM9 20h2v2H9zm4 0h2v2h-2z"/></svg>
-        </button>
-      </td>
-      <td class="font-mono text-sm">
-        <span class="axtask-cell-date"></span>
-        <span class="axtask-cell-recurrence hidden ml-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"></span>
-      </td>
-      <td class="max-w-[140px] font-mono text-xs text-muted-foreground whitespace-nowrap axtask-cell-created"></td>
-      <td class="max-w-[140px] font-mono text-xs text-muted-foreground whitespace-nowrap axtask-cell-updated"></td>
-      <td><span class="axtask-cell-priority inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"></span></td>
-      <td class="max-w-md">
-        <div class="axtask-cell-activity truncate"></div>
-        <div class="axtask-cell-notes text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 hidden"></div>
-      </td>
-      <td>
-        <div class="flex items-center gap-1.5">
-          <button type="button" class="axtask-cell-classification inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200" data-action="classify"></button>
-          <span class="axtask-cell-classification-extra text-[10px] text-muted-foreground hidden"></span>
-        </div>
-      </td>
-      <td class="font-mono text-sm axtask-cell-priority-score"></td>
-      <td>
-        <span class="axtask-cell-status inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"></span>
-      </td>
-      <td>
-        <div class="flex space-x-2">
-          <button type="button" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700" data-action="toggle-status" aria-label="Toggle status">
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M5 12l4 4L19 6"/></svg>
-          </button>
-          <button type="button" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700" data-action="delete" aria-label="Delete">
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M4 7h16M9 7V4h6v3m-8 0l1 13h10l1-13"/></svg>
-          </button>
-        </div>
-      </td>
-    </tr>
-  `.trim();
-  doc.body.appendChild(tpl);
-  return tpl;
+  const cached = TEMPLATE_CACHE.get(doc);
+  if (cached) return cached;
+  const rowHtml = `
+<tr class="axtask-cv-row hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" data-action="open">
+  <td class="axtask-drag-cell hidden w-8" data-action="drag-handle">
+    <button type="button" class="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded" data-action="drag-handle" aria-label="Drag">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 4h2v2H9zm4 0h2v2h-2zM9 8h2v2H9zm4 0h2v2h-2zM9 12h2v2H9zm4 0h2v2h-2zM9 16h2v2H9zm4 0h2v2h-2zM9 20h2v2H9zm4 0h2v2h-2z"/></svg>
+    </button>
+  </td>
+  <td class="font-mono text-sm">
+    <span class="axtask-cell-date"></span>
+    <span class="axtask-cell-recurrence hidden ml-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"></span>
+  </td>
+  <td class="max-w-[140px] font-mono text-xs text-muted-foreground whitespace-nowrap axtask-cell-created"></td>
+  <td class="max-w-[140px] font-mono text-xs text-muted-foreground whitespace-nowrap axtask-cell-updated"></td>
+  <td><span class="axtask-cell-priority inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"></span></td>
+  <td class="max-w-md">
+    <div class="axtask-cell-activity truncate"></div>
+    <div class="axtask-cell-notes text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 hidden"></div>
+  </td>
+  <td>
+    <div class="flex items-center gap-1.5">
+      <button type="button" class="axtask-cell-classification inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200" data-action="classify"></button>
+      <span class="axtask-cell-classification-extra text-[10px] text-muted-foreground hidden"></span>
+    </div>
+  </td>
+  <td class="font-mono text-sm axtask-cell-priority-score"></td>
+  <td>
+    <span class="axtask-cell-status inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"></span>
+  </td>
+  <td>
+    <div class="flex space-x-2">
+      <button type="button" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700" data-action="toggle-status" aria-label="Toggle status">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M5 12l4 4L19 6"/></svg>
+      </button>
+      <button type="button" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700" data-action="delete" aria-label="Delete">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M4 7h16M9 7V4h6v3m-8 0l1 13h10l1-13"/></svg>
+      </button>
+    </div>
+  </td>
+</tr>
+`.trim();
+
+  const scratch = doc.createElement("template");
+  scratch.innerHTML = `<table><tbody>${rowHtml}</tbody></table>`;
+  const parsedRow = scratch.content.querySelector("tr");
+  if (!parsedRow) {
+    throw new Error(
+      "PretextImperativeList: failed to parse row template (no <tr> after <table><tbody> wrap)",
+    );
+  }
+  const rowTemplate = doc.createElement("template");
+  rowTemplate.id = TEMPLATE_ID;
+  rowTemplate.content.appendChild(parsedRow);
+  TEMPLATE_CACHE.set(doc, rowTemplate);
+  return rowTemplate;
 }
 
 function priorityClasses(priority: string): string {
