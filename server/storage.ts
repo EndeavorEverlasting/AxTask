@@ -14,6 +14,9 @@ import {
   taskPatterns,
   classificationContributions,
   classificationConfirmations,
+  classificationDisputes,
+  classificationDisputeVotes,
+  categoryReviewTriggers,
   offlineGenerators,
   offlineSkillNodes,
   userOfflineSkills,
@@ -70,6 +73,10 @@ import {
   type InsertTaskPattern,
   type ClassificationContribution,
   type ClassificationConfirmation,
+  type ClassificationDispute,
+  type ClassificationDisputeVote,
+  type CategoryReviewTrigger,
+  type CategoryReviewStatus,
   type OfflineGenerator,
   type OfflineSkillNode,
   type UserOfflineSkill,
@@ -4420,4 +4427,284 @@ export async function getUserClassificationStats(userId: string): Promise<{
     totalConfirmationsReceived: Number(classRow?.totalConfirmations) || 0,
     totalClassificationCoins: Number(classRow?.totalCoins) || 0,
   };
+}
+
+// ─── Classification Disputes ───────────────────────────────────────────────
+// Peer-challenge path complementing the economic-consensus confirmations above.
+// Disputes do not touch wallets or coins in this PR (see the plan's "Coin economy
+// neutrality" section and docs/OPERATOR_COIN_GRANTS.md). Tracker thresholds are
+// baseline-compatible: >=5 disputes with >=70% agreement => review_needed;
+// >=5 disputes with <70% => contested; otherwise monitoring.
+
+const DISPUTE_REVIEW_MIN_DISPUTES = 5;
+const DISPUTE_REVIEW_AGREEMENT_RATIO = 0.7;
+
+export interface DisputeWithVoteTally extends ClassificationDispute {
+  displayName: string | null;
+  agreeCount: number;
+  disagreeCount: number;
+  totalVotes: number;
+}
+
+export async function createDispute(
+  taskId: string,
+  userId: string,
+  originalCategory: string,
+  suggestedCategory: string,
+  reason: string | null,
+): Promise<ClassificationDispute> {
+  const [row] = await db
+    .insert(classificationDisputes)
+    .values({
+      id: randomUUID(),
+      taskId,
+      userId,
+      originalCategory,
+      suggestedCategory,
+      reason,
+    })
+    .returning();
+  return row;
+}
+
+export async function getUserDispute(
+  taskId: string,
+  userId: string,
+): Promise<ClassificationDispute | null> {
+  const [row] = await db
+    .select()
+    .from(classificationDisputes)
+    .where(and(
+      eq(classificationDisputes.taskId, taskId),
+      eq(classificationDisputes.userId, userId),
+    ))
+    .limit(1);
+  return row || null;
+}
+
+export async function getDisputeById(disputeId: string): Promise<ClassificationDispute | null> {
+  const [row] = await db
+    .select()
+    .from(classificationDisputes)
+    .where(eq(classificationDisputes.id, disputeId))
+    .limit(1);
+  return row || null;
+}
+
+export async function getDisputesForTask(taskId: string): Promise<DisputeWithVoteTally[]> {
+  const rows = await db
+    .select({
+      id: classificationDisputes.id,
+      taskId: classificationDisputes.taskId,
+      userId: classificationDisputes.userId,
+      originalCategory: classificationDisputes.originalCategory,
+      suggestedCategory: classificationDisputes.suggestedCategory,
+      reason: classificationDisputes.reason,
+      createdAt: classificationDisputes.createdAt,
+      displayName: users.displayName,
+    })
+    .from(classificationDisputes)
+    .innerJoin(users, eq(users.id, classificationDisputes.userId))
+    .where(eq(classificationDisputes.taskId, taskId))
+    .orderBy(desc(classificationDisputes.createdAt));
+
+  const tallies = await Promise.all(rows.map((r) => getVoteTallyForDispute(r.id)));
+  return rows.map((r, i) => ({ ...r, ...tallies[i] }));
+}
+
+export async function getDisputesByCategory(
+  originalCategory: string,
+  limit = 50,
+): Promise<ClassificationDispute[]> {
+  return db
+    .select()
+    .from(classificationDisputes)
+    .where(eq(classificationDisputes.originalCategory, originalCategory))
+    .orderBy(desc(classificationDisputes.createdAt))
+    .limit(limit);
+}
+
+export async function getVoteTallyForDispute(disputeId: string): Promise<{
+  agreeCount: number;
+  disagreeCount: number;
+  totalVotes: number;
+}> {
+  const [row] = await db
+    .select({
+      agreeCount: sql<number>`COALESCE(SUM(CASE WHEN ${classificationDisputeVotes.agree} THEN 1 ELSE 0 END), 0)`,
+      totalVotes: count(),
+    })
+    .from(classificationDisputeVotes)
+    .where(eq(classificationDisputeVotes.disputeId, disputeId));
+
+  const agreeCount = Number(row?.agreeCount) || 0;
+  const totalVotes = Number(row?.totalVotes) || 0;
+  return { agreeCount, disagreeCount: totalVotes - agreeCount, totalVotes };
+}
+
+export async function getUserVoteOnDispute(
+  disputeId: string,
+  userId: string,
+): Promise<ClassificationDisputeVote | null> {
+  const [row] = await db
+    .select()
+    .from(classificationDisputeVotes)
+    .where(and(
+      eq(classificationDisputeVotes.disputeId, disputeId),
+      eq(classificationDisputeVotes.userId, userId),
+    ))
+    .limit(1);
+  return row || null;
+}
+
+export async function voteOnDispute(
+  disputeId: string,
+  userId: string,
+  agree: boolean,
+): Promise<ClassificationDisputeVote> {
+  const existing = await getUserVoteOnDispute(disputeId, userId);
+  if (existing) {
+    const [updated] = await db
+      .update(classificationDisputeVotes)
+      .set({ agree, updatedAt: new Date() })
+      .where(eq(classificationDisputeVotes.id, existing.id))
+      .returning();
+    return updated;
+  }
+  const [row] = await db
+    .insert(classificationDisputeVotes)
+    .values({
+      id: randomUUID(),
+      disputeId,
+      userId,
+      agree,
+    })
+    .returning();
+  return row;
+}
+
+export async function updateCategoryReviewTracker(
+  originalCategory: string,
+  suggestedCategory: string,
+): Promise<CategoryReviewTrigger> {
+  const [disputeAgg] = await db
+    .select({
+      disputeCount: count(),
+    })
+    .from(classificationDisputes)
+    .where(and(
+      eq(classificationDisputes.originalCategory, originalCategory),
+      eq(classificationDisputes.suggestedCategory, suggestedCategory),
+    ));
+
+  const disputeCount = Number(disputeAgg?.disputeCount) || 0;
+
+  const [voteAgg] = await db
+    .select({
+      agreeCount: sql<number>`COALESCE(SUM(CASE WHEN ${classificationDisputeVotes.agree} THEN 1 ELSE 0 END), 0)`,
+      totalVotes: count(),
+    })
+    .from(classificationDisputeVotes)
+    .innerJoin(
+      classificationDisputes,
+      eq(classificationDisputes.id, classificationDisputeVotes.disputeId),
+    )
+    .where(and(
+      eq(classificationDisputes.originalCategory, originalCategory),
+      eq(classificationDisputes.suggestedCategory, suggestedCategory),
+    ));
+
+  const agreeCount = Number(voteAgg?.agreeCount) || 0;
+  const totalVotes = Number(voteAgg?.totalVotes) || 0;
+  const consensusRatio = totalVotes > 0 ? agreeCount / totalVotes : 0;
+
+  let status: CategoryReviewStatus;
+  if (disputeCount >= DISPUTE_REVIEW_MIN_DISPUTES && consensusRatio >= DISPUTE_REVIEW_AGREEMENT_RATIO) {
+    status = "review_needed";
+  } else if (disputeCount >= DISPUTE_REVIEW_MIN_DISPUTES) {
+    status = "contested";
+  } else {
+    status = "monitoring";
+  }
+
+  const [existing] = await db
+    .select()
+    .from(categoryReviewTriggers)
+    .where(and(
+      eq(categoryReviewTriggers.originalCategory, originalCategory),
+      eq(categoryReviewTriggers.suggestedCategory, suggestedCategory),
+    ))
+    .limit(1);
+
+  if (existing) {
+    // Never regress a resolved trigger back to monitoring/contested without
+    // an explicit resolveCategoryReview(id, ...) call clearing the outcome.
+    const nextStatus = existing.status === "resolved" ? existing.status as CategoryReviewStatus : status;
+    const [updated] = await db
+      .update(categoryReviewTriggers)
+      .set({
+        disputeCount,
+        agreeCount,
+        totalVotes,
+        consensusRatio,
+        status: nextStatus,
+        updatedAt: new Date(),
+      })
+      .where(eq(categoryReviewTriggers.id, existing.id))
+      .returning();
+    return updated;
+  }
+
+  const [inserted] = await db
+    .insert(categoryReviewTriggers)
+    .values({
+      id: randomUUID(),
+      originalCategory,
+      suggestedCategory,
+      disputeCount,
+      agreeCount,
+      totalVotes,
+      consensusRatio,
+      status,
+    })
+    .returning();
+  return inserted;
+}
+
+export async function getCategoryReviewTriggers(
+  filter?: { status?: CategoryReviewStatus },
+): Promise<CategoryReviewTrigger[]> {
+  const q = db.select().from(categoryReviewTriggers);
+  const rows = filter?.status
+    ? await q.where(eq(categoryReviewTriggers.status, filter.status)).orderBy(desc(categoryReviewTriggers.updatedAt))
+    : await q.orderBy(desc(categoryReviewTriggers.updatedAt));
+  return rows;
+}
+
+export async function getCategoryReviewTriggerById(id: string): Promise<CategoryReviewTrigger | null> {
+  const [row] = await db
+    .select()
+    .from(categoryReviewTriggers)
+    .where(eq(categoryReviewTriggers.id, id))
+    .limit(1);
+  return row || null;
+}
+
+export async function resolveCategoryReview(
+  id: string,
+  resolvedBy: string,
+  outcome: string,
+): Promise<CategoryReviewTrigger | null> {
+  const [row] = await db
+    .update(categoryReviewTriggers)
+    .set({
+      status: "resolved",
+      resolvedBy,
+      resolveOutcome: outcome,
+      resolvedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(categoryReviewTriggers.id, id))
+    .returning();
+  return row || null;
 }

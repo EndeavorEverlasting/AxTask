@@ -102,6 +102,18 @@ import {
   getPatterns,
   getPatternsByType,
   getUserClassificationStats,
+  createDispute,
+  getUserDispute,
+  getDisputeById,
+  getDisputesForTask,
+  getDisputesByCategory,
+  getVoteTallyForDispute,
+  getUserVoteOnDispute,
+  voteOnDispute,
+  updateCategoryReviewTracker,
+  getCategoryReviewTriggers,
+  getCategoryReviewTriggerById,
+  resolveCategoryReview,
 } from "./storage";
 import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
@@ -133,6 +145,8 @@ import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
 import { processFeedbackWithEngines } from "./engines/feedback-engine";
 import { recordArchetypeSignal, type ArchetypeSignalKind } from "./lib/archetype-signal";
+import { hashActor } from "./lib/actor-hash";
+import { insertClassificationDisputeSchema, CATEGORY_REVIEW_STATUSES, type CategoryReviewStatus } from "@shared/schema";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
 import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from "./engines/pattern-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
@@ -1997,6 +2011,177 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.error("Confirm classification error:", error);
       res.status(500).json({ message: "Failed to confirm classification" });
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Classification disputes (peer-challenge path; see
+  // docs/BASELINE_PUBLISHED_AUDIT.md section 4b #7).
+  // Disputes do not touch wallets/coins in this PR; see the plan's
+  // "Coin economy neutrality" and docs/OPERATOR_COIN_GRANTS.md.
+  // ────────────────────────────────────────────────────────────────────────
+
+  app.post("/api/tasks/:taskId/classification/disputes", requireAuth, async (req, res) => {
+    try {
+      const task = await storage.getTask(req.user!.id, req.params.taskId);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const parsed = insertClassificationDisputeSchema.safeParse({
+        ...req.body,
+        taskId: task.id,
+        userId: req.user!.id,
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid dispute payload", issues: parsed.error.issues });
+      }
+      const { originalCategory, suggestedCategory, reason } = parsed.data;
+      if (originalCategory === suggestedCategory) {
+        return res.status(400).json({ message: "Suggested category must differ from original" });
+      }
+      if ((task.classification ?? "General") !== originalCategory) {
+        return res.status(409).json({ message: "Task classification has changed; refresh and try again" });
+      }
+
+      const existing = await getUserDispute(task.id, req.user!.id);
+      if (existing) {
+        return res.status(409).json({ message: "You have already disputed this classification" });
+      }
+
+      const dispute = await createDispute(
+        task.id,
+        req.user!.id,
+        originalCategory,
+        suggestedCategory,
+        reason ?? null,
+      );
+
+      await updateCategoryReviewTracker(originalCategory, suggestedCategory);
+      await appendSecurityEvent({
+        eventType: "classification_dispute_created",
+        route: "/api/tasks/:taskId/classification/disputes",
+        method: "POST",
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {
+          hashedActor: hashActor(req.user!.id),
+          originalCategory,
+          suggestedCategory,
+          reasonLength: reason ? reason.length : 0,
+        },
+      });
+
+      res.status(201).json({
+        id: dispute.id,
+        taskId: dispute.taskId,
+        originalCategory: dispute.originalCategory,
+        suggestedCategory: dispute.suggestedCategory,
+        reason: dispute.reason,
+        createdAt: dispute.createdAt,
+      });
+    } catch (error: unknown) {
+      const pgCode = error && typeof error === "object" && "code" in error ? (error as { code?: string }).code : undefined;
+      if (pgCode === "23505") {
+        return res.status(409).json({ message: "You have already disputed this classification" });
+      }
+      console.error("Dispute create error:", error);
+      res.status(500).json({ message: "Failed to create dispute" });
+    }
+  });
+
+  app.get("/api/tasks/:taskId/classification/disputes", requireAuth, async (req, res) => {
+    try {
+      const task = await storage.getTask(req.user!.id, req.params.taskId);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      const rows = await getDisputesForTask(task.id);
+      const myVotes: Record<string, boolean | null> = {};
+      for (const r of rows) {
+        const vote = await getUserVoteOnDispute(r.id, req.user!.id);
+        myVotes[r.id] = vote ? vote.agree : null;
+      }
+      res.json({
+        disputes: rows.map((r) => ({
+          id: r.id,
+          taskId: r.taskId,
+          userId: r.userId,
+          displayName: r.displayName,
+          originalCategory: r.originalCategory,
+          suggestedCategory: r.suggestedCategory,
+          reason: r.reason,
+          createdAt: r.createdAt,
+          agreeCount: r.agreeCount,
+          disagreeCount: r.disagreeCount,
+          totalVotes: r.totalVotes,
+          myVote: myVotes[r.id],
+        })),
+      });
+    } catch (error) {
+      console.error("Disputes fetch error:", error);
+      res.status(500).json({ message: "Failed to fetch disputes" });
+    }
+  });
+
+  app.post("/api/classification/disputes/:disputeId/vote", requireAuth, async (req, res) => {
+    try {
+      const voteSchema = z.object({ agree: z.boolean() });
+      const parsed = voteSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid vote payload" });
+      }
+
+      const dispute = await getDisputeById(req.params.disputeId);
+      if (!dispute) {
+        return res.status(404).json({ message: "Dispute not found" });
+      }
+      if (dispute.userId === req.user!.id) {
+        return res.status(403).json({ message: "You cannot vote on your own dispute" });
+      }
+
+      const vote = await voteOnDispute(req.params.disputeId, req.user!.id, parsed.data.agree);
+      const tracker = await updateCategoryReviewTracker(dispute.originalCategory, dispute.suggestedCategory);
+      const tally = await getVoteTallyForDispute(dispute.id);
+
+      await appendSecurityEvent({
+        eventType: "classification_dispute_vote",
+        route: "/api/classification/disputes/:disputeId/vote",
+        method: "POST",
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {
+          hashedActor: hashActor(req.user!.id),
+          agree: parsed.data.agree,
+          trackerStatus: tracker.status,
+        },
+      });
+
+      res.json({
+        vote: { id: vote.id, agree: vote.agree, updatedAt: vote.updatedAt },
+        tally,
+        trackerStatus: tracker.status,
+      });
+    } catch (error) {
+      console.error("Dispute vote error:", error);
+      res.status(500).json({ message: "Failed to record vote" });
+    }
+  });
+
+  app.get("/api/classification/disputes/:disputeId/votes", requireAuth, async (req, res) => {
+    try {
+      const dispute = await getDisputeById(req.params.disputeId);
+      if (!dispute) {
+        return res.status(404).json({ message: "Dispute not found" });
+      }
+      const tally = await getVoteTallyForDispute(dispute.id);
+      const myVote = await getUserVoteOnDispute(dispute.id, req.user!.id);
+      res.json({
+        ...tally,
+        myVote: myVote ? myVote.agree : null,
+      });
+    } catch (error) {
+      console.error("Dispute vote tally error:", error);
+      res.status(500).json({ message: "Failed to fetch vote tally" });
     }
   });
 
@@ -5195,6 +5380,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch {
       res.status(500).json({ message: "Git inventory unavailable" });
+    }
+  });
+
+  app.get("/api/admin/classification/category-review-triggers", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const statusParam = typeof req.query.status === "string" ? req.query.status : undefined;
+      const filter = statusParam && (CATEGORY_REVIEW_STATUSES as readonly string[]).includes(statusParam)
+        ? { status: statusParam as CategoryReviewStatus }
+        : undefined;
+      const rows = await getCategoryReviewTriggers(filter);
+      res.json({ triggers: rows });
+    } catch (error) {
+      console.error("Admin review-triggers fetch error:", error);
+      res.status(500).json({ message: "Failed to fetch review triggers" });
+    }
+  });
+
+  app.get("/api/admin/classification/category-review-triggers/:id/disputes", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const trigger = await getCategoryReviewTriggerById(req.params.id);
+      if (!trigger) {
+        return res.status(404).json({ message: "Trigger not found" });
+      }
+      const disputes = await getDisputesByCategory(trigger.originalCategory, 100);
+      res.json({
+        trigger,
+        disputes: disputes.filter((d) => d.suggestedCategory === trigger.suggestedCategory),
+      });
+    } catch (error) {
+      console.error("Admin trigger disputes fetch error:", error);
+      res.status(500).json({ message: "Failed to fetch trigger disputes" });
+    }
+  });
+
+  app.post("/api/admin/classification/category-review-triggers/:id/resolve", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const resolveSchema = z.object({ outcome: z.string().trim().min(1).max(200) });
+      const parsed = resolveSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "outcome is required (<=200 chars)" });
+      }
+      const resolved = await resolveCategoryReview(req.params.id, req.user!.id, parsed.data.outcome);
+      if (!resolved) {
+        return res.status(404).json({ message: "Trigger not found" });
+      }
+      await logSecurityEvent(
+        "classification_category_resolved",
+        req.user!.id,
+        undefined,
+        req.ip,
+        `Resolved ${resolved.originalCategory} -> ${resolved.suggestedCategory}: ${parsed.data.outcome}`,
+      );
+      res.json({ trigger: resolved });
+    } catch (error) {
+      console.error("Admin resolve trigger error:", error);
+      res.status(500).json({ message: "Failed to resolve trigger" });
     }
   });
 

@@ -1270,6 +1270,87 @@ export const classificationConfirmations = pgTable("classification_confirmations
 
 export type ClassificationConfirmation = typeof classificationConfirmations.$inferSelect;
 
+// ─── Classification Disputes (peer challenge to auto-classifications) ───────
+/**
+ * User challenges an auto-classification on a specific task, suggesting an
+ * alternative category. Peers vote agree/disagree via classificationDisputeVotes;
+ * per-category-pair aggregate tallies in categoryReviewTriggers flip status
+ * through monitoring -> contested -> review_needed at the thresholds enforced
+ * in storage.updateCategoryReviewTracker (>=5 disputes, >=70% agreement).
+ *
+ * Additive to classificationContributions / classificationConfirmations:
+ * confirmations are the "agree" path (economic, compounding coins); disputes
+ * are the "disagree" path (moderation metadata; no coin rewards in this PR).
+ *
+ * Baseline ported from commit 163b692; see docs/BASELINE_PUBLISHED_AUDIT.md
+ * section 4b #7. The 675-line NodeWeaver TS engine stub from the same commit
+ * is NOT ported — main has the real classifier as a vendored Python service.
+ */
+export const classificationDisputes = pgTable("classification_disputes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  originalCategory: text("original_category").notNull(),
+  suggestedCategory: text("suggested_category").notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_class_dispute_task").on(table.taskId),
+  index("idx_class_dispute_user").on(table.userId),
+  uniqueIndex("ux_class_dispute_task_user").on(table.taskId, table.userId),
+]);
+
+export type ClassificationDispute = typeof classificationDisputes.$inferSelect;
+
+export const classificationDisputeVotes = pgTable("classification_dispute_votes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  disputeId: varchar("dispute_id").notNull().references(() => classificationDisputes.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  agree: boolean("agree").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_class_dispute_votes_dispute").on(table.disputeId),
+  uniqueIndex("ux_class_dispute_votes_user_dispute").on(table.userId, table.disputeId),
+]);
+
+export type ClassificationDisputeVote = typeof classificationDisputeVotes.$inferSelect;
+
+export const categoryReviewTriggers = pgTable("category_review_triggers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  originalCategory: text("original_category").notNull(),
+  suggestedCategory: text("suggested_category").notNull(),
+  disputeCount: integer("dispute_count").notNull().default(0),
+  agreeCount: integer("agree_count").notNull().default(0),
+  totalVotes: integer("total_votes").notNull().default(0),
+  consensusRatio: doublePrecision("consensus_ratio").notNull().default(0),
+  status: text("status").notNull().default("monitoring"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by"),
+  resolveOutcome: text("resolve_outcome"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_crt_original").on(table.originalCategory),
+  index("idx_crt_status").on(table.status),
+  uniqueIndex("ux_crt_category_pair").on(table.originalCategory, table.suggestedCategory),
+]);
+
+export type CategoryReviewTrigger = typeof categoryReviewTriggers.$inferSelect;
+
+export const CATEGORY_REVIEW_STATUSES = ["monitoring", "contested", "review_needed", "resolved"] as const;
+export type CategoryReviewStatus = (typeof CATEGORY_REVIEW_STATUSES)[number];
+
+export const insertClassificationDisputeSchema = createInsertSchema(classificationDisputes).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  originalCategory: z.string().min(1).max(80),
+  suggestedCategory: z.string().min(1).max(80),
+  reason: z.string().trim().max(500).nullish(),
+});
+export type InsertClassificationDispute = z.infer<typeof insertClassificationDisputeSchema>;
+
 // ─── Archetype Empathy Analytics ────────────────────────────────────────────
 /**
  * Per-archetype, per-day empathy rollup. Computed by the archetype-rollup
