@@ -24,39 +24,48 @@ import { TaskOfflineSyncProvider } from "@/components/task-offline-sync-provider
 import BulkActionDialog from "@/components/bulk-action-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LayoutDashboard, List, CalendarDays, Brain, Mic, MicOff, Loader2, Gamepad2 } from "lucide-react";
+// Eager: first-paint / auth-critical pages. Kept static so the initial chunk
+// can render without a Suspense fallback flicker.
 import Dashboard from "@/pages/dashboard";
-import Tasks from "@/pages/tasks";
-import Analytics from "@/pages/analytics";
-import CalendarPage from "@/pages/calendar";
-import ImportExport from "@/pages/import-export";
-import GoogleSheetsSyncPage from "@/pages/google-sheets-sync";
-import ChecklistPage from "@/pages/checklist";
-import ShoppingPage from "@/pages/shopping";
-import PlannerPage from "@/pages/planner";
-import MiniGamesPage from "@/pages/mini-games";
-import RewardsPage from "@/pages/rewards";
-import SkillTreePage from "@/pages/skill-tree";
-import PremiumPage from "@/pages/premium";
-import BillingPage from "@/pages/billing";
-import AccountPage from "@/pages/account";
-import SettingsPage from "@/pages/settings";
-import AppealsPage from "@/pages/appeals";
-import FeedbackPage from "@/pages/feedback";
-import CommunityPage from "@/pages/community";
-import CollabInboxPage from "@/pages/collab-inbox";
-import VideoHuddlePage from "@/pages/video-huddle";
 import ExperienceConfirmPage from "@/pages/experience-confirm";
 import LoginPage from "@/pages/login";
 import LandingPage from "@/pages/landing";
 import ContactPage from "@/pages/contact";
+import NotFound from "@/pages/not-found";
+
+// Lazy: everything else. Vite's manualChunks pulls heavy vendor libs out of
+// these chunks so a page chunk only carries that page's own code plus any
+// page-specific deps. Routes that are hit far less than the dashboard
+// (admin, billing-bridge, import-export, etc.) stay out of the initial
+// bundle entirely.
+const Tasks = lazy(() => import("@/pages/tasks"));
+const Analytics = lazy(() => import("@/pages/analytics"));
+const CalendarPage = lazy(() => import("@/pages/calendar"));
+const ImportExport = lazy(() => import("@/pages/import-export"));
+const GoogleSheetsSyncPage = lazy(() => import("@/pages/google-sheets-sync"));
+const ChecklistPage = lazy(() => import("@/pages/checklist"));
+const ShoppingPage = lazy(() => import("@/pages/shopping"));
+const PlannerPage = lazy(() => import("@/pages/planner"));
+const MiniGamesPage = lazy(() => import("@/pages/mini-games"));
+const RewardsPage = lazy(() => import("@/pages/rewards"));
+const SkillTreePage = lazy(() => import("@/pages/skill-tree"));
+const PremiumPage = lazy(() => import("@/pages/premium"));
+const BillingPage = lazy(() => import("@/pages/billing"));
+const AccountPage = lazy(() => import("@/pages/account"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const AppealsPage = lazy(() => import("@/pages/appeals"));
+const FeedbackPage = lazy(() => import("@/pages/feedback"));
+const CommunityPage = lazy(() => import("@/pages/community"));
+const CollabInboxPage = lazy(() => import("@/pages/collab-inbox"));
+const VideoHuddlePage = lazy(() => import("@/pages/video-huddle"));
+const BillingBridgePage = lazy(() => import("@/pages/billing-bridge"));
+
 import { DeepLinkGate } from "@/components/marketing/deep-link-gate";
 import { isValidAppPath } from "@/lib/app-routes";
 import {
   getSafePostLoginPath,
   POST_LOGIN_REDIRECT_STORAGE_KEY,
 } from "@/lib/post-login-redirect";
-import BillingBridgePage from "@/pages/billing-bridge";
-import NotFound from "@/pages/not-found";
 import { Link } from "wouter";
 import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
 import { GlobalSearch } from "@/components/global-search";
@@ -67,49 +76,60 @@ import { PretextShell } from "@/components/pretext/pretext-shell";
 
 const AdminPageLazy = lazy(() => import("@/pages/admin"));
 
-function AdminRoute() {
+function RouteFallback() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-[40vh] w-full items-center justify-center bg-background">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
-        </div>
-      }
-    >
+    <div className="flex min-h-[40vh] w-full items-center justify-center bg-background">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+    </div>
+  );
+}
+
+function AdminRoute() {
+  // Kept for back-compat with app-admin-lazy.contract.test.ts which asserts
+  // the pages/admin chunk stays lazy. The outer Suspense below would catch
+  // it too, but keeping this local boundary means admin-specific loading
+  // never blocks sibling routes from rendering their own fallbacks.
+  return (
+    <Suspense fallback={<RouteFallback />}>
       <AdminPageLazy />
     </Suspense>
   );
 }
 
 function Router() {
+  // One outer Suspense covers every lazy page. Pages we keep eager
+  // (Dashboard, Login, Landing, Contact, NotFound, ExperienceConfirm)
+  // render without suspending.
   return (
-    <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/tasks" component={Tasks} />
-      <Route path="/calendar" component={CalendarPage} />
-      <Route path="/analytics" component={Analytics} />
-      <Route path="/import-export" component={ImportExport} />
-      <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
-      <Route path="/checklist" component={ChecklistPage} />
-      <Route path="/shopping" component={ShoppingPage} />
-      <Route path="/planner" component={PlannerPage} />
-      <Route path="/mini-games" component={MiniGamesPage} />
-      <Route path="/feedback" component={FeedbackPage} />
-      <Route path="/community" component={CommunityPage} />
-      <Route path="/collab" component={CollabInboxPage} />
-      <Route path="/huddle" component={VideoHuddlePage} />
-      <Route path="/admin" component={AdminRoute} />
-      <Route path="/rewards" component={RewardsPage} />
-      <Route path="/skill-tree" component={SkillTreePage} />
-      <Route path="/premium" component={PremiumPage} />
-      <Route path="/billing" component={BillingPage} />
-      <Route path="/account" component={AccountPage} />
-      <Route path="/settings" component={SettingsPage} />
-      <Route path="/appeals" component={AppealsPage} />
-      <Route path="/contact" component={ContactPage} />
-      <Route path="/billing-bridge" component={BillingBridgePage} />
-      <Route component={NotFound} />
-    </Switch>
+    <Suspense fallback={<RouteFallback />}>
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/tasks" component={Tasks} />
+        <Route path="/calendar" component={CalendarPage} />
+        <Route path="/analytics" component={Analytics} />
+        <Route path="/import-export" component={ImportExport} />
+        <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
+        <Route path="/checklist" component={ChecklistPage} />
+        <Route path="/shopping" component={ShoppingPage} />
+        <Route path="/planner" component={PlannerPage} />
+        <Route path="/mini-games" component={MiniGamesPage} />
+        <Route path="/feedback" component={FeedbackPage} />
+        <Route path="/community" component={CommunityPage} />
+        <Route path="/collab" component={CollabInboxPage} />
+        <Route path="/huddle" component={VideoHuddlePage} />
+        <Route path="/admin" component={AdminRoute} />
+        <Route path="/rewards" component={RewardsPage} />
+        <Route path="/skill-tree" component={SkillTreePage} />
+        <Route path="/premium" component={PremiumPage} />
+        <Route path="/billing" component={BillingPage} />
+        <Route path="/account" component={AccountPage} />
+        <Route path="/settings" component={SettingsPage} />
+        <Route path="/appeals" component={AppealsPage} />
+        <Route path="/contact" component={ContactPage} />
+        <Route path="/billing-bridge" component={BillingBridgePage} />
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
   );
 }
 
