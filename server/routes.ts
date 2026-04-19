@@ -160,6 +160,17 @@ import { getProvider, getAvailableProviders } from "./auth-providers";
 import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./services/usage-service";
 import { getApiPerformanceHeuristics } from "./services/api-performance-service";
 import { getDbSizeCached } from "./services/db-size";
+import {
+  listTableBytes,
+  listDomainRollup,
+  listTopUsers,
+  type TopUserKind,
+} from "./services/db-storage";
+import { listDbSizeHistory } from "./workers/db-size-snapshot";
+import {
+  previewRetentionPrune,
+  runRetentionPruneOnce,
+} from "./workers/retention-prune";
 import { createUploadToken, verifyUploadToken } from "./services/upload-token";
 import { writeAttachmentObject, readAttachmentObject, deleteAttachmentObject } from "./services/attachment-storage";
 import { scanAttachmentBuffer } from "./services/attachment-scan";
@@ -471,6 +482,19 @@ const voiceLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   message: { message: "Too many voice requests — try again shortly" },
+});
+
+// Admin "Run prune now" is a destructive action that chews through all
+// retention tables. Step-up auth + role check already apply, but cap the
+// mutation specifically — burst-clicking the button shouldn't queue up
+// concurrent sweeps.
+const adminRetentionRunLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: { message: "Retention prune already in flight — try again shortly" },
 });
 
 const migrationLimiter = rateLimit({
@@ -5850,6 +5874,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to read database size" });
     }
   });
+
+  // ─── Admin > Storage granularity ───────────────────────────────────
+  //
+  // These endpoints power the Storage tab (client/src/components/admin/
+  // storage/*). They go a level deeper than the whole-DB gauge above:
+  // per-table and per-domain byte counts, the top-N storage-heavy users
+  // (hashed), a DB-size trend from db_size_snapshots, and a dry-run
+  // preview plus an explicit run trigger for the retention worker.
+  //
+  // Everything is read-only except POST /api/admin/retention/run, which
+  // is audited via logSecurityEvent("retention_prune_manual", ...).
+
+  app.get("/api/admin/db-storage/tables", requireAdmin, requireAdminStepUp, async (_req, res) => {
+    try {
+      const result = await listTableBytes();
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to read per-table storage" });
+    }
+  });
+
+  app.get("/api/admin/db-storage/domains", requireAdmin, requireAdminStepUp, async (_req, res) => {
+    try {
+      const result = await listDomainRollup();
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to read per-domain storage rollup" });
+    }
+  });
+
+  app.get("/api/admin/db-storage/top-users", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const kindParam = String(req.query.kind || "attachments") as TopUserKind;
+      const kind: TopUserKind = kindParam === "tasks" ? "tasks" : "attachments";
+      const limit = Math.min(Math.max(Number(req.query.limit || 20), 1), 100);
+      const result = await listTopUsers(kind, limit);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to read top-users-by-storage" });
+    }
+  });
+
+  app.get("/api/admin/db-size/history", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const days = Math.min(Math.max(Number(req.query.days || 30), 1), 365);
+      const points = await listDbSizeHistory(days);
+      res.json({ points, days });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to read DB size history" });
+    }
+  });
+
+  app.get("/api/admin/retention/preview", requireAdmin, requireAdminStepUp, async (_req, res) => {
+    try {
+      const result = await previewRetentionPrune();
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to compute retention preview" });
+    }
+  });
+
+  app.post(
+    "/api/admin/retention/run",
+    adminRetentionRunLimiter,
+    requireAdmin,
+    requireAdminStepUp,
+    async (req, res) => {
+      try {
+        const result = await runRetentionPruneOnce();
+        // Audit the manual trigger so operator actions are traceable in
+        // security_logs alongside the scheduled 24h tick output. Follows
+        // the OPERATOR_COIN_GRANTS audit pattern — owner-level write, not
+        // a generic admin action.
+        try {
+          await logSecurityEvent(
+            "retention_prune_manual",
+            req.user?.id,
+            undefined,
+            req.ip,
+            JSON.stringify({
+              securityEventsDeleted: result.securityEventsDeleted,
+              securityLogsDeleted: result.securityLogsDeleted,
+              usageSnapshotsDeleted: result.usageSnapshotsDeleted,
+              passwordResetTokensDeleted: result.passwordResetTokensDeleted,
+              dbSizeSnapshotsDeleted: result.dbSizeSnapshotsDeleted,
+              durationMs: result.durationMs,
+              errors: result.errors.length,
+            }),
+          );
+        } catch (auditErr) {
+          // Audit write failure must not hide the action result from the
+          // operator — log and keep going.
+          console.warn("[retention_prune_manual] audit log failed:", (auditErr as Error)?.message);
+        }
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ message: "Retention prune failed" });
+      }
+    },
+  );
 
   app.get("/api/admin/premium/retention", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {

@@ -109,3 +109,105 @@ export function toPublicAttachmentRef(asset: AttachmentAsset): PublicAttachmentR
 export function toPublicAttachmentRefs(assets: AttachmentAsset[]): PublicAttachmentRef[] {
   return assets.map(toPublicAttachmentRef);
 }
+
+// ─── Admin > Storage DTOs ──────────────────────────────────────────────
+//
+// These shapes are admin-only (/api/admin/db-storage/*). Per
+// docs/CLIENT_VISIBLE_PRIVACY.md we explicitly don't ship raw user ids
+// back to the SPA — the storage service hashes userId server-side before
+// any of these DTOs are constructed, so there's nothing here to strip.
+// Admin operators can de-hash via logs if they genuinely need to identify
+// a heavy user.
+
+export type PublicStorageDomain =
+  | "core"
+  | "tasks"
+  | "gamification"
+  | "ops"
+  | "unknown";
+
+export type PublicTableBytesRow = {
+  tableName: string;
+  domain: PublicStorageDomain;
+  totalBytes: number;
+  tableBytes: number;
+  indexBytes: number;
+  toastBytes: number;
+  liveRows: number;
+  deadRows: number;
+};
+
+export type PublicDomainRollupRow = {
+  domain: PublicStorageDomain;
+  tableCount: number;
+  totalBytes: number;
+  tableBytes: number;
+  indexBytes: number;
+  liveRows: number;
+};
+
+export type PublicTopUserRow = {
+  /** Short hash of the userId; never the raw id. */
+  userKey: string;
+  bytes: number;
+  rowCount: number;
+};
+
+export type PublicDbStorageTablesResponse = {
+  rows: PublicTableBytesRow[];
+  fetchedAt: string;
+  source: "live" | "cache";
+};
+
+export type PublicDbStorageDomainsResponse = {
+  rollup: PublicDomainRollupRow[];
+  fetchedAt: string;
+  source: "live" | "cache";
+};
+
+export type PublicDbStorageTopUsersResponse = {
+  kind: "attachments" | "tasks";
+  rows: PublicTopUserRow[];
+  fetchedAt: string;
+};
+
+export type PublicDbSizeHistoryPoint = {
+  capturedAt: string;
+  dbSizeBytes: number;
+  domainBytes: Record<PublicStorageDomain, number>;
+};
+
+export type PublicDbSizeHistoryResponse = {
+  points: PublicDbSizeHistoryPoint[];
+  days: number;
+};
+
+export type PublicRetentionPreviewRow = {
+  table:
+    | "security_events"
+    | "security_logs"
+    | "usage_snapshots"
+    | "password_reset_tokens"
+    | "db_size_snapshots";
+  cutoff: string;
+  rowsToDelete: number;
+};
+
+export type PublicRetentionPreviewResponse = {
+  rows: PublicRetentionPreviewRow[];
+  totalRowsToDelete: number;
+  generatedAt: string;
+};
+
+export type PublicRetentionRunResponse = {
+  securityEventsDeleted: number;
+  securityLogsDeleted: number;
+  usageSnapshotsDeleted: number;
+  passwordResetTokensDeleted: number;
+  dbSizeSnapshotsDeleted: number;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  errors: Array<{ table: string; message: string }>;
+};
+

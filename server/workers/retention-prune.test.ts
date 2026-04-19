@@ -26,6 +26,7 @@ describe("computeRetentionWindows", () => {
     expect(w.securityLogsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.securityLogsDays * day);
     expect(w.usageSnapshotsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.usageSnapshotsDays * day);
     expect(w.passwordResetTokensBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.passwordResetTokensDays * day);
+    expect(w.dbSizeSnapshotsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.dbSizeSnapshotsDays * day);
   });
 
   it("honors per-table overrides", () => {
@@ -54,6 +55,7 @@ describe("computeRetentionWindows", () => {
     expect(w.securityLogsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.securityLogsDays * day);
     expect(w.usageSnapshotsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.usageSnapshotsDays * day);
     expect(w.passwordResetTokensBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.passwordResetTokensDays * day);
+    expect(w.dbSizeSnapshotsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.dbSizeSnapshotsDays * day);
   });
 
   it("floors non-integer day counts (so windows never grow silently)", () => {
@@ -68,13 +70,19 @@ describe("runRetentionPrune", () => {
     const calls: Array<{ table: string; before: Date }> = [];
     const deleteOlderThan = vi.fn(async (table, before) => {
       calls.push({ table, before });
-      return table === "security_events" ? 123 : table === "security_logs" ? 4 : table === "usage_snapshots" ? 7 : 2;
+      if (table === "security_events") return 123;
+      if (table === "security_logs") return 4;
+      if (table === "usage_snapshots") return 7;
+      if (table === "password_reset_tokens") return 2;
+      if (table === "db_size_snapshots") return 9;
+      return 0;
     });
 
     const result = await runRetentionPrune({}, { deleteOlderThan, log: () => {} });
 
-    expect(deleteOlderThan).toHaveBeenCalledTimes(4);
+    expect(deleteOlderThan).toHaveBeenCalledTimes(5);
     expect(calls.map((c) => c.table).sort()).toEqual([
+      "db_size_snapshots",
       "password_reset_tokens",
       "security_events",
       "security_logs",
@@ -84,6 +92,7 @@ describe("runRetentionPrune", () => {
     expect(result.securityLogsDeleted).toBe(4);
     expect(result.usageSnapshotsDeleted).toBe(7);
     expect(result.passwordResetTokensDeleted).toBe(2);
+    expect(result.dbSizeSnapshotsDeleted).toBe(9);
     expect(result.errors).toEqual([]);
   });
 
@@ -92,6 +101,7 @@ describe("runRetentionPrune", () => {
       if (table === "security_events") throw new Error("boom: permission denied");
       if (table === "security_logs") return 12;
       if (table === "usage_snapshots") return 0;
+      if (table === "db_size_snapshots") return 3;
       return 1;
     });
     const logs: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
@@ -133,6 +143,7 @@ describe("startRetentionPruneTicker", () => {
       securityLogsDeleted: 0,
       usageSnapshotsDeleted: 0,
       passwordResetTokensDeleted: 0,
+      dbSizeSnapshotsDeleted: 0,
       startedAt: "", finishedAt: "", durationMs: 0, errors: [],
     }));
     const stop = startRetentionPruneTicker({ intervalMs: 1000, initialDelayMs: 500, run });
@@ -148,6 +159,7 @@ describe("startRetentionPruneTicker", () => {
       securityLogsDeleted: 0,
       usageSnapshotsDeleted: 0,
       passwordResetTokensDeleted: 0,
+      dbSizeSnapshotsDeleted: 0,
       startedAt: "", finishedAt: "", durationMs: 0, errors: [],
     }));
     const stop = startRetentionPruneTicker({ intervalMs: 1000, initialDelayMs: 100, run });
@@ -178,6 +190,7 @@ describe("startRetentionPruneTicker", () => {
       securityLogsDeleted: 0,
       usageSnapshotsDeleted: 0,
       passwordResetTokensDeleted: 0,
+      dbSizeSnapshotsDeleted: 0,
       startedAt: "", finishedAt: "", durationMs: 0, errors: [],
     }));
     const stop = startRetentionPruneTicker({ intervalMs: 1000, initialDelayMs: 50, run });

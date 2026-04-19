@@ -20,13 +20,14 @@
  * See docs/MODULE_LAYOUT.md for target home (`server/workers/` is fine
  * either way — this will stay in workers/).
  */
-import { lt } from "drizzle-orm";
+import { lt, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   securityEvents,
   securityLogs,
   usageSnapshots,
   passwordResetTokens,
+  dbSizeSnapshots,
 } from "@shared/schema";
 
 export const DEFAULT_RETENTION_WINDOWS = {
@@ -43,6 +44,10 @@ export const DEFAULT_RETENTION_WINDOWS = {
   /** password_reset_tokens expire quickly and are single-use; once
    *  consumed or expired they're just noise. */
   passwordResetTokensDays: 7,
+  /** db_size_snapshots are 1-row-per-day Postgres-disk captures powering
+   *  the Admin > Storage trend. 365 days is one year of history; older
+   *  points would overfill the chart and the table trivially. */
+  dbSizeSnapshotsDays: 365,
 } as const;
 
 export interface RetentionWindowInput {
@@ -50,6 +55,7 @@ export interface RetentionWindowInput {
   securityLogsDays?: number;
   usageSnapshotsDays?: number;
   passwordResetTokensDays?: number;
+  dbSizeSnapshotsDays?: number;
 }
 
 export interface RetentionWindows {
@@ -57,7 +63,23 @@ export interface RetentionWindows {
   securityLogsBefore: Date;
   usageSnapshotsBefore: Date;
   passwordResetTokensBefore: Date;
+  dbSizeSnapshotsBefore: Date;
 }
+
+export type RetentionTable =
+  | "security_events"
+  | "security_logs"
+  | "usage_snapshots"
+  | "password_reset_tokens"
+  | "db_size_snapshots";
+
+export const RETENTION_TABLES: ReadonlyArray<RetentionTable> = Object.freeze([
+  "security_events",
+  "security_logs",
+  "usage_snapshots",
+  "password_reset_tokens",
+  "db_size_snapshots",
+]);
 
 /**
  * Pure: turn a window spec into concrete "delete anything older than
@@ -78,6 +100,7 @@ export function computeRetentionWindows(
     securityLogsDays: clamp(input.securityLogsDays, DEFAULT_RETENTION_WINDOWS.securityLogsDays),
     usageSnapshotsDays: clamp(input.usageSnapshotsDays, DEFAULT_RETENTION_WINDOWS.usageSnapshotsDays),
     passwordResetTokensDays: clamp(input.passwordResetTokensDays, DEFAULT_RETENTION_WINDOWS.passwordResetTokensDays),
+    dbSizeSnapshotsDays: clamp(input.dbSizeSnapshotsDays, DEFAULT_RETENTION_WINDOWS.dbSizeSnapshotsDays),
   };
   const day = 24 * 60 * 60 * 1000;
   return {
@@ -85,6 +108,7 @@ export function computeRetentionWindows(
     securityLogsBefore: new Date(now.getTime() - d.securityLogsDays * day),
     usageSnapshotsBefore: new Date(now.getTime() - d.usageSnapshotsDays * day),
     passwordResetTokensBefore: new Date(now.getTime() - d.passwordResetTokensDays * day),
+    dbSizeSnapshotsBefore: new Date(now.getTime() - d.dbSizeSnapshotsDays * day),
   };
 }
 
@@ -93,6 +117,7 @@ export interface RetentionPruneResult {
   securityLogsDeleted: number;
   usageSnapshotsDeleted: number;
   passwordResetTokensDeleted: number;
+  dbSizeSnapshotsDeleted: number;
   startedAt: string;
   finishedAt: string;
   durationMs: number;
@@ -108,7 +133,7 @@ export interface RetentionPruneResult {
  * `deps.deleteOlderThan` is injected so unit tests don't need a live DB.
  */
 export interface RetentionPruneDeps {
-  deleteOlderThan: (table: "security_events" | "security_logs" | "usage_snapshots" | "password_reset_tokens", before: Date) => Promise<number>;
+  deleteOlderThan: (table: RetentionTable, before: Date) => Promise<number>;
   log?: (message: string, meta?: Record<string, unknown>) => void;
 }
 
@@ -128,6 +153,7 @@ export async function runRetentionPrune(
     securityLogsDeleted: 0,
     usageSnapshotsDeleted: 0,
     passwordResetTokensDeleted: 0,
+    dbSizeSnapshotsDeleted: 0,
     startedAt: start.toISOString(),
     finishedAt: start.toISOString(),
     durationMs: 0,
@@ -135,14 +161,22 @@ export async function runRetentionPrune(
   };
 
   const steps: Array<{
-    key: keyof Pick<RetentionPruneResult, "securityEventsDeleted" | "securityLogsDeleted" | "usageSnapshotsDeleted" | "passwordResetTokensDeleted">;
-    table: "security_events" | "security_logs" | "usage_snapshots" | "password_reset_tokens";
+    key: keyof Pick<
+      RetentionPruneResult,
+      | "securityEventsDeleted"
+      | "securityLogsDeleted"
+      | "usageSnapshotsDeleted"
+      | "passwordResetTokensDeleted"
+      | "dbSizeSnapshotsDeleted"
+    >;
+    table: RetentionTable;
     before: Date;
   }> = [
     { key: "securityEventsDeleted", table: "security_events", before: windows.securityEventsBefore },
     { key: "securityLogsDeleted", table: "security_logs", before: windows.securityLogsBefore },
     { key: "usageSnapshotsDeleted", table: "usage_snapshots", before: windows.usageSnapshotsBefore },
     { key: "passwordResetTokensDeleted", table: "password_reset_tokens", before: windows.passwordResetTokensBefore },
+    { key: "dbSizeSnapshotsDeleted", table: "db_size_snapshots", before: windows.dbSizeSnapshotsBefore },
   ];
 
   for (const step of steps) {
@@ -166,13 +200,26 @@ export async function runRetentionPrune(
     securityLogsDeleted: result.securityLogsDeleted,
     usageSnapshotsDeleted: result.usageSnapshotsDeleted,
     passwordResetTokensDeleted: result.passwordResetTokensDeleted,
+    dbSizeSnapshotsDeleted: result.dbSizeSnapshotsDeleted,
     errors: result.errors.length,
   });
   return result;
 }
 
+/**
+ * Alias for `runRetentionPrune` that's exported by a more descriptive
+ * name for the admin "Run prune now" route. The admin route audits the
+ * return value, so we keep the same shape.
+ */
+export async function runRetentionPruneOnce(
+  input: RetentionWindowInput = {},
+  deps?: Partial<RetentionPruneDeps>,
+): Promise<RetentionPruneResult> {
+  return runRetentionPrune(input, deps);
+}
+
 async function defaultDeleteOlderThan(
-  table: "security_events" | "security_logs" | "usage_snapshots" | "password_reset_tokens",
+  table: RetentionTable,
   before: Date,
 ): Promise<number> {
   switch (table) {
@@ -192,8 +239,90 @@ async function defaultDeleteOlderThan(
       const rows = await db.delete(passwordResetTokens).where(lt(passwordResetTokens.expiresAt, before)).returning({ id: passwordResetTokens.id });
       return rows.length;
     }
+    case "db_size_snapshots": {
+      const rows = await db.delete(dbSizeSnapshots).where(lt(dbSizeSnapshots.capturedAt, before)).returning({ id: dbSizeSnapshots.id });
+      return rows.length;
+    }
   }
 }
+
+// ─── Dry-run preview ──────────────────────────────────────────────────
+
+export interface RetentionPreviewRow {
+  table: RetentionTable;
+  cutoff: string;
+  rowsToDelete: number;
+}
+
+export interface RetentionPreviewResult {
+  rows: RetentionPreviewRow[];
+  totalRowsToDelete: number;
+  generatedAt: string;
+}
+
+export interface RetentionPreviewDeps {
+  countOlderThan?: (table: RetentionTable, before: Date) => Promise<number>;
+  now?: () => Date;
+}
+
+/**
+ * Dry-run: count rows each retention step *would* delete right now,
+ * without issuing any DELETE. Safe to expose over HTTP as a GET since
+ * it only runs SELECT COUNT(*) against each retention table.
+ */
+export async function previewRetentionPrune(
+  input: RetentionWindowInput = {},
+  deps: RetentionPreviewDeps = {},
+): Promise<RetentionPreviewResult> {
+  const now = (deps.now ?? (() => new Date()))();
+  const windows = computeRetentionWindows(input, now);
+  const count = deps.countOlderThan ?? defaultCountOlderThan;
+
+  const plan: Array<{ table: RetentionTable; before: Date }> = [
+    { table: "security_events", before: windows.securityEventsBefore },
+    { table: "security_logs", before: windows.securityLogsBefore },
+    { table: "usage_snapshots", before: windows.usageSnapshotsBefore },
+    { table: "password_reset_tokens", before: windows.passwordResetTokensBefore },
+    { table: "db_size_snapshots", before: windows.dbSizeSnapshotsBefore },
+  ];
+
+  const rows: RetentionPreviewRow[] = [];
+  let total = 0;
+  for (const step of plan) {
+    try {
+      const n = await count(step.table, step.before);
+      rows.push({ table: step.table, cutoff: step.before.toISOString(), rowsToDelete: n });
+      total += n;
+    } catch (err) {
+      // Don't throw — return -1 to signal "unknown" for this row and
+      // carry on. The admin UI renders a dash for negative values.
+      const message = (err as Error)?.message || String(err);
+      console.warn(`[retention-prune] preview failed for ${step.table}:`, message);
+      rows.push({ table: step.table, cutoff: step.before.toISOString(), rowsToDelete: -1 });
+    }
+  }
+  return { rows, totalRowsToDelete: total, generatedAt: now.toISOString() };
+}
+
+async function defaultCountOlderThan(
+  table: RetentionTable,
+  before: Date,
+): Promise<number> {
+  const columnExpr = table === "password_reset_tokens"
+    ? sql.raw("expires_at")
+    : table === "db_size_snapshots"
+      ? sql.raw("captured_at")
+      : sql.raw("created_at");
+  const result = await db.execute(
+    sql`SELECT COUNT(*)::bigint AS n FROM ${sql.raw(table)} WHERE ${columnExpr} < ${before.toISOString()}`,
+  );
+  const rows = (result as unknown as { rows?: Array<{ n?: string | number | bigint }> }).rows
+    ?? (Array.isArray(result) ? (result as Array<{ n?: string | number | bigint }>) : []);
+  const raw = rows[0]?.n ?? 0;
+  const n = typeof raw === "bigint" ? Number(raw) : Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
 
 const DEFAULT_TICK_MS = 24 * 60 * 60 * 1000; // 24h
 const DEFAULT_INITIAL_DELAY_MS = 2 * 60 * 1000; // 2min, after server boot
