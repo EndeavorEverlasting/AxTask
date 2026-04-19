@@ -28,6 +28,7 @@
   "createPushSubscriptionSchema",
   "createStudyCardSchema",
   "createStudyDeckSchema",
+  "dbSizeSnapshots",
   "deletePushSubscriptionSchema",
   "feedbackAvatarKeySchema",
   "feedbackNudgePrefsSchema",

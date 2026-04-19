@@ -18,6 +18,7 @@ import { dispatchAdherencePushNotifications } from "./services/adherence-dispatc
 import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence-thresholds";
 import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
 import { startRetentionPruneTicker } from "./workers/retention-prune";
+import { captureDbSizeSnapshot } from "./workers/db-size-snapshot";
 
 const app = express();
 
@@ -324,10 +325,30 @@ function warnIfVapidMissing(): void {
   // 512 MB ceiling doesn't surprise us again (see server/workers/
   // retention-prune.ts for windows). Opt-out with DISABLE_RETENTION_PRUNE
   // or override the 24h cadence with RETENTION_PRUNE_INTERVAL_MS.
+  //
+  // We piggy-back the DB size snapshot writer on the same tick, since
+  // both are once-per-day operations and both want a quiet post-boot
+  // window. `captureDbSizeSnapshot` is idempotent per calendar day, so
+  // operator-triggered reruns and restarts won't double-write rows.
   if (process.env.NODE_ENV !== "test" && process.env.DISABLE_RETENTION_PRUNE !== "true") {
     const intervalMs = Number(process.env.RETENTION_PRUNE_INTERVAL_MS) || 24 * 60 * 60 * 1000;
     const initialDelayMs = Number(process.env.RETENTION_PRUNE_INITIAL_DELAY_MS) || 2 * 60 * 1000;
-    startRetentionPruneTicker({ intervalMs, initialDelayMs });
+    startRetentionPruneTicker({
+      intervalMs,
+      initialDelayMs,
+      run: async (input) => {
+        // Order matters: snapshot first (so the captured size reflects
+        // pre-prune weight — that's the actual observed disk use), then
+        // prune. Both steps swallow their own errors.
+        try {
+          await captureDbSizeSnapshot();
+        } catch (err) {
+          console.warn("[db-size-snapshot] tick failed:", (err as Error)?.message || String(err));
+        }
+        const { runRetentionPrune } = await import("./workers/retention-prune");
+        return runRetentionPrune(input);
+      },
+    });
   }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

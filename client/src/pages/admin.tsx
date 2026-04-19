@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { ClientPerfPanel } from "@/components/admin/client-perf-panel";
-import { DbSizeCard } from "@/components/admin/db-size-card";
+
+// Admin > Storage is a heavy sub-tree (5 cards, chart rendering). Lazy
+// loaded so the default admin chunk stays lean. See
+// docs/MODULE_LAYOUT.md for the bundle-budget rationale.
+const StorageTab = lazy(() =>
+  import("@/components/admin/storage/storage-tab").then((m) => ({ default: m.StorageTab })),
+);
 import { usePretextSurface } from "@/hooks/use-pretext-surface";
 import { useCountUp } from "@/hooks/use-count-up";
 import type { SafeUser, SecurityLog } from "@shared/schema";
@@ -970,6 +976,7 @@ export default function AdminPage() {
         <TabsList className="flex flex-wrap">
           <TabsTrigger value="live">Live Analytics</TabsTrigger>
           <TabsTrigger value="usage">Usage & Storage</TabsTrigger>
+          <TabsTrigger value="storage">Storage</TabsTrigger>
           <TabsTrigger value="performance">API Performance</TabsTrigger>
           <TabsTrigger value="intel">Security Intelligence</TabsTrigger>
           <TabsTrigger value="feedback">Feedback Inbox</TabsTrigger>
@@ -1199,9 +1206,14 @@ export default function AdminPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="storage" className="space-y-4">
+          <Suspense fallback={<p className="text-sm text-muted-foreground">Loading storage console…</p>}>
+            <StorageTab />
+          </Suspense>
+        </TabsContent>
+
         <TabsContent value="performance" className="space-y-4">
           <ClientPerfPanel />
-          <DbSizeCard />
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Gauge className="h-4 w-4 text-primary" />

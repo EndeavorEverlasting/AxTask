@@ -9,7 +9,7 @@
 // from ./gamification — no table here references rewards/coins directly.
 
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, bigint, timestamp, boolean, index, uniqueIndex, jsonb, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, serial, bigint, timestamp, boolean, index, uniqueIndex, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./core";
@@ -461,3 +461,25 @@ export const archetypeMarkovDaily = pgTable("archetype_markov_daily", {
 ]);
 
 export type ArchetypeMarkovDaily = typeof archetypeMarkovDaily.$inferSelect;
+
+/**
+ * Daily rollup of Postgres disk usage. Populated by the retention-prune
+ * tick once per 24h so the Admin > Storage tab can render a 30-day trend
+ * without hammering `pg_database_size` on every page view. Bounded by
+ * `DEFAULT_RETENTION_WINDOWS.dbSizeSnapshotsDays` in
+ * server/workers/retention-prune.ts.
+ *
+ * `domainBytesJson` matches the Phase F-1 schema split (core / tasks /
+ * gamification / ops / unknown). It's jsonb so new domains can be added
+ * without a migration.
+ */
+export const dbSizeSnapshots = pgTable("db_size_snapshots", {
+  id: serial("id").primaryKey(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+  dbSizeBytes: bigint("db_size_bytes", { mode: "number" }).notNull(),
+  domainBytesJson: jsonb("domain_bytes_json").notNull().default(sql`'{}'::jsonb`),
+}, (table) => [
+  index("db_size_snapshots_captured_at_idx").on(table.capturedAt),
+]);
+
+export type DbSizeSnapshot = typeof dbSizeSnapshots.$inferSelect;
