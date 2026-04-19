@@ -71,12 +71,29 @@ export const getQueryFn: <T>(options: {
 /** Default stale window before background refetch (Phase A: readable “stale” state). */
 export const DEFAULT_QUERY_STALE_TIME_MS = 5 * 60 * 1000;
 
+/**
+ * Global react-query defaults.
+ *
+ * `refetchOnWindowFocus` is **false** by default. Tab-focus refetch was
+ * causing visible jank (scroll interruptions, reshuffled DOM, re-parse of
+ * markdown + avatars) every time the user Alt-Tabbed back into AxTask, and
+ * the perceived data value was low because most AxTask surfaces already
+ * poll or invalidate on mutation. Surfaces that genuinely need
+ * focus-refresh must opt in explicitly — see the query-defaults audit in
+ * `docs/PERF_PERFORMANCE_BUDGETS.md` for the list of callers that opt in.
+ *
+ * `refetchInterval` is `false` by default for the same reason. Admin
+ * surfaces that want live data (security events, analytics overview,
+ * db-size card, storage rollups) opt in at the `useQuery` site with a
+ * deliberate interval, scoped to their `enabled: adminApiEnabled` gate so
+ * the polling only fires while an admin is looking at the panel.
+ */
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
-      refetchOnWindowFocus: true,
+      refetchOnWindowFocus: false,
       refetchOnReconnect: true,
       staleTime: DEFAULT_QUERY_STALE_TIME_MS,
       gcTime: 24 * 60 * 60 * 1000,
