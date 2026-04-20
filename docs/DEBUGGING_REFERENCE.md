@@ -71,8 +71,7 @@ const search = useSearch(); // returns "?new=1" or ""
 | Event Name | Dispatched By | Listened By | Purpose |
 |---|---|---|---|
 | `axtask-open-new-task` | App.tsx (Alt+N), sidebar button | tasks.tsx | Show task composer form |
-| `axtask-focus-task-search` | App.tsx (Alt+F), sidebar button | task-list.tsx | Focus the search input |
-| `axtask-voice-focus-task-search` | use-voice.tsx | task-list.tsx | Focus search after voice command |
+| `axtask-focus-task-search` | App.tsx (Alt+F), sidebar button, use-voice.tsx (`prepare_task_search` after navigate) | task-list-host.tsx | Focus the search input; voice uses the same event as keyboard (legacy `task-list.tsx` removed) |
 | `axtask-close-voice-bar` | App.tsx (Escape when voice bar open) | use-voice.tsx | Close voice command bar |
 | `axtask-toggle-hotkey-help` | use-voice.tsx (voice shortcut) | App.tsx | Toggle keyboard shortcuts dialog |
 | `axtask-toggle-sidebar` | use-voice.tsx (voice shortcut) | sidebar.tsx | Toggle sidebar / mobile drawer |

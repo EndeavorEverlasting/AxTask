@@ -14,7 +14,7 @@ domain-oriented surface on top of the existing monoliths, without changing
 
 ## Current monoliths
 
-Four files carry most of the domain weight today. Keeping them working is a
+These files carry most of the domain weight today. Keeping them working is a
 hard constraint; any "split" must preserve the original import paths as
 barrels for the duration of the migration.
 
@@ -24,7 +24,7 @@ barrels for the duration of the migration.
 | `server/storage.ts` | ~4800 | All database reads/writes. Many top-level `export async function` symbols. |
 | `shared/schema.ts` | 13 (barrel, post F-1) | Drizzle table defs, Zod input schemas, inferred types (used by client and server). **The 1,396-line monolith was retired** in Phase F-1; declarations now live under `shared/schema/{core,tasks,gamification,ops}.ts` behind a single-line `export * from "./schema/index"` barrel. |
 | `client/src/pages/admin.tsx` | ~2250 | Admin SPA page — tabs for live analytics, usage/storage, performance, intel, feedback, appeals, invoicing, users, logs, migration, engineering. |
-| `client/src/components/task-list.tsx` | ~1700 | Task-list view used across dashboard + pages. |
+| `client/src/components/task-list-host.tsx` | ~680 | Imperative pretext task list for `/tasks` and `/shopping` (legacy `task-list.tsx` removed in pass-3). |
 | `client/src/components/task-form.tsx` | ~1260 | Task create/edit form. |
 
 These files are cited in `AGENTS.md`, `docs/DEV_DATABASE_AND_SCHEMA.md`,

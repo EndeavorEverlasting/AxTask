@@ -91,6 +91,11 @@ export function useVoice() {
   return ctx;
 }
 
+/** For components that may render outside `VoiceProvider` (e.g. isolated tests). */
+export function useVoiceOptional(): VoiceContextType | null {
+  return useContext(VoiceContext);
+}
+
 interface VoiceProviderProps {
   children: ReactNode;
   onNavigate?: (path: string) => void;
@@ -223,7 +228,13 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         case "prepare_task_search": {
           pendingSearchDictationRef.current = true;
           onNavigateRef.current?.("/tasks");
-          window.dispatchEvent(new CustomEvent("axtask-voice-focus-task-search"));
+          /* Same event as Alt+F / sidebar — `task-list.tsx` is gone; TaskListHost
+           * listens for `axtask-focus-task-search` only. Delay matches other
+           * navigate-then-focus paths so /tasks can mount first. */
+          window.setTimeout(
+            () => window.dispatchEvent(new Event("axtask-focus-task-search")),
+            100,
+          );
           const sp = speechRef.current;
           window.setTimeout(() => {
             sp?.resetTranscript();
