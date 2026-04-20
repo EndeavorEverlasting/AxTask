@@ -153,6 +153,10 @@ function toRowTask(task: TaskListRow): ImperativeRowTask {
       : [];
     extras = Math.max(0, assoc.length - 1);
   }
+  const noteAttachmentIds =
+    "noteAttachmentIds" in task && Array.isArray((task as PublicTaskListItem).noteAttachmentIds)
+      ? (task as PublicTaskListItem).noteAttachmentIds
+      : [];
   return {
     id: task.id,
     date: task.date,
@@ -161,6 +165,7 @@ function toRowTask(task: TaskListRow): ImperativeRowTask {
     priority: task.priority,
     activity: task.activity,
     notes: task.notes ?? "",
+    noteAttachmentIds,
     classification: task.classification,
     classificationExtraCount: extras,
     priorityScoreTenths: task.priorityScore,

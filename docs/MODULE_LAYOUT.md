@@ -49,8 +49,8 @@ shared/schema/
                                # register/login schemas, userNotificationPreferences,
                                # userPushSubscriptions, feedback nudge prefs, voice prefs,
                                # adherence state + interventions + enums
-  tasks.ts                     # tasks, insertTaskSchema/updateTaskSchema, classification
-                               # confirmations/labels/thumbs/contributions/disputes/votes/
+  tasks.ts                     # tasks, TASK_NOTES_MAX_CHARS, insertTaskSchema/updateTaskSchema,
+                               # classification confirmations/labels/thumbs/contributions/disputes/votes/
                                # categoryReviewTriggers, studyDecks/Cards/Sessions/Events,
                                # taskCollaborators, taskImportFingerprints,
                                # collaborationInboxMessages, taskPatterns
@@ -60,10 +60,11 @@ shared/schema/
   ops.ts                       # usageSnapshots, storagePolicies, attachmentAssets,
                                # messageAttachments, invoices/events/mfaChallenges/
                                # billingPaymentMethods/idempotencyKeys, premium* tables,
-                               # communityPosts/Replies, userAlarmSnapshots,
-                               # userLocationPlaces, archetypeRollup/Markov daily rollups
+                               # communityPosts/Replies, ARCHETYPE_POLL_STATUSES, archetypePolls/
+                               # options/votes, userAlarmSnapshots, userLocationPlaces,
+                               # archetypeRollup/Markov daily rollups
   __fixtures__/
-    public-symbols.json        # frozen list of 88 public runtime symbols, guarded by
+    public-symbols.json        # frozen list of 94 public runtime symbols, guarded by
                                # shared/schema/schema-split.contract.test.ts
 ```
 

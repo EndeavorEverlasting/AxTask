@@ -6,6 +6,7 @@ import type {
   UserBadge,
   Wallet,
 } from "./schema";
+import type { ArchetypeKey } from "./avatar-archetypes";
 
 /**
  * Session user returned from GET /api/auth/me (and similar).
@@ -47,13 +48,21 @@ export function toPublicSessionUser(user: SafeUser): PublicSessionUser {
  *
  * Shape version bumps belong in `PublicTaskListItem` so the contract
  * test below locks the field set to prevent silent drift.
+ *
+ * `noteAttachmentIds` lists owned `attachment_assets` rows linked via
+ * `task_id` so the client can render `![](attachment:<id>)` in notes with
+ * SafeMarkdown without guessing.
  */
-export type PublicTaskListItem = Omit<Task, "userId" | "classificationAssociations"> & {
+export type PublicTaskListItemSlim = Omit<Task, "userId" | "classificationAssociations"> & {
   /** `classificationAssociations.length - 1` (clamped to 0). */
   classificationExtraCount: number;
 };
 
-export function toPublicTaskListItem(task: Task): PublicTaskListItem {
+export type PublicTaskListItem = PublicTaskListItemSlim & {
+  noteAttachmentIds: string[];
+};
+
+export function toPublicTaskListItem(task: Task): PublicTaskListItemSlim {
   const { userId: _uid, classificationAssociations, ...rest } = task;
   const extras = Array.isArray(classificationAssociations)
     ? Math.max(0, classificationAssociations.length - 1)
@@ -64,10 +73,17 @@ export function toPublicTaskListItem(task: Task): PublicTaskListItem {
   };
 }
 
-export function toPublicTaskListItems(rows: Task[]): PublicTaskListItem[] {
+export function toPublicTaskListItems(
+  rows: Task[],
+  attachmentIdsByTaskId?: Map<string, string[]>,
+): PublicTaskListItem[] {
+  const m = attachmentIdsByTaskId ?? new Map<string, string[]>();
   /* Hot path on /tasks; a simple `.map` beats a for-loop by one less
    * allocation under V8 for arrays < ~1e4 entries. Keep allocation-light. */
-  return rows.map(toPublicTaskListItem);
+  return rows.map((row) => ({
+    ...toPublicTaskListItem(row),
+    noteAttachmentIds: m.get(row.id) ?? [],
+  }));
 }
 
 /**
@@ -198,6 +214,70 @@ export function toPublicAttachmentRef(asset: AttachmentAsset): PublicAttachmentR
 
 export function toPublicAttachmentRefs(assets: AttachmentAsset[]): PublicAttachmentRef[] {
   return assets.map(toPublicAttachmentRef);
+}
+
+// ─── Archetype polls (public community) ───────────────────────────────
+
+export type PublicArchetypePollOption = {
+  id: string;
+  label: string;
+  sortOrder: number;
+};
+
+export type PublicArchetypePollSummary = {
+  id: string;
+  title: string;
+  body: string | null;
+  opensAt: string;
+  closesAt: string;
+  authorAvatarKey: string;
+  votingOpen: boolean;
+  resultsAvailable: boolean;
+};
+
+export type PublicArchetypePollResultRow = {
+  optionId: string;
+  label: string;
+  sortOrder: number;
+  totalCount: number;
+  byArchetype: Partial<Record<ArchetypeKey, number>>;
+};
+
+export type PublicArchetypePollDetail = PublicArchetypePollSummary & {
+  options: PublicArchetypePollOption[];
+  /** Present only after the poll closes; null while voting is open. */
+  results: PublicArchetypePollResultRow[] | null;
+};
+
+export function toPublicArchetypePollSummary(
+  poll: {
+    id: string;
+    title: string;
+    body: string | null;
+    opensAt: Date | null;
+    closesAt: Date | null;
+    authorAvatarKey: string;
+  },
+  now: Date,
+): PublicArchetypePollSummary {
+  const opensAt = poll.opensAt ?? new Date(0);
+  const closesAt = poll.closesAt ?? new Date(0);
+  return {
+    id: poll.id,
+    title: poll.title,
+    body: poll.body,
+    opensAt: opensAt.toISOString(),
+    closesAt: closesAt.toISOString(),
+    authorAvatarKey: poll.authorAvatarKey,
+    votingOpen: now >= opensAt && now < closesAt,
+    resultsAvailable: now >= closesAt,
+  };
+}
+
+export function toPublicArchetypePollOptions(
+  rows: Array<{ id: string; label: string; sortOrder: number }>,
+): PublicArchetypePollOption[] {
+  return rows.map((r) => ({ id: r.id, label: r.label, sortOrder: r.sortOrder }));
 }
 
 // ─── Admin > Storage DTOs ──────────────────────────────────────────────

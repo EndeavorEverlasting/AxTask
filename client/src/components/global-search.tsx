@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
+import type { PublicTaskListItem } from "@shared/public-client-dtos";
+import { SafeMarkdown } from "@/lib/safe-markdown";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/queryClient";
@@ -217,8 +219,11 @@ export function GlobalSearch({ open, onOpenChange, onSelectTask }: GlobalSearchP
                           {highlightMatch(task.activity ?? "", trimmed)}
                         </div>
                         {task.notes && (
-                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
-                            {highlightMatch(task.notes, trimmed)}
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 [&_p]:m-0 [&_img]:max-h-10 [&_img]:rounded">
+                            <SafeMarkdown
+                              source={task.notes}
+                              allowedAttachmentIds={(task as Partial<PublicTaskListItem>).noteAttachmentIds ?? []}
+                            />
                           </div>
                         )}
                         <div className="flex items-center gap-3 mt-1.5 flex-wrap">

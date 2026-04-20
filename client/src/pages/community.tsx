@@ -6,7 +6,7 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   Globe2, ChevronLeft, Loader2, Sparkles, Clock, Flame, Zap,
   CheckCircle2, CircleDot, Timer, Users, ArrowDown,
-  MessageCircle, Send, ChevronDown, ChevronUp,
+  MessageCircle, Send, ChevronDown, ChevronUp, BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +77,51 @@ type ForumReply = {
   body: string;
   createdAt: string;
   attachments?: PublicAttachmentRef[];
+};
+
+type ArchetypePollSummary = {
+  id: string;
+  title: string;
+  body: string | null;
+  opensAt: string;
+  closesAt: string;
+  authorAvatarKey: string;
+  votingOpen: boolean;
+  resultsAvailable: boolean;
+};
+
+type ArchetypePollOption = {
+  id: string;
+  label: string;
+  sortOrder: number;
+};
+
+type ArchetypePollDetail = ArchetypePollSummary & {
+  options: ArchetypePollOption[];
+  results: Array<{
+    optionId: string;
+    label: string;
+    sortOrder: number;
+    totalCount: number;
+    byArchetype: Record<string, number>;
+  }> | null;
+};
+
+/** Analytical archetype keys → companion orb keys for colouring (mirrors @shared/avatar-archetypes). */
+const ARCHETYPE_TO_ORB: Record<string, string> = {
+  momentum: "mood",
+  strategy: "archetype",
+  execution: "productivity",
+  collaboration: "social",
+  recovery: "lazy",
+};
+
+const ARCHETYPE_LABEL: Record<string, string> = {
+  momentum: "Momentum",
+  strategy: "Strategy",
+  execution: "Execution",
+  collaboration: "Collaboration",
+  recovery: "Recovery",
 };
 
 /* ── Floating ambient orbs ─────────────────────────────────────────── */
@@ -348,6 +393,128 @@ function ForumPostCard({
   );
 }
 
+function ArchetypePollCard({
+  poll,
+  myOptionId,
+  voteSubmitting,
+  isLoggedIn,
+  onVote,
+}: {
+  poll: ArchetypePollDetail;
+  myOptionId: string | null;
+  voteSubmitting: boolean;
+  isLoggedIn: boolean;
+  onVote: (optionId: string) => void;
+}) {
+  const orbKey = poll.authorAvatarKey;
+  const style = AVATAR_STYLES[orbKey] || AVATAR_STYLES.mood;
+  const totalVotes =
+    poll.results?.reduce((s, r) => s + r.totalCount, 0) ?? 0;
+
+  return (
+    <div className="axtask-fade-in-up glass-panel-glossy overflow-hidden border border-white/10 shadow-xl">
+      <div className={`px-4 sm:px-5 py-3 border-b border-white/5 bg-gradient-to-r ${style.gradient} bg-opacity-30`}>
+        <div className="flex items-center gap-3">
+          <AvatarOrb avatarKey={orbKey} size="sm" />
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-white/70 font-medium flex items-center gap-1.5">
+              <BarChart3 className="h-3 w-3 opacity-80" />
+              Archetype pulse
+            </p>
+            <h2 className="text-base sm:text-lg font-semibold text-white leading-snug">{poll.title}</h2>
+          </div>
+        </div>
+        {poll.body && (
+          <p className="mt-2 text-xs sm:text-sm text-slate-200/90 leading-relaxed">{poll.body}</p>
+        )}
+      </div>
+
+      <div className="px-4 sm:px-5 py-4 space-y-4">
+        {poll.votingOpen && (
+          <div className="space-y-2">
+            <p className="text-[11px] text-slate-400">Vote once — results unlock after this poll closes.</p>
+            <div className="flex flex-col gap-2">
+              {poll.options.map((opt) => {
+                const selected = myOptionId === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={!isLoggedIn || voteSubmitting}
+                    onClick={() => onVote(opt.id)}
+                    className={`text-left rounded-lg border px-3 py-2.5 text-sm transition-all ${
+                      selected
+                        ? "border-sky-400/50 bg-sky-500/15 text-white"
+                        : "border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.06]"
+                    } ${!isLoggedIn ? "opacity-60 cursor-not-allowed" : ""}`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {!isLoggedIn && (
+              <p className="text-[11px] text-slate-500">
+                <Link href="/login">
+                  <span className="text-sky-400 hover:text-sky-300 cursor-pointer">Sign in</span>
+                </Link>{" "}
+                to vote.
+              </p>
+            )}
+          </div>
+        )}
+
+        {poll.resultsAvailable && poll.results && totalVotes > 0 && (
+          <div className="space-y-3">
+            <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">Results by archetype</p>
+            {poll.results.map((row) => {
+              const pct = Math.round((row.totalCount / totalVotes) * 1000) / 10;
+              return (
+                <div key={row.optionId} className="space-y-1.5">
+                  <div className="flex justify-between gap-2 text-xs text-slate-300">
+                    <span className="font-medium">{row.label}</span>
+                    <span className="text-slate-500 tabular-nums">
+                      {row.totalCount} ({pct}%)
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-sky-500/80 to-indigo-500/70"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {Object.entries(row.byArchetype).map(([key, n]) => {
+                      const orb = ARCHETYPE_TO_ORB[key] || "mood";
+                      const st = AVATAR_STYLES[orb] || AVATAR_STYLES.mood;
+                      return (
+                        <span
+                          key={key}
+                          className={`inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-0.5 text-[10px] ${st.accent} bg-white/[0.04]`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full bg-gradient-to-br ${st.gradient}`} />
+                          {ARCHETYPE_LABEL[key] ?? key}: {n}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            <p className="text-[10px] text-slate-500 leading-snug">
+              Per-archetype counts below five responses are hidden to protect privacy.
+            </p>
+          </div>
+        )}
+
+        {poll.resultsAvailable && (!poll.results || totalVotes === 0) && (
+          <p className="text-xs text-slate-500">No votes recorded for this poll yet.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── Main page ─────────────────────────────────────────────────────── */
 export default function CommunityPage() {
   const { user } = useAuth();
@@ -371,6 +538,9 @@ export default function CommunityPage() {
   const [replyError, setReplyError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"forum" | "tasks">("forum");
   const [momentum, setMomentum] = useState<{ postsLast24h: number; repliesLast24h: number } | null>(null);
+  const [pollDetail, setPollDetail] = useState<ArchetypePollDetail | null>(null);
+  const [pollMyOptionId, setPollMyOptionId] = useState<string | null>(null);
+  const [pollVoteSubmitting, setPollVoteSubmitting] = useState(false);
 
   const fetchPage = useCallback(
     async (
@@ -420,11 +590,31 @@ export default function CommunityPage() {
               : { postsLast24h: 0, repliesLast24h: 0 },
           ),
         ]);
+        let nextPoll: ArchetypePollDetail | null = null;
+        try {
+          const pr = await fetch("/api/public/community/polls", { signal: ac.signal });
+          if (pr.ok) {
+            const pj = (await pr.json()) as { polls: ArchetypePollSummary[] };
+            const featured = pj.polls.find((p) => p.votingOpen) ?? pj.polls[0];
+            if (featured) {
+              const dr = await fetch(`/api/public/community/polls/${featured.id}`, {
+                signal: ac.signal,
+              });
+              if (dr.ok) {
+                const dj = (await dr.json()) as { poll: ArchetypePollDetail };
+                nextPoll = dj.poll;
+              }
+            }
+          }
+        } catch {
+          /* non-fatal */
+        }
         if (!mountedRef.current) return;
         setTasks(taskRes.tasks);
         setNextCursor(taskRes.nextCursor);
         setForumPosts(forumRes.posts);
         setMomentum(momRes);
+        setPollDetail(nextPoll);
       } catch (e) {
         if ((e as Error).name === "AbortError") return;
         if (mountedRef.current)
@@ -439,6 +629,37 @@ export default function CommunityPage() {
       loadMoreAbortRef.current?.abort();
     };
   }, [fetchPage]);
+
+  useEffect(() => {
+    if (!user || !pollDetail) {
+      setPollMyOptionId(null);
+      return;
+    }
+    const ac = new AbortController();
+    fetch(`/api/public/community/polls/${pollDetail.id}/my-vote`, {
+      credentials: "include",
+      signal: ac.signal,
+    })
+      .then((r) => (r.ok ? r.json() : Promise.resolve({ optionId: null })))
+      .then((j: { optionId: string | null }) => {
+        if (mountedRef.current) setPollMyOptionId(j.optionId);
+      })
+      .catch(() => {});
+    return () => ac.abort();
+  }, [user?.id, pollDetail?.id]);
+
+  const handlePollVote = async (optionId: string) => {
+    if (!user || !pollDetail?.votingOpen) return;
+    setPollVoteSubmitting(true);
+    try {
+      await apiRequest("POST", `/api/public/community/polls/${pollDetail.id}/vote`, { optionId });
+      setPollMyOptionId(optionId);
+    } catch {
+      /* ignore */
+    } finally {
+      setPollVoteSubmitting(false);
+    }
+  };
 
   const loadMore = async () => {
     if (!nextCursor) return;
@@ -586,6 +807,16 @@ export default function CommunityPage() {
             <AvatarGlowChip avatarKey="productivity">Cadence</AvatarGlowChip>
           </div>
         </div>
+
+        {pollDetail && (
+          <ArchetypePollCard
+            poll={pollDetail}
+            myOptionId={pollMyOptionId}
+            voteSubmitting={pollVoteSubmitting}
+            isLoggedIn={!!user}
+            onVote={handlePollVote}
+          />
+        )}
 
         {/* Tab switcher */}
         <div className="glass-panel flex gap-1 p-1 rounded-xl">

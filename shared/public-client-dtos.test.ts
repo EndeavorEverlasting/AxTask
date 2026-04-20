@@ -6,6 +6,7 @@ import {
   toPublicCoinTransaction,
   toPublicSessionUser,
   toPublicWallet,
+  toPublicArchetypePollSummary,
 } from "./public-client-dtos";
 import type { SafeUser } from "./schema";
 
@@ -74,6 +75,38 @@ describe("public client DTOs", () => {
     expect(w).not.toHaveProperty("chipCatchesCount");
     expect(w).not.toHaveProperty("chipHuntLastSyncAt");
     expect(w.balance).toBe(3);
+  });
+
+  it("archetype poll summary exposes voting and results flags from timestamps", () => {
+    const opens = new Date("2026-01-10T12:00:00.000Z");
+    const closes = new Date("2026-01-17T12:00:00.000Z");
+    const mid = new Date("2026-01-14T12:00:00.000Z");
+    const s = toPublicArchetypePollSummary(
+      {
+        id: "p1",
+        title: "Q",
+        body: null,
+        opensAt: opens,
+        closesAt: closes,
+        authorAvatarKey: "mood",
+      },
+      mid,
+    );
+    expect(s.votingOpen).toBe(true);
+    expect(s.resultsAvailable).toBe(false);
+    const after = toPublicArchetypePollSummary(
+      {
+        id: "p1",
+        title: "Q",
+        body: null,
+        opensAt: opens,
+        closesAt: closes,
+        authorAvatarKey: "mood",
+      },
+      new Date("2026-01-20T12:00:00.000Z"),
+    );
+    expect(after.votingOpen).toBe(false);
+    expect(after.resultsAvailable).toBe(true);
   });
 
   it("redacts sensitive coin transaction details", () => {

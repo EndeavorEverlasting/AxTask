@@ -1172,6 +1172,24 @@ export default function LoginPage() {
               >
                 Contact &amp; email
               </Link>
+              <span className="text-gray-300 dark:text-gray-600 hidden sm:inline" aria-hidden>
+                |
+              </span>
+              <Link
+                href="/privacy"
+                className="inline-flex items-center gap-1.5 text-primary hover:underline font-medium"
+              >
+                Privacy
+              </Link>
+              <span className="text-gray-300 dark:text-gray-600 hidden sm:inline" aria-hidden>
+                |
+              </span>
+              <Link
+                href="/terms"
+                className="inline-flex items-center gap-1.5 text-primary hover:underline font-medium"
+              >
+                Terms
+              </Link>
             </div>
             {mode === "login" ? (
               canRegister ? (

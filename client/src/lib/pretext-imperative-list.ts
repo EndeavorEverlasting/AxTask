@@ -26,6 +26,7 @@
  */
 
 import { perfLedger, type PerfLedger } from "./perf-ledger";
+import { renderTaskNotesPreviewHtml } from "./task-notes-markdown-static";
 
 export type TaskRowStatus = "pending" | "in-progress" | "completed";
 
@@ -37,6 +38,8 @@ export interface ImperativeRowTask {
   priority: string;
   activity: string;
   notes: string;
+  /** For `![](attachment:<id>)` in notes (matches `PublicTaskListItem.noteAttachmentIds`). */
+  noteAttachmentIds: string[];
   classification: string;
   classificationExtraCount: number;
   priorityScoreTenths: number;
@@ -228,12 +231,13 @@ function applyRow(binding: RowBinding, task: ImperativeRowTask): void {
   if (binding.priority.textContent !== task.priority) binding.priority.textContent = task.priority;
 
   if (binding.activity.textContent !== task.activity) binding.activity.textContent = task.activity;
-  if (task.notes) {
+  if (task.notes?.trim()) {
     binding.notes.classList.remove("hidden");
-    if (binding.notes.textContent !== task.notes) binding.notes.textContent = task.notes;
+    const html = renderTaskNotesPreviewHtml(task.notes, task.noteAttachmentIds);
+    if (binding.notes.innerHTML !== html) binding.notes.innerHTML = html;
   } else {
     binding.notes.classList.add("hidden");
-    binding.notes.textContent = "";
+    binding.notes.innerHTML = "";
   }
 
   if (binding.classification.textContent !== task.classification) {

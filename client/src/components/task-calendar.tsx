@@ -34,6 +34,8 @@ import {
 } from "@dnd-kit/core";
 import { TaskAIEngine, type CalendarInsight } from "@/lib/ai-modules";
 import { cn } from "@/lib/utils";
+import { SafeMarkdown } from "@/lib/safe-markdown";
+import type { PublicTaskListItem } from "@shared/public-client-dtos";
 
 type CalendarView = "month" | "week" | "day";
 
@@ -442,7 +444,12 @@ export function TaskCalendar() {
                           {task.activity}
                         </div>
                         {task.notes && (
-                          <div className="text-xs text-gray-500 truncate">{task.notes}</div>
+                          <div className="text-xs text-gray-500 line-clamp-2 [&_p]:m-0 [&_img]:max-h-8 [&_img]:inline">
+                            <SafeMarkdown
+                              source={task.notes}
+                              allowedAttachmentIds={(task as Partial<PublicTaskListItem>).noteAttachmentIds ?? []}
+                            />
+                          </div>
                         )}
                       </div>
                       <Badge variant="outline" className="text-xs">

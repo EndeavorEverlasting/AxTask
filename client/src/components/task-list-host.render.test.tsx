@@ -126,6 +126,46 @@ describe("TaskListHost :: real-DOM regression", () => {
     });
   });
 
+  it("axtask-focus-task-search focuses the task search input (Alt+F / sidebar)", async () => {
+    mount([makeTask({ id: "a", activity: "Test" })]);
+    await screen.findByTestId("task-list-body");
+
+    const search = screen.getByTestId("task-search") as HTMLInputElement;
+    const steal = document.createElement("button");
+    steal.type = "button";
+    document.body.appendChild(steal);
+    steal.focus();
+    expect(document.activeElement).toBe(steal);
+
+    window.dispatchEvent(new Event("axtask-focus-task-search"));
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(search);
+    });
+    document.body.removeChild(steal);
+  });
+
+  it("axtask-focus-task-search with detail.query seeds the search and focuses", async () => {
+    mount([makeTask({ id: "a", activity: "Alpha task" })]);
+    await screen.findByTestId("task-list-body");
+
+    const search = screen.getByTestId("task-search") as HTMLInputElement;
+    const steal = document.createElement("button");
+    steal.type = "button";
+    document.body.appendChild(steal);
+    steal.focus();
+
+    window.dispatchEvent(
+      new CustomEvent("axtask-focus-task-search", { detail: { query: "Alp" } }),
+    );
+
+    await waitFor(() => {
+      expect(search.value).toBe("Alp");
+      expect(document.activeElement).toBe(search);
+    });
+    document.body.removeChild(steal);
+  });
+
   it("shows an empty state (not a blank surface) when the cache is empty and not fetching", async () => {
     /* Pre-populate with [] but mark it fresh so the mount refetch doesn't
      * replace it. The empty-state element is the user-visible signal
