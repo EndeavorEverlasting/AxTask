@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isBrowserOnline, syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
@@ -37,6 +37,7 @@ import {
   BarChart3,
   Lightbulb,
   RefreshCw,
+  Lock,
 } from "lucide-react";
 import type { Task } from "@shared/schema";
 import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
@@ -47,6 +48,25 @@ import {
   type TaskListRouteFilter,
 } from "@/lib/task-list-route-filters";
 import { useBriefing } from "@/hooks/use-briefing";
+import { TaskGantt } from "@/components/task-gantt";
+import { useGanttPackUnlocked } from "@/hooks/use-gantt-pack-unlocked";
+
+interface WeekDay {
+  date: string;
+  dayName: string;
+  count: number;
+  load: "none" | "light" | "moderate" | "heavy";
+}
+
+interface BriefingData {
+  today: string;
+  overdue: { count: number; tasks: Task[] };
+  dueToday: { count: number; tasks: Task[] };
+  dueWithinHour: { count: number; tasks: Task[] };
+  thisWeek: { total: number; days: WeekDay[] };
+  topRecommended: (Task & { reason: string })[];
+  totalPending: number;
+}
 
 interface QAResponse {
   answer: string;
@@ -84,6 +104,12 @@ export default function PlannerPage() {
   }, []);
 
   const { data: briefing, isLoading } = useBriefing();
+
+  const { data: allTasks = [] } = useQuery<Task[]>({
+    queryKey: ["/api/tasks"],
+    staleTime: 30_000,
+  });
+  const ganttPack = useGanttPackUnlocked();
 
   interface PatternInsight {
     type: "topic" | "recurrence" | "deadline_rhythm" | "similarity_cluster";
@@ -385,6 +411,54 @@ export default function PlannerPage() {
                 ? `You have ${briefing.dueToday.count} task${briefing.dueToday.count !== 1 ? "s" : ""} due today and ${briefing.thisWeek.total} total this week. No overdue tasks!`
                 : `You have ${briefing.thisWeek.total} task${briefing.thisWeek.total !== 1 ? "s" : ""} this week. Looking good!`}
           </p>
+
+          <motion.div
+            id="gantt"
+            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.2 }}
+          >
+            <Card className="border-gray-200 dark:border-gray-800">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4 text-indigo-500" />
+                    Task Timeline
+                    <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                      · Gantt view of scheduled work
+                    </span>
+                  </CardTitle>
+                  {ganttPack.unlocked ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-400/30 px-2 py-0.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+                      <Sparkles className="h-3 w-3" />
+                      {ganttPack.reason === "avatar-level" ? "Unlocked via avatar" : "Unlocked"}
+                    </span>
+                  ) : (
+                    <Link
+                      href="/rewards?tab=shop"
+                      className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-400/30 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400 hover:bg-amber-500/25 transition-colors"
+                    >
+                      <Lock className="h-3 w-3" />
+                      Customize (avatar L{3}+ or 250 AxCoins)
+                    </Link>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <TaskGantt
+                  tasks={allTasks}
+                  unlocked={ganttPack.unlocked}
+                  rangeDays={21}
+                  emptyHint="Schedule a task with a date to see it on the timeline."
+                />
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  {ganttPack.unlocked
+                    ? "Swimlanes group by classification, bars are colored by priority, and arrows follow task dependencies."
+                    : "Free preview — bars are colored by status. Unlock the Gantt Timeline Pack in the Rewards shop for swimlanes, dependency arrows, and priority coloring."}
+                </p>
+              </CardContent>
+            </Card>
+          </motion.div>
 
           {briefing.overdue.count > 0 && (
             <div className="axtask-fade-in-up" style={{ animationDelay: "80ms" }}>

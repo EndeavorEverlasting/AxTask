@@ -287,6 +287,10 @@ export function optimisticTaskFromInsert(data: InsertTask, id: string, userId: s
     sortOrder: 0,
     visibility: "private",
     communityShowNotes: false,
+    startDate: data.startDate ?? null,
+    endDate: data.endDate ?? null,
+    durationMinutes: data.durationMinutes ?? null,
+    dependsOn: data.dependsOn ?? null,
     createdAt: now,
     updatedAt: now,
   };
