@@ -412,11 +412,10 @@ export default function PlannerPage() {
                 : `You have ${briefing.thisWeek.total} task${briefing.thisWeek.total !== 1 ? "s" : ""} this week. Looking good!`}
           </p>
 
-          <motion.div
+          <div
             id="gantt"
-            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.2 }}
+            className="axtask-fade-in-up"
+            style={{ animationDelay: "60ms" }}
           >
             <Card className="border-gray-200 dark:border-gray-800">
               <CardHeader className="pb-3">
@@ -458,7 +457,7 @@ export default function PlannerPage() {
                 </p>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
 
           {briefing.overdue.count > 0 && (
             <div className="axtask-fade-in-up" style={{ animationDelay: "80ms" }}>

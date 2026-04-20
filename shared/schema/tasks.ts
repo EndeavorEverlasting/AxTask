@@ -49,6 +49,14 @@ export const tasks = pgTable("tasks", {
   sortOrder: integer("sort_order").default(0),
   visibility: text("visibility").notNull().default("private"),
   communityShowNotes: boolean("community_show_notes").notNull().default(false),
+  /** Optional planned start (ISO date or datetime). */
+  startDate: text("start_date"),
+  /** Optional planned end (ISO date or datetime). */
+  endDate: text("end_date"),
+  /** Optional planned duration in minutes (for Gantt fallback). */
+  durationMinutes: integer("duration_minutes"),
+  /** Optional predecessor task IDs for dependency arrows. */
+  dependsOn: jsonb("depends_on").$type<string[] | null>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -86,6 +94,10 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   status: z.enum(["pending", "in-progress", "completed"]).default("pending"),
   visibility: z.enum(["private", "public"]).default("private"),
   communityShowNotes: z.boolean().default(false),
+  startDate: z.string().max(40).optional().nullable(),
+  endDate: z.string().max(40).optional().nullable(),
+  durationMinutes: z.number().int().min(0).max(60 * 24 * 365).optional().nullable(),
+  dependsOn: z.array(z.string().min(1).max(64)).max(32).optional().nullable(),
 });
 
 export const updateTaskSchema = insertTaskSchema.partial().extend({

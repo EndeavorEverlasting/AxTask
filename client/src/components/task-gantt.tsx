@@ -394,7 +394,7 @@ export function TaskGantt(props: TaskGanttProps) {
             const targetY = barY(targetRow, targetLane) + (rowHeight - 10) / 2;
             return (
               <g key={`arrow-${lo.task.id}`} color="rgba(234, 179, 8, 0.8)">
-                {deps.map((predId) => {
+                {deps.map((predId: string) => {
                   const pred = laidOutByTaskId.get(predId);
                   if (!pred) return null;
                   const predLane = rowLane(pred.task);
