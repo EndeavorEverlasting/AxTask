@@ -48,5 +48,23 @@ describe("archetype polls — contract", () => {
 
   it("poll engine is invoked on startup", () => {
     expect(routesSrc).toContain("ensureArchetypePollSchedule");
+    expect(routesSrc).toContain("AXTASK_ARCHETYPE_POLL_SCHEDULER");
+  });
+
+  it("public poll detail handler does not touch session user", () => {
+    const idx = routesSrc.indexOf('app.get("/api/public/community/polls/:id"');
+    expect(idx).toBeGreaterThan(-1);
+    const block = routesSrc.slice(idx, idx + 1200);
+    expect(block).toContain("toPublicArchetypePollSummary");
+    expect(block).toContain("res.json");
+    expect(block).not.toContain("req.user");
+  });
+
+  it("admin can create polls with step-up", () => {
+    expect(routesSrc).toContain('app.post("/api/admin/archetype-polls"');
+    const idx = routesSrc.indexOf('app.post("/api/admin/archetype-polls"');
+    const block = routesSrc.slice(idx, idx + 400);
+    expect(block).toMatch(/requireAdmin/);
+    expect(block).toMatch(/requireAdminStepUp/);
   });
 });
