@@ -40,7 +40,9 @@ export function matchAltNavigationHotkey(e: KeyboardEvent): HotkeyMatch | null {
     return {
       kind: "navigate",
       path: "/tasks",
-      postEvents: [{ name: "axtask-focus-task-search", delayMs: 50 }],
+      /* Give /tasks + TaskListHost a beat to mount when coming from another
+       * route before we focus the search input. */
+      postEvents: [{ name: "axtask-focus-task-search", delayMs: 100 }],
     };
   }
   if (k === "c") {

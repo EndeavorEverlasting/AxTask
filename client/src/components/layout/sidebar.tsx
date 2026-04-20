@@ -247,7 +247,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             title={`Find tasks — search & filter (${KBD.findTasks})`}
             onClick={() => {
               handleNavClick();
-              setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 50);
+              setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 100);
             }}
           >
           <span className="flex items-center gap-2">

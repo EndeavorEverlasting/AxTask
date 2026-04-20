@@ -60,7 +60,7 @@ describe("KBD.findTasks / Alt+F", () => {
     expect(matchAltNavigationHotkey(key({ key: "f", altKey: true }))).toEqual({
       kind: "navigate",
       path: "/tasks",
-      postEvents: [{ name: "axtask-focus-task-search", delayMs: 50 }],
+      postEvents: [{ name: "axtask-focus-task-search", delayMs: 100 }],
     });
   });
 });
@@ -126,7 +126,7 @@ describe("KBD.globalSearch / Ctrl|Cmd+F", () => {
     expect(m).toEqual({
       kind: "navigate",
       path: "/tasks",
-      postEvents: [{ name: "axtask-focus-task-search", delayMs: 50 }],
+      postEvents: [{ name: "axtask-focus-task-search", delayMs: 100 }],
     });
   });
 });

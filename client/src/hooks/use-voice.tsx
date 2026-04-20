@@ -415,7 +415,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
             return;
           case "find_tasks":
             onNavigateRef.current?.("/tasks");
-            setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 50);
+            setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 100);
             setLastResponse({
               intent: "search",
               action: "prepare_task_search",

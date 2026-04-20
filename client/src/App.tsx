@@ -399,7 +399,15 @@ function AuthenticatedApp() {
         case "openGlobalSearch": {
           if (!user || loading) return;
           e.preventDefault();
-          setGlobalSearchOpen((v) => !v);
+          /* GlobalSearch is lazy — open state only after the chunk resolves
+           * so Suspense does not render a null overlay (find looked broken). */
+          setGlobalSearchOpen((wasOpen) => {
+            if (wasOpen) return false;
+            void import("@/components/global-search").then(() => {
+              setGlobalSearchOpen(true);
+            });
+            return false;
+          });
           break;
         }
         default:
