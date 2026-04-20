@@ -48,4 +48,13 @@ describe("App shell :: lazy-load perf contract", () => {
     expect(appSrc).toMatch(/<Suspense\s+[^>]*fallback=\{null\}[^>]*>\s*<GlobalSearch/);
     expect(appSrc).toMatch(/<Suspense\s+[^>]*fallback=\{null\}[^>]*>\s*<VoiceCommandBar/);
   });
+
+  it("openGlobalSearch prefetches the chunk before setGlobalSearchOpen(true)", () => {
+    /* Without this, Ctrl/Cmd+F could toggle open while Suspense still showed
+     * a null fallback — the overlay never appeared until a second keypress. */
+    expect(appSrc).toMatch(/case\s+"openGlobalSearch"/);
+    expect(appSrc).toMatch(
+      /import\("@\/components\/global-search"\)[\s\S]{0,120}setGlobalSearchOpen\(true\)/,
+    );
+  });
 });

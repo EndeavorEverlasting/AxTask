@@ -317,6 +317,8 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   }, [tasks, priorityFilter, statusFilter, deferredSearch, routeFilter, variant]);
 
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
+  /** Wired to `axtask-focus-task-search` (Alt+F, sidebar Find, planner fallback). */
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const controllerRef = useRef<PretextImperativeList | null>(null);
 
   /**
@@ -438,6 +440,12 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
       if (detail && typeof detail.query === "string") {
         setSearchQuery(detail.query);
       }
+      /* Events from Alt+F / sidebar use `new Event(...)` with no detail — we
+       * still must focus the visible search field or find feels dead. */
+      const run = () => searchInputRef.current?.focus({ preventScroll: false });
+      requestAnimationFrame(() => {
+        requestAnimationFrame(run);
+      });
     };
     window.addEventListener("axtask-open-task-edit", onOpenEdit);
     window.addEventListener("axtask-focus-task-search", onFocusSearch);
@@ -507,6 +515,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
               aria-hidden
             />
             <Input
+              ref={searchInputRef}
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
