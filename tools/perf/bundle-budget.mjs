@@ -40,7 +40,9 @@ const DEFAULT_MAX_TOTAL = 4_500_000;
  * growth is intentional.
  */
 const SOFT_CHUNK_CEILINGS = {
-  "react-vendor": 200_000, // measured 170 KB
+  // Ratcheted 2026-04-20: production build ~236 KB after community polls + shared
+  // markdown/SafeMarkdown paths (wouter/react-dom chunk). ~20% headroom over measured.
+  "react-vendor": 280_000,
   "radix": 180_000, // measured 140 KB
   "tanstack": 80_000, // measured ~63 KB
   "recharts": 500_000, // measured 411 KB
