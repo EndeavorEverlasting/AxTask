@@ -4422,6 +4422,140 @@ export async function upsertArchetypePollVote(input: {
   return row;
 }
 
+const POLL_VOTE_ROLLING_MS = 7 * 24 * 60 * 60 * 1000;
+const PG_SERIALIZATION_FAILURE = "40001";
+
+/**
+ * Records a poll vote and optionally credits the weekly archetype-poll reward inside one
+ * serializable transaction (retries on serialization failure). The reward uses a **global**
+ * rolling 7-day cap for `rewardReason` (not per poll): at most `weeklyCap` coin rows in that window.
+ */
+export async function recordArchetypePollVoteWithWeeklyReward(params: {
+  userId: string;
+  pollId: string;
+  optionId: string;
+  archetypeKey: string;
+  rewardAmount: number;
+  weeklyCap: number;
+  rewardReason: string;
+  rewardDetails: string;
+}): Promise<{
+  vote: ArchetypePollVote;
+  isNewVote: boolean;
+  pollVoteReward: { coins: number; newBalance: number } | null;
+  pollVoteRewardNote: "weekly_cap" | null;
+}> {
+  const run = () =>
+    db.transaction(
+      async (tx) => {
+        const existing = await tx
+          .select()
+          .from(archetypePollVotes)
+          .where(
+            and(
+              eq(archetypePollVotes.pollId, params.pollId),
+              eq(archetypePollVotes.userId, params.userId),
+            ),
+          )
+          .limit(1);
+        const row0 = existing[0];
+        let vote: ArchetypePollVote;
+        let isNewVote: boolean;
+
+        if (row0) {
+          const [updated] = await tx
+            .update(archetypePollVotes)
+            .set({
+              optionId: params.optionId,
+              archetypeKey: params.archetypeKey,
+            })
+            .where(eq(archetypePollVotes.id, row0.id))
+            .returning();
+          vote = updated;
+          isNewVote = false;
+        } else {
+          const [row] = await tx
+            .insert(archetypePollVotes)
+            .values({
+              id: randomUUID(),
+              pollId: params.pollId,
+              userId: params.userId,
+              optionId: params.optionId,
+              archetypeKey: params.archetypeKey,
+            })
+            .returning();
+          vote = row;
+          isNewVote = true;
+        }
+
+        const weekAgo = new Date(Date.now() - POLL_VOTE_ROLLING_MS);
+        const [cntRow] = await tx
+          .select({ value: count() })
+          .from(coinTransactions)
+          .where(
+            and(
+              eq(coinTransactions.userId, params.userId),
+              eq(coinTransactions.reason, params.rewardReason),
+              gte(coinTransactions.createdAt, weekAgo),
+            ),
+          );
+        const prior = Number(cntRow?.value) || 0;
+        if (prior >= params.weeklyCap) {
+          return {
+            vote,
+            isNewVote,
+            pollVoteReward: null,
+            pollVoteRewardNote: "weekly_cap" as const,
+          };
+        }
+
+        const [walletRow] = await tx.select().from(wallets).where(eq(wallets.userId, params.userId));
+        if (!walletRow) {
+          await tx.insert(wallets).values({ userId: params.userId });
+        }
+
+        const [updatedWallet] = await tx
+          .update(wallets)
+          .set({
+            balance: sql`${wallets.balance} + ${params.rewardAmount}`,
+            lifetimeEarned: sql`${wallets.lifetimeEarned} + ${params.rewardAmount}`,
+          })
+          .where(eq(wallets.userId, params.userId))
+          .returning();
+
+        await tx.insert(coinTransactions).values({
+          id: randomUUID(),
+          userId: params.userId,
+          amount: params.rewardAmount,
+          reason: params.rewardReason,
+          details: params.rewardDetails,
+        });
+
+        return {
+          vote,
+          isNewVote,
+          pollVoteReward: {
+            coins: params.rewardAmount,
+            newBalance: updatedWallet!.balance,
+          },
+          pollVoteRewardNote: null,
+        };
+      },
+      { isolationLevel: "serializable" },
+    );
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await run();
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === PG_SERIALIZATION_FAILURE && attempt < 2) continue;
+      throw e;
+    }
+  }
+  throw new Error("recordArchetypePollVoteWithWeeklyReward: serialization retries exhausted");
+}
+
 export async function createArchetypePollWithOptions(input: {
   title: string;
   body?: string | null;

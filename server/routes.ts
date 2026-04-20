@@ -119,18 +119,13 @@ import {
   getArchetypePollById,
   listArchetypePollOptions,
   getArchetypePollKAnonTalliesForPublic,
-  upsertArchetypePollVote,
+  recordArchetypePollVoteWithWeeklyReward,
   getArchetypePollVoteForUser,
   getDominantArchetypeKeyForUser,
   createArchetypePollWithOptions,
 } from "./storage";
 import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS, processChipHuntSync } from "./coin-engine";
-import {
-  countCoinEventsToday,
-  countCoinEventsSince,
-  tryCappedCoinAward,
-  ENGAGEMENT,
-} from "./engagement-rewards";
+import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
@@ -1777,12 +1772,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const archetypeKey = await getDominantArchetypeKeyForUser(req.user!.id);
-      await upsertArchetypePollVote({
-        userId: req.user!.id,
-        pollId: poll.id,
-        optionId: body.optionId,
-        archetypeKey,
-      });
+      const apv = ENGAGEMENT.archetypePollVote;
+      const { pollVoteReward, pollVoteRewardNote, isNewVote } =
+        await recordArchetypePollVoteWithWeeklyReward({
+          userId: req.user!.id,
+          pollId: poll.id,
+          optionId: body.optionId,
+          archetypeKey,
+          rewardAmount: apv.amount,
+          weeklyCap: apv.weeklyCap,
+          rewardReason: apv.reason,
+          rewardDetails: "Community archetype poll vote",
+        });
 
       try {
         await appendSecurityEvent({
@@ -1799,25 +1800,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
         });
       } catch {
-        /* vote already persisted */
+        /* non-fatal security event */
       }
 
-      const apv = ENGAGEMENT.archetypePollVote;
-      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const priorGrants = await countCoinEventsSince(req.user!.id, apv.reason, weekAgo);
-      let pollVoteReward: { coins: number; newBalance: number } | null = null;
-      if (priorGrants < apv.weeklyCap) {
-        const { wallet } = await addCoins(
-          req.user!.id,
-          apv.amount,
-          apv.reason,
-          "Community archetype poll vote",
-          undefined,
-        );
-        pollVoteReward = { coins: apv.amount, newBalance: wallet.balance };
-      }
-
-      res.status(200).json({ optionId: body.optionId, pollVoteReward });
+      res.status(200).json({
+        optionId: body.optionId,
+        pollVoteReward,
+        pollVoteRewardNote,
+        isNewVote,
+      });
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
       if (error instanceof Error) return res.status(400).json({ message: error.message });

@@ -1,4 +1,8 @@
-import { DEFAULT_FEEDBACK_SOURCE_TO_AVATAR } from "@shared/feedback-avatar-map";
+import {
+  DEFAULT_FEEDBACK_SOURCE_TO_AVATAR,
+  type FeedbackAvatarKey,
+  getAvatarForSource,
+} from "@shared/feedback-avatar-map";
 
 export type SkillTreeKind = "avatar" | "offline";
 
@@ -40,4 +44,16 @@ export function resolveSkillUnlockSource(
     if (candidate in DEFAULT_FEEDBACK_SOURCE_TO_AVATAR) return candidate;
   }
   return `${tree}_skill_tree`;
+}
+
+/**
+ * Companion orb variant for a skill node — same resolution as post-unlock feedback nudges.
+ */
+export function resolveFeedbackAvatarKeyForSkillNode(
+  tree: SkillTreeKind,
+  skillKey: string,
+  branch: string,
+): FeedbackAvatarKey {
+  const source = resolveSkillUnlockSource(tree, skillKey, branch);
+  return getAvatarForSource(source);
 }

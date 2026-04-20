@@ -46,6 +46,15 @@ describe("archetype polls — contract", () => {
     expect(block).not.toMatch(/actorUserId:\s*req\.user!\.id/);
   });
 
+  it("vote handler uses transactional weekly reward helper and returns reward metadata", () => {
+    expect(routesSrc).toContain("recordArchetypePollVoteWithWeeklyReward");
+    const idx = routesSrc.indexOf('app.post("/api/public/community/polls/:id/vote"');
+    const block = routesSrc.slice(idx, idx + 2600);
+    expect(block).toContain("pollVoteReward");
+    expect(block).toContain("pollVoteRewardNote");
+    expect(block).toContain("isNewVote");
+  });
+
   it("poll engine is invoked on startup unless scheduler kill-switch is set", () => {
     expect(routesSrc).toContain("ensureArchetypePollSchedule");
     expect(routesSrc).toContain("AXTASK_ARCHETYPE_POLL_SCHEDULER");
@@ -54,6 +63,12 @@ describe("archetype polls — contract", () => {
   it("poll engine no-ops when scheduler env is disabled", () => {
     const engineSrc = read("server/engines/archetype-poll-engine.ts");
     expect(engineSrc).toContain("AXTASK_ARCHETYPE_POLL_SCHEDULER");
+  });
+
+  it("storage records poll votes with serializable weekly reward transaction", () => {
+    const storageSrc = read("server/storage.ts");
+    expect(storageSrc).toContain("recordArchetypePollVoteWithWeeklyReward");
+    expect(storageSrc).toContain('isolationLevel: "serializable"');
   });
 
   it("public poll detail handler does not touch session user", () => {

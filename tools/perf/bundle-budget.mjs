@@ -55,6 +55,9 @@ const SOFT_CHUNK_CEILINGS = {
   "forms": 140_000, // measured 125 KB (old soft 80 KB was already violated)
   "billing-bridge": 300_000, // measured 261 KB
   "index": 500_000, // main entry; measured 422 KB
+  // xyflow (React Flow) + lazy skill-tree graph chunk (dagre + route); measured ~2026-04-19
+  "xyflow-vendor": 160_000,
+  "skill-tree-graph": 80_000,
 };
 
 function parseByteLimit(raw, envName, fallback) {

@@ -73,6 +73,7 @@ export default defineConfig({
           if (id.includes("date-fns")) return "date";
           if (id.includes("@dnd-kit")) return "dnd";
           if (id.includes("embla-carousel")) return "embla";
+          if (id.includes("@xyflow")) return "xyflow-vendor";
           if (id.includes("zod") || id.includes("@hookform")) return "forms";
 
           return undefined;

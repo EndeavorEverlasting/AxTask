@@ -4,6 +4,8 @@ This document is the **single reference** for which commands to run, in what ord
 
 For environment variable reference, see [`.env.example`](../.env.example). For Docker Desktop onboarding, see [DOCKER_FOUNDATION.md](./DOCKER_FOUNDATION.md).
 
+**Optional app behavior:** `AXTASK_ARCHETYPE_POLL_SCHEDULER=0` disables automatic archetype community poll scheduling (startup and `ensureArchetypePollSchedule`); listed in `.env.example` with other `AXTASK_*` toggles.
+
 ## Prerequisites
 
 | Requirement | Local Node (`npm run dev` / smart start) | Docker (`npm run docker:start`) |

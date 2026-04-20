@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -8,6 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Coins, Lock, Check, Zap } from "lucide-react";
+import { formatSkillEffect } from "@/lib/skill-tree-format";
+
+const SkillTreeGraph = lazy(() =>
+  import("./skill-tree-graph").then((m) => ({ default: m.SkillTreeGraph })),
+);
 
 export type SkillTreeKind = "avatar" | "offline";
 
@@ -33,24 +38,6 @@ export interface SkillNodeDto {
 
 interface Wallet {
   balance: number;
-}
-
-const EFFECT_LABELS: Record<string, string> = {
-  entourage_slots: "companion slots",
-  guidance_depth: "guidance depth",
-  context_points: "context points",
-  resource_budget: "resource budget",
-  export_coin_discount: "export discount",
-  rate_pct: "% offline coin rate",
-  capacity_hours: "h offline capacity",
-};
-
-function formatEffect(effectType: string, perLevel: number): string {
-  const label = EFFECT_LABELS[effectType] ?? effectType.replace(/_/g, " ");
-  if (effectType === "rate_pct") return `+${perLevel}% offline coin rate / level`;
-  if (effectType === "capacity_hours") return `+${perLevel}h offline capacity / level`;
-  if (effectType === "export_coin_discount") return `-${perLevel} coin export cost / level`;
-  return `+${perLevel} ${label} / level`;
 }
 
 function apiPathFor(tree: SkillTreeKind): { list: string; unlock: string } {
@@ -142,6 +129,8 @@ export function SkillTreeView({ tree, readOnly, compact, className }: SkillTreeV
     );
   }
 
+  const showFullGraph = !compact && !readOnly;
+
   return (
     <div className={cn("space-y-4", className)}>
       {!readOnly && wallet && (
@@ -155,60 +144,83 @@ export function SkillTreeView({ tree, readOnly, compact, className }: SkillTreeV
         </div>
       )}
 
-      <div
-        className={cn(
-          "grid gap-4",
-          compact ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2",
-        )}
-      >
-        {branches.map(([branch, branchNodes]) => (
-          <div
-            key={branch}
-            className={cn(
-              "rounded-xl border border-border bg-card/60 backdrop-blur",
-              compact ? "p-2" : "p-3",
-            )}
-            data-testid={`skill-tree-branch-${branch}`}
-          >
-            <div
-              className={cn(
-                "flex items-center justify-between mb-2",
-                compact ? "text-[11px]" : "text-xs",
-              )}
-            >
-              <span className="font-semibold uppercase tracking-wide text-muted-foreground">
-                {branch}
-              </span>
-              <Badge variant="outline" className="h-5 px-2 text-[10px]">
-                {branchNodes.length} skill{branchNodes.length === 1 ? "" : "s"}
-              </Badge>
+      {showFullGraph ? (
+        <Suspense
+          fallback={
+            <div className="text-xs text-muted-foreground py-12 text-center rounded-xl border border-dashed border-border">
+              Loading skill graph…
             </div>
-            <ul className="space-y-2">
-              {branchNodes.map((node, i) => (
-                <li key={node.id} className="relative">
-                  {i > 0 && (
-                    <div
-                      aria-hidden
-                      className="absolute left-4 -top-2 h-2 w-px bg-border"
+          }
+        >
+          <SkillTreeGraph
+            tree={tree}
+            nodes={nodes}
+            walletBalance={wallet?.balance ?? 0}
+            readOnly={readOnly ?? false}
+            isPending={unlockMutation.isPending}
+            onUnlock={(skillKey, branch) =>
+              unlockMutation.mutate({ skillKey, branch })
+            }
+          />
+        </Suspense>
+      ) : null}
+
+      {!showFullGraph ? (
+        <div
+          className={cn(
+            "grid gap-4",
+            compact ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2",
+          )}
+        >
+          {branches.map(([branch, branchNodes]) => (
+            <div
+              key={branch}
+              className={cn(
+                "rounded-xl border border-border bg-card/60 backdrop-blur",
+                compact ? "p-2" : "p-3",
+              )}
+              data-testid={`skill-tree-branch-${branch}`}
+            >
+              <div
+                className={cn(
+                  "flex items-center justify-between mb-2",
+                  compact ? "text-[11px]" : "text-xs",
+                )}
+              >
+                <span className="font-semibold uppercase tracking-wide text-muted-foreground">
+                  {branch}
+                </span>
+                <Badge variant="outline" className="h-5 px-2 text-[10px]">
+                  {branchNodes.length} skill{branchNodes.length === 1 ? "" : "s"}
+                </Badge>
+              </div>
+              <ul className="space-y-2">
+                {branchNodes.map((node, i) => (
+                  <li key={node.id} className="relative">
+                    {i > 0 && (
+                      <div
+                        aria-hidden
+                        className="absolute left-4 -top-2 h-2 w-px bg-border"
+                      />
+                    )}
+                    <SkillNodeCard
+                      node={node}
+                      tree={tree}
+                      compact={compact}
+                      readOnly={readOnly}
+                      walletBalance={wallet?.balance ?? 0}
+                      isPending={unlockMutation.isPending}
+                      onUnlock={() =>
+                        unlockMutation.mutate({ skillKey: node.skillKey, branch: node.branch })
+                      }
                     />
-                  )}
-                  <SkillNodeCard
-                    node={node}
-                    tree={tree}
-                    compact={compact}
-                    readOnly={readOnly}
-                    walletBalance={wallet?.balance ?? 0}
-                    isPending={unlockMutation.isPending}
-                    onUnlock={() =>
-                      unlockMutation.mutate({ skillKey: node.skillKey, branch: node.branch })
-                    }
-                  />
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -310,7 +322,7 @@ function SkillNodeCard({
               compact ? "text-[10px]" : "text-[11px]",
             )}
           >
-            {formatEffect(node.effectType, node.effectPerLevel)}
+            {formatSkillEffect(node.effectType, node.effectPerLevel)}
           </p>
           {node.prerequisiteSkillKey && !node.isUnlocked && !node.isAvailable && (
             <p className="text-[10px] text-muted-foreground/80 mt-1 italic">

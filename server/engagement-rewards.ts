@@ -57,6 +57,7 @@ export const ENGAGEMENT = {
     amount: 4,
     dailyCap: 10,
   },
+  /** One grant per rolling 7-day window per user (all archetype polls share this cap). */
   archetypePollVote: {
     reason: "archetype_poll_vote_reward",
     amount: 2,

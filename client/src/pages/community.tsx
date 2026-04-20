@@ -552,6 +552,7 @@ export default function CommunityPage() {
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const loadMoreAbortRef = useRef<AbortController | null>(null);
+  const pollRefreshDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Forum state
   const [forumPosts, setForumPosts] = useState<ForumPost[]>([]);
@@ -609,6 +610,15 @@ export default function CommunityPage() {
       /* non-fatal */
     }
   }, []);
+
+  /** Coalesces visibility + focus + interval so one user action does not spam refetches. */
+  const schedulePollRefresh = useCallback(() => {
+    if (pollRefreshDebounceRef.current) clearTimeout(pollRefreshDebounceRef.current);
+    pollRefreshDebounceRef.current = setTimeout(() => {
+      pollRefreshDebounceRef.current = null;
+      void refreshPollDetail();
+    }, 400);
+  }, [refreshPollDetail]);
 
   useEffect(() => {
     if (user) sendProductFunnelBeacon("community_feed_viewed");
@@ -673,6 +683,12 @@ export default function CommunityPage() {
   }, [fetchPage]);
 
   useEffect(() => {
+    return () => {
+      if (pollRefreshDebounceRef.current) clearTimeout(pollRefreshDebounceRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!user || !pollDetail) {
       setPollMyOptionId(null);
       return;
@@ -693,18 +709,18 @@ export default function CommunityPage() {
   useEffect(() => {
     if (!pollDetail?.votingOpen) return;
     const id = window.setInterval(() => {
-      void refreshPollDetail();
+      schedulePollRefresh();
     }, 45_000);
     return () => clearInterval(id);
-  }, [pollDetail?.id, pollDetail?.votingOpen, refreshPollDetail]);
+  }, [pollDetail?.id, pollDetail?.votingOpen, schedulePollRefresh]);
 
   useEffect(() => {
     if (!pollDetail?.votingOpen) return;
     const onVis = () => {
-      if (document.visibilityState === "visible") void refreshPollDetail();
+      if (document.visibilityState === "visible") schedulePollRefresh();
     };
     const onFocus = () => {
-      void refreshPollDetail();
+      schedulePollRefresh();
     };
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("focus", onFocus);
@@ -712,7 +728,7 @@ export default function CommunityPage() {
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("focus", onFocus);
     };
-  }, [pollDetail?.id, pollDetail?.votingOpen, refreshPollDetail]);
+  }, [pollDetail?.id, pollDetail?.votingOpen, schedulePollRefresh]);
 
   const handlePollVote = async (optionId: string) => {
     if (!user || !pollDetail?.votingOpen) return;
@@ -724,12 +740,21 @@ export default function CommunityPage() {
       const body = (await res.json()) as {
         optionId: string;
         pollVoteReward: { coins: number; newBalance: number } | null;
+        pollVoteRewardNote?: "weekly_cap";
+        isNewVote?: boolean;
       };
       setPollMyOptionId(body.optionId);
       if (body.pollVoteReward) {
         toast({
           title: "Vote recorded",
           description: `+${body.pollVoteReward.coins} AxCoin (weekly poll reward). New balance: ${body.pollVoteReward.newBalance}.`,
+        });
+      } else if (body.pollVoteRewardNote === "weekly_cap") {
+        const title = body.isNewVote === false ? "Vote updated" : "Vote recorded";
+        toast({
+          title,
+          description:
+            "Weekly poll reward already claimed for this 7-day window (shared across all archetype polls).",
         });
       } else {
         toast({

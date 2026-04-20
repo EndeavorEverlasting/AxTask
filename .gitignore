@@ -62,11 +62,27 @@ server/__archetype_fixtures__/
 # whose filename contains backup / axtask / import, so ignore the extracted
 # JSONs with matching patterns too — an unclean working tree must never be
 # able to leak PII-bearing backup contents.
-docs/json imports of *.zip
-docs/json imports of *.json
 docs/*backup*.json
 docs/*axtask*.json
 docs/*import*.json
 .tmp-*.txt
 .tmp-*.log
 
+# --- PII and other sensitive local artifacts (never commit) ---
+# Ad-hoc backup/import zips under docs (filenames often contain real names).
+docs/**/*.zip
+# Generic drop zones for exports, dumps, and ad-hoc copies of real user data.
+**/pii/
+**/pii-export/
+**/pii_exports/
+**/private-export/
+**/user-dumps/
+**/data-export-local/
+**/local-user-data/
+**/*.pii.json
+**/*.pii.csv
+**/*_pii_*
+scratch-pii/
+# Local copies of support tickets / account recovery notes (often contain email, phone).
+**/support-notes.local.*
+**/account-recovery.local.*
