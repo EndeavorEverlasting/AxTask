@@ -42,6 +42,8 @@ import LoginPage from "@/pages/login";
 import LandingPage from "@/pages/landing";
 import ContactPage from "@/pages/contact";
 import NotFound from "@/pages/not-found";
+import PrivacyPolicyPage from "@/pages/privacy";
+import TermsOfServicePage from "@/pages/terms";
 
 // Lazy: everything else. Vite's manualChunks pulls heavy vendor libs out of
 // these chunks so a page chunk only carries that page's own code plus any
@@ -69,7 +71,6 @@ const CommunityPage = lazy(() => import("@/pages/community"));
 const CollabInboxPage = lazy(() => import("@/pages/collab-inbox"));
 const VideoHuddlePage = lazy(() => import("@/pages/video-huddle"));
 const BillingBridgePage = lazy(() => import("@/pages/billing-bridge"));
-
 import { DeepLinkGate } from "@/components/marketing/deep-link-gate";
 import { isValidAppPath } from "@/lib/app-routes";
 import {
@@ -154,6 +155,8 @@ function Router() {
         <Route path="/settings" component={SettingsPage} />
         <Route path="/appeals" component={AppealsPage} />
         <Route path="/contact" component={ContactPage} />
+        <Route path="/privacy" component={PrivacyPolicyPage} />
+        <Route path="/terms" component={TermsOfServicePage} />
         <Route path="/billing-bridge" component={BillingBridgePage} />
         <Route component={NotFound} />
       </Switch>
@@ -448,6 +451,12 @@ function AuthenticatedApp() {
     if (location === "/contact") {
       return <ContactPage />;
     }
+    if (location === "/privacy") {
+      return <PrivacyPolicyPage />;
+    }
+    if (location === "/terms") {
+      return <TermsOfServicePage />;
+    }
     if (location === "/") {
       return <LandingPage />;
     }
@@ -455,7 +464,13 @@ function AuthenticatedApp() {
       return <LoginPage />;
     }
     const pathOnly = location.split("?")[0] || "";
-    if (pathOnly !== "/" && pathOnly !== "/login" && pathOnly !== "/contact") {
+    if (
+      pathOnly !== "/" &&
+      pathOnly !== "/login" &&
+      pathOnly !== "/contact" &&
+      pathOnly !== "/privacy" &&
+      pathOnly !== "/terms"
+    ) {
       return <DeepLinkGate path={location} />;
     }
     return <LandingPage />;
