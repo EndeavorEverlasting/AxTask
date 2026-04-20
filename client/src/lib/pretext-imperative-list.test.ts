@@ -15,6 +15,7 @@ function makeTask(overrides: Partial<ImperativeRowTask> = {}): ImperativeRowTask
     priority: "medium",
     activity: "Write imperative list",
     notes: "",
+    noteAttachmentIds: [],
     classification: "work",
     classificationExtraCount: 0,
     priorityScoreTenths: 72,
@@ -179,9 +180,9 @@ describe("PretextImperativeList", () => {
     expect(row.querySelector(".axtask-cell-recurrence")?.textContent).toBe(
       "weekly",
     );
-    expect(row.querySelector(".axtask-cell-notes")?.textContent).toContain(
-      "report",
-    );
+    const notesEl = row.querySelector(".axtask-cell-notes")!;
+    expect(notesEl.textContent).toContain("report");
+    expect(notesEl.innerHTML.length).toBeGreaterThan(0);
     expect(
       row.querySelector(".axtask-cell-classification-extra")?.textContent,
     ).toBe("+2");

@@ -33,7 +33,7 @@ import {
   getCommunityMomentumStats,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   getFeedbackSubmissionCount, getAvatarProfiles, engageAvatarMission, spendCoinsForAvatarBoost, seedAvatarSkillTree, getAvatarSkillTree, unlockAvatarSkill,
-  assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachments, linkAttachmentToTask,
+  assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachments, getTaskAttachmentIdsForTasks, linkAttachmentToTask,
   linkAttachmentsToOwner, getAttachmentsForOwner, getAttachmentsForOwnerPublic,
   getAttachmentsForOwnersBatch, getAttachmentsForOwnersPublicBatch,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
@@ -115,13 +115,20 @@ import {
   getCategoryReviewTriggers,
   getCategoryReviewTriggerById,
   resolveCategoryReview,
+  listArchetypePollsForPublic,
+  getArchetypePollById,
+  listArchetypePollOptions,
+  getArchetypePollKAnonTalliesForPublic,
+  upsertArchetypePollVote,
+  getArchetypePollVoteForUser,
+  getDominantArchetypeKeyForUser,
 } from "./storage";
 import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS, processChipHuntSync } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, updateVoicePreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, feedbackAvatarKeySchema, archetypeRollupDaily, archetypeMarkovDaily, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, updateVoicePreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, feedbackAvatarKeySchema, archetypeRollupDaily, archetypeMarkovDaily, TASK_NOTES_MAX_CHARS, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, count, gte, lte } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
@@ -135,6 +142,9 @@ import {
   toPublicAttachmentRefs,
   toPublicTaskListItems,
   toPublicTaskDetail,
+  toPublicArchetypePollSummary,
+  toPublicArchetypePollOptions,
+  type PublicArchetypePollResultRow,
 } from "@shared/public-client-dtos";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
 import { verifyMfaChallengeOrTotp } from "./services/mfa-totp";
@@ -211,6 +221,7 @@ function safeEqual(a: string, b: string): boolean {
 import { computeTaskFingerprint } from "./task-fingerprint";
 import { moderateText, rejectMediaContent, sanitizeForDisplay } from "./services/content-moderation";
 import { generateOrbDialogue, getOrbReply, getOrbVoice, ensureOrbActivityLevel, listAvatarVoiceOpeners } from "./engines/dialogue-engine";
+import { ensureArchetypePollSchedule } from "./engines/archetype-poll-engine";
 
 function getUploadSigningSecret(): string {
   return process.env.ATTACHMENT_UPLOAD_SECRET || process.env.SESSION_SECRET || "dev-upload-secret";
@@ -1656,6 +1667,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ensureOrbActivityLevel(8).then((n) => {
       if (n > 0) console.log(`[dialogue-engine] Generated ${n} new orb dialogue threads`);
     }).catch((err) => console.error("[dialogue-engine] startup error:", err));
+    ensureArchetypePollSchedule().then((n) => {
+      if (n > 0) console.log(`[archetype-poll-engine] Created ${n} poll window`);
+    }).catch((err) => console.error("[archetype-poll-engine] startup error:", err));
   } catch (err) {
     console.error("[community-seed] Non-fatal: failed to seed community posts —", (err as Error).message);
   }
@@ -1679,6 +1693,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Community momentum error:", error);
       res.status(500).json({ message: "Failed to fetch community momentum" });
+    }
+  });
+
+  app.get("/api/public/community/polls", apiLimiter, async (_req, res) => {
+    try {
+      const now = new Date();
+      const rows = await listArchetypePollsForPublic(now, 30);
+      const polls = rows.map((p) => toPublicArchetypePollSummary(p, now));
+      res.json({ polls });
+    } catch (error) {
+      console.error("Archetype polls list error:", error);
+      res.status(500).json({ message: "Failed to fetch polls" });
+    }
+  });
+
+  app.get("/api/public/community/polls/:id", apiLimiter, async (req, res) => {
+    try {
+      const now = new Date();
+      const poll = await getArchetypePollById(req.params.id);
+      if (!poll) return res.status(404).json({ message: "Poll not found" });
+      if (poll.opensAt > now) return res.status(404).json({ message: "Poll not found" });
+      const options = await listArchetypePollOptions(poll.id);
+      const summary = toPublicArchetypePollSummary(poll, now);
+      let results: PublicArchetypePollResultRow[] | null = null;
+      if (summary.resultsAvailable) {
+        const tallies = await getArchetypePollKAnonTalliesForPublic(poll.id);
+        results = tallies.map((t) => ({
+          optionId: t.optionId,
+          label: t.label,
+          sortOrder: t.sortOrder,
+          totalCount: t.totalCount,
+          byArchetype: t.byArchetype,
+        }));
+      }
+      res.json({
+        poll: {
+          ...summary,
+          options: toPublicArchetypePollOptions(options),
+          results,
+        },
+      });
+    } catch (error) {
+      console.error("Archetype poll detail error:", error);
+      res.status(500).json({ message: "Failed to fetch poll" });
+    }
+  });
+
+  app.get("/api/public/community/polls/:id/my-vote", requireAuth, apiLimiter, async (req, res) => {
+    try {
+      const vote = await getArchetypePollVoteForUser(req.params.id, req.user!.id);
+      res.json({ optionId: vote?.optionId ?? null });
+    } catch (error) {
+      console.error("Archetype poll my-vote error:", error);
+      res.status(500).json({ message: "Failed to fetch vote" });
+    }
+  });
+
+  const archetypePollVoteBodySchema = z.object({
+    optionId: z.string().min(1),
+  });
+
+  app.post("/api/public/community/polls/:id/vote", requireAuth, apiLimiter, async (req, res) => {
+    try {
+      const now = new Date();
+      const poll = await getArchetypePollById(req.params.id);
+      if (!poll) return res.status(404).json({ message: "Poll not found" });
+      if (poll.opensAt > now) return res.status(400).json({ message: "Poll is not open yet" });
+      if (now >= poll.closesAt) return res.status(400).json({ message: "Poll is closed" });
+
+      const body = archetypePollVoteBodySchema.parse(req.body);
+      const options = await listArchetypePollOptions(poll.id);
+      if (!options.some((o) => o.id === body.optionId)) {
+        return res.status(400).json({ message: "Invalid option" });
+      }
+
+      const archetypeKey = await getDominantArchetypeKeyForUser(req.user!.id);
+      await upsertArchetypePollVote({
+        userId: req.user!.id,
+        pollId: poll.id,
+        optionId: body.optionId,
+        archetypeKey,
+      });
+
+      try {
+        await appendSecurityEvent({
+          eventType: "archetype_poll_vote",
+          route: req.path,
+          method: "POST",
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+          payload: {
+            pollId: poll.id,
+            optionId: body.optionId,
+            archetypeKey,
+            hashedActor: hashActor(req.user!.id),
+          },
+        });
+      } catch {
+        /* vote already persisted */
+      }
+
+      res.status(200).json({ optionId: body.optionId });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to record vote" });
     }
   });
 
@@ -1785,8 +1905,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
        * single `classificationExtraCount` integer (bandwidth — the list
        * view only renders a "+N" pill, the classify dialog lazy-fetches
        * the full associations via GET /api/tasks/:id). */
-      const rows = await storage.getTasks(req.user!.id);
-      res.json(toPublicTaskListItems(rows));
+      const userId = req.user!.id;
+      const rows = await storage.getTasks(userId);
+      const byTask = await getTaskAttachmentIdsForTasks(userId, rows.map((r) => r.id));
+      res.json(toPublicTaskListItems(rows, byTask));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks" });
     }
@@ -1992,7 +2114,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           details: `Search: ${q.slice(0, 80)}`,
         });
       }
-      res.json(toPublicTaskListItems(tasks));
+      const byTask = await getTaskAttachmentIdsForTasks(userId, tasks.map((r) => r.id));
+      res.json(toPublicTaskListItems(tasks, byTask));
     } catch (error) {
       res.status(500).json({ message: "Failed to search tasks" });
     }
@@ -2001,8 +2124,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get tasks by status
   app.get("/api/tasks/status/:status", requireAuth, async (req, res) => {
     try {
-      const tasks = await storage.getTasksByStatus(req.user!.id, req.params.status);
-      res.json(toPublicTaskListItems(tasks));
+      const userId = req.user!.id;
+      const tasks = await storage.getTasksByStatus(userId, req.params.status);
+      const byTask = await getTaskAttachmentIdsForTasks(userId, tasks.map((r) => r.id));
+      res.json(toPublicTaskListItems(tasks, byTask));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks by status" });
     }
@@ -2011,8 +2136,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get tasks by priority
   app.get("/api/tasks/priority/:priority", requireAuth, async (req, res) => {
     try {
-      const tasks = await storage.getTasksByPriority(req.user!.id, req.params.priority);
-      res.json(toPublicTaskListItems(tasks));
+      const userId = req.user!.id;
+      const tasks = await storage.getTasksByPriority(userId, req.params.priority);
+      const byTask = await getTaskAttachmentIdsForTasks(userId, tasks.map((r) => r.id));
+      res.json(toPublicTaskListItems(tasks, byTask));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks by priority" });
     }
@@ -3413,8 +3540,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!transcript || typeof transcript !== "string") {
         return res.status(400).json({ message: "Transcript is required" });
       }
-      if (transcript.length > 2000) {
-        return res.status(400).json({ message: "Transcript must be under 2000 characters" });
+      if (transcript.length > TASK_NOTES_MAX_CHARS) {
+        return res.status(400).json({
+          message: `Transcript must be under ${TASK_NOTES_MAX_CHARS} characters`,
+        });
       }
       const sanitized = transcript.replace(/<[^>]*>/g, "").trim();
 
@@ -3487,7 +3616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 updatePayload.priority = action.details.priority;
               }
               if (action.details?.notes && typeof action.details.notes === "string") {
-                updatePayload.notes = action.details.notes.slice(0, 2000);
+                updatePayload.notes = action.details.notes.slice(0, TASK_NOTES_MAX_CHARS);
               }
               if (Object.keys(updatePayload).length > 1) {
                 await storage.updateTask(userId, updatePayload);

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
@@ -39,6 +39,7 @@ import { PriorityBadge } from "./priority-badge";
 import { ClockTimePicker } from "@/components/ui/clock-time-picker";
 import { Plus, CalendarIcon, Lightbulb, Save, Sparkles, ImagePlus, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SafeMarkdown } from "@/lib/safe-markdown";
 import { format, parse } from "date-fns";
 import { useFieldFlow } from "@/hooks/use-field-flow";
 import { useLiveClassificationStream } from "@/hooks/use-live-classification-stream";
@@ -111,38 +112,6 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   type TaskAttachment = { assetId: string; fileName: string; mimeType: string; uploading?: boolean };
   const [taskAttachments, setTaskAttachments] = useState<TaskAttachment[]>([]);
   const imageInputRef = useRef<HTMLInputElement>(null);
-
-  const handleImageUpload = useCallback(async (file: File) => {
-    if (!file.type.startsWith("image/")) {
-      toast({ title: "Only images are supported", variant: "destructive" });
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      toast({ title: "Image must be under 10 MB", variant: "destructive" });
-      return;
-    }
-    const placeholder: TaskAttachment = { assetId: "uploading", fileName: file.name, mimeType: file.type, uploading: true };
-    setTaskAttachments((prev) => [...prev, placeholder]);
-    try {
-      const uploadUrlRes = await apiRequest("POST", "/api/attachments/upload-url", {
-        fileName: file.name,
-        mimeType: file.type,
-        byteSize: file.size,
-        kind: "task",
-        taskId: task?.id,
-      });
-      const { assetId, uploadUrl } = await uploadUrlRes.json() as { assetId: string; uploadUrl: string };
-      const headers: Record<string, string> = { "Content-Type": file.type };
-      const csrf = getCsrfToken();
-      if (csrf) headers[AXTASK_CSRF_HEADER] = csrf;
-      const putRes = await fetch(uploadUrl, { method: "PUT", headers, body: file, credentials: "include" });
-      if (!putRes.ok) throw new Error("Upload failed");
-      setTaskAttachments((prev) => prev.map((a) => a === placeholder ? { assetId, fileName: file.name, mimeType: file.type } : a));
-    } catch {
-      setTaskAttachments((prev) => prev.filter((a) => a !== placeholder));
-      toast({ title: "Failed to upload image", variant: "destructive" });
-    }
-  }, [task?.id, toast]);
 
   const removeAttachment = useCallback(async (assetId: string) => {
     try {
@@ -246,6 +215,46 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     resolver: zodResolver(insertTaskSchema),
     defaultValues: mergedDefaults,
   });
+
+  const notesWatch = useWatch({ control: form.control, name: "notes" });
+
+  const handleImageUpload = useCallback(async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: "Only image files are supported (e.g. PNG, JPEG, GIF, WebP)",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "Image must be under 10 MB", variant: "destructive" });
+      return;
+    }
+    const placeholder: TaskAttachment = { assetId: "uploading", fileName: file.name, mimeType: file.type, uploading: true };
+    setTaskAttachments((prev) => [...prev, placeholder]);
+    try {
+      const uploadUrlRes = await apiRequest("POST", "/api/attachments/upload-url", {
+        fileName: file.name,
+        mimeType: file.type,
+        byteSize: file.size,
+        kind: "task",
+        taskId: task?.id,
+      });
+      const { assetId, uploadUrl } = await uploadUrlRes.json() as { assetId: string; uploadUrl: string };
+      const headers: Record<string, string> = { "Content-Type": file.type };
+      const csrf = getCsrfToken();
+      if (csrf) headers[AXTASK_CSRF_HEADER] = csrf;
+      const putRes = await fetch(uploadUrl, { method: "PUT", headers, body: file, credentials: "include" });
+      if (!putRes.ok) throw new Error("Upload failed");
+      setTaskAttachments((prev) => prev.map((a) => a === placeholder ? { assetId, fileName: file.name, mimeType: file.type } : a));
+      const cur = form.getValues("notes") || "";
+      const snippet = `![](attachment:${assetId})`;
+      form.setValue("notes", cur.trim() ? `${cur.trimEnd()}\n\n${snippet}\n` : `${snippet}\n`);
+    } catch {
+      setTaskAttachments((prev) => prev.filter((a) => a !== placeholder));
+      toast({ title: "Failed to upload image", variant: "destructive" });
+    }
+  }, [form, task?.id, toast]);
 
   const addWarning = useCallback((fieldName: string, autoExpire = false) => {
     const existing = warningTimers.current.get(fieldName);
@@ -1106,6 +1115,16 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           {speech.interimTranscript}
                         </p>
                       )}
+                      {notesWatch?.trim() ? (
+                        <div className="mt-2 rounded-md border border-border bg-muted/30 p-3 space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Preview</p>
+                          <SafeMarkdown
+                            source={notesWatch}
+                            allowedAttachmentIds={taskAttachments.filter((a) => !a.uploading && a.assetId !== "uploading").map((a) => a.assetId)}
+                            className="text-sm max-h-48 overflow-y-auto [&_p]:m-0 [&_p+p]:mt-2 [&_img]:max-h-32 [&_img]:rounded-md"
+                          />
+                        </div>
+                      ) : null}
                       <FormMessage />
                     </FormItem>
                   )}

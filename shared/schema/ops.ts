@@ -380,6 +380,64 @@ export const communityReplies = pgTable("community_replies", {
 
 export type CommunityReply = typeof communityReplies.$inferSelect;
 
+/** Scheduled / voting / closed lifecycle for orb-generated archetype polls. */
+export const ARCHETYPE_POLL_STATUSES = ["scheduled", "open", "closed"] as const;
+export type ArchetypePollStatus = (typeof ARCHETYPE_POLL_STATUSES)[number];
+
+// ─── Archetype polls (community, public aggregates after close) ─────────────
+export const archetypePolls = pgTable("archetype_polls", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  body: text("body"),
+  status: text("status").notNull().default("scheduled"),
+  opensAt: timestamp("opens_at").notNull(),
+  closesAt: timestamp("closes_at").notNull(),
+  /** Companion key for voice / attribution (mood | archetype | …) */
+  authorAvatarKey: text("author_avatar_key").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_archetype_polls_status").on(table.status),
+  index("idx_archetype_polls_opens").on(table.opensAt),
+  index("idx_archetype_polls_closes").on(table.closesAt),
+]);
+
+export type ArchetypePoll = typeof archetypePolls.$inferSelect;
+
+export const archetypePollOptions = pgTable("archetype_poll_options", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  pollId: varchar("poll_id")
+    .notNull()
+    .references(() => archetypePolls.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+}, (table) => [
+  index("idx_archetype_poll_options_poll").on(table.pollId),
+]);
+
+export type ArchetypePollOption = typeof archetypePollOptions.$inferSelect;
+
+export const archetypePollVotes = pgTable("archetype_poll_votes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  pollId: varchar("poll_id")
+    .notNull()
+    .references(() => archetypePolls.id, { onDelete: "cascade" }),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  optionId: varchar("option_id")
+    .notNull()
+    .references(() => archetypePollOptions.id, { onDelete: "cascade" }),
+  /** Analytical archetype at vote time (from dominant avatar profile). */
+  archetypeKey: text("archetype_key").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ux_archetype_poll_votes_poll_user").on(table.pollId, table.userId),
+  index("idx_archetype_poll_votes_poll").on(table.pollId),
+  index("idx_archetype_poll_votes_option").on(table.optionId),
+]);
+
+export type ArchetypePollVote = typeof archetypePollVotes.$inferSelect;
+
 // ─── Device: alarm snapshots + location places ──────────────────────────────
 export const userAlarmSnapshots = pgTable(
   "user_alarm_snapshots",

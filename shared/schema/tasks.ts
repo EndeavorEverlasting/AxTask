@@ -23,6 +23,9 @@ export const classificationAssociationSchema = z.object({
 export type ClassificationAssociation = z.infer<typeof classificationAssociationSchema>;
 export const classificationAssociationsSchema = z.array(classificationAssociationSchema).max(8);
 
+/** Task notes cap — keep in sync with voice review routes (`server/routes.ts`). */
+export const TASK_NOTES_MAX_CHARS = 10_000;
+
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -69,7 +72,10 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   date: z.string().min(1, "Date is required"),
   time: z.string().optional(),
   activity: z.string().min(1, "Activity is required").max(500, "Activity must be under 500 characters"),
-  notes: z.string().max(10000, "Notes must be under 10000 characters").optional(),
+  notes: z
+    .string()
+    .max(TASK_NOTES_MAX_CHARS, `Notes must be under ${TASK_NOTES_MAX_CHARS} characters`)
+    .optional(),
   urgency: z.number().min(1).max(5).optional(),
   impact: z.number().min(1).max(5).optional(),
   effort: z.number().min(1).max(5).optional(),

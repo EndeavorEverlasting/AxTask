@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { insertTaskSchema } from "./schema";
+import { insertTaskSchema, TASK_NOTES_MAX_CHARS } from "./schema";
 
 describe("insertTaskSchema notes length", () => {
   const base = {
@@ -12,14 +12,14 @@ describe("insertTaskSchema notes length", () => {
     communityShowNotes: false,
   };
 
-  it("allows notes up to 10000 characters", () => {
-    const notes = "x".repeat(10000);
+  it("allows notes up to TASK_NOTES_MAX_CHARS", () => {
+    const notes = "x".repeat(TASK_NOTES_MAX_CHARS);
     const r = insertTaskSchema.safeParse({ ...base, notes });
     expect(r.success).toBe(true);
   });
 
-  it("rejects notes over 10000 characters", () => {
-    const notes = "x".repeat(10001);
+  it("rejects notes over TASK_NOTES_MAX_CHARS", () => {
+    const notes = "x".repeat(TASK_NOTES_MAX_CHARS + 1);
     const r = insertTaskSchema.safeParse({ ...base, notes });
     expect(r.success).toBe(false);
   });

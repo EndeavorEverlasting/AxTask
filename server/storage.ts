@@ -51,6 +51,9 @@ import {
   studyReviewEvents,
   communityPosts,
   communityReplies,
+  archetypePolls,
+  archetypePollOptions,
+  archetypePollVotes,
   taskClassificationThumbs,
   userAlarmSnapshots,
   collaborationInboxMessages,
@@ -111,12 +114,18 @@ import {
   type SubmitStudyAnswerInput,
   type CommunityPost,
   type CommunityReply,
+  type ArchetypePoll,
+  type ArchetypePollOption,
+  type ArchetypePollVote,
   type UserAlarmSnapshot,
   type CollaborationInboxMessage,
   type UserLocationPlace,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, or, asc, lt, gte, count, avg, sql, desc, inArray } from "drizzle-orm";
+import { eq, and, ilike, or, asc, lt, lte, gt, gte, count, avg, sql, desc, inArray } from "drizzle-orm";
+import type { ArchetypeKey } from "@shared/avatar-archetypes";
+import { dominantArchetypeFromAvatarProfiles } from "./lib/poll-archetype";
+import { applyKAnonymityToPollTallies, type RawOptionTally } from "./lib/archetype-poll-aggregate";
 import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 import { buildSecurityEventHash } from "./security/event-hash";
@@ -2618,6 +2627,14 @@ export async function getAvatarProfiles(userId: string): Promise<UserAvatarProfi
   return [...profiles].sort((a, b) => a.avatarKey.localeCompare(b.avatarKey));
 }
 
+/** Dominant analytical archetype from companion XP (see `server/lib/poll-archetype.ts`). */
+export async function getDominantArchetypeKeyForUser(userId: string): Promise<ArchetypeKey> {
+  const profiles = await getOrCreateAvatarProfiles(userId);
+  const key = dominantArchetypeFromAvatarProfiles(profiles);
+  if (key) return key;
+  return "momentum";
+}
+
 async function getUserAvatarSkillLevels(userId: string): Promise<Array<UserAvatarSkill & { skillNode: AvatarSkillNode }>> {
   const rows = await db.select().from(userAvatarSkills).where(eq(userAvatarSkills.userId, userId));
   if (rows.length === 0) return [];
@@ -3096,6 +3113,30 @@ export async function getTaskAttachments(userId: string, taskId: string): Promis
     eq(attachmentAssets.taskId, taskId),
     sql`${attachmentAssets.deletedAt} IS NULL`,
   )).orderBy(desc(attachmentAssets.createdAt));
+}
+
+/** Batch-fetch attachment asset ids per task (for markdown `attachment:<id>` allowlists on list DTOs). */
+export async function getTaskAttachmentIdsForTasks(
+  userId: string,
+  taskIds: string[],
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (taskIds.length === 0) return map;
+  const rows = await db
+    .select({ taskId: attachmentAssets.taskId, id: attachmentAssets.id })
+    .from(attachmentAssets)
+    .where(and(
+      eq(attachmentAssets.userId, userId),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+      inArray(attachmentAssets.taskId, taskIds),
+    ));
+  for (const r of rows) {
+    if (!r.taskId) continue;
+    const list = map.get(r.taskId) ?? [];
+    list.push(r.id);
+    map.set(r.taskId, list);
+  }
+  return map;
 }
 
 export async function linkAttachmentToTask(userId: string, assetId: string, taskId: string): Promise<AttachmentAsset | undefined> {
@@ -4271,6 +4312,155 @@ export async function seedCommunityPosts(): Promise<void> {
   for (const post of AVATAR_SEED_POSTS) {
     await createCommunityPost(post);
   }
+}
+
+// ─── Archetype polls (community) ─────────────────────────────────────────────
+
+export async function hasArchetypePollActiveOrFuture(now: Date): Promise<boolean> {
+  const [row] = await db
+    .select({ c: count() })
+    .from(archetypePolls)
+    .where(gt(archetypePolls.closesAt, now));
+  return Number(row?.c ?? 0) > 0;
+}
+
+export async function listArchetypePollsForPublic(now: Date, limit = 20): Promise<ArchetypePoll[]> {
+  return db
+    .select()
+    .from(archetypePolls)
+    .where(lte(archetypePolls.opensAt, now))
+    .orderBy(desc(archetypePolls.closesAt))
+    .limit(limit);
+}
+
+export async function getArchetypePollById(pollId: string): Promise<ArchetypePoll | null> {
+  const [row] = await db.select().from(archetypePolls).where(eq(archetypePolls.id, pollId));
+  return row ?? null;
+}
+
+export async function listArchetypePollOptions(pollId: string): Promise<ArchetypePollOption[]> {
+  return db
+    .select()
+    .from(archetypePollOptions)
+    .where(eq(archetypePollOptions.pollId, pollId))
+    .orderBy(asc(archetypePollOptions.sortOrder), asc(archetypePollOptions.id));
+}
+
+export async function getArchetypePollKAnonTalliesForPublic(pollId: string) {
+  const options = await listArchetypePollOptions(pollId);
+  if (options.length === 0) return [];
+  const tallyRows = await db
+    .select({
+      optionId: archetypePollVotes.optionId,
+      archetypeKey: archetypePollVotes.archetypeKey,
+      n: count(),
+    })
+    .from(archetypePollVotes)
+    .where(eq(archetypePollVotes.pollId, pollId))
+    .groupBy(archetypePollVotes.optionId, archetypePollVotes.archetypeKey);
+
+  const raw: RawOptionTally[] = options.map((opt) => {
+    const countsByArchetype = new Map<string, number>();
+    let totalCount = 0;
+    for (const row of tallyRows) {
+      if (row.optionId !== opt.id) continue;
+      const v = Number(row.n);
+      countsByArchetype.set(row.archetypeKey, v);
+      totalCount += v;
+    }
+    return {
+      optionId: opt.id,
+      label: opt.label,
+      sortOrder: opt.sortOrder,
+      countsByArchetype,
+      totalCount,
+    };
+  });
+  return applyKAnonymityToPollTallies(raw);
+}
+
+export async function getArchetypePollVoteForUser(
+  pollId: string,
+  userId: string,
+): Promise<ArchetypePollVote | null> {
+  const [row] = await db
+    .select()
+    .from(archetypePollVotes)
+    .where(and(eq(archetypePollVotes.pollId, pollId), eq(archetypePollVotes.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function upsertArchetypePollVote(input: {
+  userId: string;
+  pollId: string;
+  optionId: string;
+  archetypeKey: string;
+}): Promise<ArchetypePollVote> {
+  const existing = await getArchetypePollVoteForUser(input.pollId, input.userId);
+  if (existing) {
+    const [updated] = await db
+      .update(archetypePollVotes)
+      .set({
+        optionId: input.optionId,
+        archetypeKey: input.archetypeKey,
+      })
+      .where(eq(archetypePollVotes.id, existing.id))
+      .returning();
+    return updated;
+  }
+  const [row] = await db
+    .insert(archetypePollVotes)
+    .values({
+      id: randomUUID(),
+      pollId: input.pollId,
+      userId: input.userId,
+      optionId: input.optionId,
+      archetypeKey: input.archetypeKey,
+    })
+    .returning();
+  return row;
+}
+
+export async function createArchetypePollWithOptions(input: {
+  title: string;
+  body?: string | null;
+  authorAvatarKey: string;
+  opensAt: Date;
+  closesAt: Date;
+  options: { label: string; sortOrder: number }[];
+}): Promise<{ poll: ArchetypePoll; options: ArchetypePollOption[] }> {
+  const now = new Date();
+  const status =
+    now < input.opensAt ? "scheduled" : now >= input.closesAt ? "closed" : "open";
+  return db.transaction(async (tx) => {
+    const [poll] = await tx
+      .insert(archetypePolls)
+      .values({
+        id: randomUUID(),
+        title: input.title,
+        body: input.body ?? null,
+        status,
+        opensAt: input.opensAt,
+        closesAt: input.closesAt,
+        authorAvatarKey: input.authorAvatarKey,
+      })
+      .returning();
+    const outOpts: ArchetypePollOption[] = [];
+    for (const o of input.options) {
+      const [opt] = await tx
+        .insert(archetypePollOptions)
+        .values({
+          id: randomUUID(),
+          pollId: poll.id,
+          label: o.label,
+          sortOrder: o.sortOrder,
+        })
+        .returning();
+      outOpts.push(opt);
+    }
+    return { poll, options: outOpts };
+  });
 }
 
 // ─── Collaboration helpers ──────────────────────────────────────────────────

@@ -96,8 +96,17 @@ describe("toPublicTaskListItem", () => {
     expect(list).toHaveLength(2);
     expect(list[0].id).toBe("a");
     expect(list[0].classificationExtraCount).toBe(2);
+    expect(list[0].noteAttachmentIds).toEqual([]);
     expect(list[1].id).toBe("b");
     expect(list[1].classificationExtraCount).toBe(0);
+    expect(list[1].noteAttachmentIds).toEqual([]);
+  });
+
+  it("toPublicTaskListItems merges noteAttachmentIds from the batch map", () => {
+    const row = makeTask({ id: "tid" });
+    const m = new Map<string, string[]>([["tid", ["a1", "a2"]]]);
+    const [out] = toPublicTaskListItems([row], m);
+    expect(out.noteAttachmentIds).toEqual(["a1", "a2"]);
   });
 });
 
@@ -119,7 +128,7 @@ describe("bandwidth-savings sanity check", () => {
    * associations back onto the list DTO, this will catch it. */
   it("list DTO JSON is smaller than the raw task JSON for typical rows", () => {
     const raw = makeTask();
-    const slim = toPublicTaskListItem(raw);
+    const slim = toPublicTaskListItems([raw], new Map())[0];
     expect(JSON.stringify(slim).length).toBeLessThan(
       JSON.stringify(raw).length,
     );
