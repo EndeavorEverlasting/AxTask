@@ -1,10 +1,13 @@
-import { memo, useEffect } from "react";
+import { memo, useEffect, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { Card, CardContent } from "@/components/ui/card";
 import { FloatingChip } from "@/components/ui/floating-chip";
-import { TaskForm } from "@/components/task-form";
-import { BarChart3, CheckCircle, AlertTriangle, ListTodo } from "lucide-react";
+import { BarChart3, CheckCircle, AlertTriangle, ListTodo, Loader2 } from "lucide-react";
+
+const TaskForm = lazy(() =>
+  import("@/components/task-form").then((m) => ({ default: m.TaskForm })),
+);
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import { useCountUp, useCountUpDecimal } from "@/hooks/use-count-up";
@@ -151,7 +154,18 @@ export default function Dashboard() {
         This is the same scale as the task list &quot;Priority (0–10)&quot; column: stored priority score in the database is ×10, then averaged and shown here as engine units (typically under ~12). Load band: {avgScoreBand}.
       </p>
 
-      <TaskForm />
+      <Suspense
+        fallback={
+          <Card className="glass-panel-glossy border border-border/60 min-h-[120px]">
+            <CardContent className="py-10 flex items-center justify-center gap-2 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin shrink-0" aria-hidden />
+              <span className="text-sm">Loading task form…</span>
+            </CardContent>
+          </Card>
+        }
+      >
+        <TaskForm />
+      </Suspense>
 
       <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-4 md:px-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

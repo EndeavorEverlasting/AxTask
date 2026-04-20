@@ -1,6 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
-import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/lib/auth-context";
 import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
 import { apiRequest } from "@/lib/queryClient";
@@ -103,22 +102,17 @@ function AmbientOrbs() {
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden">
       {orbs.map((o) => (
-        <motion.div
+        <div
           key={o.id}
-          initial={{ opacity: 0, scale: 0.7 }}
-          animate={{
-            opacity: [0, 0.6, 0.3, 0.6, 0],
-            scale: [0.7, 1.1, 0.9, 1.05, 0.7],
-            y: [0, -18, 8, -12, 0],
+          className={`axtask-community-orb absolute rounded-full bg-gradient-to-br ${o.color} blur-3xl`}
+          style={{
+            width: o.size,
+            height: o.size,
+            left: o.x,
+            top: o.y,
+            animationDuration: `${o.dur}s`,
+            animationDelay: `${o.delay}s`,
           }}
-          transition={{
-            duration: o.dur,
-            delay: o.delay,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-          className={`absolute rounded-full bg-gradient-to-br ${o.color} blur-3xl`}
-          style={{ width: o.size, height: o.size, left: o.x, top: o.y }}
         />
       ))}
     </div>
@@ -222,11 +216,7 @@ function ForumPostCard({
   const catStyle = CATEGORY_BADGES[post.category] || CATEGORY_BADGES.general;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="glass-panel overflow-hidden"
-    >
+    <div className="axtask-fade-in-up glass-panel overflow-hidden">
       <button
         type="button"
         onClick={onToggle}
@@ -262,15 +252,8 @@ function ForumPostCard({
         </div>
       </button>
 
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25 }}
-            className="overflow-hidden"
-          >
+      {isExpanded && (
+          <div className="overflow-hidden">
             <div className="border-t border-white/5 px-4 sm:px-5 py-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
               <Suspense fallback={<div className="text-xs text-slate-500">Loading…</div>}>
                 <SafeMarkdown
@@ -359,10 +342,9 @@ function ForumPostCard({
                 </Link>
               </div>
             )}
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }
 
@@ -559,12 +541,7 @@ export default function CommunityPage() {
         </Link>
 
         {/* Hero header */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: "easeOut" }}
-          className="glass-panel-glossy p-6 sm:p-8 shadow-2xl"
-        >
+        <div className="axtask-fade-in-up glass-panel-glossy p-6 sm:p-8 shadow-2xl">
           <div className="flex items-center gap-4">
             <PretextAvatarOrb
               variant="social"
@@ -608,7 +585,7 @@ export default function CommunityPage() {
             <AvatarGlowChip avatarKey="mood">Mood</AvatarGlowChip>
             <AvatarGlowChip avatarKey="productivity">Cadence</AvatarGlowChip>
           </div>
-        </motion.div>
+        </div>
 
         {/* Tab switcher */}
         <div className="glass-panel flex gap-1 p-1 rounded-xl">
@@ -637,47 +614,32 @@ export default function CommunityPage() {
         </div>
 
         {/* Error state */}
-        <AnimatePresence>
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="rounded-xl border border-rose-500/20 bg-rose-500/10 backdrop-blur px-4 py-3 text-sm text-rose-300"
-            >
-              {error}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {error && (
+          <div className="axtask-fade-in-up rounded-xl border border-rose-500/20 bg-rose-500/10 backdrop-blur px-4 py-3 text-sm text-rose-300">
+            {error}
+          </div>
+        )}
 
         {/* Loading state */}
         {loading && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex flex-col items-center justify-center py-16 gap-4"
-          >
+          <div className="flex flex-col items-center justify-center py-16 gap-4 axtask-fade-in-up">
             <div className="relative">
               <Loader2 className="h-8 w-8 text-sky-400 animate-spin" />
-              <motion.div
-                animate={{ scale: [1, 1.5, 1], opacity: [0.3, 0, 0.3] }}
-                transition={{ repeat: Infinity, duration: 1.5 }}
-                className="absolute inset-0 rounded-full bg-sky-400/20"
+              <div
+                className="absolute inset-0 rounded-full bg-sky-400/20 animate-ping opacity-40"
+                style={{ animationDuration: "1.5s" }}
+                aria-hidden
               />
             </div>
             <p className="text-sm text-slate-400">Loading community…</p>
-          </motion.div>
+          </div>
         )}
 
         {/* ── FORUM TAB ─────────────────────────────────────────── */}
         {!loading && activeTab === "forum" && (
           <div className="space-y-3">
             {forumPosts.length === 0 ? (
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col items-center justify-center py-20 gap-4"
-              >
+              <div className="axtask-fade-in-up flex flex-col items-center justify-center py-20 gap-4">
                 <div className="relative h-16 w-16">
                   <div className="absolute inset-0 rounded-full bg-gradient-to-br from-sky-400/30 via-violet-500/20 to-cyan-400/20 blur-md animate-pulse" />
                   <div className="relative h-16 w-16 rounded-full bg-gradient-to-br from-sky-400/20 via-violet-500/15 to-cyan-400/10 border border-white/15 grid place-items-center">
@@ -685,7 +647,7 @@ export default function CommunityPage() {
                   </div>
                 </div>
                 <p className="text-sm text-slate-300">The orbs are gathering…</p>
-              </motion.div>
+              </div>
             ) : (
               forumPosts.map((post) => (
                 <ForumPostCard
@@ -770,11 +732,7 @@ export default function CommunityPage() {
 
             {/* Empty state */}
             {tasks.length === 0 && !error && (
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col items-center justify-center py-20 gap-4"
-              >
+              <div className="axtask-fade-in-up flex flex-col items-center justify-center py-20 gap-4">
                 <div className="h-16 w-16 rounded-2xl bg-white/5 border border-white/10 grid place-items-center">
                   <Globe2 className="h-8 w-8 text-slate-500" />
                 </div>
@@ -784,16 +742,12 @@ export default function CommunityPage() {
                     Be the first to share — publish a task from your task list to see it here.
                   </p>
                 </div>
-              </motion.div>
+              </div>
             )}
 
             {/* Load more */}
             {nextCursor && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="flex justify-center pt-2 pb-6"
-              >
+              <div className="flex justify-center pt-2 pb-6">
                 <Button
                   onClick={loadMore}
                   disabled={loadingMore}
@@ -811,7 +765,7 @@ export default function CommunityPage() {
                     </>
                   )}
                 </Button>
-              </motion.div>
+              </div>
             )}
           </>
         )}

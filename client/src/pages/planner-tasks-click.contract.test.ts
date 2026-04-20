@@ -37,6 +37,14 @@ describe("planner insight click wiring", () => {
   });
 });
 
+describe("planner page :: CSS-first motion (pass-4)", () => {
+  const planner = read(path.join("client", "src", "pages", "planner.tsx"));
+
+  it("does not import framer-motion in the planner page chunk", () => {
+    expect(planner).not.toMatch(/from\s["']framer-motion["']/);
+  });
+});
+
 describe("tasks page query-param handler", () => {
   const tasks = read(path.join("client", "src", "pages", "tasks.tsx"));
   /* Legacy `task-list.tsx` is gone — both /tasks and /shopping now

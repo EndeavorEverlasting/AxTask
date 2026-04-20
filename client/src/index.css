@@ -541,6 +541,30 @@
     animation: none !important;
   }
 
+  /* Community ambient orbs — replaces framer-motion infinite keyframes on
+   * six absolutely-positioned blobs. Duration/delay are set per-orb via
+   * inline style on the element. */
+  @keyframes axtask-community-orb-float {
+    0%, 100% { opacity: 0.22; transform: translate3d(0, 0, 0) scale(0.88); }
+    40% { opacity: 0.48; transform: translate3d(0, -16px, 0) scale(1.04); }
+    70% { opacity: 0.3; transform: translate3d(0, 8px, 0) scale(0.94); }
+  }
+  .axtask-community-orb {
+    animation-name: axtask-community-orb-float;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .axtask-community-orb {
+      animation: none;
+      opacity: 0.28;
+    }
+  }
+  body[data-axtask-calm] .axtask-community-orb {
+    animation: none !important;
+    opacity: 0.25;
+  }
+
   /* Split light/dark: @apply with stacked dark:.../opacity utilities fails Tailwind expandApply in prod (Docker). */
   .glass-panel {
     @apply rounded-2xl border border-white/60 bg-white/70 backdrop-blur-xl shadow-sm ring-1 ring-black/[0.04];

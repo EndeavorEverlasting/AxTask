@@ -1,10 +1,13 @@
 import { TaskListHost } from "@/components/task-list-host";
-import { TaskForm } from "@/components/task-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { usePretextSurface } from "@/hooks/use-pretext-surface";
-import { Sparkles } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Sparkles, Loader2 } from "lucide-react";
+import { lazy, Suspense, useState, useEffect } from "react";
+
+const TaskForm = lazy(() =>
+  import("@/components/task-form").then((m) => ({ default: m.TaskForm })),
+);
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -86,7 +89,20 @@ export default function Tasks() {
         </CardContent>
       </Card>
 
-      {showForm && <TaskForm />}
+      {showForm && (
+        <Suspense
+          fallback={
+            <Card className="glass-panel-glossy border border-border/60">
+              <CardContent className="py-10 flex items-center justify-center gap-2 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin shrink-0" aria-hidden />
+                <span className="text-sm">Loading task form…</span>
+              </CardContent>
+            </Card>
+          }
+        >
+          <TaskForm />
+        </Suspense>
+      )}
       <TaskListHost />
     </div>
   );

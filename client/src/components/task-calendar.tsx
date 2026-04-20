@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, lazy, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
 import { syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { PriorityBadge } from "./priority-badge";
-import { TaskForm } from "./task-form";
+const TaskForm = lazy(() =>
+  import("./task-form").then((m) => ({ default: m.TaskForm })),
+);
 import {
   ChevronLeft,
   ChevronRight,
@@ -471,13 +473,15 @@ export function TaskCalendar() {
             <DialogTitle>Edit Task</DialogTitle>
           </DialogHeader>
           {editingTask && (
-            <TaskForm
-              task={editingTask}
-              onSuccess={() => {
-                setEditingTask(null);
-                queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-              }}
-            />
+            <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading…</div>}>
+              <TaskForm
+                task={editingTask}
+                onSuccess={() => {
+                  setEditingTask(null);
+                  queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+                }}
+              />
+            </Suspense>
           )}
         </DialogContent>
       </Dialog>
@@ -491,13 +495,15 @@ export function TaskCalendar() {
               New Task for {creatingForDate}
             </DialogTitle>
           </DialogHeader>
-          <TaskForm
-            defaultDate={creatingForDate || undefined}
-            onSuccess={() => {
-              setCreatingForDate(null);
-              queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-            }}
-          />
+          <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading…</div>}>
+            <TaskForm
+              defaultDate={creatingForDate || undefined}
+              onSuccess={() => {
+                setCreatingForDate(null);
+                queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+              }}
+            />
+          </Suspense>
         </DialogContent>
       </Dialog>
     </Card>
