@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { coinTransactions } from "@shared/schema";
-import { eq, and, sql, count } from "drizzle-orm";
+import { eq, and, sql, count, gte } from "drizzle-orm";
 import { addCoins } from "./storage";
 
 const utcDayClause = sql`(${coinTransactions.createdAt}::date) = (timezone('UTC', now()))::date`;
@@ -10,6 +10,20 @@ export async function countCoinEventsToday(userId: string, reason: string): Prom
     .select({ value: count() })
     .from(coinTransactions)
     .where(and(eq(coinTransactions.userId, userId), eq(coinTransactions.reason, reason), utcDayClause));
+  return Number(row?.value) || 0;
+}
+
+export async function countCoinEventsSince(userId: string, reason: string, since: Date): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(coinTransactions)
+    .where(
+      and(
+        eq(coinTransactions.userId, userId),
+        eq(coinTransactions.reason, reason),
+        gte(coinTransactions.createdAt, since),
+      ),
+    );
   return Number(row?.value) || 0;
 }
 
@@ -42,5 +56,10 @@ export const ENGAGEMENT = {
     reason: "classification_correction_consensus_reward",
     amount: 4,
     dailyCap: 10,
+  },
+  archetypePollVote: {
+    reason: "archetype_poll_vote_reward",
+    amount: 2,
+    weeklyCap: 1,
   },
 } as const;

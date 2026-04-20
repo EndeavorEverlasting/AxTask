@@ -1,8 +1,10 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
 import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import {
   Globe2, ChevronLeft, Loader2, Sparkles, Clock, Flame, Zap,
   CheckCircle2, CircleDot, Timer, Users, ArrowDown,
@@ -406,10 +408,18 @@ function ArchetypePollCard({
   isLoggedIn: boolean;
   onVote: (optionId: string) => void;
 }) {
+  const [, forceCloseTimeTick] = useReducer((x: number) => x + 1, 0);
+  useEffect(() => {
+    if (!poll.votingOpen) return;
+    const id = window.setInterval(() => forceCloseTimeTick(), 60_000);
+    return () => clearInterval(id);
+  }, [poll.votingOpen]);
+
   const orbKey = poll.authorAvatarKey;
   const style = AVATAR_STYLES[orbKey] || AVATAR_STYLES.mood;
   const totalVotes =
     poll.results?.reduce((s, r) => s + r.totalCount, 0) ?? 0;
+  const closesAt = new Date(poll.closesAt);
 
   return (
     <div className="axtask-fade-in-up glass-panel-glossy overflow-hidden border border-white/10 shadow-xl">
@@ -422,6 +432,15 @@ function ArchetypePollCard({
               Archetype pulse
             </p>
             <h2 className="text-base sm:text-lg font-semibold text-white leading-snug">{poll.title}</h2>
+            {poll.votingOpen && (
+              <p className="mt-1.5 text-[11px] text-slate-300/90 flex items-center gap-1.5">
+                <Clock className="h-3 w-3 shrink-0 opacity-80" />
+                <span>
+                  Closes{" "}
+                  {formatDistanceToNow(closesAt, { addSuffix: true })}
+                </span>
+              </p>
+            )}
           </div>
         </div>
         {poll.body && (
@@ -467,6 +486,9 @@ function ArchetypePollCard({
         {poll.resultsAvailable && poll.results && totalVotes > 0 && (
           <div className="space-y-3">
             <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">Results by archetype</p>
+            <p className="text-[10px] text-slate-500 leading-snug max-w-prose">
+              Votes are grouped by your dominant analytical archetype—the strongest signal in your companion profile—so each person counts once toward one archetype column.
+            </p>
             {poll.results.map((row) => {
               const pct = Math.round((row.totalCount / totalVotes) * 1000) / 10;
               return (
@@ -518,6 +540,7 @@ function ArchetypePollCard({
 /* ── Main page ─────────────────────────────────────────────────────── */
 export default function CommunityPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [tasks, setTasks] = useState<PublicTask[]>([]);
   const [nextCursor, setNextCursor] = useState<{
     publishedAt: string;
@@ -567,6 +590,25 @@ export default function CommunityPage() {
     },
     [],
   );
+
+  const refreshPollDetail = useCallback(async () => {
+    try {
+      const pr = await fetch("/api/public/community/polls");
+      if (!pr.ok) return;
+      const pj = (await pr.json()) as { polls: ArchetypePollSummary[] };
+      const featured = pj.polls.find((p) => p.votingOpen) ?? pj.polls[0];
+      if (!featured) {
+        if (mountedRef.current) setPollDetail(null);
+        return;
+      }
+      const dr = await fetch(`/api/public/community/polls/${featured.id}`);
+      if (!dr.ok) return;
+      const dj = (await dr.json()) as { poll: ArchetypePollDetail };
+      if (mountedRef.current) setPollDetail(dj.poll);
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
 
   useEffect(() => {
     if (user) sendProductFunnelBeacon("community_feed_viewed");
@@ -648,14 +690,71 @@ export default function CommunityPage() {
     return () => ac.abort();
   }, [user?.id, pollDetail?.id]);
 
+  useEffect(() => {
+    if (!pollDetail?.votingOpen) return;
+    const id = window.setInterval(() => {
+      void refreshPollDetail();
+    }, 45_000);
+    return () => clearInterval(id);
+  }, [pollDetail?.id, pollDetail?.votingOpen, refreshPollDetail]);
+
+  useEffect(() => {
+    if (!pollDetail?.votingOpen) return;
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refreshPollDetail();
+    };
+    const onFocus = () => {
+      void refreshPollDetail();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [pollDetail?.id, pollDetail?.votingOpen, refreshPollDetail]);
+
   const handlePollVote = async (optionId: string) => {
     if (!user || !pollDetail?.votingOpen) return;
     setPollVoteSubmitting(true);
     try {
-      await apiRequest("POST", `/api/public/community/polls/${pollDetail.id}/vote`, { optionId });
-      setPollMyOptionId(optionId);
-    } catch {
-      /* ignore */
+      const res = await apiRequest("POST", `/api/public/community/polls/${pollDetail.id}/vote`, {
+        optionId,
+      });
+      const body = (await res.json()) as {
+        optionId: string;
+        pollVoteReward: { coins: number; newBalance: number } | null;
+      };
+      setPollMyOptionId(body.optionId);
+      if (body.pollVoteReward) {
+        toast({
+          title: "Vote recorded",
+          description: `+${body.pollVoteReward.coins} AxCoin (weekly poll reward). New balance: ${body.pollVoteReward.newBalance}.`,
+        });
+      } else {
+        toast({
+          title: "Vote recorded",
+          description: "Thanks for shaping the pulse.",
+        });
+      }
+      await refreshPollDetail();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      let description = "Please try again.";
+      const jsonStart = msg.indexOf("{");
+      if (jsonStart >= 0) {
+        try {
+          const parsed = JSON.parse(msg.slice(jsonStart)) as { message?: string };
+          if (parsed.message) description = parsed.message;
+        } catch {
+          /* keep default */
+        }
+      }
+      toast({
+        title: "Could not record vote",
+        description,
+        variant: "destructive",
+      });
     } finally {
       setPollVoteSubmitting(false);
     }

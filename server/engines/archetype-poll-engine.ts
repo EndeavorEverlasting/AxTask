@@ -58,6 +58,7 @@ function pickTemplate(): PollTemplate {
  * Creates a 7-day poll starting immediately when none exists.
  */
 export async function ensureArchetypePollSchedule(now: Date = new Date()): Promise<number> {
+  if (process.env.AXTASK_ARCHETYPE_POLL_SCHEDULER === "0") return 0;
   if (await hasArchetypePollActiveOrFuture(now)) return 0;
   const t = pickTemplate();
   const opensAt = now;

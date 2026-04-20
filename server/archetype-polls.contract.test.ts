@@ -46,9 +46,14 @@ describe("archetype polls — contract", () => {
     expect(block).not.toMatch(/actorUserId:\s*req\.user!\.id/);
   });
 
-  it("poll engine is invoked on startup", () => {
+  it("poll engine is invoked on startup unless scheduler kill-switch is set", () => {
     expect(routesSrc).toContain("ensureArchetypePollSchedule");
     expect(routesSrc).toContain("AXTASK_ARCHETYPE_POLL_SCHEDULER");
+  });
+
+  it("poll engine no-ops when scheduler env is disabled", () => {
+    const engineSrc = read("server/engines/archetype-poll-engine.ts");
+    expect(engineSrc).toContain("AXTASK_ARCHETYPE_POLL_SCHEDULER");
   });
 
   it("public poll detail handler does not touch session user", () => {

@@ -16,6 +16,8 @@ describe("use-case engagement wiring", () => {
     expect(src).toContain("classification_consensus_tier_bonus");
     expect(src).toContain("feedback_submission_reward");
     expect(src).toContain("classification_correction_consensus_reward");
+    expect(src).toContain("archetype_poll_vote_reward");
+    expect(src).toContain("archetypePollVote");
   });
 
   it("wires task create, update, search, and recalculate responses", () => {

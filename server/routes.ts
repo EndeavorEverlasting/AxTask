@@ -122,9 +122,15 @@ import {
   upsertArchetypePollVote,
   getArchetypePollVoteForUser,
   getDominantArchetypeKeyForUser,
+  createArchetypePollWithOptions,
 } from "./storage";
 import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS, processChipHuntSync } from "./coin-engine";
-import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
+import {
+  countCoinEventsToday,
+  countCoinEventsSince,
+  tryCappedCoinAward,
+  ENGAGEMENT,
+} from "./engagement-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
@@ -1667,9 +1673,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ensureOrbActivityLevel(8).then((n) => {
       if (n > 0) console.log(`[dialogue-engine] Generated ${n} new orb dialogue threads`);
     }).catch((err) => console.error("[dialogue-engine] startup error:", err));
-    ensureArchetypePollSchedule().then((n) => {
-      if (n > 0) console.log(`[archetype-poll-engine] Created ${n} poll window`);
-    }).catch((err) => console.error("[archetype-poll-engine] startup error:", err));
+    if (process.env.AXTASK_ARCHETYPE_POLL_SCHEDULER !== "0") {
+      ensureArchetypePollSchedule().then((n) => {
+        if (n > 0) console.log(`[archetype-poll-engine] Created ${n} poll window`);
+      }).catch((err) => console.error("[archetype-poll-engine] startup error:", err));
+    }
   } catch (err) {
     console.error("[community-seed] Non-fatal: failed to seed community posts —", (err as Error).message);
   }
@@ -1794,7 +1802,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         /* vote already persisted */
       }
 
-      res.status(200).json({ optionId: body.optionId });
+      const apv = ENGAGEMENT.archetypePollVote;
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const priorGrants = await countCoinEventsSince(req.user!.id, apv.reason, weekAgo);
+      let pollVoteReward: { coins: number; newBalance: number } | null = null;
+      if (priorGrants < apv.weeklyCap) {
+        const { wallet } = await addCoins(
+          req.user!.id,
+          apv.amount,
+          apv.reason,
+          "Community archetype poll vote",
+          undefined,
+        );
+        pollVoteReward = { coins: apv.amount, newBalance: wallet.balance };
+      }
+
+      res.status(200).json({ optionId: body.optionId, pollVoteReward });
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
       if (error instanceof Error) return res.status(400).json({ message: error.message });
@@ -4095,8 +4118,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user!.id;
       const tasks = await storage.getTasks(userId);
+      const engagementDaily = Object.values(ENGAGEMENT).filter((e) => "dailyCap" in e) as Array<{
+        reason: string;
+        dailyCap: number;
+      }>;
       const rewardsToday = await Promise.all(
-        Object.values(ENGAGEMENT).map(async (entry) => ({
+        engagementDaily.map(async (entry) => ({
           reason: entry.reason,
           todayCount: await countCoinEventsToday(userId, entry.reason),
           dailyCap: entry.dailyCap,
@@ -5639,6 +5666,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Admin resolve trigger error:", error);
       res.status(500).json({ message: "Failed to resolve trigger" });
+    }
+  });
+
+  const adminArchetypePollCreateSchema = z.object({
+    title: z.string().min(4).max(200),
+    body: z.string().max(2000).optional().nullable(),
+    authorAvatarKey: feedbackAvatarKeySchema,
+    optionLabels: z.array(z.string().min(1).max(200)).min(2).max(8),
+    durationDays: z.number().int().min(1).max(30).optional().default(7),
+  });
+
+  app.post("/api/admin/archetype-polls", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const parsed = adminArchetypePollCreateSchema.parse(req.body);
+      const now = new Date();
+      const closesAt = new Date(now.getTime() + parsed.durationDays * 24 * 60 * 60 * 1000);
+      const { poll, options } = await createArchetypePollWithOptions({
+        title: parsed.title,
+        body: parsed.body ?? null,
+        authorAvatarKey: parsed.authorAvatarKey,
+        opensAt: now,
+        closesAt,
+        options: parsed.optionLabels.map((label, i) => ({ label, sortOrder: i })),
+      });
+      await logSecurityEvent(
+        "admin_archetype_poll_created",
+        req.user!.id,
+        undefined,
+        req.ip,
+        `Poll ${poll.id}: ${poll.title.slice(0, 80)}`,
+      );
+      res.status(201).json({
+        id: poll.id,
+        title: poll.title,
+        optionCount: options.length,
+        closesAt: poll.closesAt?.toISOString() ?? null,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+      console.error("Admin archetype poll create error:", error);
+      res.status(500).json({ message: "Failed to create poll" });
     }
   });
 
