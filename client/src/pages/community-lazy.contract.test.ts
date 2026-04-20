@@ -71,4 +71,13 @@ describe("community page :: perf contract", () => {
      * signature and make sure it's gone. */
     expect(src).not.toMatch(/<motion\.div[^>]*key=\{t\.id\}/);
   });
+
+  it("pass-4: community page does not import framer-motion", () => {
+    expect(src).not.toMatch(/from\s["']framer-motion["']/);
+  });
+
+  it("pass-4: ambient orbs use CSS class axtask-community-orb", () => {
+    expect(src).toContain("axtask-community-orb");
+    expect(src).not.toContain("<motion.");
+  });
 });

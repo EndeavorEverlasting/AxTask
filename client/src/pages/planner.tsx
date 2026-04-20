@@ -9,8 +9,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PriorityBadge } from "@/components/priority-badge";
-import { motion, AnimatePresence } from "framer-motion";
-import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import type { ProposedAction } from "@/components/bulk-action-dialog";
 
 /* BulkActionDialog owns a large framer-motion AnimatePresence subtree.
@@ -70,7 +68,6 @@ const SUGGESTED_QUESTIONS = [
 ];
 
 export default function PlannerPage() {
-  const reducedMotion = useReducedMotion();
   const [, setLocation] = useLocation();
   const [question, setQuestion] = useState("");
   const [chatHistory, setChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
@@ -390,11 +387,7 @@ export default function PlannerPage() {
           </p>
 
           {briefing.overdue.count > 0 && (
-            <motion.div
-              initial={reducedMotion ? false : { opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.25 }}
-            >
+            <div className="axtask-fade-in-up" style={{ animationDelay: "80ms" }}>
               <Card className="border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2 text-red-700 dark:text-red-400">
@@ -455,15 +448,11 @@ export default function PlannerPage() {
                   ))}
                 </CardContent>
               </Card>
-            </motion.div>
+            </div>
           )}
 
           {briefing.dueWithinHour.count > 0 && (
-            <motion.div
-              initial={reducedMotion ? false : { opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.28 }}
-            >
+            <div className="axtask-fade-in-up" style={{ animationDelay: "100ms" }}>
               <Card className="border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-900/10">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2 text-orange-700 dark:text-orange-400">
@@ -486,15 +475,11 @@ export default function PlannerPage() {
                   ))}
                 </CardContent>
               </Card>
-            </motion.div>
+            </div>
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <motion.div
-              initial={reducedMotion ? false : { opacity: 0, x: -12 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.35, delay: 0.3 }}
-            >
+            <div className="axtask-fade-in-up" style={{ animationDelay: "120ms" }}>
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -530,13 +515,9 @@ export default function PlannerPage() {
                   )}
                 </CardContent>
               </Card>
-            </motion.div>
+            </div>
 
-            <motion.div
-              initial={reducedMotion ? false : { opacity: 0, x: 12 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.35, delay: 0.3 }}
-            >
+            <div className="axtask-fade-in-up" style={{ animationDelay: "140ms" }}>
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -569,14 +550,10 @@ export default function PlannerPage() {
                   </div>
                 </CardContent>
               </Card>
-            </motion.div>
+            </div>
           </div>
 
-          <motion.div
-            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, delay: 0.35 }}
-          >
+          <div className="axtask-fade-in-up" style={{ animationDelay: "160ms" }}>
             <Card className="border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50/50 to-purple-50/50 dark:from-indigo-900/10 dark:to-purple-900/10">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -647,13 +624,9 @@ export default function PlannerPage() {
                 </div>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
 
-          <motion.div
-            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, delay: 0.38 }}
-          >
+          <div className="axtask-fade-in-up" style={{ animationDelay: "180ms" }}>
             <Card className="border-emerald-200 dark:border-emerald-800 bg-gradient-to-r from-emerald-50/50 to-teal-50/50 dark:from-emerald-900/10 dark:to-teal-900/10">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -710,11 +683,10 @@ export default function PlannerPage() {
                         ? "Open this task"
                         : "Search tasks like this";
                       return (
-                        <motion.div
+                        <div
                           key={idx}
-                          initial={reducedMotion ? false : { opacity: 0, x: -8 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: idx * 0.05 }}
+                          className="axtask-fade-in-up"
+                          style={{ animationDelay: `${Math.min(idx, 10) * 40}ms` }}
                         >
                           <button
                             type="button"
@@ -748,7 +720,7 @@ export default function PlannerPage() {
                               </span>
                             </div>
                           </button>
-                        </motion.div>
+                        </div>
                       );
                     })}
                   </div>
@@ -762,13 +734,9 @@ export default function PlannerPage() {
                 )}
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
 
-          <motion.div
-            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, delay: 0.4 }}
-          >
+          <div className="axtask-fade-in-up" style={{ animationDelay: "200ms" }}>
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -796,26 +764,22 @@ export default function PlannerPage() {
 
                 {chatHistory.length > 0 && (
                   <div className="space-y-3 max-h-64 overflow-y-auto rounded-lg bg-gray-50 dark:bg-gray-800/50 p-3">
-                    <AnimatePresence mode="popLayout">
-                      {chatHistory.map((msg, i) => (
-                        <motion.div
-                          key={i}
-                          initial={reducedMotion ? false : { opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                    {chatHistory.map((msg, i) => (
+                      <div
+                        key={i}
+                        className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                      >
+                        <div
+                          className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-line ${
+                            msg.role === "user"
+                              ? "bg-purple-600 text-white"
+                              : "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-600"
+                          }`}
                         >
-                          <div
-                            className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-line ${
-                              msg.role === "user"
-                                ? "bg-purple-600 text-white"
-                                : "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-600"
-                            }`}
-                          >
-                            {msg.text}
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
+                          {msg.text}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -847,7 +811,7 @@ export default function PlannerPage() {
                 </div>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
         </>
       ) : (
         <div className="text-center py-16">
