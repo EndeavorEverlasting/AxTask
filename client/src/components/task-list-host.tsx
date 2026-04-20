@@ -43,6 +43,7 @@ import {
   type TaskListRouteFilter,
 } from "@/lib/task-list-route-filters";
 import { isShoppingTask } from "@shared/shopping-tasks";
+import { useVoiceOptional } from "@/hooks/use-voice";
 
 /**
  * Lazy React components for the write-path. These are only resolved when the
@@ -261,6 +262,21 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
   });
+
+  const voiceOptional = useVoiceOptional();
+  const voiceSearchSignal = voiceOptional?.voiceSearchQuery ?? null;
+  const voiceOptionalRef = useRef(voiceOptional);
+  voiceOptionalRef.current = voiceOptional;
+
+  /* After voice `prepare_task_search` dictation, `handleVoiceResult` sets
+   * `voiceSearchQuery` in context — pull it into the visible filter once. */
+  useEffect(() => {
+    if (voiceSearchSignal == null) return;
+    const ctx = voiceOptionalRef.current;
+    if (!ctx) return;
+    const q = ctx.consumeVoiceSearch();
+    if (q) setSearchQuery(q);
+  }, [voiceSearchSignal]);
 
   /* React Query is `offlineFirst` + `refetchOnWindowFocus: false`. If the
    * cache is empty AND we're not already fetching AND we haven't errored,
