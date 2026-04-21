@@ -4,7 +4,9 @@ import {
   getAvatarForSource,
 } from "@shared/feedback-avatar-map";
 
-export type SkillTreeKind = "avatar" | "offline";
+import type { SkillTreeKind } from "./skill-tree-paths";
+
+export type { SkillTreeKind };
 
 /**
  * Matches the `source` strings emitted by `resolveSkillUnlockSource`.

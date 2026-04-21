@@ -95,7 +95,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "skill-tree",
     title: "Skill Tree",
-    description: "Spend AxCoins to unlock Avatar skills (companion slots, guidance depth, export discounts) and Offline generator skills (idle coin rate and capacity). Prerequisite nodes must be unlocked before their children become available.",
+    description: "Spend AxCoins on one progression canvas: companion and productivity nodes on the left, idle generator upgrades on the right. Buy the offline generator to unlock idle skills. Prerequisite nodes must be unlocked before their children become available.",
     page: "/skill-tree",
     targetId: "sidebar-link-/skill-tree",
     position: "right",

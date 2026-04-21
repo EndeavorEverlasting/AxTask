@@ -2901,7 +2901,10 @@ export async function getOfflineSkillTree(userId: string): Promise<Array<{
   prerequisiteSkillKey: string | null;
   isUnlocked: boolean;
   isAvailable: boolean;
+  effectType: string;
+  effectPerLevel: number;
 }>> {
+  await seedOfflineSkillTree();
   const [nodes, userSkills] = await Promise.all([
     db.select().from(offlineSkillNodes).orderBy(asc(offlineSkillNodes.sortOrder), asc(offlineSkillNodes.name)),
     getUserSkillLevels(userId),
@@ -2927,6 +2930,8 @@ export async function getOfflineSkillTree(userId: string): Promise<Array<{
       prerequisiteSkillKey: node.prerequisiteSkillKey,
       isUnlocked: currentLevel > 0,
       isAvailable: hasPrereq && !atMax,
+      effectType: node.effectType,
+      effectPerLevel: node.effectPerLevel,
     };
   });
 }
