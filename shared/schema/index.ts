@@ -11,6 +11,7 @@
 // cycles — don't do it without checking the FK graph.
 
 export * from "./core";
+export * from "./e2ee";
 export * from "./tasks";
 export * from "./gamification";
 export * from "./ops";

@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { parseApiRequestError, participationAgeUserHint } from "@/lib/parse-api-request-error";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
@@ -22,6 +24,7 @@ const EMPTY: PasteComposerValue = { body: "", attachmentAssetIds: [] };
 
 export default function CollabInboxPage() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [draft, setDraft] = useState<PasteComposerValue>(EMPTY);
 
   const { data, isLoading } = useQuery({
@@ -43,6 +46,14 @@ export default function CollabInboxPage() {
     onSuccess: () => {
       setDraft(EMPTY);
       queryClient.invalidateQueries({ queryKey: ["/api/collaboration/inbox"] });
+    },
+    onError: (err: Error) => {
+      const p = parseApiRequestError(err);
+      toast({
+        title: "Could not enqueue",
+        description: p.message + participationAgeUserHint(p.code),
+        variant: "destructive",
+      });
     },
   });
 

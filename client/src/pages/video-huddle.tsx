@@ -28,6 +28,14 @@ export default function VideoHuddlePage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {VIDEO_BASE ? (
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Audio and video from this embed are handled entirely by the meeting URL you configured (
+              <code className="text-xs rounded bg-muted px-1 py-0.5">VITE_VIDEO_ROOM_BASE_URL</code>
+              ). Encryption, recording policy, and data processing follow that provider&apos;s product — not AxTask
+              application code. Choose a provider and plan that match your compliance needs.
+            </p>
+          ) : null}
+          {VIDEO_BASE ? (
             <div className="aspect-video w-full overflow-hidden rounded-lg border bg-black/40">
               <iframe title="Video huddle" src={VIDEO_BASE} className="h-full w-full" allow="camera; microphone; display-capture" />
             </div>

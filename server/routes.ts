@@ -40,7 +40,7 @@ import {
   createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
   listBillingPaymentMethodsForUser, createBillingPaymentMethod,
   deleteMfaChallengeById, getUserContactForMfa, setUserVerifiedPhone, getUserById,
-  getUserRowById, setUserTotpSecret, clearUserTotp, verifyPassword,
+  getUserRowById, updateUserAccountProfile, setUserTotpSecret, clearUserTotp, verifyPassword,
   appendSecurityEvent, getSecurityEvents, getSecurityAlerts, analyzeAndCreateSecurityAlerts,
   listFeedbackInbox,
   getFeedbackInsightsForUser,
@@ -207,6 +207,20 @@ import { getNotificationDispatchProfile } from "./services/notification-intensit
 import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
 import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
 import { evaluateAdherenceForUser } from "./services/adherence-evaluator";
+import {
+  assertEligibleForPublicParticipation,
+  PublicParticipationAgeError,
+} from "./lib/public-participation-age";
+import {
+  upsertUserDeviceKey,
+  listUserDeviceKeysPublic,
+  createDirectDmConversation,
+  assertDmMember,
+  listDmConversationsForUser,
+  insertDmMessage,
+  listDmMessages,
+  getOtherMemberUserId,
+} from "./dm-e2ee";
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
 function safeEqual(a: string, b: string): boolean {
@@ -1854,8 +1868,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     attachmentAssetIds: z.array(z.string().min(1)).max(8).default([]),
   });
 
+  const guardPublicParticipationAge = async (req: Request, res: Response): Promise<boolean> => {
+    const row = await getUserRowById(req.user!.id);
+    try {
+      assertEligibleForPublicParticipation(row?.birthDate ?? null);
+      return true;
+    } catch (e: unknown) {
+      if (e instanceof PublicParticipationAgeError) {
+        res.status(e.statusCode).json({ message: e.message, code: e.code });
+        return false;
+      }
+      throw e;
+    }
+  };
+
   app.post("/api/public/community/posts/:id/reply", requireAuth, apiLimiter, async (req, res) => {
     try {
+      if (!(await guardPublicParticipationAge(req, res))) return;
+
       // ── Media rejection ──
       const mediaCheck = rejectMediaContent(req.headers["content-type"]);
       if (!mediaCheck.allowed) return res.status(415).json({ message: mediaCheck.reason });
@@ -4022,6 +4052,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/collaboration/inbox", requireAuth, async (req, res) => {
     try {
+      if (!(await guardPublicParticipationAge(req, res))) return;
+
       const body = collabBodySchema.parse(req.body || {});
       const row = await appendCollaborationMessage({
         userId: req.user!.id,
@@ -4700,6 +4732,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/feedback", requireAuth, async (req, res) => {
     try {
+      if (!(await guardPublicParticipationAge(req, res))) return;
+
       const parsed = feedbackSchema.parse(req.body);
       const createdAssets = [];
       let linkedAssets = 0;
@@ -4801,6 +4835,120 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to process feedback" });
+    }
+  });
+
+  // ── E2EE: device keys + direct DMs (ciphertext only on server) ─────────────
+  app.post("/api/e2ee/devices", requireAuth, async (req, res) => {
+    try {
+      const body = z
+        .object({
+          deviceId: z.string().min(8).max(160),
+          publicKeySpki: z.string().min(32).max(20000),
+          label: z.string().max(120).optional().nullable(),
+        })
+        .parse(req.body);
+      await upsertUserDeviceKey({
+        userId: req.user!.id,
+        deviceId: body.deviceId,
+        publicKeySpki: body.publicKeySpki,
+        label: body.label ?? null,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to register device key" });
+    }
+  });
+
+  app.get("/api/e2ee/devices", requireAuth, async (req, res) => {
+    try {
+      const devices = await listUserDeviceKeysPublic(req.user!.id);
+      res.json({ devices });
+    } catch {
+      res.status(500).json({ message: "Failed to list devices" });
+    }
+  });
+
+  app.get("/api/e2ee/peer/:peerUserId/devices", requireAuth, async (req, res) => {
+    try {
+      const peerUserId = z.string().uuid().parse(req.params.peerUserId);
+      const devices = await listUserDeviceKeysPublic(peerUserId);
+      res.json({ devices });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to list peer devices" });
+    }
+  });
+
+  app.post("/api/dm/conversations", requireAuth, async (req, res) => {
+    try {
+      if (!(await guardPublicParticipationAge(req, res))) return;
+      const { peerUserId } = z.object({ peerUserId: z.string().uuid() }).parse(req.body);
+      if (peerUserId === req.user!.id) {
+        return res.status(400).json({ message: "Cannot start a conversation with yourself" });
+      }
+      const peer = await getUserById(peerUserId);
+      if (!peer) return res.status(404).json({ message: "User not found" });
+      const conversationId = await createDirectDmConversation(req.user!.id, peerUserId);
+      res.status(201).json({ conversationId });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to create conversation" });
+    }
+  });
+
+  app.get("/api/dm/conversations", requireAuth, async (req, res) => {
+    try {
+      const conversations = await listDmConversationsForUser(req.user!.id);
+      res.json({ conversations });
+    } catch {
+      res.status(500).json({ message: "Failed to list conversations" });
+    }
+  });
+
+  app.get("/api/dm/conversations/:id/messages", requireAuth, async (req, res) => {
+    try {
+      const ok = await assertDmMember(req.params.id, req.user!.id);
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      const rows = await listDmMessages(req.params.id, 200);
+      res.json({ messages: [...rows].reverse() });
+    } catch {
+      res.status(500).json({ message: "Failed to load messages" });
+    }
+  });
+
+  app.post("/api/dm/conversations/:id/messages", requireAuth, async (req, res) => {
+    try {
+      if (!(await guardPublicParticipationAge(req, res))) return;
+      const parsed = z
+        .object({
+          ciphertextB64: z.string().min(1),
+          nonceB64: z.string().min(1),
+          senderPubSpkiB64: z.string().min(1),
+          contentEncoding: z.string().max(32).optional(),
+        })
+        .parse(req.body);
+      const ok = await assertDmMember(req.params.id, req.user!.id);
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      const recipientUserId = await getOtherMemberUserId(req.params.id, req.user!.id);
+      if (!recipientUserId) return res.status(400).json({ message: "Invalid conversation" });
+      const row = await insertDmMessage({
+        conversationId: req.params.id,
+        senderUserId: req.user!.id,
+        recipientUserId,
+        senderPubSpkiB64: parsed.senderPubSpkiB64,
+        ciphertextB64: parsed.ciphertextB64,
+        nonceB64: parsed.nonceB64,
+        contentEncoding: parsed.contentEncoding,
+      });
+      res.status(201).json(row);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to send message" });
     }
   });
 
@@ -5371,6 +5519,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to import account backup" });
+    }
+  });
+
+  function isIsoCalendarDateStrict(s: string): boolean {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+    const [y, mo, d] = s.split("-").map((x) => parseInt(x, 10));
+    if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return false;
+    if (y < 1900 || y > 2100) return false;
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+  }
+
+  app.get("/api/account/profile", requireAuth, async (req, res) => {
+    try {
+      const row = await getUserRowById(req.user!.id);
+      if (!row) return res.status(404).json({ message: "User not found" });
+      res.json({
+        displayName: row.displayName ?? null,
+        birthDate: row.birthDate ?? null,
+      });
+    } catch {
+      res.status(500).json({ message: "Failed to load profile" });
+    }
+  });
+
+  app.patch("/api/account/profile", requireAuth, async (req, res) => {
+    try {
+      const body = z
+        .object({
+          displayName: z.union([z.string().max(120), z.null()]),
+          birthDate: z.union([z.string(), z.null()]),
+        })
+        .parse(req.body);
+
+      let birthDate: string | null;
+      if (body.birthDate === null || body.birthDate === "") {
+        birthDate = null;
+      } else if (typeof body.birthDate === "string" && isIsoCalendarDateStrict(body.birthDate)) {
+        birthDate = body.birthDate;
+      } else {
+        return res.status(400).json({ message: "birthDate must be null or a valid YYYY-MM-DD calendar date" });
+      }
+
+      await updateUserAccountProfile(req.user!.id, {
+        displayName: body.displayName,
+        birthDate,
+      });
+      const fresh = await getUserById(req.user!.id);
+      if (!fresh) {
+        return res.status(500).json({ message: "Account not found after update" });
+      }
+      await appendSecurityEvent({
+        eventType: "account_profile_updated",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {},
+      });
+      res.json({ message: "Profile updated", user: toPublicSessionUser(fresh) });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to update profile" });
     }
   });
 

@@ -20,6 +20,10 @@ High-traffic JSON paths used by the main app include: `GET /api/tasks` (and sear
 
 When adding endpoints, extend serializers and add tests under `shared/public-client-dtos.test.ts` or a contract test rather than widening accidental exposure.
 
+## E2EE direct messages
+
+`POST /api/dm/conversations/:id/messages` accepts **ciphertext** and public key material produced in the browser; the server must not log or persist plaintext for that path. The trust boundary and crypto choices are documented in [docs/E2EE_PRODUCT.md](E2EE_PRODUCT.md).
+
 ## Pasted images and GIFs
 
 Endpoints that accept or return user-composed bodies (collab inbox, community post/reply, feedback) go through `PasteComposer` on write and `SafeMarkdown` on read:

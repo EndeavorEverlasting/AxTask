@@ -269,8 +269,8 @@ export default function AccountPage() {
             Profile
           </CardTitle>
           <CardDescription>
-            Display name and optional birthday (UTC calendar date) for milestone rewards on your birthday and account
-            anniversary.
+            Display name and optional birthday (UTC calendar date) for milestone rewards, and to verify you meet the
+            minimum age (13 by default) to post in community, collaboration inbox, feedback, and encrypted DMs.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -292,7 +292,10 @@ export default function AccountPage() {
               value={profileBirthDate}
               onChange={(e) => setProfileBirthDate(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">Used only for in-app coin bonuses — not shown on community tasks.</p>
+            <p className="text-xs text-muted-foreground">
+              Not shown on community posts. Required for multiplayer posting if you are 13+; otherwise you can still use
+              solo features (tasks, planner, etc.).
+            </p>
           </div>
           <Button
             type="button"
