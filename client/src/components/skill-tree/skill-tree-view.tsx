@@ -83,6 +83,14 @@ function useSkillUnlockMutation() {
       if (vars.domain === "offline") {
         void queryClient.invalidateQueries({ queryKey: ["/api/gamification/offline-generator"] });
       }
+      if (!data.ok) {
+        toast({
+          title: "Upgrade failed",
+          description: data.message ?? "Could not upgrade this skill.",
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
         title: "Skill upgraded",
         description: data.message ?? "Skill level increased.",
@@ -282,6 +290,12 @@ export function UnifiedSkillTreeView({ readOnly, compact, className }: UnifiedSk
           title: "Offline generator online",
           description: data.message ?? "You can unlock idle skills.",
         });
+      } else {
+        toast({
+          title: "Purchase not completed",
+          description: data.message ?? "Could not buy the offline generator.",
+          variant: "destructive",
+        });
       }
     },
     onError: (err: Error) => {
@@ -326,7 +340,7 @@ export function UnifiedSkillTreeView({ readOnly, compact, className }: UnifiedSk
 
   const isLoading = loadingAvatar || loadingOffline;
   const showFullGraph = !compact && !readOnly;
-  const genOwned = offlineGen?.generator.isOwned ?? true;
+  const genOwned = offlineGen?.generator.isOwned ?? false;
 
   if (isLoading) {
     return (
@@ -413,7 +427,9 @@ export function UnifiedSkillTreeView({ readOnly, compact, className }: UnifiedSk
           )}
         >
           {unifiedBranches.map(([branchKey, branchNodes]) => {
-            const [domain, branch] = branchKey.split("::");
+            const sep = branchKey.indexOf("::");
+            const domain = sep === -1 ? branchKey : branchKey.slice(0, sep);
+            const branch = sep === -1 ? "" : branchKey.slice(sep + 2);
             const domainLabel = domain === "offline" ? "Idle" : "Avatar";
             return (
               <div
