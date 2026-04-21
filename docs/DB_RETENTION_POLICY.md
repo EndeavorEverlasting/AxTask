@@ -30,6 +30,7 @@ tables default to having a retention window instead of growing forever.
 | `premium_events`              | `created_at`| 365 days  | Same reasoning as invoice events. |
 | `study_review_events`         | `created_at`| 730 days  | Spaced-repetition history older than two years is rarely surfaced to the user and can always be rebuilt from `study_cards`. |
 | `usage_snapshots`             | `created_at`| 180 days  | Rolling six-month view is enough for the analytics page; older data is summarized elsewhere. |
+| `dm_messages`                 | `created_at`| 365 days  | E2EE ciphertext is not readable by the server; a one-year working set matches other user-visible comms retention while bounding storage growth. |
 
 **Windows explicitly live in two places** — this table and
 `RETENTION_WINDOWS` at the top of [scripts/db-retention.mjs](../scripts/db-retention.mjs).
@@ -48,6 +49,7 @@ the retention job or the reclaim script, even in aggressive mode:
   `classification_disputes`, `classification_dispute_votes`,
   `category_review_triggers`
 - `community_posts`, `community_replies`
+- `user_device_keys` (E2EE public material; pruning would break decrypting historical ciphertext)
 - `premium_subscriptions`, `premium_saved_views`, `premium_review_workflows`,
   `premium_insights`
 - `invoices` (the events feeding them can be pruned, not the invoices

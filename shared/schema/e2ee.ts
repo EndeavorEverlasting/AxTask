@@ -59,6 +59,8 @@ export const dmMessages = pgTable("dm_messages", {
     .references(() => users.id, { onDelete: "cascade" }),
   /** Sender ECDH public key (SPKI base64) so recipient derives the same shared secret. */
   senderPubSpkiB64: text("sender_pub_spki_b64").notNull(),
+  /** Recipient ECDH public key used at send time (SPKI base64); enables sender to decrypt own sends after peer key changes. */
+  recipientPubSpkiB64: text("recipient_pub_spki_b64"),
   ciphertextB64: text("ciphertext_b64").notNull(),
   nonceB64: text("nonce_b64").notNull(),
   contentEncoding: varchar("content_encoding", { length: 32 }).notNull().default("e2ee_ecdh_aes_gcm_v1"),

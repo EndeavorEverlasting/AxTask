@@ -21,6 +21,8 @@ type DmRow = {
   senderUserId: string;
   recipientUserId: string;
   senderPubSpkiB64: string;
+  /** Present on new messages; used so the sender can decrypt their own sends after peer key rotation. */
+  recipientPubSpkiB64?: string | null;
   ciphertextB64: string;
   nonceB64: string;
   contentEncoding: string;
@@ -148,10 +150,16 @@ export default function MessagesPage() {
       if (!peer) throw new Error("No peer in conversation");
       const devRes = await apiRequest("GET", `/api/e2ee/peer/${peer}/devices`);
       const devJson = (await devRes.json()) as { devices: Array<{ publicKeySpki: string }> };
+      // Server returns devices ordered by lastSeenAt desc; encrypt to the most recently active device.
       const peerSpki = devJson.devices[0]?.publicKeySpki;
       if (!peerSpki) throw new Error("Peer has not registered an E2EE device key yet.");
       const enc = await encryptDmUtf8(cryptoKeys.privateKey, cryptoKeys.publicKey, peerSpki, draft);
-      const r = await apiRequest("POST", `/api/dm/conversations/${activeConversationId}/messages`, enc);
+      const r = await apiRequest("POST", `/api/dm/conversations/${activeConversationId}/messages`, {
+        ciphertextB64: enc.ciphertextB64,
+        nonceB64: enc.nonceB64,
+        senderPubSpkiB64: enc.senderPubSpkiB64,
+        recipientPubSpkiB64: enc.recipientPubSpkiB64,
+      });
       return r.json();
     },
     onSuccess: () => {
@@ -335,14 +343,19 @@ function DecryptLine({
       try {
         let otherB64 = m.senderPubSpkiB64;
         if (m.senderUserId === userId) {
-          const devRes = await fetch(`/api/e2ee/peer/${m.recipientUserId}/devices`, { credentials: "include" });
-          if (!devRes.ok) throw new Error("no peer key");
-          const j = (await devRes.json()) as { devices: Array<{ publicKeySpki: string }> };
-          const spki = j.devices[0]?.publicKeySpki;
-          if (!spki) throw new Error("no peer key");
-          const pub = await crypto.subtle.importKey("spki", pemToDer(spki), ECDH, false, []);
-          const der = await crypto.subtle.exportKey("spki", pub);
-          otherB64 = bufToB64(der);
+          if (m.recipientPubSpkiB64) {
+            otherB64 = m.recipientPubSpkiB64.trim();
+          } else {
+            // Legacy rows: approximate peer key at decrypt time (may fail if peer rotated keys).
+            const devRes = await fetch(`/api/e2ee/peer/${m.recipientUserId}/devices`, { credentials: "include" });
+            if (!devRes.ok) throw new Error("no peer key");
+            const j = (await devRes.json()) as { devices: Array<{ publicKeySpki: string }> };
+            const spki = j.devices[0]?.publicKeySpki;
+            if (!spki) throw new Error("no peer key");
+            const pub = await crypto.subtle.importKey("spki", pemToDer(spki), ECDH, false, []);
+            const der = await crypto.subtle.exportKey("spki", pub);
+            otherB64 = bufToB64(der);
+          }
         }
         const out = await decryptDmUtf8(cryptoKeys.privateKey, otherB64, m.ciphertextB64, m.nonceB64);
         if (!cancelled) {
@@ -359,7 +372,17 @@ function DecryptLine({
     return () => {
       cancelled = true;
     };
-  }, [m.id, m.senderUserId, m.recipientUserId, m.ciphertextB64, m.nonceB64, m.senderPubSpkiB64, userId, cryptoKeys]);
+  }, [
+    m.id,
+    m.senderUserId,
+    m.recipientUserId,
+    m.ciphertextB64,
+    m.nonceB64,
+    m.senderPubSpkiB64,
+    m.recipientPubSpkiB64,
+    userId,
+    cryptoKeys,
+  ]);
 
   if (err) return <span className="text-destructive">{err}</span>;
   return <span>{text || "…"}</span>;

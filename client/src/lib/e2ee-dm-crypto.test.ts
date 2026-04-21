@@ -24,14 +24,9 @@ describe("e2ee-dm-crypto", () => {
     );
     const outBob = await decryptDmUtf8(bob.keyPair.privateKey, enc.senderPubSpkiB64, enc.ciphertextB64, enc.nonceB64);
     expect(outBob).toBe(plain);
-    const bobPubDer = await crypto.subtle.exportKey("spki", bob.keyPair.publicKey);
-    const u8 = new Uint8Array(bobPubDer);
-    let bobPubB64 = "";
-    for (let i = 0; i < u8.length; i++) bobPubB64 += String.fromCharCode(u8[i]!);
-    bobPubB64 = btoa(bobPubB64);
     const outAlice = await decryptDmUtf8(
       alice.keyPair.privateKey,
-      bobPubB64,
+      enc.recipientPubSpkiB64,
       enc.ciphertextB64,
       enc.nonceB64,
     );

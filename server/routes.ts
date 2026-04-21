@@ -4923,11 +4923,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/dm/conversations/:id/messages", requireAuth, async (req, res) => {
     try {
       if (!(await guardPublicParticipationAge(req, res))) return;
+      const DM_B64_FIELD_MAX = 512 * 1024;
       const parsed = z
         .object({
-          ciphertextB64: z.string().min(1),
-          nonceB64: z.string().min(1),
-          senderPubSpkiB64: z.string().min(1),
+          ciphertextB64: z.string().min(1).max(DM_B64_FIELD_MAX),
+          nonceB64: z.string().min(1).max(256),
+          senderPubSpkiB64: z.string().min(1).max(DM_B64_FIELD_MAX),
+          recipientPubSpkiB64: z.string().min(1).max(DM_B64_FIELD_MAX),
           contentEncoding: z.string().max(32).optional(),
         })
         .parse(req.body);
@@ -4940,6 +4942,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         senderUserId: req.user!.id,
         recipientUserId,
         senderPubSpkiB64: parsed.senderPubSpkiB64,
+        recipientPubSpkiB64: parsed.recipientPubSpkiB64,
         ciphertextB64: parsed.ciphertextB64,
         nonceB64: parsed.nonceB64,
         contentEncoding: parsed.contentEncoding,
@@ -5548,13 +5551,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const body = z
         .object({
-          displayName: z.union([z.string().max(120), z.null()]),
-          birthDate: z.union([z.string(), z.null()]),
+          displayName: z.union([z.string().max(120), z.null()]).optional(),
+          birthDate: z.union([z.string(), z.null()]).optional(),
+        })
+        .refine((o) => o.displayName !== undefined || o.birthDate !== undefined, {
+          message: "Provide at least one of displayName or birthDate",
         })
         .parse(req.body);
 
-      let birthDate: string | null;
-      if (body.birthDate === null || body.birthDate === "") {
+      const row = await getUserRowById(req.user!.id);
+      if (!row) return res.status(404).json({ message: "User not found" });
+
+      let birthDate: string | null | undefined;
+      if (body.birthDate === undefined) {
+        birthDate = undefined;
+      } else if (body.birthDate === null || body.birthDate === "") {
         birthDate = null;
       } else if (typeof body.birthDate === "string" && isIsoCalendarDateStrict(body.birthDate)) {
         birthDate = body.birthDate;
@@ -5563,8 +5574,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await updateUserAccountProfile(req.user!.id, {
-        displayName: body.displayName,
-        birthDate,
+        displayName: body.displayName !== undefined ? body.displayName : row.displayName ?? null,
+        birthDate: birthDate !== undefined ? birthDate : row.birthDate ?? null,
       });
       const fresh = await getUserById(req.user!.id);
       if (!fresh) {

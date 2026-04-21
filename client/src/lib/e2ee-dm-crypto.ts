@@ -47,10 +47,20 @@ export async function generateDmDeviceIdentity(): Promise<{
   return { keyPair, publicKeySpkiPem };
 }
 
-async function importPeerPublicEcdh(pemOrSingleLineSpki: string): Promise<CryptoKey> {
-  const pem = pemOrSingleLineSpki.includes("BEGIN PUBLIC KEY")
+function normalizePeerSpkiPem(pemOrSingleLineSpki: string): string {
+  return pemOrSingleLineSpki.includes("BEGIN PUBLIC KEY")
     ? pemOrSingleLineSpki
     : `-----BEGIN PUBLIC KEY-----\n${pemOrSingleLineSpki.match(/.{1,64}/g)?.join("\n") ?? pemOrSingleLineSpki}\n-----END PUBLIC KEY-----`;
+}
+
+/** SPKI DER as base64 (same shape as `senderPubSpkiB64`) without importing the key (imported peer keys may be non-extractable). */
+function peerSpkiDerB64FromInput(pemOrSingleLineSpki: string): string {
+  const pem = normalizePeerSpkiPem(pemOrSingleLineSpki).trim();
+  return bufToB64(pemToDer(pem));
+}
+
+async function importPeerPublicEcdh(pemOrSingleLineSpki: string): Promise<CryptoKey> {
+  const pem = normalizePeerSpkiPem(pemOrSingleLineSpki);
   return crypto.subtle.importKey("spki", pemToDer(pem), ECDH, false, []);
 }
 
@@ -65,7 +75,13 @@ export async function encryptDmUtf8(
   myPublicKey: CryptoKey,
   recipientPublicKeySpki: string,
   plaintextUtf8: string,
-): Promise<{ ciphertextB64: string; nonceB64: string; senderPubSpkiB64: string }> {
+): Promise<{
+  ciphertextB64: string;
+  nonceB64: string;
+  senderPubSpkiB64: string;
+  /** SPKI DER base64 of the recipient public key used for ECDH (needed for sender-side decrypt). */
+  recipientPubSpkiB64: string;
+}> {
   const recipientPub = await importPeerPublicEcdh(recipientPublicKeySpki);
   const shared = await crypto.subtle.deriveBits({ name: "ECDH", public: recipientPub }, myPrivateKey, 256);
   const aesKey = await sha256AesKeyFromSharedSecret(shared);
@@ -77,6 +93,7 @@ export async function encryptDmUtf8(
     ciphertextB64: bufToB64(ct),
     nonceB64: bufToB64(iv.buffer),
     senderPubSpkiB64: bufToB64(myPubDer),
+    recipientPubSpkiB64: peerSpkiDerB64FromInput(recipientPublicKeySpki),
   };
 }
 

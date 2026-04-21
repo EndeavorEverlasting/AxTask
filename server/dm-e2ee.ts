@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   dmConversationMembers,
@@ -57,11 +57,12 @@ export async function listUserDeviceKeysPublic(userId: string) {
     .orderBy(desc(userDeviceKeys.lastSeenAt));
 }
 
-export async function findDirectDmConversationId(
+async function findDirectDmConversationIdUsing(
+  q: typeof db,
   userId: string,
   peerUserId: string,
 ): Promise<string | null> {
-  const mine = await db
+  const mine = await q
     .select({ conversationId: dmConversationMembers.conversationId })
     .from(dmConversationMembers)
     .where(eq(dmConversationMembers.userId, userId));
@@ -70,7 +71,7 @@ export async function findDirectDmConversationId(
 
   const ids = [...new Set(mine.map((m) => m.conversationId))];
   for (const conversationId of ids) {
-    const members = await db
+    const members = await q
       .select({ userId: dmConversationMembers.userId })
       .from(dmConversationMembers)
       .where(eq(dmConversationMembers.conversationId, conversationId));
@@ -81,17 +82,28 @@ export async function findDirectDmConversationId(
   return null;
 }
 
-export async function createDirectDmConversation(userId: string, peerUserId: string): Promise<string> {
-  const existing = await findDirectDmConversationId(userId, peerUserId);
-  if (existing) return existing;
+export async function findDirectDmConversationId(
+  userId: string,
+  peerUserId: string,
+): Promise<string | null> {
+  return findDirectDmConversationIdUsing(db, userId, peerUserId);
+}
 
-  const id = randomUUID();
-  await db.insert(dmConversations).values({ id });
-  await db.insert(dmConversationMembers).values([
-    { conversationId: id, userId },
-    { conversationId: id, userId: peerUserId },
-  ]);
-  return id;
+export async function createDirectDmConversation(userId: string, peerUserId: string): Promise<string> {
+  const pairKey = userId < peerUserId ? `${userId}|${peerUserId}` : `${peerUserId}|${userId}`;
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(abs(hashtext(${pairKey}))::bigint)`);
+    const existing = await findDirectDmConversationIdUsing(tx as unknown as typeof db, userId, peerUserId);
+    if (existing) return existing;
+
+    const id = randomUUID();
+    await tx.insert(dmConversations).values({ id });
+    await tx.insert(dmConversationMembers).values([
+      { conversationId: id, userId },
+      { conversationId: id, userId: peerUserId },
+    ]);
+    return id;
+  });
 }
 
 export async function getOtherMemberUserId(
@@ -150,6 +162,7 @@ export async function insertDmMessage(input: {
   senderUserId: string;
   recipientUserId: string;
   senderPubSpkiB64: string;
+  recipientPubSpkiB64: string | null;
   ciphertextB64: string;
   nonceB64: string;
   contentEncoding?: string;
@@ -162,6 +175,7 @@ export async function insertDmMessage(input: {
       senderUserId: input.senderUserId,
       recipientUserId: input.recipientUserId,
       senderPubSpkiB64: input.senderPubSpkiB64,
+      recipientPubSpkiB64: input.recipientPubSpkiB64,
       ciphertextB64: input.ciphertextB64,
       nonceB64: input.nonceB64,
       contentEncoding: input.contentEncoding ?? "e2ee_ecdh_aes_gcm_v1",
