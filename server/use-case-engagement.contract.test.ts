@@ -11,6 +11,10 @@ describe("use-case engagement wiring", () => {
     expect(src).toContain("tryCappedCoinAward");
     expect(src).toContain("unique_task_create");
     expect(src).toContain("task_search_reward");
+    expect(src).toContain("daily_login_reward");
+    expect(src).toContain("hourly_login_reward");
+    expect(src).toContain("organization_filter_followthrough_reward");
+    expect(src).toContain("organization_aptitude_points");
     expect(src).toContain("priority_recalculate_reward");
     expect(src).toContain("urgency_recalculate_rating_reward");
     expect(src).toContain("classification_consensus_tier_bonus");
@@ -28,6 +32,9 @@ describe("use-case engagement wiring", () => {
     expect(routes).toContain("hasTaskBeenAwarded");
     expect(routes).toContain("completionCoinSkipReason");
     expect(routes).toContain("ENGAGEMENT.taskSearch");
+    expect(routes).toContain('"/api/tasks/filter-intent"');
+    expect(routes).toContain("maybeAwardOrganizationFollowthrough");
+    expect(routes).toContain("awardLoginRewards");
     expect(routes).toContain("recalculateReward");
     expect(routes).toContain('"/api/tasks/recalculate/rating"');
     expect(routes).toContain('"/api/gamification/economy-diagnostics"');

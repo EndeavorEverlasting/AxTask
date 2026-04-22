@@ -126,6 +126,8 @@ import {
 } from "./storage";
 import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS, processChipHuntSync } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
+import { awardLoginRewards } from "./login-rewards";
+import { maybeAwardOrganizationFollowthrough, recordTaskFilterIntent } from "./organization-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
@@ -732,6 +734,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Auto-login after registration
       req.login(user, (err) => {
         if (err) return res.status(500).json({ message: "Registration succeeded but login failed" });
+        void awardLoginRewards(user.id);
         res.status(201).json(toPublicSessionUser(user));
       });
     } catch (error) {
@@ -818,6 +821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         req.login(user, (err) => {
           if (err) return next(err);
+          void awardLoginRewards(user.id);
           void evaluateAdherenceForUser(user.id, "login");
           res.json(toPublicSessionUser(user));
         });
@@ -935,6 +939,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       delete req.session.pendingTotpLogin;
       req.login(safe, (err) => {
         if (err) return next(err);
+        void awardLoginRewards(safe.id);
         void appendSecurityEvent({
           eventType: "auth_totp_login_success",
           actorUserId: safe.id,
@@ -2196,6 +2201,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const tasks = await storage.searchTasks(userId, decoded);
       const q = decoded.trim();
+      if (q.length >= 2) {
+        await recordTaskFilterIntent({
+          userId,
+          source: "search",
+          value: q,
+          route: req.path,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+      }
       if (tasks.length > 0 && q.length >= 2) {
         await tryCappedCoinAward({
           userId,
@@ -2209,6 +2224,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(toPublicTaskListItems(tasks, byTask));
     } catch (error) {
       res.status(500).json({ message: "Failed to search tasks" });
+    }
+  });
+
+  app.post("/api/tasks/filter-intent", requireAuth, async (req, res) => {
+    try {
+      const payload = z.object({
+        source: z.enum([
+          "header_priority",
+          "header_status",
+          "header_classification",
+          "top_priority",
+          "top_status",
+          "route_chip",
+        ]),
+        value: z.string().max(120).optional(),
+      }).parse(req.body ?? {});
+      await recordTaskFilterIntent({
+        userId: req.user!.id,
+        source: payload.source,
+        value: payload.value,
+        route: req.path,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to record filter intent" });
     }
   });
 
@@ -2702,6 +2745,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let coinReward = null;
       let coinSkipReason: string | null = null;
       let walletBalance: number | null = null;
+      let organizationReward = null;
       if (task!.status === "completed" && previousStatus !== "completed") {
         coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
         if (!coinReward) {
@@ -2716,6 +2760,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           walletBalance = coinReward.newBalance;
         }
+        const followthroughReward = await maybeAwardOrganizationFollowthrough({
+          userId,
+          taskId: task!.id,
+        });
+        organizationReward = followthroughReward;
+        if (followthroughReward.coinsAwarded > 0 && typeof followthroughReward.walletBalance === "number") {
+          walletBalance = followthroughReward.walletBalance;
+        }
       }
       let classificationReward = null;
       const previousClassification = existingTask?.classification;
@@ -2723,7 +2775,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         classificationReward = await awardCoinsForClassification(userId, task!);
       }
 
-      res.json({ ...task, coinReward, coinSkipReason, walletBalance, classificationReward });
+      res.json({ ...task, coinReward, coinSkipReason, walletBalance, classificationReward, organizationReward });
     } catch (error) {
       console.error("[TASK UPDATE ERROR]", error);
       if (error instanceof Error) {

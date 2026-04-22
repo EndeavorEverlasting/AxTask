@@ -85,6 +85,14 @@ type HeaderFilterState = {
   classification: string[];
 };
 
+type FilterIntentSource =
+  | "header_priority"
+  | "header_status"
+  | "header_classification"
+  | "top_priority"
+  | "top_status"
+  | "route_chip";
+
 /**
  * Variant switch for this shared host.
  *
@@ -430,6 +438,23 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
     [],
   );
 
+  const emitFilterIntent = useCallback(
+    (source: FilterIntentSource, value?: string) => {
+      fetch("/api/tasks/filter-intent", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source,
+          value: value ? String(value).slice(0, 120) : undefined,
+        }),
+      }).catch(() => {
+        // Engagement signal only; ignore transient network failures.
+      });
+    },
+    [],
+  );
+
   const cycleSort = useCallback((column: SortColumn) => {
     setSortState((prev) => {
       if (!prev || prev.column !== column) return { column, direction: "asc" };
@@ -695,7 +720,10 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
           </div>
           <Select
             value={priorityFilter}
-            onValueChange={(v) => setPriorityFilter(v)}
+            onValueChange={(v) => {
+              setPriorityFilter(v);
+              if (v !== "all") emitFilterIntent("top_priority", v);
+            }}
           >
             <SelectTrigger className="w-[140px]" data-testid="priority-filter">
               <SelectValue placeholder="Priority" />
@@ -709,7 +737,10 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
           </Select>
           <Select
             value={statusFilter}
-            onValueChange={(v) => setStatusFilter(v as StatusFilter)}
+            onValueChange={(v) => {
+              setStatusFilter(v as StatusFilter);
+              if (v !== "all") emitFilterIntent("top_status", v);
+            }}
           >
             <SelectTrigger className="w-[140px]" data-testid="status-filter">
               <SelectValue placeholder="Status" />
@@ -747,7 +778,10 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
               {describeRouteFilter(routeFilter)}
               <button
                 type="button"
-                onClick={() => setRouteFilter("none")}
+                onClick={() => {
+                  emitFilterIntent("route_chip", String(routeFilter));
+                  setRouteFilter("none");
+                }}
                 className="ml-1 -mr-1 rounded-full hover:bg-primary/20 p-0.5"
                 aria-label="Clear saved filter"
                 data-testid="task-list-route-chip-clear"
@@ -815,7 +849,10 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
                           <DropdownMenuCheckboxItem
                             key={p}
                             checked={headerFilters.priority.includes(p)}
-                            onCheckedChange={() => toggleHeaderFilter("priority", p)}
+                            onCheckedChange={() => {
+                              emitFilterIntent("header_priority", p);
+                              toggleHeaderFilter("priority", p);
+                            }}
                           >
                             {p}
                           </DropdownMenuCheckboxItem>
@@ -862,7 +899,10 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
                           <DropdownMenuCheckboxItem
                             key={c}
                             checked={headerFilters.classification.includes(c)}
-                            onCheckedChange={() => toggleHeaderFilter("classification", c)}
+                            onCheckedChange={() => {
+                              emitFilterIntent("header_classification", c);
+                              toggleHeaderFilter("classification", c);
+                            }}
                           >
                             {c}
                           </DropdownMenuCheckboxItem>
@@ -909,7 +949,10 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
                           <DropdownMenuCheckboxItem
                             key={s}
                             checked={headerFilters.status.includes(s)}
-                            onCheckedChange={() => toggleHeaderFilter("status", s)}
+                            onCheckedChange={() => {
+                              emitFilterIntent("header_status", s);
+                              toggleHeaderFilter("status", s);
+                            }}
                           >
                             {s}
                           </DropdownMenuCheckboxItem>

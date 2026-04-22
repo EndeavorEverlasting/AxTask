@@ -36,6 +36,7 @@ describe("TaskListHost :: source contract", () => {
     expect(HOST_SRC).toContain("header-filter-priority-trigger");
     expect(HOST_SRC).toContain("header-filter-classification-trigger");
     expect(HOST_SRC).toContain("clear-header-filters");
+    expect(HOST_SRC).toContain("/api/tasks/filter-intent");
   });
 
   it("tags itself as the correct perf surface per variant", () => {
