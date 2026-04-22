@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import * as barrel from "./index";
 import * as schemaEntry from "../schema";
 import * as core from "./core";
+import * as e2eeDomain from "./e2ee";
 import * as tasksDomain from "./tasks";
 import * as gamification from "./gamification";
 import * as ops from "./ops";
@@ -54,6 +55,7 @@ describe("shared/schema Phase F-1 split", () => {
   describe("domain files own disjoint subsets of the public surface", () => {
     const perDomain: Record<string, Set<string>> = {
       core: new Set(Object.keys(core)),
+      e2ee: new Set(Object.keys(e2eeDomain)),
       tasks: new Set(Object.keys(tasksDomain)),
       gamification: new Set(Object.keys(gamification)),
       ops: new Set(Object.keys(ops)),
@@ -106,6 +108,14 @@ describe("shared/schema Phase F-1 split", () => {
       const src = readSourceWithoutComments("gamification.ts");
       expect(src).toMatch(/from\s+["']\.\/core["']/);
       expect(src).not.toMatch(/from\s+["']\.\/tasks["']/);
+      expect(src).not.toMatch(/from\s+["']\.\/ops["']/);
+    });
+
+    it("e2ee.ts imports only from ./core", () => {
+      const src = readSourceWithoutComments("e2ee.ts");
+      expect(src).toMatch(/from\s+["']\.\/core["']/);
+      expect(src).not.toMatch(/from\s+["']\.\/tasks["']/);
+      expect(src).not.toMatch(/from\s+["']\.\/gamification["']/);
       expect(src).not.toMatch(/from\s+["']\.\/ops["']/);
     });
 

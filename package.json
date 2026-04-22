@@ -184,7 +184,7 @@
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",
     "cross-env": "^10.1.0",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.0",
     "jsdom": "^29.0.1",
     "postcss": "^8.4.47",
     "rollup-plugin-visualizer": "^6.0.11",

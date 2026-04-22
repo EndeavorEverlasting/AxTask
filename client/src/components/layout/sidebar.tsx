@@ -28,6 +28,7 @@ import {
   Crown,
   CreditCard,
   UserRoundCog,
+  CircleUser,
   Menu,
   CheckSquare,
   Mail,
@@ -39,6 +40,7 @@ import {
   SlidersHorizontal,
   MessagesSquare,
   Video,
+  MessageCircle,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -146,6 +148,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
     { path: "/community", icon: Globe2, label: "Community" },
     { path: "/collab", icon: MessagesSquare, label: "Collab inbox" },
+    { path: "/messages", icon: MessageCircle, label: "Messages (E2EE)" },
     { path: "/huddle", icon: Video, label: "Video huddle" },
     { path: "/mini-games", icon: Gamepad2, label: "Mini-Games" },
     { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
@@ -153,6 +156,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     { path: "/premium", icon: Crown, label: "Premium" },
     { path: "/billing", icon: CreditCard, label: "Billing" },
     { path: "/settings", icon: SlidersHorizontal, label: "Settings" },
+    { path: "/profile", icon: CircleUser, label: "Profile" },
     { path: "/account", icon: UserRoundCog, label: "Account" },
     { path: "/feedback", icon: MessageSquare, label: "Feedback" },
     { path: "/contact", icon: Mail, label: "Contact" },

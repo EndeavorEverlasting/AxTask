@@ -149,6 +149,7 @@ function toSafeUser(user: User): SafeUser {
     phoneE164,
     totpSecretCiphertext,
     totpEnabledAt,
+    birthDate: _birthDate,
     ...rest
   } = user;
   return {
@@ -281,6 +282,19 @@ export async function getUserById(id: string): Promise<SafeUser | undefined> {
 export async function getUserRowById(id: string): Promise<User | undefined> {
   const [user] = await db.select().from(users).where(eq(users.id, id));
   return user || undefined;
+}
+
+export async function updateUserAccountProfile(
+  userId: string,
+  input: { displayName: string | null; birthDate: string | null },
+): Promise<void> {
+  await db
+    .update(users)
+    .set({
+      displayName: input.displayName,
+      birthDate: input.birthDate,
+    })
+    .where(eq(users.id, userId));
 }
 
 export async function setUserTotpSecret(userId: string, ciphertext: string, enabledAt: Date): Promise<void> {
@@ -2901,7 +2915,10 @@ export async function getOfflineSkillTree(userId: string): Promise<Array<{
   prerequisiteSkillKey: string | null;
   isUnlocked: boolean;
   isAvailable: boolean;
+  effectType: string;
+  effectPerLevel: number;
 }>> {
+  await seedOfflineSkillTree();
   const [nodes, userSkills] = await Promise.all([
     db.select().from(offlineSkillNodes).orderBy(asc(offlineSkillNodes.sortOrder), asc(offlineSkillNodes.name)),
     getUserSkillLevels(userId),
@@ -2927,6 +2944,8 @@ export async function getOfflineSkillTree(userId: string): Promise<Array<{
       prerequisiteSkillKey: node.prerequisiteSkillKey,
       isUnlocked: currentLevel > 0,
       isAvailable: hasPrereq && !atMax,
+      effectType: node.effectType,
+      effectPerLevel: node.effectPerLevel,
     };
   });
 }

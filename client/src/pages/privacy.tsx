@@ -72,6 +72,23 @@ export default function PrivacyPolicy() {
                 admin tooling require a recent MFA step-up in the same session.
               </p>
               <p className="text-gray-600 dark:text-gray-300">
+                Between your browser and AxTask, traffic uses industry-standard
+                TLS (HTTPS) in production. Direct messages (DMs) use an{" "}
+                <span className="text-foreground font-medium">explicit E2EE</span> mode: your
+                browser encrypts the body before upload, and the server stores ciphertext only
+                (see the operator-facing contract in{" "}
+                <code className="text-xs">docs/E2EE_PRODUCT.md</code>). Other product areas such as
+                tasks, non-DM collaboration notes, and community posts remain protected by access
+                control and TLS unless a future release adds client-side encryption for those
+                surfaces and documents it the same way.
+              </p>
+              <p className="text-gray-600 dark:text-gray-300">
+                If you use the optional video huddle page, the embedded meeting
+                URL is supplied by your deployment; call encryption and
+                retention are governed by that third-party provider, not by AxTask
+                code.
+              </p>
+              <p className="text-gray-600 dark:text-gray-300">
                 Responses sent to your browser are shaped by explicit public
                 serializers so we do not accidentally expose internal fields
                 such as password hashes, raw OAuth ids, or other accounts'
@@ -120,7 +137,7 @@ export default function PrivacyPolicy() {
               <h3 className="text-lg font-semibold">6. Your rights</h3>
               <p className="text-gray-600 dark:text-gray-300">
                 You can access and update the personal information on your
-                account at any time from the Settings and Account pages. You
+                account at any time from the Settings, Profile, and Account pages. You
                 can export your task data and, after an MFA step-up, a full
                 account backup as JSON from the Import / Export page. If you
                 would like us to permanently delete your account and

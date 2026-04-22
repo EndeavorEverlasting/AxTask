@@ -5,6 +5,7 @@ import {
   Controls,
   Handle,
   MiniMap,
+  Panel,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -31,11 +32,12 @@ import type { SkillNodeDto, SkillTreeKind } from "./skill-tree-view";
 import { Coins, Check, Lock, Zap } from "lucide-react";
 
 type SkillTreeGraphActions = {
-  tree: SkillTreeKind;
+  /** Fallback when a DTO has no `domain` (single-tree mode). */
+  defaultTree: SkillTreeKind;
   walletBalance: number;
   readOnly: boolean;
   isPending: boolean;
-  onUnlock: (skillKey: string, branch: string) => void;
+  onUnlock: (skillKey: string, branch: string, domain: SkillTreeKind) => void;
 };
 
 const SkillTreeGraphActionsContext = createContext<SkillTreeGraphActions | null>(null);
@@ -64,7 +66,8 @@ type SkillFlowRfNode = Node<SkillFlowNodeData, "skillNode">;
 
 function SkillTreeFlowNodeImpl({ data }: NodeProps<SkillFlowRfNode>) {
   const { dto } = data;
-  const { tree, walletBalance, readOnly, isPending, onUnlock } = useSkillTreeGraphActions();
+  const { defaultTree, walletBalance, readOnly, isPending, onUnlock } = useSkillTreeGraphActions();
+  const treeKind: SkillTreeKind = dto.domain ?? defaultTree;
   const atMax = dto.currentLevel >= dto.maxLevel;
   const locked = !dto.isAvailable && !dto.isUnlocked;
   const canAfford = dto.nextCost != null && walletBalance >= dto.nextCost;
@@ -91,7 +94,7 @@ function SkillTreeFlowNodeImpl({ data }: NodeProps<SkillFlowRfNode>) {
   }
 
   const avatarKey: FeedbackAvatarKey = resolveFeedbackAvatarKeyForSkillNode(
-    tree,
+    treeKind,
     dto.skillKey,
     dto.branch,
   );
@@ -103,8 +106,10 @@ function SkillTreeFlowNodeImpl({ data }: NodeProps<SkillFlowRfNode>) {
         "rounded-lg border bg-background/90 shadow-sm backdrop-blur-sm w-[260px]",
         "p-2.5",
         locked && "opacity-75",
+        treeKind === "offline" && "border-cyan-500/35 shadow-cyan-950/20",
+        treeKind === "avatar" && "border-violet-500/35 shadow-violet-950/15",
       )}
-      data-testid={`skill-node-${tree}-${dto.skillKey}`}
+      data-testid={`skill-node-${treeKind}-${dto.skillKey}`}
     >
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-border" />
       <div className="flex items-start gap-2">
@@ -168,9 +173,9 @@ function SkillTreeFlowNodeImpl({ data }: NodeProps<SkillFlowRfNode>) {
             size="sm"
             variant={dto.isUnlocked ? "outline" : "default"}
             disabled={atMax || locked || !canAfford || isPending || dto.nextCost == null}
-            onClick={() => onUnlock(dto.skillKey, dto.branch)}
+            onClick={() => onUnlock(dto.skillKey, dto.branch, treeKind)}
             className="h-7 px-2 text-[10px]"
-            data-testid={`skill-unlock-${tree}-${dto.skillKey}`}
+            data-testid={`skill-unlock-${treeKind}-${dto.skillKey}`}
           >
             {atMax ? "Maxed" : locked ? "Locked" : dto.isUnlocked ? "Upgrade" : "Unlock"}
           </Button>
@@ -186,12 +191,15 @@ const SkillTreeFlowNode = memo(SkillTreeFlowNodeImpl);
 const nodeTypes = { skillNode: SkillTreeFlowNode } as NodeTypes;
 
 export interface SkillTreeGraphProps {
+  /** Used for theming and as default when DTOs omit `domain`. */
   tree: SkillTreeKind;
   nodes: SkillNodeDto[];
   walletBalance: number;
   readOnly: boolean;
   isPending: boolean;
-  onUnlock: (skillKey: string, branch: string) => void;
+  onUnlock: (skillKey: string, branch: string, domain: SkillTreeKind) => void;
+  /** When true, show region labels for avatar vs idle subgraphs. */
+  showRegionPanels?: boolean;
   className?: string;
 }
 
@@ -202,6 +210,7 @@ function SkillTreeGraphInner({
   readOnly,
   isPending,
   onUnlock,
+  showRegionPanels,
   className,
 }: SkillTreeGraphProps) {
   const { nodes: laidNodes, edges: laidEdges } = useMemo(
@@ -227,7 +236,7 @@ function SkillTreeGraphInner({
 
   const actions = useMemo(
     () => ({
-      tree,
+      defaultTree: tree,
       walletBalance,
       readOnly,
       isPending,
@@ -235,6 +244,11 @@ function SkillTreeGraphInner({
     }),
     [tree, walletBalance, readOnly, isPending, onUnlock],
   );
+
+  const showRegions =
+    Boolean(showRegionPanels) &&
+    nodes.some((n) => n.domain === "avatar" || n.domain === undefined) &&
+    nodes.some((n) => n.domain === "offline");
 
   const defaultViewport = useMemo(() => ({ x: 0, y: 0, zoom: 1 }), []);
 
@@ -263,6 +277,16 @@ function SkillTreeGraphInner({
           minZoom={0.35}
           maxZoom={1.35}
         >
+          {showRegions ? (
+            <>
+              <Panel position="top-left" className="m-2 max-w-[min(100%,14rem)] rounded-lg border border-violet-500/25 bg-background/85 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground shadow-sm backdrop-blur-sm">
+                Companions &amp; productivity
+              </Panel>
+              <Panel position="top-right" className="m-2 max-w-[min(100%,14rem)] rounded-lg border border-cyan-500/25 bg-background/85 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground shadow-sm backdrop-blur-sm">
+                Idle generator
+              </Panel>
+            </>
+          ) : null}
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
           <Controls showInteractive={false} />
           <MiniMap

@@ -146,6 +146,33 @@ export default function LandingPage() {
           </motion.div>
         </section>
 
+        <section className="border-t border-white/10 bg-black/20 py-14">
+          <div className="mx-auto max-w-3xl px-4 sm:px-6">
+            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-950/20 p-6 sm:p-8 backdrop-blur-md ring-1 ring-white/[0.06]">
+              <div className="flex items-center gap-2 text-emerald-200/95">
+                <Shield className="h-5 w-5 shrink-0" aria-hidden />
+                <h2 className="text-base font-semibold tracking-tight">Security at a glance</h2>
+              </div>
+              <ul className="mt-4 space-y-2 text-sm text-slate-300 leading-relaxed list-disc pl-5">
+                <li>Passwords: scrypt with a unique salt per account.</li>
+                <li>Authenticator (TOTP) secrets: AES-256-GCM at rest.</li>
+                <li>Sessions: server-side, with signed cookies and MFA step-up for sensitive exports.</li>
+                <li>
+                  Community and collab content: protected by your login, app permissions, and TLS — not
+                  end-to-end encrypted like a dedicated messenger unless we ship and advertise that separately.
+                </li>
+              </ul>
+              <p className="mt-4 text-xs text-slate-500">
+                Details in the{" "}
+                <Link href="/privacy" className="text-emerald-300/90 underline-offset-4 hover:underline">
+                  Privacy Policy
+                </Link>
+                .
+              </p>
+            </div>
+          </div>
+        </section>
+
         <section className="border-t border-white/10 py-20">
           <div className="mx-auto max-w-4xl px-4 sm:px-6">
             <div className="mb-12 text-center">

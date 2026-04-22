@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
 import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
 import { apiRequest } from "@/lib/queryClient";
+import { parseApiRequestError, participationAgeUserHint } from "@/lib/parse-api-request-error";
 import { useToast } from "@/hooks/use-toast";
 import {
   Globe2, ChevronLeft, Loader2, Sparkles, Clock, Flame, Zap,
@@ -852,13 +853,16 @@ export default function CommunityPage() {
       const jsonStart = msg.indexOf("{");
       if (jsonStart >= 0) {
         try {
-          const parsed = JSON.parse(msg.slice(jsonStart));
-          setReplyError(parsed.message || "Your reply could not be posted.");
+          const parsed = JSON.parse(msg.slice(jsonStart)) as { message?: string; code?: string };
+          const base = parsed.message || "Your reply could not be posted.";
+          setReplyError(base + participationAgeUserHint(parsed.code));
         } catch {
-          setReplyError(msg);
+          const p = parseApiRequestError(err);
+          setReplyError(p.message + participationAgeUserHint(p.code));
         }
       } else {
-        setReplyError("Something went wrong. Please try again.");
+        const p = parseApiRequestError(err);
+        setReplyError(p.message + participationAgeUserHint(p.code));
       }
     } finally {
       setReplying(false);

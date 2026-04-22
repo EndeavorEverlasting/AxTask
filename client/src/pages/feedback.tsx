@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
+import { parseApiRequestError, participationAgeUserHint } from "@/lib/parse-api-request-error";
 import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import { useToast } from "@/hooks/use-toast";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
@@ -161,7 +162,12 @@ export default function FeedbackPage() {
       setScreenshots([]);
     },
     onError: (err: Error) => {
-      toast({ title: "Feedback failed", description: err.message, variant: "destructive" });
+      const p = parseApiRequestError(err);
+      toast({
+        title: "Feedback failed",
+        description: p.message + participationAgeUserHint(p.code),
+        variant: "destructive",
+      });
     },
   });
 

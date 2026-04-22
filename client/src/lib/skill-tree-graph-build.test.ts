@@ -65,4 +65,26 @@ describe("buildSkillTreeFlowLayout", () => {
       expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
     );
   });
+
+  it("offsets idle subgraph to the right when avatar and offline domains are mixed", () => {
+    const nodes: SkillNodeDto[] = [
+      node({
+        skillKey: "entourage-slots",
+        branch: "companions",
+        domain: "avatar",
+        prerequisiteSkillKey: null,
+      }),
+      node({
+        skillKey: "dynamos",
+        branch: "output",
+        domain: "offline",
+        prerequisiteSkillKey: null,
+      }),
+    ];
+    const { nodes: rf } = buildSkillTreeFlowLayout(nodes);
+    expect(rf).toHaveLength(2);
+    const avatarX = rf.find((n) => n.id === "entourage-slots")!.position.x;
+    const offlineX = rf.find((n) => n.id === "dynamos")!.position.x;
+    expect(offlineX).toBeGreaterThan(avatarX);
+  });
 });

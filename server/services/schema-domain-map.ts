@@ -15,6 +15,7 @@
  * with Postgres `pg_stat_user_tables.relname` casing.
  */
 import * as core from "@shared/schema/core";
+import * as e2ee from "@shared/schema/e2ee";
 import * as tasks from "@shared/schema/tasks";
 import * as gamification from "@shared/schema/gamification";
 import * as ops from "@shared/schema/ops";
@@ -52,6 +53,7 @@ function extractTables(
 function buildDomainMap(): Readonly<Record<string, SchemaDomain>> {
   const rows: Array<{ tableName: string; domain: SchemaDomain }> = [];
   rows.push(...extractTables("core", core as unknown as Record<string, unknown>));
+  rows.push(...extractTables("core", e2ee as unknown as Record<string, unknown>));
   rows.push(...extractTables("tasks", tasks as unknown as Record<string, unknown>));
   rows.push(
     ...extractTables("gamification", gamification as unknown as Record<string, unknown>),

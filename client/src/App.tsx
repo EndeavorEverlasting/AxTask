@@ -64,12 +64,14 @@ const SkillTreePage = lazy(() => import("@/pages/skill-tree"));
 const PremiumPage = lazy(() => import("@/pages/premium"));
 const BillingPage = lazy(() => import("@/pages/billing"));
 const AccountPage = lazy(() => import("@/pages/account"));
+const ProfilePage = lazy(() => import("@/pages/profile"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const AppealsPage = lazy(() => import("@/pages/appeals"));
 const FeedbackPage = lazy(() => import("@/pages/feedback"));
 const CommunityPage = lazy(() => import("@/pages/community"));
 const CollabInboxPage = lazy(() => import("@/pages/collab-inbox"));
 const VideoHuddlePage = lazy(() => import("@/pages/video-huddle"));
+const MessagesPage = lazy(() => import("@/pages/messages"));
 const BillingBridgePage = lazy(() => import("@/pages/billing-bridge"));
 import { DeepLinkGate } from "@/components/marketing/deep-link-gate";
 import { isValidAppPath } from "@/lib/app-routes";
@@ -146,12 +148,14 @@ function Router() {
         <Route path="/community" component={CommunityPage} />
         <Route path="/collab" component={CollabInboxPage} />
         <Route path="/huddle" component={VideoHuddlePage} />
+        <Route path="/messages" component={MessagesPage} />
         <Route path="/admin" component={AdminRoute} />
         <Route path="/rewards" component={RewardsPage} />
         <Route path="/skill-tree" component={SkillTreePage} />
         <Route path="/premium" component={PremiumPage} />
         <Route path="/billing" component={BillingPage} />
         <Route path="/account" component={AccountPage} />
+        <Route path="/profile" component={ProfilePage} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/appeals" component={AppealsPage} />
         <Route path="/contact" component={ContactPage} />

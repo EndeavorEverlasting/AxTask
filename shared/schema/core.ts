@@ -39,6 +39,8 @@ export const users = pgTable("users", {
   /** AES-GCM payload (iv+ciphertext) for RFC 6238 TOTP shared secret; never exposed in SafeUser. */
   totpSecretCiphertext: text("totp_secret_ciphertext"),
   totpEnabledAt: timestamp("totp_enabled_at"),
+  /** Optional calendar date `YYYY-MM-DD` for in-app milestones; not in SafeUser — use GET /api/account/profile. */
+  birthDate: text("birth_date"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -143,6 +145,7 @@ export type SafeUser = Omit<
   | "phoneE164"
   | "totpSecretCiphertext"
   | "totpEnabledAt"
+  | "birthDate"
 > & {
   phoneMasked: string | null;
   phoneVerified: boolean;
