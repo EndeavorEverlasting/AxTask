@@ -36,3 +36,9 @@ Submitting product feedback must advance the mapped companion via `engageAvatarM
 - When adding heavy UI, default to **extending Pretext patterns** before mounting new parallel React trees for the same data.
 
 Related: [`docs/FEEDBACK_AVATAR_NUDGES.md`](FEEDBACK_AVATAR_NUDGES.md), [`docs/MODULE_LAYOUT.md`](MODULE_LAYOUT.md), [`docs/ORB_AVATAR_EXPERIENCE_CONTRACT.md`](ORB_AVATAR_EXPERIENCE_CONTRACT.md).
+
+## Task list header contract
+
+The `/tasks` experience must keep **interactive header sorting and per-column
+header filtering** in `TaskListHost`; top controls are additive, not a
+replacement. Canonical contract + tests: [`docs/TASK_LIST_INTERACTION_CONTRACT.md`](TASK_LIST_INTERACTION_CONTRACT.md).

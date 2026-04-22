@@ -30,6 +30,14 @@ describe("TaskListHost :: source contract", () => {
     expect(HOST_SRC).toContain('"@/lib/pretext-imperative-list"');
   });
 
+  it("keeps interactive header sort/filter controls on the table", () => {
+    expect(HOST_SRC).toContain("header-sort-date");
+    expect(HOST_SRC).toContain("header-sort-status");
+    expect(HOST_SRC).toContain("header-filter-priority-trigger");
+    expect(HOST_SRC).toContain("header-filter-classification-trigger");
+    expect(HOST_SRC).toContain("clear-header-filters");
+  });
+
   it("tags itself as the correct perf surface per variant", () => {
     /* Post pass-3 the host is variant-aware (default → "task-list",
      * shopping → "shopping-list") so the perf surface id tracks the

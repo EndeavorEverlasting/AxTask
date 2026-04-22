@@ -8,6 +8,10 @@ Before pushing release branches that touch rewards, classification, feedback, co
 
 Do not regress the AxCoin + subscription model or the Pretext-vs-React split without updating the canonical note: [docs/FREEMIUM_PREMIUM_AND_PRETEXT.md](docs/FREEMIUM_PREMIUM_AND_PRETEXT.md).
 
+## Task list UX contract
+
+Do not remove header sorting/filtering from `TaskListHost`; this is a required `/tasks` UX contract documented at [docs/TASK_LIST_INTERACTION_CONTRACT.md](docs/TASK_LIST_INTERACTION_CONTRACT.md).
+
 ## Performance budgets
 
 CI enforces client bundle size (`npm run perf:bundle`) and API latency heuristics (`npm run perf:api-replay`) on every PR. Tightening a budget requires bumping the paired fixture/test; loosening requires an operator-visible note in the PR. Full map of budgets, signals, fixtures, and runtime knobs: [docs/PERF_PERFORMANCE_BUDGETS.md](docs/PERF_PERFORMANCE_BUDGETS.md).
