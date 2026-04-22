@@ -55,6 +55,14 @@ describe("use-case engagement wiring", () => {
     expect(taskListHost).toContain("encodeURIComponent");
   });
 
+  it("wires feedback submit to avatar mission engage + daily productivity report routes", () => {
+    const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
+    expect(routes).toContain("engageAvatarMission");
+    expect(routes).toContain("resolveAvatarKeyForFeedbackMission");
+    expect(routes).toContain('app.get("/api/analytics/daily-report"');
+    expect(routes).toContain('app.post("/api/analytics/daily-report/download"');
+  });
+
   it("wires chip hunt sync and redacted badge definitions", () => {
     const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
     const dtos = fs.readFileSync(path.join(root, "shared", "public-client-dtos.ts"), "utf8");

@@ -97,3 +97,27 @@ export function buildTaskReportXlsxBuffer(task: Task): Buffer {
   XLSX.utils.book_append_sheet(wb, ws, "Task");
   return XLSX.write(wb, { bookType: "xlsx", type: "buffer" }) as Buffer;
 }
+
+export function buildTaskReportMarkdown(task: Task, userName: string): string {
+  const lines = [
+    `# AxTask — task export`,
+    ``,
+    `_Generated for ${userName}_`,
+    ``,
+    `## ${task.activity.replace(/\r?\n/g, " ")}`,
+    ``,
+    `| Field | Value |`,
+    `| --- | --- |`,
+    `| Date | ${task.date} |`,
+    `| Time | ${task.time ?? "—"} |`,
+    `| Status | ${task.status} |`,
+    `| Priority | ${task.priority} |`,
+    `| Classification | ${task.classification} |`,
+    ``,
+    `### Notes`,
+    ``,
+    (task.notes ?? "—").trim() || "—",
+    ``,
+  ];
+  return lines.join("\n");
+}

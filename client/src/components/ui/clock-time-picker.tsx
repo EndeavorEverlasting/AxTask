@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Clock, Sparkles } from "lucide-react";
 import { wrapTextToLines } from "@/lib/pretext-layout";
+import { polarToClockHour12, polarToClockMinute } from "@/lib/clock-face-math";
 
 type Mode = "hour" | "minute";
 type Period = "AM" | "PM";
@@ -34,7 +35,7 @@ function parseTime(v?: string): { h: number; m: number; period: Period } {
   const [hh, mm] = v.split(":").map(Number);
   const period: Period = hh >= 12 ? "PM" : "AM";
   const h = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh;
-  return { h, m: mm || 0, period };
+  return { h, m: Number.isFinite(mm) ? mm : 0, period };
 }
 
 function to24(h: number, m: number, period: Period): string {
@@ -45,7 +46,7 @@ function to24(h: number, m: number, period: Period): string {
 }
 
 const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+const MINUTE_TICKS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
 
 /** Whimsical copy — line-broken with pretext-layout for the caption bubble. */
 const HOUR_QUIPS = [
@@ -57,31 +58,40 @@ const HOUR_QUIPS = [
 ];
 
 const MINUTE_QUIPS = [
-  "Five-minute grains of sand—pour them wisely. Precision optional; charm included.",
-  "Minutes: the spice rack of scheduling. A pinch of :25 can change everything.",
-  "Round numbers are overrated. These ticks are curated for humans who like tidy edges.",
-  "Almost there—tighten the moment like a jar lid. Click a dot and the universe nods.",
-  "Fine-tune destiny in friendly chunks. No guilt if you pick :00 again. Classics exist for a reason.",
+  "Drag the rim for any minute, or tap a dot—precision without the guilt.",
+  "Minutes: the spice rack of scheduling. A pinch of :27 can change everything.",
+  "The hand follows your finger like a polite shadow. Release when the time feels honest.",
+  "Almost there—tighten the moment like a jar lid. Drag, click, or both.",
+  "Fine-tune destiny one minute at a time. No guilt if you land on :00 again. Classics exist for a reason.",
 ];
 
 const PANEL_TAGLINE =
   "Pretext-powered chronometer — wraps words so tightly even Father Time squints.";
 
+const RADIUS = 88;
+const CENTER = 120;
+
 /* ── ClockFace ───────────────────────────────────────────────── */
 function ClockFace({
   mode,
   selected,
-  onSelect,
+  onDiscreteSelect,
+  onRimDrag,
+  onRimRelease,
 }: {
   mode: Mode;
   selected: number;
-  onSelect: (n: number) => void;
+  onDiscreteSelect: (n: number) => void;
+  onRimDrag?: (n: number) => void;
+  onRimRelease?: () => void;
 }) {
-  const items = mode === "hour" ? HOURS : MINUTES;
-  const RADIUS = 88;
-  const CENTER = 120;
+  const svgRef = React.useRef<SVGSVGElement | null>(null);
+  const draggingRef = React.useRef(false);
 
-  const handAngle = mode === "hour" ? ((selected % 12) / 12) * 360 - 90 : (selected / 60) * 360 - 90;
+  const items = mode === "hour" ? HOURS : MINUTE_TICKS;
+
+  const handAngle =
+    mode === "hour" ? ((selected % 12) / 12) * 360 - 90 : (selected / 60) * 360 - 90;
 
   const handRad = (handAngle * Math.PI) / 180;
   const handX = CENTER + Math.cos(handRad) * (RADIUS - 8);
@@ -89,8 +99,55 @@ function ClockFace({
 
   const gradId = React.useId().replace(/:/g, "");
 
+  const pointerFromEvent = (e: React.PointerEvent) => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const loc = pt.matrixTransform(ctm.inverse());
+    const dx = loc.x - CENTER;
+    const dy = loc.y - CENTER;
+    return mode === "hour" ? polarToClockHour12(dx, dy) : polarToClockMinute(dx, dy);
+  };
+
+  const onPointerDownRim = (e: React.PointerEvent) => {
+    if (e.button !== 0 || !onRimDrag) return;
+    const n = pointerFromEvent(e);
+    if (n === null) return;
+    draggingRef.current = true;
+    (e.target as Element).setPointerCapture(e.pointerId);
+    onRimDrag(n);
+  };
+
+  const onPointerMoveRim = (e: React.PointerEvent) => {
+    if (!draggingRef.current || !onRimDrag) return;
+    const n = pointerFromEvent(e);
+    if (n === null) return;
+    onRimDrag(n);
+  };
+
+  const onPointerUpRim = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    try {
+      (e.target as Element).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    onRimRelease?.();
+  };
+
   return (
-    <svg width={240} height={240} viewBox="0 0 240 240" className="select-none drop-shadow-sm">
+    <svg
+      ref={svgRef}
+      width={240}
+      height={240}
+      viewBox="0 0 240 240"
+      className="select-none drop-shadow-sm touch-none"
+    >
       <defs>
         <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#c4b5fd" />
@@ -135,12 +192,12 @@ function ClockFace({
         return (
           <g
             key={val}
-            onClick={() => onSelect(val)}
+            onClick={() => onDiscreteSelect(val)}
             className="cursor-pointer"
             role="button"
             tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") onSelect(val);
+            onKeyDown={(ev) => {
+              if (ev.key === "Enter" || ev.key === " ") onDiscreteSelect(val);
             }}
           >
             <circle
@@ -169,6 +226,20 @@ function ClockFace({
           </g>
         );
       })}
+
+      {onRimDrag ? (
+        <circle
+          cx={CENTER}
+          cy={CENTER}
+          r={RADIUS + 12}
+          fill="transparent"
+          className="cursor-grab active:cursor-grabbing"
+          onPointerDown={onPointerDownRim}
+          onPointerMove={onPointerMoveRim}
+          onPointerUp={onPointerUpRim}
+          onPointerCancel={onPointerUpRim}
+        />
+      ) : null}
     </svg>
   );
 }
@@ -196,6 +267,13 @@ export function ClockTimePicker({
   const [period, setPeriod] = React.useState<Period>(parsed.period);
   const [mode, setMode] = React.useState<Mode>("hour");
   const [open, setOpen] = React.useState(false);
+
+  const hourRef = React.useRef(hour);
+  const minuteRef = React.useRef(minute);
+  const periodRef = React.useRef(period);
+  hourRef.current = hour;
+  minuteRef.current = minute;
+  periodRef.current = period;
 
   React.useEffect(() => {
     const p = parseTime(value);
@@ -233,24 +311,40 @@ export function ClockTimePicker({
 
   const handleMinuteSelect = (m: number) => {
     setMinute(m);
-    // Auto-submit when a minute is picked
-    emit(hour, m, period);
+    emit(hourRef.current, m, periodRef.current);
     setOpen(false);
     setMode("hour");
   };
 
+  const handleMinuteRimDrag = (m: number) => {
+    setMinute(m);
+  };
+
+  const handleMinuteRimRelease = () => {
+    emit(hourRef.current, minuteRef.current, periodRef.current);
+    setOpen(false);
+    setMode("hour");
+  };
+
+  const handleHourRimDrag = (h: number) => {
+    setHour(h);
+  };
+
+  const handleHourRimRelease = () => {
+    setMode("minute");
+  };
+
   const handlePeriodToggle = (p: Period) => {
     setPeriod(p);
-    // Auto-submit when AM/PM is toggled (if we already have an hour+minute)
     if (mode === "minute" || value) {
-      emit(hour, minute, p);
+      emit(hourRef.current, minuteRef.current, p);
       setOpen(false);
       setMode("hour");
     }
   };
 
   const handleConfirm = () => {
-    emit(hour, minute, period);
+    emit(hourRef.current, minuteRef.current, periodRef.current);
     setOpen(false);
     setMode("hour");
   };
@@ -291,7 +385,6 @@ export function ClockTimePicker({
         >
           <DialogTitle className="sr-only">Select time</DialogTitle>
 
-          {/* header */}
           <div className="text-center pt-6 pb-2 px-4">
             <div className="flex items-center justify-center gap-1.5 text-violet-300 mb-2">
               <Sparkles className="h-4 w-4 shrink-0" aria-hidden />
@@ -304,7 +397,6 @@ export function ClockTimePicker({
             ))}
           </div>
 
-          {/* digital display + AM/PM */}
           <div className="flex items-center justify-center gap-3 px-6">
             <div className="flex items-baseline gap-1 text-4xl sm:text-5xl font-bold tracking-tight font-mono tabular-nums">
               <button
@@ -355,16 +447,16 @@ export function ClockTimePicker({
             </div>
           </div>
 
-          {/* clock face — centered and large */}
           <div className="flex justify-center py-2">
             <ClockFace
               mode={mode}
               selected={mode === "hour" ? hour : minute}
-              onSelect={mode === "hour" ? handleHourSelect : handleMinuteSelect}
+              onDiscreteSelect={mode === "hour" ? handleHourSelect : handleMinuteSelect}
+              onRimDrag={mode === "hour" ? handleHourRimDrag : handleMinuteRimDrag}
+              onRimRelease={mode === "hour" ? handleHourRimRelease : handleMinuteRimRelease}
             />
           </div>
 
-          {/* quip bubble */}
           <div
             className={cn(
               "mx-6 max-w-xs rounded-2xl border px-4 py-3 relative",
@@ -385,7 +477,6 @@ export function ClockTimePicker({
             ))}
           </div>
 
-          {/* action buttons */}
           <div className="flex justify-center gap-3 pt-3 pb-6 px-6">
             <Button type="button" variant="outline" size="lg" onClick={handleCancel} className="border-slate-600 text-slate-300 hover:bg-white/10 px-8">
               Cancel

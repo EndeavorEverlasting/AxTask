@@ -173,7 +173,14 @@ import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from 
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { generateChecklistPDF } from "./checklist-pdf";
 import { getProductivityExportPricesForUser, priceForKind } from "./productivity-export-pricing";
-import { buildTasksSpreadsheetBuffer, generateTaskReportPdf, buildTaskReportXlsxBuffer } from "./task-export-generators";
+import { buildDailyProductivityReport, buildDailyProductivityReportMarkdown } from "./daily-productivity-report";
+import { resolveAvatarKeyForFeedbackMission } from "./feedback-avatar-mission";
+import {
+  buildTasksSpreadsheetBuffer,
+  generateTaskReportPdf,
+  buildTaskReportXlsxBuffer,
+  buildTaskReportMarkdown,
+} from "./task-export-generators";
 import { processChecklistImage } from "./ocr-processor";
 import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
@@ -2010,14 +2017,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const taskReportBodySchema = z.object({
-    format: z.enum(["pdf", "xlsx"]),
+    format: z.enum(["pdf", "xlsx", "md"]),
   });
 
   app.post("/api/tasks/:taskId/report", requireAuth, async (req, res) => {
     try {
       const parsed = taskReportBodySchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "format must be pdf or xlsx" });
+        return res.status(400).json({ message: "format must be pdf, xlsx, or md" });
       }
       const userId = req.user!.id;
       const taskId = req.params.taskId;
@@ -2025,7 +2032,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!task) return res.status(404).json({ message: "Task not found" });
 
       const prices = await getProductivityExportPricesForUser(userId);
-      const kind = parsed.data.format === "pdf" ? "taskReportPdf" : "taskReportXlsx";
+      const kind =
+        parsed.data.format === "pdf"
+          ? "taskReportPdf"
+          : parsed.data.format === "xlsx"
+            ? "taskReportXlsx"
+            : "taskReportMarkdown";
       const required = priceForKind(prices, kind);
       if (!prices.freeInDev && required > 0) {
         const w = await spendCoins(userId, required, `productivity_export:${kind}`);
@@ -2055,7 +2067,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
         pdfDoc.pipe(res);
         pdfDoc.end();
-      } else {
+      } else if (parsed.data.format === "xlsx") {
         const buf = buildTaskReportXlsxBuffer(task);
         res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         res.setHeader(
@@ -2063,6 +2075,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           `attachment; filename="AxTask-Report-${task.id.slice(0, 8)}.xlsx"`,
         );
         res.send(buf);
+      } else {
+        const md = buildTaskReportMarkdown(task, userName);
+        const slug = task.activity
+          .slice(0, 40)
+          .replace(/[^\w-]+/g, "_")
+          .replace(/_+/g, "_")
+          .replace(/^_+|_+$/g, "") || "report";
+        res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="AxTask-Report-${task.id.slice(0, 8)}-${slug}.md"`,
+        );
+        res.send(md);
       }
     } catch (error) {
       res.status(500).json({ message: "Failed to generate task report" });
@@ -2121,6 +2146,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch analytics overview" });
+    }
+  });
+
+  const dailyReportRangeSchema = z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  });
+
+  app.get("/api/analytics/daily-report", requireAuth, async (req, res) => {
+    try {
+      const fromQ = typeof req.query.from === "string" ? req.query.from : Array.isArray(req.query.from) ? req.query.from[0] : undefined;
+      const toQ = typeof req.query.to === "string" ? req.query.to : Array.isArray(req.query.to) ? req.query.to[0] : undefined;
+      const parsed = dailyReportRangeSchema.safeParse({ from: fromQ, to: toQ });
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Query params from and to are required as YYYY-MM-DD." });
+      }
+      const { from, to } = parsed.data;
+      const allTasks = await storage.getTasks(req.user!.id);
+      const report = buildDailyProductivityReport(allTasks, from, to);
+      res.json(report);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to build daily report" });
+    }
+  });
+
+  app.post("/api/analytics/daily-report/download", requireAuth, async (req, res) => {
+    try {
+      const parsed = dailyReportRangeSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Body must include from and to as YYYY-MM-DD." });
+      }
+      const { from, to } = parsed.data;
+      const allTasks = await storage.getTasks(req.user!.id);
+      const report = buildDailyProductivityReport(allTasks, from, to);
+      const md = buildDailyProductivityReportMarkdown(report, new Date().toISOString());
+      res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="axtask-daily-report-${from}_to_${to}.md"`,
+      );
+      res.send(md);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to download daily report" });
     }
   });
 
@@ -4814,12 +4882,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const feedbackCount = await getFeedbackSubmissionCount(req.user!.id);
       const feedbackBadgesEarned = await awardFeedbackBadges(req.user!.id, feedbackCount);
 
+      const missionRef = randomUUID();
+      const avatarKeyForMission = resolveAvatarKeyForFeedbackMission(parsed.nudgeContext);
+      const avatarMission = await engageAvatarMission({
+        userId: req.user!.id,
+        avatarKey: avatarKeyForMission,
+        sourceType: "feedback",
+        sourceRef: missionRef,
+        text: parsed.message.slice(0, 4000),
+        completed: true,
+      });
+
       res.status(201).json({
         message: "Feedback submitted",
         attachments: totalAttachments,
         analysis,
         feedbackReward,
         feedbackBadgesEarned,
+        avatarMission,
       });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });

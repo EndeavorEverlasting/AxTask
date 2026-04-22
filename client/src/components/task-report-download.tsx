@@ -19,13 +19,13 @@ interface TaskReportDownloadProps {
 export function TaskReportDownload({ taskId, activityPreview }: TaskReportDownloadProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [busy, setBusy] = useState<"pdf" | "xlsx" | null>(null);
+  const [busy, setBusy] = useState<"pdf" | "xlsx" | "md" | null>(null);
 
   const { data: exportPrices } = useQuery<ProductivityExportPrices>({
     queryKey: ["/api/gamification/productivity-export-prices"],
   });
 
-  const run = async (format: "pdf" | "xlsx") => {
+  const run = async (format: "pdf" | "xlsx" | "md") => {
     setBusy(format);
     try {
       const result = await postPaidDownload(`/api/tasks/${taskId}/report`, { format });
@@ -54,11 +54,18 @@ export function TaskReportDownload({ taskId, activityPreview }: TaskReportDownlo
         .replace(/_+/g, "_")
         .replace(/^_+|_+$/g, "") || "report";
       const fallback =
-        format === "pdf" ? `AxTask-Report-${short}-${slug}.pdf` : `AxTask-Report-${short}-${slug}.xlsx`;
+        format === "pdf"
+          ? `AxTask-Report-${short}-${slug}.pdf`
+          : format === "xlsx"
+            ? `AxTask-Report-${short}-${slug}.xlsx`
+            : `AxTask-Report-${short}-${slug}.md`;
       triggerBlobDownload(result.blob, fallback, result.filename);
       void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
       void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
-      toast({ title: "Report downloaded", description: `${format.toUpperCase()} saved to your device.` });
+      toast({
+        title: "Report downloaded",
+        description: `${format === "md" ? "Markdown" : format.toUpperCase()} saved to your device.`,
+      });
     } catch {
       toast({
         title: "Download failed",
@@ -72,6 +79,7 @@ export function TaskReportDownload({ taskId, activityPreview }: TaskReportDownlo
 
   const pdfCost = exportPrices?.taskReportPdf;
   const xlsxCost = exportPrices?.taskReportXlsx;
+  const mdCost = exportPrices?.taskReportMarkdown;
   const freeDev = exportPrices?.freeInDev;
 
   return (
@@ -88,7 +96,7 @@ export function TaskReportDownload({ taskId, activityPreview }: TaskReportDownlo
         ) : (
           <p className="text-xs text-muted-foreground px-2 py-1.5 flex items-center gap-1">
             <Coins className="h-3 w-3 text-amber-600 shrink-0" />
-            PDF {pdfCost ?? "…"} · Excel {xlsxCost ?? "…"} coins
+            PDF {pdfCost ?? "…"} · Excel {xlsxCost ?? "…"} · Markdown {mdCost ?? "…"} coins
           </p>
         )}
         <DropdownMenuItem disabled={busy !== null} onSelect={() => void run("pdf")}>
@@ -96,6 +104,9 @@ export function TaskReportDownload({ taskId, activityPreview }: TaskReportDownlo
         </DropdownMenuItem>
         <DropdownMenuItem disabled={busy !== null} onSelect={() => void run("xlsx")}>
           Download Excel report
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={busy !== null} onSelect={() => void run("md")}>
+          Download Markdown export
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

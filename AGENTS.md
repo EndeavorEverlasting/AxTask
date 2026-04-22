@@ -4,6 +4,10 @@
 
 Before pushing release branches that touch rewards, classification, feedback, coins, or p-score UX, run the objective-to-code checklist: [docs/OBJECTIVE_CODE_PUSH_CHECKLIST.md](docs/OBJECTIVE_CODE_PUSH_CHECKLIST.md).
 
+## Freemium / premium economics and Pretext-first UI
+
+Do not regress the AxCoin + subscription model or the Pretext-vs-React split without updating the canonical note: [docs/FREEMIUM_PREMIUM_AND_PRETEXT.md](docs/FREEMIUM_PREMIUM_AND_PRETEXT.md).
+
 ## Performance budgets
 
 CI enforces client bundle size (`npm run perf:bundle`) and API latency heuristics (`npm run perf:api-replay`) on every PR. Tightening a budget requires bumping the paired fixture/test; loosening requires an operator-visible note in the PR. Full map of budgets, signals, fixtures, and runtime knobs: [docs/PERF_PERFORMANCE_BUDGETS.md](docs/PERF_PERFORMANCE_BUDGETS.md).

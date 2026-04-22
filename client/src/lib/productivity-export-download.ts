@@ -5,6 +5,7 @@ export type ProductivityExportPrices = {
   tasksSpreadsheet: number;
   taskReportPdf: number;
   taskReportXlsx: number;
+  taskReportMarkdown: number;
   freeInDev: boolean;
 };
 

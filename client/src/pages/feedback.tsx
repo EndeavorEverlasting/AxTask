@@ -38,6 +38,13 @@ type FeedbackSubmitResponse = {
     sentiment: string;
   };
   feedbackReward?: { coins: number; newBalance: number } | null;
+  avatarMission?: {
+    awarded: boolean;
+    xp?: number;
+    coins?: number;
+    message?: string;
+    avatarLevel?: number;
+  };
 };
 
 type NudgeContext = {
@@ -147,16 +154,26 @@ export default function FeedbackPage() {
       const details = payload.analysis
         ? `${payload.analysis.classification} • ${payload.analysis.priority} • ${payload.analysis.sentiment}`
         : "Thanks — your feedback has been recorded.";
+      const extras: string[] = [];
       if (payload.feedbackReward && payload.feedbackReward.coins > 0) {
-        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
-        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
-        toast({
-          title: `Feedback sent · +${payload.feedbackReward.coins} AxCoins`,
-          description: `${details} · Balance ${payload.feedbackReward.newBalance}.`,
-        });
-      } else {
-        toast({ title: "Feedback sent", description: details });
+        extras.push(`+${payload.feedbackReward.coins} AxCoins (balance ${payload.feedbackReward.newBalance}).`);
       }
+      if (payload.avatarMission?.awarded) {
+        extras.push(
+          `Companion mission: +${payload.avatarMission.xp ?? 0} XP, +${payload.avatarMission.coins ?? 0} coins${
+            payload.avatarMission.message ? ` — ${payload.avatarMission.message}` : ""
+          }.`,
+        );
+      }
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+      if (payload.avatarMission?.awarded) {
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/avatars"] });
+      }
+      toast({
+        title: "Feedback sent",
+        description: extras.length > 0 ? `${details} ${extras.join(" ")}` : details,
+      });
       requestFeedbackNudge("feedback_submitted");
       setMessageValue({ body: "", attachmentAssetIds: [] });
       setScreenshots([]);

@@ -1,3 +1,4 @@
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
@@ -6,7 +7,11 @@ import { FloatingChip } from "@/components/ui/floating-chip";
 import { TaskGantt } from "@/components/task-gantt";
 import { useGanttPackUnlocked } from "@/hooks/use-gantt-pack-unlocked";
 import { Link } from "wouter";
-import { Lock, Sparkles } from "lucide-react";
+import { FileDown, Lock, Loader2, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { apiFetch } from "@/lib/queryClient";
+import { parseFilenameFromContentDisposition, triggerBlobDownload } from "@/lib/productivity-export-download";
+import { useToast } from "@/hooks/use-toast";
 import type { Task } from "@shared/schema";
 import {
   ChartContainer,
@@ -55,9 +60,44 @@ type AnalyticsOverview = {
   };
 };
 
+function defaultDailyReportRange(): { from: string; to: string } {
+  const to = new Date();
+  const from = new Date();
+  from.setUTCDate(from.getUTCDate() - 13);
+  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+}
+
 export default function Analytics() {
   /* Chart-heavy surface: dim the ambient orb layer so the data reads cleanly. */
   usePretextSurface("dense");
+  const { toast } = useToast();
+  const [dailyDownloading, setDailyDownloading] = useState(false);
+  const dailyRange = useMemo(() => defaultDailyReportRange(), []);
+
+  const downloadDailyReportMd = useCallback(async () => {
+    setDailyDownloading(true);
+    try {
+      const res = await apiFetch("POST", "/api/analytics/daily-report/download", dailyRange);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || res.statusText);
+      }
+      const blob = await res.blob();
+      const name =
+        parseFilenameFromContentDisposition(res.headers.get("content-disposition"))
+        ?? `axtask-daily-report-${dailyRange.from}_to_${dailyRange.to}.md`;
+      triggerBlobDownload(blob, `axtask-daily-report-${dailyRange.from}_to_${dailyRange.to}.md`, name);
+      toast({ title: "Daily report downloaded", description: "Markdown saved to your device." });
+    } catch (e) {
+      toast({
+        title: "Download failed",
+        description: e instanceof Error ? e.message : "Could not download the daily report.",
+        variant: "destructive",
+      });
+    } finally {
+      setDailyDownloading(false);
+    }
+  }, [dailyRange, toast]);
 
   const { data, isLoading } = useQuery<AnalyticsOverview>({
     queryKey: ["/api/analytics/overview"],
@@ -178,6 +218,25 @@ export default function Analytics() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="glass-panel-glossy">
+        <CardHeader>
+          <CardTitle>Daily productivity report</CardTitle>
+          <CardDescription>
+            Tasks completed per day and open goals (incomplete work; highlights for recurring tasks, long planned
+            duration, or heavy prerequisites). Free Markdown export for the last 14 days.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <Button type="button" variant="secondary" disabled={dailyDownloading} onClick={() => void downloadDailyReportMd()}>
+            {dailyDownloading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <FileDown className="h-4 w-4 mr-2" />}
+            Download last 14 days (Markdown)
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {dailyRange.from} → {dailyRange.to}
+          </span>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <Card className="glass-panel-glossy">

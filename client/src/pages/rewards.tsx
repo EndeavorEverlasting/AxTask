@@ -603,7 +603,10 @@ export default function RewardsPage() {
                   <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
                     <li>Checklist PDF: {exportPrices?.checklistPdf ?? "…"} coins</li>
                     <li>Tasks spreadsheet: {exportPrices?.tasksSpreadsheet ?? "…"} coins</li>
-                    <li>Task report (PDF / Excel): {exportPrices?.taskReportPdf ?? "…"} / {exportPrices?.taskReportXlsx ?? "…"} coins</li>
+                    <li>
+                      Task report (PDF / Excel / Markdown): {exportPrices?.taskReportPdf ?? "…"} /{" "}
+                      {exportPrices?.taskReportXlsx ?? "…"} / {exportPrices?.taskReportMarkdown ?? "…"} coins
+                    </li>
                   </ul>
                 )}
                 {(() => {
