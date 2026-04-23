@@ -41,6 +41,9 @@ services/attendance/
 # Python billing bridge
 tools/billing_bridge/.venv/
 tools/billing_bridge/output/
+
+# Host alarm companion runtime state (local schedules; never commit)
+tools/alarm-companion/data/
 __pycache__/
 *.pyc
 

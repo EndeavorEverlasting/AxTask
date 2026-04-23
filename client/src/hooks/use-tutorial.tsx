@@ -41,11 +41,21 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "voice-commands",
     title: "Voice Commands",
-    description: `Tap the microphone icon or press ${KBD.voice} (${KBD.voiceMac} on Mac) for global voice control — with focus in the page, not the address bar. Try "Take me to the calendar", "Add a new task", "Search for a task", or "What's due today?". On task forms, you can also dictate into Activity or Notes ("urgency 4", "due tomorrow").`,
+    description: `Tap the microphone icon or press ${KBD.voice} (${KBD.voiceMac} on Mac) for global voice control — with focus in the page, not the address bar. Try "Take me to the calendar", "Add a new task", "Search for a task", or "What's due today?". Say "open alarms" or "list alarms" for the task alarm panel. On task forms, you can also dictate into Activity or Notes ("urgency 4", "due tomorrow").`,
     page: "/",
     targetId: "tutorial-task-form",
     position: "right",
     glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "task-alarms",
+    title: "Task alarms & reminders",
+    description: `Schedule and review alarms from the Task alarm panel (${KBD.alarmPanel} / ${KBD.alarmPanelMac}). Save snapshots, pick an apply channel, and send a test notification to confirm delivery. Voice shortcuts match the mic bar ("open alarms", "list alarms"). Optional Docker companion scheduling is documented in the repo under docs/ALARM_COMPANION.md.`,
+    page: "/tasks",
+    targetId: "tutorial-tasks-alarms",
+    position: "right",
+    glowClass: "field-glow-tutorial-success",
+    inlineWidget: "alarm-tutorial-demo",
   },
   {
     id: "classification",
@@ -132,7 +142,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "shortcuts",
     title: "Keyboard Shortcuts & Sidebar",
-    description: `Power user tips: ${KBD.sidebar} (${KBD.sidebarMac}) toggles the sidebar, ${KBD.hotkeyHelp} (${KBD.hotkeyHelpMac}) opens the shortcut reference, ${KBD.voice} (${KBD.voiceMac}) starts voice input, ${SUBMIT_TASK_SHORTCUTS} submits the task form, and ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) toggles this tutorial. ${SHORTCUT_FOCUS_NOTE}`,
+    description: `Power user tips: ${KBD.sidebar} (${KBD.sidebarMac}) toggles the sidebar, ${KBD.hotkeyHelp} (${KBD.hotkeyHelpMac}) opens the shortcut reference, ${KBD.voice} (${KBD.voiceMac}) starts voice input, ${KBD.alarmPanel} (${KBD.alarmPanelMac}) opens the task alarm panel, ${SUBMIT_TASK_SHORTCUTS} submits the task form, and ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) toggles this tutorial. ${SHORTCUT_FOCUS_NOTE}`,
     position: "bottom",
   },
   {

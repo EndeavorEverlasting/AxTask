@@ -2329,6 +2329,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payload = z.object({
         source: z.enum([
           "header_sort_date",
+          "header_sort_created",
           "header_sort_updated",
           "header_sort_priority",
           "header_sort_activity",
@@ -4386,8 +4387,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/alarm-capabilities", requireAuth, async (_req, res) => {
     const companionApplyUrl = (process.env.AXTASK_ALARM_COMPANION_URL || "").trim();
+    const companionSecretConfigured = (process.env.AXTASK_ALARM_COMPANION_SECRET || "").trim().length > 0;
     res.json({
       companionConfigured: companionApplyUrl.length > 0,
+      companionSecretConfigured,
       nativeBridgeHints: {
         android: process.env.VITE_ENABLE_ANDROID_REMINDERS === "true",
         windows: process.env.VITE_ENABLE_WINDOWS_REMINDERS === "true",
@@ -4402,12 +4405,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(503).json({ message: "Alarm companion endpoint is not configured" });
       }
       const body = z.object({ payloadJson: z.string().min(2).max(500_000) }).parse(req.body || {});
+      const companionSecret = (process.env.AXTASK_ALARM_COMPANION_SECRET || "").trim();
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8_000);
       try {
+        const t0 = Date.now();
+        const headers: Record<string, string> = { "content-type": "application/json" };
+        if (companionSecret) {
+          headers.authorization = `Bearer ${companionSecret}`;
+        }
         const upstream = await fetch(companionApplyUrl, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers,
           body: JSON.stringify({
             userId: req.user!.id,
             payloadJson: body.payloadJson,
@@ -4415,6 +4424,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           signal: controller.signal,
         });
         const text = await upstream.text();
+        const ms = Date.now() - t0;
+        const uid = req.user!.id;
+        const uidShort = uid.length > 8 ? `${uid.slice(0, 8)}…` : uid;
+        console.log(
+          `[alarm-companion-proxy] user=${uidShort} status=${upstream.status} ms=${ms} payloadBytes=${body.payloadJson.length}`,
+        );
         if (!upstream.ok) {
           return res.status(502).json({
             message: "Companion apply failed",

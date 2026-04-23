@@ -57,7 +57,11 @@ const INTENT_PATTERNS: IntentPattern[] = [
     patterns: [
       /\b(?:set|create|add|schedule)\s+(?:an?\s+)?alarm\b/i,
       /\balarm\s+(?:for|on)\s+/i,
+      /\b(?:wake\s+me\s+up|remind\s+me\s+at)\b/i,
+      /\bremind\s+me\s+(?:for|about)\b/i,
+      /\bsnooze\b/i,
       /\b(?:list|show)\s+(?:my\s+)?alarms\b/i,
+      /\b(?:what|which)\s+alarms\b/i,
       /\bload\s+(?:my\s+)?alarm\b/i,
     ],
     priority: 9,
@@ -198,22 +202,35 @@ function extractAlarmDateTime(text: string, now: Date): { date: string; time: st
     d.setDate(d.getDate() + 1);
     date = d.toISOString().split("T")[0];
   }
-  const timeMatch = text.match(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
-  if (!timeMatch) return { date, time: "09:00" };
-  let hours = parseInt(timeMatch[1], 10);
-  const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
-  const period = timeMatch[3].toLowerCase();
-  if (period === "pm" && hours < 12) hours += 12;
-  if (period === "am" && hours === 12) hours = 0;
-  const time = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-  return { date, time };
+  const time12 = text.match(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+  if (time12) {
+    let hours = parseInt(time12[1], 10);
+    const minutes = time12[2] ? parseInt(time12[2], 10) : 0;
+    const period = time12[3].toLowerCase();
+    if (period === "pm" && hours < 12) hours += 12;
+    if (period === "am" && hours === 12) hours = 0;
+    const time = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    return { date, time };
+  }
+  const time24 = text.match(/\b(?:at\s+)?(\d{1,2}):(\d{2})\b/);
+  if (time24) {
+    const hours = parseInt(time24[1], 10);
+    const minutes = parseInt(time24[2], 10);
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+      return { date, time: `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}` };
+    }
+  }
+  return { date, time: "09:00" };
 }
 
 function extractAlarmTaskQuery(text: string): string {
   const stripped = text
     .replace(/\b(?:set|create|add|schedule)\s+(?:an?\s+)?alarm\b/gi, "")
+    .replace(/\b(?:wake\s+me\s+up|remind\s+me\s+at|remind\s+me\s+(?:for|about))\b/gi, "")
+    .replace(/\bsnooze\b/gi, "")
     .replace(/\b(?:for|on)\b/gi, " ")
     .replace(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, "")
+    .replace(/\bat\s+\d{1,2}:\d{2}\b/gi, "")
     .replace(/\b(?:today|tomorrow)\b/gi, "")
     .trim();
   return stripped.replace(/\s{2,}/g, " ").trim();
@@ -363,7 +380,15 @@ export async function dispatchVoiceCommand(
 
     case "alarm_config": {
       const lower = delegated.toLowerCase();
-      if (/\b(?:list|show)\s+(?:my\s+)?alarms\b/.test(lower)) {
+      if (/\bsnooze\b/.test(lower)) {
+        return {
+          intent: "alarm_config",
+          action: "alarm_open_panel",
+          payload: {},
+          message: voiceAck("Opening alarms — pick a task and new time.", delegation),
+        };
+      }
+      if (/\b(?:list|show|what|which)\s+(?:my\s+)?alarms\b/.test(lower)) {
         return {
           intent: "alarm_config",
           action: "alarm_list",

@@ -15,6 +15,19 @@ import { TUTORIAL_STEPS, useTutorial } from "@/hooks/use-tutorial";
 import { matchVoiceShortcut } from "@/lib/voice-shortcuts";
 import { matchVoiceMicChord, voiceBarOpenRef } from "@/lib/hotkey-actions";
 
+/** Parse stored alarm snapshot JSON for the alarm panel; returns null if malformed. */
+function parseAlarmPanelDetailFromSnapshot(payloadJson: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(payloadJson);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const o = parsed as Record<string, unknown>;
+    if (typeof o.taskId !== "string" && typeof o.taskActivity !== "string") return null;
+    return o;
+  } catch {
+    return null;
+  }
+}
+
 interface EngineResponse {
   intent: string;
   action: string;
@@ -376,9 +389,16 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
                 toast({ title: "Snapshot empty", description: "Selected snapshot did not include payload." });
                 return;
               }
-              window.dispatchEvent(new CustomEvent("axtask-open-alarm-panel", {
-                detail: JSON.parse(payloadBody.payloadJson),
-              }));
+              const detail = parseAlarmPanelDetailFromSnapshot(payloadBody.payloadJson);
+              if (!detail) {
+                toast({
+                  title: "Invalid snapshot",
+                  description: "This alarm snapshot is not in the expected format.",
+                  variant: "destructive",
+                });
+                return;
+              }
+              window.dispatchEvent(new CustomEvent("axtask-open-alarm-panel", { detail }));
             } catch (e: unknown) {
               toast({
                 title: "Could not load snapshot",
@@ -528,6 +548,40 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
               message: "Opening global search.",
             });
             return;
+          case "open_alarm_panel":
+            window.dispatchEvent(new Event("axtask-open-alarm-panel"));
+            setLastResponse({
+              intent: "alarm_config",
+              action: "alarm_open_panel",
+              payload: {},
+              message: "Opening alarm panel.",
+            });
+            return;
+          case "list_alarms":
+            void (async () => {
+              try {
+                const res = await apiRequest("GET", "/api/alarm-snapshots");
+                const body = await res.json() as { snapshots?: Array<{ label?: string }> };
+                const first = body.snapshots?.[0];
+                toast({
+                  title: "Alarm snapshots",
+                  description: first?.label ? `Latest: ${first.label}` : "No alarm snapshots saved yet.",
+                });
+              } catch (e: unknown) {
+                toast({
+                  title: "Could not load alarms",
+                  description: e instanceof Error ? e.message : "Try again.",
+                  variant: "destructive",
+                });
+              }
+            })();
+            setLastResponse({
+              intent: "alarm_config",
+              action: "alarm_list",
+              payload: {},
+              message: "Listed saved alarms.",
+            });
+            return;
           case "toggle_tutorial":
             if (isTutorialActive) stopTutorial();
             else startTutorial();
@@ -581,7 +635,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
 
       processMutationRef.current.mutate(t);
     },
-    [isTutorialActive, startTutorial, stopTutorial, openBarAndToggleListening],
+    [isTutorialActive, startTutorial, stopTutorial, openBarAndToggleListening, toast],
   );
 
   useEffect(() => {

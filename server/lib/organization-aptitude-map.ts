@@ -1,6 +1,7 @@
 type FilterSignalSource =
   | "header_sort_date"
   | "header_sort_updated"
+  | "header_sort_created"
   | "header_sort_priority"
   | "header_sort_activity"
   | "header_sort_classification"
@@ -18,6 +19,7 @@ export function sourceToAptitudeArchetype(source: FilterSignalSource): string {
   switch (source) {
     case "header_sort_date":
     case "header_sort_updated":
+    case "header_sort_created":
     case "route_chip":
       return "strategy";
     case "header_sort_priority":

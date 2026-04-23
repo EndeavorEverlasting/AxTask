@@ -21,5 +21,5 @@ export interface TutorialStep {
    * description and above the Prev/Next controls. Registry lives in
    * `client/src/components/tutorial-widgets.tsx`.
    */
-  inlineWidget?: "skill-tree-mini-avatar" | "skill-tree-mini-offline";
+  inlineWidget?: "skill-tree-mini-avatar" | "skill-tree-mini-offline" | "alarm-tutorial-demo";
 }

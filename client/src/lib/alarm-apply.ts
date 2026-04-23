@@ -3,6 +3,19 @@ import { applyNativeAlarmSnapshotPayload } from "@/lib/native-reminder-bridge";
 
 type ApplyChannel = "companion" | "native_bridge" | "browser_fallback";
 
+export function describeApplyChannel(channel: ApplyChannel): string {
+  switch (channel) {
+    case "companion":
+      return "Host companion (native notify)";
+    case "native_bridge":
+      return "In-app native bridge";
+    case "browser_fallback":
+      return "Browser notification (fallback)";
+    default:
+      return channel;
+  }
+}
+
 function tryScheduleBrowserNotification(payloadJson: string): boolean {
   if (typeof window === "undefined") return false;
   if (!("Notification" in window)) return false;
@@ -22,19 +35,21 @@ function tryScheduleBrowserNotification(payloadJson: string): boolean {
   }
 }
 
-export async function applyAlarmPayloadWithFallback(payloadJson: string): Promise<{ channel: ApplyChannel }> {
+export async function applyAlarmPayloadWithFallback(
+  payloadJson: string,
+): Promise<{ channel: ApplyChannel; companionSnippet?: string }> {
   try {
     const res = await apiRequest("POST", "/api/alarm-companion/apply", { payloadJson });
-    if (res.ok) return { channel: "companion" };
+    const text = await res.text();
+    const companionSnippet = text.length > 120 ? `${text.slice(0, 117)}…` : text;
+    return { channel: "companion", companionSnippet };
   } catch {
     // fall through to native bridge and browser fallback
   }
 
-  try {
-    await applyNativeAlarmSnapshotPayload(payloadJson);
+  const nativeApplied = await applyNativeAlarmSnapshotPayload(payloadJson);
+  if (nativeApplied) {
     return { channel: "native_bridge" };
-  } catch {
-    // bridge not active or failed
   }
 
   const fallbackApplied = tryScheduleBrowserNotification(payloadJson);

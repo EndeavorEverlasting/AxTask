@@ -46,6 +46,8 @@ npm run alarm:companion:start
 
 The Docker app posts to `AXTASK_ALARM_COMPANION_URL` (defaults to `http://host.docker.internal:8787/apply-alarm` in `.env.docker.example`).
 
+Full companion options (auth, CORS, persistence): **[docs/ALARM_COMPANION.md](docs/ALARM_COMPANION.md)**.
+
 ### One-click Docker startup
 
 - Windows: double-click `start-docker.cmd`

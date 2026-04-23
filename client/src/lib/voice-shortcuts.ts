@@ -12,6 +12,8 @@ export type VoiceShortcutAction =
   | "find_tasks"
   | "new_task"
   | "open_global_search"
+  | "open_alarm_panel"
+  | "list_alarms"
   | "toggle_tutorial"
   | "toggle_hotkey_help"
   | "toggle_sidebar"
@@ -98,6 +100,23 @@ const SHORTCUT_PATTERNS: ShortcutPattern[] = [
       /^(?:open|show|start)\s+(?:the\s+)?global\s+search$/i,
       /^search\s+everything$/i,
       /^(?:full[-\s]?screen|overlay)\s+search$/i,
+    ],
+  },
+  {
+    action: "open_alarm_panel",
+    patterns: [
+      /^open\s+alarms?$/i,
+      /^task\s+alarms?$/i,
+      /^set\s+alarm$/i,
+      /^alarm\s+panel$/i,
+    ],
+  },
+  {
+    action: "list_alarms",
+    patterns: [
+      /^list\s+alarms?$/i,
+      /^show\s+alarms?$/i,
+      /^what\s+alarms?$/i,
     ],
   },
   {
@@ -211,6 +230,8 @@ export const VOICE_SHORTCUT_HINTS = [
   { action: "calendar" as const, label: "Calendar", examples: ['"Open calendar"', '"My calendar"'] },
   { action: "find_tasks" as const, label: "Find Tasks", examples: ['"Find a task"', '"Search"'] },
   { action: "open_global_search" as const, label: "Global search", examples: ['"Global search"', '"Search everything"'] },
+  { action: "open_alarm_panel" as const, label: "Alarms", examples: ['"Open alarms"', '"Alarm panel"'] },
+  { action: "list_alarms" as const, label: "List alarms", examples: ['"List alarms"', '"What alarms"'] },
   { action: "new_task" as const, label: "New Task", examples: ['"Add a task"', '"New task"'] },
   { action: "toggle_tutorial" as const, label: "Tutorial", examples: ['"Toggle tutorial"', '"Guided tour"'] },
   { action: "toggle_hotkey_help" as const, label: "Shortcuts", examples: ['"Keyboard shortcuts"', '"Hotkeys"'] },

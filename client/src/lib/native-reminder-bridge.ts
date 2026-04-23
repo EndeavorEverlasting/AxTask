@@ -43,14 +43,19 @@ export async function applyNativeReminderPolicy(policy: ReminderPolicy): Promise
   }
 }
 
-export async function applyNativeAlarmSnapshotPayload(payloadJson: string): Promise<void> {
+/** Returns true when a native alarm bridge actually ran (not a no-op). */
+export async function applyNativeAlarmSnapshotPayload(payloadJson: string): Promise<boolean> {
   const androidEnabled = import.meta.env.VITE_ENABLE_ANDROID_REMINDERS === "true";
   const windowsEnabled = import.meta.env.VITE_ENABLE_WINDOWS_REMINDERS === "true";
+  let applied = false;
   if (androidEnabled && isAndroid() && window.AndroidAlarmBridge?.applyAlarmSnapshot) {
     await window.AndroidAlarmBridge.applyAlarmSnapshot(payloadJson);
+    applied = true;
   }
   if (windowsEnabled && isWindows() && window.WindowsAlarmBridge?.applyAlarmSnapshot) {
     await window.WindowsAlarmBridge.applyAlarmSnapshot(payloadJson);
+    applied = true;
   }
+  return applied;
 }
 

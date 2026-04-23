@@ -31,6 +31,8 @@ const REQUIRED_ROUTE_REGISTRATIONS = [
   'app.get("/api/gamification/wallet",',
   'app.get("/api/tasks/:id/classifications",',
   'app.post("/api/tasks/:id/confirm-classification",',
+  'app.get("/api/alarm-capabilities",',
+  'app.post("/api/alarm-companion/apply",',
 ] as const;
 
 describe("server/routes.ts inventory", () => {

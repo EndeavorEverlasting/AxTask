@@ -141,10 +141,22 @@ describe("stripWakeWord / hasWakeWord / wake listener gate", () => {
 describe("VOICE_SHORTCUT_HINTS", () => {
   it("covers all non-null shortcut actions", () => {
     const labels = VOICE_SHORTCUT_HINTS.map((h) => h.label);
-    expect(labels.length).toBeGreaterThanOrEqual(8);
+    expect(labels.length).toBeGreaterThanOrEqual(10);
     for (const hint of VOICE_SHORTCUT_HINTS) {
       expect(hint.examples.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("Voice: alarms", () => {
+  it("matches open alarm panel phrases", () => {
+    expect(matchVoiceShortcut("open alarms")).toBe("open_alarm_panel");
+    expect(matchVoiceShortcut("alarm panel")).toBe("open_alarm_panel");
+  });
+
+  it("matches list alarms phrases", () => {
+    expect(matchVoiceShortcut("list alarms")).toBe("list_alarms");
+    expect(matchVoiceShortcut("what alarms")).toBe("list_alarms");
   });
 });
 

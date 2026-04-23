@@ -102,4 +102,38 @@ describe("dispatchVoiceCommand", () => {
     expect(r.intent).toBe("alarm_config");
     expect(r.action).toBe("alarm_list");
   });
+
+  it("matches wake me up phrasing", async () => {
+    const r = await dispatchVoiceCommand(
+      "wake me up for doctor appointment at 8 pm tomorrow",
+      taskFixtures,
+      userId,
+      todayStr,
+      now,
+    );
+    expect(r.action).toBe("alarm_create_for_task");
+    expect(r.payload.alarmTime).toBe("20:00");
+  });
+
+  it("parses 24-hour clock times", async () => {
+    const r = await dispatchVoiceCommand(
+      "remind me at 14:30 tomorrow for doctor appointment",
+      taskFixtures,
+      userId,
+      todayStr,
+      now,
+    );
+    expect(r.action).toBe("alarm_create_for_task");
+    expect(r.payload.alarmTime).toBe("14:30");
+  });
+
+  it("lists alarms for what alarms phrasing", async () => {
+    const r = await dispatchVoiceCommand("what alarms", taskFixtures, userId, todayStr, now);
+    expect(r.action).toBe("alarm_list");
+  });
+
+  it("opens alarm panel on snooze", async () => {
+    const r = await dispatchVoiceCommand("snooze doctor appointment", taskFixtures, userId, todayStr, now);
+    expect(r.action).toBe("alarm_open_panel");
+  });
 });

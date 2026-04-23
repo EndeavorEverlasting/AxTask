@@ -12,6 +12,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import type { Task } from "@shared/schema";
+import { KBD } from "@/lib/keyboard-shortcuts";
 
 function readTaskIdFromLocation(): string | null {
   if (typeof window === "undefined") return null;
@@ -73,7 +74,7 @@ export default function Tasks() {
         subtitle="View and manage all your tasks"
       />
 
-      <Card className="glass-panel-glossy border border-primary/20">
+      <Card id="tutorial-tasks-alarms" className="glass-panel-glossy border border-primary/20">
         <CardContent className="pt-6 flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="font-semibold flex items-center gap-2 text-foreground">
@@ -83,7 +84,9 @@ export default function Tasks() {
             <p className="text-sm text-muted-foreground">
               Use <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">Alt+N</kbd> to add a task,{" "}
               <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">Alt+F</kbd> to find tasks,{" "}
-              and <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">Alt+T</kbd> for the dashboard.
+              <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">Alt+T</kbd> for the dashboard, and{" "}
+              <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">{KBD.alarmPanel}</kbd> /{" "}
+              <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">{KBD.alarmPanelMac}</kbd> for task alarms.
             </p>
           </div>
         </CardContent>

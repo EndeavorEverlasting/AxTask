@@ -15,6 +15,7 @@ const ORG_BADGE_THRESHOLDS: Record<number, string> = {
 type FilterSignalSource =
   | "header_sort_date"
   | "header_sort_updated"
+  | "header_sort_created"
   | "header_sort_priority"
   | "header_sort_activity"
   | "header_sort_classification"
