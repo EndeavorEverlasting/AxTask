@@ -56,6 +56,11 @@ describe("keyboard-shortcuts constants", () => {
     expect(KBD.voiceMac).toBe("Cmd+M");
   });
 
+  it("sidebar labels document the physical Backslash chord (matches matchSidebarChord)", () => {
+    expect(KBD.sidebar).toBe("Ctrl+Shift+\\");
+    expect(KBD.sidebarMac).toBe("Cmd+Shift+\\");
+  });
+
   it("submit task is Ctrl+Enter / Cmd+Enter / Alt+Enter", () => {
     expect(KBD.submitTask).toBe("Ctrl+Enter");
     expect(KBD.submitTaskMac).toBe("Cmd+Enter");
@@ -87,6 +92,17 @@ describe("keyboard-shortcuts constants", () => {
     window.addEventListener("axtask-open-hotkey-help", handler);
     window.dispatchEvent(new Event("axtask-open-hotkey-help"));
     window.removeEventListener("axtask-open-hotkey-help", handler);
+    expect(received).toBe(true);
+  });
+
+  it("axtask-open-global-search event fires and can be received", () => {
+    let received = false;
+    const handler = () => {
+      received = true;
+    };
+    window.addEventListener("axtask-open-global-search", handler);
+    window.dispatchEvent(new Event("axtask-open-global-search"));
+    window.removeEventListener("axtask-open-global-search", handler);
     expect(received).toBe(true);
   });
 

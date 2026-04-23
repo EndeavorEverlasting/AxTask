@@ -12,6 +12,7 @@
 
 export * from "./core";
 export * from "./e2ee";
+export * from "./shopping-lists";
 export * from "./tasks";
 export * from "./gamification";
 export * from "./ops";

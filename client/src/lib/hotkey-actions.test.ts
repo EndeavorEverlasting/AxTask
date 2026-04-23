@@ -154,7 +154,7 @@ describe("KBD.tutorialToggle / Ctrl+Shift+Y", () => {
 });
 
 describe("KBD.sidebar (physical Ctrl+Shift+Backslash)", () => {
-  it("matchSidebarChord toggles sidebar — label is B but code is Backslash", () => {
+  it("matchSidebarChord toggles sidebar — code is Backslash (see KBD.sidebar)", () => {
     expect(matchSidebarChord(key({ key: "\\", code: "Backslash", ctrlKey: true, shiftKey: true }))).toEqual({
       kind: "toggleSidebar",
     });

@@ -33,8 +33,9 @@ export const VALID_APP_PATHS = [
   "/billing-bridge",
 ] as const;
 
-export type ValidAppPath = (typeof VALID_APP_PATHS)[number];
+export type ValidAppPath = (typeof VALID_APP_PATHS)[number] | `/shopping/shared/${string}`;
 
 export function isValidAppPath(path: string): path is ValidAppPath {
-  return (VALID_APP_PATHS as readonly string[]).includes(path);
+  if ((VALID_APP_PATHS as readonly string[]).includes(path)) return true;
+  return /^\/shopping\/shared\/[^/?#]+$/.test(path);
 }

@@ -14,6 +14,11 @@ NodeWeaver._pre_submodule_backup/
 
 # Local Cursor IDE preferences (shared rules may live under .cursor/rules/)
 .cursor/settings.json
+# Ephemeral Cursor planning scratchpads (not team source of truth)
+.cursor/plans/
+
+# JetBrains / IntelliJ
+.idea/
 
 # Local planning artifacts
 docs/AxTask_Migration_Master_Plan.md

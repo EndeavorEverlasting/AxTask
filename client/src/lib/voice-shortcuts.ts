@@ -1,15 +1,17 @@
 /**
  * Client-side voice shortcut matching.
  *
- * Maps spoken phrases to the same actions as keyboard shortcuts (Alt+T, Alt+F, Alt+N, tutorial, help, sidebar, voice).
+ * Maps spoken phrases to the same actions as keyboard shortcuts (Alt+T/N/F/C, global search, tutorial, help, sidebar, voice).
  * Executes locally — no server round-trip — for instant feedback on mobile.
  */
 
 export type VoiceShortcutAction =
   | "dashboard"
   | "shopping_list"
+  | "calendar"
   | "find_tasks"
   | "new_task"
+  | "open_global_search"
   | "toggle_tutorial"
   | "toggle_hotkey_help"
   | "toggle_sidebar"
@@ -79,6 +81,23 @@ const SHORTCUT_PATTERNS: ShortcutPattern[] = [
     patterns: [
       /^shopping\s+list$/i,
       /^(?:open|show|go\s+to)\s+(?:me\s+)?(?:my\s+)?(?:shopping|grocery)(?:\s+list)?$/i,
+    ],
+  },
+  {
+    action: "calendar",
+    patterns: [
+      /^calendar$/i,
+      /^(?:open|show|go\s+to)\s+(?:the\s+)?calendar$/i,
+      /^my\s+calendar$/i,
+    ],
+  },
+  {
+    action: "open_global_search",
+    patterns: [
+      /^global\s+search$/i,
+      /^(?:open|show|start)\s+(?:the\s+)?global\s+search$/i,
+      /^search\s+everything$/i,
+      /^(?:full[-\s]?screen|overlay)\s+search$/i,
     ],
   },
   {
@@ -189,7 +208,9 @@ export function matchTaskFormVoiceSubmit(rawTranscript: string): boolean {
 export const VOICE_SHORTCUT_HINTS = [
   { action: "dashboard" as const, label: "Dashboard", examples: ['"Show all tasks"', '"Go home"'] },
   { action: "shopping_list" as const, label: "Shopping list", examples: ['"Shopping list"', '"Open shopping list"'] },
+  { action: "calendar" as const, label: "Calendar", examples: ['"Open calendar"', '"My calendar"'] },
   { action: "find_tasks" as const, label: "Find Tasks", examples: ['"Find a task"', '"Search"'] },
+  { action: "open_global_search" as const, label: "Global search", examples: ['"Global search"', '"Search everything"'] },
   { action: "new_task" as const, label: "New Task", examples: ['"Add a task"', '"New task"'] },
   { action: "toggle_tutorial" as const, label: "Tutorial", examples: ['"Toggle tutorial"', '"Guided tour"'] },
   { action: "toggle_hotkey_help" as const, label: "Shortcuts", examples: ['"Keyboard shortcuts"', '"Hotkeys"'] },

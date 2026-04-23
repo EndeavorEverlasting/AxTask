@@ -2,18 +2,20 @@ import { Sparkles } from "lucide-react";
 import { wrapTextToLines } from "@/lib/pretext-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useImmersiveShell } from "@/hooks/use-immersive-shell";
+import { KBD } from "@/lib/keyboard-shortcuts";
 
 const FONT = "13px ui-sans-serif, system-ui, sans-serif";
 
-const CUE =
-  "Pretext immersive mode — the canvas owns the fold. Drag the left edge strip to summon the nav again.";
+function immersiveCueText(): string {
+  return `Pretext immersive mode — the canvas owns the fold. Drag the left edge strip to summon the nav again, or use ${KBD.sidebar} (${KBD.sidebarMac}) to toggle the sidebar. Say "toggle sidebar" with voice on mobile.`;
+}
 
 /** Shown on dashboard / calendar when the sidebar is hidden for a full-width module view. */
 export function ImmersivePretextCue() {
   const isMobile = useIsMobile();
   const { isImmersive } = useImmersiveShell();
   if (!isImmersive || isMobile) return null;
-  const lines = wrapTextToLines(CUE, 560, FONT);
+  const lines = wrapTextToLines(immersiveCueText(), 560, FONT);
 
   return (
     <div

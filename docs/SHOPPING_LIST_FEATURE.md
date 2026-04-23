@@ -29,6 +29,14 @@ This document pins the shopping list product surface so refactors do not drop th
   - `/api/tasks/export/shopping-list/pdf`
 - **Generators:** [`server/shopping-list-export-generators.ts`](../server/shopping-list-export-generators.ts) (HTML with `<input type="checkbox">`, spreadsheet with `Purchased` column, PDF with Unicode ballot boxes).
 
+## Collaborative shared lists (dedicated entity)
+
+- **Schema:** [`shared/schema/shopping-lists.ts`](../shared/schema/shopping-lists.ts) — `shopping_lists`, `shopping_list_members`, `shopping_list_items`. SQL migration [`migrations/0029_collaborative_shopping_lists.sql`](../migrations/0029_collaborative_shopping_lists.sql).
+- **Policy:** Creating a shared list (`POST /api/shopping-lists`) and paid **exports** for a shared list require the same **Dendritic List Sense** skill as personal shopping exports. **Viewing / editing items** only requires membership (owner invites by email on `POST /api/shopping-lists/:listId/members`).
+- **REST:** [`server/shopping-lists-routes.ts`](../server/shopping-lists-routes.ts) (mounted from [`server/routes.ts`](../server/routes.ts) via `attachShoppingListRoutes`).
+- **Live sync:** WebSocket [`/ws/shopping`](../server/shopping-list-ws.ts) — client sends `join_list` after connect; server pushes `list_item_upsert`, `list_item_removed`, `list_reordered`. Hook [`client/src/hooks/use-shopping-list-live.ts`](../client/src/hooks/use-shopping-list-live.ts) merges events into the React Query cache.
+- **UI:** [`/shopping/shared/:listId`](../client/src/pages/shopping-shared.tsx) — emerald row styling when `purchased`. Entry from [`/shopping`](../client/src/pages/shopping.tsx) (“Shared lists” card).
+
 ## Tests
 
 - NodeWeaver classifier path: [`server/services/classification/universal-classifier-nodeweaver.test.ts`](../server/services/classification/universal-classifier-nodeweaver.test.ts)
@@ -36,6 +44,7 @@ This document pins the shopping list product surface so refactors do not drop th
 - Export HTML/CSV: [`server/shopping-list-export-generators.test.ts`](../server/shopping-list-export-generators.test.ts)
 - Unlock helper: [`shared/shopping-list-feature.test.ts`](../shared/shopping-list-feature.test.ts)
 - Shopping page / `TaskListHost` wiring: [`client/src/components/task-list-host.shopping.contract.test.ts`](../client/src/components/task-list-host.shopping.contract.test.ts)
+- Shared list routes: [`server/shopping-lists.contract.test.ts`](../server/shopping-lists.contract.test.ts)
 
 ## Related docs
 

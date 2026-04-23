@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { Task } from "@shared/schema";
 import {
+  buildSharedShoppingListHtmlDocument,
   buildShoppingListHtmlDocument,
   buildShoppingListSpreadsheetBuffer,
   filterShoppingTasks,
@@ -75,5 +76,18 @@ describe("shopping-list-export-generators", () => {
     expect(text.split("\r\n")[0]).toContain("Purchased");
     expect(text).toContain("FALSE");
     expect(text).toContain("Eggs");
+  });
+
+  it("shared list HTML uses purchased styling class", () => {
+    const html = buildSharedShoppingListHtmlDocument(
+      [
+        { label: "Tea", notes: "", purchased: false },
+        { label: "Coffee", notes: "", purchased: true },
+      ],
+      "Pantry restock",
+    );
+    expect(html).toContain("Pantry restock");
+    expect(html).toContain('class="purchased"');
+    expect(html).toContain("disabled checked");
   });
 });

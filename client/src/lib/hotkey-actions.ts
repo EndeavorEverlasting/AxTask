@@ -1,6 +1,6 @@
 /**
  * Pure keyboard chord → action mapping. Used by App, Sidebar, VoiceProvider, LoginHelpOverlay, TaskForm.
- * Physical sidebar chord is Ctrl/Cmd+Shift+Backslash (not KeyB) — see KBD.sidebar labels in keyboard-shortcuts.ts.
+ * Physical sidebar chord is Ctrl/Cmd+Shift+Backslash (not KeyB) — see KBD.sidebar in keyboard-shortcuts.ts.
  */
 
 export type HotkeyMatch =
