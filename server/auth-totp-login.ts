@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import type { SafeUser } from "@shared/schema";
+import { awardLoginRewards } from "./login-rewards";
 import { getUserRowById } from "./storage";
 
 const PENDING_TOTP_MS = 5 * 60 * 1000;
@@ -34,6 +35,8 @@ export async function loginOrPendingTotp(
   await new Promise<void>((resolve, reject) => {
     req.login(user, (err) => (err ? reject(err) : resolve()));
   });
+
+  void awardLoginRewards(user.id);
 
   const maybePromise = onLoggedIn(null);
   if (maybePromise != null && typeof (maybePromise as Promise<void>).then === "function") {

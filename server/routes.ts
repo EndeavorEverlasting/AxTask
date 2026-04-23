@@ -126,6 +126,8 @@ import {
 } from "./storage";
 import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS, processChipHuntSync } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
+import { awardLoginRewards } from "./login-rewards";
+import { maybeAwardOrganizationFollowthrough, recordTaskFilterIntent } from "./organization-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
@@ -363,6 +365,7 @@ function buildAdminSignals(metrics: {
   requestVolumeHour: number;
   urgentFeedback: number;
   feedbackProcessed: number;
+  aiCost7dCents?: number;
 }) {
   const urgentRatio = metrics.feedbackProcessed > 0
     ? Number(((metrics.urgentFeedback / metrics.feedbackProcessed) * 100).toFixed(1))
@@ -397,7 +400,53 @@ function buildAdminSignals(metrics: {
       unit: "%",
       tone: metrics.completionRate >= 60 ? "positive" : "warning",
     },
+    {
+      key: "ai_cost_7d",
+      label: "AI cost (7d)",
+      value: Number((((metrics.aiCost7dCents || 0) / 100)).toFixed(2)),
+      unit: "USD",
+      tone: (metrics.aiCost7dCents || 0) > 500 ? "warning" : "neutral",
+    },
   ];
+}
+
+const AI_ROUTE_COST_CENTS: Record<string, number> = {
+  "/api/classification/suggestions": 2,
+  "/api/classification/classify": 2,
+  "/api/planner/ask": 1,
+  "/api/voice/process": 1,
+  "/api/tasks/review": 1,
+};
+
+const aiRuntimeFlags = {
+  externalClassifierEnabled: process.env.AI_EXTERNAL_CLASSIFIER_ENABLED !== "false",
+};
+
+async function trackAiRequestEvent(input: {
+  actorUserId: string;
+  route: string;
+  method: string;
+  statusCode: number;
+  source: string;
+  confidence?: number;
+  fallbackLayer?: number;
+  disabledExternalClassifier: boolean;
+}) {
+  const estimatedCostCents = AI_ROUTE_COST_CENTS[input.route] || 0;
+  await appendSecurityEvent({
+    eventType: "ai_request",
+    actorUserId: input.actorUserId,
+    route: input.route,
+    method: input.method,
+    statusCode: input.statusCode,
+    payload: {
+      source: input.source,
+      confidence: input.confidence ?? null,
+      fallbackLayer: input.fallbackLayer ?? null,
+      estimatedCostCents,
+      disabledExternalClassifier: input.disabledExternalClassifier,
+    },
+  });
 }
 
 async function populateAnalyticsGraphParametersWithAgent(tasks: Task[]) {
@@ -685,6 +734,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Auto-login after registration
       req.login(user, (err) => {
         if (err) return res.status(500).json({ message: "Registration succeeded but login failed" });
+        void awardLoginRewards(user.id);
         res.status(201).json(toPublicSessionUser(user));
       });
     } catch (error) {
@@ -771,6 +821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         req.login(user, (err) => {
           if (err) return next(err);
+          void awardLoginRewards(user.id);
           void evaluateAdherenceForUser(user.id, "login");
           res.json(toPublicSessionUser(user));
         });
@@ -888,6 +939,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       delete req.session.pendingTotpLogin;
       req.login(safe, (err) => {
         if (err) return next(err);
+        void awardLoginRewards(safe.id);
         void appendSecurityEvent({
           eventType: "auth_totp_login_success",
           actorUserId: safe.id,
@@ -2149,6 +2201,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const tasks = await storage.searchTasks(userId, decoded);
       const q = decoded.trim();
+      if (q.length >= 2) {
+        await recordTaskFilterIntent({
+          userId,
+          source: "search",
+          value: q,
+          route: req.path,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+      }
       if (tasks.length > 0 && q.length >= 2) {
         await tryCappedCoinAward({
           userId,
@@ -2162,6 +2224,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(toPublicTaskListItems(tasks, byTask));
     } catch (error) {
       res.status(500).json({ message: "Failed to search tasks" });
+    }
+  });
+
+  app.post("/api/tasks/filter-intent", requireAuth, async (req, res) => {
+    try {
+      const payload = z.object({
+        source: z.enum([
+          "header_priority",
+          "header_status",
+          "header_classification",
+          "top_priority",
+          "top_status",
+          "route_chip",
+        ]),
+        value: z.string().max(120).optional(),
+      }).parse(req.body ?? {});
+      await recordTaskFilterIntent({
+        userId: req.user!.id,
+        source: payload.source,
+        value: payload.value,
+        route: req.path,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to record filter intent" });
     }
   });
 
@@ -2655,6 +2745,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let coinReward = null;
       let coinSkipReason: string | null = null;
       let walletBalance: number | null = null;
+      let organizationReward = null;
       if (task!.status === "completed" && previousStatus !== "completed") {
         coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
         if (!coinReward) {
@@ -2669,6 +2760,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           walletBalance = coinReward.newBalance;
         }
+        const followthroughReward = await maybeAwardOrganizationFollowthrough({
+          userId,
+          taskId: task!.id,
+        });
+        organizationReward = followthroughReward;
+        if (followthroughReward.awarded) {
+          walletBalance = (await getOrCreateWallet(userId)).balance;
+        }
       }
       let classificationReward = null;
       const previousClassification = existingTask?.classification;
@@ -2676,7 +2775,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         classificationReward = await awardCoinsForClassification(userId, task!);
       }
 
-      res.json({ ...task, coinReward, coinSkipReason, walletBalance, classificationReward });
+      res.json({ ...task, coinReward, coinSkipReason, walletBalance, classificationReward, organizationReward });
     } catch (error) {
       console.error("[TASK UPDATE ERROR]", error);
       if (error instanceof Error) {
@@ -3426,7 +3525,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const todayStr = now.toISOString().split("T")[0];
 
       const result = processPlannerQuery(question, allTasks, todayStr, now);
-      res.json({ answer: result.answer, relatedTasks: result.relatedTasks.slice(0, 5) });
+      const responseBody = { answer: result.answer, relatedTasks: result.relatedTasks.slice(0, 5) };
+      res.json(responseBody);
+      void trackAiRequestEvent({
+        actorUserId: req.user!.id,
+        route: "/api/planner/ask",
+        method: "POST",
+        statusCode: 200,
+        source: "planner_engine",
+        disabledExternalClassifier: !aiRuntimeFlags.externalClassifierEnabled,
+      });
     } catch (error) {
       console.error("Planner Q&A error:", error);
       res.status(500).json({ message: "Failed to answer question" });
@@ -3568,6 +3676,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const result = await dispatchVoiceCommand(sanitizedTranscript, allTasks, userId, todayStr, now);
       res.json(result);
+      void trackAiRequestEvent({
+        actorUserId: req.user!.id,
+        route: "/api/voice/process",
+        method: "POST",
+        statusCode: 200,
+        source: result.intent,
+        disabledExternalClassifier: !aiRuntimeFlags.externalClassifierEnabled,
+      });
     } catch (error) {
       console.error("Voice processing error:", error);
       res.status(500).json({ message: "Failed to process voice command" });
@@ -3596,6 +3712,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const now = new Date();
       const result = processTaskReview(sanitized, allTasks, now);
       res.json(result);
+      void trackAiRequestEvent({
+        actorUserId: req.user!.id,
+        route: "/api/tasks/review",
+        method: "POST",
+        statusCode: 200,
+        source: "review_engine",
+        disabledExternalClassifier: !aiRuntimeFlags.externalClassifierEnabled,
+      });
     } catch (error) {
       console.error("Task review error:", error);
       res.status(500).json({ message: "Failed to process task review" });
@@ -3636,6 +3760,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (updatedTask) {
                 try {
                   await awardCoinsForCompletion(userId, updatedTask, previousStatus);
+                  if (updatedTask.status === "completed" && previousStatus !== "completed") {
+                    void maybeAwardOrganizationFollowthrough({
+                      userId,
+                      taskId: updatedTask.id,
+                    });
+                  }
                 } catch (coinErr) {
                   console.error(`Coin award failed for task ${action.taskId}:`, coinErr);
                 }
@@ -4378,7 +4508,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const body = classificationSuggestionsSchema.parse(req.body ?? {});
       const { result, associations } = await classifyWithAssociations(body.activity, body.notes || "", {
-        preferExternal: true,
+        preferExternal: aiRuntimeFlags.externalClassifierEnabled,
       });
       const sourceTag =
         result.source === "external_api"
@@ -4392,6 +4522,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         source: sourceTag,
       }));
       res.json({ suggestions });
+      void trackAiRequestEvent({
+        actorUserId: req.user!.id,
+        route: "/api/classification/suggestions",
+        method: "POST",
+        statusCode: 200,
+        source: result.source,
+        confidence: result.confidence,
+        fallbackLayer: result.fallbackLayer,
+        disabledExternalClassifier: !aiRuntimeFlags.externalClassifierEnabled,
+      });
     } catch (error) {
       if (error instanceof Error) {
         return res.status(400).json({ message: error.message });
@@ -4411,9 +4551,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const payload = classifySchema.parse(req.body);
       const result = await classifyWithFallback(payload.activity, payload.notes, {
-        preferExternal: payload.preferExternal,
+        preferExternal: payload.preferExternal && aiRuntimeFlags.externalClassifierEnabled,
       });
       res.json(result);
+      void trackAiRequestEvent({
+        actorUserId: req.user!.id,
+        route: "/api/classification/classify",
+        method: "POST",
+        statusCode: 200,
+        source: result.source,
+        confidence: result.confidence,
+        fallbackLayer: result.fallbackLayer,
+        disabledExternalClassifier: !aiRuntimeFlags.externalClassifierEnabled,
+      });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Classification failed" });
@@ -6112,6 +6262,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/admin/ai/runtime-controls", requireAdmin, requireAdminStepUp, async (_req, res) => {
+    res.json({
+      externalClassifierEnabled: aiRuntimeFlags.externalClassifierEnabled,
+    });
+  });
+
+  app.post("/api/admin/ai/runtime-controls", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const payload = z.object({
+        externalClassifierEnabled: z.boolean(),
+      }).parse(req.body || {});
+      aiRuntimeFlags.externalClassifierEnabled = payload.externalClassifierEnabled;
+      await appendSecurityEvent({
+        eventType: "admin_ai_runtime_controls_updated",
+        actorUserId: req.user!.id,
+        route: req.path,
+        method: req.method,
+        statusCode: 200,
+        ipAddress: req.ip,
+        payload,
+      });
+      res.json({
+        ok: true,
+        externalClassifierEnabled: aiRuntimeFlags.externalClassifierEnabled,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.issues[0]?.message ?? "Invalid request body" });
+      }
+      res.status(500).json({ message: "Failed to update AI runtime controls" });
+    }
+  });
+
   app.get("/api/admin/analytics/overview", requireAdmin, requireAdminStepUp, async (_req, res) => {
     try {
       const users = await getAllUsers();
@@ -6122,6 +6305,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const feedback = await getFeedbackInsightsGlobal(2000);
       const recentEvents = await getSecurityEvents(3000);
       const now = new Date();
+      const activeUsersSince = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const activeUserIds24h = new Set(
+        recentEvents
+          .filter((event) => {
+            if (!event.actorUserId || !event.createdAt) return false;
+            return new Date(event.createdAt) >= activeUsersSince;
+          })
+          .map((event) => event.actorUserId as string),
+      );
+      const activeUsers24h = activeUserIds24h.size;
 
       const completionTrend = Array.from({ length: 14 }, (_, idx) => {
         const d = new Date(now);
@@ -6152,6 +6345,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const requestVolumeHour = pulseByHour[pulseByHour.length - 1]?.requests || 0;
+      const aiWindowStart = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+      const aiEvents = recentEvents.filter((event) => {
+        if (event.eventType !== "ai_request" || !event.createdAt) return false;
+        return new Date(event.createdAt) >= aiWindowStart;
+      });
+      const aiCostByDay = new Map<string, { date: string; estimatedCostCents: number; requests: number; disabledCount: number }>();
+      let aiCost7dCents = 0;
+      for (const event of aiEvents) {
+        const dateKey = toIsoDate(new Date(event.createdAt!));
+        const parsedPayload = (() => {
+          if (!event.payloadJson) return {};
+          try {
+            return JSON.parse(event.payloadJson) as Record<string, unknown>;
+          } catch {
+            return {};
+          }
+        })();
+        const eventCostCentsRaw = parsedPayload.estimatedCostCents;
+        const eventCostCents = typeof eventCostCentsRaw === "number" ? Math.max(0, eventCostCentsRaw) : 0;
+        const disabled = parsedPayload.disabledExternalClassifier === true;
+        const row = aiCostByDay.get(dateKey) || {
+          date: dateKey,
+          estimatedCostCents: 0,
+          requests: 0,
+          disabledCount: 0,
+        };
+        row.estimatedCostCents += eventCostCents;
+        row.requests += 1;
+        if (disabled) row.disabledCount += 1;
+        aiCostByDay.set(dateKey, row);
+        if (new Date(event.createdAt!) >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)) {
+          aiCost7dCents += eventCostCents;
+        }
+      }
+      const aiCostTrend = Array.from({ length: 14 }, (_, idx) => {
+        const d = new Date(now);
+        d.setDate(now.getDate() - (13 - idx));
+        const key = toIsoDate(d);
+        return aiCostByDay.get(key) || {
+          date: key,
+          estimatedCostCents: 0,
+          requests: 0,
+          disabledCount: 0,
+        };
+      });
 
       const classificationCounts = allTasks.reduce((acc, task) => {
         const key = task.classification || "General";
@@ -6191,6 +6429,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           requestVolumeHour,
           urgentFeedback: feedback.urgentCount,
           feedbackProcessed: feedback.total,
+          aiCost7dCents,
         }),
         pretext: buildAdminPretext({
           completionRate,
@@ -6198,6 +6437,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           requestVolumeHour,
           completionDelta,
         }),
+        activeUsers24h,
+        isSingleActiveUser: activeUsers24h === 1,
+        activeWindowHours: 24,
+        aiCosts: {
+          estimatedCost7dCents: aiCost7dCents,
+          estimatedCost14dCents: aiCostTrend.reduce((sum, row) => sum + row.estimatedCostCents, 0),
+          requests14d: aiCostTrend.reduce((sum, row) => sum + row.requests, 0),
+        },
+        aiCostTrend,
+        aiRuntime: {
+          externalClassifierEnabled: aiRuntimeFlags.externalClassifierEnabled,
+        },
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch admin analytics overview" });

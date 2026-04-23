@@ -102,6 +102,21 @@ export const BADGE_DEFINITIONS: Record<string, { name: string; description: stri
     icon: "✨",
     hidden: true,
   },
+  "organizational-aptitude-1": {
+    name: "Organized Start",
+    description: "Filter your work, then complete a task with follow-through.",
+    icon: "🗂️",
+  },
+  "organizational-aptitude-10": {
+    name: "Systematic Operator",
+    description: "Earn 10 organizational aptitude points from filter follow-through.",
+    icon: "📐",
+  },
+  "organizational-aptitude-50": {
+    name: "Flow Architect",
+    description: "Earn 50 organizational aptitude points from filter follow-through.",
+    icon: "🏗️",
+  },
 };
 
 export interface CoinAwardResult {

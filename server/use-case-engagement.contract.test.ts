@@ -11,6 +11,10 @@ describe("use-case engagement wiring", () => {
     expect(src).toContain("tryCappedCoinAward");
     expect(src).toContain("unique_task_create");
     expect(src).toContain("task_search_reward");
+    expect(src).toContain("daily_login_reward");
+    expect(src).toContain("hourly_login_reward");
+    expect(src).toContain("organization_filter_followthrough_reward");
+    expect(src).toContain("organization_aptitude_points");
     expect(src).toContain("priority_recalculate_reward");
     expect(src).toContain("urgency_recalculate_rating_reward");
     expect(src).toContain("classification_consensus_tier_bonus");
@@ -28,6 +32,10 @@ describe("use-case engagement wiring", () => {
     expect(routes).toContain("hasTaskBeenAwarded");
     expect(routes).toContain("completionCoinSkipReason");
     expect(routes).toContain("ENGAGEMENT.taskSearch");
+    expect(routes).toContain('"/api/tasks/filter-intent"');
+    expect(routes).toContain("maybeAwardOrganizationFollowthrough");
+    expect(routes).toContain("followthroughReward.awarded");
+    expect(routes).toContain("awardLoginRewards");
     expect(routes).toContain("recalculateReward");
     expect(routes).toContain('"/api/tasks/recalculate/rating"');
     expect(routes).toContain('"/api/gamification/economy-diagnostics"');
@@ -53,6 +61,17 @@ describe("use-case engagement wiring", () => {
     );
     expect(taskListHost).toContain("/api/tasks/search/");
     expect(taskListHost).toContain("encodeURIComponent");
+  });
+
+  it("wires OAuth login completion helper with login reward engine", () => {
+    const authTotpLogin = fs.readFileSync(path.join(root, "server", "auth-totp-login.ts"), "utf8");
+    expect(authTotpLogin).toContain("awardLoginRewards");
+  });
+
+  it("wires bulk task review complete with organization follow-through rewards", () => {
+    const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
+    expect(routes).toContain('app.post("/api/tasks/review/apply"');
+    expect(routes).toMatch(/app\.post\("\/api\/tasks\/review\/apply"[\s\S]*case "complete":[\s\S]*maybeAwardOrganizationFollowthrough/);
   });
 
   it("wires chip hunt sync and redacted badge definitions", () => {

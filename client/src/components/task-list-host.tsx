@@ -31,6 +31,14 @@ import { useToast } from "@/hooks/use-toast";
 import type { Task } from "@shared/schema";
 import type { PublicTaskListItem } from "@shared/public-client-dtos";
 import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   PretextImperativeList,
   type ImperativeRowTask,
   type RowEvent,
@@ -60,6 +68,44 @@ const ClassificationBadge = lazy(() =>
 );
 
 type StatusFilter = "all" | "pending" | "in-progress" | "completed";
+type SortDirection = "asc" | "desc";
+type SortColumn =
+  | "date"
+  | "updatedAt"
+  | "priority"
+  | "activity"
+  | "classification"
+  | "priorityScore"
+  | "status";
+type SortState = { column: SortColumn; direction: SortDirection } | null;
+
+type HeaderFilterState = {
+  priority: string[];
+  status: StatusFilter[];
+  classification: string[];
+};
+
+/** Fields returned by PUT /api/tasks/:id when status changes (sync path). */
+type TaskUpdateSyncExtras = {
+  offlineQueued?: boolean;
+  walletBalance?: number | null;
+  organizationReward?: {
+    awarded: boolean;
+    coinsAwarded?: number;
+    pointsAwarded?: number;
+    badgesEarned?: string[];
+    reason?: string;
+    nodeweaverLabel?: string;
+  };
+};
+
+type FilterIntentSource =
+  | "header_priority"
+  | "header_status"
+  | "header_classification"
+  | "top_priority"
+  | "top_status"
+  | "route_chip";
 
 /**
  * Variant switch for this shared host.
@@ -196,6 +242,45 @@ function matchesFilters(
   return true;
 }
 
+function comparePriority(a: string, b: string): number {
+  const order: Record<string, number> = {
+    lowest: 0,
+    low: 1,
+    medium: 2,
+    "medium-high": 3,
+    high: 4,
+    highest: 5,
+  };
+  const av = order[a.toLowerCase()] ?? 99;
+  const bv = order[b.toLowerCase()] ?? 99;
+  if (av !== bv) return av - bv;
+  return a.localeCompare(b);
+}
+
+function compareStatus(a: Task["status"], b: Task["status"]): number {
+  const order: Record<string, number> = {
+    pending: 0,
+    "in-progress": 1,
+    completed: 2,
+  };
+  const av = order[a] ?? 99;
+  const bv = order[b] ?? 99;
+  if (av !== bv) return av - bv;
+  return a.localeCompare(b);
+}
+
+function headerFilterMatches(task: Task, filters: HeaderFilterState): boolean {
+  if (filters.priority.length > 0 && !filters.priority.includes(task.priority)) return false;
+  if (filters.status.length > 0 && !filters.status.includes(task.status as StatusFilter)) return false;
+  if (
+    filters.classification.length > 0 &&
+    !filters.classification.includes(task.classification)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Lazy detail hydration for the classify dialog.
  *
@@ -250,6 +335,12 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(
     variant === "shopping" ? "pending" : "all",
   );
+  const [sortState, setSortState] = useState<SortState>(null);
+  const [headerFilters, setHeaderFilters] = useState<HeaderFilterState>({
+    priority: [],
+    status: [],
+    classification: [],
+  });
   const [routeFilter, setRouteFilter] = useState<TaskListRouteFilter>(
     initialRoute.filter,
   );
@@ -324,18 +415,123 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
     return () => window.clearTimeout(handle);
   }, [deferredSearch]);
 
+  const prefilteredTasks = useMemo(
+    () => applyVariantPrefilter(variant, tasks),
+    [variant, tasks],
+  );
+
+  const classificationOptions = useMemo(
+    () =>
+      Array.from(new Set(prefilteredTasks.map((t) => t.classification)))
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b)),
+    [prefilteredTasks],
+  );
+  const priorityOptions = useMemo(
+    () =>
+      Array.from(new Set(prefilteredTasks.map((t) => t.priority)))
+        .filter(Boolean)
+        .sort(comparePriority),
+    [prefilteredTasks],
+  );
+
+  const toggleHeaderFilter = useCallback(
+    <K extends keyof HeaderFilterState>(
+      key: K,
+      value: HeaderFilterState[K][number],
+    ) => {
+      setHeaderFilters((prev) => {
+        const existing = prev[key] as string[];
+        const raw = String(value);
+        const next = existing.includes(raw)
+          ? existing.filter((v) => v !== raw)
+          : [...existing, raw];
+        return { ...prev, [key]: next } as HeaderFilterState;
+      });
+    },
+    [],
+  );
+
+  const emitFilterIntent = useCallback(
+    (source: FilterIntentSource, value?: string) => {
+      fetch("/api/tasks/filter-intent", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source,
+          value: value ? String(value).slice(0, 120) : undefined,
+        }),
+      }).catch(() => {
+        // Engagement signal only; ignore transient network failures.
+      });
+    },
+    [],
+  );
+
+  const routeFilterIntentHydratedRef = useRef(false);
+  useEffect(() => {
+    if (variant !== "default") return;
+    if (initialRoute.filter === "none") return;
+    if (routeFilterIntentHydratedRef.current) return;
+    routeFilterIntentHydratedRef.current = true;
+    emitFilterIntent("route_chip", String(initialRoute.filter));
+  }, [variant, initialRoute.filter, emitFilterIntent]);
+
+  const cycleSort = useCallback((column: SortColumn) => {
+    setSortState((prev) => {
+      if (!prev || prev.column !== column) return { column, direction: "asc" };
+      if (prev.direction === "asc") return { column, direction: "desc" };
+      return null;
+    });
+  }, []);
+
   const visibleTasks = useMemo(() => {
     /* Variant prefilter first (cheap classification check), then the
      * per-user search/priority/status/route filters. Kept in this
      * order so the pure `applyVariantPrefilter` helper can be
      * exercised by a contract test without doing any UI mounting. */
-    const prefiltered = applyVariantPrefilter(variant, tasks);
-    return prefiltered.filter(
+    const filtered = prefilteredTasks.filter(
       (t) =>
         matchesFilters(t, priorityFilter, statusFilter, deferredSearch) &&
-        taskMatchesRouteFilter(t, routeFilter),
+        taskMatchesRouteFilter(t, routeFilter) &&
+        headerFilterMatches(t, headerFilters),
     );
-  }, [tasks, priorityFilter, statusFilter, deferredSearch, routeFilter, variant]);
+    if (!sortState) return filtered;
+    const dir = sortState.direction === "asc" ? 1 : -1;
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortState.column) {
+        case "date":
+          return a.date.localeCompare(b.date) * dir;
+        case "updatedAt":
+          return (
+            new Date(a.updatedAt ?? a.createdAt ?? 0).getTime() -
+            new Date(b.updatedAt ?? b.createdAt ?? 0).getTime()
+          ) * dir;
+        case "priority":
+          return comparePriority(a.priority, b.priority) * dir;
+        case "activity":
+          return a.activity.localeCompare(b.activity) * dir;
+        case "classification":
+          return a.classification.localeCompare(b.classification) * dir;
+        case "priorityScore":
+          return (a.priorityScore - b.priorityScore) * dir;
+        case "status":
+          return compareStatus(a.status, b.status) * dir;
+        default:
+          return 0;
+      }
+    });
+    return sorted;
+  }, [
+    prefilteredTasks,
+    priorityFilter,
+    statusFilter,
+    deferredSearch,
+    routeFilter,
+    headerFilters,
+    sortState,
+  ]);
 
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
   /** Wired to `axtask-focus-task-search` (Alt+F, sidebar Find, planner fallback). */
@@ -396,9 +592,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
     },
     onSuccess: (payload) => {
       if (!payload) return;
-      const d = payload.result as
-        | { offlineQueued?: boolean; walletBalance?: number | null }
-        | undefined;
+      const d = payload.result as TaskUpdateSyncExtras | undefined;
       if (d?.offlineQueued) {
         toast({
           title: "Saved offline",
@@ -412,6 +606,25 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
         payload.wallet.setWalletBalanceCache(queryClient, d.walletBalance);
       }
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      const org = d?.organizationReward;
+      if (org?.awarded) {
+        const parts: string[] = [];
+        if ((org.pointsAwarded ?? 0) > 0) {
+          parts.push(`+${org.pointsAwarded} organizational aptitude`);
+        }
+        if ((org.coinsAwarded ?? 0) > 0) {
+          parts.push(`+${org.coinsAwarded} AxCoins`);
+        }
+        if (org.badgesEarned && org.badgesEarned.length > 0) {
+          parts.push(`Badges: ${org.badgesEarned.join(", ")}`);
+        }
+        if (parts.length > 0) {
+          toast({
+            title: "Filter follow-through",
+            description: parts.join(" · "),
+          });
+        }
+      }
     },
     onError: () => {
       toast({
@@ -547,7 +760,10 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
           </div>
           <Select
             value={priorityFilter}
-            onValueChange={(v) => setPriorityFilter(v)}
+            onValueChange={(v) => {
+              setPriorityFilter(v);
+              if (v !== "all") emitFilterIntent("top_priority", v);
+            }}
           >
             <SelectTrigger className="w-[140px]" data-testid="priority-filter">
               <SelectValue placeholder="Priority" />
@@ -561,7 +777,10 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
           </Select>
           <Select
             value={statusFilter}
-            onValueChange={(v) => setStatusFilter(v as StatusFilter)}
+            onValueChange={(v) => {
+              setStatusFilter(v as StatusFilter);
+              if (v !== "all") emitFilterIntent("top_status", v);
+            }}
           >
             <SelectTrigger className="w-[140px]" data-testid="status-filter">
               <SelectValue placeholder="Status" />
@@ -573,6 +792,20 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
               <SelectItem value="completed">{copy.completedLabel}</SelectItem>
             </SelectContent>
           </Select>
+          <button
+            type="button"
+            className="text-xs rounded-md border border-border px-2.5 py-2 hover:bg-accent"
+            onClick={() =>
+              setHeaderFilters({
+                priority: [],
+                status: [],
+                classification: [],
+              })
+            }
+            data-testid="clear-header-filters"
+          >
+            Clear header filters
+          </button>
         </div>
 
         {routeFilter !== "none" && (
@@ -585,7 +818,10 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
               {describeRouteFilter(routeFilter)}
               <button
                 type="button"
-                onClick={() => setRouteFilter("none")}
+                onClick={() => {
+                  emitFilterIntent("route_chip", String(routeFilter));
+                  setRouteFilter("none");
+                }}
                 className="ml-1 -mr-1 rounded-full hover:bg-primary/20 p-0.5"
                 aria-label="Clear saved filter"
                 data-testid="task-list-route-chip-clear"
@@ -604,14 +840,167 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-background z-10 border-b">
               <tr className="text-left text-muted-foreground">
-                <th className="py-2 pr-4 font-medium">Date</th>
+                <th className="py-2 pr-4 font-medium">
+                  <button
+                    type="button"
+                    className="hover:text-foreground"
+                    onClick={() => cycleSort("date")}
+                    data-testid="header-sort-date"
+                  >
+                    Date
+                  </button>
+                </th>
                 <th className="py-2 pr-4 font-medium">Created</th>
-                <th className="py-2 pr-4 font-medium">Updated</th>
-                <th className="py-2 pr-4 font-medium">Priority</th>
-                <th className="py-2 pr-4 font-medium">Activity</th>
-                <th className="py-2 pr-4 font-medium">Classification</th>
-                <th className="py-2 pr-4 font-medium">Priority (0–10)</th>
-                <th className="py-2 pr-4 font-medium">{copy.statusColumnLabel}</th>
+                <th className="py-2 pr-4 font-medium">
+                  <button
+                    type="button"
+                    className="hover:text-foreground"
+                    onClick={() => cycleSort("updatedAt")}
+                    data-testid="header-sort-updated"
+                  >
+                    Updated
+                  </button>
+                </th>
+                <th className="py-2 pr-4 font-medium">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      className="hover:text-foreground"
+                      onClick={() => cycleSort("priority")}
+                      data-testid="header-sort-priority"
+                    >
+                      Priority
+                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="rounded border border-transparent px-1 hover:border-border hover:text-foreground"
+                          data-testid="header-filter-priority-trigger"
+                          aria-label="Filter priority"
+                        >
+                          ▾
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuLabel>Priority filter</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {priorityOptions.map((p) => (
+                          <DropdownMenuCheckboxItem
+                            key={p}
+                            checked={headerFilters.priority.includes(p)}
+                            onCheckedChange={() => {
+                              emitFilterIntent("header_priority", p);
+                              toggleHeaderFilter("priority", p);
+                            }}
+                          >
+                            {p}
+                          </DropdownMenuCheckboxItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </th>
+                <th className="py-2 pr-4 font-medium">
+                  <button
+                    type="button"
+                    className="hover:text-foreground"
+                    onClick={() => cycleSort("activity")}
+                    data-testid="header-sort-activity"
+                  >
+                    Activity
+                  </button>
+                </th>
+                <th className="py-2 pr-4 font-medium">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      className="hover:text-foreground"
+                      onClick={() => cycleSort("classification")}
+                      data-testid="header-sort-classification"
+                    >
+                      Classification
+                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="rounded border border-transparent px-1 hover:border-border hover:text-foreground"
+                          data-testid="header-filter-classification-trigger"
+                          aria-label="Filter classification"
+                        >
+                          ▾
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuLabel>Classification filter</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {classificationOptions.map((c) => (
+                          <DropdownMenuCheckboxItem
+                            key={c}
+                            checked={headerFilters.classification.includes(c)}
+                            onCheckedChange={() => {
+                              emitFilterIntent("header_classification", c);
+                              toggleHeaderFilter("classification", c);
+                            }}
+                          >
+                            {c}
+                          </DropdownMenuCheckboxItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </th>
+                <th className="py-2 pr-4 font-medium">
+                  <button
+                    type="button"
+                    className="hover:text-foreground"
+                    onClick={() => cycleSort("priorityScore")}
+                    data-testid="header-sort-priority-score"
+                  >
+                    Priority (0–10)
+                  </button>
+                </th>
+                <th className="py-2 pr-4 font-medium">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      className="hover:text-foreground"
+                      onClick={() => cycleSort("status")}
+                      data-testid="header-sort-status"
+                    >
+                      {copy.statusColumnLabel}
+                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="rounded border border-transparent px-1 hover:border-border hover:text-foreground"
+                          data-testid="header-filter-status-trigger"
+                          aria-label="Filter status"
+                        >
+                          ▾
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuLabel>Status filter</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {(["pending", "in-progress", "completed"] as StatusFilter[]).map((s) => (
+                          <DropdownMenuCheckboxItem
+                            key={s}
+                            checked={headerFilters.status.includes(s)}
+                            onCheckedChange={() => {
+                              emitFilterIntent("header_status", s);
+                              toggleHeaderFilter("status", s);
+                            }}
+                          >
+                            {s}
+                          </DropdownMenuCheckboxItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </th>
                 <th className="py-2 pr-4 font-medium">Actions</th>
               </tr>
             </thead>

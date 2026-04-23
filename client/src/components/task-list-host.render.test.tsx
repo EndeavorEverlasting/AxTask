@@ -126,6 +126,60 @@ describe("TaskListHost :: real-DOM regression", () => {
     });
   });
 
+  it("header date sort cycles asc and desc", async () => {
+    mount([
+      makeTask({ id: "old", activity: "Older", date: "2026-01-01" }),
+      makeTask({ id: "new", activity: "Newer", date: "2026-01-03" }),
+    ]);
+
+    const tbody = await screen.findByTestId("task-list-body");
+    await waitFor(() =>
+      expect(tbody.querySelectorAll("tr[data-task-id]").length).toBe(2),
+    );
+
+    fireEvent.click(screen.getByTestId("header-sort-date"));
+    await waitFor(() => {
+      const rows = tbody.querySelectorAll<HTMLTableRowElement>("tr[data-task-id]");
+      expect(rows[0]?.dataset.taskId).toBe("old");
+      expect(rows[1]?.dataset.taskId).toBe("new");
+    });
+
+    fireEvent.click(screen.getByTestId("header-sort-date"));
+    await waitFor(() => {
+      const rows = tbody.querySelectorAll<HTMLTableRowElement>("tr[data-task-id]");
+      expect(rows[0]?.dataset.taskId).toBe("new");
+      expect(rows[1]?.dataset.taskId).toBe("old");
+    });
+  });
+
+  it("header classification filter narrows rows and clear resets", async () => {
+    mount([
+      makeTask({ id: "a", activity: "Alpha", classification: "Work" }),
+      makeTask({ id: "b", activity: "Milk", classification: "Shopping" }),
+    ]);
+
+    const tbody = await screen.findByTestId("task-list-body");
+    await waitFor(() =>
+      expect(tbody.querySelectorAll("tr[data-task-id]").length).toBe(2),
+    );
+
+    fireEvent.pointerDown(screen.getByTestId("header-filter-classification-trigger"));
+    const item = await screen.findByRole("menuitemcheckbox", { name: "Shopping" });
+    fireEvent.click(item);
+
+    await waitFor(() => {
+      const rows = tbody.querySelectorAll<HTMLTableRowElement>("tr[data-task-id]");
+      expect(rows.length).toBe(1);
+      expect(rows[0]?.dataset.taskId).toBe("b");
+    });
+
+    fireEvent.click(screen.getByTestId("clear-header-filters"));
+    await waitFor(() => {
+      const rows = tbody.querySelectorAll<HTMLTableRowElement>("tr[data-task-id]");
+      expect(rows.length).toBe(2);
+    });
+  });
+
   it("axtask-focus-task-search focuses the task search input (Alt+F / sidebar)", async () => {
     mount([makeTask({ id: "a", activity: "Test" })]);
     await screen.findByTestId("task-list-body");
