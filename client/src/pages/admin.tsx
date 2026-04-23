@@ -44,6 +44,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ChartContainer,
@@ -355,6 +362,7 @@ export default function AdminPage() {
   });
 
   const [perfWindowHours, setPerfWindowHours] = useState(24);
+  const [aptitudeWindowHours, setAptitudeWindowHours] = useState(24 * 14);
   const { data: perfHeuristics } = useQuery<ApiPerfHeuristicsPayload>({
     queryKey: [`/api/admin/performance/heuristics?hours=${perfWindowHours}`],
     enabled: adminApiEnabled,
@@ -366,7 +374,7 @@ export default function AdminPage() {
     refetchInterval: 15000,
   });
   const { data: organizationAptitude } = useQuery<OrganizationAptitudeTrends>({
-    queryKey: ["/api/admin/organization-aptitude-trends?hours=336"],
+    queryKey: [`/api/admin/organization-aptitude-trends?hours=${aptitudeWindowHours}`],
     enabled: adminApiEnabled,
     refetchInterval: 30000,
   });
@@ -808,7 +816,7 @@ export default function AdminPage() {
   const exportOrganizationAptitude = async (format: "json" | "csv") => {
     try {
       const response = await fetch(
-        `/api/admin/organization-aptitude-trends/export?format=${encodeURIComponent(format)}&hours=336`,
+        `/api/admin/organization-aptitude-trends/export?format=${encodeURIComponent(format)}&hours=${aptitudeWindowHours}`,
         { credentials: "include" },
       );
       if (!response.ok) {
@@ -1198,6 +1206,25 @@ export default function AdminPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor="aptitude-window" className="text-xs text-muted-foreground">
+                  Window
+                </Label>
+                <Select
+                  value={String(aptitudeWindowHours)}
+                  onValueChange={(v) => setAptitudeWindowHours(Number(v))}
+                >
+                  <SelectTrigger id="aptitude-window" className="w-[180px] h-8" data-testid="aptitude-window-select">
+                    <SelectValue placeholder="Choose window" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="24">Last 24 hours</SelectItem>
+                    <SelectItem value="168">Last 7 days</SelectItem>
+                    <SelectItem value="336">Last 14 days</SelectItem>
+                    <SelectItem value="720">Last 30 days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="rounded border px-3 py-2">
                   <p className="text-xs text-muted-foreground">Samples</p>
@@ -1249,7 +1276,7 @@ export default function AdminPage() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Window: last {organizationAptitude?.hoursWindow ?? 336} hours.
+                Window: last {organizationAptitude?.hoursWindow ?? aptitudeWindowHours} hours.
               </p>
             </CardContent>
           </Card>
