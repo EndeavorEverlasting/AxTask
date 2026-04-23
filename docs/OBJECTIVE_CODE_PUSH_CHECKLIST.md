@@ -94,7 +94,7 @@ When you introduce a **new falsifiable invariant** for an objective (for example
   - [server/routes.ts](../server/routes.ts)
 - **Automated coverage:** [`server/use-case-engagement.contract.test.ts`](../server/use-case-engagement.contract.test.ts); [`server/release-2026-routes-contract.test.ts`](../server/release-2026-routes-contract.test.ts)
 - **Must confirm**
-  - Reward reasons exist and are capped for: unique task, search success, feedback, classification confirmation/correction consensus, urgency recalc rating.
+  - Reward reasons exist and are capped for: unique task, search success, feedback, classification confirmation/correction consensus, urgency recalc rating, voice companion (`voice_command_companion_reward` + `voice_avatar_xp_tick` caps in `server/voice-companion-rewards.ts`).
   - Routes return fields needed for deterministic wallet reconciliation.
 - **Evidence**
   - Route responses include expected reward payloads and post-action balance.

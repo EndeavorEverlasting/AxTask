@@ -79,4 +79,10 @@ export const ENGAGEMENT = {
     amount: 2,
     weeklyCap: 1,
   },
+  /** Capped drip for substantive voice intents (see `server/voice-companion-rewards.ts`). */
+  voiceCommandCompanion: {
+    reason: "voice_command_companion_reward",
+    amount: 1,
+    dailyCap: 24,
+  },
 } as const;

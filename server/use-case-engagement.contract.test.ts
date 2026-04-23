@@ -23,6 +23,15 @@ describe("use-case engagement wiring", () => {
     expect(src).toContain("classification_correction_consensus_reward");
     expect(src).toContain("archetype_poll_vote_reward");
     expect(src).toContain("archetypePollVote");
+    expect(src).toContain("voice_command_companion_reward");
+    expect(src).toContain("voiceCommandCompanion");
+  });
+
+  it("exposes voice companion reward helper and XP tick reason", () => {
+    const src = fs.readFileSync(path.join(root, "server", "voice-companion-rewards.ts"), "utf8");
+    expect(src).toContain("applyVoiceCompanionRewards");
+    expect(src).toContain("VOICE_AVATAR_XP_TICK_REASON");
+    expect(src).toContain("voiceDispatchQualifiesForCompanionRewards");
   });
 
   it("wires task create, update, search, and recalculate responses", () => {
@@ -46,6 +55,7 @@ describe("use-case engagement wiring", () => {
     expect(routes).toContain("consensusCorrectionReward");
     expect(routes).toContain("consensusTierBonus");
     expect(routes).toContain("confirmationCount");
+    expect(routes).toContain("applyVoiceCompanionRewards");
   });
 
   it("returns classification confirmation response with new balance", () => {

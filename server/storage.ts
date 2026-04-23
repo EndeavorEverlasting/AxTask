@@ -2922,6 +2922,54 @@ export async function spendCoinsForAvatarBoost(userId: string, avatarKey: string
   return { ok: true, message: "Avatar boosted.", profile: updated };
 }
 
+/** Pick the companion profile with highest total XP; tie-break by smallest avatarKey (stable). */
+export function selectDominantAvatarProfile(profiles: UserAvatarProfile[]): UserAvatarProfile | null {
+  if (profiles.length === 0) return null;
+  let best = profiles[0]!;
+  for (let i = 1; i < profiles.length; i++) {
+    const p = profiles[i]!;
+    if (p.totalXp > best.totalXp) best = p;
+    else if (p.totalXp === best.totalXp && p.avatarKey.localeCompare(best.avatarKey) < 0) best = p;
+  }
+  return best;
+}
+
+/**
+ * Apply flat XP to one avatar row and append a zero-amount coin row for UTC-day cap counting.
+ * Caller must enforce caps before invoking.
+ */
+export async function applyVoiceAvatarXpWithTick(params: {
+  userId: string;
+  profileId: string;
+  xpGain: number;
+  tickReason: string;
+  tickDetails: string;
+}): Promise<{ level: number; xp: number; totalXp: number } | null> {
+  const { userId, profileId, xpGain, tickReason, tickDetails } = params;
+  if (!Number.isFinite(xpGain) || xpGain <= 0) return null;
+  const [profile] = await db.select().from(userAvatarProfiles).where(eq(userAvatarProfiles.id, profileId)).limit(1);
+  if (!profile) return null;
+  let nextLevel = profile.level;
+  let nextXp = profile.xp + xpGain;
+  while (nextXp >= avatarXpThreshold(nextLevel)) {
+    nextXp -= avatarXpThreshold(nextLevel);
+    nextLevel += 1;
+  }
+  const totalXp = profile.totalXp + xpGain;
+  await db
+    .update(userAvatarProfiles)
+    .set({ level: nextLevel, xp: nextXp, totalXp, updatedAt: new Date() })
+    .where(eq(userAvatarProfiles.id, profileId));
+  await db.insert(coinTransactions).values({
+    id: randomUUID(),
+    userId,
+    amount: 0,
+    reason: tickReason,
+    details: tickDetails,
+  });
+  return { level: nextLevel, xp: nextXp, totalXp };
+}
+
 export async function getOfflineGeneratorStatus(userId: string): Promise<{
   generator: OfflineGenerator;
   effectiveRatePerHour: number;

@@ -22,6 +22,7 @@ import {
   PlusCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AvatarOrb } from "@/components/ui/avatar-orb";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -65,6 +66,7 @@ export function VoiceCommandBar() {
     clearResponse,
     liveTopicSuggestions,
     liveTopicLoading,
+    voiceCompanionPreview,
   } = useVoice();
 
   const reducedMotion = useReducedMotion();
@@ -86,6 +88,29 @@ export function VoiceCommandBar() {
       >
         <div className="glass-panel-glossy rounded-2xl shadow-2xl overflow-hidden">
           <div className="flex items-center gap-3 px-4 py-3">
+            {voiceCompanionPreview ? (
+              <div
+                className={cn(
+                  "shrink-0 flex flex-col items-center gap-0.5 min-w-[52px]",
+                  status === "listening" && !reducedMotion && "scale-[1.02]",
+                  isProcessing && "opacity-80",
+                )}
+                title={`${voiceCompanionPreview.displayName} · Lv ${voiceCompanionPreview.level}`}
+              >
+                <AvatarOrb
+                  variant={voiceCompanionPreview.avatarKey}
+                  size="sm"
+                  wobble={!reducedMotion}
+                  label={voiceCompanionPreview.displayName}
+                  className={cn(
+                    status === "listening" && !reducedMotion && "ring-2 ring-violet-400/70 ring-offset-2 ring-offset-background",
+                  )}
+                />
+                <span className="text-[9px] font-medium text-muted-foreground tabular-nums leading-none max-w-[56px] truncate">
+                  Lv {voiceCompanionPreview.level}
+                </span>
+              </div>
+            ) : null}
             <button
               onClick={toggleListening}
               className={cn(

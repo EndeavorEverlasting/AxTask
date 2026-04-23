@@ -175,6 +175,7 @@ import {
 } from "./services/totp";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
+import { applyVoiceCompanionRewards } from "./voice-companion-rewards";
 import { processPlannerQuery } from "./engines/planner-engine";
 import { processFeedbackWithEngines } from "./engines/feedback-engine";
 import { recordArchetypeSignal, type ArchetypeSignalKind } from "./lib/archetype-signal";
@@ -3905,7 +3906,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const todayStr = now.toISOString().split("T")[0];
 
       const result = await dispatchVoiceCommand(sanitizedTranscript, allTasks, userId, todayStr, now);
-      res.json(result);
+      const companion = await applyVoiceCompanionRewards(userId, result);
+      res.json(companion ? { ...result, companion } : result);
       void trackAiRequestEvent({
         actorUserId: req.user!.id,
         route: "/api/voice/process",

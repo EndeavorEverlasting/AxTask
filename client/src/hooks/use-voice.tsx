@@ -1,4 +1,13 @@
-import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { useWakeWordSpeech } from "@/hooks/use-wake-speech";
 import { useSpeechRecognition, type SpeechStatus } from "./use-speech-recognition";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -14,6 +23,8 @@ import { useLiveClassificationStream, type LiveClassificationSuggestion } from "
 import { TUTORIAL_STEPS, useTutorial } from "@/hooks/use-tutorial";
 import { matchVoiceShortcut } from "@/lib/voice-shortcuts";
 import { matchVoiceMicChord, voiceBarOpenRef } from "@/lib/hotkey-actions";
+import { selectDominantAvatarProfile } from "@/lib/select-dominant-avatar-profile";
+import { isFeedbackAvatarKey, type FeedbackAvatarKey } from "@shared/feedback-avatar-map";
 
 /** Parse stored alarm snapshot JSON for the alarm panel; returns null if malformed. */
 function parseAlarmPanelDetailFromSnapshot(payloadJson: string): Record<string, unknown> | null {
@@ -28,12 +39,27 @@ function parseAlarmPanelDetailFromSnapshot(payloadJson: string): Record<string, 
   }
 }
 
+export interface VoiceCompanionRewardPayload {
+  avatarKey: string;
+  displayName: string;
+  coinsAwarded?: number;
+  xpAwarded?: number;
+  avatarLevel?: number;
+}
+
 interface EngineResponse {
   intent: string;
   action: string;
   payload: Record<string, unknown>;
   message: string;
+  companion?: VoiceCompanionRewardPayload;
 }
+
+export type VoiceCompanionPreview = {
+  avatarKey: FeedbackAvatarKey;
+  displayName: string;
+  level: number;
+};
 
 export interface TaskPrefill {
   activity: string;
@@ -94,6 +120,8 @@ interface VoiceContextType {
   clearReviewProposal: () => void;
   /** Server-synced preference: background wake-style listening after first mic use, or manual-only. */
   voiceListeningMode: VoiceListeningMode;
+  /** Dominant companion while the voice bar is open (matches server voice XP target). */
+  voiceCompanionPreview: VoiceCompanionPreview | null;
 }
 
 const VoiceContext = createContext<VoiceContextType | null>(null);
@@ -141,6 +169,19 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
   const pendingSearchDictationRef = useRef(false);
   const speechRef = useRef<{ resetTranscript: () => void; start: () => void } | null>(null);
 
+  const { data: avatarVoiceData } = useQuery<{ avatars: Array<{ avatarKey: string; displayName: string; level: number; totalXp: number }> }>({
+    queryKey: ["/api/gamification/avatars"],
+    enabled: Boolean(user?.id && isBarOpen),
+  });
+
+  const voiceCompanionPreview = useMemo((): VoiceCompanionPreview | null => {
+    const list = avatarVoiceData?.avatars;
+    if (!list?.length) return null;
+    const d = selectDominantAvatarProfile(list);
+    if (!d || !isFeedbackAvatarKey(d.avatarKey)) return null;
+    return { avatarKey: d.avatarKey, displayName: d.displayName, level: d.level };
+  }, [avatarVoiceData]);
+
   const processMutation = useMutation({
     mutationFn: async (transcript: string) => {
       const res = await apiRequest("POST", "/api/voice/process", { transcript });
@@ -148,6 +189,18 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
     },
     onSuccess: (data) => {
       setLastResponse(data);
+      const c = data.companion;
+      if (c && ((c.coinsAwarded ?? 0) > 0 || (c.xpAwarded ?? 0) > 0)) {
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/avatars"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+        const parts: string[] = [];
+        if ((c.coinsAwarded ?? 0) > 0) parts.push(`+${c.coinsAwarded} AxCoin`);
+        if ((c.xpAwarded ?? 0) > 0) parts.push(`+${c.xpAwarded} companion XP`);
+        if (parts.length > 0) {
+          toast({ title: c.displayName, description: parts.join(" · ") });
+        }
+      }
 
       switch (data.action) {
         case "navigate":
@@ -760,6 +813,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         consumeVoiceSearch,
         clearReviewProposal,
         voiceListeningMode,
+        voiceCompanionPreview,
       }}
     >
       {children}
