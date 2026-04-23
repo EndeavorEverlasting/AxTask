@@ -56,6 +56,11 @@ describe("keyboard-shortcuts constants", () => {
     expect(KBD.voiceMac).toBe("Cmd+M");
   });
 
+  it("alarm panel shortcut is Ctrl+Shift+A / Cmd+Shift+A", () => {
+    expect(KBD.alarmPanel).toBe("Ctrl+Shift+A");
+    expect(KBD.alarmPanelMac).toBe("Cmd+Shift+A");
+  });
+
   it("sidebar labels document the physical Backslash chord (matches matchSidebarChord)", () => {
     expect(KBD.sidebar).toBe("Ctrl+Shift+\\");
     expect(KBD.sidebarMac).toBe("Cmd+Shift+\\");

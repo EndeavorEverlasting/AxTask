@@ -4317,6 +4317,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/alarm-capabilities", requireAuth, async (_req, res) => {
+    const companionApplyUrl = (process.env.AXTASK_ALARM_COMPANION_URL || "").trim();
+    res.json({
+      companionConfigured: companionApplyUrl.length > 0,
+      nativeBridgeHints: {
+        android: process.env.VITE_ENABLE_ANDROID_REMINDERS === "true",
+        windows: process.env.VITE_ENABLE_WINDOWS_REMINDERS === "true",
+      },
+    });
+  });
+
+  app.post("/api/alarm-companion/apply", requireAuth, async (req, res) => {
+    try {
+      const companionApplyUrl = (process.env.AXTASK_ALARM_COMPANION_URL || "").trim();
+      if (!companionApplyUrl) {
+        return res.status(503).json({ message: "Alarm companion endpoint is not configured" });
+      }
+      const body = z.object({ payloadJson: z.string().min(2).max(500_000) }).parse(req.body || {});
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8_000);
+      try {
+        const upstream = await fetch(companionApplyUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            userId: req.user!.id,
+            payloadJson: body.payloadJson,
+          }),
+          signal: controller.signal,
+        });
+        const text = await upstream.text();
+        if (!upstream.ok) {
+          return res.status(502).json({
+            message: "Companion apply failed",
+            companionStatus: upstream.status,
+            companionBody: text,
+          });
+        }
+        return res.json({ ok: true, companionResponse: text || "ok" });
+      } finally {
+        clearTimeout(timeout);
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({ message: error.message });
+      }
+      return res.status(500).json({ message: "Failed to apply alarm via companion" });
+    }
+  });
+
   const collabBodySchema = z.object({
     body: z.string().min(1).max(8000),
     taskId: z.string().uuid().optional(),

@@ -31,10 +31,20 @@ First run:
 ```bash
 cp .env.docker.example .env.docker
 # Set strong values for POSTGRES_PASSWORD and SESSION_SECRET
+# Optional hybrid native alarm bridge:
+# AXTASK_ALARM_COMPANION_URL=http://host.docker.internal:8787/apply-alarm
 npm run docker:start
 ```
 
 Then open `http://localhost:5000`.
+
+For hybrid native alarms while Docker is running, start the host companion on your machine:
+
+```bash
+npm run alarm:companion:start
+```
+
+The Docker app posts to `AXTASK_ALARM_COMPANION_URL` (defaults to `http://host.docker.internal:8787/apply-alarm` in `.env.docker.example`).
 
 ### One-click Docker startup
 

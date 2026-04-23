@@ -14,6 +14,8 @@
     "docker:stop": "docker compose --env-file .env.docker down",
     "docker:status": "docker compose --env-file .env.docker ps",
     "docker:logs": "docker compose --env-file .env.docker logs --tail 100",
+    "alarm:companion:start": "node tools/alarm-companion/server.mjs",
+    "alarm:companion:start:dev": "node tools/alarm-companion/server.mjs",
     "deps:sync": "node tools/local/sync-deps.mjs",
     "pr:factor": "node tools/local/pr-factor.mjs plan --base origin/main --max-files 200",
     "pr:factor:scan": "node tools/local/pr-factor.mjs scan --base origin/main",

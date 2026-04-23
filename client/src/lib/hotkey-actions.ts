@@ -14,6 +14,7 @@ export type HotkeyMatch =
   | { kind: "closeHotkeyHelp" }
   | { kind: "closeMobileNav" }
   | { kind: "openGlobalSearch" }
+  | { kind: "openAlarmPanel" }
   | { kind: "submitTask" };
 
 export interface HotkeyMatchContext {
@@ -100,6 +101,13 @@ export function matchLoginHelpChord(e: KeyboardEvent): HotkeyMatch | null {
   return null;
 }
 
+export function matchAlarmPanelChord(e: KeyboardEvent): HotkeyMatch | null {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "a") {
+    return { kind: "openAlarmPanel" };
+  }
+  return null;
+}
+
 export function matchEscapeHotkey(e: KeyboardEvent, ctx: HotkeyMatchContext): HotkeyMatch | null {
   if (e.key !== "Escape" || e.repeat) return null;
   if (e.isComposing) return null;
@@ -131,6 +139,9 @@ export function matchHotkeyFromKeyboardEvent(
 
   const tut = matchToggleTutorialChord(e);
   if (tut) return tut;
+
+  const alarmPanel = matchAlarmPanelChord(e);
+  if (alarmPanel) return alarmPanel;
 
   return null;
 }

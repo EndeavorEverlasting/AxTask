@@ -22,6 +22,7 @@ const HOTKEY_ROWS = [
   { keys: `${KBD.newTask} / ${KBD.newTaskMac}`, action: "New task (open composer)" },
   { keys: `${KBD.submitTask} / ${KBD.submitTaskMac} / ${KBD.submitTaskAlt}`, action: "Submit task form" },
   { keys: `${KBD.voice} / ${KBD.voiceMac}`, action: "Voice commands" },
+  { keys: `${KBD.alarmPanel} / ${KBD.alarmPanelMac}`, action: "Open task alarm panel" },
   { keys: `${KBD.tutorialToggle} / ${KBD.tutorialToggleMac}`, action: "Toggle tutorial" },
 ] as const;
 

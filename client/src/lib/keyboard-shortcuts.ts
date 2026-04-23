@@ -28,6 +28,8 @@ export const KBD = {
   hotkeyHelpMac: "Cmd+Shift+/",
   loginHelp: "Ctrl+Shift+H",
   loginHelpMac: "Cmd+Shift+H",
+  alarmPanel: "Ctrl+Shift+A",
+  alarmPanelMac: "Cmd+Shift+A",
 } as const;
 
 /** Shown in shortcut dialogs and tutorial footers. */

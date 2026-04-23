@@ -98,6 +98,7 @@ import { matchHotkeyFromKeyboardEvent, voiceBarOpenRef } from "@/lib/hotkey-acti
 import type { Task } from "@shared/schema";
 import { PretextShell } from "@/components/pretext/pretext-shell";
 import { PretextShortcutsBeacon } from "@/components/pretext/pretext-shortcuts-beacon";
+import { AlarmPanel } from "@/components/alarm-panel";
 
 const AdminPageLazy = lazy(() => import("@/pages/admin"));
 
@@ -432,6 +433,12 @@ function AuthenticatedApp() {
           toggleGlobalSearchLazy();
           break;
         }
+        case "openAlarmPanel": {
+          if (!user || loading) return;
+          e.preventDefault();
+          window.dispatchEvent(new Event("axtask-open-alarm-panel"));
+          break;
+        }
         default:
           break;
       }
@@ -563,6 +570,7 @@ function AuthenticatedApp() {
             <VoiceCommandBar />
           </Suspense>
           <ReviewDialogBridge />
+          <AlarmPanel />
           <FeedbackNudgeDialog />
         </div>
       </PretextShell>

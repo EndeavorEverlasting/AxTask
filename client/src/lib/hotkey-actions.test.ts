@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  matchAlarmPanelChord,
   matchAltNavigationHotkey,
   matchEscapeHotkey,
   matchGlobalSearchChord,
@@ -174,6 +175,20 @@ describe("KBD.loginHelp / Ctrl+Shift+H", () => {
     expect(matchLoginHelpChord(key({ key: "h", ctrlKey: true, shiftKey: true }))).toEqual({
       kind: "toggleLoginHelp",
     });
+  });
+});
+
+describe("KBD.alarmPanel / Ctrl+Shift+A", () => {
+  it("matchAlarmPanelChord opens alarm panel", () => {
+    expect(matchAlarmPanelChord(key({ key: "a", ctrlKey: true, shiftKey: true }))).toEqual({
+      kind: "openAlarmPanel",
+    });
+  });
+
+  it("matchHotkeyFromKeyboardEvent routes Ctrl+Shift+A to alarm panel", () => {
+    expect(
+      matchHotkeyFromKeyboardEvent(key({ key: "a", ctrlKey: true, shiftKey: true }), ctx(false, false)),
+    ).toEqual({ kind: "openAlarmPanel" });
   });
 });
 

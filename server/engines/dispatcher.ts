@@ -10,7 +10,14 @@ import { classifyCalendarIntent, processCalendarCommand, type CalendarResult } f
 import { processPlannerQuery, type PlannerResult } from "./planner-engine";
 import { isTaskReviewIntent, processTaskReview, type ReviewResult } from "./review-engine";
 
-export type IntentType = "task_create" | "planner_query" | "calendar_command" | "navigation" | "search" | "task_review";
+export type IntentType =
+  | "task_create"
+  | "planner_query"
+  | "calendar_command"
+  | "navigation"
+  | "search"
+  | "task_review"
+  | "alarm_config";
 
 export interface EngineResponse {
   intent: IntentType;
@@ -44,6 +51,16 @@ const INTENT_PATTERNS: IntentPattern[] = [
       /\bshow\s+(?:me\s+)?everything\b/i,
     ],
     priority: 10,
+  },
+  {
+    intent: "alarm_config",
+    patterns: [
+      /\b(?:set|create|add|schedule)\s+(?:an?\s+)?alarm\b/i,
+      /\balarm\s+(?:for|on)\s+/i,
+      /\b(?:list|show)\s+(?:my\s+)?alarms\b/i,
+      /\bload\s+(?:my\s+)?alarm\b/i,
+    ],
+    priority: 9,
   },
   {
     intent: "task_review",
@@ -171,6 +188,35 @@ function extractSearchQuery(text: string): string {
   query = query.replace(/\b(?:find|search|look for|where is|show)\s*/i, "");
   query = query.replace(/\b(?:tasks?\s+(?:about|called|named|with|containing))\s*/i, "");
   return query.trim();
+}
+
+function extractAlarmDateTime(text: string, now: Date): { date: string; time: string } {
+  const lower = text.toLowerCase();
+  let date = now.toISOString().split("T")[0];
+  if (/\btomorrow\b/i.test(lower)) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
+    date = d.toISOString().split("T")[0];
+  }
+  const timeMatch = text.match(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+  if (!timeMatch) return { date, time: "09:00" };
+  let hours = parseInt(timeMatch[1], 10);
+  const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+  const period = timeMatch[3].toLowerCase();
+  if (period === "pm" && hours < 12) hours += 12;
+  if (period === "am" && hours === 12) hours = 0;
+  const time = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  return { date, time };
+}
+
+function extractAlarmTaskQuery(text: string): string {
+  const stripped = text
+    .replace(/\b(?:set|create|add|schedule)\s+(?:an?\s+)?alarm\b/gi, "")
+    .replace(/\b(?:for|on)\b/gi, " ")
+    .replace(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, "")
+    .replace(/\b(?:today|tomorrow)\b/gi, "")
+    .trim();
+  return stripped.replace(/\s{2,}/g, " ").trim();
 }
 
 /** Strip "Hey AxTask" / "OK AxTask" wake word prefix from transcripts. */
@@ -312,6 +358,50 @@ export async function dispatchVoiceCommand(
           unmatched: reviewResult.unmatched,
         },
         message: voiceAck(reviewResult.message, delegation),
+      };
+    }
+
+    case "alarm_config": {
+      const lower = delegated.toLowerCase();
+      if (/\b(?:list|show)\s+(?:my\s+)?alarms\b/.test(lower)) {
+        return {
+          intent: "alarm_config",
+          action: "alarm_list",
+          payload: {},
+          message: voiceAck("Loading your saved alarms.", delegation),
+        };
+      }
+      if (/\bload\s+(?:my\s+)?alarm\b/.test(lower)) {
+        return {
+          intent: "alarm_config",
+          action: "alarm_load",
+          payload: {},
+          message: voiceAck("Loading your latest alarm snapshot.", delegation),
+        };
+      }
+      const query = extractAlarmTaskQuery(delegated);
+      const fallbackTask = tasks.find((t) => t.status !== "completed");
+      const matchedTask =
+        tasks.find((t) => t.activity.toLowerCase().includes(query.toLowerCase())) ?? fallbackTask;
+      if (!matchedTask) {
+        return {
+          intent: "alarm_config",
+          action: "alarm_open_panel",
+          payload: {},
+          message: voiceAck("Open alarm panel so I can map this to a task.", delegation),
+        };
+      }
+      const parsed = extractAlarmDateTime(delegated, now);
+      return {
+        intent: "alarm_config",
+        action: "alarm_create_for_task",
+        payload: {
+          taskId: matchedTask.id,
+          taskActivity: matchedTask.activity,
+          alarmDate: parsed.date,
+          alarmTime: parsed.time,
+        },
+        message: voiceAck(`Preparing alarm for "${matchedTask.activity}".`, delegation),
       };
     }
 

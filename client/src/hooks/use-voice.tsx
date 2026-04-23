@@ -323,6 +323,72 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
           }
           break;
         }
+        case "alarm_open_panel": {
+          window.dispatchEvent(new Event("axtask-open-alarm-panel"));
+          break;
+        }
+        case "alarm_create_for_task": {
+          window.dispatchEvent(new CustomEvent("axtask-open-alarm-panel", {
+            detail: {
+              taskId: data.payload.taskId,
+              taskActivity: data.payload.taskActivity,
+              alarmDate: data.payload.alarmDate,
+              alarmTime: data.payload.alarmTime,
+            },
+          }));
+          break;
+        }
+        case "alarm_list": {
+          void (async () => {
+            try {
+              const res = await apiRequest("GET", "/api/alarm-snapshots");
+              const body = await res.json() as { snapshots?: Array<{ label?: string; capturedAt?: string }> };
+              const first = body.snapshots?.[0];
+              toast({
+                title: "Alarm snapshots",
+                description: first?.label
+                  ? `Latest: ${first.label}`
+                  : "No alarm snapshots saved yet.",
+              });
+            } catch (e: unknown) {
+              toast({
+                title: "Could not load alarms",
+                description: e instanceof Error ? e.message : "Try again.",
+                variant: "destructive",
+              });
+            }
+          })();
+          break;
+        }
+        case "alarm_load": {
+          void (async () => {
+            try {
+              const listRes = await apiRequest("GET", "/api/alarm-snapshots");
+              const listBody = await listRes.json() as { snapshots?: Array<{ id: string }> };
+              const latest = listBody.snapshots?.[0];
+              if (!latest) {
+                toast({ title: "No snapshots", description: "Save an alarm snapshot first." });
+                return;
+              }
+              const payloadRes = await apiRequest("GET", `/api/alarm-snapshots/${latest.id}/payload`);
+              const payloadBody = await payloadRes.json() as { payloadJson?: string };
+              if (!payloadBody.payloadJson) {
+                toast({ title: "Snapshot empty", description: "Selected snapshot did not include payload." });
+                return;
+              }
+              window.dispatchEvent(new CustomEvent("axtask-open-alarm-panel", {
+                detail: JSON.parse(payloadBody.payloadJson),
+              }));
+            } catch (e: unknown) {
+              toast({
+                title: "Could not load snapshot",
+                description: e instanceof Error ? e.message : "Try again.",
+                variant: "destructive",
+              });
+            }
+          })();
+          break;
+        }
         default:
           break;
       }

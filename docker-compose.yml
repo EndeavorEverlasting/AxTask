@@ -39,6 +39,7 @@ services:
       - .env.docker
     environment:
       NODE_ENV: production
+      AXTASK_ALARM_COMPANION_URL: ${AXTASK_ALARM_COMPANION_URL:-}
     ports:
       - "5000:5000"
     volumes:

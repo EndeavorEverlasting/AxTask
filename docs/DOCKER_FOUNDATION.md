@@ -38,6 +38,7 @@ cp .env.docker.example .env.docker
    - `POSTGRES_PASSWORD` (non-placeholder)
    - `SESSION_SECRET` (strong 32+ character value)
    - `DATABASE_URL` password segment to match `POSTGRES_PASSWORD`
+   - Optional: `AXTASK_ALARM_COMPANION_URL` (for host native alarm bridge; e.g. `http://host.docker.internal:8787/apply-alarm`)
 8. Start with one command:
 
 ```bash
@@ -64,12 +65,21 @@ Set strong values in `.env.docker`:
 - `POSTGRES_PASSWORD`
 - `SESSION_SECRET` (32+ chars)
 - Keep `DATABASE_URL` password segment aligned with `POSTGRES_PASSWORD`
+- Optional: `AXTASK_ALARM_COMPANION_URL` for hybrid native alarm apply
 
 Start:
 
 ```bash
 npm run docker:start
 ```
+
+Optional hybrid native alarm bridge (run on host OS, outside container):
+
+```bash
+npm run alarm:companion:start
+```
+
+This companion exposes `POST /apply-alarm` on `127.0.0.1:8787` and is reached from Docker using `AXTASK_ALARM_COMPANION_URL`.
 
 Stop/status:
 
