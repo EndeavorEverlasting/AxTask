@@ -73,6 +73,11 @@ describe("Shopping page wiring", () => {
     expect(shopping).not.toContain('from "@/components/task-list"');
   });
 
+  it("documents skill-gated upsell copy for locked users", () => {
+    expect(shopping).toContain("Dendritic List Sense");
+    expect(shopping).toContain("computeShoppingListUnlocked");
+  });
+
   it("legacy task-list.tsx has been removed from the tree", () => {
     const legacy = path.join(
       root,

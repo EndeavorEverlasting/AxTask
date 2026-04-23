@@ -4,6 +4,7 @@ The unified skill tree ([`/skill-tree`](/skill-tree)) merges **avatar** skills (
 
 ## Near-term content (incremental)
 
+- **Shopping list gate:** dendritic branch node `dendritic-shopping-list` — see [`docs/SHOPPING_LIST_FEATURE.md`](SHOPPING_LIST_FEATURE.md) before changing `/shopping`, exports, or classifier order.
 - **Idle chain:** additional nodes for claim cadence hints, soft caps, or “return bonus” flavor tied to `offlineGenerators` — add rows in `seedOfflineSkillTree` / follow the `seedAvatarSkillTree` upsert pattern for production-safe inserts.
 - **Companion / productivity chain:** widen `AVATAR_SKILL_TREE` with parallel branches (e.g. feedback, focus) using `prerequisiteSkillKey` to deepen the DAG without new mechanics.
 

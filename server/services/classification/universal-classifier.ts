@@ -1,7 +1,9 @@
 import { PriorityEngine } from "../../../client/src/lib/priority-engine";
 import type { ClassificationAssociation } from "@shared/schema";
+import { callNodeWeaverBatchClassify } from "./nodeweaver-client";
+import { mapNodeWeaverCategoryToAxTaskLabel } from "./nodeweaver-category-map";
 
-export type ClassifierSource = "external_api" | "priority_engine" | "keyword_fallback";
+export type ClassifierSource = "external_api" | "nodeweaver" | "priority_engine" | "keyword_fallback";
 
 export interface ClassificationResult {
   classification: string;
@@ -16,6 +18,7 @@ interface UniversalClassifierOptions {
 
 const DEFAULT_CLASSIFICATION = "General";
 const EXTERNAL_TIMEOUT_MS = 2000;
+const NODEWEAVER_TIMEOUT_MS = 2000;
 
 function normalizeClassification(input?: string | null): string {
   const cleaned = (input || "").trim();
@@ -79,6 +82,39 @@ async function classifyViaExternalApi(activity: string, notes: string): Promise<
   }
 }
 
+async function classifyViaNodeWeaver(activity: string, notes: string): Promise<ClassificationResult | null> {
+  if (!process.env.NODEWEAVER_URL?.trim()) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), NODEWEAVER_TIMEOUT_MS);
+
+  try {
+    const batch = await callNodeWeaverBatchClassify(
+      [{ id: "nw-inline", activity, notes: notes || "" }],
+      { signal: controller.signal },
+    );
+    const row = Array.isArray(batch.results) ? batch.results[0] : undefined;
+    const rawCategory = typeof row?.predicted_category === "string" ? row.predicted_category : "";
+    const mapped = mapNodeWeaverCategoryToAxTaskLabel(rawCategory);
+    if (!mapped) return null;
+
+    const confidence = typeof row?.confidence_score === "number"
+      ? Math.max(0, Math.min(1, row.confidence_score))
+      : 0.75;
+
+    return {
+      classification: normalizeClassification(mapped),
+      confidence,
+      source: "nodeweaver",
+      fallbackLayer: 1,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function classifyWithFallback(
   activity: string,
   notes = "",
@@ -89,6 +125,17 @@ export async function classifyWithFallback(
   if (preferExternal) {
     const external = await classifyViaExternalApi(activity, notes);
     if (external) return external;
+  }
+
+  if (preferExternal) {
+    const nw = await classifyViaNodeWeaver(activity, notes);
+    if (nw) {
+      const afterUniversalAttempt = Boolean(process.env.UNIVERSAL_CLASSIFIER_API_URL?.trim());
+      return {
+        ...nw,
+        fallbackLayer: afterUniversalAttempt ? 2 : 1,
+      };
+    }
   }
 
   const priorityEngineClassification = normalizeClassification(

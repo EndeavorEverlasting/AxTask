@@ -604,6 +604,7 @@ export default function RewardsPage() {
                     <li>Checklist PDF: {exportPrices?.checklistPdf ?? "…"} coins</li>
                     <li>Tasks spreadsheet: {exportPrices?.tasksSpreadsheet ?? "…"} coins</li>
                     <li>Task report (PDF / Excel): {exportPrices?.taskReportPdf ?? "…"} / {exportPrices?.taskReportXlsx ?? "…"} coins</li>
+                    <li>Shopping list exports (HTML / CSV / Excel / PDF): {exportPrices?.shoppingListExport ?? "…"} coins each</li>
                   </ul>
                 )}
                 {(() => {
