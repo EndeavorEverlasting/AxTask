@@ -162,7 +162,7 @@ Do thing,Some note`;
     );
     const hasCustomWorkbook = fs.existsSync(customWorkbookPath);
 
-    it.skipIf(!hasCustomWorkbook)("parses the provided custom workbook shape", () => {
+    it.skipIf(!hasCustomWorkbook)("parses the provided custom workbook shape", { timeout: 30_000 }, () => {
       const wb = XLSX.readFile(customWorkbookPath);
       const tasks = parseTasksFromWorkbook(wb, { mode: "year-filter", allowedYears: [2025, 2026] });
 

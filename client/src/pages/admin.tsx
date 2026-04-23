@@ -191,10 +191,22 @@ type AdminAnalyticsOverview = {
     feedbackProcessed: number;
     urgentFeedback: number;
   };
+  activeUsers24h: number;
+  isSingleActiveUser: boolean;
+  activeWindowHours: number;
   completionTrend: Array<{ date: string; completed: number }>;
   pulseByHour: Array<{ hour: string; requests: number }>;
+  aiCostTrend: Array<{ date: string; estimatedCostCents: number; requests: number; disabledCount: number }>;
   feedbackPriorityDistribution: Array<{ priority: string; count: number }>;
   topClassifications: Array<{ classification: string; count: number }>;
+  aiCosts: {
+    estimatedCost7dCents: number;
+    estimatedCost14dCents: number;
+    requests14d: number;
+  };
+  aiRuntime: {
+    externalClassifierEnabled: boolean;
+  };
   signals: Array<{
     key: string;
     label: string;
@@ -411,6 +423,7 @@ export default function AdminPage() {
   const animatedTasks = useCountUp(liveAnalytics?.totals.tasks ?? 0, 700);
   const animatedCompletionRate = useCountUp(liveAnalytics?.totals.completionRate ?? 0, 700);
   const animatedUrgentFeedback = useCountUp(liveAnalytics?.totals.urgentFeedback ?? 0, 700);
+  const animatedActiveUsers24h = useCountUp(liveAnalytics?.activeUsers24h ?? 0, 700);
   const animatedLiveRequests = useCountUp(liveRequestNow, 700);
 
   const feedbackReviewMutation = useMutation({
@@ -481,6 +494,23 @@ export default function AdminPage() {
       toast({ title: "Usage captured", description: "A fresh usage snapshot has been stored." });
     },
     onError: (err: Error) => toast({ title: "Capture failed", description: err.message, variant: "destructive" }),
+  });
+
+  const updateAiRuntimeMutation = useMutation({
+    mutationFn: async (payload: { externalClassifierEnabled: boolean }) => {
+      const res = await apiRequest("POST", "/api/admin/ai/runtime-controls", payload);
+      return res.json() as Promise<{ ok: boolean; externalClassifierEnabled: boolean }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/analytics/overview"] });
+      toast({
+        title: "AI runtime updated",
+        description: data.externalClassifierEnabled
+          ? "External classifier path enabled."
+          : "External classifier path disabled.",
+      });
+    },
+    onError: (err: Error) => toast({ title: "Update failed", description: err.message, variant: "destructive" }),
   });
 
   const createInvoiceMutation = useMutation({
@@ -1016,7 +1046,7 @@ export default function AdminPage() {
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <Card className="ring-1 ring-blue-400/20 shadow-md shadow-blue-400/10">
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
@@ -1069,7 +1099,26 @@ export default function AdminPage() {
                 </div>
               </CardContent>
             </Card>
+            <Card className="ring-1 ring-cyan-400/20 shadow-md shadow-cyan-400/10">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <Users className="h-5 w-5 text-cyan-500" />
+                  <div>
+                    <p className="text-2xl font-bold">{animatedActiveUsers24h}</p>
+                    <p className="text-sm text-muted-foreground">Active users (24h)</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
+
+          {liveAnalytics?.isSingleActiveUser && (
+            <Card className="border-cyan-300/50 bg-cyan-50/60 dark:bg-cyan-950/20">
+              <CardContent className="py-3 text-sm">
+                You are currently the only active user ({liveAnalytics.activeWindowHours}h window).
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
@@ -1112,6 +1161,37 @@ export default function AdminPage() {
                 </div>
               ))}
               {!liveAnalytics && <p className="text-sm text-muted-foreground">Calculating signals...</p>}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>AI Runtime Controls</CardTitle>
+              <CardDescription>
+                Disable unstable external classifier traffic when costs or failures spike.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm text-muted-foreground">
+                External classifier:{" "}
+                <Badge variant={liveAnalytics?.aiRuntime.externalClassifierEnabled ? "secondary" : "destructive"}>
+                  {liveAnalytics?.aiRuntime.externalClassifierEnabled ? "enabled" : "disabled"}
+                </Badge>
+              </div>
+              <Button
+                variant={liveAnalytics?.aiRuntime.externalClassifierEnabled ? "destructive" : "outline"}
+                disabled={!liveAnalytics || updateAiRuntimeMutation.isPending}
+                onClick={() =>
+                  updateAiRuntimeMutation.mutate({
+                    externalClassifierEnabled: !(liveAnalytics?.aiRuntime.externalClassifierEnabled ?? true),
+                  })
+                }
+              >
+                {updateAiRuntimeMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                {liveAnalytics?.aiRuntime.externalClassifierEnabled ? "Disable external classifier" : "Enable external classifier"}
+              </Button>
             </CardContent>
           </Card>
 
@@ -1167,6 +1247,33 @@ export default function AdminPage() {
                     <Bar dataKey="count" fill="var(--color-count)" radius={4} />
                   </BarChart>
                 </ChartContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>AI Cost Trend (14d)</CardTitle></CardHeader>
+              <CardContent>
+                <ChartContainer
+                  className="h-[260px] w-full"
+                  config={{
+                    estimatedCostUsd: { label: "Cost (USD)", color: "#a855f7" },
+                  }}
+                >
+                  <LineChart data={liveAnalytics?.aiCostTrend?.map((row) => ({
+                    ...row,
+                    estimatedCostUsd: Number((row.estimatedCostCents / 100).toFixed(4)),
+                  })) ?? []}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} />
+                    <YAxis allowDecimals />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Line type="monotone" dataKey="estimatedCostUsd" stroke="var(--color-estimatedCostUsd)" strokeWidth={2} />
+                  </LineChart>
+                </ChartContainer>
+                <div className="mt-2 text-xs text-muted-foreground">
+                  7d estimated AI cost: {formatCurrency(liveAnalytics?.aiCosts.estimatedCost7dCents ?? 0)} · 14d estimated AI cost:{" "}
+                  {formatCurrency(liveAnalytics?.aiCosts.estimatedCost14dCents ?? 0)}
+                </div>
               </CardContent>
             </Card>
 
@@ -1653,6 +1760,16 @@ export default function AdminPage() {
         </TabsContent>
 
         <TabsContent value="users" className="space-y-4">
+          <Card>
+            <CardContent className="py-3 text-sm flex flex-wrap items-center gap-2">
+              <Badge variant="outline">
+                Active users ({liveAnalytics?.activeWindowHours ?? 24}h): {liveAnalytics?.activeUsers24h ?? 0}
+              </Badge>
+              {liveAnalytics?.isSingleActiveUser && (
+                <span className="text-muted-foreground">Only one user is active in this window.</span>
+              )}
+            </CardContent>
+          </Card>
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input

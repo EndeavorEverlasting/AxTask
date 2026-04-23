@@ -48,6 +48,17 @@ export async function tryCappedCoinAward(params: {
 export const ENGAGEMENT = {
   uniqueTaskCreate: { reason: "unique_task_create", amount: 3, dailyCap: 40 },
   taskSearch: { reason: "task_search_reward", amount: 1, dailyCap: 30 },
+  dailyLogin: { reason: "daily_login_reward", amount: 8, dailyCap: 1 },
+  hourlyLogin: { reason: "hourly_login_reward", amount: 2, rollingHours: 1, rollingCap: 1 },
+  organizationFilterFollowthrough: {
+    reason: "organization_filter_followthrough_reward",
+    amount: 4,
+    dailyCap: 20,
+  },
+  organizationAptitudePoints: {
+    reason: "organization_aptitude_points",
+    pointsPerEvent: 5,
+  },
   recalculate: { reason: "priority_recalculate_reward", amount: 2, dailyCap: 8 },
   feedbackSubmission: { reason: "feedback_submission_reward", amount: 3, dailyCap: 5 },
   recalculateRating: { reason: "urgency_recalculate_rating_reward", amount: 2, dailyCap: 6 },
