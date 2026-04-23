@@ -33,6 +33,7 @@ import {
   getCommunityMomentumStats,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   getFeedbackSubmissionCount, getAvatarProfiles, engageAvatarMission, spendCoinsForAvatarBoost, seedAvatarSkillTree, getAvatarSkillTree, unlockAvatarSkill,
+  userHasAvatarSkillUnlocked,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachments, getTaskAttachmentIdsForTasks, linkAttachmentToTask,
   linkAttachmentsToOwner, getAttachmentsForOwner, getAttachmentsForOwnerPublic,
   getAttachmentsForOwnersBatch, getAttachmentsForOwnersPublicBatch,
@@ -126,6 +127,7 @@ import {
 } from "./storage";
 import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS, processChipHuntSync } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
+import { DENDRITIC_SHOPPING_LIST_SKILL_KEY } from "@shared/shopping-list-feature";
 import { awardLoginRewards } from "./login-rewards";
 import { maybeAwardOrganizationFollowthrough, recordTaskFilterIntent } from "./organization-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
@@ -176,6 +178,12 @@ import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sh
 import { generateChecklistPDF } from "./checklist-pdf";
 import { getProductivityExportPricesForUser, priceForKind } from "./productivity-export-pricing";
 import { buildTasksSpreadsheetBuffer, generateTaskReportPdf, buildTaskReportXlsxBuffer } from "./task-export-generators";
+import {
+  filterShoppingTasks,
+  buildShoppingListHtmlDocument,
+  buildShoppingListSpreadsheetBuffer,
+  generateShoppingListPdf,
+} from "./shopping-list-export-generators";
 import { processChecklistImage } from "./ocr-processor";
 import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
@@ -204,6 +212,7 @@ import {
   type GifSearchProvider,
 } from "./services/gif-search";
 import { classifyWithFallback, classifyWithAssociations, normalizeAssociationWeights } from "./services/classification/universal-classifier";
+import { callNodeWeaverBatchClassify } from "./services/classification/nodeweaver-client";
 import { confirmTaskClassificationForUser, getClassificationConfirmPayload } from "./classification-confirm";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
 import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
@@ -257,62 +266,6 @@ async function classifyTaskWithFallback(activity: string, notes: string, preferE
 
 function hasFeature(entitlements: { features: string[] }, feature: string): boolean {
   return entitlements.features.includes(feature);
-}
-
-type NodeWeaverBatchResponse = {
-  results?: Array<{
-    predicted_category?: string;
-    confidence_score?: number;
-  }>;
-};
-
-async function callNodeWeaverBatchClassify(
-  items: Array<{ id: string; activity: string; notes?: string }>,
-): Promise<NodeWeaverBatchResponse> {
-  const baseUrl = process.env.NODEWEAVER_URL;
-  if (!baseUrl) {
-    throw new Error("NODEWEAVER_URL is not configured");
-  }
-  const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/v1/classify/batch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tasks: items.map((item) => ({
-        activity: item.activity,
-        notes: item.notes || "",
-        metadata: { classification_profile: "axtask" },
-      })),
-      metadata: { classification_profile: "axtask" },
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`NodeWeaver classify failed with status ${response.status}`);
-  }
-  const parsed = await parseLooseJsonResponse(response, "NodeWeaver classify");
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("NodeWeaver classify returned an empty or non-object payload.");
-  }
-  return parsed as NodeWeaverBatchResponse;
-}
-
-function stripJsonMarkdownFence(input: string): string {
-  const trimmed = input.trim();
-  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  return match ? match[1].trim() : trimmed;
-}
-
-async function parseLooseJsonResponse(response: globalThis.Response, source: string): Promise<unknown> {
-  const raw = await response.text();
-  const normalized = stripJsonMarkdownFence(raw);
-  if (!normalized) return null;
-  try {
-    return JSON.parse(normalized);
-  } catch (error) {
-    const preview = normalized.slice(0, 140).replace(/\s+/g, " ");
-    throw new Error(
-      `${source} returned invalid JSON payload (preview: ${preview || "<empty>"}).`,
-    );
-  }
 }
 
 function toIsoDate(date: Date): string {
@@ -2118,6 +2071,141 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     } catch (error) {
       res.status(500).json({ message: "Failed to generate task report" });
+    }
+  });
+
+  async function assertShoppingListSkillOr403(userId: string, res: Response): Promise<boolean> {
+    const ok = await userHasAvatarSkillUnlocked(userId, DENDRITIC_SHOPPING_LIST_SKILL_KEY);
+    if (!ok) {
+      res.status(403).json({
+        code: "SHOPPING_LIST_LOCKED",
+        message: "Unlock Dendritic List Sense in the avatar skill tree to use the shopping list workspace and exports.",
+      });
+      return false;
+    }
+    return true;
+  }
+
+  app.post("/api/tasks/export/shopping-list/html", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      if (!(await assertShoppingListSkillOr403(userId, res))) return;
+
+      const prices = await getProductivityExportPricesForUser(userId);
+      const required = priceForKind(prices, "shoppingListExport");
+      if (!prices.freeInDev && required > 0) {
+        const w = await spendCoins(userId, required, "productivity_export:shopping_list_html");
+        if (!w) {
+          const bal = await getOrCreateWallet(userId);
+          return res.status(402).json({
+            code: "INSUFFICIENT_COINS",
+            required,
+            balance: bal.balance,
+            message: "Not enough AxCoins for this export.",
+          });
+        }
+      }
+
+      const all = await storage.getTasks(userId);
+      const shopping = filterShoppingTasks(all);
+      if (shopping.length === 0) {
+        return res.status(400).json({ message: "No shopping tasks to export." });
+      }
+
+      const html = buildShoppingListHtmlDocument(shopping);
+      const day = new Date().toISOString().split("T")[0];
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="axtask-shopping-list-${day}.html"`);
+      res.send(Buffer.from(html, "utf8"));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to export shopping list" });
+    }
+  });
+
+  const shoppingListSpreadsheetSchema = z.object({
+    format: z.enum(["csv", "xlsx"]),
+  });
+
+  app.post("/api/tasks/export/shopping-list/spreadsheet", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      if (!(await assertShoppingListSkillOr403(userId, res))) return;
+
+      const parsed = shoppingListSpreadsheetSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "format must be csv or xlsx" });
+      }
+
+      const prices = await getProductivityExportPricesForUser(userId);
+      const required = priceForKind(prices, "shoppingListExport");
+      if (!prices.freeInDev && required > 0) {
+        const w = await spendCoins(userId, required, "productivity_export:shopping_list_spreadsheet");
+        if (!w) {
+          const bal = await getOrCreateWallet(userId);
+          return res.status(402).json({
+            code: "INSUFFICIENT_COINS",
+            required,
+            balance: bal.balance,
+            message: "Not enough AxCoins for this export.",
+          });
+        }
+      }
+
+      const all = await storage.getTasks(userId);
+      const shopping = filterShoppingTasks(all);
+      if (shopping.length === 0) {
+        return res.status(400).json({ message: "No shopping tasks to export." });
+      }
+
+      const buf = buildShoppingListSpreadsheetBuffer(shopping, parsed.data.format);
+      const day = new Date().toISOString().split("T")[0];
+      const ext = parsed.data.format === "csv" ? "csv" : "xlsx";
+      const mime =
+        parsed.data.format === "csv"
+          ? "text/csv; charset=utf-8"
+          : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      res.setHeader("Content-Type", mime);
+      res.setHeader("Content-Disposition", `attachment; filename="axtask-shopping-list-${day}.${ext}"`);
+      res.send(buf);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to export shopping list" });
+    }
+  });
+
+  app.post("/api/tasks/export/shopping-list/pdf", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      if (!(await assertShoppingListSkillOr403(userId, res))) return;
+
+      const prices = await getProductivityExportPricesForUser(userId);
+      const required = priceForKind(prices, "shoppingListExport");
+      if (!prices.freeInDev && required > 0) {
+        const w = await spendCoins(userId, required, "productivity_export:shopping_list_pdf");
+        if (!w) {
+          const bal = await getOrCreateWallet(userId);
+          return res.status(402).json({
+            code: "INSUFFICIENT_COINS",
+            required,
+            balance: bal.balance,
+            message: "Not enough AxCoins for this export.",
+          });
+        }
+      }
+
+      const all = await storage.getTasks(userId);
+      const shopping = filterShoppingTasks(all);
+      if (shopping.length === 0) {
+        return res.status(400).json({ message: "No shopping tasks to export." });
+      }
+
+      const pdfDoc = generateShoppingListPdf(shopping);
+      const day = new Date().toISOString().split("T")[0];
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="axtask-shopping-list-${day}.pdf"`);
+      pdfDoc.pipe(res);
+      pdfDoc.end();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to export shopping list PDF" });
     }
   });
 

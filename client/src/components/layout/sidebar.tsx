@@ -2,7 +2,7 @@ import { matchSidebarChord } from "@/lib/hotkey-actions";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useBriefingBadge } from "@/hooks/use-briefing";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   LayoutDashboard,
   List,
@@ -61,6 +61,8 @@ import { ShellSplitter } from "@/components/layout/shell-splitter";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import type { PublicSessionUser } from "@shared/public-client-dtos";
+import { computeShoppingListUnlocked } from "@shared/shopping-list-feature";
+import type { SkillNodeDto } from "@/components/skill-tree/skill-tree-view";
 
 function userInitials(u: Pick<PublicSessionUser, "displayName" | "email">): string {
   const base = (u.displayName || u.email || "").trim();
@@ -126,6 +128,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     queryKey: ["/api/gamification/wallet"],
     refetchInterval: 30000,
   });
+  const { data: avatarSkills = [] } = useQuery<SkillNodeDto[]>({
+    queryKey: ["/api/gamification/avatar-skills"],
+    enabled: Boolean(user),
+  });
+  const shoppingUnlocked = computeShoppingListUnlocked(avatarSkills);
   const animatedBalance = useCountUp(wallet?.balance ?? 0);
   const [sparkle, setSparkle] = useState(false);
   const prevBalanceRef = useRef(0);
@@ -139,33 +146,42 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     prevBalanceRef.current = bal;
   }, [wallet?.balance]);
 
-  const menuItems = [
-    { path: "/", icon: LayoutDashboard, label: "Dashboard" },
-    { path: "/planner", icon: Brain, label: "AI Planner", badge: overdueCount },
-    { path: "/tasks", icon: List, label: "All Tasks" },
-    { path: "/shopping", icon: ShoppingCart, label: "Shopping list" },
-    { path: "/calendar", icon: CalendarDays, label: "Calendar" },
-    { path: "/analytics", icon: BarChart3, label: "Analytics" },
-    { path: "/community", icon: Globe2, label: "Community" },
-    { path: "/collab", icon: MessagesSquare, label: "Collab inbox" },
-    { path: "/messages", icon: MessageCircle, label: "Messages (E2EE)" },
-    { path: "/huddle", icon: Video, label: "Video huddle" },
-    { path: "/mini-games", icon: Gamepad2, label: "Mini-Games" },
-    { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
-    { path: "/skill-tree", icon: Network, label: "Skill Tree" },
-    { path: "/premium", icon: Crown, label: "Premium" },
-    { path: "/billing", icon: CreditCard, label: "Billing" },
-    { path: "/settings", icon: SlidersHorizontal, label: "Settings" },
-    { path: "/profile", icon: CircleUser, label: "Profile" },
-    { path: "/account", icon: UserRoundCog, label: "Account" },
-    { path: "/feedback", icon: MessageSquare, label: "Feedback" },
-    { path: "/contact", icon: Mail, label: "Contact" },
-    { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
-    { path: "/import-export", icon: Upload, label: "Import/Export" },
-    { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
-    { path: "/billing-bridge", icon: ClipboardCheck, label: "Billing Bridge" },
-    ...(user?.role === "admin" ? [{ path: "/admin", icon: Shield, label: "Security Admin" }] : []),
-  ];
+  const menuItems = useMemo(
+    () => {
+      const items = [
+        { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+        { path: "/planner", icon: Brain, label: "AI Planner", badge: overdueCount },
+        { path: "/tasks", icon: List, label: "All Tasks" },
+        { path: "/shopping", icon: ShoppingCart, label: "Shopping list" },
+        { path: "/calendar", icon: CalendarDays, label: "Calendar" },
+        { path: "/analytics", icon: BarChart3, label: "Analytics" },
+        { path: "/community", icon: Globe2, label: "Community" },
+        { path: "/collab", icon: MessagesSquare, label: "Collab inbox" },
+        { path: "/messages", icon: MessageCircle, label: "Messages (E2EE)" },
+        { path: "/huddle", icon: Video, label: "Video huddle" },
+        { path: "/mini-games", icon: Gamepad2, label: "Mini-Games" },
+        { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
+        { path: "/skill-tree", icon: Network, label: "Skill Tree" },
+        { path: "/premium", icon: Crown, label: "Premium" },
+        { path: "/billing", icon: CreditCard, label: "Billing" },
+        { path: "/settings", icon: SlidersHorizontal, label: "Settings" },
+        { path: "/profile", icon: CircleUser, label: "Profile" },
+        { path: "/account", icon: UserRoundCog, label: "Account" },
+        { path: "/feedback", icon: MessageSquare, label: "Feedback" },
+        { path: "/contact", icon: Mail, label: "Contact" },
+        { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
+        { path: "/import-export", icon: Upload, label: "Import/Export" },
+        { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
+        { path: "/billing-bridge", icon: ClipboardCheck, label: "Billing Bridge" },
+        ...(user?.role === "admin" ? [{ path: "/admin", icon: Shield, label: "Security Admin" }] : []),
+      ];
+      if (!shoppingUnlocked) {
+        return items.filter((i) => i.path !== "/shopping");
+      }
+      return items;
+    },
+    [user?.role, overdueCount, shoppingUnlocked],
+  );
 
   const isActiveRoute = (path: string) => {
     if (path === "/" && location === "/") return true;

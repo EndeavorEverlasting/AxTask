@@ -2533,7 +2533,13 @@ const AVATAR_SKILL_TREE: Array<{
   branch: string;
   maxLevel: number;
   baseCost: number;
-  effectType: "entourage_slots" | "guidance_depth" | "context_points" | "resource_budget" | "export_coin_discount";
+  effectType:
+    | "entourage_slots"
+    | "guidance_depth"
+    | "context_points"
+    | "resource_budget"
+    | "export_coin_discount"
+    | "shopping_list_surface";
   effectPerLevel: number;
   prerequisiteSkillKey: string | null;
   sortOrder: number;
@@ -2597,6 +2603,19 @@ const AVATAR_SKILL_TREE: Array<{
     effectPerLevel: 1,
     prerequisiteSkillKey: null,
     sortOrder: 5,
+  },
+  {
+    skillKey: "dendritic-shopping-list",
+    name: "Dendritic List Sense",
+    description:
+      "Unlocks the dedicated shopping list workspace and printable or spreadsheet checklist exports for NodeWeaver-classified errands.",
+    branch: "dendritic",
+    maxLevel: 1,
+    baseCost: 140,
+    effectType: "shopping_list_surface",
+    effectPerLevel: 0,
+    prerequisiteSkillKey: "export-efficiency",
+    sortOrder: 6,
   },
 ];
 
@@ -2717,6 +2736,19 @@ export async function getAvatarSkillTree(userId: string): Promise<Array<{
       effectPerLevel: node.effectPerLevel,
     };
   });
+}
+
+export async function userHasAvatarSkillUnlocked(userId: string, skillKey: string): Promise<boolean> {
+  await seedAvatarSkillTree();
+  const [node] = await db.select().from(avatarSkillNodes).where(eq(avatarSkillNodes.skillKey, skillKey)).limit(1);
+  if (!node) return false;
+  const [row] = await db
+    .select({ level: userAvatarSkills.level })
+    .from(userAvatarSkills)
+    .innerJoin(avatarSkillNodes, eq(userAvatarSkills.skillNodeId, avatarSkillNodes.id))
+    .where(and(eq(userAvatarSkills.userId, userId), eq(avatarSkillNodes.skillKey, skillKey)))
+    .limit(1);
+  return (row?.level ?? 0) > 0;
 }
 
 export async function unlockAvatarSkill(userId: string, skillKey: string): Promise<{ ok: boolean; message: string }> {
