@@ -152,6 +152,78 @@ describe("TaskListHost :: real-DOM regression", () => {
     });
   });
 
+  it("header created sort cycles asc and desc", async () => {
+    mount([
+      makeTask({
+        id: "older",
+        activity: "A",
+        date: "2026-04-19",
+        createdAt: new Date("2026-04-18T10:00:00Z"),
+        updatedAt: new Date("2026-04-19T12:00:00Z"),
+      }),
+      makeTask({
+        id: "newer",
+        activity: "B",
+        date: "2026-04-19",
+        createdAt: new Date("2026-04-20T10:00:00Z"),
+        updatedAt: new Date("2026-04-19T12:00:00Z"),
+      }),
+    ]);
+
+    const tbody = await screen.findByTestId("task-list-body");
+    await waitFor(() =>
+      expect(tbody.querySelectorAll("tr[data-task-id]").length).toBe(2),
+    );
+
+    fireEvent.click(screen.getByTestId("header-sort-created"));
+    await waitFor(() => {
+      const rows = tbody.querySelectorAll<HTMLTableRowElement>("tr[data-task-id]");
+      expect(rows[0]?.dataset.taskId).toBe("older");
+      expect(rows[1]?.dataset.taskId).toBe("newer");
+    });
+
+    fireEvent.click(screen.getByTestId("header-sort-created"));
+    await waitFor(() => {
+      const rows = tbody.querySelectorAll<HTMLTableRowElement>("tr[data-task-id]");
+      expect(rows[0]?.dataset.taskId).toBe("newer");
+      expect(rows[1]?.dataset.taskId).toBe("older");
+    });
+  });
+
+  it("header created sort posts filter-intent with expected body", async () => {
+    const fetchMock = vi.fn(async () => new Response("[]", { status: 200 })) as typeof fetch;
+    globalThis.fetch = fetchMock;
+
+    mount([
+      makeTask({
+        id: "a",
+        date: "2026-04-19",
+        createdAt: new Date("2026-04-18T10:00:00Z"),
+      }),
+      makeTask({
+        id: "b",
+        date: "2026-04-19",
+        createdAt: new Date("2026-04-20T10:00:00Z"),
+      }),
+    ]);
+
+    await screen.findByTestId("task-list-body");
+    fireEvent.click(screen.getByTestId("header-sort-created"));
+
+    await waitFor(() => {
+      const intentCall = fetchMock.mock.calls.find((c) =>
+        String(c[0]).includes("/api/tasks/filter-intent"),
+      );
+      expect(intentCall).toBeTruthy();
+      const init = intentCall![1] as RequestInit;
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(String(init.body))).toEqual({
+        source: "header_sort_created",
+        value: "createdAt",
+      });
+    });
+  });
+
   it("header sort emits filter-intent and shows subtle reward affordance", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

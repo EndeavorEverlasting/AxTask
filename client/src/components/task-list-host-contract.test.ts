@@ -32,12 +32,14 @@ describe("TaskListHost :: source contract", () => {
 
   it("keeps interactive header sort/filter controls on the table", () => {
     expect(HOST_SRC).toContain("header-sort-date");
+    expect(HOST_SRC).toContain("header-sort-created");
     expect(HOST_SRC).toContain("header-sort-status");
     expect(HOST_SRC).toContain("header-filter-priority-trigger");
     expect(HOST_SRC).toContain("header-filter-classification-trigger");
     expect(HOST_SRC).toContain("clear-header-filters");
     expect(HOST_SRC).toContain("header-reward-affordance");
     expect(HOST_SRC).toContain("header_sort_date");
+    expect(HOST_SRC).toContain("header_sort_created");
     expect(HOST_SRC).toContain("header_sort_priority");
     expect(HOST_SRC).toContain("/api/tasks/filter-intent");
     expect(HOST_SRC).toContain("routeFilterIntentHydratedRef");

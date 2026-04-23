@@ -71,6 +71,7 @@ type StatusFilter = "all" | "pending" | "in-progress" | "completed";
 type SortDirection = "asc" | "desc";
 type SortColumn =
   | "date"
+  | "createdAt"
   | "updatedAt"
   | "priority"
   | "activity"
@@ -101,6 +102,7 @@ type TaskUpdateSyncExtras = {
 
 type FilterIntentSource =
   | "header_sort_date"
+  | "header_sort_created"
   | "header_sort_updated"
   | "header_sort_priority"
   | "header_sort_activity"
@@ -165,6 +167,19 @@ const SHOPPING_COPY: VariantCopy = {
 
 function copyFor(variant: TaskListHostVariant): VariantCopy {
   return variant === "shopping" ? SHOPPING_COPY : DEFAULT_COPY;
+}
+
+function sortThAriaSort(
+  column: SortColumn,
+  sort: SortState,
+): "ascending" | "descending" | "none" {
+  if (!sort || sort.column !== column) return "none";
+  return sort.direction === "asc" ? "ascending" : "descending";
+}
+
+function sortColumnSuffix(column: SortColumn, sort: SortState): string {
+  if (!sort || sort.column !== column) return "";
+  return sort.direction === "asc" ? " ↑" : " ↓";
 }
 
 /**
@@ -512,6 +527,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   const cycleSort = useCallback((column: SortColumn) => {
     const sourceByColumn: Record<SortColumn, FilterIntentSource> = {
       date: "header_sort_date",
+      createdAt: "header_sort_created",
       updatedAt: "header_sort_updated",
       priority: "header_sort_priority",
       activity: "header_sort_activity",
@@ -544,6 +560,10 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
       switch (sortState.column) {
         case "date":
           return a.date.localeCompare(b.date) * dir;
+        case "createdAt":
+          return (
+            new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime()
+          ) * dir;
         case "updatedAt":
           return (
             new Date(a.updatedAt ?? a.createdAt ?? 0).getTime() -
@@ -892,28 +912,49 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-background z-10 border-b">
               <tr className="text-left text-muted-foreground">
-                <th className="py-2 pr-4 font-medium">
+                <th
+                  className="py-2 pr-4 font-medium"
+                  aria-sort={sortThAriaSort("date", sortState)}
+                >
                   <button
                     type="button"
                     className="hover:text-foreground"
                     onClick={() => cycleSort("date")}
                     data-testid="header-sort-date"
                   >
-                    Date
+                    Date{sortColumnSuffix("date", sortState)}
                   </button>
                 </th>
-                <th className="py-2 pr-4 font-medium">Created</th>
-                <th className="py-2 pr-4 font-medium">
+                <th
+                  className="py-2 pr-4 font-medium"
+                  aria-sort={sortThAriaSort("createdAt", sortState)}
+                >
+                  <button
+                    type="button"
+                    className="hover:text-foreground"
+                    onClick={() => cycleSort("createdAt")}
+                    data-testid="header-sort-created"
+                  >
+                    Created{sortColumnSuffix("createdAt", sortState)}
+                  </button>
+                </th>
+                <th
+                  className="py-2 pr-4 font-medium"
+                  aria-sort={sortThAriaSort("updatedAt", sortState)}
+                >
                   <button
                     type="button"
                     className="hover:text-foreground"
                     onClick={() => cycleSort("updatedAt")}
                     data-testid="header-sort-updated"
                   >
-                    Updated
+                    Updated{sortColumnSuffix("updatedAt", sortState)}
                   </button>
                 </th>
-                <th className="py-2 pr-4 font-medium">
+                <th
+                  className="py-2 pr-4 font-medium"
+                  aria-sort={sortThAriaSort("priority", sortState)}
+                >
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
@@ -921,7 +962,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
                       onClick={() => cycleSort("priority")}
                       data-testid="header-sort-priority"
                     >
-                      Priority
+                      Priority{sortColumnSuffix("priority", sortState)}
                     </button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -953,17 +994,23 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
                     </DropdownMenu>
                   </div>
                 </th>
-                <th className="py-2 pr-4 font-medium">
+                <th
+                  className="py-2 pr-4 font-medium"
+                  aria-sort={sortThAriaSort("activity", sortState)}
+                >
                   <button
                     type="button"
                     className="hover:text-foreground"
                     onClick={() => cycleSort("activity")}
                     data-testid="header-sort-activity"
                   >
-                    Activity
+                    Activity{sortColumnSuffix("activity", sortState)}
                   </button>
                 </th>
-                <th className="py-2 pr-4 font-medium">
+                <th
+                  className="py-2 pr-4 font-medium"
+                  aria-sort={sortThAriaSort("classification", sortState)}
+                >
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
@@ -971,7 +1018,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
                       onClick={() => cycleSort("classification")}
                       data-testid="header-sort-classification"
                     >
-                      Classification
+                      Classification{sortColumnSuffix("classification", sortState)}
                     </button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -1003,17 +1050,23 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
                     </DropdownMenu>
                   </div>
                 </th>
-                <th className="py-2 pr-4 font-medium">
+                <th
+                  className="py-2 pr-4 font-medium"
+                  aria-sort={sortThAriaSort("priorityScore", sortState)}
+                >
                   <button
                     type="button"
                     className="hover:text-foreground"
                     onClick={() => cycleSort("priorityScore")}
                     data-testid="header-sort-priority-score"
                   >
-                    Priority (0–10)
+                    Priority (0–10){sortColumnSuffix("priorityScore", sortState)}
                   </button>
                 </th>
-                <th className="py-2 pr-4 font-medium">
+                <th
+                  className="py-2 pr-4 font-medium"
+                  aria-sort={sortThAriaSort("status", sortState)}
+                >
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
@@ -1022,6 +1075,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
                       data-testid="header-sort-status"
                     >
                       {copy.statusColumnLabel}
+                      {sortColumnSuffix("status", sortState)}
                     </button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
