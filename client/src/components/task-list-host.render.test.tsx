@@ -191,8 +191,8 @@ describe("TaskListHost :: real-DOM regression", () => {
   });
 
   it("header created sort posts filter-intent with expected body", async () => {
-    const fetchMock = vi.fn(async () => new Response("[]", { status: 200 })) as typeof fetch;
-    globalThis.fetch = fetchMock;
+    const fetchMock = vi.fn(async () => new Response("[]", { status: 200 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     mount([
       makeTask({
@@ -211,10 +211,10 @@ describe("TaskListHost :: real-DOM regression", () => {
     fireEvent.click(screen.getByTestId("header-sort-created"));
 
     await waitFor(() => {
-      const intentCall = fetchMock.mock.calls.find((c) =>
-        String(c[0]).includes("/api/tasks/filter-intent"),
-      );
-      expect(intentCall).toBeTruthy();
+      const calls = fetchMock.mock.calls as ReadonlyArray<ReadonlyArray<unknown>>;
+      const intentCall = calls.find((c) => String(c[0]).includes("/api/tasks/filter-intent"));
+      expect(intentCall).toBeDefined();
+      expect(intentCall!.length).toBeGreaterThanOrEqual(2);
       const init = intentCall![1] as RequestInit;
       expect(init.method).toBe("POST");
       expect(JSON.parse(String(init.body))).toEqual({
