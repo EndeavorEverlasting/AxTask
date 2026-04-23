@@ -283,6 +283,7 @@ export default function AdminPage() {
 
   const FEEDBACK_PRESETS_KEY = "axtask.feedbackInbox.presets";
   const APTITUDE_WINDOW_KEY = "axtask.admin.aptitudeWindowHours";
+  const PERF_WINDOW_KEY = "axtask.admin.perfWindowHours";
 
   const [importResult, setImportResult] = useState<any>(null);
   const [importBundle, setImportBundle] = useState<any>(null);
@@ -362,7 +363,16 @@ export default function AdminPage() {
     enabled: adminApiEnabled,
   });
 
-  const [perfWindowHours, setPerfWindowHours] = useState(24);
+  const [perfWindowHours, setPerfWindowHours] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(PERF_WINDOW_KEY);
+      const n = Number(raw);
+      if (Number.isFinite(n)) return Math.min(168, Math.max(1, Math.floor(n)));
+    } catch {
+      // SSR / private-mode safe fallback.
+    }
+    return 24;
+  });
   const [aptitudeWindowHours, setAptitudeWindowHours] = useState<number>(() => {
     try {
       const raw = localStorage.getItem(APTITUDE_WINDOW_KEY);
@@ -462,6 +472,14 @@ export default function AdminPage() {
       // non-blocking preference persistence
     }
   }, [aptitudeWindowHours]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PERF_WINDOW_KEY, String(perfWindowHours));
+    } catch {
+      // non-blocking preference persistence
+    }
+  }, [perfWindowHours]);
 
   useEffect(() => {
     if (!commandCenterMode) return;
