@@ -42,6 +42,7 @@ import {
   premiumEvents,
   userNotificationPreferences,
   userVoicePreferences,
+  userCalendarPreferences,
   userPushSubscriptions,
   userAdherenceState,
   userAdherenceInterventions,
@@ -99,6 +100,7 @@ import {
   type PremiumEvent,
   type UserNotificationPreference,
   type UserVoicePreference,
+  type UserCalendarPreference,
   type VoiceListeningMode,
   type UserPushSubscription,
   type UserAdherenceState,
@@ -500,6 +502,59 @@ export async function upsertUserVoicePreference(input: {
     })
     .returning();
   return normalizeVoicePreference(input.userId, updated);
+}
+
+function normalizeCalendarPreference(userId: string, row?: UserCalendarPreference) {
+  const now = new Date();
+  const code = row?.holidayCountryCode?.trim();
+  return {
+    userId,
+    showHolidays: row?.showHolidays ?? true,
+    holidayCountryCode: code && /^[A-Za-z]{2}$/.test(code) ? code.toUpperCase() : null,
+    createdAt: row?.createdAt ?? now,
+    updatedAt: row?.updatedAt ?? now,
+  };
+}
+
+export async function getUserCalendarPreference(userId: string) {
+  const [row] = await db
+    .select()
+    .from(userCalendarPreferences)
+    .where(eq(userCalendarPreferences.userId, userId));
+  return normalizeCalendarPreference(userId, row);
+}
+
+export async function upsertUserCalendarPreference(input: {
+  userId: string;
+  showHolidays?: boolean;
+  holidayCountryCode?: string | null;
+}) {
+  const existing = await getUserCalendarPreference(input.userId);
+  const nextShow = input.showHolidays ?? existing.showHolidays;
+  let nextCountry = existing.holidayCountryCode;
+  if (input.holidayCountryCode !== undefined) {
+    nextCountry =
+      input.holidayCountryCode === null ? null : input.holidayCountryCode.trim().toUpperCase();
+  }
+  const [updated] = await db
+    .insert(userCalendarPreferences)
+    .values({
+      userId: input.userId,
+      showHolidays: nextShow,
+      holidayCountryCode: nextCountry,
+      createdAt: existing.createdAt,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: userCalendarPreferences.userId,
+      set: {
+        showHolidays: nextShow,
+        holidayCountryCode: nextCountry,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return normalizeCalendarPreference(input.userId, updated);
 }
 
 export async function listUserPushSubscriptions(userId: string): Promise<UserPushSubscription[]> {

@@ -269,6 +269,23 @@ export const updateVoicePreferenceSchema = z.object({
 
 export type UserVoicePreference = typeof userVoicePreferences.$inferSelect;
 
+/** Synced task-calendar overlay: public holidays + ISO region for Nager. */
+export const userCalendarPreferences = pgTable("user_calendar_preferences", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  showHolidays: boolean("show_holidays").notNull().default(true),
+  /** ISO 3166-1 alpha-2; null = client uses browser locale to pick a default at read time. */
+  holidayCountryCode: varchar("holiday_country_code", { length: 2 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const updateCalendarPreferenceSchema = z.object({
+  showHolidays: z.boolean().optional(),
+  holidayCountryCode: z.union([z.string().length(2).regex(/^[A-Za-z]{2}$/), z.null()]).optional(),
+});
+
+export type UserCalendarPreference = typeof userCalendarPreferences.$inferSelect;
+
 export const adherenceSignalSchema = z.enum([
   "missed_due_dates",
   "reminder_ignored",

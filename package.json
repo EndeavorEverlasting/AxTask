@@ -42,7 +42,7 @@
     "test:deploy:capacity": "node scripts/deploy/check-db-capacity.mjs",
     "test:deploy": "npm run test:deploy:contract && npm run test:deploy:env && npm run test:deploy:artifacts && npm run test:deploy:migrations && npm run test:deploy:health && npm run test:deploy:regression && npm run test:deploy:classify",
     "deploy:build-manifest": "node scripts/deploy/build-manifest.mjs",
-    "test:objective-contracts": "vitest run server/use-case-engagement.contract.test.ts server/release-2026-routes-contract.test.ts server/notification-preferences.contract.test.ts server/csp-reporting.contract.test.ts client/src/lib/feedback-nudge.test.ts client/src/lib/install-device-state.test.ts shared/public-client-dtos.test.ts",
+    "test:objective-contracts": "vitest run server/use-case-engagement.contract.test.ts server/release-2026-routes-contract.test.ts server/notification-preferences.contract.test.ts server/calendar-holidays.contract.test.ts server/csp-reporting.contract.test.ts client/src/lib/feedback-nudge.test.ts client/src/lib/install-device-state.test.ts shared/public-client-dtos.test.ts",
     "test:docs-contracts": "vitest run server/docs-contracts/docs-doctrine-contract.test.ts server/docs-contracts/docs-privacy-contract.test.ts",
     "check:startup-seeds": "vitest run server/startup-seeds.guard.test.ts",
     "test:watch": "vitest",

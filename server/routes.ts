@@ -73,6 +73,8 @@ import {
   upsertUserNotificationPreference,
   getUserVoicePreference,
   upsertUserVoicePreference,
+  getUserCalendarPreference,
+  upsertUserCalendarPreference,
   listUserPushSubscriptions,
   upsertUserPushSubscription,
   deleteUserPushSubscription,
@@ -139,7 +141,7 @@ import {
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
-import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, updateVoicePreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, feedbackAvatarKeySchema, archetypeRollupDaily, archetypeMarkovDaily, TASK_NOTES_MAX_CHARS, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
+import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, updateVoicePreferenceSchema, updateCalendarPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, feedbackAvatarKeySchema, archetypeRollupDaily, archetypeMarkovDaily, TASK_NOTES_MAX_CHARS, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, count, gte, lte } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
@@ -221,6 +223,7 @@ import { classifyWithFallback, classifyWithAssociations, normalizeAssociationWei
 import { callNodeWeaverBatchClassify } from "./services/classification/nodeweaver-client";
 import { confirmTaskClassificationForUser, getClassificationConfirmPayload } from "./classification-confirm";
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
+import { loadMergedPublicHolidays } from "./services/calendar/public-holidays";
 import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
 import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
 import { evaluateAdherenceForUser } from "./services/adherence-evaluator";
@@ -3817,6 +3820,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.error("[voice/preferences] PATCH failed", error);
       return res.status(500).json({ message: "Failed to update voice preferences" });
+    }
+  });
+
+  const publicHolidaysQuerySchema = z.object({
+    country: z
+      .string()
+      .length(2)
+      .regex(/^[A-Za-z]{2}$/)
+      .transform((s) => s.toUpperCase()),
+    years: z
+      .string()
+      .regex(/^\d{4}(,\d{4}){0,9}$/)
+      .transform((s) => s.split(",").map((x) => Number.parseInt(x, 10))),
+  });
+
+  app.get("/api/calendar/preferences", requireAuth, async (req, res) => {
+    try {
+      const preference = await getUserCalendarPreference(req.user!.id);
+      res.json(preference);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch calendar preferences" });
+    }
+  });
+
+  app.patch("/api/calendar/preferences", requireAuth, async (req, res) => {
+    try {
+      const payload = updateCalendarPreferenceSchema.parse(req.body || {});
+      if (Object.keys(payload).length === 0) {
+        return res.status(400).json({ message: "At least one preference field is required" });
+      }
+      const preference = await upsertUserCalendarPreference({
+        userId: req.user!.id,
+        showHolidays: payload.showHolidays,
+        holidayCountryCode: payload.holidayCountryCode,
+      });
+      return res.json(preference);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: error.issues[0]?.message ?? "Invalid request body",
+        });
+      }
+      console.error("[calendar/preferences] PATCH failed", error);
+      return res.status(500).json({ message: "Failed to update calendar preferences" });
+    }
+  });
+
+  app.get("/api/calendar/public-holidays", requireAuth, async (req, res) => {
+    try {
+      const q = publicHolidaysQuerySchema.parse(req.query);
+      if (q.years.some((y) => !Number.isFinite(y) || y < 1990 || y > 2100)) {
+        return res.status(400).json({ message: "years must be between 1990 and 2100" });
+      }
+      if (q.years.length > 10) {
+        return res.status(400).json({ message: "At most 10 years per request" });
+      }
+      const { holidays, hadUpstreamData } = await loadMergedPublicHolidays(q.country, q.years);
+      res.json({ holidays, meta: { hadUpstreamData } });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.issues[0]?.message ?? "Invalid query" });
+      }
+      console.error("[calendar/public-holidays] GET failed", error);
+      return res.status(500).json({ message: "Failed to load public holidays" });
     }
   });
 

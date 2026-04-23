@@ -8,6 +8,10 @@ Before pushing release branches that touch rewards, classification, feedback, co
 
 Do not regress the AxCoin + subscription model or the Pretext-vs-React split without updating the canonical note: [docs/FREEMIUM_PREMIUM_AND_PRETEXT.md](docs/FREEMIUM_PREMIUM_AND_PRETEXT.md).
 
+## Calendar holidays
+
+Per-user overlay for public holidays (Nager + Western Easter merge), `GET`/`PATCH` `/api/calendar/preferences`, and `GET` `/api/calendar/public-holidays`. See [docs/CALENDAR_HOLIDAYS.md](docs/CALENDAR_HOLIDAYS.md).
+
 ## Task list UX contract
 
 Do not remove header sorting/filtering from `TaskListHost`; this is a required `/tasks` UX contract documented at [docs/TASK_LIST_INTERACTION_CONTRACT.md](docs/TASK_LIST_INTERACTION_CONTRACT.md).
