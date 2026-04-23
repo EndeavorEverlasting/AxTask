@@ -81,7 +81,7 @@ import {
 } from "@/lib/post-login-redirect";
 import { Link } from "wouter";
 import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
-/* GlobalSearch is a modal fired by Ctrl/⌘+K (and the sidebar magnifying
+/* GlobalSearch is a modal fired by Ctrl/⌘+F (and the sidebar magnifying
  * glass). It pulls in the task-search query chain + keyboard nav, none
  * of which is needed at first paint. Lazy-load so the initial shell
  * chunk ships without the search dialog's deps. The callsite below
@@ -96,6 +96,7 @@ import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
 import { matchHotkeyFromKeyboardEvent, voiceBarOpenRef } from "@/lib/hotkey-actions";
 import type { Task } from "@shared/schema";
 import { PretextShell } from "@/components/pretext/pretext-shell";
+import { PretextShortcutsBeacon } from "@/components/pretext/pretext-shortcuts-beacon";
 
 const AdminPageLazy = lazy(() => import("@/pages/admin"));
 
@@ -346,6 +347,26 @@ function AuthenticatedApp() {
   const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
 
+  const toggleGlobalSearchLazy = useCallback(() => {
+    setGlobalSearchOpen((wasOpen) => {
+      if (wasOpen) return false;
+      void import("@/components/global-search").then(() => {
+        setGlobalSearchOpen(true);
+      });
+      return false;
+    });
+  }, []);
+
+  const ensureGlobalSearchOpenLazy = useCallback(() => {
+    setGlobalSearchOpen((wasOpen) => {
+      if (wasOpen) return true;
+      void import("@/components/global-search").then(() => {
+        setGlobalSearchOpen(true);
+      });
+      return false;
+    });
+  }, []);
+
   const handleGlobalSearchSelect = useCallback(
     (task: Task) => {
       setLocation("/tasks");
@@ -406,15 +427,7 @@ function AuthenticatedApp() {
         case "openGlobalSearch": {
           if (!user || loading) return;
           e.preventDefault();
-          /* GlobalSearch is lazy — open state only after the chunk resolves
-           * so Suspense does not render a null overlay (find looked broken). */
-          setGlobalSearchOpen((wasOpen) => {
-            if (wasOpen) return false;
-            void import("@/components/global-search").then(() => {
-              setGlobalSearchOpen(true);
-            });
-            return false;
-          });
+          toggleGlobalSearchLazy();
           break;
         }
         default:
@@ -423,7 +436,7 @@ function AuthenticatedApp() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [user, loading, hotkeyHelpOpen, setLocation, isTutorialActive, startTutorial, stopTutorial]);
+  }, [user, loading, hotkeyHelpOpen, setLocation, isTutorialActive, startTutorial, stopTutorial, toggleGlobalSearchLazy]);
 
   useEffect(() => {
     if (!user || loading) return;
@@ -438,6 +451,13 @@ function AuthenticatedApp() {
     window.addEventListener("axtask-toggle-hotkey-help", onToggle);
     return () => window.removeEventListener("axtask-toggle-hotkey-help", onToggle);
   }, [user, loading]);
+
+  useEffect(() => {
+    if (!user || loading) return;
+    const onOpenGlobalSearch = () => ensureGlobalSearchOpenLazy();
+    window.addEventListener("axtask-open-global-search", onOpenGlobalSearch);
+    return () => window.removeEventListener("axtask-open-global-search", onOpenGlobalSearch);
+  }, [user, loading, ensureGlobalSearchOpenLazy]);
 
   if (location === "/mfa/confirm" || location === "/welcome-confirm") {
     return <ExperienceConfirmPage />;
@@ -519,6 +539,7 @@ function AuthenticatedApp() {
           </main>
           <MobileBottomNav />
           <MobileVoiceFAB />
+          {user ? <PretextShortcutsBeacon /> : null}
           {user ? <HotkeyHelpDialog open={hotkeyHelpOpen} onOpenChange={setHotkeyHelpOpen} /> : null}
           {user ? (
             /* Lazy Suspense with a null fallback — the dialog isn't

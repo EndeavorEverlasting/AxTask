@@ -21,8 +21,9 @@ export const KBD = {
   submitTaskMac: "Cmd+Enter",
   /** Windows/Linux: Enter key with Alt; same handler as Ctrl+Enter on the task form. */
   submitTaskAlt: "Alt+Enter",
-  sidebar: "Ctrl+Shift+B",
-  sidebarMac: "Cmd+Shift+B",
+  /** Physical Backslash key (many layouts: key right of `]`). Matches `matchSidebarChord` in hotkey-actions. */
+  sidebar: "Ctrl+Shift+\\",
+  sidebarMac: "Cmd+Shift+\\",
   hotkeyHelp: "Ctrl+Shift+/",
   hotkeyHelpMac: "Cmd+Shift+/",
   loginHelp: "Ctrl+Shift+H",

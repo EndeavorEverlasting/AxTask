@@ -23,6 +23,13 @@ describe("Voice: shopping_list", () => {
   });
 });
 
+describe("Voice: calendar (Alt+C)", () => {
+  it("matches calendar phrases", () => {
+    expect(matchVoiceShortcut("open calendar")).toBe("calendar");
+    expect(matchVoiceShortcut("my calendar")).toBe("calendar");
+  });
+});
+
 describe("Voice: find_tasks (Alt+F)", () => {
   it("matches find/search phrases", () => {
     expect(matchVoiceShortcut("find tasks")).toBe("find_tasks");
@@ -42,6 +49,19 @@ describe("Voice: new_task (Alt+N)", () => {
   });
 });
 
+describe("Voice: global search (Ctrl+F)", () => {
+  it("matches global search phrases", () => {
+    expect(matchVoiceShortcut("global search")).toBe("open_global_search");
+    expect(matchVoiceShortcut("open global search")).toBe("open_global_search");
+    expect(matchVoiceShortcut("search everything")).toBe("open_global_search");
+  });
+
+  it("does not hijack plain task-list search intent", () => {
+    expect(matchVoiceShortcut("find tasks")).toBe("find_tasks");
+    expect(matchVoiceShortcut("search")).toBe("find_tasks");
+  });
+});
+
 describe("Voice: tutorial (Ctrl+Shift+Y)", () => {
   it("matches tutorial phrases", () => {
     expect(matchVoiceShortcut("toggle tutorial")).toBe("toggle_tutorial");
@@ -56,7 +76,7 @@ describe("Voice: hotkey help (Ctrl+Shift+/)", () => {
   });
 });
 
-describe("Voice: sidebar (Ctrl+Shift+B label / Backslash)", () => {
+describe("Voice: sidebar (Ctrl+Shift+\\)", () => {
   it("matches sidebar phrases", () => {
     expect(matchVoiceShortcut("toggle sidebar")).toBe("toggle_sidebar");
     expect(matchVoiceShortcut("sidebar")).toBe("toggle_sidebar");
