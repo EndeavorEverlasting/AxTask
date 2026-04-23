@@ -3760,6 +3760,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (updatedTask) {
                 try {
                   await awardCoinsForCompletion(userId, updatedTask, previousStatus);
+                  if (updatedTask.status === "completed" && previousStatus !== "completed") {
+                    void maybeAwardOrganizationFollowthrough({
+                      userId,
+                      taskId: updatedTask.id,
+                    });
+                  }
                 } catch (coinErr) {
                   console.error(`Coin award failed for task ${action.taskId}:`, coinErr);
                 }

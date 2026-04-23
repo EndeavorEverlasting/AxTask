@@ -62,6 +62,17 @@ describe("use-case engagement wiring", () => {
     expect(taskListHost).toContain("encodeURIComponent");
   });
 
+  it("wires OAuth login completion helper with login reward engine", () => {
+    const authTotpLogin = fs.readFileSync(path.join(root, "server", "auth-totp-login.ts"), "utf8");
+    expect(authTotpLogin).toContain("awardLoginRewards");
+  });
+
+  it("wires bulk task review complete with organization follow-through rewards", () => {
+    const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
+    expect(routes).toContain('app.post("/api/tasks/review/apply"');
+    expect(routes).toMatch(/app\.post\("\/api\/tasks\/review\/apply"[\s\S]*case "complete":[\s\S]*maybeAwardOrganizationFollowthrough/);
+  });
+
   it("wires chip hunt sync and redacted badge definitions", () => {
     const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
     const dtos = fs.readFileSync(path.join(root, "shared", "public-client-dtos.ts"), "utf8");
