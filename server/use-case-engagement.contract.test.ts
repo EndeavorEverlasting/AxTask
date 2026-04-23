@@ -34,6 +34,7 @@ describe("use-case engagement wiring", () => {
     expect(routes).toContain("ENGAGEMENT.taskSearch");
     expect(routes).toContain('"/api/tasks/filter-intent"');
     expect(routes).toContain("maybeAwardOrganizationFollowthrough");
+    expect(routes).toContain("followthroughReward.awarded");
     expect(routes).toContain("awardLoginRewards");
     expect(routes).toContain("recalculateReward");
     expect(routes).toContain('"/api/tasks/recalculate/rating"');

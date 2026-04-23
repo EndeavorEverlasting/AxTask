@@ -2765,8 +2765,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           taskId: task!.id,
         });
         organizationReward = followthroughReward;
-        if (followthroughReward.coinsAwarded > 0 && typeof followthroughReward.walletBalance === "number") {
-          walletBalance = followthroughReward.walletBalance;
+        if (followthroughReward.awarded) {
+          walletBalance = (await getOrCreateWallet(userId)).balance;
         }
       }
       let classificationReward = null;

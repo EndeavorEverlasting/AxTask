@@ -85,6 +85,20 @@ type HeaderFilterState = {
   classification: string[];
 };
 
+/** Fields returned by PUT /api/tasks/:id when status changes (sync path). */
+type TaskUpdateSyncExtras = {
+  offlineQueued?: boolean;
+  walletBalance?: number | null;
+  organizationReward?: {
+    awarded: boolean;
+    coinsAwarded?: number;
+    pointsAwarded?: number;
+    badgesEarned?: string[];
+    reason?: string;
+    nodeweaverLabel?: string;
+  };
+};
+
 type FilterIntentSource =
   | "header_priority"
   | "header_status"
@@ -455,6 +469,15 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
     [],
   );
 
+  const routeFilterIntentHydratedRef = useRef(false);
+  useEffect(() => {
+    if (variant !== "default") return;
+    if (initialRoute.filter === "none") return;
+    if (routeFilterIntentHydratedRef.current) return;
+    routeFilterIntentHydratedRef.current = true;
+    emitFilterIntent("route_chip", String(initialRoute.filter));
+  }, [variant, initialRoute.filter, emitFilterIntent]);
+
   const cycleSort = useCallback((column: SortColumn) => {
     setSortState((prev) => {
       if (!prev || prev.column !== column) return { column, direction: "asc" };
@@ -569,9 +592,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
     },
     onSuccess: (payload) => {
       if (!payload) return;
-      const d = payload.result as
-        | { offlineQueued?: boolean; walletBalance?: number | null }
-        | undefined;
+      const d = payload.result as TaskUpdateSyncExtras | undefined;
       if (d?.offlineQueued) {
         toast({
           title: "Saved offline",
@@ -585,6 +606,25 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
         payload.wallet.setWalletBalanceCache(queryClient, d.walletBalance);
       }
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      const org = d?.organizationReward;
+      if (org?.awarded) {
+        const parts: string[] = [];
+        if ((org.pointsAwarded ?? 0) > 0) {
+          parts.push(`+${org.pointsAwarded} organizational aptitude`);
+        }
+        if ((org.coinsAwarded ?? 0) > 0) {
+          parts.push(`+${org.coinsAwarded} AxCoins`);
+        }
+        if (org.badgesEarned && org.badgesEarned.length > 0) {
+          parts.push(`Badges: ${org.badgesEarned.join(", ")}`);
+        }
+        if (parts.length > 0) {
+          toast({
+            title: "Filter follow-through",
+            description: parts.join(" · "),
+          });
+        }
+      }
     },
     onError: () => {
       toast({
