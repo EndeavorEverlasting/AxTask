@@ -2379,6 +2379,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/admin/organization-aptitude-trends/export", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const parsed = z.object({
+        format: z.enum(["json", "csv"]).default("json"),
+        hours: z.coerce.number().int().min(1).max(24 * 60).optional(),
+      }).parse(req.query ?? {});
+      const trends = await getOrganizationAptitudeTrends(parsed.hours ?? 24 * 14);
+      if (parsed.format === "json") {
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="organization-aptitude-trends-${new Date().toISOString().slice(0, 10)}.json"`,
+        );
+        return res.json({
+          exportedAt: new Date().toISOString(),
+          hoursWindow: parsed.hours ?? 24 * 14,
+          ...trends,
+        });
+      }
+      const lines = [
+        "section,key,samples,points,coins",
+        `totals,all,${trends.totals.samples},${trends.totals.points},${trends.totals.coins}`,
+        ...trends.byArchetype.map((r) => `archetype,${r.archetypeKey},${r.samples},${r.points},${r.coins}`),
+        ...trends.bySource.map((r) => `source,${r.source},${r.samples},${r.points},${r.coins}`),
+      ];
+      const csv = `${lines.join("\n")}\n`;
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="organization-aptitude-trends-${new Date().toISOString().slice(0, 10)}.csv"`,
+      );
+      return res.send(csv);
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      res.status(500).json({ message: "Failed to export organization aptitude trends" });
+    }
+  });
+
   // Get tasks by status
   app.get("/api/tasks/status/:status", requireAuth, async (req, res) => {
     try {

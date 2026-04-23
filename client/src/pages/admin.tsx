@@ -805,6 +805,36 @@ export default function AdminPage() {
     URL.revokeObjectURL(url);
   };
 
+  const exportOrganizationAptitude = async (format: "json" | "csv") => {
+    try {
+      const response = await fetch(
+        `/api/admin/organization-aptitude-trends/export?format=${encodeURIComponent(format)}&hours=336`,
+        { credentials: "include" },
+      );
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        throw new Error(err?.message || "Export failed");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `organization-aptitude-trends-${new Date().toISOString().slice(0, 10)}.${format}`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Aptitude trends exported",
+        description: `Downloaded ${format.toUpperCase()} snapshot.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: error instanceof Error ? error.message : "Could not export aptitude trends.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const getFeedbackPresets = (): Array<{ name: string; filters: {
     priority: FeedbackPriorityFilter;
     reviewed: FeedbackReviewedFilter;
@@ -1201,6 +1231,22 @@ export default function AdminPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void exportOrganizationAptitude("json")}
+                >
+                  Export trends JSON
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void exportOrganizationAptitude("csv")}
+                >
+                  Export trends CSV
+                </Button>
               </div>
               <p className="text-xs text-muted-foreground">
                 Window: last {organizationAptitude?.hoursWindow ?? 336} hours.
