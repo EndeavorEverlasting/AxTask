@@ -4,6 +4,7 @@ import { wrapTextToLines } from "@/lib/pretext-layout";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DEFAULT_SIDEBAR_WIDTH, useImmersiveShell } from "@/hooks/use-immersive-shell";
+import { KBD } from "@/lib/keyboard-shortcuts";
 
 const PRETEXT_FONT = "12px ui-sans-serif, system-ui, sans-serif";
 
@@ -104,6 +105,10 @@ export function PretextPeekStrip() {
           </div>
           <p className="text-[10px] text-muted-foreground mt-2 border-t border-border pt-2">
             Tap to restore · drag right to widen
+          </p>
+          <p className="text-[10px] text-primary/90 mt-2 font-medium leading-snug">
+            Keyboard: {KBD.sidebar} / {KBD.sidebarMac} toggles the rail. {KBD.hotkeyHelp} opens every shortcut — or say
+            &quot;keyboard shortcuts&quot; with voice.
           </p>
         </TooltipContent>
       </Tooltip>

@@ -514,7 +514,7 @@ DATABASE_URL=<postgres-connection-string>
 | **Ctrl+M / Cmd+M** | Voice commands | Handler in use-voice.tsx |
 | **Ctrl+Shift+Y** | Toggle tutorial | Handler in App.tsx |
 | **Ctrl+Shift+/** | Hotkey help dialog | Handler in App.tsx |
-| **Ctrl+Shift+B** | Toggle sidebar | Handler in sidebar.tsx |
+| **Ctrl+Shift+\\** | Toggle sidebar | Handler in sidebar.tsx (`matchSidebarChord`, Backslash key) |
 
 ### Architecture
 

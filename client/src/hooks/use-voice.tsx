@@ -424,6 +424,15 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
               message: "Opening your shopping list.",
             });
             return;
+          case "calendar":
+            onNavigateRef.current?.("/calendar");
+            setLastResponse({
+              intent: "navigation",
+              action: "navigate",
+              payload: { path: "/calendar" },
+              message: "Opening Calendar.",
+            });
+            return;
           case "find_tasks":
             onNavigateRef.current?.("/tasks");
             setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 100);
@@ -442,6 +451,15 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
               action: "open_new_task",
               payload: { activity: "" },
               message: "Opening task form.",
+            });
+            return;
+          case "open_global_search":
+            window.dispatchEvent(new Event("axtask-open-global-search"));
+            setLastResponse({
+              intent: "search",
+              action: "global_search_open",
+              payload: {},
+              message: "Opening global search.",
             });
             return;
           case "toggle_tutorial":

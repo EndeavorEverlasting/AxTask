@@ -39,6 +39,11 @@ export function HotkeyHelpDialog({
           <DialogTitle>Keyboard shortcuts</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground leading-relaxed">{SHORTCUT_FOCUS_NOTE}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed border-l-2 border-primary/35 pl-3 mt-2">
+          Mobile and hands-free: the same actions work by voice — for example &quot;keyboard shortcuts&quot;, &quot;toggle
+          sidebar&quot;, &quot;open calendar&quot;, &quot;global search&quot;, &quot;go home&quot;, or &quot;add a
+          task&quot;. Open the mic bar to try them.
+        </p>
         <div className="space-y-3 py-2">
           {HOTKEY_ROWS.map(({ keys, action }) => (
             <div key={action} className="flex items-center justify-between gap-3">

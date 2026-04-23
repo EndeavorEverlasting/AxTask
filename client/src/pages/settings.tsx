@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { FloatingChip } from "@/components/ui/floating-chip";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { PretextShortcutsBeacon } from "@/components/pretext/pretext-shortcuts-beacon";
 
 export default function SettingsPage() {
   const [, setLocation] = useLocation();
@@ -39,10 +40,6 @@ export default function SettingsPage() {
   const goHomeAndTour = () => {
     setLocation("/");
     queueMicrotask(() => startTutorial());
-  };
-
-  const openHotkeyHelp = () => {
-    window.dispatchEvent(new Event("axtask-open-hotkey-help"));
   };
 
   return (
@@ -161,10 +158,8 @@ export default function SettingsPage() {
             Submit tasks with {SUBMIT_TASK_SHORTCUTS}. Open the cheat sheet anytime.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" onClick={openHotkeyHelp}>
-            Open shortcuts panel
-          </Button>
+        <CardContent>
+          <PretextShortcutsBeacon layout="inlineCta" />
         </CardContent>
       </Card>
 

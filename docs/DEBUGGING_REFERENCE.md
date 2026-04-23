@@ -73,7 +73,9 @@ const search = useSearch(); // returns "?new=1" or ""
 | `axtask-open-new-task` | App.tsx (Alt+N), sidebar button | tasks.tsx | Show task composer form |
 | `axtask-focus-task-search` | App.tsx (Alt+F), sidebar button, use-voice.tsx (`prepare_task_search` after navigate) | task-list-host.tsx | Focus the search input; voice uses the same event as keyboard (legacy `task-list.tsx` removed) |
 | `axtask-close-voice-bar` | App.tsx (Escape when voice bar open) | use-voice.tsx | Close voice command bar |
-| `axtask-toggle-hotkey-help` | use-voice.tsx (voice shortcut) | App.tsx | Toggle keyboard shortcuts dialog |
+| `axtask-open-hotkey-help` | PretextShortcutsBeacon, settings (and similar) | App.tsx | Open keyboard shortcuts dialog |
+| `axtask-toggle-hotkey-help` | use-voice.tsx (voice shortcut), keyboard chord | App.tsx | Toggle keyboard shortcuts dialog |
+| `axtask-open-global-search` | use-voice.tsx (`open_global_search` voice shortcut) | App.tsx | Open global search overlay (lazy chunk) |
 | `axtask-toggle-sidebar` | use-voice.tsx (voice shortcut) | sidebar.tsx | Toggle sidebar / mobile drawer |
 | `axtask-toggle-login-help` | use-voice.tsx (voice shortcut) | login.tsx | Toggle login help overlay |
 
@@ -91,8 +93,11 @@ All keyboard shortcut labels are defined in `client/src/lib/keyboard-shortcuts.t
 | Hotkey | Action | Mechanism |
 |---|---|---|
 | Alt+T | Dashboard (all tasks) | `setLocation("/")` |
+| Alt+C | Calendar | `setLocation("/calendar")` (voice: `calendar`) |
 | Alt+F | Find tasks | `setLocation("/tasks")` + `axtask-focus-task-search` event |
 | Alt+N | New task (composer) | `setLocation("/tasks")` + `axtask-open-new-task` event |
+| Ctrl+F | Global search overlay | App.tsx (`toggleGlobalSearchLazy` / keyboard; voice dispatches `axtask-open-global-search`) |
+| Ctrl+Shift+\\ | Toggle sidebar (physical Backslash) | `sidebar.tsx` (`matchSidebarChord`) |
 | Ctrl+Enter | Submit task form | Handled in task-form.tsx |
 | Ctrl+M | Voice commands | Handled in use-voice.tsx |
 | Ctrl+Shift+Y | Toggle tutorial | Handled in App.tsx |

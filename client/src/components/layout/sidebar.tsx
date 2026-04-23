@@ -57,6 +57,7 @@ import { KBD, tutorialToggleTitle } from "@/lib/keyboard-shortcuts";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useImmersiveShell } from "@/hooks/use-immersive-shell";
 import { PretextPeekStrip } from "@/components/layout/pretext-peek-strip";
+import { PretextShortcutsBeacon } from "@/components/pretext/pretext-shortcuts-beacon";
 import { ShellSplitter } from "@/components/layout/shell-splitter";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -492,7 +493,7 @@ export function Sidebar() {
   const { sidebarWidthPx, isNavFocus, toggleSidebarHidden } = useImmersiveShell();
 
   useEffect(() => {
-    /** Ctrl/Cmd+Shift+B is reserved for bookmarks in many browsers; use Backslash instead. */
+    /** Ctrl/Cmd+Shift+Backslash toggles the rail (see KBD.sidebar); avoids browser bookmark conflicts on B. */
     function handleKeyDown(e: KeyboardEvent) {
       if (!matchSidebarChord(e)) return;
       e.preventDefault();
@@ -530,12 +531,15 @@ export function Sidebar() {
       <>
         <MobileTopBar onMenuOpen={() => setMobileOpen(true)} />
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-[280px] p-0 glass-panel-glossy rounded-none border-y-0 border-l-0">
+          <SheetContent side="left" className="w-[280px] p-0 glass-panel-glossy rounded-none border-y-0 border-l-0 flex flex-col min-h-0">
             <SheetHeader className="sr-only">
               <SheetTitle>Navigation</SheetTitle>
               <SheetDescription>App navigation menu</SheetDescription>
             </SheetHeader>
-            <SidebarContent onNavigate={() => setMobileOpen(false)} />
+            <PretextShortcutsBeacon layout="sheetStrip" />
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <SidebarContent onNavigate={() => setMobileOpen(false)} />
+            </div>
           </SheetContent>
         </Sheet>
       </>
