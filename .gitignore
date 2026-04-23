@@ -20,6 +20,9 @@ NodeWeaver._pre_submodule_backup/
 # JetBrains / IntelliJ
 .idea/
 
+# JetBrains / IntelliJ
+.idea/
+
 # Local planning artifacts
 docs/AxTask_Migration_Master_Plan.md
 docs/AxTask_Robust_Hosting_Migration_Plan_*.docx
