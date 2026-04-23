@@ -36,6 +36,9 @@ describe("TaskListHost :: source contract", () => {
     expect(HOST_SRC).toContain("header-filter-priority-trigger");
     expect(HOST_SRC).toContain("header-filter-classification-trigger");
     expect(HOST_SRC).toContain("clear-header-filters");
+    expect(HOST_SRC).toContain("header-reward-affordance");
+    expect(HOST_SRC).toContain("header_sort_date");
+    expect(HOST_SRC).toContain("header_sort_priority");
     expect(HOST_SRC).toContain("/api/tasks/filter-intent");
     expect(HOST_SRC).toContain("routeFilterIntentHydratedRef");
     expect(HOST_SRC).toContain("Filter follow-through");

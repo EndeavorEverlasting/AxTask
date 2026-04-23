@@ -521,6 +521,29 @@ export const archetypeMarkovDaily = pgTable("archetype_markov_daily", {
 export type ArchetypeMarkovDaily = typeof archetypeMarkovDaily.$inferSelect;
 
 /**
+ * Internal-only organization aptitude signal ledger.
+ *
+ * Stores high-level interaction signals (no private task/body payloads) so
+ * admin surfaces can inspect trend direction by archetype and source.
+ */
+export const organizationAptitudeEvents = pgTable("organization_aptitude_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  source: text("source").notNull(),
+  archetypeKey: text("archetype_key").notNull(),
+  pointsAwarded: integer("points_awarded").notNull().default(0),
+  coinsAwarded: integer("coins_awarded").notNull().default(0),
+  metadataJson: text("metadata_json"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_org_aptitude_events_user_created").on(table.userId, table.createdAt),
+  index("idx_org_aptitude_events_source_created").on(table.source, table.createdAt),
+  index("idx_org_aptitude_events_archetype_created").on(table.archetypeKey, table.createdAt),
+]);
+
+export type OrganizationAptitudeEvent = typeof organizationAptitudeEvents.$inferSelect;
+
+/**
  * Daily rollup of Postgres disk usage. Populated by the retention-prune
  * tick once per 24h so the Admin > Storage tab can render a 30-day trend
  * without hammering `pg_database_size` on every page view. Bounded by

@@ -152,6 +152,49 @@ describe("TaskListHost :: real-DOM regression", () => {
     });
   });
 
+  it("header sort emits filter-intent and shows subtle reward affordance", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/tasks/filter-intent")) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            interactionReward: {
+              pointsAwarded: 2,
+              coinsAwarded: 1,
+              archetypeKey: "strategy",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("[]", { status: 200 });
+    }) as typeof fetch;
+
+    mount([
+      makeTask({ id: "old", activity: "Older", date: "2026-01-01" }),
+      makeTask({ id: "new", activity: "Newer", date: "2026-01-03" }),
+    ]);
+
+    await screen.findByTestId("task-list-body");
+    fireEvent.click(screen.getByTestId("header-sort-date"));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/tasks/filter-intent",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("header-reward-affordance").textContent).toContain(
+        "+1 AxCoin",
+      );
+      expect(screen.getByTestId("header-reward-affordance").textContent).toContain(
+        "+2 signal points (strategy)",
+      );
+    });
+  });
+
   it("header classification filter narrows rows and clear resets", async () => {
     mount([
       makeTask({ id: "a", activity: "Alpha", classification: "Work" }),

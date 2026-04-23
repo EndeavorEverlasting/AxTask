@@ -62,9 +62,9 @@ shared/schema/
                                # billingPaymentMethods/idempotencyKeys, premium* tables,
                                # communityPosts/Replies, ARCHETYPE_POLL_STATUSES, archetypePolls/
                                # options/votes, userAlarmSnapshots, userLocationPlaces,
-                               # archetypeRollup/Markov daily rollups
+                               # archetypeRollup/Markov daily rollups, organizationAptitudeEvents
   __fixtures__/
-    public-symbols.json        # frozen list of 94 public runtime symbols, guarded by
+    public-symbols.json        # frozen list of 96 public runtime symbols, guarded by
                                # shared/schema/schema-split.contract.test.ts
 ```
 

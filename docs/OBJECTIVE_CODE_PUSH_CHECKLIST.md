@@ -39,6 +39,12 @@ Most **wiring and API-shape** requirements below are enforced by Vitest. Use thi
 | 7 | P-score / economy copy | [`server/use-case-engagement.contract.test.ts`](../server/use-case-engagement.contract.test.ts) (`economy-diagnostics`); **wording clarity remains manual** |
 | 8 | Privacy + public DTOs | [`shared/public-client-dtos.test.ts`](../shared/public-client-dtos.test.ts) (in `test:objective-contracts`); [`server/client-visible-privacy.contract.test.ts`](../server/client-visible-privacy.contract.test.ts) (**full `npm test` only**) |
 
+When task-list header interactions are modified, also verify:
+
+- [`client/src/components/task-list-host.render.test.tsx`](../client/src/components/task-list-host.render.test.tsx)
+- [`server/use-case-engagement.contract.test.ts`](../server/use-case-engagement.contract.test.ts)
+- [`server/organization-rewards.unit.test.ts`](../server/organization-rewards.unit.test.ts)
+
 **Note:** [`server/client-visible-privacy.contract.test.ts`](../server/client-visible-privacy.contract.test.ts) is not in the `test:objective-contracts` file list (see [package.json](../package.json)); run full `npm test` to include it. Notification and CSP contracts **are** in the fast subset.
 
 ## What stays manual
@@ -158,6 +164,8 @@ When you introduce a **new falsifiable invariant** for an objective (for example
 - **Must confirm**
   - Client payloads only expose public DTO fields.
   - No accidental sensitive payload logging in browser-visible/client-accessible surfaces.
+  - Organization aptitude trend signals stay metadata-only (source/archetype buckets),
+    without task body or free-text notes content.
 
 See also [CLIENT_VISIBLE_PRIVACY.md](./CLIENT_VISIBLE_PRIVACY.md).
 

@@ -130,7 +130,12 @@ import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS, proces
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { DENDRITIC_SHOPPING_LIST_SKILL_KEY } from "@shared/shopping-list-feature";
 import { awardLoginRewards } from "./login-rewards";
-import { maybeAwardOrganizationFollowthrough, recordTaskFilterIntent } from "./organization-rewards";
+import {
+  awardOrganizationInteractionSignal,
+  getOrganizationAptitudeTrends,
+  maybeAwardOrganizationFollowthrough,
+  recordTaskFilterIntent,
+} from "./organization-rewards";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
@@ -2320,6 +2325,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const payload = z.object({
         source: z.enum([
+          "header_sort_date",
+          "header_sort_updated",
+          "header_sort_priority",
+          "header_sort_activity",
+          "header_sort_classification",
+          "header_sort_priority_score",
+          "header_sort_status",
           "header_priority",
           "header_status",
           "header_classification",
@@ -2337,10 +2349,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("user-agent") || undefined,
       });
-      res.json({ ok: true });
+      const interactionReward = payload.source.startsWith("header_")
+        ? await awardOrganizationInteractionSignal({
+          userId: req.user!.id,
+          source: payload.source,
+        })
+        : null;
+      res.json({
+        ok: true,
+        interactionReward,
+      });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });
       res.status(500).json({ message: "Failed to record filter intent" });
+    }
+  });
+
+  app.get("/api/admin/organization-aptitude-trends", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const hoursRaw = Number(req.query.hours);
+      const hours = Number.isFinite(hoursRaw) ? hoursRaw : 24 * 14;
+      const trends = await getOrganizationAptitudeTrends(hours);
+      res.json({
+        ...trends,
+        hoursWindow: Math.min(Math.max(1, Math.floor(hours)), 24 * 60),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load organization aptitude trends" });
     }
   });
 

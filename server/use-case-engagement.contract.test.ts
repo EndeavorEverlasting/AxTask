@@ -15,6 +15,7 @@ describe("use-case engagement wiring", () => {
     expect(src).toContain("hourly_login_reward");
     expect(src).toContain("organization_filter_followthrough_reward");
     expect(src).toContain("organization_aptitude_points");
+    expect(src).toContain("task_header_interaction_reward");
     expect(src).toContain("priority_recalculate_reward");
     expect(src).toContain("urgency_recalculate_rating_reward");
     expect(src).toContain("classification_consensus_tier_bonus");
@@ -33,6 +34,9 @@ describe("use-case engagement wiring", () => {
     expect(routes).toContain("completionCoinSkipReason");
     expect(routes).toContain("ENGAGEMENT.taskSearch");
     expect(routes).toContain('"/api/tasks/filter-intent"');
+    expect(routes).toContain("awardOrganizationInteractionSignal");
+    expect(routes).toContain("header_sort_date");
+    expect(routes).toContain("interactionReward");
     expect(routes).toContain("maybeAwardOrganizationFollowthrough");
     expect(routes).toContain("followthroughReward.awarded");
     expect(routes).toContain("awardLoginRewards");

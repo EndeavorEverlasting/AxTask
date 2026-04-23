@@ -35,6 +35,7 @@ exports[`server/routes.ts inventory > matches snapshot of all Express path regis
   "/api/admin/feedback-inbox/review-bulk",
   "/api/admin/import",
   "/api/admin/import/validate",
+  "/api/admin/organization-aptitude-trends",
   "/api/admin/performance/heuristics",
   "/api/admin/premium/retention",
   "/api/admin/repo-inventory",

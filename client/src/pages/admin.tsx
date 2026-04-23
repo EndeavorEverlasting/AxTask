@@ -132,6 +132,27 @@ type ApiPerfHeuristicsPayload = {
   }>;
 };
 
+type OrganizationAptitudeTrends = {
+  totals: {
+    samples: number;
+    points: number;
+    coins: number;
+  };
+  byArchetype: Array<{
+    archetypeKey: string;
+    samples: number;
+    points: number;
+    coins: number;
+  }>;
+  bySource: Array<{
+    source: string;
+    samples: number;
+    points: number;
+    coins: number;
+  }>;
+  hoursWindow: number;
+};
+
 type StorageOverview = {
   policy: {
     maxTasks: number;
@@ -343,6 +364,11 @@ export default function AdminPage() {
     queryKey: ["/api/admin/analytics/overview"],
     enabled: adminApiEnabled,
     refetchInterval: 15000,
+  });
+  const { data: organizationAptitude } = useQuery<OrganizationAptitudeTrends>({
+    queryKey: ["/api/admin/organization-aptitude-trends?hours=336"],
+    enabled: adminApiEnabled,
+    refetchInterval: 30000,
   });
 
   const { data: repoInventory } = useQuery({
@@ -1131,6 +1157,54 @@ export default function AdminPage() {
                 </div>
               ))}
               {!liveAnalytics && <p className="text-sm text-muted-foreground">Building live briefing...</p>}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Organization Aptitude Signals (Internal)</CardTitle>
+              <CardDescription>
+                Behavioral trend only. No private task/body content is analyzed or stored in this stream.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="rounded border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Samples</p>
+                  <p className="text-xl font-semibold">{organizationAptitude?.totals.samples ?? 0}</p>
+                </div>
+                <div className="rounded border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Signal points</p>
+                  <p className="text-xl font-semibold">{organizationAptitude?.totals.points ?? 0}</p>
+                </div>
+                <div className="rounded border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Coins awarded</p>
+                  <p className="text-xl font-semibold">{organizationAptitude?.totals.coins ?? 0}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                <div className="rounded border p-3 space-y-2">
+                  <p className="text-sm font-medium">Top archetype signals</p>
+                  {(organizationAptitude?.byArchetype ?? []).slice(0, 6).map((row) => (
+                    <div key={row.archetypeKey} className="flex items-center justify-between text-sm">
+                      <span>{row.archetypeKey}</span>
+                      <span className="text-muted-foreground">{row.points} pts · {row.samples} samples</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded border p-3 space-y-2">
+                  <p className="text-sm font-medium">Top interaction sources</p>
+                  {(organizationAptitude?.bySource ?? []).slice(0, 6).map((row) => (
+                    <div key={row.source} className="flex items-center justify-between text-sm">
+                      <span>{row.source}</span>
+                      <span className="text-muted-foreground">{row.points} pts · {row.coins} coins</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Window: last {organizationAptitude?.hoursWindow ?? 336} hours.
+              </p>
             </CardContent>
           </Card>
 

@@ -100,12 +100,25 @@ type TaskUpdateSyncExtras = {
 };
 
 type FilterIntentSource =
+  | "header_sort_date"
+  | "header_sort_updated"
+  | "header_sort_priority"
+  | "header_sort_activity"
+  | "header_sort_classification"
+  | "header_sort_priority_score"
+  | "header_sort_status"
   | "header_priority"
   | "header_status"
   | "header_classification"
   | "top_priority"
   | "top_status"
   | "route_chip";
+
+type HeaderInteractionReward = {
+  pointsAwarded: number;
+  coinsAwarded: number;
+  archetypeKey: string;
+};
 
 /**
  * Variant switch for this shared host.
@@ -346,6 +359,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   );
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [classifyTask, setClassifyTask] = useState<Task | null>(null);
+  const [headerRewardHint, setHeaderRewardHint] = useState<HeaderInteractionReward | null>(null);
   const [, startListTransition] = useTransition();
 
   const {
@@ -453,7 +467,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   );
 
   const emitFilterIntent = useCallback(
-    (source: FilterIntentSource, value?: string) => {
+    async (source: FilterIntentSource, value?: string) => {
       fetch("/api/tasks/filter-intent", {
         method: "POST",
         credentials: "include",
@@ -462,9 +476,26 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
           source,
           value: value ? String(value).slice(0, 120) : undefined,
         }),
-      }).catch(() => {
-        // Engagement signal only; ignore transient network failures.
-      });
+      })
+        .then(async (r) => {
+          if (!r.ok) return null;
+          const body = (await r.json().catch(() => null)) as
+            | { interactionReward?: HeaderInteractionReward | null }
+            | null;
+          return body?.interactionReward ?? null;
+        })
+        .then((reward) => {
+          if (!reward || (reward.coinsAwarded ?? 0) <= 0 && (reward.pointsAwarded ?? 0) <= 0) {
+            return;
+          }
+          setHeaderRewardHint(reward);
+          window.setTimeout(() => {
+            setHeaderRewardHint((prev) => (prev === reward ? null : prev));
+          }, 2200);
+        })
+        .catch(() => {
+          // Engagement signal only; ignore transient network failures.
+        });
     },
     [],
   );
@@ -479,12 +510,22 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   }, [variant, initialRoute.filter, emitFilterIntent]);
 
   const cycleSort = useCallback((column: SortColumn) => {
+    const sourceByColumn: Record<SortColumn, FilterIntentSource> = {
+      date: "header_sort_date",
+      updatedAt: "header_sort_updated",
+      priority: "header_sort_priority",
+      activity: "header_sort_activity",
+      classification: "header_sort_classification",
+      priorityScore: "header_sort_priority_score",
+      status: "header_sort_status",
+    };
+    void emitFilterIntent(sourceByColumn[column], column);
     setSortState((prev) => {
       if (!prev || prev.column !== column) return { column, direction: "asc" };
       if (prev.direction === "asc") return { column, direction: "desc" };
       return null;
     });
-  }, []);
+  }, [emitFilterIntent]);
 
   const visibleTasks = useMemo(() => {
     /* Variant prefilter first (cheap classification check), then the
@@ -806,6 +847,17 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
           >
             Clear header filters
           </button>
+          <div
+            className={`text-[11px] text-muted-foreground transition-opacity ${
+              headerRewardHint ? "opacity-100" : "opacity-0"
+            }`}
+            data-testid="header-reward-affordance"
+            aria-live="polite"
+          >
+            {headerRewardHint
+              ? `+${headerRewardHint.coinsAwarded} AxCoin · +${headerRewardHint.pointsAwarded} signal points (${headerRewardHint.archetypeKey})`
+              : " "}
+          </div>
         </div>
 
         {routeFilter !== "none" && (

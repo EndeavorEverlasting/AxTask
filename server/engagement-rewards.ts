@@ -59,6 +59,11 @@ export const ENGAGEMENT = {
     reason: "organization_aptitude_points",
     pointsPerEvent: 5,
   },
+  headerInteraction: {
+    reason: "task_header_interaction_reward",
+    amount: 1,
+    dailyCap: 30,
+  },
   recalculate: { reason: "priority_recalculate_reward", amount: 2, dailyCap: 8 },
   feedbackSubmission: { reason: "feedback_submission_reward", amount: 3, dailyCap: 5 },
   recalculateRating: { reason: "urgency_recalculate_rating_reward", amount: 2, dailyCap: 6 },
