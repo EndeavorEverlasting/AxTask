@@ -282,6 +282,7 @@ export default function AdminPage() {
   const [incidentTickerIndex, setIncidentTickerIndex] = useState(0);
 
   const FEEDBACK_PRESETS_KEY = "axtask.feedbackInbox.presets";
+  const APTITUDE_WINDOW_KEY = "axtask.admin.aptitudeWindowHours";
 
   const [importResult, setImportResult] = useState<any>(null);
   const [importBundle, setImportBundle] = useState<any>(null);
@@ -362,7 +363,16 @@ export default function AdminPage() {
   });
 
   const [perfWindowHours, setPerfWindowHours] = useState(24);
-  const [aptitudeWindowHours, setAptitudeWindowHours] = useState(24 * 14);
+  const [aptitudeWindowHours, setAptitudeWindowHours] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(APTITUDE_WINDOW_KEY);
+      const n = Number(raw);
+      if ([24, 168, 336, 720].includes(n)) return n;
+    } catch {
+      // SSR / private-mode safe fallback.
+    }
+    return 24 * 14;
+  });
   const { data: perfHeuristics } = useQuery<ApiPerfHeuristicsPayload>({
     queryKey: [`/api/admin/performance/heuristics?hours=${perfWindowHours}`],
     enabled: adminApiEnabled,
@@ -444,6 +454,14 @@ export default function AdminPage() {
     }, 2800);
     return () => clearInterval(timer);
   }, [incidentTickerItems]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(APTITUDE_WINDOW_KEY, String(aptitudeWindowHours));
+    } catch {
+      // non-blocking preference persistence
+    }
+  }, [aptitudeWindowHours]);
 
   useEffect(() => {
     if (!commandCenterMode) return;
