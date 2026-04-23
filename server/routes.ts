@@ -8,6 +8,7 @@ const execFileAsync = promisify(execFile);
 import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
+import { attachShoppingListRoutes } from "./shopping-lists-routes";
 import { exportFullDatabase, exportUserData } from "./migration/export";
 import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
 import {
@@ -7591,6 +7592,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to read archetype markov" });
     }
   });
+
+  attachShoppingListRoutes(app);
 
   const httpServer = createServer(app);
   return httpServer;

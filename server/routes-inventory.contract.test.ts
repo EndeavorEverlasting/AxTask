@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const projectRoot = path.resolve(__dirname, "..");
 const routesPath = path.join(projectRoot, "server", "routes.ts");
+const shoppingListsRoutesPath = path.join(projectRoot, "server", "shopping-lists-routes.ts");
 
 /**
  * Paths registered as `app.METHOD("...",` or `app.METHOD(\n  "...",` in routes.ts.
@@ -42,6 +43,10 @@ describe("server/routes.ts inventory", () => {
 
   it("matches snapshot of all Express path registrations", () => {
     const routes = fs.readFileSync(routesPath, "utf8");
-    expect(extractExpressRoutePaths(routes)).toMatchSnapshot();
+    const shopping = fs.readFileSync(shoppingListsRoutesPath, "utf8");
+    const merged = [...new Set([...extractExpressRoutePaths(routes), ...extractExpressRoutePaths(shopping)])].sort(
+      (a, b) => a.localeCompare(b),
+    );
+    expect(merged).toMatchSnapshot();
   });
 });

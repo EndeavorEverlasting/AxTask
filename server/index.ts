@@ -10,6 +10,7 @@ import { seedDevAccounts } from "./seed-dev";
 import { pool } from "./db";
 import { installProbeSink } from "./probe-sink";
 import { setupCollaborationWs } from "./collaboration";
+import { setupShoppingListWs } from "./shopping-list-ws";
 import { attachMonitorContext } from "./monitoring/request-context";
 import { appendSecurityEvent } from "./storage";
 import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
@@ -297,6 +298,7 @@ function warnIfVapidMissing(): void {
   const server = await registerRoutes(app);
 
   setupCollaborationWs(server);
+  setupShoppingListWs(server);
 
   if (isAdherenceEnabled()) {
     const thresholds = getAdherenceThresholds();

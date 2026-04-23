@@ -9,6 +9,7 @@ import * as e2eeDomain from "./e2ee";
 import * as tasksDomain from "./tasks";
 import * as gamification from "./gamification";
 import * as ops from "./ops";
+import * as shoppingListsDomain from "./shopping-lists";
 
 /**
  * Phase F-1 contract: the per-domain schema split must preserve every public
@@ -57,6 +58,7 @@ describe("shared/schema Phase F-1 split", () => {
       core: new Set(Object.keys(core)),
       e2ee: new Set(Object.keys(e2eeDomain)),
       tasks: new Set(Object.keys(tasksDomain)),
+      shoppingLists: new Set(Object.keys(shoppingListsDomain)),
       gamification: new Set(Object.keys(gamification)),
       ops: new Set(Object.keys(ops)),
     };

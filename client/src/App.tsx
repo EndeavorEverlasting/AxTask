@@ -57,6 +57,7 @@ const ImportExport = lazy(() => import("@/pages/import-export"));
 const GoogleSheetsSyncPage = lazy(() => import("@/pages/google-sheets-sync"));
 const ChecklistPage = lazy(() => import("@/pages/checklist"));
 const ShoppingPage = lazy(() => import("@/pages/shopping"));
+const ShoppingSharedPage = lazy(() => import("@/pages/shopping-shared"));
 const PlannerPage = lazy(() => import("@/pages/planner"));
 const MiniGamesPage = lazy(() => import("@/pages/mini-games"));
 const RewardsPage = lazy(() => import("@/pages/rewards"));
@@ -143,6 +144,7 @@ function Router() {
         <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
         <Route path="/checklist" component={ChecklistPage} />
         <Route path="/shopping" component={ShoppingPage} />
+        <Route path="/shopping/shared/:listId" component={ShoppingSharedPage} />
         <Route path="/planner" component={PlannerPage} />
         <Route path="/mini-games" component={MiniGamesPage} />
         <Route path="/feedback" component={FeedbackPage} />
