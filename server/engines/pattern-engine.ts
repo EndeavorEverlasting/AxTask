@@ -91,6 +91,21 @@ export interface DeadlineSuggestion {
   pattern: string;
 }
 
+export interface GroceryPurchaseEvent {
+  label: string;
+  purchasedAt: Date;
+}
+
+export interface GroceryRepurchaseSuggestion {
+  item: string;
+  suggestedDate: string;
+  confidence: number;
+  reason: string;
+  avgDays: number;
+  lastPurchasedAt: string;
+  source: "purchase_history" | "task_patterns" | "blended";
+}
+
 const MAX_TASKS_FOR_ANALYSIS = 500;
 
 export async function analyzeTaskHistory(userId: string, allTasks: Task[]): Promise<TaskPattern[]> {
@@ -582,4 +597,178 @@ export async function learnFromTask(userId: string, task: Task, allTasks: Task[]
     const confidence = Math.min(100, allInstances.length * 15 + (cadence !== "unknown" ? 20 : 0));
     await upsertPattern(userId, "recurrence", normalizeText(task.activity), recurrenceData as unknown as Record<string, unknown>, confidence);
   }
+}
+
+type GroceryRepurchaseStats = {
+  label: string;
+  avgDays: number;
+  confidence: number;
+  lastPurchasedAt: Date;
+  suggestedDate: Date;
+};
+
+function clampConfidence(n: number): number {
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function normalizeGroceryLabel(raw: string): string {
+  return normalizeText(raw)
+    .replace(/\b(the|a|an|some|pack|bottle|box|fresh)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cadenceFromDates(dates: Date[]): GroceryRepurchaseStats | null {
+  if (dates.length < 2) return null;
+  const sorted = [...dates]
+    .filter((d) => !Number.isNaN(d.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+  if (sorted.length < 2) return null;
+  const intervals: number[] = [];
+  for (let i = 1; i < sorted.length; i += 1) {
+    const days = Math.max(
+      1,
+      Math.round((sorted[i].getTime() - sorted[i - 1].getTime()) / (1000 * 60 * 60 * 24)),
+    );
+    intervals.push(days);
+  }
+  if (intervals.length === 0) return null;
+  const avgDaysRaw = intervals.reduce((s, v) => s + v, 0) / intervals.length;
+  const avgDays = Math.max(1, Math.round(avgDaysRaw));
+  const lastPurchasedAt = sorted[sorted.length - 1]!;
+  const suggestedDate = new Date(lastPurchasedAt);
+  suggestedDate.setDate(suggestedDate.getDate() + avgDays);
+  const variance =
+    intervals.length <= 1
+      ? 0
+      : intervals.reduce((s, v) => s + Math.pow(v - avgDaysRaw, 2), 0) / intervals.length;
+  const stabilityPenalty = Math.min(35, Math.round(Math.sqrt(variance) * 8));
+  const sampleBonus = Math.min(25, intervals.length * 6);
+  const confidence = clampConfidence(55 + sampleBonus - stabilityPenalty);
+  return {
+    label: "",
+    avgDays,
+    confidence,
+    lastPurchasedAt,
+    suggestedDate,
+  };
+}
+
+function mergeRepurchaseStats(
+  left: GroceryRepurchaseStats,
+  right: GroceryRepurchaseStats,
+): GroceryRepurchaseStats {
+  const leftWeight = Math.max(1, left.confidence);
+  const rightWeight = Math.max(1, right.confidence);
+  const avgDays = Math.max(
+    1,
+    Math.round((left.avgDays * leftWeight + right.avgDays * rightWeight) / (leftWeight + rightWeight)),
+  );
+  const lastPurchasedAt =
+    left.lastPurchasedAt.getTime() >= right.lastPurchasedAt.getTime()
+      ? left.lastPurchasedAt
+      : right.lastPurchasedAt;
+  const suggestedDate = new Date(lastPurchasedAt);
+  suggestedDate.setDate(suggestedDate.getDate() + avgDays);
+  return {
+    label: left.label || right.label,
+    avgDays,
+    confidence: clampConfidence(Math.max(left.confidence, right.confidence) + 6),
+    lastPurchasedAt,
+    suggestedDate,
+  };
+}
+
+export function inferGroceryRepurchaseSuggestions(input: {
+  now?: Date;
+  purchaseEvents: GroceryPurchaseEvent[];
+  recurrencePatterns?: TaskPattern[];
+  limit?: number;
+}): GroceryRepurchaseSuggestion[] {
+  const now = input.now ?? new Date();
+  const limit = Math.max(1, Math.min(20, input.limit ?? 6));
+  const byLabel = new Map<string, Date[]>();
+  for (const event of input.purchaseEvents) {
+    const label = normalizeGroceryLabel(event.label);
+    if (!label) continue;
+    if (!byLabel.has(label)) byLabel.set(label, []);
+    byLabel.get(label)!.push(event.purchasedAt);
+  }
+
+  const historyStats = new Map<string, GroceryRepurchaseStats>();
+  for (const [label, dates] of byLabel.entries()) {
+    const stats = cadenceFromDates(dates);
+    if (!stats) continue;
+    stats.label = label;
+    historyStats.set(label, stats);
+  }
+
+  const patternStats = new Map<string, GroceryRepurchaseStats>();
+  for (const p of input.recurrencePatterns ?? []) {
+    if (p.patternType !== "recurrence") continue;
+    let data: Partial<RecurrenceData> | null = null;
+    try {
+      data = JSON.parse(p.data) as Partial<RecurrenceData>;
+    } catch {
+      data = null;
+    }
+    const label = normalizeGroceryLabel(data?.activity || p.patternKey || "");
+    if (!label || !data?.lastDate) continue;
+    const avgDays = Math.max(1, Math.round(Number(data.avgDays || 0) || 7));
+    const lastPurchasedAt = new Date(String(data.lastDate));
+    if (Number.isNaN(lastPurchasedAt.getTime())) continue;
+    const suggestedDate = new Date(lastPurchasedAt);
+    suggestedDate.setDate(suggestedDate.getDate() + avgDays);
+    patternStats.set(label, {
+      label,
+      avgDays,
+      confidence: clampConfidence(Math.round((p.confidence || 50) * 0.82)),
+      lastPurchasedAt,
+      suggestedDate,
+    });
+  }
+
+  const keys = new Set([...historyStats.keys(), ...patternStats.keys()]);
+  const rows: GroceryRepurchaseSuggestion[] = [];
+  for (const key of keys) {
+    const history = historyStats.get(key);
+    const recurrence = patternStats.get(key);
+    if (!history && !recurrence) continue;
+    let merged: GroceryRepurchaseStats;
+    let source: GroceryRepurchaseSuggestion["source"];
+    if (history && recurrence) {
+      merged = mergeRepurchaseStats(history, recurrence);
+      source = "blended";
+    } else if (history) {
+      merged = history;
+      source = "purchase_history";
+    } else {
+      merged = recurrence!;
+      source = "task_patterns";
+    }
+    const daysUntil = Math.floor(
+      (merged.suggestedDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    if (daysUntil > 7) continue;
+    const urgencyBoost = daysUntil <= 0 ? 10 : daysUntil <= 2 ? 6 : 0;
+    const confidence = clampConfidence(merged.confidence + urgencyBoost);
+    if (confidence < 52) continue;
+    const whenText =
+      daysUntil <= 0 ? "now" : daysUntil === 1 ? "tomorrow" : `in ${daysUntil} days`;
+    rows.push({
+      item: key,
+      suggestedDate: merged.suggestedDate.toISOString().split("T")[0],
+      confidence,
+      reason: `You usually repurchase ${key} every ~${merged.avgDays} days; next likely ${whenText}.`,
+      avgDays: merged.avgDays,
+      lastPurchasedAt: merged.lastPurchasedAt.toISOString().split("T")[0],
+      source,
+    });
+  }
+
+  rows.sort((a, b) => {
+    if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+    return a.suggestedDate.localeCompare(b.suggestedDate);
+  });
+  return rows.slice(0, limit);
 }

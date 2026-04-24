@@ -1,4 +1,5 @@
 import type { Task } from "@shared/schema";
+import { isShoppingTask } from "@shared/shopping-tasks";
 
 export interface PlannerResult {
   action: string;
@@ -58,6 +59,20 @@ export function processPlannerQuery(
     const answer = relatedTasks.length === 0
       ? "You have no tasks due today."
       : `You have ${relatedTasks.length} task(s) due today:\n${relatedTasks.map((t, i) => `${i + 1}. ${t.activity}${t.time ? ` at ${t.time}` : ""}`).join("\n")}`;
+    return { action: "show_answer", answer, relatedTasks: relatedTasks.slice(0, 5) };
+  }
+
+  if (q.match(/\b(shopping|grocer|grocery|buy list|errands)\b/)) {
+    const relatedTasks = pendingTasks.filter((t) =>
+      isShoppingTask({ classification: t.classification, activity: t.activity, notes: t.notes }),
+    );
+    const answer =
+      relatedTasks.length === 0
+        ? "No active shopping items right now."
+        : `You have ${relatedTasks.length} shopping item(s):\n${relatedTasks
+            .slice(0, 8)
+            .map((t, i) => `${i + 1}. ${t.activity} (${t.date})`)
+            .join("\n")}`;
     return { action: "show_answer", answer, relatedTasks: relatedTasks.slice(0, 5) };
   }
 

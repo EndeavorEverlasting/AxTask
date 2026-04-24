@@ -32,6 +32,7 @@ function makeBriefing(overrides: Partial<BriefingData> = {}): BriefingData {
     thisWeek: { total: 12, days: [] },
     topRecommended: [],
     totalPending: 17,
+    shopping: { count: 0, tasks: [], repurchaseSuggestions: [] },
     ...overrides,
   };
 }

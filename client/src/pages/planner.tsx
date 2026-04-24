@@ -38,6 +38,7 @@ import {
   Lightbulb,
   RefreshCw,
   Lock,
+  ShoppingCart,
 } from "lucide-react";
 import type { Task } from "@shared/schema";
 import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
@@ -48,25 +49,10 @@ import {
   type TaskListRouteFilter,
 } from "@/lib/task-list-route-filters";
 import { useBriefing } from "@/hooks/use-briefing";
+import type { BriefingData } from "@/hooks/use-briefing";
 import { TaskGantt } from "@/components/task-gantt";
 import { useGanttPackUnlocked } from "@/hooks/use-gantt-pack-unlocked";
-
-interface WeekDay {
-  date: string;
-  dayName: string;
-  count: number;
-  load: "none" | "light" | "moderate" | "heavy";
-}
-
-interface BriefingData {
-  today: string;
-  overdue: { count: number; tasks: Task[] };
-  dueToday: { count: number; tasks: Task[] };
-  dueWithinHour: { count: number; tasks: Task[] };
-  thisWeek: { total: number; days: WeekDay[] };
-  topRecommended: (Task & { reason: string })[];
-  totalPending: number;
-}
+import { isShoppingTask } from "@shared/shopping-tasks";
 
 interface QAResponse {
   answer: string;
@@ -283,6 +269,43 @@ export default function PlannerPage() {
     },
   });
 
+  const grocerySuggestMutation = useMutation({
+    mutationFn: async (applyOptInAutomation: boolean) => {
+      const res = await apiRequest("POST", "/api/grocery-reminders/suggest", { applyOptInAutomation });
+      return res.json() as Promise<{
+        suggestions: BriefingData["shopping"]["repurchaseSuggestions"];
+        automation: {
+          taskCreated: number;
+          notificationQueued: number;
+        };
+      }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
+      const parts: string[] = [];
+      if ((data.automation.taskCreated ?? 0) > 0) {
+        parts.push(`created ${data.automation.taskCreated} task(s)`);
+      }
+      if ((data.automation.notificationQueued ?? 0) > 0) {
+        parts.push(`queued ${data.automation.notificationQueued} nudge(s)`);
+      }
+      toast({
+        title: "Grocery suggestions refreshed",
+        description:
+          parts.length > 0
+            ? `Opt-in automation ${parts.join(" and ")}.`
+            : "Latest grocery repurchase suggestions are now in your planner.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Could not refresh grocery suggestions",
+        description: "Try again in a moment.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleAsk = useCallback(() => {
     const q = question.trim();
     if (!q) return;
@@ -296,6 +319,16 @@ export default function PlannerPage() {
     month: "long",
     day: "numeric",
   });
+
+  const isShoppingLike = useCallback(
+    (task: Task) =>
+      isShoppingTask({
+        classification: task.classification,
+        activity: task.activity,
+        notes: task.notes,
+      }),
+    [],
+  );
 
   return (
     <div className="p-4 md:p-6 space-y-6 md:space-y-8 max-w-5xl mx-auto">
@@ -477,6 +510,12 @@ export default function PlannerPage() {
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{t.activity}</p>
+                          {isShoppingLike(t) ? (
+                            <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-300/50 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-900/20 dark:text-emerald-300">
+                              <ShoppingCart className="h-2.5 w-2.5" />
+                              Shopping
+                            </span>
+                          ) : null}
                           <p className="text-xs text-red-500">Was due {t.date}</p>
                         </div>
                         <PriorityBadge priority={t.priority} score={(t.priorityScore || 0) / 10} />
@@ -541,6 +580,12 @@ export default function PlannerPage() {
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{t.activity}</p>
+                        {isShoppingLike(t) ? (
+                          <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-300/50 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-900/20 dark:text-emerald-300">
+                            <ShoppingCart className="h-2.5 w-2.5" />
+                            Shopping
+                          </span>
+                        ) : null}
                         <p className="text-xs text-orange-600 dark:text-orange-400">Due at {t.time}</p>
                       </div>
                       <PriorityBadge priority={t.priority} />
@@ -550,6 +595,77 @@ export default function PlannerPage() {
               </Card>
             </div>
           )}
+
+          <div className="axtask-fade-in-up" style={{ animationDelay: "112ms" }}>
+            <Card className="border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-900/10">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
+                  <ShoppingCart className="h-4 w-4" />
+                  Grocery / Shopping
+                  <span className="ml-auto text-xs font-normal text-emerald-600/80 dark:text-emerald-400/80">
+                    {briefing.shopping.count} active
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <Link href="/shopping">
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      Open shopping list
+                    </Button>
+                  </Link>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs border-emerald-300 dark:border-emerald-700"
+                    disabled={grocerySuggestMutation.isPending}
+                    onClick={() => grocerySuggestMutation.mutate(false)}
+                  >
+                    Refresh suggestions
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs border-emerald-300 dark:border-emerald-700"
+                    disabled={grocerySuggestMutation.isPending}
+                    onClick={() => grocerySuggestMutation.mutate(true)}
+                  >
+                    Apply opt-in automation
+                  </Button>
+                </div>
+
+                {briefing.shopping.repurchaseSuggestions.length > 0 ? (
+                  <div className="space-y-2">
+                    {briefing.shopping.repurchaseSuggestions.slice(0, 4).map((s) => (
+                      <div
+                        key={`${s.item}-${s.suggestedDate}`}
+                        className="rounded-lg border border-emerald-100 dark:border-emerald-900/40 bg-white/70 dark:bg-gray-900/30 p-2.5"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                            {s.item}
+                          </p>
+                          <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium">
+                            {s.confidence}%
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                          {s.reason}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    No grocery cadence suggestions yet. Continue checking off shopping items and planner will learn your rhythm.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="axtask-fade-in-up" style={{ animationDelay: "120ms" }}>
@@ -577,6 +693,12 @@ export default function PlannerPage() {
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{t.activity}</p>
+                          {isShoppingLike(t) ? (
+                            <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-300/50 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-900/20 dark:text-emerald-300">
+                              <ShoppingCart className="h-2.5 w-2.5" />
+                              Shopping
+                            </span>
+                          ) : null}
                           <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-0.5">
                             <ArrowRight className="h-3 w-3" />
                             {t.reason}

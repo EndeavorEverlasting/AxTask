@@ -9,6 +9,7 @@ import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
 import { attachShoppingListRoutes } from "./shopping-lists-routes";
+import { listPurchasedShoppingEventsForUser } from "./shopping-lists-storage";
 import { exportFullDatabase, exportUserData } from "./migration/export";
 import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
 import {
@@ -79,6 +80,7 @@ import {
   upsertUserPushSubscription,
   deleteUserPushSubscription,
   listOpenAdherenceInterventions,
+  createAdherenceIntervention,
   acknowledgeAdherenceIntervention,
   listStudyDecks,
   createStudyDeck,
@@ -192,7 +194,13 @@ import { recordArchetypeSignal, type ArchetypeSignalKind } from "./lib/archetype
 import { hashActor } from "./lib/actor-hash";
 import { insertClassificationDisputeSchema, CATEGORY_REVIEW_STATUSES, type CategoryReviewStatus } from "@shared/schema";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
-import { analyzeTaskHistory, suggestDeadline, getInsights, learnFromTask } from "./engines/pattern-engine";
+import {
+  analyzeTaskHistory,
+  suggestDeadline,
+  getInsights,
+  learnFromTask,
+  inferGroceryRepurchaseSuggestions,
+} from "./engines/pattern-engine";
 import { createGoogleSheetsAPI, type GoogleSheetsCredentials } from "./google-sheets-api";
 import { generateChecklistPDF } from "./checklist-pdf";
 import { getProductivityExportPricesForUser, priceForKind } from "./productivity-export-pricing";
@@ -236,6 +244,7 @@ import { confirmTaskClassificationForUser, getClassificationConfirmPayload } fro
 import { getNotificationDispatchProfile } from "./services/notification-intensity";
 import { loadMergedPublicHolidays } from "./services/calendar/public-holidays";
 import { BUILT_IN_CLASSIFICATIONS } from "@shared/classification-catalog";
+import { isShoppingTask } from "@shared/shopping-tasks";
 import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
 import { evaluateAdherenceForUser } from "./services/adherence-evaluator";
 import {
@@ -1516,6 +1525,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user!.id,
         enabled: payload.enabled,
         intensity: payload.intensity,
+        groceryReminderEnabled: payload.groceryReminderEnabled,
+        groceryAutoCreateTaskEnabled: payload.groceryAutoCreateTaskEnabled,
+        groceryAutoNotifyEnabled: payload.groceryAutoNotifyEnabled,
         quietHoursStart: payload.quietHoursStart,
         quietHoursEnd: payload.quietHoursEnd,
         feedbackNudgePrefs: payload.feedbackNudgePrefs,
@@ -3666,6 +3678,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       startOfWeek.setDate(now.getDate() - now.getDay());
 
       const pendingTasks = allTasks.filter(t => t.status !== "completed");
+      const shoppingTasks = pendingTasks.filter((t) =>
+        isShoppingTask({ classification: t.classification, activity: t.activity, notes: t.notes }),
+      );
+      const purchasedShoppingEvents = await listPurchasedShoppingEventsForUser(userId);
+      const recurrencePatterns = await getPatternsByType(userId, "recurrence");
+      const repurchaseSuggestions = inferGroceryRepurchaseSuggestions({
+        now,
+        purchaseEvents: purchasedShoppingEvents,
+        recurrencePatterns,
+        limit: 6,
+      });
 
       const overdueTasks = pendingTasks.filter(t => isOverdueTask(t, todayStr, now));
 
@@ -3735,10 +3758,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
         thisWeek: { total: thisWeekTotal, days: weekDays },
         topRecommended: topTasks,
         totalPending: pendingTasks.length,
+        shopping: {
+          count: shoppingTasks.length,
+          tasks: shoppingTasks.slice(0, 8),
+          repurchaseSuggestions,
+        },
       });
     } catch (error) {
       console.error("Planner briefing error:", error);
       res.status(500).json({ message: "Failed to generate planner briefing" });
+    }
+  });
+
+  const groceryReminderSuggestSchema = z.object({
+    applyOptInAutomation: z.boolean().optional().default(false),
+  });
+
+  app.post("/api/grocery-reminders/suggest", requireAuth, async (req, res) => {
+    try {
+      const { applyOptInAutomation } = groceryReminderSuggestSchema.parse(req.body || {});
+      const userId = req.user!.id;
+      const now = new Date();
+      const purchasedShoppingEvents = await listPurchasedShoppingEventsForUser(userId);
+      const recurrencePatterns = await getPatternsByType(userId, "recurrence");
+      const suggestions = inferGroceryRepurchaseSuggestions({
+        now,
+        purchaseEvents: purchasedShoppingEvents,
+        recurrencePatterns,
+        limit: 8,
+      });
+
+      const preference = await getUserNotificationPreference(userId);
+      const automation = {
+        taskCreated: 0,
+        notificationQueued: 0,
+      };
+
+      if (applyOptInAutomation && preference.groceryReminderEnabled) {
+        const highConfidence = suggestions.filter((s) => s.confidence >= 72).slice(0, 3);
+        if (preference.groceryAutoCreateTaskEnabled) {
+          const existingTasks = await storage.getTasks(userId);
+          const existingKeys = new Set(
+            existingTasks
+              .filter((t) => t.status !== "completed")
+              .map((t) => `${t.date}|${t.activity}`.toLowerCase()),
+          );
+          for (const row of highConfidence) {
+            const activity = `Buy ${row.item}`;
+            const key = `${row.suggestedDate}|${activity}`.toLowerCase();
+            if (existingKeys.has(key)) continue;
+            await storage.createTask(userId, {
+              date: row.suggestedDate,
+              time: "",
+              activity,
+              notes: `Auto-suggested from grocery cadence (${row.source}).`,
+              urgency: 3,
+              impact: 3,
+              effort: 1,
+              prerequisites: "",
+              recurrence: "none",
+              status: "pending",
+              visibility: "private",
+              communityShowNotes: false,
+            });
+            existingKeys.add(key);
+            automation.taskCreated += 1;
+          }
+        }
+
+        if (preference.groceryAutoNotifyEnabled && highConfidence.length > 0) {
+          const top = highConfidence[0]!;
+          await createAdherenceIntervention({
+            userId,
+            signal: "reminder_ignored",
+            title: "Grocery reminder from your cadence",
+            message: `You usually repurchase ${top.item} every ~${top.avgDays} days. Consider adding it now.`,
+            context: {
+              grocerySuggestion: {
+                item: top.item,
+                confidence: top.confidence,
+                suggestedDate: top.suggestedDate,
+              },
+            },
+            dedupeKey: `grocery:${top.item}:${top.suggestedDate}`,
+          });
+          automation.notificationQueued += 1;
+        }
+      }
+
+      return res.json({ suggestions, automation });
+    } catch (error) {
+      if (error instanceof Error) return res.status(400).json({ message: error.message });
+      return res.status(500).json({ message: "Failed to build grocery reminder suggestions" });
     }
   });
 

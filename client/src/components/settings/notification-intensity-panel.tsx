@@ -1,6 +1,7 @@
 import { BellRing } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { useNotificationMode } from "@/hooks/use-notification-mode";
 
 /** Notification toggle + intensity — shared by Sidebar and Settings. */
@@ -9,12 +10,16 @@ export function NotificationIntensityPanel() {
     isLoading: notificationLoading,
     enabled: notificationEnabled,
     intensity: notificationIntensity,
+    groceryReminderEnabled,
+    groceryAutoCreateTaskEnabled,
+    groceryAutoNotifyEnabled,
     pushStatus,
     dispatchProfile,
     deliveryChannel,
     toggleNotificationMode,
     setLocalIntensity,
     saveIntensity,
+    saveNotificationPreferences,
   } = useNotificationMode();
 
   const notificationStatusLabel = (() => {
@@ -62,6 +67,44 @@ export function NotificationIntensityPanel() {
         />
         <p className="text-[11px] text-gray-600 dark:text-gray-400">Status: {notificationStatusLabel}</p>
         <p className="text-[11px] text-gray-600 dark:text-gray-400">{notificationCadenceSummary}</p>
+      </div>
+      <div className="mt-3 space-y-2 rounded-md border border-sky-300/40 bg-white/60 p-2.5 dark:border-sky-700/30 dark:bg-sky-900/10">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">Grocery suggestions</p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">Suggest reminder candidates in planner</p>
+          </div>
+          <Switch
+            checked={groceryReminderEnabled}
+            onCheckedChange={(v) => void saveNotificationPreferences({ groceryReminderEnabled: v })}
+            disabled={notificationLoading}
+            aria-label="Enable grocery reminder suggestions"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">Auto-create grocery tasks</p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">Opt-in: high-confidence suggestions become tasks</p>
+          </div>
+          <Switch
+            checked={groceryAutoCreateTaskEnabled}
+            onCheckedChange={(v) => void saveNotificationPreferences({ groceryAutoCreateTaskEnabled: v })}
+            disabled={notificationLoading || !groceryReminderEnabled}
+            aria-label="Enable automatic grocery task creation"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-200">Auto-notify grocery reminders</p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">Opt-in: send cadence-aware nudges</p>
+          </div>
+          <Switch
+            checked={groceryAutoNotifyEnabled}
+            onCheckedChange={(v) => void saveNotificationPreferences({ groceryAutoNotifyEnabled: v })}
+            disabled={notificationLoading || !groceryReminderEnabled}
+            aria-label="Enable automatic grocery reminder notifications"
+          />
+        </div>
       </div>
     </div>
   );

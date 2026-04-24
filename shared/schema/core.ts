@@ -188,6 +188,9 @@ export const userNotificationPreferences = pgTable("user_notification_preference
   userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   enabled: boolean("enabled").notNull().default(false),
   intensity: integer("intensity").notNull().default(50),
+  groceryReminderEnabled: boolean("grocery_reminder_enabled").notNull().default(true),
+  groceryAutoCreateTaskEnabled: boolean("grocery_auto_create_task_enabled").notNull().default(false),
+  groceryAutoNotifyEnabled: boolean("grocery_auto_notify_enabled").notNull().default(false),
   quietHoursStart: integer("quiet_hours_start"),
   quietHoursEnd: integer("quiet_hours_end"),
   feedbackNudgePrefs: jsonb("feedback_nudge_prefs")
@@ -242,6 +245,9 @@ export const feedbackNudgePrefsSchema = z.object({
 export const updateNotificationPreferenceSchema = z.object({
   enabled: z.boolean().optional(),
   intensity: z.number().int().min(0).max(100).optional(),
+  groceryReminderEnabled: z.boolean().optional(),
+  groceryAutoCreateTaskEnabled: z.boolean().optional(),
+  groceryAutoNotifyEnabled: z.boolean().optional(),
   quietHoursStart: z.number().int().min(0).max(23).nullable().optional(),
   quietHoursEnd: z.number().int().min(0).max(23).nullable().optional(),
   feedbackNudgePrefs: feedbackNudgePrefsSchema.partial().optional(),

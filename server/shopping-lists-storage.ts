@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, asc, desc, eq, inArray, max } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, max, isNotNull } from "drizzle-orm";
 import { db } from "./db";
 import {
   shoppingListItems,
@@ -287,4 +287,36 @@ export async function reorderShoppingListItems(
   }
   await db.update(shoppingLists).set({ updatedAt: now }).where(eq(shoppingLists.id, listId));
   return true;
+}
+
+export type PurchasedShoppingEvent = {
+  label: string;
+  purchasedAt: Date;
+};
+
+/** Purchased item history across lists a user can access. */
+export async function listPurchasedShoppingEventsForUser(
+  userId: string,
+  limit = 400,
+): Promise<PurchasedShoppingEvent[]> {
+  const rows = await db
+    .select({
+      label: shoppingListItems.label,
+      purchasedAt: shoppingListItems.purchasedAt,
+    })
+    .from(shoppingListItems)
+    .innerJoin(shoppingListMembers, eq(shoppingListMembers.listId, shoppingListItems.listId))
+    .where(
+      and(
+        eq(shoppingListMembers.userId, userId),
+        eq(shoppingListItems.purchased, true),
+        isNotNull(shoppingListItems.purchasedAt),
+      ),
+    )
+    .orderBy(desc(shoppingListItems.purchasedAt))
+    .limit(Math.max(1, Math.min(limit, 2000)));
+
+  return rows
+    .filter((r): r is { label: string; purchasedAt: Date } => Boolean(r.purchasedAt && r.label))
+    .map((r) => ({ label: r.label, purchasedAt: r.purchasedAt }));
 }

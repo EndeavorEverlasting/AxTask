@@ -486,6 +486,9 @@ function normalizeNotificationPreference(
     userId,
     enabled: row?.enabled ?? false,
     intensity: clampNotificationIntensity(row?.intensity ?? DEFAULT_NOTIFICATION_INTENSITY),
+    groceryReminderEnabled: row?.groceryReminderEnabled ?? true,
+    groceryAutoCreateTaskEnabled: row?.groceryAutoCreateTaskEnabled ?? false,
+    groceryAutoNotifyEnabled: row?.groceryAutoNotifyEnabled ?? false,
     quietHoursStart: row?.quietHoursStart ?? null,
     quietHoursEnd: row?.quietHoursEnd ?? null,
     feedbackNudgePrefs: sanitizeFeedbackNudgePrefs(row?.feedbackNudgePrefs),
@@ -506,6 +509,9 @@ export async function upsertUserNotificationPreference(input: {
   userId: string;
   enabled?: boolean;
   intensity?: number;
+  groceryReminderEnabled?: boolean;
+  groceryAutoCreateTaskEnabled?: boolean;
+  groceryAutoNotifyEnabled?: boolean;
   quietHoursStart?: number | null;
   quietHoursEnd?: number | null;
   feedbackNudgePrefs?: unknown;
@@ -522,6 +528,11 @@ export async function upsertUserNotificationPreference(input: {
       userId: input.userId,
       enabled: input.enabled ?? existing.enabled,
       intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
+      groceryReminderEnabled: input.groceryReminderEnabled ?? existing.groceryReminderEnabled,
+      groceryAutoCreateTaskEnabled:
+        input.groceryAutoCreateTaskEnabled ?? existing.groceryAutoCreateTaskEnabled,
+      groceryAutoNotifyEnabled:
+        input.groceryAutoNotifyEnabled ?? existing.groceryAutoNotifyEnabled,
       quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
       quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
       feedbackNudgePrefs: nextFeedbackPrefs,
@@ -533,6 +544,11 @@ export async function upsertUserNotificationPreference(input: {
       set: {
         enabled: input.enabled ?? existing.enabled,
         intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
+        groceryReminderEnabled: input.groceryReminderEnabled ?? existing.groceryReminderEnabled,
+        groceryAutoCreateTaskEnabled:
+          input.groceryAutoCreateTaskEnabled ?? existing.groceryAutoCreateTaskEnabled,
+        groceryAutoNotifyEnabled:
+          input.groceryAutoNotifyEnabled ?? existing.groceryAutoNotifyEnabled,
         quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
         quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
         feedbackNudgePrefs: nextFeedbackPrefs,

@@ -48,6 +48,19 @@ export interface BriefingData {
   thisWeek: { total: number; days: BriefingWeekDay[] };
   topRecommended: (Task & { reason: string })[];
   totalPending: number;
+  shopping: {
+    count: number;
+    tasks: Task[];
+    repurchaseSuggestions: Array<{
+      item: string;
+      suggestedDate: string;
+      confidence: number;
+      reason: string;
+      avgDays: number;
+      lastPurchasedAt: string;
+      source: "purchase_history" | "task_patterns" | "blended";
+    }>;
+  };
 }
 
 export interface BriefingBadgeData {

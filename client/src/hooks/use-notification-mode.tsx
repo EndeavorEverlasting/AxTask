@@ -12,6 +12,9 @@ type NotificationPreference = {
   userId: string;
   enabled: boolean;
   intensity: number;
+  groceryReminderEnabled: boolean;
+  groceryAutoCreateTaskEnabled: boolean;
+  groceryAutoNotifyEnabled: boolean;
   quietHoursStart: number | null;
   quietHoursEnd: number | null;
   immersiveSoundsEnabled: boolean;
@@ -38,6 +41,9 @@ type NotificationModeContextValue = {
   enabled: boolean;
   intensity: number;
   immersiveSoundsEnabled: boolean;
+  groceryReminderEnabled: boolean;
+  groceryAutoCreateTaskEnabled: boolean;
+  groceryAutoNotifyEnabled: boolean;
   feedbackNudgePrefs: FeedbackNudgePrefsCache;
   pushStatus: PushSupportStatus;
   canUsePush: boolean;
@@ -48,7 +54,16 @@ type NotificationModeContextValue = {
   saveIntensity: (value: number) => Promise<void>;
   saveNotificationPreferences: (
     payload: Partial<
-      Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled" | "feedbackNudgePrefs">
+      Pick<
+        NotificationPreference,
+        | "enabled"
+        | "intensity"
+        | "immersiveSoundsEnabled"
+        | "feedbackNudgePrefs"
+        | "groceryReminderEnabled"
+        | "groceryAutoCreateTaskEnabled"
+        | "groceryAutoNotifyEnabled"
+      >
     >,
   ) => Promise<void>;
   saveFeedbackNudgePrefs: (prefs: Partial<FeedbackNudgePrefsCache>) => Promise<void>;
@@ -89,7 +104,16 @@ function urlBase64ToUint8Array(base64String: string) {
 
 async function patchPreferences(
   payload: Partial<
-    Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled" | "feedbackNudgePrefs">
+    Pick<
+      NotificationPreference,
+      | "enabled"
+      | "intensity"
+      | "immersiveSoundsEnabled"
+      | "feedbackNudgePrefs"
+      | "groceryReminderEnabled"
+      | "groceryAutoCreateTaskEnabled"
+      | "groceryAutoNotifyEnabled"
+    >
   >,
 ) {
   const res = await apiRequest("PATCH", "/api/notifications/preferences", payload);
@@ -287,7 +311,16 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
 
   const saveNotificationPreferences = useCallback(async (
     payload: Partial<
-      Pick<NotificationPreference, "enabled" | "intensity" | "immersiveSoundsEnabled" | "feedbackNudgePrefs">
+      Pick<
+        NotificationPreference,
+        | "enabled"
+        | "intensity"
+        | "immersiveSoundsEnabled"
+        | "feedbackNudgePrefs"
+        | "groceryReminderEnabled"
+        | "groceryAutoCreateTaskEnabled"
+        | "groceryAutoNotifyEnabled"
+      >
     >,
   ) => {
     await savePreferenceMutation.mutateAsync(payload);
@@ -315,6 +348,9 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     enabled: Boolean(preferenceQuery.data?.enabled),
     intensity: localIntensity,
     immersiveSoundsEnabled: Boolean(preferenceQuery.data?.immersiveSoundsEnabled),
+    groceryReminderEnabled: Boolean(preferenceQuery.data?.groceryReminderEnabled ?? true),
+    groceryAutoCreateTaskEnabled: Boolean(preferenceQuery.data?.groceryAutoCreateTaskEnabled ?? false),
+    groceryAutoNotifyEnabled: Boolean(preferenceQuery.data?.groceryAutoNotifyEnabled ?? false),
     feedbackNudgePrefs: preferenceQuery.data?.feedbackNudgePrefs ?? { master: 50, byAvatar: {} },
     pushStatus,
     canUsePush: pushStatus !== "unsupported" && pushStatus !== "denied",
@@ -331,6 +367,9 @@ export function NotificationModeProvider({ children }: { children: React.ReactNo
     preferenceQuery.data?.dispatchProfile,
     preferenceQuery.data?.deliveryChannel,
     preferenceQuery.data?.feedbackNudgePrefs,
+    preferenceQuery.data?.groceryAutoCreateTaskEnabled,
+    preferenceQuery.data?.groceryAutoNotifyEnabled,
+    preferenceQuery.data?.groceryReminderEnabled,
     preferenceQuery.data?.immersiveSoundsEnabled,
     preferenceQuery.isLoading,
     pushStatus,

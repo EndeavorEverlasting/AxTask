@@ -87,5 +87,35 @@ describe("notification preferences route contracts", () => {
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS feedback_nudge_prefs jsonb/i);
     expect(sql).toMatch(/NOT NULL DEFAULT/i);
   });
+
+  it("includes grocery reminder preference fields in schema and PATCH threading", () => {
+    const routes = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");
+    const schema = [
+      "shared/schema.ts",
+      "shared/schema/core.ts",
+      "shared/schema/tasks.ts",
+      "shared/schema/gamification.ts",
+      "shared/schema/ops.ts",
+    ]
+      .map((rel) => fs.readFileSync(path.join(root, rel), "utf8"))
+      .join("\n\n");
+
+    expect(schema).toContain('groceryReminderEnabled: boolean("grocery_reminder_enabled")');
+    expect(schema).toContain('groceryAutoCreateTaskEnabled: boolean("grocery_auto_create_task_enabled")');
+    expect(schema).toContain('groceryAutoNotifyEnabled: boolean("grocery_auto_notify_enabled")');
+    expect(routes).toContain("groceryReminderEnabled: payload.groceryReminderEnabled");
+    expect(routes).toContain("groceryAutoCreateTaskEnabled: payload.groceryAutoCreateTaskEnabled");
+    expect(routes).toContain("groceryAutoNotifyEnabled: payload.groceryAutoNotifyEnabled");
+  });
+
+  it("migration 0033 adds grocery reminder columns idempotently", () => {
+    const sql = fs.readFileSync(
+      path.join(root, "migrations", "0033_notification_preferences_grocery_reminders.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS grocery_reminder_enabled boolean NOT NULL DEFAULT true/i);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS grocery_auto_create_task_enabled boolean NOT NULL DEFAULT false/i);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS grocery_auto_notify_enabled boolean NOT NULL DEFAULT false/i);
+  });
 });
 

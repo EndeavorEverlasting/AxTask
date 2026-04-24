@@ -35,6 +35,16 @@ describe("planner insight click wiring", () => {
   it("planner insight PatternInsight type exposes taskIds", () => {
     expect(planner).toMatch(/taskIds\?:\s*string\[\]/);
   });
+
+  it("planner shows dedicated Grocery / Shopping section", () => {
+    expect(planner).toContain("Grocery / Shopping");
+    expect(planner).toContain("Open shopping list");
+  });
+
+  it("planner has inline shopping tags in task cards", () => {
+    expect(planner).toContain("Shopping");
+    expect(planner).toMatch(/isShoppingLike\(t\)/);
+  });
 });
 
 describe("planner page :: CSS-first motion (pass-4)", () => {
