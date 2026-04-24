@@ -10,6 +10,7 @@ import { Video } from "lucide-react";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { PasteComposer, type PasteComposerValue } from "@/components/composer/paste-composer";
 import { SafeMarkdown } from "@/lib/safe-markdown";
+import { usePretextSurface } from "@/hooks/use-pretext-surface";
 
 type InboxRow = {
   id: string;
@@ -23,6 +24,7 @@ type InboxRow = {
 const EMPTY: PasteComposerValue = { body: "", attachmentAssetIds: [] };
 
 export default function CollabInboxPage() {
+  usePretextSurface("dense");
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [draft, setDraft] = useState<PasteComposerValue>(EMPTY);

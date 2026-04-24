@@ -58,8 +58,11 @@ export type PublicTaskListItemSlim = Omit<Task, "userId" | "classificationAssoci
   classificationExtraCount: number;
 };
 
+export type PublicTaskViewerRole = "owner" | "editor" | "viewer";
+
 export type PublicTaskListItem = PublicTaskListItemSlim & {
   noteAttachmentIds: string[];
+  viewerRole?: PublicTaskViewerRole;
 };
 
 export function toPublicTaskListItem(task: Task): PublicTaskListItemSlim {
@@ -91,11 +94,16 @@ export function toPublicTaskListItems(
  * Same as list item but keeps the full `classificationAssociations`
  * array so the classify dialog can render per-label confidence pills.
  */
-export type PublicTaskDetail = Omit<Task, "userId">;
+export type PublicTaskDetail = Omit<Task, "userId"> & {
+  viewerRole: PublicTaskViewerRole;
+};
 
-export function toPublicTaskDetail(task: Task): PublicTaskDetail {
+export function toPublicTaskDetail(
+  task: Task,
+  viewerRole: PublicTaskViewerRole = "owner",
+): PublicTaskDetail {
   const { userId: _uid, ...rest } = task;
-  return rest;
+  return { ...rest, viewerRole };
 }
 
 /** Wallet row without redundant owner id (caller is always the authenticated user). */

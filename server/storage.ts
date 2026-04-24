@@ -275,6 +275,16 @@ export async function getUserByEmail(email: string): Promise<User | undefined> {
   return user || undefined;
 }
 
+export async function getUserByPublicHandle(handle: string): Promise<User | undefined> {
+  const normalized = handle.trim().toLowerCase().replace(/^@+/, "");
+  if (!normalized) return undefined;
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.publicHandle, normalized));
+  return user || undefined;
+}
+
 export async function getUserById(id: string): Promise<SafeUser | undefined> {
   const [user] = await db.select().from(users).where(eq(users.id, id));
   return user ? toSafeUser(user) : undefined;
@@ -4796,7 +4806,7 @@ export async function removeCollaborator(taskId: string, userId: string): Promis
   return result.length > 0;
 }
 
-export async function getTaskCollaborators(taskId: string): Promise<(TaskCollaborator & { email: string; displayName: string | null })[]> {
+export async function getTaskCollaborators(taskId: string): Promise<(TaskCollaborator & { displayName: string | null; publicHandle: string })[]> {
   const rows = await db
     .select({
       id: taskCollaborators.id,
@@ -4805,8 +4815,8 @@ export async function getTaskCollaborators(taskId: string): Promise<(TaskCollabo
       role: taskCollaborators.role,
       invitedBy: taskCollaborators.invitedBy,
       invitedAt: taskCollaborators.invitedAt,
-      email: users.email,
       displayName: users.displayName,
+      publicHandle: users.publicHandle,
     })
     .from(taskCollaborators)
     .innerJoin(users, eq(taskCollaborators.userId, users.id))
@@ -4834,6 +4844,76 @@ export async function getSharedTasks(userId: string): Promise<Task[]> {
     or(...taskIds.map(id => eq(tasks.id, id)))
   );
   return result;
+}
+
+export type TaskViewerRole = "owner" | "editor" | "viewer";
+export type AccessibleTask = { task: Task; viewerRole: TaskViewerRole };
+
+function toViewerRole(role: string | null | undefined): TaskViewerRole {
+  return role === "editor" ? "editor" : "viewer";
+}
+
+export async function getAccessibleTasksForUser(userId: string): Promise<AccessibleTask[]> {
+  const ownedTasks = await db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.userId, userId))
+    .orderBy(asc(tasks.sortOrder));
+
+  const sharedMemberships = await db
+    .select({
+      taskId: taskCollaborators.taskId,
+      role: taskCollaborators.role,
+    })
+    .from(taskCollaborators)
+    .where(eq(taskCollaborators.userId, userId));
+
+  if (sharedMemberships.length === 0) {
+    return ownedTasks.map((task) => ({ task, viewerRole: "owner" as const }));
+  }
+
+  const ownedTaskIds = new Set(ownedTasks.map((task) => task.id));
+  const sharedTaskIds = sharedMemberships
+    .map((row) => row.taskId)
+    .filter((taskId) => !ownedTaskIds.has(taskId));
+
+  const sharedTasks = sharedTaskIds.length > 0
+    ? await db
+      .select()
+      .from(tasks)
+      .where(inArray(tasks.id, sharedTaskIds))
+      .orderBy(asc(tasks.sortOrder))
+    : [];
+
+  const roleByTaskId = new Map(sharedMemberships.map((row) => [row.taskId, toViewerRole(row.role)]));
+  const owned = ownedTasks.map((task) => ({ task, viewerRole: "owner" as const }));
+  const shared = sharedTasks.map((task) => ({
+    task,
+    viewerRole: roleByTaskId.get(task.id) ?? "viewer",
+  }));
+  return [...owned, ...shared].sort((a, b) => Number(a.task.sortOrder ?? 0) - Number(b.task.sortOrder ?? 0));
+}
+
+export async function getAccessibleTaskForUser(userId: string, taskId: string): Promise<AccessibleTask | null> {
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+  if (!task) return null;
+  if (task.userId === userId) return { task, viewerRole: "owner" };
+
+  const [membership] = await db
+    .select({ role: taskCollaborators.role })
+    .from(taskCollaborators)
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)));
+  if (!membership) return null;
+  return { task, viewerRole: toViewerRole(membership.role) };
+}
+
+export async function updateTaskById(updateTask: UpdateTask): Promise<Task | undefined> {
+  const [task] = await db
+    .update(tasks)
+    .set({ ...updateTask, updatedAt: new Date() })
+    .where(eq(tasks.id, updateTask.id))
+    .returning();
+  return task || undefined;
 }
 
 export async function canAccessTask(userId: string, taskId: string): Promise<{ canAccess: boolean; role: string }> {

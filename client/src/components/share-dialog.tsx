@@ -16,14 +16,12 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Users, UserPlus, Trash2, Crown, Eye, Pencil, Globe2 } from "lucide-react";
-import { z } from "zod";
-
 interface Collaborator {
   id: string;
   taskId: string;
   userId: string;
   role: string;
-  email: string;
+  publicHandle: string;
   displayName: string | null;
   invitedAt: string;
 }
@@ -39,9 +37,9 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { requestChallenge, isRequesting: mfaSending } = useMfaChallenge();
-  const [email, setEmail] = useState("");
-  const [emailError, setEmailError] = useState<string | null>(null);
-  const [role, setRole] = useState("editor");
+  const [handle, setHandle] = useState("");
+  const [handleError, setHandleError] = useState<string | null>(null);
+  const [role, setRole] = useState("viewer");
   const [open, setOpen] = useState(false);
   const [showNotes, setShowNotes] = useState(communityShowNotes);
   useEffect(() => {
@@ -68,22 +66,22 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   });
 
   const addMutation = useMutation({
-    mutationFn: async ({ email, role }: { email: string; role: string }) => {
+    mutationFn: async ({ handle, role }: { handle: string; role: string }) => {
       return syncRawTaskRequest(
         "POST",
         `/api/tasks/${taskId}/collaborators`,
-        { email, role },
+        { handle, role },
         queryClient,
       );
     },
-    onSuccess: (data, { email }) => {
+    onSuccess: (data, { handle }) => {
       if (data && typeof data === "object" && "offlineQueued" in data) {
         toast({ title: "Queued", description: "Invite will sync when you're online." });
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
-      setEmail("");
-      toast({ title: "Collaborator added", description: `${email} has been invited.` });
+      setHandle("");
+      toast({ title: "Collaborator added", description: `@${handle.replace(/^@+/, "")} can now access this task.` });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to add", description: err.message, variant: "destructive" });
@@ -246,25 +244,24 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
         {isOwner && (
           <div className="flex gap-2">
             <Input
-              placeholder="Enter email address"
-              value={email}
+              placeholder="Enter @handle"
+              value={handle}
               onChange={(e) => {
-                setEmail(e.target.value);
-                if (emailError) setEmailError(null);
+                setHandle(e.target.value);
+                if (handleError) setHandleError(null);
               }}
               onKeyDown={(e) => {
                 if (e.key !== "Enter") return;
-                const trimmed = email.trim();
-                const parsed = z.string().email().safeParse(trimmed);
-                if (!parsed.success) {
-                  setEmailError("Enter a valid email address");
+                const trimmed = handle.trim().replace(/^@+/, "");
+                if (!trimmed || /\s/.test(trimmed)) {
+                  setHandleError("Enter a valid handle (no spaces)");
                   return;
                 }
-                setEmailError(null);
-                addMutation.mutate({ email: trimmed, role });
+                setHandleError(null);
+                addMutation.mutate({ handle: trimmed, role });
               }}
               className="flex-1"
-              aria-invalid={emailError ? true : undefined}
+              aria-invalid={handleError ? true : undefined}
             />
             <Select value={role} onValueChange={setRole}>
               <SelectTrigger className="w-24">
@@ -277,25 +274,24 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
             </Select>
             <Button
               onClick={() => {
-                const trimmed = email.trim();
-                const parsed = z.string().email().safeParse(trimmed);
-                if (!parsed.success) {
-                  setEmailError("Enter a valid email address");
+                const trimmed = handle.trim().replace(/^@+/, "");
+                if (!trimmed || /\s/.test(trimmed)) {
+                  setHandleError("Enter a valid handle (no spaces)");
                   return;
                 }
-                setEmailError(null);
-                addMutation.mutate({ email: trimmed, role });
+                setHandleError(null);
+                addMutation.mutate({ handle: trimmed, role });
               }}
-              disabled={!email.trim() || addMutation.isPending}
+              disabled={!handle.trim() || addMutation.isPending}
               size="icon"
             >
               <UserPlus className="h-4 w-4" />
             </Button>
           </div>
         )}
-        {isOwner && emailError ? (
+        {isOwner && handleError ? (
           <p className="text-sm text-destructive mt-1" role="alert">
-            {emailError}
+            {handleError}
           </p>
         ) : null}
 
@@ -310,13 +306,13 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
                 <div className="flex items-center gap-2">
                   <div
                     className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                    style={{ backgroundColor: stringToColor(c.email) }}
+                    style={{ backgroundColor: stringToColor(c.publicHandle) }}
                   >
-                    {(c.displayName || c.email).charAt(0).toUpperCase()}
+                    {(c.displayName || c.publicHandle).charAt(0).toUpperCase()}
                   </div>
                   <div>
-                    <p className="text-sm font-medium">{c.displayName || c.email}</p>
-                    <p className="text-xs text-muted-foreground">{c.email}</p>
+                    <p className="text-sm font-medium">{c.displayName || `@${c.publicHandle}`}</p>
+                    <p className="text-xs text-muted-foreground">@{c.publicHandle}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

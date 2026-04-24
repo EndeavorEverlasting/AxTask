@@ -12,7 +12,7 @@ import { attachShoppingListRoutes } from "./shopping-lists-routes";
 import { exportFullDatabase, exportUserData } from "./migration/export";
 import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
 import {
-  storage, createUser, getUserByEmail, recordFailedLogin, resetFailedLogins,
+  storage, createUser, getUserByEmail, getUserByPublicHandle, recordFailedLogin, resetFailedLogins,
   createResetToken, verifyResetToken, consumeResetToken,
   setSecurityQuestion, getSecurityQuestion, verifySecurityAnswer,
   adminResetPassword,
@@ -101,6 +101,9 @@ import {
   getTaskCollaborators,
   updateCollaboratorRole,
   getSharedTasks,
+  getAccessibleTasksForUser,
+  getAccessibleTaskForUser,
+  updateTaskById,
   canAccessTask,
   isTaskOwner,
   resetStreak,
@@ -1969,9 +1972,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
        * view only renders a "+N" pill, the classify dialog lazy-fetches
        * the full associations via GET /api/tasks/:id). */
       const userId = req.user!.id;
-      const rows = await storage.getTasks(userId);
+      const accessible = await getAccessibleTasksForUser(userId);
+      const rows = accessible.map((entry) => entry.task);
       const byTask = await getTaskAttachmentIdsForTasks(userId, rows.map((r) => r.id));
-      res.json(toPublicTaskListItems(rows, byTask));
+      const publicRows = toPublicTaskListItems(rows, byTask);
+      res.json(
+        publicRows.map((row, idx) => ({
+          ...row,
+          viewerRole: accessible[idx]?.viewerRole ?? "owner",
+        })),
+      );
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tasks" });
     }
@@ -2665,13 +2675,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get task by ID
   app.get("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
-      const task = await storage.getTask(req.user!.id, req.params.id);
-      if (!task) {
+      const accessible = await getAccessibleTaskForUser(req.user!.id, req.params.id);
+      if (!accessible) {
         return res.status(404).json({ message: "Task not found" });
       }
       /* Detail DTO: keeps classificationAssociations for the classify
        * dialog but still strips `userId`. */
-      res.json(toPublicTaskDetail(task));
+      res.json(toPublicTaskDetail(accessible.task, accessible.viewerRole));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch task" });
     }
@@ -2875,10 +2885,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const userId = req.user!.id;
 
-      const existingTask = await storage.getTask(userId, req.params.id);
+      const access = await canAccessTask(userId, req.params.id);
+      if (!access.canAccess) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      if (access.role === "viewer") {
+        return res.status(403).json({ message: "Viewer collaborators are read-only" });
+      }
+
+      const existingAccess = await getAccessibleTaskForUser(userId, req.params.id);
+      const existingTask = existingAccess?.task;
       const previousStatus = existingTask?.status || "pending";
 
-      let task = await storage.updateTask(userId, validatedData);
+      let task = access.role === "owner"
+        ? await storage.updateTask(userId, validatedData)
+        : await updateTaskById(validatedData);
       if (!task) {
         return res.status(404).json({ message: "Task not found" });
       }
@@ -2900,7 +2921,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           { preferExternal: true },
         );
 
-        task = await storage.updateTask(userId, {
+        task = access.role === "owner"
+          ? await storage.updateTask(userId, {
+            id: task!.id,
+            priority: priorityResult.priority,
+            priorityScore: Math.round(priorityResult.score * 10),
+            classification: clsRes.classification,
+            classificationAssociations: associations,
+            isRepeated: priorityResult.isRepeated,
+          })
+          : await updateTaskById({
           id: task!.id,
           priority: priorityResult.priority,
           priorityScore: Math.round(priorityResult.score * 10),
@@ -2910,14 +2940,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }) || task;
       }
 
-      const latestTask = await storage.getTask(userId, req.params.id);
-      task = latestTask || task;
+      const latestTask = await getAccessibleTaskForUser(userId, req.params.id);
+      task = latestTask?.task || task;
 
       let coinReward = null;
       let coinSkipReason: string | null = null;
       let walletBalance: number | null = null;
       let organizationReward = null;
-      if (task!.status === "completed" && previousStatus !== "completed") {
+      if (access.role === "owner" && task!.status === "completed" && previousStatus !== "completed") {
         coinReward = await awardCoinsForCompletion(userId, task!, previousStatus);
         if (!coinReward) {
           const alreadyAwarded = await hasTaskBeenAwarded(userId, task!.id);
@@ -2942,7 +2972,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       let classificationReward = null;
       const previousClassification = existingTask?.classification;
-      if (task!.classification && task!.classification !== "General" && task!.classification !== previousClassification) {
+      if (
+        access.role === "owner"
+        && task!.classification
+        && task!.classification !== "General"
+        && task!.classification !== previousClassification
+      ) {
         classificationReward = await awardCoinsForClassification(userId, task!);
       }
 
@@ -7663,14 +7698,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
       if (!ownerCheck) return res.status(403).json({ message: "Only task owner can add collaborators" });
-      const { email, role } = req.body;
-      if (!email) return res.status(400).json({ message: "Email is required" });
+      const { handle, role } = req.body;
+      if (!handle) return res.status(400).json({ message: "Handle is required" });
       const validRoles = ["editor", "viewer"];
       if (role && !validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
-      const user = await getUserByEmail(email);
+      const user = await getUserByPublicHandle(handle);
       if (!user) return res.status(404).json({ message: "User not found" });
       if (user.id === req.user!.id) return res.status(400).json({ message: "Cannot add yourself" });
-      const collab = await addCollaborator(req.params.id, user.id, role || "editor", req.user!.id);
+      const collab = await addCollaborator(req.params.id, user.id, role || "viewer", req.user!.id);
       res.json(collab);
     } catch (error) {
       res.status(500).json({ message: "Failed to add collaborator" });

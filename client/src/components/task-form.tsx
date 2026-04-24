@@ -144,7 +144,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
    * compare is still kept so the form works correctly for shared
    * /api/tasks/shared payloads that carry `userId` for provenance.
    */
-  const isOwner = !task || task.userId == null || task.userId === user?.id;
+  const viewerRole = (task as (Task & { viewerRole?: "owner" | "editor" | "viewer" }) | null)?.viewerRole;
+  const isOwner = viewerRole
+    ? viewerRole === "owner"
+    : (!task || task.userId == null || task.userId === user?.id);
 
   const getCollabFieldStyle = useCallback((fieldName: string): string => {
     if (!collab.connected || !task) return "";
