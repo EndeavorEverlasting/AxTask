@@ -121,9 +121,9 @@ So: **versioned SQL migrations → forced Drizzle schema sync → Node server**.
 
 [`render.yaml`](../render.yaml) `startCommand: npm run start` therefore applies schema changes on each deploy restart, given a valid **`DATABASE_URL`**.
 
-## Path F: CI greenfield bootstrap (`postgres-schema-check`)
+## Path F: CI greenfield bootstrap (`test-and-attest` job)
 
-The `postgres-schema-check` job in [`.github/workflows/test-and-attest.yml`](../.github/workflows/test-and-attest.yml) spins up a brand-new Postgres service container per run, so its bootstrap order is **intentionally different** from Paths D and E:
+The `test-and-attest` job in [`.github/workflows/test-and-attest.yml`](../.github/workflows/test-and-attest.yml) runs a Postgres **service** container and, after the main Vitest/build/perf steps, applies the same greenfield sequence below. That order is **intentionally different** from Paths D and E:
 
 ```text
 npm run db:push:ci   (drizzle-kit push --force, materializes users/etc.)
@@ -148,7 +148,7 @@ The ordering invariant (drizzle push **before** `apply-migrations.mjs`, plus a s
 
 ## Guardrails in the repo
 
-- **`npm test`** includes [`server/deploy-schema-workflow.test.ts`](../server/deploy-schema-workflow.test.ts), which asserts Docker / compose / offline-start / dev-with-db-push **ordering** and key `package.json` scripts. It also includes [`server/ci-migration-order.contract.test.ts`](../server/ci-migration-order.contract.test.ts), which pins the greenfield-safe ordering of the `postgres-schema-check` CI job (drizzle push before `apply-migrations.mjs`, plus a trailing idempotency push).
+- **`npm test`** includes [`server/deploy-schema-workflow.test.ts`](../server/deploy-schema-workflow.test.ts), which asserts Docker / compose / offline-start / dev-with-db-push **ordering** and key `package.json` scripts. It also includes [`server/ci-migration-order.contract.test.ts`](../server/ci-migration-order.contract.test.ts), which pins the greenfield-safe ordering of the CI Postgres bootstrap inside `test-and-attest` (drizzle push before `apply-migrations.mjs`, plus a trailing idempotency push).
 - **`npm run check:startup-seeds`** — Vitest guard for non-fatal seed patterns in `server/routes.ts` (see test file in repo).
 - **Composer attachments** — `migrations/0020_attachment_composer_links.sql` adds `message_attachments` (polymorphic join into `attachment_assets`). When adding a new composer-backed surface, extend `MESSAGE_ATTACHMENT_OWNER_TYPES` in [`shared/schema.ts`](../shared/schema.ts) alongside route wiring (see [PASTE_COMPOSER_SECURITY.md](PASTE_COMPOSER_SECURITY.md)).
 

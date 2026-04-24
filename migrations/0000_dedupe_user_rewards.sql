@@ -2,7 +2,7 @@
 -- Keeper per group: earliest redeemed_at (NULL sorts as earliest via -infinity); tie-break highest id.
 -- Matches scripts/migration/dedupe-user-rewards.mjs. Safe to re-run.
 -- Guarded by to_regclass so fresh databases where user_rewards has not yet been
--- created by drizzle-kit (e.g. CI postgres-schema-check on empty DB) are no-ops
+-- created by drizzle-kit (e.g. CI test-and-attest Postgres service on empty DB) are no-ops
 -- instead of hard errors.
 BEGIN;
 

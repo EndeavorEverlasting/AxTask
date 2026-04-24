@@ -5,7 +5,7 @@ import { join } from "node:path";
 /**
  * CI migration-order contract.
  *
- * Guards the `postgres-schema-check` job in
+ * Guards the `test-and-attest` job's greenfield Postgres bootstrap in
  * `.github/workflows/test-and-attest.yml` from regressing to the greenfield-
  * broken order `apply-migrations.mjs -> drizzle-kit push`.
  *
@@ -96,15 +96,16 @@ function extractStepRunBlock(jobBlock: string, stepNameRegex: RegExp): string {
   return runCmdLines.join("\n");
 }
 
-describe("CI postgres-schema-check migration order contract", () => {
+describe("CI test-and-attest greenfield migration order contract", () => {
   const workflow = readWorkflow();
-  const jobBlock = extractJobBlock(workflow, "postgres-schema-check");
+  const jobBlock = extractJobBlock(workflow, "test-and-attest");
   const bootstrapRun = extractStepRunBlock(jobBlock, /Bootstrap Drizzle schema/i);
 
-  it("defines the postgres-schema-check job", () => {
-    expect(jobBlock).toMatch(/^ {2}postgres-schema-check:\s*$/m);
+  it("defines postgres service + DATABASE_URL on test-and-attest", () => {
+    expect(jobBlock).toMatch(/^ {2}test-and-attest:\s*$/m);
     expect(jobBlock).toContain("services:");
     expect(jobBlock).toMatch(/image:\s+postgres:/);
+    expect(jobBlock).toContain("DATABASE_URL:");
   });
 
   it("bootstraps the Drizzle schema BEFORE replaying hand-written SQL migrations", () => {

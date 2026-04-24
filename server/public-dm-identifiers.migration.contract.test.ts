@@ -15,5 +15,7 @@ describe("public DM identifiers migration", () => {
     expect(sql).toContain("users_public_dm_token_unique");
     expect(sql).toContain("ALTER COLUMN public_handle SET NOT NULL");
     expect(sql).toContain("ALTER COLUMN public_dm_token SET NOT NULL");
+    expect(sql).not.toMatch(/\bgen_random_bytes\s*\(/);
+    expect(sql).toMatch(/substring\([\s\S]*gen_random_uuid\(\)/);
   });
 });

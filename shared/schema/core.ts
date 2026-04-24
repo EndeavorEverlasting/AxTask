@@ -24,7 +24,9 @@ export const users = pgTable("users", {
   /** Public invite token used in QR/contact-card flows. */
   publicDmToken: text("public_dm_token")
     .notNull()
-    .default(sql`encode(gen_random_bytes(18), 'hex')`),
+    .default(
+      sql`substring(replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '') from 1 for 36)`,
+    ),
   publicHandleUpdatedAt: timestamp("public_handle_updated_at"),
   passwordHash: text("password_hash"),
   displayName: text("display_name"),

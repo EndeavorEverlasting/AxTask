@@ -73,6 +73,30 @@ describe("[04-migrations] migrations/", () => {
     const sorted = [...files].sort();
     expect(files.slice().sort()).toEqual(sorted);
   });
+
+  it("requires pgcrypto before gen_random_bytes in the same migration file", () => {
+    const extRe = /CREATE\s+EXTENSION\s+(IF\s+NOT\s+EXISTS\s+)?pgcrypto\b/i;
+    const useRe = /\bgen_random_bytes\s*\(/i;
+    const files = fs
+      .readdirSync(migrationsDir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+    for (const file of files) {
+      const full = path.join(migrationsDir, file);
+      const sql = fs.readFileSync(full, "utf8");
+      const firstUse = sql.search(useRe);
+      if (firstUse === -1) continue;
+      const extIdx = sql.search(extRe);
+      expect(
+        extIdx,
+        `${file}: gen_random_bytes needs CREATE EXTENSION ... pgcrypto earlier in the file`,
+      ).toBeGreaterThan(-1);
+      expect(
+        extIdx < firstUse,
+        `${file}: CREATE EXTENSION pgcrypto must precede the first gen_random_bytes(`,
+      ).toBe(true);
+    }
+  });
 });
 
 describe("[04-migrations] production-start.mjs chain order", () => {

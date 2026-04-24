@@ -73,14 +73,22 @@ UPDATE users
 SET public_handle = lower(public_handle)
 WHERE public_handle IS NOT NULL;
 
--- Ensure every user has a token; 18 bytes => 36 hex chars.
+-- Ensure every user has a token; 36 hex chars from core gen_random_uuid (no pgcrypto).
 UPDATE users
-SET public_dm_token = encode(gen_random_bytes(18), 'hex')
+SET public_dm_token = substring(
+  replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '')
+  from 1 for 36
+)
 WHERE public_dm_token IS NULL OR btrim(public_dm_token) = '';
 
 ALTER TABLE users
   ALTER COLUMN public_handle SET DEFAULT ('ax' || substring(replace(gen_random_uuid()::text, '-', '') from 1 for 12)),
-  ALTER COLUMN public_dm_token SET DEFAULT encode(gen_random_bytes(18), 'hex');
+  ALTER COLUMN public_dm_token SET DEFAULT (
+    substring(
+      replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '')
+      from 1 for 36
+    )
+  );
 
 CREATE UNIQUE INDEX IF NOT EXISTS users_public_handle_unique ON users (public_handle);
 CREATE UNIQUE INDEX IF NOT EXISTS users_public_dm_token_unique ON users (public_dm_token);

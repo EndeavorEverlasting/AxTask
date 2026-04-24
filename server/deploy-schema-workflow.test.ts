@@ -54,7 +54,7 @@ describe("deploy / schema workflow guards", () => {
     expect(src.slice(secondPush, secondPush + 200)).toContain("closeStdin: true");
   });
 
-  it("CI postgres-schema-check bootstraps Drizzle before SQL migrations, with stdin closed twice", () => {
+  it("CI test-and-attest bootstraps Drizzle before SQL migrations, with stdin closed twice", () => {
     // Greenfield CI service containers need drizzle-kit push to run BEFORE
     // scripts/apply-migrations.mjs, because migrations/0001_youtube_probe_tables.sql
     // FK-references users(id) which only exists after Drizzle pushes. The trailing
@@ -70,8 +70,8 @@ describe("deploy / schema workflow guards", () => {
       "utf8",
     );
     const lines = wf.split(/\r?\n/);
-    const jobStart = lines.findIndex((l) => l.trim() === "postgres-schema-check:");
-    expect(jobStart, "postgres-schema-check job header").toBeGreaterThan(-1);
+    const jobStart = lines.findIndex((l) => l.trim() === "test-and-attest:");
+    expect(jobStart, "test-and-attest job header").toBeGreaterThan(-1);
     let jobEnd = lines.length;
     for (let i = jobStart + 1; i < lines.length; i++) {
       if (/^ {2}[\w-]+:\s*$/.test(lines[i])) {
