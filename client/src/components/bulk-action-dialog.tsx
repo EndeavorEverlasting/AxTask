@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { syncRawTaskRequest } from "@/lib/task-sync-api";
+import { recordTaskCompletedForPrediction } from "@/lib/local-markov-predictions";
+import type { Task } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -198,6 +200,24 @@ export default function BulkActionDialog({
             description: `Retry limit reached for: ${labels.join(", ")}${skippedForLimit.length > 6 ? "…" : ""}`,
             variant: "destructive",
           });
+        }
+      }
+
+      const cachedTasks = queryClient.getQueryData<Task[]>(["/api/tasks"]) ?? [];
+      const predictionUserId = cachedTasks[0]?.userId ?? "";
+      if (predictionUserId) {
+        for (const action of selectedActions) {
+          if (action.type !== "complete") continue;
+          const r = resultByTaskId.get(action.taskId);
+          if (r && r.success === false) continue;
+          const t = cachedTasks.find((x) => x.id === action.taskId);
+          if (t && t.status !== "completed") {
+            void recordTaskCompletedForPrediction({
+              userId: predictionUserId,
+              task: { ...t, status: "completed" },
+              previousStatus: t.status,
+            });
+          }
         }
       }
 

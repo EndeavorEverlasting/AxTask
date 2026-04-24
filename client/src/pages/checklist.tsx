@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getCsrfToken } from "@/lib/queryClient";
 import { syncRawTaskRequest } from "@/lib/task-sync-api";
+import { recordTaskCompletedForPrediction } from "@/lib/local-markov-predictions";
 import { useToast } from "@/hooks/use-toast";
 import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -118,13 +119,28 @@ export default function ChecklistPage() {
     mutationFn: async (updates: { taskId: string; status: string }[]) => {
       return syncRawTaskRequest("POST", "/api/checklist/apply", { updates }, queryClient);
     },
-    onSuccess: (data) => {
+    onSuccess: (data, updates) => {
       if (data && typeof data === "object" && "offlineQueued" in data) {
         toast({
           title: "Queued",
           description: "Checklist updates will apply when you're online.",
         });
         return;
+      }
+      const tasks = queryClient.getQueryData<Task[]>(["/api/tasks"]) ?? [];
+      const predictionUserId = tasks[0]?.userId ?? "";
+      if (predictionUserId) {
+        for (const u of updates) {
+          if (u.status !== "completed") continue;
+          const t = tasks.find((x) => x.id === u.taskId);
+          if (t && t.status !== "completed") {
+            void recordTaskCompletedForPrediction({
+              userId: predictionUserId,
+              task: { ...t, status: "completed" },
+              previousStatus: t.status,
+            });
+          }
+        }
       }
       const d = data as { updated: number };
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });

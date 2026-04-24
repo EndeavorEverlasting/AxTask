@@ -20,6 +20,7 @@ import {
 import { openConflictDialog, type ConflictChoice } from "./task-conflict-deferred";
 import { randomUuid } from "./uuid";
 import { applyWalletRewardHybrid } from "./wallet-cache";
+import { recordTaskCompletedForPrediction } from "./local-markov-predictions";
 
 const DRAIN_LS_MUTEX_KEY = "axtask.offline_drain_mutex";
 
@@ -265,6 +266,14 @@ export function taskUpdatedAtIso(task: Task | undefined): string | null {
   return typeof d === "string" ? d : new Date(d).toISOString();
 }
 
+function resolveUserIdForPrediction(queryClient: QueryClient, taskId: string, baseTask?: Task): string {
+  return (
+    baseTask?.userId ??
+    queryClient.getQueryData<Task[]>(["/api/tasks"])?.find((t) => t.id === taskId)?.userId ??
+    ""
+  );
+}
+
 export function optimisticTaskFromInsert(data: InsertTask, id: string, userId: string): Task {
   const now = new Date();
   return {
@@ -395,6 +404,14 @@ export async function syncUpdateTask(
     const shallow: Record<string, unknown> = { ...shallowIn };
     assertEnqueueOk(enqueueTaskUpdate(taskId, shallow, baseUpdatedAt), "enqueueTaskUpdate");
     mergeTaskInCache(queryClient, taskId, shallow);
+    const merged = { ...baseTask, ...shallow } as Task;
+    if (merged.status === "completed" && baseTask && baseTask.status !== "completed") {
+      void recordTaskCompletedForPrediction({
+        userId: resolveUserIdForPrediction(queryClient, taskId, baseTask),
+        task: merged,
+        previousStatus: baseTask.status,
+      });
+    }
     return { offlineQueued: true };
   }
 
@@ -421,7 +438,15 @@ export async function syncUpdateTask(
     const t = await res.text();
     throw new Error(t || res.statusText);
   }
-  return res.json();
+  const updated = (await res.json()) as Task;
+  if (updated.status === "completed" && baseTask && baseTask.status !== "completed") {
+    void recordTaskCompletedForPrediction({
+      userId: resolveUserIdForPrediction(queryClient, taskId, baseTask),
+      task: updated,
+      previousStatus: baseTask.status,
+    });
+  }
+  return updated;
 }
 
 export async function syncDeleteTask(
@@ -560,6 +585,13 @@ async function processUpdateOp(
     applyWalletRewardHybrid(queryClient, { balance: updated.walletBalance });
   } else if ("status" in op.patch && op.patch.status !== undefined) {
     void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+  }
+  if (op.patch.status === "completed" && cached && cached.status !== "completed") {
+    void recordTaskCompletedForPrediction({
+      userId: resolveUserIdForPrediction(queryClient, op.taskId, cached),
+      task: updated,
+      previousStatus: cached.status,
+    });
   }
   return "done";
 }

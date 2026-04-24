@@ -28,6 +28,7 @@ const VoiceCommandBar = lazy(() =>
 import { InstallCtaBanner } from "@/components/install-cta-banner";
 import { WalletTopBar } from "@/components/wallet-top-bar";
 import { FeedbackNudgeDialog } from "@/components/feedback-nudge-dialog";
+import { GeofenceNudgeBridge } from "@/components/geofence-nudge-bridge";
 import { AdherenceNudges } from "@/components/adherence-nudges";
 import { OfflineDataBanner } from "@/components/offline-data-banner";
 import { OfflineBanner } from "@/components/offline-banner";
@@ -572,6 +573,7 @@ function AuthenticatedApp() {
           <ReviewDialogBridge />
           <AlarmPanel />
           <FeedbackNudgeDialog />
+          <GeofenceNudgeBridge />
         </div>
       </PretextShell>
       </TaskOfflineSyncProvider>

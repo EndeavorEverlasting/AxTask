@@ -19,6 +19,7 @@ import { useCountUp } from "@/hooks/use-count-up";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";
 import { setWalletBalanceCache } from "@/lib/wallet-cache";
 import type { ProductivityExportPrices } from "@/lib/productivity-export-download";
+import type { ArchetypeContinuumDto } from "@shared/archetype-continuum-dto";
 
 interface Wallet {
   balance: number;
@@ -102,7 +103,10 @@ export default function RewardsPage() {
     totalConfirmationsReceived: number;
     totalClassificationCoins: number;
   }>({ queryKey: ["/api/gamification/classification-stats"] });
-  const { data: avatarData } = useQuery<{ avatars: AvatarProfile[] }>({
+  const { data: avatarData } = useQuery<{
+    avatars: AvatarProfile[];
+    archetypeContinuum: ArchetypeContinuumDto;
+  }>({
     queryKey: ["/api/gamification/avatars"],
   });
   const { data: economyDiagnostics } = useQuery<{

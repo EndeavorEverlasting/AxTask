@@ -191,6 +191,7 @@ import { applyVoiceCompanionRewards } from "./voice-companion-rewards";
 import { processPlannerQuery } from "./engines/planner-engine";
 import { processFeedbackWithEngines } from "./engines/feedback-engine";
 import { recordArchetypeSignal, type ArchetypeSignalKind } from "./lib/archetype-signal";
+import { getPublicArchetypeContinuumForUser } from "./lib/archetype-continuum";
 import { hashActor } from "./lib/actor-hash";
 import { insertClassificationDisputeSchema, CATEGORY_REVIEW_STATUSES, type CategoryReviewStatus } from "@shared/schema";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
@@ -4869,8 +4870,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/gamification/avatars", requireAuth, async (req, res) => {
     try {
-      const avatars = await getAvatarProfiles(req.user!.id);
-      res.json({ avatars });
+      const [avatars, archetypeContinuum] = await Promise.all([
+        getAvatarProfiles(req.user!.id),
+        getPublicArchetypeContinuumForUser(req.user!.id),
+      ]);
+      res.json({ avatars, archetypeContinuum });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch avatars" });
     }

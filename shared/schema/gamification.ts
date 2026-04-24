@@ -189,3 +189,16 @@ export const userAvatarProfiles = pgTable("user_avatar_profiles", {
 ]);
 
 export type UserAvatarProfile = typeof userAvatarProfiles.$inferSelect;
+
+/** Per-user weights on the five canonical archetypes (milli-units summing to 100_000 = 1.0). */
+export const userArchetypeContinuum = pgTable("user_archetype_continuum", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  milliMomentum: integer("milli_momentum").notNull().default(20000),
+  milliStrategy: integer("milli_strategy").notNull().default(20000),
+  milliExecution: integer("milli_execution").notNull().default(20000),
+  milliCollaboration: integer("milli_collaboration").notNull().default(20000),
+  milliRecovery: integer("milli_recovery").notNull().default(20000),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type UserArchetypeContinuum = typeof userArchetypeContinuum.$inferSelect;

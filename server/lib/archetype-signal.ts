@@ -7,6 +7,7 @@ import {
 } from "@shared/avatar-archetypes";
 import { isFeedbackAvatarKey, type FeedbackAvatarKey } from "@shared/feedback-avatar-map";
 import { ARCHETYPE_SIGNAL_PAYLOAD_VERSION } from "./archetype-signal-payload";
+import { bumpUserArchetypeContinuumFromSignal } from "./archetype-continuum";
 
 export type ArchetypeSignalKind =
   | "nudge_shown"
@@ -66,6 +67,8 @@ export async function recordArchetypeSignal(
       sourceCategory: categorizeSource(input.source),
     },
   });
+
+  await bumpUserArchetypeContinuumFromSignal(input.userId, archetypeKey, input.signal);
 
   return { archetypeKey, hashedActor };
 }

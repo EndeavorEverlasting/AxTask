@@ -36,6 +36,11 @@ describe("planner insight click wiring", () => {
     expect(planner).toMatch(/taskIds\?:\s*string\[\]/);
   });
 
+  it("planner merges on-device Markov insights with server patterns", () => {
+    expect(planner).toContain("mergedPlannerInsights");
+    expect(planner).toContain("markov_local");
+  });
+
   it("planner shows dedicated Grocery / Shopping section", () => {
     expect(planner).toContain("Grocery / Shopping");
     expect(planner).toContain("Open shopping list");

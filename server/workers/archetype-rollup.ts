@@ -18,10 +18,8 @@ import {
   archetypeRollupDaily,
   archetypeMarkovDaily,
 } from "@shared/schema";
-import {
-  computeEmpathyScore,
-  countMarkovTransitions,
-} from "../engines/archetype-empathy-engine";
+import { computeEmpathyScore } from "../engines/archetype-empathy-engine";
+import { countMarkovTransitions } from "@shared/markov/first-order";
 import { type ParsedArchetypeSignalPayload } from "../lib/archetype-signal-payload";
 import {
   aggregateArchetypeSignalRows,

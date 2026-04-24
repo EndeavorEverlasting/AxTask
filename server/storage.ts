@@ -126,6 +126,8 @@ import {
 import { db } from "./db";
 import { eq, and, ne, ilike, or, asc, lt, lte, gt, gte, count, avg, sql, desc, inArray } from "drizzle-orm";
 import type { ArchetypeKey } from "@shared/avatar-archetypes";
+import { isArchetypeKey } from "@shared/avatar-archetypes";
+import { bumpUserArchetypeContinuumFromArchetype } from "./lib/archetype-continuum";
 import { dominantArchetypeFromAvatarProfiles } from "./lib/poll-archetype";
 import { applyKAnonymityToPollTallies, type RawOptionTally } from "./lib/archetype-poll-aggregate";
 import { randomUUID, randomBytes, createHash } from "crypto";
@@ -2997,6 +2999,9 @@ export async function engageAvatarMission(input: {
     taskId: input.sourceRef,
   });
   await addCoins(input.userId, missionCoins, "avatar_mission_reward", `${profile.displayName} mission reward`, input.sourceRef);
+  if (isArchetypeKey(profile.archetypeKey)) {
+    await bumpUserArchetypeContinuumFromArchetype(input.userId, profile.archetypeKey, 0.028);
+  }
   return {
     awarded: true,
     xp: xpGain,

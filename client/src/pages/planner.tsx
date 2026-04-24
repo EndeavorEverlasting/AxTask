@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, lazy, Suspense } from "react";
+import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from "react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -53,6 +53,13 @@ import type { BriefingData } from "@/hooks/use-briefing";
 import { TaskGantt } from "@/components/task-gantt";
 import { useGanttPackUnlocked } from "@/hooks/use-gantt-pack-unlocked";
 import { isShoppingTask } from "@shared/shopping-tasks";
+import { useAuth } from "@/lib/auth-context";
+import {
+  buildLocalMarkovInsights,
+  loadLocalCompletionLedger,
+  mergePlannerInsights,
+  type LocalMarkovInsight,
+} from "@/lib/local-markov-predictions";
 
 interface QAResponse {
   answer: string;
@@ -90,6 +97,7 @@ export default function PlannerPage() {
   }, []);
 
   const { data: briefing, isLoading } = useBriefing();
+  const { user } = useAuth();
 
   const { data: allTasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -98,13 +106,32 @@ export default function PlannerPage() {
   const ganttPack = useGanttPackUnlocked();
 
   interface PatternInsight {
-    type: "topic" | "recurrence" | "deadline_rhythm" | "similarity_cluster";
+    type: "topic" | "recurrence" | "deadline_rhythm" | "similarity_cluster" | "markov_local";
     title: string;
     description: string;
     confidence: number;
     taskIds?: string[];
     data: Record<string, unknown>;
   }
+
+  const [localMarkovInsights, setLocalMarkovInsights] = useState<LocalMarkovInsight[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const uid = user?.id ?? allTasks[0]?.userId ?? "";
+    if (!uid) {
+      setLocalMarkovInsights([]);
+      return;
+    }
+    void loadLocalCompletionLedger(uid).then((ledger) => {
+      if (cancelled) return;
+      const pending = allTasks.filter((t) => t.status !== "completed");
+      setLocalMarkovInsights(buildLocalMarkovInsights(uid, pending, allTasks, ledger));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, allTasks]);
 
   const handleInsightClick = useCallback(
     (insight: PatternInsight) => {
@@ -143,6 +170,11 @@ export default function PlannerPage() {
     queryKey: ["/api/patterns/insights"],
     refetchInterval: 120000,
   });
+
+  const mergedPlannerInsights = useMemo(
+    () => mergePlannerInsights(localMarkovInsights, patternData?.insights ?? [], 8) as PatternInsight[],
+    [patternData?.insights, localMarkovInsights],
+  );
 
   const learnMutation = useMutation({
     mutationFn: async () => {
@@ -855,20 +887,22 @@ export default function PlannerPage() {
                   <div className="flex items-center justify-center py-6">
                     <Loader2 className="h-5 w-5 animate-spin text-emerald-500" />
                   </div>
-                ) : patternData && patternData.insights.length > 0 ? (
+                ) : mergedPlannerInsights.length > 0 ? (
                   <div className="space-y-3">
-                    {patternData.insights.slice(0, 6).map((insight, idx) => {
+                    {mergedPlannerInsights.map((insight, idx) => {
                       const iconMap: Record<string, typeof Repeat> = {
                         topic: BarChart3,
                         recurrence: Repeat,
                         deadline_rhythm: CalendarClock,
                         similarity_cluster: Users,
+                        markov_local: Brain,
                       };
                       const colorMap: Record<string, string> = {
                         topic: "text-blue-500 bg-blue-50 dark:bg-blue-900/20",
                         recurrence: "text-amber-500 bg-amber-50 dark:bg-amber-900/20",
                         deadline_rhythm: "text-purple-500 bg-purple-50 dark:bg-purple-900/20",
                         similarity_cluster: "text-teal-500 bg-teal-50 dark:bg-teal-900/20",
+                        markov_local: "text-cyan-600 bg-cyan-50 dark:bg-cyan-900/25",
                       };
                       const InsightIcon = iconMap[insight.type] || Lightbulb;
                       const colorClass = colorMap[insight.type] || "text-gray-500 bg-gray-50 dark:bg-gray-900/20";
@@ -896,8 +930,13 @@ export default function PlannerPage() {
                               <InsightIcon className="h-3.5 w-3.5" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                                {insight.title}
+                              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate flex items-center gap-2">
+                                {insight.type === "markov_local" && (
+                                  <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-cyan-700 dark:text-cyan-300 bg-cyan-100/80 dark:bg-cyan-900/40 px-1.5 py-0.5 rounded">
+                                    On-device
+                                  </span>
+                                )}
+                                <span className="truncate">{insight.title}</span>
                               </p>
                               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
                                 {insight.description}

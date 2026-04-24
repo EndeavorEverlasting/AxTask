@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { ArchetypeContinuumDto } from "@shared/archetype-continuum-dto";
 
 export interface GanttPackRewardItem {
   id: string;
@@ -48,6 +49,7 @@ export function computeGanttUnlock(
 
 interface AvatarsResponse {
   avatars: GanttPackAvatarProfile[];
+  archetypeContinuum?: ArchetypeContinuumDto;
 }
 
 /**

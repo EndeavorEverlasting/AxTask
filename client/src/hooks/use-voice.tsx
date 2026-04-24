@@ -25,6 +25,7 @@ import { matchVoiceShortcut } from "@/lib/voice-shortcuts";
 import { matchVoiceMicChord, voiceBarOpenRef } from "@/lib/hotkey-actions";
 import { selectDominantAvatarProfile } from "@/lib/select-dominant-avatar-profile";
 import { isFeedbackAvatarKey, type FeedbackAvatarKey } from "@shared/feedback-avatar-map";
+import type { ArchetypeContinuumDto } from "@shared/archetype-continuum-dto";
 
 /** Parse stored alarm snapshot JSON for the alarm panel; returns null if malformed. */
 function parseAlarmPanelDetailFromSnapshot(payloadJson: string): Record<string, unknown> | null {
@@ -169,7 +170,10 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
   const pendingSearchDictationRef = useRef(false);
   const speechRef = useRef<{ resetTranscript: () => void; start: () => void } | null>(null);
 
-  const { data: avatarVoiceData } = useQuery<{ avatars: Array<{ avatarKey: string; displayName: string; level: number; totalXp: number }> }>({
+  const { data: avatarVoiceData } = useQuery<{
+    avatars: Array<{ avatarKey: string; displayName: string; level: number; totalXp: number }>;
+    archetypeContinuum?: ArchetypeContinuumDto;
+  }>({
     queryKey: ["/api/gamification/avatars"],
     enabled: Boolean(user?.id && isBarOpen),
   });

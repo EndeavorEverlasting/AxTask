@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useIsRestoring, useQueryClient } from "@tanstack/react-query";
 import { WifiOff, RefreshCw, HardDrive, CloudUpload } from "lucide-react";
 import { useNetworkOnline } from "@/hooks/use-network-status";
@@ -8,6 +8,7 @@ import {
   STALE_DATA_WARNING_AFTER_MS,
 } from "@/lib/query-persist-policy";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { getOfflineQueueLength, subscribeOfflineTaskQueue } from "@/lib/offline-task-queue";
 
 function useStalePersistedDataHint(): boolean {
@@ -52,6 +53,7 @@ export function OfflineDataBanner() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const prevOnline = useRef(online);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     if (!prevOnline.current && online) {
@@ -65,7 +67,10 @@ export function OfflineDataBanner() {
   }, [online, queryClient, toast]);
 
   const onRefresh = useCallback(() => {
-    void queryClient.invalidateQueries();
+    setIsRefreshing(true);
+    void queryClient.invalidateQueries().finally(() => {
+      setIsRefreshing(false);
+    });
   }, [queryClient]);
 
   if (isRestoring) {
@@ -127,8 +132,17 @@ export function OfflineDataBanner() {
               reachable.
             </span>
           </div>
-          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={onRefresh}>
-            Refresh data
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 text-xs"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            aria-busy={isRefreshing}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5 shrink-0", isRefreshing && "animate-spin")} aria-hidden />
+            {isRefreshing ? "Refreshing…" : "Refresh data"}
           </Button>
         </div>
       </div>
@@ -140,11 +154,25 @@ export function OfflineDataBanner() {
       <div
         className="shrink-0 border-b border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300"
         role="status"
+        aria-live="polite"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span>Some cached data hasn&apos;t been refreshed recently.</span>
-          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={onRefresh}>
-            Refresh now
+          <span>
+            {isRefreshing
+              ? "Refreshing data from the server…"
+              : "Some cached data hasn&apos;t been refreshed recently."}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 text-xs"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            aria-busy={isRefreshing}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5 shrink-0", isRefreshing && "animate-spin")} aria-hidden />
+            {isRefreshing ? "Refreshing…" : "Refresh now"}
           </Button>
         </div>
       </div>

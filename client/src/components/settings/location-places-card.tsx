@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { MapPin } from "lucide-react";
+import { readGeofenceNudgesEnabled, writeGeofenceNudgesEnabled } from "@/hooks/use-geofence-suggestion-nudge";
 
 type Place = {
   id: string;
@@ -19,6 +22,11 @@ export function LocationPlacesSettingsCard() {
   const [name, setName] = useState("");
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
+  const [geofenceNudges, setGeofenceNudges] = useState(false);
+
+  useEffect(() => {
+    setGeofenceNudges(readGeofenceNudgesEnabled());
+  }, []);
 
   const { data } = useQuery({
     queryKey: ["/api/location-places"],
@@ -65,6 +73,28 @@ export function LocationPlacesSettingsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-muted/30 p-3">
+          <div className="space-y-1 min-w-0">
+            <Label htmlFor="geofence-nudges" className="text-sm font-medium">
+              Arrival suggestions (this device)
+            </Label>
+            <p className="text-xs text-muted-foreground leading-snug">
+              Periodically checks your position while AxTask is open and may toast when you enter a saved place.
+              Patterns stay on-device; grant location and (optionally) browser notifications for alerts.
+              Uses extra battery only while enabled.
+            </p>
+          </div>
+          <Switch
+            id="geofence-nudges"
+            checked={geofenceNudges}
+            onCheckedChange={(v) => {
+              writeGeofenceNudgesEnabled(v);
+              setGeofenceNudges(v);
+              window.dispatchEvent(new CustomEvent("axtask-geofence-nudges-changed"));
+            }}
+            className="shrink-0"
+          />
+        </div>
         <div className="grid gap-2 sm:grid-cols-3">
           <Input placeholder="Label (e.g. Office)" value={name} onChange={(e) => setName(e.target.value)} />
           <Input placeholder="Latitude" value={lat} onChange={(e) => setLat(e.target.value)} />
