@@ -19,6 +19,7 @@ exports[`server/routes.ts inventory > matches snapshot of all Express path regis
   "/api/admin/ai/runtime-controls",
   "/api/admin/analytics/overview",
   "/api/admin/archetype-polls",
+  "/api/admin/attachments/export-bundle",
   "/api/admin/ban/:userId",
   "/api/admin/classification/category-review-triggers",
   "/api/admin/classification/category-review-triggers/:id/disputes",

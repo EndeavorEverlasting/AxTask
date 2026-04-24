@@ -8,7 +8,10 @@ const execFileAsync = promisify(execFile);
 import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
+import { ATTACHMENT_EXPORT_MANIFEST_VERSION } from "@shared/attachment-export-manifest";
 import { attachShoppingListRoutes } from "./shopping-lists-routes";
+import { buildDryRunAttachmentExport, createAttachmentExportTarGz } from "./services/attachment-export-core";
+import { notifyFoundryAttachmentExportCompleted } from "./services/attachment-export-foundry-hook";
 import { listPurchasedShoppingEventsForUser } from "./shopping-lists-storage";
 import { exportFullDatabase, exportUserData } from "./migration/export";
 import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
@@ -7062,6 +7065,115 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to fetch storage usage" });
     }
   });
+
+  /**
+   * Admin DR export: streams `files/<assetId>` + `manifest.json` (gzip tar).
+   * Requires MFA step-up. Images live on disk, not in Postgres — see docs/DEV_DATABASE_AND_SCHEMA.md.
+   */
+  app.get(
+    "/api/admin/attachments/export-bundle",
+    requireAdmin,
+    requireAdminStepUp,
+    migrationLimiter,
+    async (req, res) => {
+      try {
+        const dryRun =
+          req.query.dryRun === "1" ||
+          req.query.dryRun === "true" ||
+          req.query.dryRun === "yes";
+        const userId = typeof req.query.userId === "string" && req.query.userId.trim()
+          ? req.query.userId.trim()
+          : undefined;
+        const includeDeleted =
+          req.query.includeDeleted === "1" ||
+          req.query.includeDeleted === "true";
+
+        if (dryRun) {
+          const body = await buildDryRunAttachmentExport({ userId, includeDeleted });
+          await appendSecurityEvent({
+            eventType: "attachment_admin_export_dry_run",
+            actorUserId: req.user!.id,
+            route: req.path,
+            method: req.method,
+            statusCode: 200,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+            payload: {
+              assetCount: body.assetCount,
+              missingFileCount: body.missingFileCount,
+              scopedUserId: userId || null,
+            },
+          });
+          return res.json(body);
+        }
+
+        const { stream, completion } = createAttachmentExportTarGz({ userId, includeDeleted });
+        const filename = `attachment-export-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+        res.setHeader("Content-Type", "application/gzip");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+        void completion
+          .then(async (info) => {
+            await appendSecurityEvent({
+              eventType: "attachment_admin_export_bundle",
+              actorUserId: req.user!.id,
+              route: req.path,
+              method: req.method,
+              statusCode: 200,
+              ipAddress: req.ip,
+              userAgent: req.get("user-agent") || undefined,
+              payload: {
+                exportRunId: info.exportRunId,
+                manifestSha256: info.manifest.manifestSha256,
+                assetCount: info.assetCount,
+                bytesCopied: info.bytesCopied,
+                missingFileCount: info.missingFileCount,
+                scopedUserId: userId || null,
+              },
+            });
+            await notifyFoundryAttachmentExportCompleted({
+              event: "attachment_export.completed",
+              schemaVersion: ATTACHMENT_EXPORT_MANIFEST_VERSION,
+              exportRunId: info.exportRunId,
+              exportedAt: info.manifest.exportedAt,
+              assetCount: info.assetCount,
+              bytesCopied: info.bytesCopied,
+              missingFileCount: info.missingFileCount,
+              manifestSha256: info.manifest.manifestSha256,
+              environment: info.manifest.source.environment,
+            });
+          })
+          .catch(async (err) => {
+            console.error("[attachment export]", err);
+            await appendSecurityEvent({
+              eventType: "attachment_admin_export_bundle_error",
+              actorUserId: req.user!.id,
+              route: req.path,
+              method: req.method,
+              statusCode: 500,
+              ipAddress: req.ip,
+              userAgent: req.get("user-agent") || undefined,
+              payload: {
+                message: err instanceof Error ? err.message : String(err),
+                scopedUserId: userId || null,
+              },
+            });
+          });
+
+        stream.on("error", (err) => {
+          console.error("[attachment export stream]", err);
+          if (!res.headersSent) {
+            res.status(500).json({ message: "Export stream failed" });
+          }
+        });
+
+        stream.pipe(res);
+      } catch (error) {
+        if (error instanceof Error) return res.status(400).json({ message: error.message });
+        res.status(500).json({ message: "Attachment export failed" });
+      }
+    },
+  );
 
   app.post("/api/admin/usage/capture", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {

@@ -3391,6 +3391,28 @@ export async function getTaskAttachments(userId: string, taskId: string): Promis
   )).orderBy(desc(attachmentAssets.createdAt));
 }
 
+/**
+ * Admin-only cross-user listing for DR / integrity exports. Not for normal API use.
+ * Hard-capped to avoid accidental unbounded scans.
+ */
+export async function adminListAttachmentAssetsForExport(options: {
+  userId?: string;
+  includeDeleted?: boolean;
+  limit?: number;
+}): Promise<AttachmentAsset[]> {
+  const { userId, includeDeleted = false, limit = 200_000 } = options;
+  const conditions = [];
+  if (!includeDeleted) {
+    conditions.push(sql`${attachmentAssets.deletedAt} IS NULL`);
+  }
+  if (userId) {
+    conditions.push(eq(attachmentAssets.userId, userId));
+  }
+  const qb = db.select().from(attachmentAssets);
+  const scoped = conditions.length ? qb.where(and(...conditions)) : qb;
+  return scoped.orderBy(asc(attachmentAssets.createdAt)).limit(limit);
+}
+
 /** Batch-fetch attachment asset ids per task (for markdown `attachment:<id>` allowlists on list DTOs). */
 export async function getTaskAttachmentIdsForTasks(
   userId: string,

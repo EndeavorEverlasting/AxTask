@@ -36,6 +36,17 @@ export async function readAttachmentObject(storageKey: string): Promise<Buffer |
   }
 }
 
+export async function attachmentObjectExists(storageKey: string): Promise<boolean> {
+  const baseDir = resolveStorageDir();
+  const targetPath = safeJoin(baseDir, storageKey);
+  try {
+    await fs.stat(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function deleteAttachmentObject(storageKey: string): Promise<void> {
   const baseDir = resolveStorageDir();
   const targetPath = safeJoin(baseDir, storageKey);

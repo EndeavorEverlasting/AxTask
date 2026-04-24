@@ -21,6 +21,10 @@ For environment variable reference, see [`.env.example`](../.env.example). For D
 | `.env` | `tsx server/index.ts`, `npm run db:push`, smart start | Local development; **never commit** real secrets. |
 | `.env.docker` | `docker compose --env-file .env.docker` | Compose stack (`npm run docker:*`). Copy from `.env.docker.example`. |
 
+## Attachment blobs (not in Postgres)
+
+Pasted images and other `attachment_assets` bytes are stored on disk under `ATTACHMENT_STORAGE_DIR` (default `storage/attachments`), not inside Neon. **Disaster recovery is two-part:** back up Postgres (metadata, `storage_key` / `metadata_json`) **and** that directory or volume. For an audited admin download or break-glass CLI, use `GET /api/admin/attachments/export-bundle` (MFA step-up) or `npm run export:attachments` — see `.env.example` for optional `FOUNDRY_WEBHOOK_URL` / `FOUNDRY_WEBHOOK_SECRET` (metadata-only hook after export).
+
 ## Choose a path (decision)
 
 ```mermaid

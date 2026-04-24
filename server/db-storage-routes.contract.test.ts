@@ -25,6 +25,15 @@ describe("Admin > Storage routes", () => {
     expect(routesSrc).toMatch(/app\.post\(\s*"\/api\/admin\/retention\/run"/);
   });
 
+  it("GET /api/admin/attachments/export-bundle uses requireAdmin + requireAdminStepUp + migrationLimiter", () => {
+    const idx = routesSrc.indexOf('"/api/admin/attachments/export-bundle"');
+    expect(idx).toBeGreaterThan(-1);
+    const window = routesSrc.slice(idx, idx + 400);
+    expect(window).toContain("requireAdmin");
+    expect(window).toContain("requireAdminStepUp");
+    expect(window).toContain("migrationLimiter");
+  });
+
   it("every new storage route goes through requireAdmin + requireAdminStepUp", () => {
     const routes = [
       "/api/admin/db-storage/tables",
