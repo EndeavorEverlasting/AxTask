@@ -17,6 +17,15 @@ import { z } from "zod";
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: text("email").notNull().unique("users_email_unique"),
+  /** Public-facing stable handle for DM discovery; never use as internal FK. */
+  publicHandle: text("public_handle")
+    .notNull()
+    .default(sql`'ax' || substring(replace(gen_random_uuid()::text, '-', '') from 1 for 12)`),
+  /** Public invite token used in QR/contact-card flows. */
+  publicDmToken: text("public_dm_token")
+    .notNull()
+    .default(sql`encode(gen_random_bytes(18), 'hex')`),
+  publicHandleUpdatedAt: timestamp("public_handle_updated_at"),
   passwordHash: text("password_hash"),
   displayName: text("display_name"),
   role: text("role").notNull().default("user"),
@@ -42,7 +51,10 @@ export const users = pgTable("users", {
   /** Optional calendar date `YYYY-MM-DD` for in-app milestones; not in SafeUser — use GET /api/account/profile. */
   birthDate: text("birth_date"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("users_public_handle_unique").on(table.publicHandle),
+  uniqueIndex("users_public_dm_token_unique").on(table.publicDmToken),
+]);
 
 // ─── Password Reset Tokens ───────────────────────────────────────────────────
 export const passwordResetTokens = pgTable("password_reset_tokens", {

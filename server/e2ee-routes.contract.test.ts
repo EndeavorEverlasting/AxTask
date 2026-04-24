@@ -11,7 +11,8 @@ describe("E2EE + DM routes", () => {
     const routes = fs.readFileSync(routesPath, "utf8");
     expect(routes).toContain('app.post("/api/e2ee/devices"');
     expect(routes).toContain('app.get("/api/e2ee/devices"');
-    expect(routes).toContain('app.get("/api/e2ee/peer/:peerUserId/devices"');
+    expect(routes).toContain('app.get("/api/e2ee/conversations/:id/peer-devices"');
+    expect(routes).toContain('app.get("/api/dm/public-identity"');
     expect(routes).toContain('app.post("/api/dm/conversations"');
     expect(routes).toContain('app.get("/api/dm/conversations"');
     expect(routes).toContain('app.get("/api/dm/conversations/:id/messages"');

@@ -12,14 +12,14 @@ import { Label } from "@/components/ui/label";
 import { decryptDmUtf8, encryptDmUtf8, generateDmDeviceIdentity } from "@/lib/e2ee-dm-crypto";
 import { loadDmDeviceState, saveDmDeviceState } from "@/lib/e2ee-device-storage";
 import { parseApiRequestError, participationAgeUserHint } from "@/lib/parse-api-request-error";
+import QRCode from "qrcode";
 
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
 
 type DmRow = {
   id: string;
   conversationId: string;
-  senderUserId: string;
-  recipientUserId: string;
+  direction: "in" | "out";
   senderPubSpkiB64: string;
   /** Present on new messages; used so the sender can decrypt their own sends after peer key rotation. */
   recipientPubSpkiB64?: string | null;
@@ -34,7 +34,8 @@ export default function MessagesPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [deviceReady, setDeviceReady] = useState(false);
-  const [peerUserId, setPeerUserId] = useState("");
+  const [peerIdentifier, setPeerIdentifier] = useState("");
+  const [shareQrDataUrl, setShareQrDataUrl] = useState<string>("");
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [cryptoKeys, setCryptoKeys] = useState<{
@@ -107,11 +108,32 @@ export default function MessagesPage() {
     queryFn: async () => {
       const r = await apiRequest("GET", "/api/dm/conversations");
       return r.json() as Promise<{
-        conversations: Array<{ id: string; peerUserId: string | null; memberUserIds: string[] }>;
+        conversations: Array<{ id: string; peerHandle: string | null }>;
       }>;
     },
     enabled: Boolean(user && deviceReady),
   });
+
+  const { data: shareIdentity } = useQuery({
+    queryKey: ["/api/dm/public-identity"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/dm/public-identity");
+      return r.json() as Promise<{ publicHandle: string; publicDmToken: string }>;
+    },
+    enabled: Boolean(user),
+  });
+
+  useEffect(() => {
+    const token = shareIdentity?.publicDmToken;
+    if (!token) {
+      setShareQrDataUrl("");
+      return;
+    }
+    const payload = `axtask-dm:${token}`;
+    void QRCode.toDataURL(payload, { margin: 1, width: 180 })
+      .then(setShareQrDataUrl)
+      .catch(() => setShareQrDataUrl(""));
+  }, [shareIdentity?.publicDmToken]);
 
   const { data: msgData } = useQuery({
     queryKey: ["/api/dm/conversations", activeConversationId, "messages"],
@@ -123,8 +145,13 @@ export default function MessagesPage() {
   });
 
   const createConv = useMutation({
-    mutationFn: async (peer: string) => {
-      const r = await apiRequest("POST", "/api/dm/conversations", { peerUserId: peer });
+    mutationFn: async (peerRaw: string) => {
+      const peer = peerRaw.trim();
+      const normalizedToken = peer.startsWith("axtask-dm:") ? peer.slice("axtask-dm:".length).trim() : peer;
+      const payload = normalizedToken.length >= 16 && !normalizedToken.startsWith("@")
+        ? { peerDmToken: normalizedToken }
+        : { peerHandle: peer.replace(/^@+/, "") };
+      const r = await apiRequest("POST", "/api/dm/conversations", payload);
       return r.json() as Promise<{ conversationId: string }>;
     },
     onSuccess: (d) => {
@@ -145,10 +172,7 @@ export default function MessagesPage() {
   const sendMsg = useMutation({
     mutationFn: async () => {
       if (!activeConversationId || !cryptoKeys || !user) throw new Error("Not ready");
-      const conv = convData?.conversations.find((c) => c.id === activeConversationId);
-      const peer = conv?.peerUserId;
-      if (!peer) throw new Error("No peer in conversation");
-      const devRes = await apiRequest("GET", `/api/e2ee/peer/${peer}/devices`);
+      const devRes = await apiRequest("GET", `/api/e2ee/conversations/${activeConversationId}/peer-devices`);
       const devJson = (await devRes.json()) as { devices: Array<{ publicKeySpki: string }> };
       // Server returns devices ordered by lastSeenAt desc; encrypt to the most recently active device.
       const peerSpki = devJson.devices[0]?.publicKeySpki;
@@ -215,17 +239,39 @@ export default function MessagesPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle>My secure contact card</CardTitle>
+          <CardDescription>
+            Share your public handle or invite token. Internal peer and device IDs stay backend-only.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p>
+            Handle: <span className="font-mono">@{shareIdentity?.publicHandle ?? "…"}</span>
+          </p>
+          <p>
+            Invite token: <span className="font-mono text-xs break-all">{shareIdentity?.publicDmToken ?? "…"}</span>
+          </p>
+          {shareQrDataUrl ? (
+            <img src={shareQrDataUrl} alt="DM invite QR" className="h-40 w-40 rounded border bg-white p-1" />
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Start or open a conversation</CardTitle>
-          <CardDescription>Enter the other user&apos;s UUID (from admin or support). Both users need a device key.</CardDescription>
+          <CardDescription>
+            Enter the other user&apos;s public handle (for example @ax_user) or DM invite token.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-2">
-            <Label htmlFor="peer">Peer user id</Label>
+            <Label htmlFor="peer">Peer handle or invite</Label>
             <Input
               id="peer"
-              value={peerUserId}
-              onChange={(e) => setPeerUserId(e.target.value)}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              value={peerIdentifier}
+              onChange={(e) => setPeerIdentifier(e.target.value)}
+              placeholder="@handle or axtask-dm:token"
               className="font-mono text-sm"
             />
           </div>
@@ -233,7 +279,7 @@ export default function MessagesPage() {
             type="button"
             disabled={!deviceReady || createConv.isPending}
             onClick={() => {
-              const t = peerUserId.trim();
+              const t = peerIdentifier.trim();
               if (!t) return;
               createConv.mutate(t);
             }}
@@ -250,7 +296,7 @@ export default function MessagesPage() {
                     className={`text-sm underline-offset-2 hover:underline ${activeConversationId === c.id ? "text-primary font-medium" : ""}`}
                     onClick={() => setActiveConversationId(c.id)}
                   >
-                    {c.id.slice(0, 8)}… {c.peerUserId ? `↔ ${c.peerUserId.slice(0, 8)}…` : ""}
+                    {c.id.slice(0, 8)}… {c.peerHandle ? `↔ @${c.peerHandle}` : ""}
                   </button>
                 </li>
               ))}
@@ -273,9 +319,9 @@ export default function MessagesPage() {
                 {messages.map((m) => (
                   <li key={m.id} className="whitespace-pre-wrap break-words">
                     <span className="text-muted-foreground text-xs">
-                      {m.senderUserId === user?.id ? "You" : "Peer"}:
+                      {m.direction === "out" ? "You" : "Peer"}:
                     </span>{" "}
-                    <DecryptLine m={m} userId={user?.id ?? ""} cryptoKeys={cryptoKeys} />
+                    <DecryptLine m={m} conversationId={activeConversationId} cryptoKeys={cryptoKeys} />
                   </li>
                 ))}
               </ul>
@@ -326,11 +372,11 @@ function bufToB64(buf: ArrayBuffer): string {
 
 function DecryptLine({
   m,
-  userId,
+  conversationId,
   cryptoKeys,
 }: {
   m: DmRow;
-  userId: string;
+  conversationId: string;
   cryptoKeys: { privateKey: CryptoKey; publicKey: CryptoKey; publicKeySpkiPem: string } | null;
 }) {
   const [text, setText] = useState("");
@@ -342,12 +388,12 @@ function DecryptLine({
     void (async () => {
       try {
         let otherB64 = m.senderPubSpkiB64;
-        if (m.senderUserId === userId) {
+        if (m.direction === "out") {
           if (m.recipientPubSpkiB64) {
             otherB64 = m.recipientPubSpkiB64.trim();
           } else {
             // Legacy rows: approximate peer key at decrypt time (may fail if peer rotated keys).
-            const devRes = await fetch(`/api/e2ee/peer/${m.recipientUserId}/devices`, { credentials: "include" });
+            const devRes = await fetch(`/api/e2ee/conversations/${conversationId}/peer-devices`, { credentials: "include" });
             if (!devRes.ok) throw new Error("no peer key");
             const j = (await devRes.json()) as { devices: Array<{ publicKeySpki: string }> };
             const spki = j.devices[0]?.publicKeySpki;
@@ -374,13 +420,12 @@ function DecryptLine({
     };
   }, [
     m.id,
-    m.senderUserId,
-    m.recipientUserId,
+    m.direction,
     m.ciphertextB64,
     m.nonceB64,
     m.senderPubSpkiB64,
     m.recipientPubSpkiB64,
-    userId,
+    conversationId,
     cryptoKeys,
   ]);
 

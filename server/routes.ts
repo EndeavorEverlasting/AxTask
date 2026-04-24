@@ -157,6 +157,8 @@ import {
   toPublicTaskDetail,
   toPublicArchetypePollSummary,
   toPublicArchetypePollOptions,
+  type PublicDmConversation,
+  type PublicDmMessage,
   type PublicArchetypePollResultRow,
 } from "@shared/public-client-dtos";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
@@ -241,6 +243,8 @@ import {
   insertDmMessage,
   listDmMessages,
   getOtherMemberUserId,
+  getPublicDmSharePack,
+  resolvePeerUserIdByPublicIdentifier,
 } from "./dm-e2ee";
 
 /** Constant-time string comparison — prevents timing side-channel leaks. */
@@ -5317,9 +5321,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/e2ee/peer/:peerUserId/devices", requireAuth, async (req, res) => {
+  app.get("/api/e2ee/conversations/:id/peer-devices", requireAuth, async (req, res) => {
     try {
-      const peerUserId = z.string().uuid().parse(req.params.peerUserId);
+      const ok = await assertDmMember(req.params.id, req.user!.id);
+      if (!ok) return res.status(404).json({ message: "Not found" });
+      const peerUserId = await getOtherMemberUserId(req.params.id, req.user!.id);
+      if (!peerUserId) return res.status(400).json({ message: "Invalid conversation" });
       const devices = await listUserDeviceKeysPublic(peerUserId);
       res.json({ devices });
     } catch (error) {
@@ -5328,15 +5335,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/dm/public-identity", requireAuth, async (req, res) => {
+    try {
+      const share = await getPublicDmSharePack(req.user!.id);
+      if (!share) return res.status(404).json({ message: "User not found" });
+      res.json({
+        publicHandle: share.publicHandle,
+        publicDmToken: share.publicDmToken,
+      });
+    } catch {
+      res.status(500).json({ message: "Failed to load DM identity" });
+    }
+  });
+
   app.post("/api/dm/conversations", requireAuth, async (req, res) => {
     try {
       if (!(await guardPublicParticipationAge(req, res))) return;
-      const { peerUserId } = z.object({ peerUserId: z.string().uuid() }).parse(req.body);
+      const parsed = z
+        .object({
+          peerHandle: z.string().min(2).max(64).optional(),
+          peerDmToken: z.string().min(16).max(128).optional(),
+        })
+        .refine((v) => Boolean(v.peerHandle?.trim() || v.peerDmToken?.trim()), {
+          message: "Provide a peer handle or invite token",
+        })
+        .parse(req.body);
+      const peerUserId = await resolvePeerUserIdByPublicIdentifier({
+        peerHandle: parsed.peerHandle ?? null,
+        peerDmToken: parsed.peerDmToken ?? null,
+      });
+      if (!peerUserId) return res.status(404).json({ message: "Peer not found" });
       if (peerUserId === req.user!.id) {
         return res.status(400).json({ message: "Cannot start a conversation with yourself" });
       }
-      const peer = await getUserById(peerUserId);
-      if (!peer) return res.status(404).json({ message: "User not found" });
       const conversationId = await createDirectDmConversation(req.user!.id, peerUserId);
       res.status(201).json({ conversationId });
     } catch (error) {
@@ -5348,7 +5379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/dm/conversations", requireAuth, async (req, res) => {
     try {
-      const conversations = await listDmConversationsForUser(req.user!.id);
+      const conversations = await listDmConversationsForUser(req.user!.id) as PublicDmConversation[];
       res.json({ conversations });
     } catch {
       res.status(500).json({ message: "Failed to list conversations" });
@@ -5360,7 +5391,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const ok = await assertDmMember(req.params.id, req.user!.id);
       if (!ok) return res.status(404).json({ message: "Not found" });
       const rows = await listDmMessages(req.params.id, 200);
-      res.json({ messages: [...rows].reverse() });
+      const messages: PublicDmMessage[] = [...rows].reverse().map((m) => ({
+        id: m.id,
+        conversationId: m.conversationId,
+        direction: m.senderUserId === req.user!.id ? "out" : "in",
+        senderPubSpkiB64: m.senderPubSpkiB64,
+        recipientPubSpkiB64: m.recipientPubSpkiB64,
+        ciphertextB64: m.ciphertextB64,
+        nonceB64: m.nonceB64,
+        contentEncoding: m.contentEncoding,
+        createdAt: m.createdAt ? m.createdAt.toISOString() : null,
+      }));
+      res.json({ messages });
     } catch {
       res.status(500).json({ message: "Failed to load messages" });
     }
@@ -5393,7 +5435,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         nonceB64: parsed.nonceB64,
         contentEncoding: parsed.contentEncoding,
       });
-      res.status(201).json(row);
+      res.status(201).json({
+        id: row.id,
+        conversationId: row.conversationId,
+        direction: "out",
+        senderPubSpkiB64: row.senderPubSpkiB64,
+        recipientPubSpkiB64: row.recipientPubSpkiB64,
+        ciphertextB64: row.ciphertextB64,
+        nonceB64: row.nonceB64,
+        contentEncoding: row.contentEncoding,
+        createdAt: row.createdAt ? row.createdAt.toISOString() : null,
+      } satisfies PublicDmMessage);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
       if (error instanceof Error) return res.status(400).json({ message: error.message });

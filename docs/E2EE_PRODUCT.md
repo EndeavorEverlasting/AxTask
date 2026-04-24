@@ -26,7 +26,8 @@ This document describes **explicit** end-to-end encryption features as shipped i
 |--------|------|---------|
 | POST | `/api/e2ee/devices` | Register or rotate this browser’s public key |
 | GET | `/api/e2ee/devices` | List own device public keys |
-| GET | `/api/e2ee/peer/:peerUserId/devices` | List a peer’s public keys (MVP: any authenticated user) |
+| GET | `/api/e2ee/conversations/:id/peer-devices` | List peer public keys for a conversation member |
+| GET | `/api/dm/public-identity` | Return own public handle + invite token for sharing |
 | POST | `/api/dm/conversations` | Create or return a 1:1 conversation id |
 | GET | `/api/dm/conversations` | List conversations for the session user |
 | GET | `/api/dm/conversations/:id/messages` | List ciphertext messages |

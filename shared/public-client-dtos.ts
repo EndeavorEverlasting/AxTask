@@ -216,6 +216,25 @@ export function toPublicAttachmentRefs(assets: AttachmentAsset[]): PublicAttachm
   return assets.map(toPublicAttachmentRef);
 }
 
+// ─── E2EE DM DTOs (public client shape) ────────────────────────────────
+
+export type PublicDmConversation = {
+  id: string;
+  peerHandle: string | null;
+};
+
+export type PublicDmMessage = {
+  id: string;
+  conversationId: string;
+  direction: "in" | "out";
+  senderPubSpkiB64: string;
+  recipientPubSpkiB64?: string | null;
+  ciphertextB64: string;
+  nonceB64: string;
+  contentEncoding: string;
+  createdAt: string | null;
+};
+
 // ─── Archetype polls (public community) ───────────────────────────────
 
 export type PublicArchetypePollOption = {

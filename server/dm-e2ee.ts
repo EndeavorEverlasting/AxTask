@@ -6,7 +6,13 @@ import {
   dmConversations,
   dmMessages,
   userDeviceKeys,
+  users,
 } from "@shared/schema";
+
+function normalizePublicHandle(raw: string): string {
+  const trimmed = raw.trim().toLowerCase().replace(/^@+/, "");
+  return trimmed;
+}
 
 export async function upsertUserDeviceKey(input: {
   userId: string;
@@ -55,6 +61,45 @@ export async function listUserDeviceKeysPublic(userId: string) {
     .from(userDeviceKeys)
     .where(eq(userDeviceKeys.userId, userId))
     .orderBy(desc(userDeviceKeys.lastSeenAt));
+}
+
+export async function getPublicDmSharePack(userId: string) {
+  const [row] = await db
+    .select({
+      publicHandle: users.publicHandle,
+      publicDmToken: users.publicDmToken,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function resolvePeerUserIdByPublicIdentifier(input: {
+  peerHandle?: string | null;
+  peerDmToken?: string | null;
+}): Promise<string | null> {
+  if (input.peerDmToken) {
+    const [row] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.publicDmToken, input.peerDmToken.trim()))
+      .limit(1);
+    if (row) return row.id;
+  }
+
+  if (input.peerHandle) {
+    const normalized = normalizePublicHandle(input.peerHandle);
+    if (!normalized) return null;
+    const [row] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.publicHandle, normalized))
+      .limit(1);
+    if (row) return row.id;
+  }
+
+  return null;
 }
 
 async function findDirectDmConversationIdUsing(
@@ -150,11 +195,22 @@ export async function listDmConversationsForUser(userId: string) {
     byConv.set(m.conversationId, arr);
   }
 
-  return ids.map((id) => ({
+  const peerIds = [...new Set(members.map((m) => m.userId).filter((id) => id !== userId))];
+  const peerUsers = peerIds.length === 0
+    ? []
+    : await db
+      .select({ id: users.id, publicHandle: users.publicHandle })
+      .from(users)
+      .where(inArray(users.id, peerIds));
+  const handleByUserId = new Map(peerUsers.map((u) => [u.id, u.publicHandle]));
+
+  return ids.map((id) => {
+    const peerUserId = (byConv.get(id) ?? []).find((u) => u !== userId) ?? null;
+    return {
     id,
-    peerUserId: (byConv.get(id) ?? []).find((u) => u !== userId) ?? null,
-    memberUserIds: byConv.get(id) ?? [],
-  }));
+      peerHandle: peerUserId ? handleByUserId.get(peerUserId) ?? null : null,
+    };
+  });
 }
 
 export async function insertDmMessage(input: {
