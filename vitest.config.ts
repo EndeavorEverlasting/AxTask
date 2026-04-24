@@ -40,6 +40,7 @@ export default defineConfig({
           include: [
             "client/**/*.test.{ts,tsx}",
             "shared/**/*.test.{ts,tsx}",
+            "tests/contracts/**/*.test.{ts,tsx}",
           ],
           exclude: ["node_modules", "dist", "tests/deploy/**"],
         },

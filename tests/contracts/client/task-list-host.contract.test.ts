@@ -1,13 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, "../../..");
+
 const HOST_SRC = fs.readFileSync(
-  path.resolve(__dirname, "task-list-host.tsx"),
+  path.join(repoRoot, "client/src/components/task-list-host.tsx"),
   "utf8",
 );
 const PAGE_SRC = fs.readFileSync(
-  path.resolve(__dirname, "../pages/tasks.tsx"),
+  path.join(repoRoot, "client/src/pages/tasks.tsx"),
   "utf8",
 );
 

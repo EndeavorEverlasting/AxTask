@@ -28,7 +28,7 @@ This document is a hard UX contract for `/tasks` and any page using
 ## Regression tests that must stay green
 
 - `client/src/components/task-list-host.render.test.tsx`
-- `client/src/components/task-list-host-contract.test.ts`
+- `tests/contracts/client/task-list-host.contract.test.ts`
 - `server/use-case-engagement.contract.test.ts`
 - `server/organization-rewards.unit.test.ts`
 

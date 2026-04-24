@@ -108,6 +108,34 @@ Validation:
 - `NodeWeaver._pre_submodule_backup` was a stale submodule gitlink; it has been **removed from the git index**. PR tooling may still exclude the path pattern for safety.
 - Runtime source for integrated development is `services/nodeweaver/upstream` ([`docs/NODEWEAVER.md`](NODEWEAVER.md)).
 
+## App-first commits vs contract-test commits (same repo, full CI on `main`)
+
+Goal: merge **implementation** before or separately from **contract / source
+assertions**, so a `git diff main -- tests/contracts` (or a PR that only
+touches `**/*.test.*`) is easy to review without mixing large app refactors.
+
+**Constraints (per team policy):**
+
+- **`main` stays fully tested** — every push and PR still runs `npm test` and
+  the existing workflow in `.github/workflows/test-and-attest.yml`. This is
+  about **PR hygiene and path boundaries**, not skipping the suite on `main`.
+- **Contract-style tests** (source reads, route inventories, doc anchors) may
+  live under [`tests/contracts/`](../tests/contracts/) so they are not
+  colocated with components. The Vitest `client-shared` project includes
+  `tests/contracts/**/*.test.{ts,tsx}` (see [`vitest.config.ts`](../vitest.config.ts)).
+
+**Suggested sequence:**
+
+1. **PR 1 (app):** Production paths only (`client/src`, `server`, `shared`
+   excluding `*.test.*` unless a minimal change is unavoidable).
+2. **PR 2 (tests):** Add or move tests; for new Task List UX contracts prefer
+   `tests/contracts/client/` over colocation when the test only reads source
+   files or asserts static structure.
+
+Use [`tools/local/pr-factor.mjs`](../tools/local/pr-factor.mjs) or
+[`tools/local/split-pr-helper.mjs`](../tools/local/split-pr-helper.mjs) to
+generate manifests from `origin/main` and keep each slice under the file cap.
+
 ## Dirty-File Curation Policy
 
 When preparing deployment branches with existing dirty files, apply this filter in order:
