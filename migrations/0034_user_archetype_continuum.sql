@@ -2,7 +2,7 @@
 -- points) that sum to 100_000 = 1.0. Updated via exponential moving average
 -- from avatar/archetype behavioral signals (no PII beyond user_id).
 
-CREATE TABLE user_archetype_continuum (
+CREATE TABLE IF NOT EXISTS user_archetype_continuum (
   user_id varchar PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   milli_momentum integer NOT NULL DEFAULT 20000,
   milli_strategy integer NOT NULL DEFAULT 20000,
@@ -19,4 +19,4 @@ CREATE TABLE user_archetype_continuum (
   )
 );
 
-CREATE INDEX idx_user_archetype_continuum_updated ON user_archetype_continuum (updated_at);
+CREATE INDEX IF NOT EXISTS idx_user_archetype_continuum_updated ON user_archetype_continuum (updated_at);
