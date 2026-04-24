@@ -27,4 +27,12 @@ describe("collaboration routes contract", () => {
     expect(routes).toContain("getInvitePreviewByPublicHandle");
     expect(routes).toContain("toPublicInviteUserPreview");
   });
+
+  it("registers invite handle suggestions and recent collaborators endpoints", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes).toContain('app.get("/api/invites/handle-suggestions"');
+    expect(routes).toContain('app.get("/api/invites/recent-collaborators"');
+    expect(routes).toContain("searchPublicInvitePreviewsByPrefix");
+    expect(routes).toContain("getRecentInviteCollaboratorPreviews");
+  });
 });

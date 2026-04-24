@@ -105,6 +105,8 @@ import {
   getAccessibleTaskForUser,
   updateTaskById,
   getInvitePreviewByPublicHandle,
+  searchPublicInvitePreviewsByPrefix,
+  getRecentInviteCollaboratorPreviews,
   canAccessTask,
   isTaskOwner,
   resetStreak,
@@ -7689,6 +7691,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.json({ found: true, preview: toPublicInviteUserPreview(preview) });
     } catch (error) {
       return res.status(500).json({ message: "Failed to preview handle" });
+    }
+  });
+
+  app.get("/api/invites/handle-suggestions", requireAuth, async (req, res) => {
+    try {
+      const raw = String(req.query.query ?? "").trim();
+      const normalized = raw.toLowerCase().replace(/^@+/, "");
+      if (normalized.length < 2) {
+        return res.json({ suggestions: [] });
+      }
+      const rows = await searchPublicInvitePreviewsByPrefix(normalized, 5);
+      return res.json({ suggestions: rows.map((row) => toPublicInviteUserPreview(row)) });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to load handle suggestions" });
+    }
+  });
+
+  app.get("/api/invites/recent-collaborators", requireAuth, async (req, res) => {
+    try {
+      const rows = await getRecentInviteCollaboratorPreviews(req.user!.id, 8);
+      return res.json({ recent: rows.map((row) => toPublicInviteUserPreview(row)) });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to load recent collaborators" });
     }
   });
 

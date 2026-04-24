@@ -124,7 +124,7 @@ import {
   type UserLocationPlace,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, or, asc, lt, lte, gt, gte, count, avg, sql, desc, inArray } from "drizzle-orm";
+import { eq, and, ne, ilike, or, asc, lt, lte, gt, gte, count, avg, sql, desc, inArray } from "drizzle-orm";
 import type { ArchetypeKey } from "@shared/avatar-archetypes";
 import { dominantArchetypeFromAvatarProfiles } from "./lib/poll-archetype";
 import { applyKAnonymityToPollTallies, type RawOptionTally } from "./lib/archetype-poll-aggregate";
@@ -299,6 +299,71 @@ export async function getInvitePreviewByPublicHandle(
     .from(users)
     .where(eq(users.publicHandle, normalized));
   return user ?? null;
+}
+
+const HANDLE_PREFIX_SEARCH_MAX = 32;
+const HANDLE_SUGGESTIONS_CAP = 5;
+
+/** Prefix match on `public_handle` for invite autocomplete (privacy-safe columns only). */
+export async function searchPublicInvitePreviewsByPrefix(
+  prefix: string,
+  limit = HANDLE_SUGGESTIONS_CAP,
+): Promise<Pick<User, "publicHandle" | "displayName" | "profileImageUrl">[]> {
+  const normalized = prefix.trim().toLowerCase().replace(/^@+/, "");
+  if (normalized.length < 2) return [];
+  const capped = normalized.slice(0, HANDLE_PREFIX_SEARCH_MAX);
+  const cap = Math.min(Math.max(1, limit), 10);
+  return await db
+    .select({
+      publicHandle: users.publicHandle,
+      displayName: users.displayName,
+      profileImageUrl: users.profileImageUrl,
+    })
+    .from(users)
+    .where(ilike(users.publicHandle, `${capped}%`))
+    .orderBy(asc(users.publicHandle))
+    .limit(cap);
+}
+
+const RECENT_INVITE_COLLAB_FETCH = 64;
+
+/** Distinct users this account has invited recently (by latest `invited_at`), safe preview fields only. */
+export async function getRecentInviteCollaboratorPreviews(
+  inviterUserId: string,
+  limit = 8,
+): Promise<Pick<User, "publicHandle" | "displayName" | "profileImageUrl">[]> {
+  const rows = await db
+    .select({
+      userId: taskCollaborators.userId,
+      publicHandle: users.publicHandle,
+      displayName: users.displayName,
+      profileImageUrl: users.profileImageUrl,
+      invitedAt: taskCollaborators.invitedAt,
+    })
+    .from(taskCollaborators)
+    .innerJoin(users, eq(taskCollaborators.userId, users.id))
+    .where(
+      and(
+        eq(taskCollaborators.invitedBy, inviterUserId),
+        ne(taskCollaborators.userId, inviterUserId),
+      ),
+    )
+    .orderBy(desc(taskCollaborators.invitedAt))
+    .limit(RECENT_INVITE_COLLAB_FETCH);
+
+  const seen = new Set<string>();
+  const out: Pick<User, "publicHandle" | "displayName" | "profileImageUrl">[] = [];
+  for (const r of rows) {
+    if (seen.has(r.userId)) continue;
+    seen.add(r.userId);
+    out.push({
+      publicHandle: r.publicHandle,
+      displayName: r.displayName,
+      profileImageUrl: r.profileImageUrl,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 export async function getUserById(id: string): Promise<SafeUser | undefined> {

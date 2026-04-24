@@ -1,7 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth-context";
+import { cn } from "@/lib/utils";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { useMfaChallenge } from "@/hooks/use-mfa-challenge";
 import { MfaVerificationPanel } from "@/components/mfa/mfa-verification-panel";
@@ -42,9 +44,12 @@ type InvitePreviewResponse = {
   };
 };
 
+type InvitePreviewUser = NonNullable<InvitePreviewResponse["preview"]>;
+
 export function ShareDialog({ taskId, isOwner, visibility = "private", communityShowNotes = false }: ShareDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user: sessionUser } = useAuth();
   const { requestChallenge, isRequesting: mfaSending } = useMfaChallenge();
   const [handle, setHandle] = useState("");
   const [handleError, setHandleError] = useState<string | null>(null);
@@ -65,6 +70,9 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   } | null>(null);
   const [unpubChallenge, setUnpubChallenge] = useState<typeof pubChallenge | null>(null);
   const [debouncedHandle, setDebouncedHandle] = useState("");
+  const [highlightUserId, setHighlightUserId] = useState<string | null>(null);
+  const [suggestActiveIndex, setSuggestActiveIndex] = useState(-1);
+  const inviteInputWrapRef = useRef<HTMLDivElement>(null);
 
   const normalizedHandle = useMemo(() => handle.trim().replace(/^@+/, "").toLowerCase(), [handle]);
   const isHandleStructurallyValid = normalizedHandle.length > 0 && !/\s/.test(normalizedHandle);
@@ -79,10 +87,20 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   }, [normalizedHandle, open]);
 
   useEffect(() => {
+    setSuggestActiveIndex(-1);
+  }, [debouncedHandle]);
+
+  useEffect(() => {
     if (!invitePulse) return;
     const t = window.setTimeout(() => setInvitePulse(null), 2200);
     return () => window.clearTimeout(t);
   }, [invitePulse]);
+
+  useEffect(() => {
+    if (!highlightUserId) return;
+    const t = window.setTimeout(() => setHighlightUserId(null), 2600);
+    return () => window.clearTimeout(t);
+  }, [highlightUserId]);
 
   const previewQuery = useQuery<InvitePreviewResponse>({
     queryKey: ["/api/invites/preview", debouncedHandle],
@@ -100,6 +118,30 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
     },
   });
 
+  const suggestionsQuery = useQuery<{ suggestions: InvitePreviewUser[] }>({
+    queryKey: ["/api/invites/handle-suggestions", debouncedHandle],
+    enabled: isOwner && open && debouncedHandle.length >= 2 && isHandleStructurallyValid,
+    staleTime: 15_000,
+    queryFn: async () => {
+      const u = new URL("/api/invites/handle-suggestions", window.location.origin);
+      u.searchParams.set("query", debouncedHandle);
+      const res = await fetch(`${u.pathname}${u.search}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Could not load suggestions");
+      return res.json();
+    },
+  });
+
+  const recentQuery = useQuery<{ recent: InvitePreviewUser[] }>({
+    queryKey: ["/api/invites/recent-collaborators"],
+    enabled: isOwner && open,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const res = await fetch("/api/invites/recent-collaborators", { credentials: "include" });
+      if (!res.ok) return { recent: [] };
+      return res.json();
+    },
+  });
+
   const { data: collaborators = [] } = useQuery<Collaborator[]>({
     queryKey: ["/api/tasks", taskId, "collaborators"],
     queryFn: async () => {
@@ -109,6 +151,28 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
     },
     staleTime: 30_000,
   });
+
+  const existingHandles = useMemo(
+    () => new Set(collaborators.map((c) => c.publicHandle.toLowerCase())),
+    [collaborators],
+  );
+
+  const recentChips = useMemo(() => {
+    const list = recentQuery.data?.recent ?? [];
+    const selfHandle = sessionUser?.publicHandle?.toLowerCase() ?? null;
+    return list.filter((r) => {
+      if (existingHandles.has(r.publicHandle.toLowerCase())) return false;
+      if (selfHandle && r.publicHandle.toLowerCase() === selfHandle) return false;
+      return true;
+    });
+  }, [recentQuery.data?.recent, existingHandles, sessionUser?.publicHandle]);
+
+  const applySuggestion = useCallback((publicHandle: string) => {
+    const h = publicHandle.trim().toLowerCase();
+    setHandle(h ? `@${h}` : "");
+    setSuggestActiveIndex(-1);
+    setHandleError(null);
+  }, []);
 
   const addMutation = useMutation({
     mutationFn: async ({ handle, role }: { handle: string; role: string }) => {
@@ -125,6 +189,9 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invites/recent-collaborators"] });
+      const collab = data as { userId?: string } | undefined;
+      if (collab?.userId) setHighlightUserId(collab.userId);
       setHandle("");
       setInvitePulse(`Orb sync complete: @${handle.replace(/^@+/, "")} joined as ${role}.`);
       toast({ title: "Collaborator added", description: `@${handle.replace(/^@+/, "")} can now access this task.` });
@@ -206,6 +273,45 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
     }
     setHandleError(null);
     addMutation.mutate({ handle: normalizedHandle, role });
+  };
+
+  const suggestionList = suggestionsQuery.data?.suggestions ?? [];
+  const showSuggestPanel =
+    isOwner
+    && open
+    && debouncedHandle.length >= 2
+    && isHandleStructurallyValid
+    && (suggestionsQuery.isFetching || suggestionsQuery.isSuccess);
+
+  const onInviteInputKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    const list = suggestionList;
+    if (showSuggestPanel && list.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSuggestActiveIndex((i) => (i < 0 ? 0 : Math.min(list.length - 1, i + 1)));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSuggestActiveIndex((i) => (i <= 0 ? -1 : i - 1));
+        return;
+      }
+      if (e.key === "Enter" && suggestActiveIndex >= 0 && suggestActiveIndex < list.length) {
+        e.preventDefault();
+        applySuggestion(list[suggestActiveIndex]!.publicHandle);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSuggestActiveIndex(-1);
+        return;
+      }
+    }
+    if (e.key === "Enter") {
+      if (!inviteReady) return;
+      e.preventDefault();
+      submitInvite();
+    }
   };
 
   const publishMutation = useMutation({
@@ -307,38 +413,106 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
         </DialogHeader>
 
         {isOwner && (
-          <div className="flex gap-2">
-            <Input
-              placeholder="Enter @handle"
-              value={handle}
-              onChange={(e) => {
-                setHandle(e.target.value);
-                if (handleError) setHandleError(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter") return;
-                if (!inviteReady) return;
-                submitInvite();
-              }}
-              className="flex-1"
-              aria-invalid={handleError ? true : undefined}
-            />
-            <Select value={role} onValueChange={setRole}>
-              <SelectTrigger className="w-24">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="editor">Editor</SelectItem>
-                <SelectItem value="viewer">Viewer</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              onClick={submitInvite}
-              disabled={!inviteReady}
-              size="icon"
-            >
-              <UserPlus className="h-4 w-4" />
-            </Button>
+          <div className="space-y-2">
+            {recentChips.length > 0 ? (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Invite again</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {recentChips.map((r) => (
+                    <Button
+                      key={r.publicHandle}
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="h-7 rounded-full px-2.5 text-xs"
+                      onMouseDown={(ev) => {
+                        ev.preventDefault();
+                        applySuggestion(r.publicHandle);
+                      }}
+                    >
+                      @{r.publicHandle}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="flex gap-2">
+              <div className="relative flex-1" ref={inviteInputWrapRef}>
+                <Input
+                  placeholder="Enter @handle"
+                  value={handle}
+                  autoComplete="off"
+                  aria-autocomplete="list"
+                  aria-expanded={showSuggestPanel && suggestionList.length > 0}
+                  onChange={(e) => {
+                    setHandle(e.target.value);
+                    if (handleError) setHandleError(null);
+                  }}
+                  onKeyDown={onInviteInputKeyDown}
+                  className="flex-1"
+                  aria-invalid={handleError ? true : undefined}
+                />
+                {showSuggestPanel ? (
+                  <div
+                    className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+                    role="listbox"
+                  >
+                    {suggestionsQuery.isFetching ? (
+                      <div className="px-3 py-2 text-xs text-muted-foreground">Scanning handles…</div>
+                    ) : suggestionsQuery.isError ? (
+                      <div className="px-3 py-2 text-xs text-destructive">Could not load suggestions.</div>
+                    ) : suggestionList.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-muted-foreground">No matches — try another prefix.</div>
+                    ) : (
+                      suggestionList.map((s, idx) => (
+                        <button
+                          key={s.publicHandle}
+                          type="button"
+                          role="option"
+                          aria-selected={suggestActiveIndex === idx}
+                          className={cn(
+                            "flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60",
+                            suggestActiveIndex === idx && "bg-muted/80",
+                          )}
+                          onMouseEnter={() => setSuggestActiveIndex(idx)}
+                          onMouseDown={(ev) => {
+                            ev.preventDefault();
+                            applySuggestion(s.publicHandle);
+                          }}
+                        >
+                          <span
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                            style={{ backgroundColor: stringToColor(s.publicHandle) }}
+                          >
+                            {(s.displayName || s.publicHandle).charAt(0).toUpperCase()}
+                          </span>
+                          <span className="min-w-0 truncate">
+                            <span className="font-medium">{s.displayName || `@${s.publicHandle}`}</span>
+                            <span className="ml-1 text-muted-foreground">@{s.publicHandle}</span>
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+              </div>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger className="w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="editor">Editor</SelectItem>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                onClick={submitInvite}
+                disabled={!inviteReady}
+                size="icon"
+              >
+                <UserPlus className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         )}
         {isOwner && normalizedHandle.length >= 2 ? (
@@ -389,7 +563,13 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
             </p>
           ) : (
             collaborators.map((c) => (
-              <div key={c.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/50">
+              <div
+                key={c.id}
+                className={cn(
+                  "flex items-center justify-between rounded-lg bg-muted/50 p-2",
+                  highlightUserId === c.userId && "axtask-collab-row-intro ring-2 ring-primary/35",
+                )}
+              >
                 <div className="flex items-center gap-2">
                   <div
                     className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"

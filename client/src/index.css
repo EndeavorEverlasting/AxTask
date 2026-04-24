@@ -939,3 +939,20 @@
   background: rgba(15, 23, 42, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
+
+/* Invite dialog: subtle new-collaborator row emphasis (respect reduced motion). */
+@media (prefers-reduced-motion: no-preference) {
+  .axtask-collab-row-intro {
+    animation: axtask-collab-row-intro 0.65s ease-out 1;
+  }
+}
+@keyframes axtask-collab-row-intro {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
