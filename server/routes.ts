@@ -144,6 +144,7 @@ import {
   maybeAwardOrganizationFollowthrough,
   recordTaskFilterIntent,
 } from "./organization-rewards";
+import { ATTACHMENT_IMAGE_MAX_BYTES, ATTACHMENT_UPLOAD_RAW_BODY_LIMIT } from "@shared/attachment-image-limits";
 import { completionCoinSkipReason } from "@shared/completion-coin-skip";
 import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
@@ -2327,16 +2328,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userAgent: req.get("user-agent") || undefined,
         });
       }
+      let searchCoinBalance: number | undefined;
       if (tasks.length > 0 && q.length >= 2) {
-        await tryCappedCoinAward({
+        const coinTry = await tryCappedCoinAward({
           userId,
           reason: ENGAGEMENT.taskSearch.reason,
           amount: ENGAGEMENT.taskSearch.amount,
           dailyCap: ENGAGEMENT.taskSearch.dailyCap,
           details: `Search: ${q.slice(0, 80)}`,
         });
+        if (coinTry) searchCoinBalance = coinTry.newBalance;
       }
       const byTask = await getTaskAttachmentIdsForTasks(userId, tasks.map((r) => r.id));
+      if (typeof searchCoinBalance === "number") {
+        res.setHeader("X-Axtask-Wallet-Balance", String(searchCoinBalance));
+      }
       res.json(toPublicTaskListItems(tasks, byTask));
     } catch (error) {
       res.status(500).json({ message: "Failed to search tasks" });
@@ -2842,7 +2848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allTasks.filter(t => t.id !== task.id)
       );
 
-      const { result: clsRes, associations } = await classifyWithAssociations(
+      const { result: clsRes, associations, shoppingDetection } = await classifyWithAssociations(
         task.activity,
         task.notes || "",
         { preferExternal: true },
@@ -2870,7 +2876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         taskId: task.id,
       });
 
-      res.status(201).json({ ...task, uniqueTaskReward });
+      res.status(201).json({ ...task, uniqueTaskReward, shoppingDetection });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
@@ -2908,6 +2914,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Task not found" });
       }
 
+      let shoppingDetection: {
+        detected: boolean;
+        format: string;
+        items: string[];
+        confidence: number;
+        source: string;
+      } | null = null;
+
       if (validatedData.activity || validatedData.notes) {
         const allTasks = await storage.getTasks(userId);
         const priorityResult = await PriorityEngine.calculatePriority(
@@ -2919,11 +2933,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           allTasks.filter(t => t.id !== task!.id)
         );
 
-        const { result: clsRes, associations } = await classifyWithAssociations(
+        const { result: clsRes, associations, shoppingDetection: nextShoppingDetection } = await classifyWithAssociations(
           task!.activity,
           task!.notes || "",
           { preferExternal: true },
         );
+        shoppingDetection = nextShoppingDetection;
 
         task = access.role === "owner"
           ? await storage.updateTask(userId, {
@@ -2985,7 +3000,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         classificationReward = await awardCoinsForClassification(userId, task!);
       }
 
-      res.json({ ...task, coinReward, coinSkipReason, walletBalance, classificationReward, organizationReward });
+      res.json({
+        ...task,
+        coinReward,
+        coinSkipReason,
+        walletBalance,
+        classificationReward,
+        organizationReward,
+        shoppingDetection,
+      });
     } catch (error) {
       console.error("[TASK UPDATE ERROR]", error);
       if (error instanceof Error) {
@@ -4924,7 +4947,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     screenshotMeta: z.array(z.object({
       fileName: z.string().optional(),
       mimeType: z.string().min(3),
-      byteSize: z.number().int().nonnegative().max(10 * 1024 * 1024),
+      byteSize: z.number().int().nonnegative().max(ATTACHMENT_IMAGE_MAX_BYTES),
     })).max(10).default([]),
     nudgeContext: feedbackNudgeContextSchema,
   });
@@ -4932,7 +4955,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const uploadUrlSchema = z.object({
     fileName: z.string().min(1).max(255),
     mimeType: z.string().min(3).max(128),
-    byteSize: z.number().int().positive().max(10 * 1024 * 1024),
+    byteSize: z.number().int().positive().max(ATTACHMENT_IMAGE_MAX_BYTES),
     kind: z.string().min(2).max(40).default("feedback"),
     taskId: z.string().optional(),
   });
@@ -4986,7 +5009,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/attachments/upload/:token", requireAuth, attachmentUploadLimiter, express.raw({ type: "*/*", limit: "12mb" }), async (req, res) => {
+  app.put("/api/attachments/upload/:token", requireAuth, attachmentUploadLimiter, express.raw({ type: "*/*", limit: ATTACHMENT_UPLOAD_RAW_BODY_LIMIT }), async (req, res) => {
     try {
       const parsed = verifyUploadToken(req.params.token, getUploadSigningSecret());
       if (!parsed) {

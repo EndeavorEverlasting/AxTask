@@ -12,7 +12,7 @@
  *   - Up to 2 HTTP redirects; the destination IP is revalidated on every hop.
  *   - Cookie / Authorization headers are never forwarded.
  *   - Response must advertise `Content-Type: image/*`.
- *   - Body is capped at IMAGE_BYTE_CAP (10 MiB, matches scanAttachmentBuffer).
+ *   - Body is capped at IMAGE_BYTE_CAP (matches scanAttachmentBuffer).
  *   - Body is sniffed via `scanAttachmentBuffer` after download; a spoofed
  *     Content-Type is treated as a scan failure and audit-logged.
  *   - Per-request timeout of DEFAULT_TIMEOUT_MS (3 s).
@@ -23,9 +23,10 @@ import net from "node:net";
 import https from "node:https";
 import http from "node:http";
 import { Buffer } from "node:buffer";
+import { ATTACHMENT_IMAGE_MAX_BYTES } from "@shared/attachment-image-limits";
 import { scanAttachmentBuffer } from "./attachment-scan";
 
-export const IMAGE_BYTE_CAP = 10 * 1024 * 1024;
+export const IMAGE_BYTE_CAP = ATTACHMENT_IMAGE_MAX_BYTES;
 export const DEFAULT_TIMEOUT_MS = 3_000;
 export const MAX_REDIRECTS = 2;
 export const ALLOWED_IMAGE_MIME_PREFIX = "image/";

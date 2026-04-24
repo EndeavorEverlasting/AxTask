@@ -37,17 +37,50 @@ import { Calendar } from "@/components/ui/calendar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PriorityBadge } from "./priority-badge";
 import { ClockTimePicker } from "@/components/ui/clock-time-picker";
-import { Plus, CalendarIcon, Lightbulb, Save, Sparkles, ImagePlus, X, Loader2 } from "lucide-react";
+import {
+  Plus,
+  CalendarIcon,
+  Lightbulb,
+  Save,
+  Sparkles,
+  ImagePlus,
+  X,
+  Loader2,
+  ShoppingCart,
+  Wand2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SafeMarkdown } from "@/lib/safe-markdown";
 import { format, parse } from "date-fns";
+import { useLocation } from "wouter";
 import { useFieldFlow } from "@/hooks/use-field-flow";
 import { useLiveClassificationStream } from "@/hooks/use-live-classification-stream";
+import { detectShoppingListContent } from "@shared/shopping-tasks";
 
 interface TaskFormProps {
   task?: Task;
   defaultDate?: string;
   onSuccess?: () => void;
+}
+
+export function resolveShoppingConversionSuggestion(activity: string, notes: string) {
+  const detection = detectShoppingListContent(activity, notes);
+  if (!detection.detected || detection.items.length === 0) return null;
+  return detection;
+}
+
+const SHOPPING_PRETEXT_QUIPS = [
+  "Pretext whispers: this isn’t prose — it’s aisle choreography. Tap below before the muse melts.",
+  "The orb spotted groceries hiding in plain text. Give them checkboxes and a little retail drama.",
+  "Your list wants to live in the dense shopping fold — convert, then wander the cart constellation.",
+  "NodeWeaver nods: multi-line loot detected. Summon the interactive aisle; the shell loves a good errand.",
+] as const;
+
+export function pickShoppingPretextQuip(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i += 1) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  const idx = Math.abs(h) % SHOPPING_PRETEXT_QUIPS.length;
+  return SHOPPING_PRETEXT_QUIPS[idx] ?? SHOPPING_PRETEXT_QUIPS[0];
 }
 
 const DRAFT_KEY_PREFIX = "axtask_draft";
@@ -94,6 +127,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
   const { onFieldBlur, isHinted } = useFieldFlow();
   const [warningFields, setWarningFields] = useState<Set<string>>(new Set());
@@ -220,6 +254,15 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   });
 
   const notesWatch = useWatch({ control: form.control, name: "notes" });
+  const activityWatch = useWatch({ control: form.control, name: "activity" });
+  const shoppingDetection = useMemo(
+    () => resolveShoppingConversionSuggestion(activityWatch || "", notesWatch || ""),
+    [activityWatch, notesWatch],
+  );
+  const shoppingPretextLine = useMemo(
+    () => pickShoppingPretextQuip(`${activityWatch || ""}\n${notesWatch || ""}`),
+    [activityWatch, notesWatch],
+  );
 
   const handleImageUpload = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -482,6 +525,55 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       const message = error instanceof Error ? error.message : "Failed to save task";
       toast({
         title: "Error",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const convertShoppingListMutation = useMutation({
+    mutationFn: async (items: string[]) => {
+      const base = form.getValues();
+      const created: unknown[] = [];
+      for (const item of items) {
+        created.push(
+          await syncCreateTask(
+            {
+              date: base.date || defaultDate || new Date().toISOString().split("T")[0],
+              time: base.time || "",
+              activity: item,
+              notes: "",
+              urgency: base.urgency,
+              impact: base.impact,
+              effort: base.effort,
+              prerequisites: "",
+              recurrence: "none",
+              status: "pending",
+            },
+            queryClient,
+            user?.id ?? "",
+          ),
+        );
+      }
+      return created;
+    },
+    onSuccess: (_, items) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      toast({
+        title: "Converted to shopping items",
+        description: `Created ${items.length} interactive shopping task${items.length === 1 ? "" : "s"}.`,
+      });
+      form.setValue("activity", "");
+      form.setValue("notes", "");
+      clearWarning("activity");
+      clearWarning("notes");
+    },
+    onError: (error: unknown) => {
+      if (error instanceof TaskSyncAbortedError) return;
+      const message = error instanceof Error ? error.message : "Failed to convert shopping list";
+      toast({
+        title: "Conversion failed",
         description: message,
         variant: "destructive",
       });
@@ -1004,6 +1096,93 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   )}
                 />
               </div>
+
+              {!task && shoppingDetection && (
+                <div
+                  className={cn(
+                    "lg:col-span-2 relative overflow-hidden rounded-xl border border-emerald-400/45",
+                    "bg-gradient-to-br from-emerald-500/12 via-teal-500/10 to-cyan-500/14",
+                    "dark:from-emerald-950/50 dark:via-teal-950/40 dark:to-cyan-950/35",
+                    "shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_8px_28px_rgba(16,185,129,0.12)]",
+                    "ring-1 ring-emerald-500/20 dark:ring-emerald-400/15",
+                  )}
+                  data-testid="shopping-list-pretext-cta"
+                >
+                  <div
+                    className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-emerald-400/20 blur-2xl motion-safe:animate-pulse"
+                    aria-hidden
+                  />
+                  <div
+                    className="pointer-events-none absolute -left-6 bottom-0 h-24 w-24 rounded-full bg-cyan-400/15 blur-2xl"
+                    aria-hidden
+                  />
+                  <div className="relative p-4 space-y-3">
+                    <div className="flex flex-wrap items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-400/35 bg-emerald-500/15 text-emerald-800 dark:text-emerald-100">
+                        <ShoppingCart className="h-5 w-5 motion-safe:animate-pulse" aria-hidden />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700/90 dark:text-emerald-300/90 flex items-center gap-1.5">
+                          <Sparkles className="h-3.5 w-3.5 shrink-0 text-amber-500 motion-safe:animate-pulse" aria-hidden />
+                          Pretext · shopping runway
+                        </p>
+                        <p className="text-sm font-semibold text-emerald-950 dark:text-emerald-50">
+                          {shoppingDetection.items.length} line{shoppingDetection.items.length === 1 ? "" : "s"} look shoppable
+                          <span className="text-emerald-700/80 dark:text-emerald-300/80 font-normal">
+                            {" "}
+                            ({shoppingDetection.format.replace(/_/g, " ")})
+                          </span>
+                        </p>
+                        <p className="text-xs leading-relaxed text-emerald-900/85 dark:text-emerald-100/80 italic">
+                          {shoppingPretextLine}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {shoppingDetection.items.slice(0, 6).map((item) => (
+                        <span
+                          key={item}
+                          className="inline-flex max-w-[10rem] truncate rounded-full border border-emerald-500/25 bg-background/55 px-2.5 py-0.5 text-[11px] font-medium text-emerald-900 dark:text-emerald-100"
+                          title={item}
+                        >
+                          {item}
+                        </span>
+                      ))}
+                      {shoppingDetection.items.length > 6 ? (
+                        <span className="text-[11px] text-muted-foreground self-center px-1">
+                          +{shoppingDetection.items.length - 6} more
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-0.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className={cn(
+                          "gap-1.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600",
+                          "hover:from-emerald-500 hover:via-teal-500 hover:to-cyan-500 text-white",
+                          "shadow-lg shadow-teal-600/25 ring-1 ring-teal-400/35 min-h-[40px]",
+                        )}
+                        disabled={convertShoppingListMutation.isPending}
+                        onClick={() => convertShoppingListMutation.mutate(shoppingDetection.items)}
+                      >
+                        <Wand2 className="h-4 w-4 shrink-0" aria-hidden />
+                        {convertShoppingListMutation.isPending ? "Conjuring rows…" : "Convert — interactive list"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="min-h-[40px] border-emerald-500/40 bg-background/60 hover:bg-emerald-500/10"
+                        onClick={() => setLocation("/shopping")}
+                      >
+                        <Sparkles className="h-3.5 w-3.5 mr-1.5 text-amber-500 shrink-0" aria-hidden />
+                        Open shopping fold
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="lg:col-span-2">
                 <FormField

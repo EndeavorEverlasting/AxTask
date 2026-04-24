@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -35,12 +36,15 @@ export type ImmersiveShellContextValue = {
 
 const ImmersiveShellContext = createContext<ImmersiveShellContextValue | null>(null);
 
+const VIEWPORT_WIDTH_EPSILON_PX = 2;
+
 export function ImmersiveShellProvider({ children }: { children: ReactNode }) {
   const [sidebarWidthPx, setSidebarWidthPxState] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const [viewportW, setViewportW] = useState(
     () => (typeof window !== "undefined" ? window.innerWidth : 1200),
   );
+  const lastCommittedVwRef = useRef<number | null>(null);
 
   useEffect(() => {
     try {
@@ -57,9 +61,22 @@ export function ImmersiveShellProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onResize = () => {
       const vw = window.innerWidth;
+      const last = lastCommittedVwRef.current;
+      if (
+        last !== null &&
+        Math.abs(vw - last) < VIEWPORT_WIDTH_EPSILON_PX
+      ) {
+        return;
+      }
+      lastCommittedVwRef.current = vw;
       setViewportW(vw);
-      setSidebarWidthPxState((w) => clampWidth(w, vw));
+      setSidebarWidthPxState((w) => {
+        const next = clampWidth(w, vw);
+        return next === w ? w : next;
+      });
     };
+    lastCommittedVwRef.current =
+      typeof window !== "undefined" ? window.innerWidth : null;
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);

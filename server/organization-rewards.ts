@@ -55,6 +55,8 @@ export interface OrganizationInteractionRewardResult {
   archetypeKey: string;
   nodeweaverLabel: string;
   reason?: string;
+  /** Present when coins were granted — lets the SPA patch the wallet immediately. */
+  walletBalance?: number;
 }
 
 interface OrganizationAptitudeTrends {
@@ -171,6 +173,7 @@ export async function awardOrganizationInteractionSignal(input: {
     archetypeKey,
     nodeweaverLabel,
     reason: deduped ? "deduped" : undefined,
+    walletBalance: coinAward?.newBalance,
   };
 }
 

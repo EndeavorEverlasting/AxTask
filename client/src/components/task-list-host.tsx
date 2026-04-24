@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { Search, ClipboardList, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { applyWalletRewardHybrid } from "@/lib/wallet-cache";
 import type { Task } from "@shared/schema";
 import type { PublicTaskListItem } from "@shared/public-client-dtos";
 import {
@@ -120,6 +121,7 @@ type HeaderInteractionReward = {
   pointsAwarded: number;
   coinsAwarded: number;
   archetypeKey: string;
+  walletBalance?: number;
 };
 
 /**
@@ -435,14 +437,23 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
     const q = deferredSearch.trim();
     if (q.length < 2) return;
     const handle = window.setTimeout(() => {
-      fetch(`/api/tasks/search/${encodeURIComponent(q)}`, {
+      void fetch(`/api/tasks/search/${encodeURIComponent(q)}`, {
         credentials: "include",
-      }).catch(() => {
-        /* Engagement beacon — network errors are silent. */
-      });
+      })
+        .then(async (r) => {
+          if (!r.ok) return;
+          const headerBal = r.headers.get("x-axtask-wallet-balance");
+          if (headerBal == null) return;
+          const n = Number(headerBal);
+          if (!Number.isFinite(n)) return;
+          applyWalletRewardHybrid(queryClient, { balance: n });
+        })
+        .catch(() => {
+          /* Engagement beacon — network errors are silent. */
+        });
     }, 800);
     return () => window.clearTimeout(handle);
-  }, [deferredSearch]);
+  }, [deferredSearch, queryClient]);
 
   const prefilteredTasks = useMemo(
     () => applyVariantPrefilter(variant, tasks),
@@ -504,6 +515,11 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
             return;
           }
           setHeaderRewardHint(reward);
+          if ((reward.coinsAwarded ?? 0) > 0) {
+            applyWalletRewardHybrid(queryClient, {
+              balance: reward.walletBalance ?? null,
+            });
+          }
           window.setTimeout(() => {
             setHeaderRewardHint((prev) => (prev === reward ? null : prev));
           }, 2200);
@@ -512,7 +528,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
           // Engagement signal only; ignore transient network failures.
         });
     },
-    [],
+    [queryClient],
   );
 
   const routeFilterIntentHydratedRef = useRef(false);
@@ -639,13 +655,10 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
       status: string;
       baseTask?: Task;
     }) => {
-      const [sync, wallet] = await Promise.all([
-        import("@/lib/task-sync-api"),
-        import("@/lib/wallet-cache"),
-      ]);
+      const sync = await import("@/lib/task-sync-api");
       try {
         const result = await sync.syncUpdateTask(id, { status }, baseTask, queryClient);
-        return { result, wallet };
+        return result;
       } catch (e) {
         if (e instanceof sync.TaskSyncAbortedError) return null;
         throw e;
@@ -653,7 +666,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
     },
     onSuccess: (payload) => {
       if (!payload) return;
-      const d = payload.result as TaskUpdateSyncExtras | undefined;
+      const d = payload as TaskUpdateSyncExtras;
       if (d?.offlineQueued) {
         toast({
           title: "Saved offline",
@@ -663,10 +676,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-      if (typeof d?.walletBalance === "number") {
-        payload.wallet.setWalletBalanceCache(queryClient, d.walletBalance);
-      }
-      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      applyWalletRewardHybrid(queryClient, { balance: d?.walletBalance ?? null });
       const org = d?.organizationReward;
       if (org?.awarded) {
         const parts: string[] = [];
@@ -905,8 +915,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
         )}
 
         <div
-          className="overflow-x-auto overflow-y-auto"
-          style={{ maxHeight: "70vh" }}
+          className="min-h-0 overflow-x-auto overflow-y-visible md:max-h-[min(70vh,42rem)] md:overflow-y-auto"
           data-testid="task-list-scroll"
         >
           <table className="w-full text-sm">

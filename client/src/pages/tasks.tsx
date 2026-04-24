@@ -2,13 +2,14 @@ import { TaskListHost } from "@/components/task-list-host";
 import { Card, CardContent } from "@/components/ui/card";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { usePretextSurface } from "@/hooks/use-pretext-surface";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, ShoppingCart } from "lucide-react";
 import { lazy, Suspense, useState, useEffect } from "react";
 
 const TaskForm = lazy(() =>
   import("@/components/task-form").then((m) => ({ default: m.TaskForm })),
 );
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
+import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import type { Task } from "@shared/schema";
@@ -72,6 +73,20 @@ export default function Tasks() {
         eyebrow="Tasks"
         title="All Tasks"
         subtitle="View and manage all your tasks"
+        actions={
+          <Link href="/shopping">
+            <Button
+              type="button"
+              size="sm"
+              className="gap-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white shadow-md shadow-teal-600/20 ring-1 ring-teal-400/35 hover:from-emerald-500 hover:via-teal-500 hover:to-cyan-500"
+              title="Jump to the Pretext shopping fold — your cart constellation awaits"
+            >
+              <ShoppingCart className="h-4 w-4 shrink-0" aria-hidden />
+              Shopping fold
+              <Sparkles className="h-3.5 w-3.5 text-amber-200/90 shrink-0 motion-safe:animate-pulse" aria-hidden />
+            </Button>
+          </Link>
+        }
       />
 
       <Card id="tutorial-tasks-alarms" className="glass-panel-glossy border border-primary/20">

@@ -24,9 +24,11 @@ describe("universal-classifier NodeWeaver path", () => {
       const result = await classifyWithFallback("weekly staples", "", { preferExternal: true });
       expect(result.source).toBe("nodeweaver");
       expect(result.classification).toBe("Shopping");
-      const { result: r2, associations } = await classifyWithAssociations("milk", "", { preferExternal: true });
+      const { result: r2, associations, shoppingDetection } = await classifyWithAssociations("milk", "", { preferExternal: true });
       expect(r2.source).toBe("nodeweaver");
       expect(associations[0]).toEqual({ label: "Shopping", confidence: 0.88 });
+      expect(shoppingDetection.detected).toBe(true);
+      expect(shoppingDetection.source).toBe("nodeweaver_rag");
     } finally {
       if (prevU === undefined) delete process.env.UNIVERSAL_CLASSIFIER_API_URL;
       else process.env.UNIVERSAL_CLASSIFIER_API_URL = prevU;

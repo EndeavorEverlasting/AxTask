@@ -1,3 +1,5 @@
+import { ATTACHMENT_IMAGE_MAX_BYTES } from "@shared/attachment-image-limits";
+
 type ScanResult = {
   clean: boolean;
   reason?: string;
@@ -15,7 +17,7 @@ function startsWith(buf: Buffer, sig: Buffer): boolean {
 
 export function scanAttachmentBuffer(buffer: Buffer, mimeType: string): ScanResult {
   if (buffer.length === 0) return { clean: false, reason: "Empty file" };
-  if (buffer.length > 10 * 1024 * 1024) return { clean: false, reason: "File exceeds scan limit" };
+  if (buffer.length > ATTACHMENT_IMAGE_MAX_BYTES) return { clean: false, reason: "File exceeds scan limit" };
 
   const lowerMime = mimeType.toLowerCase();
   if (!lowerMime.startsWith("image/")) {

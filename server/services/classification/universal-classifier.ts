@@ -2,6 +2,11 @@ import { PriorityEngine } from "../../../client/src/lib/priority-engine";
 import type { ClassificationAssociation } from "@shared/schema";
 import { callNodeWeaverBatchClassify } from "./nodeweaver-client";
 import { mapNodeWeaverCategoryToAxTaskLabel } from "./nodeweaver-category-map";
+import {
+  detectShoppingListContent,
+  withNodeWeaverShoppingDetection,
+  type ShoppingListDetection,
+} from "@shared/shopping-tasks";
 
 export type ClassifierSource = "external_api" | "nodeweaver" | "priority_engine" | "keyword_fallback";
 
@@ -10,6 +15,14 @@ export interface ClassificationResult {
   confidence: number;
   source: ClassifierSource;
   fallbackLayer: number;
+}
+
+export interface ShoppingDetectionMetadata {
+  detected: boolean;
+  format: ShoppingListDetection["format"];
+  items: string[];
+  confidence: number;
+  source: ShoppingListDetection["source"];
 }
 
 interface UniversalClassifierOptions {
@@ -121,6 +134,15 @@ export async function classifyWithFallback(
   options: UniversalClassifierOptions = {},
 ): Promise<ClassificationResult> {
   const preferExternal = options.preferExternal !== false;
+  const localShopping = detectShoppingListContent(activity, notes);
+  if (localShopping.detected && localShopping.confidence >= 0.72) {
+    return {
+      classification: "Shopping",
+      confidence: localShopping.confidence,
+      source: "keyword_fallback",
+      fallbackLayer: preferExternal ? 2 : 1,
+    };
+  }
 
   if (preferExternal) {
     const external = await classifyViaExternalApi(activity, notes);
@@ -134,6 +156,18 @@ export async function classifyWithFallback(
       return {
         ...nw,
         fallbackLayer: afterUniversalAttempt ? 2 : 1,
+      };
+    }
+  }
+
+  if (preferExternal && !localShopping.detected) {
+    const nodeWeaverShopping = await detectShoppingViaNodeWeaverRag(activity, notes, localShopping);
+    if (nodeWeaverShopping.detected) {
+      return {
+        classification: "Shopping",
+        confidence: nodeWeaverShopping.confidence,
+        source: "nodeweaver",
+        fallbackLayer: 2,
       };
     }
   }
@@ -156,6 +190,37 @@ export async function classifyWithFallback(
     source: "keyword_fallback",
     fallbackLayer: preferExternal ? 3 : 2,
   };
+}
+
+async function detectShoppingViaNodeWeaverRag(
+  activity: string,
+  notes: string,
+  local: ShoppingListDetection,
+): Promise<ShoppingListDetection> {
+  if (!process.env.NODEWEAVER_URL?.trim()) return local;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), NODEWEAVER_TIMEOUT_MS);
+  try {
+    const batch = await callNodeWeaverBatchClassify(
+      [{ id: "nw-shopping-rag", activity, notes: notes || "" }],
+      { signal: controller.signal },
+    );
+    const row = Array.isArray(batch.results) ? batch.results[0] : undefined;
+    const category = typeof row?.predicted_category === "string" ? row.predicted_category : "";
+    const confidence =
+      typeof row?.confidence_score === "number"
+        ? Math.max(0, Math.min(1, row.confidence_score))
+        : 0.55;
+    return withNodeWeaverShoppingDetection(local, {
+      category,
+      confidence,
+      suggestedItems: local.items,
+    });
+  } catch {
+    return local;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 const KEYWORD_RULES: { label: string; re: RegExp; weight: number }[] = [
@@ -204,7 +269,16 @@ export async function classifyWithAssociations(
   activity: string,
   notes = "",
   options: UniversalClassifierOptions = {},
-): Promise<{ result: ClassificationResult; associations: ClassificationAssociation[] }> {
+): Promise<{
+  result: ClassificationResult;
+  associations: ClassificationAssociation[];
+  shoppingDetection: ShoppingDetectionMetadata;
+}> {
+  const localShopping = detectShoppingListContent(activity, notes);
+  const shoppingDetection =
+    options.preferExternal !== false
+      ? await detectShoppingViaNodeWeaverRag(activity, notes, localShopping)
+      : localShopping;
   const result = await classifyWithFallback(activity, notes, options);
   let associations: ClassificationAssociation[];
   if (result.source === "keyword_fallback") {
@@ -221,5 +295,15 @@ export async function classifyWithAssociations(
   } else {
     associations = [{ label: result.classification, confidence: result.confidence }];
   }
-  return { result, associations };
+  return {
+    result,
+    associations,
+    shoppingDetection: {
+      detected: shoppingDetection.detected,
+      format: shoppingDetection.format,
+      items: shoppingDetection.items,
+      confidence: shoppingDetection.confidence,
+      source: shoppingDetection.source,
+    },
+  };
 }

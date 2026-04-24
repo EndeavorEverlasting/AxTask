@@ -10,3 +10,18 @@ export function setWalletBalanceCache(queryClient: QueryClient, balance: number)
     return { ...(prev as Record<string, unknown>), balance };
   });
 }
+
+/**
+ * Patch wallet when the server returned a balance, then invalidate + refetch
+ * active observers so mobile surfaces (no sidebar poll) stay correct.
+ */
+export function applyWalletRewardHybrid(
+  queryClient: QueryClient,
+  opts?: { balance?: number | null },
+): void {
+  if (typeof opts?.balance === "number" && Number.isFinite(opts.balance)) {
+    setWalletBalanceCache(queryClient, opts.balance);
+  }
+  void queryClient.invalidateQueries({ queryKey: WALLET_QUERY_KEY });
+  void queryClient.refetchQueries({ queryKey: WALLET_QUERY_KEY, type: "active" });
+}

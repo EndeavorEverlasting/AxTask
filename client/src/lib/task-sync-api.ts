@@ -19,6 +19,7 @@ import {
 } from "./offline-task-queue";
 import { openConflictDialog, type ConflictChoice } from "./task-conflict-deferred";
 import { randomUuid } from "./uuid";
+import { applyWalletRewardHybrid } from "./wallet-cache";
 
 const DRAIN_LS_MUTEX_KEY = "axtask.offline_drain_mutex";
 
@@ -548,11 +549,14 @@ async function processUpdateOp(
     const t = await res.text();
     throw new Error(t || res.statusText);
   }
-  const updated = (await res.json()) as Task;
+  const updated = (await res.json()) as Task & {
+    walletBalance?: number | null;
+  };
   refreshQueuedUpdateBasesForTask(op.taskId, taskUpdatedAtIso(updated));
   mergeTaskInCache(queryClient, op.taskId, updated as Record<string, unknown>);
   void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
   void queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
+  applyWalletRewardHybrid(queryClient, { balance: updated.walletBalance ?? null });
   return "done";
 }
 

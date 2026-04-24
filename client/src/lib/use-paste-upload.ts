@@ -3,7 +3,7 @@
  *
  * Responsibilities:
  *   - Accept `File`-like inputs from ClipboardEvent / drag-drop / file input.
- *   - Enforce a 10 MiB size cap + image MIME allowlist BEFORE touching the
+ *   - Enforce per-image size cap + image MIME allowlist BEFORE touching the
  *     network (defense in depth: the server re-checks).
  *   - Call /api/attachments/upload-url + /api/attachments/upload/:token.
  *   - For plain-text paste that looks like an image URL, call
@@ -17,8 +17,9 @@
 import { useCallback, useRef, useState } from "react";
 import { apiRequest, getCsrfToken } from "./queryClient";
 import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
+import { ATTACHMENT_IMAGE_MAX_BYTES } from "@shared/attachment-image-limits";
 
-export const PASTE_IMAGE_BYTE_CAP = 10 * 1024 * 1024;
+export const PASTE_IMAGE_BYTE_CAP = ATTACHMENT_IMAGE_MAX_BYTES;
 export const PASTE_ACCEPTED_MIME = new Set<string>([
   "image/png",
   "image/jpeg",
@@ -126,7 +127,9 @@ export function usePasteUpload(options: UsePasteUploadOptions = {}): UseLike {
         return null;
       }
       if (file.size > PASTE_IMAGE_BYTE_CAP) {
-        reportError("Image exceeds the 10 MB paste limit.");
+        reportError(
+          `Image exceeds the ${Math.round(PASTE_IMAGE_BYTE_CAP / (1024 * 1024))} MB attachment limit.`,
+        );
         return null;
       }
       pending.current += 1;

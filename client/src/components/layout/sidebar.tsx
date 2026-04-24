@@ -23,6 +23,7 @@ import {
   Coins,
   ShoppingBag,
   ShoppingCart,
+  Lock,
   MessageSquare,
   PlusCircle,
   Crown,
@@ -37,6 +38,7 @@ import {
   Network,
   ClipboardCheck,
   Search,
+  Sparkles,
   SlidersHorizontal,
   MessagesSquare,
   Video,
@@ -147,40 +149,48 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     prevBalanceRef.current = bal;
   }, [wallet?.balance]);
 
-  const menuItems = useMemo(
-    () => {
-      const items = [
-        { path: "/", icon: LayoutDashboard, label: "Dashboard" },
-        { path: "/planner", icon: Brain, label: "AI Planner", badge: overdueCount },
-        { path: "/tasks", icon: List, label: "All Tasks" },
-        { path: "/shopping", icon: ShoppingCart, label: "Shopping list" },
-        { path: "/calendar", icon: CalendarDays, label: "Calendar" },
-        { path: "/analytics", icon: BarChart3, label: "Analytics" },
-        { path: "/community", icon: Globe2, label: "Community" },
-        { path: "/collab", icon: MessagesSquare, label: "Collab inbox" },
-        { path: "/messages", icon: MessageCircle, label: "Messages (E2EE)" },
-        { path: "/huddle", icon: Video, label: "Video huddle" },
-        { path: "/mini-games", icon: Gamepad2, label: "Mini-Games" },
-        { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
-        { path: "/skill-tree", icon: Network, label: "Skill Tree" },
-        { path: "/premium", icon: Crown, label: "Premium" },
-        { path: "/billing", icon: CreditCard, label: "Billing" },
-        { path: "/settings", icon: SlidersHorizontal, label: "Settings" },
-        { path: "/profile", icon: CircleUser, label: "Profile" },
-        { path: "/account", icon: UserRoundCog, label: "Account" },
-        { path: "/feedback", icon: MessageSquare, label: "Feedback" },
-        { path: "/contact", icon: Mail, label: "Contact" },
-        { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
-        { path: "/import-export", icon: Upload, label: "Import/Export" },
-        { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
-        { path: "/billing-bridge", icon: ClipboardCheck, label: "Billing Bridge" },
-        ...(user?.role === "admin" ? [{ path: "/admin", icon: Shield, label: "Security Admin" }] : []),
-      ];
-      if (!shoppingUnlocked) {
-        return items.filter((i) => i.path !== "/shopping");
-      }
-      return items;
-    },
+  type NavItem = {
+    path: string;
+    icon: typeof LayoutDashboard;
+    label: string;
+    badge?: number;
+    /** Shopping list skill gate — link still opens /shopping (unlock CTA there). */
+    skillLocked?: boolean;
+  };
+
+  const menuItems = useMemo<NavItem[]>(
+    () => [
+      { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+      { path: "/planner", icon: Brain, label: "AI Planner", badge: overdueCount },
+      { path: "/tasks", icon: List, label: "All Tasks" },
+      {
+        path: "/shopping",
+        icon: ShoppingCart,
+        label: "Shopping list",
+        skillLocked: !shoppingUnlocked,
+      },
+      { path: "/calendar", icon: CalendarDays, label: "Calendar" },
+      { path: "/analytics", icon: BarChart3, label: "Analytics" },
+      { path: "/community", icon: Globe2, label: "Community" },
+      { path: "/collab", icon: MessagesSquare, label: "Collab inbox" },
+      { path: "/messages", icon: MessageCircle, label: "Messages (E2EE)" },
+      { path: "/huddle", icon: Video, label: "Video huddle" },
+      { path: "/mini-games", icon: Gamepad2, label: "Mini-Games" },
+      { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
+      { path: "/skill-tree", icon: Network, label: "Skill Tree" },
+      { path: "/premium", icon: Crown, label: "Premium" },
+      { path: "/billing", icon: CreditCard, label: "Billing" },
+      { path: "/settings", icon: SlidersHorizontal, label: "Settings" },
+      { path: "/profile", icon: CircleUser, label: "Profile" },
+      { path: "/account", icon: UserRoundCog, label: "Account" },
+      { path: "/feedback", icon: MessageSquare, label: "Feedback" },
+      { path: "/contact", icon: Mail, label: "Contact" },
+      { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
+      { path: "/import-export", icon: Upload, label: "Import/Export" },
+      { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
+      { path: "/billing-bridge", icon: ClipboardCheck, label: "Billing Bridge" },
+      ...(user?.role === "admin" ? [{ path: "/admin", icon: Shield, label: "Security Admin" }] : []),
+    ],
     [user?.role, overdueCount, shoppingUnlocked],
   );
 
@@ -218,11 +228,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       <nav className="p-4">
         <ul className="space-y-1">
-          {menuItems.map(({ path, icon: Icon, label, badge }) => (
+          {menuItems.map(({ path, icon: Icon, label, badge, skillLocked }) => (
             <li key={path}>
               <Link href={path}>
                 <div
                   id={`sidebar-link-${path}`}
+                  title={skillLocked ? "Opens shopping — unlock Dendritic List Sense in-app if needed" : undefined}
                   className={`flex items-center p-3 rounded-lg font-medium transition-colors duration-150 cursor-pointer min-h-[44px] ${
                   isActiveRoute(path)
                     ? "text-primary bg-primary/12 dark:bg-primary/20"
@@ -231,7 +242,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                   onClick={handleNavClick}
                 >
                   <Icon className="mr-3 h-5 w-5 shrink-0" />
-                  {label}
+                  <span className="truncate">{label}</span>
+                  {skillLocked ? (
+                    <Lock
+                      className="ml-1.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400 opacity-90"
+                      aria-hidden
+                    />
+                  ) : null}
                   {typeof badge === "number" && badge > 0 && (
                     <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
                       {badge > 99 ? "99+" : badge}
@@ -284,6 +301,30 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </span>
           <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">Alt+F</kbd>
         </Button>
+        </Link>
+
+        <Link href="/shopping">
+          <Button
+            size="sm"
+            className="w-full justify-between bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:via-teal-500 hover:to-cyan-500 text-white shadow-lg shadow-teal-600/25 ring-1 ring-teal-400/30"
+            title={
+              shoppingUnlocked
+                ? "Pretext shopping fold — check items off as you go"
+                : "Shopping list — unlock Dendritic List Sense from here if the gate is closed"
+            }
+            onClick={handleNavClick}
+          >
+            <span className="flex items-center gap-2">
+              <span className="relative flex h-5 w-5 items-center justify-center">
+                <ShoppingCart className="h-4 w-4 relative z-10 drop-shadow-sm" />
+                {!shoppingUnlocked ? (
+                  <Lock className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 text-amber-200 drop-shadow" aria-hidden />
+                ) : null}
+              </span>
+              Shopping list
+            </span>
+            <Sparkles className="h-3.5 w-3.5 text-amber-200/90 shrink-0 motion-safe:animate-pulse" aria-hidden />
+          </Button>
         </Link>
 
         <Link href="/tasks">
@@ -526,9 +567,12 @@ export function Sidebar() {
     return () => window.removeEventListener("axtask-toggle-sidebar", onToggle);
   }, [isMobile, toggleSidebarHidden]);
 
-  if (isMobile) {
-    return (
-      <>
+  /* Keep mobile + desktop shells in one tree so `useIsMobile` flips do not
+   * unmount/remount the entire nav surface (reduces blank flashes). Visibility
+   * is CSS-gated at the `md` breakpoint. */
+  return (
+    <>
+      <div className="md:hidden">
         <MobileTopBar onMenuOpen={() => setMobileOpen(true)} />
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent side="left" className="w-[280px] p-0 glass-panel-glossy rounded-none border-y-0 border-l-0 flex flex-col min-h-0">
@@ -542,12 +586,8 @@ export function Sidebar() {
             </div>
           </SheetContent>
         </Sheet>
-      </>
-    );
-  }
+      </div>
 
-  return (
-    <>
       <aside
         className={cn(
           "glass-panel-glossy rounded-none border-y-0 border-l-0 shadow-lg flex-col shrink-0 hidden md:flex transition-[width,box-shadow] duration-200 overflow-hidden min-h-0 outline-none",

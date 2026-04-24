@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  detectShoppingListContent,
   extractShoppingListItemsForVoice,
   isShoppingTask,
   isShoppingVoiceUtterance,
   stripAvatarDelegationPhrase,
   stripTrailingShoppingListFromActivity,
+  withNodeWeaverShoppingDetection,
 } from "./shopping-tasks";
 
 describe("stripAvatarDelegationPhrase", () => {
@@ -63,5 +65,71 @@ describe("isShoppingTask", () => {
 
   it("does not treat generic errand as shopping", () => {
     expect(isShoppingTask({ classification: "General", activity: "bank errand", notes: "" })).toBe(false);
+  });
+});
+
+describe("detectShoppingListContent", () => {
+  it("detects markdown checklist format", () => {
+    const d = detectShoppingListContent(
+      "Shopping list",
+      "- [ ] milk\n- [x] eggs\n- [ ] bread",
+    );
+    expect(d.detected).toBe(true);
+    expect(d.format).toBe("markdown_checklist");
+    expect(d.items).toEqual(["milk", "eggs", "bread"]);
+  });
+
+  it("detects plain bullet list format", () => {
+    const d = detectShoppingListContent(
+      "buy for weekend",
+      "- soap\n* toothpaste\n• paper towels",
+    );
+    expect(d.detected).toBe(true);
+    expect(d.format).toBe("bullet_lines");
+    expect(d.items).toEqual(["soap", "toothpaste", "paper towels"]);
+  });
+
+  it("detects numbered list format", () => {
+    const d = detectShoppingListContent(
+      "grocery run",
+      "1. milk\n2) eggs\n3. bananas",
+    );
+    expect(d.detected).toBe(true);
+    expect(d.format).toBe("numbered_lines");
+    expect(d.items).toEqual(["milk", "eggs", "bananas"]);
+  });
+
+  it("detects title + line format", () => {
+    const d = detectShoppingListContent(
+      "Weekend prep",
+      "Shopping List:\nmilk\neggs\nbread",
+    );
+    expect(d.detected).toBe(true);
+    expect(d.format).toBe("title_plus_lines");
+    expect(d.items).toEqual(["milk", "eggs", "bread"]);
+  });
+
+  it("detects comma/and list format", () => {
+    const d = detectShoppingListContent(
+      "buy milk, eggs, and bread",
+      "",
+    );
+    expect(d.detected).toBe(true);
+    expect(d.format).toBe("comma_or_and");
+    expect(d.items).toEqual(["milk", "eggs", "bread"]);
+  });
+});
+
+describe("withNodeWeaverShoppingDetection", () => {
+  it("promotes low-confidence local parse when nodeweaver indicates shopping", () => {
+    const base = detectShoppingListContent("Need: milk, eggs", "");
+    const enhanced = withNodeWeaverShoppingDetection(base, {
+      category: "shopping_checklist",
+      confidence: 0.81,
+      suggestedItems: ["milk", "eggs"],
+    });
+    expect(enhanced.detected).toBe(true);
+    expect(enhanced.source).toBe("nodeweaver_rag");
+    expect(enhanced.items).toEqual(["milk", "eggs"]);
   });
 });
