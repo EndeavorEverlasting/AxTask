@@ -38,6 +38,13 @@ describe("paste composer :: contract", () => {
   it("renders thumbnails with referrerPolicy no-referrer (no 3P referrer leak)", () => {
     expect(COMPOSER_SRC).toContain('referrerPolicy="no-referrer"');
   });
+  it("offers Write/Preview tabs and uses the same static markdown renderer as read paths", () => {
+    expect(COMPOSER_SRC).toContain("renderSafeMarkdownHtmlString");
+    expect(COMPOSER_SRC).toContain("TabsTrigger");
+    expect(COMPOSER_SRC).toContain("tab-preview");
+    expect(COMPOSER_SRC).toContain("dangerouslySetInnerHTML");
+    expect(COMPOSER_SRC).toContain("showMarkdownPreview");
+  });
 });
 
 describe("use-paste-upload :: contract", () => {

@@ -2,10 +2,41 @@
 import React from "react";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SafeMarkdown, __internal, isSafeHref } from "./safe-markdown";
+import {
+  SafeMarkdown,
+  __internal,
+  isSafeHref,
+  renderSafeMarkdownHtmlString,
+} from "./safe-markdown";
 
 function render(node: React.ReactElement): string {
   return renderToStaticMarkup(node);
+}
+
+/** Normalize void tags and whitespace for React vs string HTML parity. */
+function normHtml(s: string): string {
+  return s
+    .replace(/\r\n/g, "\n")
+    .replace(/<hr\s+class=/gi, "<hr class=")
+    .replace(/<img([^>]*?)\s*\/>/gi, "<img$1>")
+    .replace(/<hr\s*\/>/gi, "<hr>")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function expectParity(source: string, extra?: { allowedAttachmentIds?: string[]; allowRemoteImages?: boolean }) {
+  const reactHtml = render(
+    <SafeMarkdown
+      source={source}
+      allowedAttachmentIds={extra?.allowedAttachmentIds}
+      allowRemoteImages={extra?.allowRemoteImages}
+    />,
+  );
+  const stringHtml = renderSafeMarkdownHtmlString(source, {
+    allowedAttachmentIds: extra?.allowedAttachmentIds,
+    allowRemoteImages: extra?.allowRemoteImages,
+  });
+  expect(normHtml(reactHtml)).toBe(normHtml(stringHtml));
 }
 
 describe("safe-markdown :: isSafeHref", () => {
@@ -25,7 +56,7 @@ describe("safe-markdown :: <script> / HTML injection", () => {
   it("does not emit a script tag even if the source contains one", () => {
     const html = render(<SafeMarkdown source={"hello <script>alert(1)</script>"} />);
     expect(html).not.toContain("<script");
-    expect(html).toContain("&lt;script&gt;"); // rendered as text
+    expect(html).toContain("&lt;script&gt;");
   });
   it("does not interpret raw <img onerror=...> as HTML", () => {
     const html = render(<SafeMarkdown source={`<img src=x onerror="alert(1)">`} />);
@@ -34,9 +65,15 @@ describe("safe-markdown :: <script> / HTML injection", () => {
   });
   it("does not emit inline event handlers as attributes", () => {
     const html = render(<SafeMarkdown source={'<a onclick="x">hi</a>'} />);
-    // The source appears as escaped text but must not become a live attribute.
     expect(html).not.toMatch(/<a[^>]*onclick/i);
     expect(html).toContain("&lt;a onclick");
+  });
+  it("escapes script inside fenced code for static HTML path", () => {
+    const src = "```\n<script>alert(1)</script>\n```";
+    const staticHtml = renderSafeMarkdownHtmlString(src);
+    expect(staticHtml).not.toContain("<script");
+    expect(staticHtml).toContain("&lt;script&gt;");
+    expectParity(src);
   });
 });
 
@@ -117,5 +154,32 @@ describe("safe-markdown :: block / inline", () => {
     expect(html).toContain("<strong>world</strong>");
     expect(html).toContain("<em>yes</em>");
     expect(html).toContain("<code");
+  });
+  it("parses ATX heading and list", () => {
+    const doc = __internal.parseDocument("## Hi\n\n- a\n- **b**");
+    expect(doc[0]).toMatchObject({ kind: "heading", level: 2, text: "Hi" });
+    expect(doc[1]).toMatchObject({ kind: "list", ordered: false, items: ["a", "**b**"] });
+  });
+  it("renders thematic break and wraps body", () => {
+    const html = render(<SafeMarkdown source={"a\n\n---\n\nb"} />);
+    expect(html).toContain('class="axtask-md-body"');
+    expect(html).toContain("<hr");
+  });
+  it("blockquote nests parse", () => {
+    const doc = __internal.parseDocument("> line\n> **bold**");
+    expect(doc[0]?.kind).toBe("blockquote");
+  });
+});
+
+describe("safe-markdown :: React vs static HTML parity", () => {
+  it("matches for plain paragraph", () => {
+    expectParity("hello **x**");
+  });
+  it("matches for heading + fence + list", () => {
+    expectParity("# T\n\n```\n<x>\n```\n\n1. one\n2. two");
+  });
+  it("matches with allowlist attachment", () => {
+    const id = "abcd1234-feed-face-cafe-d3adb33fcafe";
+    expectParity(`![i](attachment:${id})`, { allowedAttachmentIds: [id] });
   });
 });

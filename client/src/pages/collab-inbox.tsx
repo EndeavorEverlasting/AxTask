@@ -9,7 +9,7 @@ import { Link } from "wouter";
 import { Video } from "lucide-react";
 import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { PasteComposer, type PasteComposerValue } from "@/components/composer/paste-composer";
-import { SafeMarkdown } from "@/lib/safe-markdown";
+import { SafeMarkdownHtml } from "@/components/safe-markdown-html";
 import { usePretextSurface } from "@/hooks/use-pretext-surface";
 
 type InboxRow = {
@@ -137,7 +137,7 @@ export default function CollabInboxPage() {
                 key={m.id}
                 className={`rounded-lg border p-3 text-sm ${m.readAt ? "opacity-70" : "border-primary/30 bg-muted/30"}`}
               >
-                <SafeMarkdown source={m.body} allowedAttachmentIds={allowedIds} />
+                <SafeMarkdownHtml source={m.body} allowedAttachmentIds={allowedIds} />
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span>{m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}</span>
                   {m.taskId && <span className="font-mono">task {m.taskId.slice(0, 8)}…</span>}

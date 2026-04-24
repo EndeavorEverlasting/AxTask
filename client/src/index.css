@@ -918,6 +918,68 @@
   margin: 0.25rem 0;
 }
 
+/* Shared markdown body (React SafeMarkdown + Pretext static HTML). */
+.axtask-md-body {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.axtask-md-body > *:last-child {
+  margin-bottom: 0;
+}
+.axtask-md-heading {
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0.65rem 0 0.35rem 0;
+  overflow-wrap: anywhere;
+}
+.axtask-md-body > .axtask-md-heading:first-child {
+  margin-top: 0;
+}
+.axtask-md-h1 { font-size: 1.35rem; }
+.axtask-md-h2 { font-size: 1.2rem; }
+.axtask-md-h3 { font-size: 1.08rem; }
+.axtask-md-h4 { font-size: 1rem; }
+.axtask-md-h5 { font-size: 0.95rem; }
+.axtask-md-h6 { font-size: 0.9rem; opacity: 0.95; }
+.axtask-md-pre {
+  margin: 0.5rem 0;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  font-size: 0.85em;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.axtask-md-code-block {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre;
+  display: block;
+}
+.axtask-md-ul,
+.axtask-md-ol {
+  margin: 0.35rem 0 0.5rem 1.1rem;
+  padding: 0;
+}
+.axtask-md-li {
+  margin: 0.15rem 0;
+  padding-left: 0.15rem;
+}
+.axtask-md-blockquote {
+  margin: 0.4rem 0;
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  border-left: 3px solid rgba(148, 163, 184, 0.45);
+  color: inherit;
+  opacity: 0.95;
+}
+.axtask-md-blockquote .axtask-md-paragraph:last-child {
+  margin-bottom: 0;
+}
+.axtask-md-hr {
+  border: none;
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
+  margin: 0.65rem 0;
+}
+
 .axtask-md-paragraph {
   margin: 0 0 0.5rem 0;
   line-height: 1.5;

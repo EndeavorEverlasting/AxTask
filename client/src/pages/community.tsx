@@ -23,9 +23,8 @@ import type { PasteComposerValue } from "@/components/composer/paste-composer";
  *     ever rendered when a forum post is expanded to reveal its reply
  *     composer. Lazy-loading keeps its attachment + GIF-search modules
  *     out of the initial /community bundle for users who don't reply.
- *   - SafeMarkdown bundles DOMPurify, marked, and the sanitizer schema.
- *     It's rendered per reply + per expanded post body, but only once
- *     the user expands a post, so the same lazy gate applies.
+ *   - SafeMarkdown is a custom closed-world renderer (no raw HTML). It is
+ *     lazy-loaded for expanded post bodies and replies.
  */
 const PasteComposer = lazy(() =>
   import("@/components/composer/paste-composer").then((m) => ({

@@ -5,7 +5,7 @@ import { Link } from "wouter";
 import { ListChecks, Sparkles } from "lucide-react";
 import type { Task } from "@shared/schema";
 import type { PublicTaskListItem } from "@shared/public-client-dtos";
-import { SafeMarkdown } from "@/lib/safe-markdown";
+import { SafeMarkdownHtml } from "@/components/safe-markdown-html";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
@@ -235,8 +235,8 @@ export function MobileChecklistWidget() {
                     >
                       <span className="font-medium text-foreground">{task.activity}</span>
                       {task.notes ? (
-                        <span className="block text-xs text-muted-foreground line-clamp-2 mt-0.5 [&_p]:m-0 [&_img]:max-h-10">
-                          <SafeMarkdown
+                        <span className="block text-xs text-muted-foreground line-clamp-2 mt-0.5 [&_.axtask-md-paragraph]:m-0 [&_.axtask-md-image]:max-h-10">
+                          <SafeMarkdownHtml
                             source={task.notes}
                             allowedAttachmentIds={(task as Partial<PublicTaskListItem>).noteAttachmentIds ?? []}
                           />

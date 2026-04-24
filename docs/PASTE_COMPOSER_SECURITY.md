@@ -21,7 +21,7 @@ It must resist: SSRF via user-supplied URLs, stored XSS via markdown/HTML, crede
 4. **GIF search proxy** — `server/services/gif-search.ts` and the `/api/gif/search` + `/api/gif/resolve` routes keep Giphy/Tenor API keys server-side, sanitise user queries, clamp result limits, scrub provider API keys from returned URLs, and re-host picked GIFs through `fetchImageByUrl` so the browser never loads third-party image origins (CSP stays closed). Search is gated by `gifSearchLimiter` (40 / minute / account).
 5. **Per-message attachment cap** — Route schemas (`collabBodySchema`, `communityReplySchema`, feedback submission) enforce `attachmentAssetIds.max(8)`. `linkAttachmentsToOwner` refuses to link assets the caller does not own or that are soft-deleted.
 6. **Session-scoped downloads** — Rendered bodies resolve `attachment:<uuid>` tokens to `/api/attachments/:assetId/download`, which continues to require a valid session. No public-readable path is introduced.
-7. **Safe renderer** — `client/src/lib/safe-markdown.tsx` parses a closed subset of markdown (`**bold**`, `*italic*`, `` `code` ``, `[label](https://…)`, `![alt](attachment:<uuid>)`, optional `![alt](https://…)`). Raw HTML, `javascript:` URLs, `data:` URLs, `on*` handlers, and unknown protocols are stripped. Attachment tokens are only resolved against the explicit `allowedAttachmentIds` list returned by the server for that row — the client cannot "borrow" another user's attachment id.
+7. **Safe renderer** — `client/src/lib/safe-markdown.tsx` parses a closed subset: **inline** — `**bold**` / `__bold__`, `*italic*` / `_italic_`, `` `code` ``, `[label](https://… or /api/attachments/…)`, `![alt](attachment:<uuid>)`, optional `![alt](https://…)` when opted in; **block** — ATX headings (`#`–`######`), fenced ``` / ~~~ code blocks (body is text-only, HTML-escaped on the static HTML path), single-level `ul` / `ol`, `>` blockquotes (depth-capped), thematic breaks (`---` / `***` / `___` alone), paragraphs separated by blank lines. Raw HTML tags are never interpreted (they appear as escaped text in React, or entity-escaped in `renderSafeMarkdownHtmlString`). `javascript:` / `data:` / unknown link protocols and non-allowlisted attachment ids are inert. The Pretext task list uses `renderSafeMarkdownHtmlString` (same rules) for notes preview HTML — no duplicate policy.
 8. **No-referrer image loads** — Every rendered `<img>` (thumbnail rail and `SafeMarkdown`) uses `referrerPolicy="no-referrer"` so that asset GETs never leak URLs to third parties.
 
 ## Read path
@@ -41,6 +41,8 @@ Every endpoint that returns a body which can embed `attachment:<uuid>` tokens mu
 | Feedback | `POST /api/feedback` | (operator only) | Merged with existing screenshot pipeline. |
 
 Text-only surfaces (login, AI prompt boxes, contact form) intentionally do **not** mount `PasteComposer` — pasted images there are ignored to keep the attack surface minimal.
+
+**Composer Preview tab** — `PasteComposer` can show a **Preview** tab that renders the draft body via `renderSafeMarkdownHtmlString` (same closed grammar and URL rules as `SafeMarkdown` on read paths). Attachment tokens are resolved only against the draft’s `attachmentAssetIds` (plus the same HTTPS-only / optional remote-image rules as the renderer).
 
 ## Operational watchlist
 

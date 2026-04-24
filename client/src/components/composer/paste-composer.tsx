@@ -8,18 +8,23 @@
  *                  those tokens, plus any orphan thumbnails the user
  *                  chose not to inline.
  *
- * The companion renderer is `SafeMarkdown` in `@/lib/safe-markdown`.
+ * Preview uses `renderSafeMarkdownHtmlString` from `@/lib/safe-markdown`
+ * (same rules as read surfaces). Write/Preview tabs are optional via
+ * `showMarkdownPreview`.
  *
  * This is a low-level primitive; page-specific copy (button label,
  * placeholder) is passed in by the caller.
  */
-import React, { useCallback, useImperativeHandle, useRef, useState } from "react";
+import React, { useCallback, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   usePasteUpload,
   type UploadedAttachment,
 } from "@/lib/use-paste-upload";
+import { renderSafeMarkdownHtmlString } from "@/lib/safe-markdown";
+import { cn } from "@/lib/utils";
 import { GifPicker } from "./gif-picker";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Camera } from "lucide-react";
@@ -48,6 +53,12 @@ export type PasteComposerProps = {
    */
   actionsSlot?: React.ReactNode;
   testIdPrefix?: string;
+  /** When true (default), show Write / Preview tabs with the same renderer as read paths. */
+  showMarkdownPreview?: boolean;
+  /** Pass through to preview renderer for `![](https://…)` (default false). */
+  previewAllowRemoteImages?: boolean;
+  /** Extra classes on the markdown root inside Preview (merged into `renderSafeMarkdownHtmlString`). */
+  previewClassName?: string;
 };
 
 export type PasteComposerHandle = {
@@ -74,13 +85,27 @@ export const PasteComposer = React.forwardRef<
     onError,
     actionsSlot,
     testIdPrefix = "paste-composer",
+    showMarkdownPreview = true,
+    previewAllowRemoteImages = false,
+    previewClassName,
   } = props;
 
   const [gifOpen, setGifOpen] = useState(false);
+  const [composerTab, setComposerTab] = useState<"write" | "preview">("write");
   const isMobile = useIsMobile();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+
+  const previewHtml = useMemo(
+    () =>
+      renderSafeMarkdownHtmlString(value.body, {
+        allowedAttachmentIds: value.attachmentAssetIds,
+        allowRemoteImages: previewAllowRemoteImages,
+        className: cn("axtask-paste-composer__preview-md", previewClassName),
+      }),
+    [value.body, value.attachmentAssetIds, previewAllowRemoteImages, previewClassName],
+  );
 
   const applyAttachment = useCallback(
     (attachment: UploadedAttachment, inlineMarkdown = true) => {
@@ -115,8 +140,14 @@ export const PasteComposer = React.forwardRef<
   useImperativeHandle(
     forwardedRef,
     () => ({
-      focus: () => textareaRef.current?.focus(),
+      focus: () => {
+        setComposerTab("write");
+        requestAnimationFrame(() => {
+          textareaRef.current?.focus();
+        });
+      },
       clear: () => {
+        setComposerTab("write");
         paste.reset();
         onChange({ body: "", attachmentAssetIds: [] });
       },
@@ -192,8 +223,8 @@ export const PasteComposer = React.forwardRef<
     [paste, onChange, value.body, value.attachmentAssetIds],
   );
 
-  return (
-    <div className={className}>
+  const writeBlock = (
+    <>
       <Textarea
         ref={textareaRef}
         value={value.body}
@@ -305,6 +336,43 @@ export const PasteComposer = React.forwardRef<
             setGifOpen(false);
           }}
         />
+      )}
+    </>
+  );
+
+  return (
+    <div className={className}>
+      {showMarkdownPreview ? (
+        <Tabs
+          value={composerTab}
+          onValueChange={(v) => setComposerTab(v as "write" | "preview")}
+          className="w-full"
+        >
+          <TabsList className="w-full justify-start" aria-label="Composer mode">
+            <TabsTrigger value="write" data-testid={`${testIdPrefix}-tab-write`}>
+              Write
+            </TabsTrigger>
+            <TabsTrigger value="preview" data-testid={`${testIdPrefix}-tab-preview`}>
+              Preview
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="write" className="mt-2 space-y-0">
+            {writeBlock}
+          </TabsContent>
+          <TabsContent value="preview" className="mt-2">
+            <div
+              className={cn(
+                "min-h-[80px] max-h-72 overflow-y-auto rounded-md border border-input bg-muted/30 px-3 py-2 text-sm",
+                "[&_.axtask-md-body]:text-inherit",
+              )}
+              dangerouslySetInnerHTML={{ __html: previewHtml }}
+              aria-label="Markdown preview"
+              data-testid={`${testIdPrefix}-preview`}
+            />
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <div className="space-y-0">{writeBlock}</div>
       )}
     </div>
   );

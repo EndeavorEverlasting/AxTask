@@ -31,7 +31,7 @@ Submitting product feedback must advance the mapped companion via `engageAvatarM
 
 ## Pretext vs React
 
-- **Pretext** covers immersive shell chrome, page headers, typography/wrap helpers, and **hot-path list controllers** (for example [`client/src/lib/pretext-imperative-list.ts`](../client/src/lib/pretext-imperative-list.ts)) so large tables are not re-rendered by React on every keystroke.
+- **Pretext** covers immersive shell chrome, page headers, typography/wrap helpers, and **hot-path list controllers** (for example [`client/src/lib/pretext-imperative-list.ts`](../client/src/lib/pretext-imperative-list.ts)) so large tables are not re-rendered by React on every keystroke. Task row **notes markdown** is turned into static HTML via `renderSafeMarkdownHtmlString` in [`client/src/lib/task-notes-markdown-static.tsx`](../client/src/lib/task-notes-markdown-static.tsx) (same parser as `SafeMarkdown`) and applied with `innerHTML` on the row — avoiding `renderToStaticMarkup` on each update.
 - **React** remains the composition layer for forms, dialogs, and moderate-sized trees—use it where declarative state is cheaper than bespoke DOM wiring.
 - When adding heavy UI, default to **extending Pretext patterns** before mounting new parallel React trees for the same data.
 
