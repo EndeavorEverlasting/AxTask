@@ -326,13 +326,13 @@ describe("fetchImageByUrl", () => {
     ).rejects.toMatchObject({ reason: "magic_byte_mismatch" });
   });
 
-  it("rejects content-length over the 10MiB cap without downloading", async () => {
+  it("rejects content-length over the image cap without downloading", async () => {
     const { factory } = fakeHttpClient([
       {
         kind: "ok",
         body: pngBytes(),
         contentType: "image/png",
-        contentLength: 20 * 1024 * 1024,
+        contentLength: 6 * 1024 * 1024,
       },
     ]);
     await expect(

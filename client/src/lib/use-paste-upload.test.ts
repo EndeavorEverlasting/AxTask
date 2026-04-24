@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
+import { ATTACHMENT_IMAGE_MAX_BYTES } from "@shared/attachment-image-limits";
 import { __internal } from "./use-paste-upload";
 
 describe("use-paste-upload :: helpers", () => {
@@ -34,6 +35,6 @@ describe("use-paste-upload :: helpers", () => {
     expect(__internal.PASTE_ACCEPTED_MIME.has("text/html")).toBe(false);
   });
   it("PASTE_IMAGE_BYTE_CAP matches the server scanAttachmentBuffer cap", () => {
-    expect(__internal.PASTE_IMAGE_BYTE_CAP).toBe(10 * 1024 * 1024);
+    expect(__internal.PASTE_IMAGE_BYTE_CAP).toBe(ATTACHMENT_IMAGE_MAX_BYTES);
   });
 });

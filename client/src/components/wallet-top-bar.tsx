@@ -13,14 +13,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { FloatingChip } from "@/components/ui/floating-chip";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export function WalletTopBar() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
 
   const { data: wallet } = useQuery<{ balance: number; currentStreak?: number }>({
     queryKey: ["/api/gamification/wallet"],
+    /** Mobile nav sheet is often closed, so the sidebar wallet poll is absent — keep the rail fresh. */
+    refetchInterval: isMobile ? 45_000 : false,
+    refetchIntervalInBackground: false,
   });
   const { data: rewards = [] } = useQuery<Array<{ id: string; cost: number; name: string }>>({
     queryKey: ["/api/gamification/rewards"],

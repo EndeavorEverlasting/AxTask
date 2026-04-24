@@ -242,7 +242,7 @@ export default function FeedbackPage() {
               <Inbox className="h-5 w-5 text-blue-600 dark:text-blue-300" />
             </div>
             <p className="font-medium">Paste or drag screenshots here</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Up to 10 images, max 10MB each</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Up to 10 images, max 5MB each</p>
           </div>
 
           <div className="flex flex-wrap gap-2">

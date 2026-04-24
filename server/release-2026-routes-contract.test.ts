@@ -44,7 +44,7 @@ describe("release-2026-04-15 contracts", () => {
 
   it("refetches task from storage before completion coin award on PUT /api/tasks/:id", () => {
     const routes = fs.readFileSync(path.join(projectRoot, "server", "routes.ts"), "utf8");
-    const refetch = routes.indexOf("const latestTask = await storage.getTask(userId, req.params.id)");
+    const refetch = routes.indexOf("const latestTask = await getAccessibleTaskForUser(userId, req.params.id)");
     const award = routes.indexOf("awardCoinsForCompletion(userId, task!, previousStatus)");
     expect(refetch).toBeGreaterThan(-1);
     expect(award).toBeGreaterThan(refetch);

@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
 import type { PublicTaskListItem } from "@shared/public-client-dtos";
 import { SafeMarkdown } from "@/lib/safe-markdown";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { apiFetch } from "@/lib/queryClient";
+import { applyWalletRewardHybrid } from "@/lib/wallet-cache";
 import { Search, X, Calendar, Tag, Clock } from "lucide-react";
 
 /**
@@ -55,6 +56,7 @@ function highlightMatch(text: string, query: string): JSX.Element {
 }
 
 export function GlobalSearch({ open, onOpenChange, onSelectTask }: GlobalSearchProps) {
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -92,6 +94,13 @@ export function GlobalSearch({ open, onOpenChange, onSelectTask }: GlobalSearchP
       if (!res.ok) {
         const text = (await res.text()) || res.statusText;
         throw new Error(`${res.status}: ${text}`);
+      }
+      const headerBal = res.headers.get("x-axtask-wallet-balance");
+      if (headerBal != null) {
+        const n = Number(headerBal);
+        if (Number.isFinite(n)) {
+          applyWalletRewardHybrid(queryClient, { balance: n });
+        }
       }
       return (await res.json()) as Task[];
     },

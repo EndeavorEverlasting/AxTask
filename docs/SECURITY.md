@@ -163,7 +163,7 @@ app.use(csrfProtection);
 **Enhanced Security Measures**:
 ```typescript
 // File upload restrictions
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB (image attachments; see @shared/attachment-image-limits)
 const ALLOWED_MIME_TYPES = ['text/csv', 'application/vnd.ms-excel'];
 
 // Content scanning for suspicious patterns

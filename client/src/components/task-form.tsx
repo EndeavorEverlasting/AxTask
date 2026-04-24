@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ATTACHMENT_IMAGE_MAX_BYTES } from "@shared/attachment-image-limits";
 import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
 import { apiFetch, apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
@@ -44,6 +45,7 @@ import {
   Save,
   Sparkles,
   ImagePlus,
+  Camera,
   X,
   Loader2,
   ShoppingCart,
@@ -146,6 +148,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   type TaskAttachment = { assetId: string; fileName: string; mimeType: string; uploading?: boolean };
   const [taskAttachments, setTaskAttachments] = useState<TaskAttachment[]>([]);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageCameraInputRef = useRef<HTMLInputElement>(null);
 
   const removeAttachment = useCallback(async (assetId: string) => {
     try {
@@ -272,8 +275,11 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       });
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      toast({ title: "Image must be under 10 MB", variant: "destructive" });
+    if (file.size > ATTACHMENT_IMAGE_MAX_BYTES) {
+      toast({
+        title: `Image must be under ${Math.round(ATTACHMENT_IMAGE_MAX_BYTES / (1024 * 1024))} MB`,
+        variant: "destructive",
+      });
       return;
     }
     const placeholder: TaskAttachment = { assetId: "uploading", fileName: file.name, mimeType: file.type, uploading: true };
@@ -549,6 +555,8 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
               prerequisites: "",
               recurrence: "none",
               status: "pending",
+              visibility: base.visibility ?? "private",
+              communityShowNotes: base.communityShowNotes ?? false,
             },
             queryClient,
             user?.id ?? "",
@@ -1248,11 +1256,39 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                                 </TooltipTrigger>
                                 <TooltipContent>Attach image</TooltipContent>
                               </Tooltip>
+                              {isMobile ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-9 w-9"
+                                      onClick={() => imageCameraInputRef.current?.click()}
+                                    >
+                                      <Camera className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Take photo</TooltipContent>
+                                </Tooltip>
+                              ) : null}
                             </TooltipProvider>
                             <input
                               ref={imageInputRef}
                               type="file"
                               accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageUpload(file);
+                                e.target.value = "";
+                              }}
+                            />
+                            <input
+                              ref={imageCameraInputRef}
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
                               className="hidden"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];

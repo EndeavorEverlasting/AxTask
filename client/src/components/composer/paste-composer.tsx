@@ -21,6 +21,8 @@ import {
   type UploadedAttachment,
 } from "@/lib/use-paste-upload";
 import { GifPicker } from "./gif-picker";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Camera } from "lucide-react";
 
 export type PasteComposerValue = {
   body: string;
@@ -75,8 +77,10 @@ export const PasteComposer = React.forwardRef<
   } = props;
 
   const [gifOpen, setGifOpen] = useState(false);
+  const isMobile = useIsMobile();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const applyAttachment = useCallback(
     (attachment: UploadedAttachment, inlineMarkdown = true) => {
@@ -161,6 +165,10 @@ export const PasteComposer = React.forwardRef<
     fileInputRef.current?.click();
   }, []);
 
+  const handlePickCamera = useCallback(() => {
+    cameraInputRef.current?.click();
+  }, []);
+
   const handleLocalFiles = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files || []);
@@ -239,6 +247,15 @@ export const PasteComposer = React.forwardRef<
           onChange={handleLocalFiles}
           data-testid={`${testIdPrefix}-file-input`}
         />
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          capture="environment"
+          hidden
+          onChange={handleLocalFiles}
+          data-testid={`${testIdPrefix}-camera-input`}
+        />
         <Button
           type="button"
           variant="ghost"
@@ -249,6 +266,20 @@ export const PasteComposer = React.forwardRef<
         >
           Add image
         </Button>
+        {isMobile ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handlePickCamera}
+            disabled={disabled || paste.attachments.length >= maxAttachments}
+            data-testid={`${testIdPrefix}-camera-button`}
+            aria-label="Take photo"
+          >
+            <Camera className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="ml-1">Photo</span>
+          </Button>
+        ) : null}
         {allowGifPicker && (
           <Button
             type="button"

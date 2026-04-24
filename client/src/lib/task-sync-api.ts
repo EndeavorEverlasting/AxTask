@@ -556,7 +556,11 @@ async function processUpdateOp(
   mergeTaskInCache(queryClient, op.taskId, updated as Record<string, unknown>);
   void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
   void queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
-  applyWalletRewardHybrid(queryClient, { balance: updated.walletBalance ?? null });
+  if (typeof updated.walletBalance === "number") {
+    applyWalletRewardHybrid(queryClient, { balance: updated.walletBalance });
+  } else if ("status" in op.patch && op.patch.status !== undefined) {
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+  }
   return "done";
 }
 
