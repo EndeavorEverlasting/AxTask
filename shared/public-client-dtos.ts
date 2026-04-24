@@ -3,6 +3,7 @@ import type {
   CoinTransaction,
   SafeUser,
   Task,
+  User,
   UserBadge,
   Wallet,
 } from "./schema";
@@ -26,6 +27,18 @@ export function toPublicSessionUser(user: SafeUser): PublicSessionUser {
     ...rest
   } = user;
   return rest;
+}
+
+export type PublicInviteUserPreview = Pick<User, "publicHandle" | "displayName" | "profileImageUrl">;
+
+export function toPublicInviteUserPreview(
+  user: Pick<User, "publicHandle" | "displayName" | "profileImageUrl">,
+): PublicInviteUserPreview {
+  return {
+    publicHandle: user.publicHandle,
+    displayName: user.displayName ?? null,
+    profileImageUrl: user.profileImageUrl ?? null,
+  };
 }
 
 /**

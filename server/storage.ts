@@ -285,6 +285,22 @@ export async function getUserByPublicHandle(handle: string): Promise<User | unde
   return user || undefined;
 }
 
+export async function getInvitePreviewByPublicHandle(
+  handle: string,
+): Promise<Pick<User, "publicHandle" | "displayName" | "profileImageUrl"> | null> {
+  const normalized = handle.trim().toLowerCase().replace(/^@+/, "");
+  if (!normalized) return null;
+  const [user] = await db
+    .select({
+      publicHandle: users.publicHandle,
+      displayName: users.displayName,
+      profileImageUrl: users.profileImageUrl,
+    })
+    .from(users)
+    .where(eq(users.publicHandle, normalized));
+  return user ?? null;
+}
+
 export async function getUserById(id: string): Promise<SafeUser | undefined> {
   const [user] = await db.select().from(users).where(eq(users.id, id));
   return user ? toSafeUser(user) : undefined;

@@ -20,4 +20,11 @@ describe("collaboration routes contract", () => {
     expect(routes).toContain('message: "Handle is required"');
     expect(routes).toContain('role || "viewer"');
   });
+
+  it("registers authenticated invite preview endpoint", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes).toContain('app.post("/api/invites/preview"');
+    expect(routes).toContain("getInvitePreviewByPublicHandle");
+    expect(routes).toContain("toPublicInviteUserPreview");
+  });
 });

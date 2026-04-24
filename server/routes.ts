@@ -104,6 +104,7 @@ import {
   getAccessibleTasksForUser,
   getAccessibleTaskForUser,
   updateTaskById,
+  getInvitePreviewByPublicHandle,
   canAccessTask,
   isTaskOwner,
   resetStreak,
@@ -158,6 +159,7 @@ import {
   toPublicAttachmentRefs,
   toPublicTaskListItems,
   toPublicTaskDetail,
+  toPublicInviteUserPreview,
   toPublicArchetypePollSummary,
   toPublicArchetypePollOptions,
   type PublicDmConversation,
@@ -7673,6 +7675,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── User Self-Service Export & Import (GDPR) routes are handled above with step-up auth.
 
   // ─── Collaboration routes ──────────────────────────────────────────────────
+
+  const invitePreviewSchema = z.object({
+    handle: z.string().min(1).max(64),
+  });
+
+  app.post("/api/invites/preview", requireAuth, async (req, res) => {
+    try {
+      const parsed = invitePreviewSchema.safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ message: "Handle is required" });
+      const preview = await getInvitePreviewByPublicHandle(parsed.data.handle);
+      if (!preview) return res.json({ found: false });
+      return res.json({ found: true, preview: toPublicInviteUserPreview(preview) });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to preview handle" });
+    }
+  });
 
   app.get("/api/tasks/shared", requireAuth, async (req, res) => {
     try {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { syncRawTaskRequest } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
@@ -15,7 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Users, UserPlus, Trash2, Crown, Eye, Pencil, Globe2 } from "lucide-react";
+import { Users, UserPlus, Trash2, Crown, Eye, Pencil, Globe2, CheckCircle2, Search } from "lucide-react";
 interface Collaborator {
   id: string;
   taskId: string;
@@ -33,6 +33,15 @@ interface ShareDialogProps {
   communityShowNotes?: boolean;
 }
 
+type InvitePreviewResponse = {
+  found: boolean;
+  preview?: {
+    publicHandle: string;
+    displayName: string | null;
+    profileImageUrl: string | null;
+  };
+};
+
 export function ShareDialog({ taskId, isOwner, visibility = "private", communityShowNotes = false }: ShareDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -40,6 +49,7 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
   const [handle, setHandle] = useState("");
   const [handleError, setHandleError] = useState<string | null>(null);
   const [role, setRole] = useState("viewer");
+  const [invitePulse, setInvitePulse] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [showNotes, setShowNotes] = useState(communityShowNotes);
   useEffect(() => {
@@ -54,6 +64,41 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
     maskedDestination?: string;
   } | null>(null);
   const [unpubChallenge, setUnpubChallenge] = useState<typeof pubChallenge | null>(null);
+  const [debouncedHandle, setDebouncedHandle] = useState("");
+
+  const normalizedHandle = useMemo(() => handle.trim().replace(/^@+/, "").toLowerCase(), [handle]);
+  const isHandleStructurallyValid = normalizedHandle.length > 0 && !/\s/.test(normalizedHandle);
+
+  useEffect(() => {
+    if (!open) {
+      setDebouncedHandle("");
+      return;
+    }
+    const t = window.setTimeout(() => setDebouncedHandle(normalizedHandle), 220);
+    return () => window.clearTimeout(t);
+  }, [normalizedHandle, open]);
+
+  useEffect(() => {
+    if (!invitePulse) return;
+    const t = window.setTimeout(() => setInvitePulse(null), 2200);
+    return () => window.clearTimeout(t);
+  }, [invitePulse]);
+
+  const previewQuery = useQuery<InvitePreviewResponse>({
+    queryKey: ["/api/invites/preview", debouncedHandle],
+    enabled: isOwner && open && debouncedHandle.length >= 2 && isHandleStructurallyValid,
+    staleTime: 15_000,
+    queryFn: async () => {
+      const res = await fetch("/api/invites/preview", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: debouncedHandle }),
+      });
+      if (!res.ok) throw new Error("Could not verify handle");
+      return res.json();
+    },
+  });
 
   const { data: collaborators = [] } = useQuery<Collaborator[]>({
     queryKey: ["/api/tasks", taskId, "collaborators"],
@@ -81,6 +126,7 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks", taskId, "collaborators"] });
       setHandle("");
+      setInvitePulse(`Orb sync complete: @${handle.replace(/^@+/, "")} joined as ${role}.`);
       toast({ title: "Collaborator added", description: `@${handle.replace(/^@+/, "")} can now access this task.` });
     },
     onError: (err: Error) => {
@@ -141,6 +187,25 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
     if (r === "owner") return <Crown className="h-3.5 w-3.5 text-amber-500" />;
     if (r === "editor") return <Pencil className="h-3.5 w-3.5 text-blue-500" />;
     return <Eye className="h-3.5 w-3.5 text-gray-500" />;
+  };
+
+  const inviteReady = isHandleStructurallyValid
+    && normalizedHandle.length > 0
+    && !addMutation.isPending
+    && !previewQuery.isFetching
+    && Boolean(previewQuery.data?.found);
+
+  const submitInvite = () => {
+    if (!isHandleStructurallyValid || !normalizedHandle) {
+      setHandleError("Enter a valid handle (no spaces)");
+      return;
+    }
+    if (previewQuery.data?.found === false) {
+      setHandleError("No user found for that handle");
+      return;
+    }
+    setHandleError(null);
+    addMutation.mutate({ handle: normalizedHandle, role });
   };
 
   const publishMutation = useMutation({
@@ -252,13 +317,8 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
               }}
               onKeyDown={(e) => {
                 if (e.key !== "Enter") return;
-                const trimmed = handle.trim().replace(/^@+/, "");
-                if (!trimmed || /\s/.test(trimmed)) {
-                  setHandleError("Enter a valid handle (no spaces)");
-                  return;
-                }
-                setHandleError(null);
-                addMutation.mutate({ handle: trimmed, role });
+                if (!inviteReady) return;
+                submitInvite();
               }}
               className="flex-1"
               aria-invalid={handleError ? true : undefined}
@@ -273,22 +333,49 @@ export function ShareDialog({ taskId, isOwner, visibility = "private", community
               </SelectContent>
             </Select>
             <Button
-              onClick={() => {
-                const trimmed = handle.trim().replace(/^@+/, "");
-                if (!trimmed || /\s/.test(trimmed)) {
-                  setHandleError("Enter a valid handle (no spaces)");
-                  return;
-                }
-                setHandleError(null);
-                addMutation.mutate({ handle: trimmed, role });
-              }}
-              disabled={!handle.trim() || addMutation.isPending}
+              onClick={submitInvite}
+              disabled={!inviteReady}
               size="icon"
             >
               <UserPlus className="h-4 w-4" />
             </Button>
           </div>
         )}
+        {isOwner && normalizedHandle.length >= 2 ? (
+          <div className="mt-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs">
+            {previewQuery.isFetching ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Search className="h-3.5 w-3.5 animate-pulse" />
+                Looking for @{normalizedHandle}…
+              </div>
+            ) : previewQuery.data?.found && previewQuery.data.preview ? (
+              <div className="flex items-center gap-2">
+                <div
+                  className="h-6 w-6 rounded-full text-[10px] font-bold text-white flex items-center justify-center"
+                  style={{ backgroundColor: stringToColor(previewQuery.data.preview.publicHandle) }}
+                >
+                  {(previewQuery.data.preview.displayName || previewQuery.data.preview.publicHandle).charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate font-medium">
+                    {previewQuery.data.preview.displayName || `@${previewQuery.data.preview.publicHandle}`}
+                  </p>
+                  <p className="truncate text-muted-foreground">@{previewQuery.data.preview.publicHandle}</p>
+                </div>
+              </div>
+            ) : debouncedHandle.length >= 2 && isHandleStructurallyValid ? (
+              <p className="text-amber-600">No user found for @{debouncedHandle} yet.</p>
+            ) : (
+              <p className="text-muted-foreground">Use a valid handle like @axfriend</p>
+            )}
+          </div>
+        ) : null}
+        {isOwner && invitePulse ? (
+          <div className="mt-2 flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            {invitePulse}
+          </div>
+        ) : null}
         {isOwner && handleError ? (
           <p className="text-sm text-destructive mt-1" role="alert">
             {handleError}

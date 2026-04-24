@@ -7,6 +7,7 @@ import {
   toPublicSessionUser,
   toPublicWallet,
   toPublicArchetypePollSummary,
+  toPublicInviteUserPreview,
 } from "./public-client-dtos";
 import type { SafeUser } from "./schema";
 
@@ -148,5 +149,20 @@ describe("public client DTOs", () => {
     const pub = toPublicBadge(badge);
     expect(pub).not.toHaveProperty("userId");
     expect(pub.badgeId).toBe("first-task");
+  });
+
+  it("returns only safe fields for invite preview", () => {
+    const pub = toPublicInviteUserPreview({
+      publicHandle: "axfriend",
+      displayName: "Ax Friend",
+      profileImageUrl: "https://cdn.example/avatar.png",
+    });
+    expect(pub).toEqual({
+      publicHandle: "axfriend",
+      displayName: "Ax Friend",
+      profileImageUrl: "https://cdn.example/avatar.png",
+    });
+    expect(pub).not.toHaveProperty("email");
+    expect(pub).not.toHaveProperty("id");
   });
 });
