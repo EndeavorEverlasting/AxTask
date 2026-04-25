@@ -19,7 +19,7 @@ npm run start:local
 
 Visit `http://localhost:5000` to access the application.
 
-`npm run start:local` runs the smart local startup flow (SQL migrations first, then `db:push` when needed, then dev server). Use `npm run dev` only when you intentionally want server-only startup without schema automation. For command ordering details, see **[docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)**.
+`npm run start:local` runs the smart local startup flow (SQL migrations first, then `db:push` when needed, then dev server). Use `npm run dev` only when you intentionally want server-only startup without schema automation. For command ordering details, see **[docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)**. For a **grouped list of all major env vars** (database, VAPID/push, auth, `VITE_*` build-time keys), see **[docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)**.
 
 ## Docker Quick Start (Recommended for Workstations)
 

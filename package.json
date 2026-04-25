@@ -48,6 +48,7 @@
     "test:watch": "vitest",
     "test:pg-schema": "cross-env RUN_PG_SCHEMA_TESTS=1 vitest run server/users-schema-pg.integration.test.ts",
     "db:push": "node scripts/drizzle-push.mjs",
+    "db:migrate": "node -r dotenv/config scripts/apply-migrations.mjs",
     "db:push:ci": "drizzle-kit push --force",
     "db:push:verify": "node scripts/verify-drizzle-deploy.mjs",
     "db:size-audit": "node scripts/db-size-audit.mjs",

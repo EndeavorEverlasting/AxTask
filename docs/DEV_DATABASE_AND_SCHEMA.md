@@ -2,9 +2,31 @@
 
 This document is the **single reference** for which commands to run, in what order, and how they differ from Docker and production. Run all CLI commands from the **repository root** (`AxTask`).
 
-For environment variable reference, see [`.env.example`](../.env.example). For Docker Desktop onboarding, see [DOCKER_FOUNDATION.md](./DOCKER_FOUNDATION.md).
+For **database URL vs other app settings**, see [App settings vs `DATABASE_URL`](#app-settings-vs-database_url-important) below. For a **full categorized list** of env vars (VAPID, auth, NodeWeaver, etc.), see [ENVIRONMENT_VARIABLES.md](./ENVIRONMENT_VARIABLES.md). The local template is [`.env.example`](../.env.example). For Docker Desktop onboarding, see [DOCKER_FOUNDATION.md](./DOCKER_FOUNDATION.md).
 
 **Optional app behavior:** `AXTASK_ARCHETYPE_POLL_SCHEDULER=0` disables automatic archetype community poll scheduling (startup and `ensureArchetypePollSchedule`); listed in `.env.example` with other `AXTASK_*` toggles.
+
+## App settings vs `DATABASE_URL` (important)
+
+A single `.env` file holds **many independent variables**. They are **not** merged into one value and you do **not** “combine local setup with Neon” into a single string.
+
+| Kind | Examples | Role |
+|------|----------|------|
+| **App / process** | `PORT`, `SESSION_SECRET`, `CANONICAL_HOST`, `NODE_ENV`, `VITE_*` | How the server and client behave (ports, auth signing, host checks). |
+| **Database target** | **`DATABASE_URL`** (exactly this name) | One PostgreSQL connection string for this run: host, user, password, database, and query flags (e.g. `?sslmode=require` for Neon). |
+
+**What the code reads:** the server pool ([`server/db.ts`](../server/db.ts)), Drizzle ([`drizzle.config.ts`](../drizzle.config.ts)), [`scripts/apply-migrations.mjs`](../scripts/apply-migrations.mjs), and [`scripts/migration/verify-schema.mjs`](../scripts/migration/verify-schema.mjs) all use **`process.env.DATABASE_URL`**. There is **no** second env var (for example `NEON_DATABASE_URL`) wired into the app today. If you keep a *spare* URL for documentation or copy-paste, name it however you like in comments—only **`DATABASE_URL`** is read.
+
+**Neon vs local Postgres:** you choose **which database** the process talks to by setting **`DATABASE_URL`** to that host:
+
+- **Neon (cloud):** host looks like `ep-….neon.tech`; Neon’s docs usually require `?sslmode=require` on the URL.
+- **Local / Docker:** host `localhost` or the Compose service name (see [`.env.docker.example`](../.env.docker.example)), typically **no** SSL to the local container.
+
+When Neon is unavailable and you need the app against a local DB, point **`DATABASE_URL`** at the local instance for that session. Your **`SESSION_SECRET`**, **`PORT`**, and other app keys stay the same; you are only changing the **database target**, not “replacing your whole .env with production.”
+
+**Keeping both URLs handy:** a common pattern is **two commented lines** in `.env` (local vs Neon) and **uncomment exactly one** active `DATABASE_URL=...` at a time. Another pattern is a **one-off** shell override (PowerShell: `$env:DATABASE_URL = '…'; npm run db:migrate`) so the file on disk can stay on local while you run migrations against Neon once.
+
+**Loading `.env` for CLI tools:** `npm run db:push` loads `.env` via [`scripts/drizzle-push.mjs`](../scripts/drizzle-push.mjs). Raw `node scripts/apply-migrations.mjs` does **not** load `.env` unless you set `DATABASE_URL` in the environment. Prefer **`npm run db:migrate`**, which runs `node -r dotenv/config scripts/apply-migrations.mjs` (see [Quick command summary](#quick-command-summary)).
 
 ## Prerequisites
 
@@ -45,7 +67,7 @@ Use this when you already manage the database yourself and want the fastest edit
 4. After **any** change to Drizzle schema (`shared/schema.ts`), `drizzle.config.ts`, or when the DB is new:  
    `npm run db:push`
 5. If the repo added or changed files under `migrations/*.sql`, apply them **before** or alongside push:  
-   `node scripts/apply-migrations.mjs`  
+   `npm run db:migrate` (loads `.env`; same as `node -r dotenv/config scripts/apply-migrations.mjs`)  
    then `npm run db:push` if needed for Drizzle drift.
 6. `npm run dev` — starts **only** the dev server (`tsx server/index.ts`). **No** migrations and **no** `db:push` run automatically.
 
@@ -175,6 +197,15 @@ Something is still bound to the dev port (often a leftover `node` / Vite / `tsx`
 
 2. Retry `npm ci` or `npm install` from the repo root.
 
+### `ECONNREFUSED` to `localhost:5432` (or your configured host)
+
+The client is trying to open a TCP connection to whatever host is in **`DATABASE_URL`**. Common cases:
+
+- **`DATABASE_URL` still points at `localhost`** (see [`.env.example`](../.env.example)) but Docker / local Postgres is not running.
+- You intended to use **Neon**, but **`DATABASE_URL` was not set to the Neon host** (still `localhost` in `.env`).
+
+Fix: start local Postgres, **or** set **`DATABASE_URL`** to your Neon connection string (see [App settings vs `DATABASE_URL`](#app-settings-vs-database_url-important) above). The failure is not “Neon vs local merged wrong”—it is “nothing listening at the host:port in **`DATABASE_URL` right now.”
+
 ## Quick command summary
 
 | Goal | Command |
@@ -185,7 +216,8 @@ Something is still bound to the dev port (often a leftover `node` / Vite / `tsx`
 | Local dev with automatic SQL migrations + conditional `db:push` | `npm run dev:smart` or `npm run offline:start` |
 | Full stack in Docker | `npm run docker:start` (after `.env.docker`) |
 | Drizzle-only sync (local) | `npm run db:push` |
-| SQL-only migrations (local / CI) | `node scripts/apply-migrations.mjs` |
+| SQL-only migrations (loads `.env` for `DATABASE_URL`) | `npm run db:migrate` |
+| SQL-only migrations (raw; requires `DATABASE_URL` in environment) | `node scripts/apply-migrations.mjs` |
 | CI-style Drizzle push | `npm run db:push:ci` |
 
 If `npm error Missing script: "db:push"` appears, the shell is **not** in the AxTask project directory.
