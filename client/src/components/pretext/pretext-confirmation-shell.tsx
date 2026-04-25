@@ -189,6 +189,7 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
       {labels.map((label, idx) => (
         <div
           key={`${label}-${idx}`}
+          data-pretext-chip=""
           ref={(el) => { chipRefs.current[idx] = el; }}
           className="absolute text-xs sm:text-sm rounded-full border border-emerald-300/40 bg-emerald-900/30 backdrop-blur-sm px-3 py-1 text-emerald-200/80 shadow-lg shadow-emerald-500/10 opacity-70"
           style={{

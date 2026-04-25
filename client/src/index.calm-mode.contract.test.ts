@@ -58,4 +58,20 @@ describe("calm-mode stylesheet contract", () => {
       /body\[data-axtask-calm\][\s\S]+?will-change:\s*auto\s*!important/,
     );
   });
+
+  it("applies opaque reader-surface fills to glass panels during calm-mode", () => {
+    expect(CSS).toContain("Reader mask during calm-mode");
+    expect(CSS).toMatch(
+      /body\[data-axtask-calm\][\s\S]+?\.glass-panel[\s\S]+?background-color:\s*rgba\(255,\s*255,\s*255,\s*0\.93\)\s*!important/,
+    );
+    expect(CSS).toMatch(
+      /\.dark\s+body\[data-axtask-calm\][\s\S]+?background-color:\s*hsla\(222,\s*47%,\s*10%,\s*0\.97\)\s*!important/,
+    );
+  });
+
+  it("dims ambient chip layer opacity during calm-mode", () => {
+    expect(CSS).toMatch(
+      /body\[data-axtask-calm\]\s+\.axtask-chip-layer\s*\{[^}]*opacity:\s*0\.32/,
+    );
+  });
 });
