@@ -577,11 +577,11 @@ body[data-axtask-ambient-fx="off"] .axtask-aurora-body::after {
 
   /* Split light/dark: @apply with stacked dark:.../opacity utilities fails Tailwind expandApply in prod (Docker). */
   .glass-panel {
-    @apply rounded-2xl border border-white/60 bg-white/88 shadow-sm ring-1 ring-black/[0.04];
+    @apply rounded-2xl border border-white/60 bg-white/[0.88] shadow-sm ring-1 ring-black/[0.04];
   }
 
   .dark .glass-panel {
-    @apply border-white/15 bg-slate-950/88 ring-white/[0.06] shadow-2xl shadow-black/20;
+    @apply border-white/15 bg-slate-950/[0.88] ring-white/[0.06] shadow-2xl shadow-black/20;
   }
 
   .glass-panel-elevated {
@@ -600,11 +600,11 @@ body[data-axtask-ambient-fx="off"] .axtask-aurora-body::after {
 
   /* Stability-first shell chrome: no backdrop blur, no filter sampling while scrolling. */
   .axtask-chrome-surface {
-    @apply border border-white/15 bg-slate-950/92 text-slate-100 shadow-lg;
+    @apply border border-white/15 bg-slate-950/[0.92] text-slate-100 shadow-lg;
   }
 
   .light .axtask-chrome-surface {
-    @apply border-slate-300/80 bg-white/96 text-slate-900 shadow-sm;
+    @apply border-slate-300/80 bg-white/[0.96] text-slate-900 shadow-sm;
   }
 
   .glass-panel-glossy::before {
