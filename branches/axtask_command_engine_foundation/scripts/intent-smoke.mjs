@@ -55,8 +55,11 @@ function parse(input) {
   }
 
   let date;
-  if (/\btomorrow\b/.test(lower)) date = tomorrow();
-  if (/\btoday\b/.test(lower)) date = isoDate(now);
+  if (/\btomorrow\b/.test(lower)) {
+    date = tomorrow();
+  } else if (/\btoday\b/.test(lower)) {
+    date = isoDate(now);
+  }
 
   if (/\b(remind me|alarm|notify me|ping me)\b/.test(lower)) {
     return { kind: "create_reminder", date, time, recurrence, confidence: 0.82, raw };

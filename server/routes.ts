@@ -194,15 +194,14 @@ import { recordArchetypeSignal, type ArchetypeSignalKind } from "./lib/archetype
 import { getPublicArchetypeContinuumForUser } from "./lib/archetype-continuum";
 import { hashActor } from "./lib/actor-hash";
 import { insertClassificationDisputeSchema, CATEGORY_REVIEW_STATUSES, type CategoryReviewStatus } from "@shared/schema";
-import { createReminderSchema, createLocationEventSchema } from "@shared/schema";
+import { createReminderSchema, createLocationEventSchema, reminderKindSchema } from "@shared/schema";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
 import {
   createReminderWithTrigger,
   listUserReminders,
   updateReminder,
   disableReminder,
-  createUserLocationEvent,
-  scheduleLocationOffsetTriggersFromEvent,
+  createUserLocationEventAndScheduleOffsetTriggers,
 } from "./storage/reminders";
 import { registerAiRoutes } from "./routes/ai";
 import {
@@ -4741,6 +4740,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/reminders", requireAuth, async (req, res) => {
     try {
       const body = createReminderSchema.parse(req.body || {});
+      const isActive = body.enabled ?? true;
       const trigger =
         body.trigger.type === "datetime"
           ? {
@@ -4748,14 +4748,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
               payloadJson: body.trigger,
               nextRunAt: new Date(body.trigger.atIso),
               cooldownSeconds: 0,
-              isActive: true,
+              isActive,
             }
           : {
               triggerType: body.trigger.type,
               payloadJson: body.trigger,
               nextRunAt: null,
               cooldownSeconds: 0,
-              isActive: true,
+              isActive,
             };
 
       const created = await createReminderWithTrigger({
@@ -4782,7 +4782,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       title: z.string().min(1).max(200).optional(),
       body: z.string().max(2000).nullable().optional(),
       enabled: z.boolean().optional(),
-      kind: z.string().min(1).optional(),
+      kind: reminderKindSchema.optional(),
     })
     .refine((data) => Object.keys(data).length > 0, "At least one field is required");
 
@@ -4812,7 +4812,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const body = createLocationEventSchema.parse(req.body || {});
       const occurredAt = body.occurredAt ? new Date(body.occurredAt) : new Date();
-      const event = await createUserLocationEvent({
+      const result = await createUserLocationEventAndScheduleOffsetTriggers({
         userId: req.user!.id,
         placeId: body.placeId,
         eventType: body.eventType,
@@ -4821,8 +4821,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         metadataJson: body.metadataJson ?? {},
         occurredAt,
       });
-      if (!event) return res.status(500).json({ message: "Failed to persist location event" });
-      const scheduling = await scheduleLocationOffsetTriggersFromEvent(event);
+      if (!result) return res.status(500).json({ message: "Failed to persist location event" });
+      const { event, scheduling } = result;
       res.status(201).json({ event, scheduling });
     } catch (error) {
       if (error instanceof Error) return res.status(400).json({ message: error.message });

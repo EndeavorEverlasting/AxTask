@@ -8,6 +8,19 @@ import {
   type UserLocationEvent,
 } from "@shared/schema";
 
+/** Written to `user_location_events.metadata_json` after offset scheduling runs for this row. */
+export const LOCATION_OFFSET_SCHEDULING_META_KEY = "locationOffsetSchedulingAppliedAt" as const;
+
+function asMetadataRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return { ...(value as Record<string, unknown>) };
+  }
+  return {};
+}
+
+/** DB root or transaction client — both support the queries used by offset scheduling. */
+type RemindersExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 export async function createReminderWithTrigger(input: {
   reminder: typeof userReminders.$inferInsert;
   trigger: Omit<typeof userReminderTriggers.$inferInsert, "reminderId">;
@@ -121,26 +134,45 @@ type OffsetPayload = { placeSlug: string; offsetMinutes: number; recurrence?: un
 /**
  * When a location event arrives, schedule `location_arrival_offset` triggers that match the place slug.
  * Sets `nextRunAt` to occurredAt + offset (first fire; recurrence handled in a later scheduler PR).
+ *
+ * Idempotent per persisted `event.id`: if `metadata_json.locationOffsetSchedulingAppliedAt` is set, returns
+ * `{ updated: 0, skipped: true }` without mutating triggers. Pass `executor` (e.g. a transaction client) so
+ * create + schedule + marker can commit atomically.
  */
-export async function scheduleLocationOffsetTriggersFromEvent(event: UserLocationEvent) {
-  const [place] = await db
+export async function scheduleLocationOffsetTriggersFromEvent(
+  event: UserLocationEvent,
+  executor: RemindersExecutor = db,
+): Promise<{ updated: number; skipped?: boolean }> {
+  const [fresh] = await executor
     .select()
-    .from(userLocationPlaces)
-    .where(and(eq(userLocationPlaces.id, event.placeId), eq(userLocationPlaces.userId, event.userId)))
+    .from(userLocationEvents)
+    .where(eq(userLocationEvents.id, event.id))
     .limit(1);
-  if (!place) return { updated: 0 as number };
+  if (!fresh) return { updated: 0 };
 
-  if (event.eventType !== "enter") {
-    return { updated: 0 as number };
+  const priorMeta = asMetadataRecord(fresh.metadataJson);
+  if (typeof priorMeta[LOCATION_OFFSET_SCHEDULING_META_KEY] === "string") {
+    return { updated: 0, skipped: true };
   }
 
-  const joined = await db
+  const [place] = await executor
+    .select()
+    .from(userLocationPlaces)
+    .where(and(eq(userLocationPlaces.id, fresh.placeId), eq(userLocationPlaces.userId, fresh.userId)))
+    .limit(1);
+  if (!place) return { updated: 0 };
+
+  if (fresh.eventType !== "enter") {
+    return { updated: 0 };
+  }
+
+  const joined = await executor
     .select({ t: userReminderTriggers, r: userReminders })
     .from(userReminderTriggers)
     .innerJoin(userReminders, eq(userReminderTriggers.reminderId, userReminders.id))
     .where(
       and(
-        eq(userReminders.userId, event.userId),
+        eq(userReminders.userId, fresh.userId),
         eq(userReminders.enabled, true),
         eq(userReminderTriggers.isActive, true),
         eq(userReminderTriggers.triggerType, "location_arrival_offset"),
@@ -148,7 +180,8 @@ export async function scheduleLocationOffsetTriggersFromEvent(event: UserLocatio
     );
 
   let updated = 0;
-  const occurred = event.occurredAt instanceof Date ? event.occurredAt : new Date(String(event.occurredAt));
+  const occurred =
+    fresh.occurredAt instanceof Date ? fresh.occurredAt : new Date(String(fresh.occurredAt));
 
   for (const row of joined) {
     const payload = row.t.payloadJson as unknown as OffsetPayload | null;
@@ -156,12 +189,49 @@ export async function scheduleLocationOffsetTriggersFromEvent(event: UserLocatio
       continue;
     }
     const next = new Date(occurred.getTime() + payload.offsetMinutes * 60_000);
-    await db
+    await executor
       .update(userReminderTriggers)
       .set({ nextRunAt: next, updatedAt: new Date() })
       .where(eq(userReminderTriggers.id, row.t.id));
     updated += 1;
   }
 
+  const appliedAt = new Date().toISOString();
+  await executor
+    .update(userLocationEvents)
+    .set({
+      metadataJson: { ...priorMeta, [LOCATION_OFFSET_SCHEDULING_META_KEY]: appliedAt },
+    })
+    .where(eq(userLocationEvents.id, fresh.id));
+
   return { updated };
+}
+
+/** Insert a location event and run offset scheduling in one transaction (marker prevents double-apply on replay). */
+export async function createUserLocationEventAndScheduleOffsetTriggers(input: {
+  userId: string;
+  placeId: string;
+  eventType: "enter" | "exit";
+  source?: "browser" | "mobile" | "native_bridge";
+  confidence?: number;
+  metadataJson?: Record<string, unknown> | null;
+  occurredAt?: Date;
+}) {
+  return db.transaction(async (tx) => {
+    const [event] = await tx
+      .insert(userLocationEvents)
+      .values({
+        userId: input.userId,
+        placeId: input.placeId,
+        eventType: input.eventType,
+        source: input.source ?? "browser",
+        confidence: input.confidence ?? 100,
+        metadataJson: input.metadataJson ?? {},
+        occurredAt: input.occurredAt ?? new Date(),
+      })
+      .returning();
+    if (!event) return null;
+    const scheduling = await scheduleLocationOffsetTriggersFromEvent(event, tx);
+    return { event, scheduling };
+  });
 }

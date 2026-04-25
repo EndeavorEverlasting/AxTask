@@ -253,7 +253,7 @@ The eventual polished interface should include:
 - Recurrence preview
 - Safety prompts for destructive actions
 - Accessible keyboard-only interaction
-- Screen-reader friendly command review
+- Screen-reader-friendly command review
 
 ## Cold judge assessment
 

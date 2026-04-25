@@ -66,7 +66,7 @@ function parseQuickIntent(message: string): AiIntentResult | null {
     };
   }
 
-  if (/\bevery (day|daily)\b/.test(lower)) {
+  if (/\bevery day\b|\bdaily\b/.test(lower)) {
     const title = text.replace(/^set a reminder to\s*/i, "").trim() || "Reminder";
     return {
       type: "create_reminder",

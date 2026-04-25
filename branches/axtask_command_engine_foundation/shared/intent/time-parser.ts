@@ -154,6 +154,8 @@ export function stripDateTimePhrases(input: string): string {
     .replace(/\b(?:next\s+)?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, " ")
     .replace(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, " ")
     .replace(/\bat\s+([01]?\d|2[0-3]):([0-5]\d)\b/gi, " ")
+    /* Bare "at 9" (1–12) only; (?!\s*:) keeps "at 9:30" / "at 23:00" for the colon rule above. */
+    .replace(/\bat\s+(?:[1-9]|1[0-2])\b(?!\s*:)/gi, " ")
     .replace(/\b(?:morning|noon|afternoon|evening|night)\b/gi, " ")
     .replace(/\s{2,}/g, " ")
     .trim();

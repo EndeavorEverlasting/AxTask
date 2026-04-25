@@ -12,7 +12,11 @@ export async function executeCreateReminderIntent(
 ): Promise<ReminderToolResult> {
   const { payload } = intent;
 
-  if (payload.trigger.type === "location_arrival_offset") {
+  if (
+    payload.trigger.type === "location_arrival_offset" ||
+    payload.trigger.type === "location_arrival" ||
+    payload.trigger.type === "location_departure"
+  ) {
     const place = await resolvePlaceAlias(userId, payload.trigger.placeSlug);
     if (!place) {
       return {

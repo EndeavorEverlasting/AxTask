@@ -77,28 +77,40 @@ export function registerAiRoutes(app: Express, requireAuth: RequireAuthMiddlewar
         });
       }
 
-      const result = await executeCreateReminderIntent(req.user!.id, parsed.intent);
-      if (!result.ok) {
-        if (interaction?.id) {
-          await markAiInteractionRejected(interaction.id, req.user!.id, result.reason);
+      if (parsed.intent.type === "create_reminder") {
+        const result = await executeCreateReminderIntent(req.user!.id, parsed.intent);
+        if (!result.ok) {
+          if (interaction?.id) {
+            await markAiInteractionRejected(interaction.id, req.user!.id, result.reason);
+          }
+          return res.json({
+            type: "clarification",
+            clarification: result.clarification,
+            reason: result.reason,
+            interactionId: interaction?.id ?? null,
+          });
         }
-        return res.json({
-          type: "clarification",
-          clarification: result.clarification,
-          reason: result.reason,
+
+        if (interaction?.id) {
+          await markAiInteractionAccepted(interaction.id, req.user!.id);
+        }
+        return res.status(201).json({
+          type: "action_result",
+          action: "create_reminder",
+          message: result.message,
+          reminderId: result.reminderId,
+          triggerId: result.triggerId,
           interactionId: interaction?.id ?? null,
         });
       }
 
       if (interaction?.id) {
-        await markAiInteractionAccepted(interaction.id, req.user!.id);
+        await markAiInteractionRejected(interaction.id, req.user!.id, "unsupported_intent");
       }
-      return res.status(201).json({
-        type: "action_result",
-        action: "create_reminder",
-        message: result.message,
-        reminderId: result.reminderId,
-        triggerId: result.triggerId,
+      return res.status(400).json({
+        message: "This intent type is not supported for execute yet.",
+        reason: "unsupported_intent",
+        intentType: (parsed.intent as { type: string }).type,
         interactionId: interaction?.id ?? null,
       });
     } catch (error) {
