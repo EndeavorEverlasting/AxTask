@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import "@xyflow/react/dist/style.css";
 import { startSharedLongTaskAttributor } from "./lib/long-task-attributor";
 import { startSharedAnimationBudget } from "./lib/animation-budget";
 
