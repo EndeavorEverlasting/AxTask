@@ -29,8 +29,94 @@ Naming of the default or production branch can differ per fork (`main`, `master`
 - Run `git branch --show-current` (or your UI equivalent) and confirm you are on the branch you intend.
 - Prefer pushing a **feature branch** first; merge to the deploy-connected branch only via PR after checks pass.
 - Avoid **force-push** to shared branches others build from, especially any branch connected to production.
+- Keep a release contract doc under `docs/releases/*.md` for each feature/release branch and run `npm run release:check` before opening the PR.
+
+## Divergence playbook (copy/paste)
+
+Use this whenever your feature branch and `main` are no longer aligned and you want
+to avoid risky rework.
+
+1. Confirm position:
+   - `git branch --show-current`
+   - `git fetch origin`
+   - `git rev-list --left-right --count origin/main...HEAD` (behind/ahead counts)
+2. Refresh evidence before code changes:
+   - `git diff --name-only origin/main...HEAD`
+   - `npm run release:check`
+3. Reconcile safely from your feature branch:
+   - `git merge origin/main` (preferred in this repo for explicit history)
+   - Resolve conflicts and re-run focused tests for touched areas.
+4. Re-validate deploy discipline:
+   - Confirm migration/docs/env/route-inventory deltas are intentional.
+   - Re-run `npm run release:check` and required test suites.
+5. Ship through PR only:
+   - Push branch, open/update PR, and keep Render pinned to the production branch
+     until checks are green and review is complete.
+
+### Branch divergence decision table
+
+- **Small drift, no conflicts**: merge `origin/main` into feature branch now.
+- **Drift + schema/migration overlap**: merge immediately and inspect SQL/data impact before deploy.
+- **Large drift + mixed concerns**: split into smaller PRs first (feature vs deploy guardrails).
+- **Hotfix needed now**: cut a dedicated hotfix branch from `main`, then back-merge into ongoing features.
 
 ## Related checks
 
 - Large infrastructure moves: see [MORNING_NEW_BOX_MIGRATION_CHECKLIST.md](./MORNING_NEW_BOX_MIGRATION_CHECKLIST.md) (includes confirming the active branch before risky steps).
 - If you add or rename Express routes, update the route inventory snapshot as described in [server/routes-inventory.contract.test.ts](../server/routes-inventory.contract.test.ts) (`vitest run` with `-u` on that file when the change is intentional).
+
+## Branch checkpoint engine
+
+Use date-stamped branch names so future-you can identify context quickly:
+
+`feature/YYYY-MM-DD-system-area-purpose`
+
+Examples:
+
+- `feature/2026-04-25-axtask-intent-parser`
+- `feature/2026-04-25-llm-module-routing`
+- `feature/2026-04-25-rag-context-engine`
+- `feature/2026-04-25-task-reminder-nlp`
+- `feature/2026-04-25-branch-checkpoint-system`
+
+### Interactive usage
+
+Run the helper and follow prompts for slug, optional commit, and optional push:
+
+```powershell
+npm run git:checkpoint
+```
+
+or:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/git-checkpoint.ps1
+```
+
+The helper always prints:
+
+- `git status`
+- `git diff --stat`
+- `git diff --name-only`
+
+before branch creation so the checkpoint name can match current work.
+
+### Non-interactive examples
+
+Create branch only:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/git-checkpoint.ps1 -Slug axtask-reminder-intent-engine -NonInteractive
+```
+
+Create branch and commit:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/git-checkpoint.ps1 -Slug axtask-reminder-intent-engine -Commit -CommitMessage "Checkpoint 2026-04-25: add AxTask reminder intent engine" -NonInteractive
+```
+
+Create branch, commit, and push:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/git-checkpoint.ps1 -Slug axtask-reminder-intent-engine -Commit -Push -CommitMessage "Checkpoint 2026-04-25: add AxTask reminder intent engine" -NonInteractive
+```

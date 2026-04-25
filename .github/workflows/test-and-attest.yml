@@ -54,6 +54,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Release contract guardrail
+        run: npm run release:check
+
       - name: Production build
         run: npm run build
 

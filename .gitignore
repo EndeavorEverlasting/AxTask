@@ -79,6 +79,11 @@ docs/*import*.json
 .tmp-*.txt
 .tmp-*.log
 
+# Local branch drop-zone for scratch bundles and copied scaffolds
+branches/axtask_command_engine_foundation/
+branches/*.zip
+docs/releases/*.local.md
+
 # --- PII and other sensitive local artifacts (never commit) ---
 # Ad-hoc backup/import zips under docs (filenames often contain real names).
 docs/**/*.zip

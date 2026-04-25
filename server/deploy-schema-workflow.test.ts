@@ -166,9 +166,20 @@ describe("deploy / schema workflow guards", () => {
     expect(pkg.scripts["db:push"]).toBeTruthy();
     expect(pkg.scripts["db:push:ci"]).toBeTruthy();
     expect(pkg.scripts["db:push:verify"]).toContain("verify-drizzle-deploy.mjs");
+    expect(pkg.scripts["release:check"]).toContain("release-check.mjs");
     expect(pkg.scripts["start:local"]).toContain("offline-start.mjs");
     expect(pkg.scripts["dev:smart"]).toContain("offline-start.mjs");
     expect(pkg.scripts["local:env-init"]).toContain("copy-env-local.mjs");
+  });
+
+  it("test-and-attest runs release:check before build", () => {
+    const wf = fs.readFileSync(path.join(projectRoot, ".github", "workflows", "test-and-attest.yml"), "utf8");
+    const guardIdx = wf.indexOf("Release contract guardrail");
+    const cmdIdx = wf.indexOf("npm run release:check");
+    const buildIdx = wf.indexOf("Production build");
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(cmdIdx).toBeGreaterThan(guardIdx);
+    expect(buildIdx).toBeGreaterThan(cmdIdx);
   });
 
   it("npm run start uses production-start (migrations + drizzle push before server)", () => {
