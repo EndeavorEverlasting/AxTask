@@ -58,7 +58,6 @@ import {
   taskClassificationThumbs,
   userAlarmSnapshots,
   collaborationInboxMessages,
-  userLocationPlaces,
   userClassificationLabels,
   type Task,
   type InsertTask,
@@ -121,7 +120,6 @@ import {
   type ArchetypePollVote,
   type UserAlarmSnapshot,
   type CollaborationInboxMessage,
-  type UserLocationPlace,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ne, ilike, or, asc, lt, lte, gt, gte, count, avg, sql, desc, inArray } from "drizzle-orm";
@@ -2476,45 +2474,7 @@ export async function markCollaborationMessageRead(userId: string, messageId: st
   return !!row;
 }
 
-export async function listUserLocationPlaces(userId: string): Promise<UserLocationPlace[]> {
-  return db
-    .select()
-    .from(userLocationPlaces)
-    .where(eq(userLocationPlaces.userId, userId))
-    .orderBy(desc(userLocationPlaces.updatedAt));
-}
-
-export async function upsertUserLocationPlace(
-  userId: string,
-  input: { id?: string; name: string; lat?: number | null; lng?: number | null; radiusMeters?: number },
-): Promise<UserLocationPlace | undefined> {
-  if (input.id) {
-    const [u] = await db
-      .update(userLocationPlaces)
-      .set({
-        name: input.name,
-        lat: input.lat ?? null,
-        lng: input.lng ?? null,
-        radiusMeters: input.radiusMeters ?? 200,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(userLocationPlaces.id, input.id), eq(userLocationPlaces.userId, userId)))
-      .returning();
-    if (u) return u;
-  }
-  const [row] = await db
-    .insert(userLocationPlaces)
-    .values({
-      id: randomUUID(),
-      userId,
-      name: input.name,
-      lat: input.lat ?? null,
-      lng: input.lng ?? null,
-      radiusMeters: input.radiusMeters ?? 200,
-    })
-    .returning();
-  return row;
-}
+export { listUserLocationPlaces, upsertUserLocationPlace } from "./storage/locations";
 
 export async function getCommunityMomentumStats(): Promise<{
   postsLast24h: number;

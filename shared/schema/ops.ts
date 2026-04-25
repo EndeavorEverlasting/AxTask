@@ -457,6 +457,42 @@ export const userAlarmSnapshots = pgTable(
 
 export type UserAlarmSnapshot = typeof userAlarmSnapshots.$inferSelect;
 
+/** Geofence + semantic place types (home/work/custom) for reminders and alias resolution. */
+export const LOCATION_PLACE_TYPES = ["home", "work", "custom"] as const;
+export type LocationPlaceType = (typeof LOCATION_PLACE_TYPES)[number];
+
+export const LOCATION_PLACE_SOURCES = [
+  "manual_pin",
+  "typed_address",
+  "current_gps",
+  "imported",
+] as const;
+export type LocationPlaceSource = (typeof LOCATION_PLACE_SOURCES)[number];
+
+export const LOCATION_EVENT_TYPES = ["enter", "exit"] as const;
+export type LocationEventType = (typeof LOCATION_EVENT_TYPES)[number];
+
+export const LOCATION_EVENT_SOURCES = ["browser", "mobile", "native_bridge"] as const;
+export type LocationEventSource = (typeof LOCATION_EVENT_SOURCES)[number];
+
+export const REMINDER_KINDS = [
+  "time",
+  "recurring",
+  "location_event",
+  "location_offset",
+  "hybrid",
+] as const;
+export type ReminderKind = (typeof REMINDER_KINDS)[number];
+
+export const REMINDER_TRIGGER_TYPES = [
+  "datetime",
+  "recurring_time",
+  "location_arrival",
+  "location_departure",
+  "location_arrival_offset",
+] as const;
+export type ReminderTriggerType = (typeof REMINDER_TRIGGER_TYPES)[number];
+
 export const userLocationPlaces = pgTable(
   "user_location_places",
   {
@@ -464,17 +500,205 @@ export const userLocationPlaces = pgTable(
     userId: varchar("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** Legacy API field; new code prefers `label` (kept in sync for back-compat). */
     name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    placeType: text("place_type").notNull().default("custom"),
+    label: text("label").notNull(),
+    notes: text("notes"),
     lat: doublePrecision("lat"),
     lng: doublePrecision("lng"),
     radiusMeters: integer("radius_meters").notNull().default(200),
+    isDefault: boolean("is_default").notNull().default(false),
+    isActive: boolean("is_active").notNull().default(true),
+    source: text("source").notNull().default("manual_pin"),
+    geocodeAccuracyMeters: integer("geocode_accuracy_meters"),
+    lastVerifiedAt: timestamp("last_verified_at"),
+    lastEnteredAt: timestamp("last_entered_at"),
+    lastExitedAt: timestamp("last_exited_at"),
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
   },
-  (table) => [index("idx_user_location_places_user").on(table.userId)],
+  (table) => [
+    index("idx_user_location_places_user").on(table.userId),
+    index("idx_user_location_places_user_type").on(table.userId, table.placeType),
+    uniqueIndex("ux_user_location_places_user_slug").on(table.userId, table.slug),
+    uniqueIndex("ux_user_location_places_user_default_home")
+      .on(table.userId)
+      .where(
+        sql`${table.placeType} = 'home' AND ${table.isDefault} = true AND ${table.isActive} = true`,
+      ),
+    uniqueIndex("ux_user_location_places_user_default_work")
+      .on(table.userId)
+      .where(
+        sql`${table.placeType} = 'work' AND ${table.isDefault} = true AND ${table.isActive} = true`,
+      ),
+  ],
 );
 
 export type UserLocationPlace = typeof userLocationPlaces.$inferSelect;
+
+export const userLocationEvents = pgTable(
+  "user_location_events",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    placeId: varchar("place_id")
+      .notNull()
+      .references(() => userLocationPlaces.id, { onDelete: "cascade" }),
+    eventType: text("event_type").notNull(),
+    source: text("source").notNull().default("browser"),
+    confidence: integer("confidence").notNull().default(100),
+    metadataJson: jsonb("metadata_json").default(sql`'{}'::jsonb`),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_user_location_events_user_time").on(table.userId, table.occurredAt),
+    index("idx_user_location_events_place_time").on(table.placeId, table.occurredAt),
+  ],
+);
+
+export type UserLocationEvent = typeof userLocationEvents.$inferSelect;
+
+export const userReminders = pgTable(
+  "user_reminders",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    enabled: boolean("enabled").notNull().default(true),
+    createdBy: text("created_by").notNull().default("user"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [index("idx_user_reminders_user_enabled").on(table.userId, table.enabled)],
+);
+
+export type UserReminder = typeof userReminders.$inferSelect;
+
+export const userReminderTriggers = pgTable(
+  "user_reminder_triggers",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    reminderId: varchar("reminder_id")
+      .notNull()
+      .references(() => userReminders.id, { onDelete: "cascade" }),
+    triggerType: text("trigger_type").notNull(),
+    payloadJson: jsonb("payload_json").notNull().default(sql`'{}'::jsonb`),
+    nextRunAt: timestamp("next_run_at"),
+    lastTriggeredAt: timestamp("last_triggered_at"),
+    cooldownSeconds: integer("cooldown_seconds").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_user_reminder_triggers_next_run").on(table.nextRunAt),
+    index("idx_user_reminder_triggers_reminder").on(table.reminderId),
+  ],
+);
+
+export type UserReminderTrigger = typeof userReminderTriggers.$inferSelect;
+
+export const aiInteractions = pgTable(
+  "ai_interactions",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sessionId: text("session_id"),
+    rawMessage: text("raw_message").notNull(),
+    intentKind: text("intent_kind"),
+    structuredOutputJson: jsonb("structured_output_json"),
+    provider: text("provider"),
+    model: text("model"),
+    latencyMs: integer("latency_ms"),
+    accepted: boolean("accepted"),
+    rejectedReason: text("rejected_reason"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [index("idx_ai_interactions_user_created").on(table.userId, table.createdAt)],
+);
+
+export type AiInteraction = typeof aiInteractions.$inferSelect;
+
+// ─── Location + reminder validation (Zod) ────────────────────────────────────
+export const locationPlaceTypeSchema = z.enum(LOCATION_PLACE_TYPES);
+export const locationPlaceSourceSchema = z.enum(LOCATION_PLACE_SOURCES);
+export const locationEventTypeSchema = z.enum(LOCATION_EVENT_TYPES);
+export const locationEventSourceSchema = z.enum(LOCATION_EVENT_SOURCES);
+export const reminderKindSchema = z.enum(REMINDER_KINDS);
+export const reminderTriggerTypeSchema = z.enum(REMINDER_TRIGGER_TYPES);
+
+export const createLocationPlaceSchema = z.object({
+  slug: z.string().min(1).max(64),
+  placeType: locationPlaceTypeSchema,
+  label: z.string().min(1).max(120),
+  notes: z.string().max(1000).optional().nullable(),
+  lat: z.number().optional().nullable(),
+  lng: z.number().optional().nullable(),
+  radiusMeters: z.number().int().min(50).max(5000).default(200),
+  isDefault: z.boolean().default(false),
+  source: locationPlaceSourceSchema.default("manual_pin"),
+});
+
+export const createLocationEventSchema = z.object({
+  placeId: z.string().min(1),
+  eventType: locationEventTypeSchema,
+  source: locationEventSourceSchema.default("browser"),
+  confidence: z.number().int().min(0).max(100).default(100),
+  metadataJson: z.record(z.unknown()).optional(),
+  occurredAt: z.string().datetime().optional(),
+});
+
+export const recurrenceRuleSchema = z.object({
+  frequency: z.enum(["daily", "weekly", "monthly"]),
+  interval: z.number().int().min(1).default(1).optional(),
+  byWeekday: z.array(z.enum(["MO", "TU", "WE", "TH", "FR", "SA", "SU"])).optional(),
+  byMonthDay: z.array(z.number().int().min(1).max(31)).optional(),
+  timeOfDay: z.string().optional(),
+});
+
+export const reminderTriggerSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("datetime"),
+    atIso: z.string().datetime(),
+  }),
+  z.object({
+    type: z.literal("recurring_time"),
+    recurrence: recurrenceRuleSchema,
+  }),
+  z.object({
+    type: z.literal("location_arrival"),
+    placeSlug: z.string(),
+  }),
+  z.object({
+    type: z.literal("location_departure"),
+    placeSlug: z.string(),
+  }),
+  z.object({
+    type: z.literal("location_arrival_offset"),
+    placeSlug: z.string(),
+    offsetMinutes: z.number().int().min(1).max(1440),
+    recurrence: recurrenceRuleSchema.optional(),
+  }),
+]);
+
+export const createReminderSchema = z.object({
+  kind: reminderKindSchema,
+  title: z.string().min(1).max(200),
+  body: z.string().max(2000).optional().nullable(),
+  enabled: z.boolean().default(true),
+  trigger: reminderTriggerSchema,
+});
 
 // ─── Archetype Empathy Analytics ────────────────────────────────────────────
 /**
