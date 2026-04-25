@@ -40,15 +40,12 @@ describe("calm-mode stylesheet contract", () => {
     );
   });
 
-  it("drops `filter:` on aurora pseudos + orb layer", () => {
+  it("pauses animation on aurora pseudos + orb layer without dropping filter (prevents flash)", () => {
     const m = CSS.match(
       /body\[data-axtask-calm\]\s+\.axtask-aurora-body::before[^}]*\{[^}]*\}/,
     );
-    expect(m?.[0]).toMatch(/filter:\s*none\s*!important/);
     expect(m?.[0]).toMatch(/animation-play-state:\s*paused\s*!important/);
-    expect(CSS).toMatch(
-      /body\[data-axtask-calm\][^{]*\.axtask-orb-layer[^}]*filter:\s*none/,
-    );
+    expect(m?.[0]).not.toMatch(/filter:\s*none/);
   });
 
   it("clears `will-change` on orb / chip / glossy panels during calm-mode", () => {

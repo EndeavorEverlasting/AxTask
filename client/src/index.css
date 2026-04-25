@@ -417,6 +417,16 @@
   opacity: 0.85;
 }
 
+@keyframes axtask-aurora-drift {
+  0%, 100% { transform: rotate(12deg) scale(1) translate(0, 0); }
+  50% { transform: rotate(16deg) scale(1.05) translate(2%, 3%); }
+}
+
+@keyframes axtask-aurora-drift-reverse {
+  0%, 100% { transform: rotate(-12deg) scale(1) translate(0, 0); }
+  50% { transform: rotate(-16deg) scale(1.05) translate(-2%, -3%); }
+}
+
 .axtask-aurora-body::before {
   top: -25%;
   left: 25%;
@@ -424,6 +434,7 @@
   width: 80vw;
   transform: rotate(12deg);
   background: linear-gradient(to right, rgba(5, 150, 105, 0.10), rgba(6, 182, 212, 0.08), transparent);
+  animation: axtask-aurora-drift 24s ease-in-out infinite;
 }
 
 .axtask-aurora-body::after {
@@ -433,6 +444,7 @@
   width: 70vw;
   transform: rotate(-12deg);
   background: linear-gradient(to left, rgba(124, 58, 237, 0.10), rgba(99, 102, 241, 0.08), transparent);
+  animation: axtask-aurora-drift-reverse 32s ease-in-out infinite;
 }
 
 /* Light mode: retain the polished glass vocabulary but on a far softer wash. */
@@ -472,6 +484,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .axtask-aurora-body::before,
+  .axtask-aurora-body::after,
   .axtask-orb-layer,
   .axtask-chip-layer {
     animation: none !important;
@@ -502,15 +516,15 @@
   }
 
   /* Ambient / aurora / orb layers are the other major compositor cost on
-   * scroll: `filter: blur(120px)` on the aurora pseudos and
-   * `will-change: transform` on the orb force the compositor to keep a
-   * full-resolution texture + promoted layer for each one. Dropping them
-   * while calm-mode is active gives back ~20-35 ms of per-frame budget on
-   * mid-tier laptops without visibly changing the stationary appearance. */
+   * scroll: `will-change: transform` on the orb force the compositor to keep a
+   * full-resolution texture + promoted layer for each one. We pause animations
+   * while calm-mode is active which gives back ~20-35 ms of per-frame budget on
+   * mid-tier laptops. We explicitly do NOT drop `filter: blur(...)` because
+   * suddenly removing a 120px blur from a background gradient causes a massive
+   * contrast flash across the entire screen. */
   body[data-axtask-calm] .axtask-aurora-body::before,
   body[data-axtask-calm] .axtask-aurora-body::after,
   body[data-axtask-calm] .axtask-orb-layer {
-    filter: none !important;
     animation-play-state: paused !important;
   }
   body[data-axtask-calm] .axtask-orb,
