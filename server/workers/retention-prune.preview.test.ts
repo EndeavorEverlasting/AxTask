@@ -26,6 +26,10 @@ describe("previewRetentionPrune", () => {
           return 3;
         case "db_size_snapshots":
           return 1;
+        case "user_location_events":
+          return 2;
+        case "ai_interactions":
+          return 4;
         default:
           return 0;
       }
@@ -40,7 +44,7 @@ describe("previewRetentionPrune", () => {
     expect(countOlderThan).toHaveBeenCalledTimes(RETENTION_TABLES.length);
     const tables = result.rows.map((r) => r.table).sort();
     expect(tables).toEqual([...RETENTION_TABLES].sort());
-    expect(result.totalRowsToDelete).toBe(100 + 20 + 5 + 3 + 1);
+    expect(result.totalRowsToDelete).toBe(100 + 20 + 5 + 3 + 1 + 2 + 4);
     expect(result.generatedAt).toBe(now.toISOString());
   });
 

@@ -11,6 +11,18 @@ import {
 
 export { slugifyPlaceBase } from "../lib/place-slug";
 
+const MAX_SLUG_ALLOCATION_RETRIES = 8;
+
+function isPostgresUniqueViolation(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const o = e as { code?: string; cause?: unknown };
+  if (o.code === "23505") return true;
+  if (o.cause && typeof o.cause === "object" && (o.cause as { code?: string }).code === "23505") {
+    return true;
+  }
+  return false;
+}
+
 async function ensureUniqueSlugForUser(
   userId: string,
   base: string,
@@ -110,29 +122,39 @@ export async function createUserLocationPlace(
       .set({ isDefault: false, updatedAt: new Date() })
       .where(and(eq(userLocationPlaces.userId, input.userId), eq(userLocationPlaces.placeType, placeType)));
   }
-  const [row] = await db
-    .insert(userLocationPlaces)
-    .values({
-      id,
-      userId: input.userId,
-      name: input.name,
-      label,
-      slug,
-      placeType,
-      notes: input.notes ?? null,
-      lat: input.lat ?? null,
-      lng: input.lng ?? null,
-      radiusMeters: input.radiusMeters ?? 200,
-      isDefault: input.isDefault ?? false,
-      isActive: input.isActive ?? true,
-      source: input.source ?? "manual_pin",
-      geocodeAccuracyMeters: input.geocodeAccuracyMeters ?? null,
-      lastVerifiedAt: input.lastVerifiedAt ?? null,
-      lastEnteredAt: input.lastEnteredAt ?? null,
-      lastExitedAt: input.lastExitedAt ?? null,
-    })
-    .returning();
-  return row!;
+  const values: typeof userLocationPlaces.$inferInsert = {
+    id,
+    userId: input.userId,
+    name: input.name,
+    label,
+    slug,
+    placeType,
+    notes: input.notes ?? null,
+    lat: input.lat ?? null,
+    lng: input.lng ?? null,
+    radiusMeters: input.radiusMeters ?? 200,
+    isDefault: input.isDefault ?? false,
+    isActive: input.isActive ?? true,
+    source: input.source ?? "manual_pin",
+    geocodeAccuracyMeters: input.geocodeAccuracyMeters ?? null,
+    lastVerifiedAt: input.lastVerifiedAt ?? null,
+    lastEnteredAt: input.lastEnteredAt ?? null,
+    lastExitedAt: input.lastExitedAt ?? null,
+  };
+  let candidateSlug = slug;
+  for (let attempt = 0; attempt < MAX_SLUG_ALLOCATION_RETRIES; attempt++) {
+    try {
+      const [row] = await db
+        .insert(userLocationPlaces)
+        .values({ ...values, slug: candidateSlug })
+        .returning();
+      if (row) return row;
+    } catch (e) {
+      if (!isPostgresUniqueViolation(e) || attempt === MAX_SLUG_ALLOCATION_RETRIES - 1) throw e;
+      candidateSlug = await ensureUniqueSlugForUser(input.userId, baseSlug, id);
+    }
+  }
+  throw new Error("Could not allocate a unique place slug.");
 }
 
 export async function updateUserLocationPlace(
@@ -155,18 +177,28 @@ export async function updateUserLocationPlace(
     const base = slugifyPlaceBase(patch.slug);
     nextSlug = await ensureUniqueSlugForUser(userId, base, id);
   }
-  const [row] = await db
-    .update(userLocationPlaces)
-    .set({
-      ...patch,
-      name: patch.name ?? existing.name,
-      label: patch.label ?? existing.label,
-      slug: nextSlug,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(userLocationPlaces.id, id), eq(userLocationPlaces.userId, userId)))
-    .returning();
-  return row ?? null;
+  for (let attempt = 0; attempt < MAX_SLUG_ALLOCATION_RETRIES; attempt++) {
+    try {
+      const [row] = await db
+        .update(userLocationPlaces)
+        .set({
+          ...patch,
+          name: patch.name ?? existing.name,
+          label: patch.label ?? existing.label,
+          slug: nextSlug,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(userLocationPlaces.id, id), eq(userLocationPlaces.userId, userId)))
+        .returning();
+      return row ?? null;
+    } catch (e) {
+      if (!isPostgresUniqueViolation(e) || attempt === MAX_SLUG_ALLOCATION_RETRIES - 1) throw e;
+      if (patch.slug == null) throw e;
+      const base = slugifyPlaceBase(patch.slug);
+      nextSlug = await ensureUniqueSlugForUser(userId, base, id);
+    }
+  }
+  return null;
 }
 
 export async function deleteUserLocationPlace(userId: string, id: string): Promise<boolean> {
@@ -211,6 +243,9 @@ export async function upsertUserLocationPlace(
   input: { id?: string; name: string; lat?: number | null; lng?: number | null; radiusMeters?: number },
 ): Promise<UserLocationPlace | undefined> {
   const name = input.name.trim();
+  if (!name) {
+    return undefined;
+  }
   const label = name;
   if (input.id) {
     const [existing] = await db
@@ -222,33 +257,42 @@ export async function upsertUserLocationPlace(
       return undefined;
     }
     const base = slugifyPlaceBase(name);
-    const slug = await ensureUniqueSlugForUser(userId, base, input.id);
-    const [u] = await db
-      .update(userLocationPlaces)
-      .set({
-        name,
-        label,
-        slug,
-        placeType: "custom",
-        lat: input.lat ?? null,
-        lng: input.lng ?? null,
-        radiusMeters: input.radiusMeters ?? 200,
-        isActive: true,
-        source: "manual_pin",
-        updatedAt: new Date(),
-      })
-      .where(and(eq(userLocationPlaces.id, input.id), eq(userLocationPlaces.userId, userId)))
-      .returning();
-    if (u) return u;
+    let slug = await ensureUniqueSlugForUser(userId, base, input.id);
+    for (let attempt = 0; attempt < MAX_SLUG_ALLOCATION_RETRIES; attempt++) {
+      try {
+        const [u] = await db
+          .update(userLocationPlaces)
+          .set({
+            name,
+            label,
+            slug,
+            placeType: "custom",
+            lat: input.lat ?? null,
+            lng: input.lng ?? null,
+            radiusMeters: input.radiusMeters ?? 200,
+            isActive: true,
+            source: "manual_pin",
+            updatedAt: new Date(),
+          })
+          .where(and(eq(userLocationPlaces.id, input.id), eq(userLocationPlaces.userId, userId)))
+          .returning();
+        if (!u) {
+          return undefined;
+        }
+        return u;
+      } catch (e) {
+        if (!isPostgresUniqueViolation(e) || attempt === MAX_SLUG_ALLOCATION_RETRIES - 1) throw e;
+        slug = await ensureUniqueSlugForUser(userId, base, input.id);
+      }
+    }
+    return undefined;
   }
-  const base = slugifyPlaceBase(name);
-  const slug = await ensureUniqueSlugForUser(userId, base);
   return createUserLocationPlace({
     id: randomUUID(),
     userId,
     name,
     label,
-    slug,
+    slug: "",
     placeType: "custom",
     lat: input.lat ?? null,
     lng: input.lng ?? null,

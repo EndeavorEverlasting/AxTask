@@ -28,6 +28,8 @@ import {
   usageSnapshots,
   passwordResetTokens,
   dbSizeSnapshots,
+  userLocationEvents,
+  aiInteractions,
 } from "@shared/schema";
 
 export const DEFAULT_RETENTION_WINDOWS = {
@@ -48,6 +50,11 @@ export const DEFAULT_RETENTION_WINDOWS = {
    *  the Admin > Storage trend. 365 days is one year of history; older
    *  points would overfill the chart and the table trivially. */
   dbSizeSnapshotsDays: 365,
+  /** user_location_events are enter/exit telemetry; short window is enough
+   *  for geofence debugging (see docs/DB_RETENTION_POLICY.md). */
+  userLocationEventsDays: 90,
+  /** ai_interactions may contain raw user text; keep a tight window. */
+  aiInteractionsDays: 30,
 } as const;
 
 export interface RetentionWindowInput {
@@ -56,6 +63,8 @@ export interface RetentionWindowInput {
   usageSnapshotsDays?: number;
   passwordResetTokensDays?: number;
   dbSizeSnapshotsDays?: number;
+  userLocationEventsDays?: number;
+  aiInteractionsDays?: number;
 }
 
 export interface RetentionWindows {
@@ -64,6 +73,8 @@ export interface RetentionWindows {
   usageSnapshotsBefore: Date;
   passwordResetTokensBefore: Date;
   dbSizeSnapshotsBefore: Date;
+  userLocationEventsBefore: Date;
+  aiInteractionsBefore: Date;
 }
 
 export type RetentionTable =
@@ -71,7 +82,9 @@ export type RetentionTable =
   | "security_logs"
   | "usage_snapshots"
   | "password_reset_tokens"
-  | "db_size_snapshots";
+  | "db_size_snapshots"
+  | "user_location_events"
+  | "ai_interactions";
 
 export const RETENTION_TABLES: ReadonlyArray<RetentionTable> = Object.freeze([
   "security_events",
@@ -79,6 +92,8 @@ export const RETENTION_TABLES: ReadonlyArray<RetentionTable> = Object.freeze([
   "usage_snapshots",
   "password_reset_tokens",
   "db_size_snapshots",
+  "user_location_events",
+  "ai_interactions",
 ]);
 
 /**
@@ -101,6 +116,8 @@ export function computeRetentionWindows(
     usageSnapshotsDays: clamp(input.usageSnapshotsDays, DEFAULT_RETENTION_WINDOWS.usageSnapshotsDays),
     passwordResetTokensDays: clamp(input.passwordResetTokensDays, DEFAULT_RETENTION_WINDOWS.passwordResetTokensDays),
     dbSizeSnapshotsDays: clamp(input.dbSizeSnapshotsDays, DEFAULT_RETENTION_WINDOWS.dbSizeSnapshotsDays),
+    userLocationEventsDays: clamp(input.userLocationEventsDays, DEFAULT_RETENTION_WINDOWS.userLocationEventsDays),
+    aiInteractionsDays: clamp(input.aiInteractionsDays, DEFAULT_RETENTION_WINDOWS.aiInteractionsDays),
   };
   const day = 24 * 60 * 60 * 1000;
   return {
@@ -109,6 +126,8 @@ export function computeRetentionWindows(
     usageSnapshotsBefore: new Date(now.getTime() - d.usageSnapshotsDays * day),
     passwordResetTokensBefore: new Date(now.getTime() - d.passwordResetTokensDays * day),
     dbSizeSnapshotsBefore: new Date(now.getTime() - d.dbSizeSnapshotsDays * day),
+    userLocationEventsBefore: new Date(now.getTime() - d.userLocationEventsDays * day),
+    aiInteractionsBefore: new Date(now.getTime() - d.aiInteractionsDays * day),
   };
 }
 
@@ -118,6 +137,8 @@ export interface RetentionPruneResult {
   usageSnapshotsDeleted: number;
   passwordResetTokensDeleted: number;
   dbSizeSnapshotsDeleted: number;
+  userLocationEventsDeleted: number;
+  aiInteractionsDeleted: number;
   startedAt: string;
   finishedAt: string;
   durationMs: number;
@@ -154,6 +175,8 @@ export async function runRetentionPrune(
     usageSnapshotsDeleted: 0,
     passwordResetTokensDeleted: 0,
     dbSizeSnapshotsDeleted: 0,
+    userLocationEventsDeleted: 0,
+    aiInteractionsDeleted: 0,
     startedAt: start.toISOString(),
     finishedAt: start.toISOString(),
     durationMs: 0,
@@ -168,6 +191,8 @@ export async function runRetentionPrune(
       | "usageSnapshotsDeleted"
       | "passwordResetTokensDeleted"
       | "dbSizeSnapshotsDeleted"
+      | "userLocationEventsDeleted"
+      | "aiInteractionsDeleted"
     >;
     table: RetentionTable;
     before: Date;
@@ -177,6 +202,8 @@ export async function runRetentionPrune(
     { key: "usageSnapshotsDeleted", table: "usage_snapshots", before: windows.usageSnapshotsBefore },
     { key: "passwordResetTokensDeleted", table: "password_reset_tokens", before: windows.passwordResetTokensBefore },
     { key: "dbSizeSnapshotsDeleted", table: "db_size_snapshots", before: windows.dbSizeSnapshotsBefore },
+    { key: "userLocationEventsDeleted", table: "user_location_events", before: windows.userLocationEventsBefore },
+    { key: "aiInteractionsDeleted", table: "ai_interactions", before: windows.aiInteractionsBefore },
   ];
 
   for (const step of steps) {
@@ -201,6 +228,8 @@ export async function runRetentionPrune(
     usageSnapshotsDeleted: result.usageSnapshotsDeleted,
     passwordResetTokensDeleted: result.passwordResetTokensDeleted,
     dbSizeSnapshotsDeleted: result.dbSizeSnapshotsDeleted,
+    userLocationEventsDeleted: result.userLocationEventsDeleted,
+    aiInteractionsDeleted: result.aiInteractionsDeleted,
     errors: result.errors.length,
   });
   return result;
@@ -241,6 +270,20 @@ async function defaultDeleteOlderThan(
     }
     case "db_size_snapshots": {
       const rows = await db.delete(dbSizeSnapshots).where(lt(dbSizeSnapshots.capturedAt, before)).returning({ id: dbSizeSnapshots.id });
+      return rows.length;
+    }
+    case "user_location_events": {
+      const rows = await db
+        .delete(userLocationEvents)
+        .where(lt(userLocationEvents.createdAt, before))
+        .returning({ id: userLocationEvents.id });
+      return rows.length;
+    }
+    case "ai_interactions": {
+      const rows = await db
+        .delete(aiInteractions)
+        .where(lt(aiInteractions.createdAt, before))
+        .returning({ id: aiInteractions.id });
       return rows.length;
     }
   }
@@ -284,6 +327,8 @@ export async function previewRetentionPrune(
     { table: "usage_snapshots", before: windows.usageSnapshotsBefore },
     { table: "password_reset_tokens", before: windows.passwordResetTokensBefore },
     { table: "db_size_snapshots", before: windows.dbSizeSnapshotsBefore },
+    { table: "user_location_events", before: windows.userLocationEventsBefore },
+    { table: "ai_interactions", before: windows.aiInteractionsBefore },
   ];
 
   const rows: RetentionPreviewRow[] = [];

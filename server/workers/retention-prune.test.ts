@@ -27,6 +27,8 @@ describe("computeRetentionWindows", () => {
     expect(w.usageSnapshotsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.usageSnapshotsDays * day);
     expect(w.passwordResetTokensBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.passwordResetTokensDays * day);
     expect(w.dbSizeSnapshotsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.dbSizeSnapshotsDays * day);
+    expect(w.userLocationEventsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.userLocationEventsDays * day);
+    expect(w.aiInteractionsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.aiInteractionsDays * day);
   });
 
   it("honors per-table overrides", () => {
@@ -56,6 +58,8 @@ describe("computeRetentionWindows", () => {
     expect(w.usageSnapshotsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.usageSnapshotsDays * day);
     expect(w.passwordResetTokensBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.passwordResetTokensDays * day);
     expect(w.dbSizeSnapshotsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.dbSizeSnapshotsDays * day);
+    expect(w.userLocationEventsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.userLocationEventsDays * day);
+    expect(w.aiInteractionsBefore.getTime()).toBe(now.getTime() - DEFAULT_RETENTION_WINDOWS.aiInteractionsDays * day);
   });
 
   it("floors non-integer day counts (so windows never grow silently)", () => {
@@ -75,24 +79,30 @@ describe("runRetentionPrune", () => {
       if (table === "usage_snapshots") return 7;
       if (table === "password_reset_tokens") return 2;
       if (table === "db_size_snapshots") return 9;
+      if (table === "user_location_events") return 11;
+      if (table === "ai_interactions") return 3;
       return 0;
     });
 
     const result = await runRetentionPrune({}, { deleteOlderThan, log: () => {} });
 
-    expect(deleteOlderThan).toHaveBeenCalledTimes(5);
+    expect(deleteOlderThan).toHaveBeenCalledTimes(7);
     expect(calls.map((c) => c.table).sort()).toEqual([
+      "ai_interactions",
       "db_size_snapshots",
       "password_reset_tokens",
       "security_events",
       "security_logs",
       "usage_snapshots",
+      "user_location_events",
     ]);
     expect(result.securityEventsDeleted).toBe(123);
     expect(result.securityLogsDeleted).toBe(4);
     expect(result.usageSnapshotsDeleted).toBe(7);
     expect(result.passwordResetTokensDeleted).toBe(2);
     expect(result.dbSizeSnapshotsDeleted).toBe(9);
+    expect(result.userLocationEventsDeleted).toBe(11);
+    expect(result.aiInteractionsDeleted).toBe(3);
     expect(result.errors).toEqual([]);
   });
 
@@ -144,6 +154,8 @@ describe("startRetentionPruneTicker", () => {
       usageSnapshotsDeleted: 0,
       passwordResetTokensDeleted: 0,
       dbSizeSnapshotsDeleted: 0,
+      userLocationEventsDeleted: 0,
+      aiInteractionsDeleted: 0,
       startedAt: "", finishedAt: "", durationMs: 0, errors: [],
     }));
     const stop = startRetentionPruneTicker({ intervalMs: 1000, initialDelayMs: 500, run });
@@ -160,6 +172,8 @@ describe("startRetentionPruneTicker", () => {
       usageSnapshotsDeleted: 0,
       passwordResetTokensDeleted: 0,
       dbSizeSnapshotsDeleted: 0,
+      userLocationEventsDeleted: 0,
+      aiInteractionsDeleted: 0,
       startedAt: "", finishedAt: "", durationMs: 0, errors: [],
     }));
     const stop = startRetentionPruneTicker({ intervalMs: 1000, initialDelayMs: 100, run });
@@ -191,6 +205,8 @@ describe("startRetentionPruneTicker", () => {
       usageSnapshotsDeleted: 0,
       passwordResetTokensDeleted: 0,
       dbSizeSnapshotsDeleted: 0,
+      userLocationEventsDeleted: 0,
+      aiInteractionsDeleted: 0,
       startedAt: "", finishedAt: "", durationMs: 0, errors: [],
     }));
     const stop = startRetentionPruneTicker({ intervalMs: 1000, initialDelayMs: 50, run });

@@ -7190,6 +7190,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               usageSnapshotsDeleted: result.usageSnapshotsDeleted,
               passwordResetTokensDeleted: result.passwordResetTokensDeleted,
               dbSizeSnapshotsDeleted: result.dbSizeSnapshotsDeleted,
+              userLocationEventsDeleted: result.userLocationEventsDeleted,
+              aiInteractionsDeleted: result.aiInteractionsDeleted,
               durationMs: result.durationMs,
               errors: result.errors.length,
             }),

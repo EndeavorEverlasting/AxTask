@@ -32,6 +32,8 @@ tables default to having a retention window instead of growing forever.
 | `usage_snapshots`             | `created_at`| 180 days  | Rolling six-month view is enough for the analytics page; older data is summarized elsewhere. |
 | `organization_aptitude_events`| `created_at`| 180 days  | Internal-only behavioral trend samples for archetype tuning; six months preserves seasonality while bounding growth. |
 | `dm_messages`                 | `created_at`| 365 days  | E2EE ciphertext is not readable by the server; a one-year working set matches other user-visible comms retention while bounding storage growth. |
+| `user_location_events`        | `created_at`| 90 days   | Enter/exit event stream for place-based reminders; high volume, mainly used for short-term trigger evaluation. Older events add little value once processed. |
+| `ai_interactions`             | `created_at`| 30 days   | LLM/assistant audit with `raw_message` and model metadata; short window limits privacy exposure and table growth while recent rows still support basic debugging. |
 
 **Windows explicitly live in two places** — this table and
 `RETENTION_WINDOWS` at the top of [scripts/db-retention.mjs](../scripts/db-retention.mjs).

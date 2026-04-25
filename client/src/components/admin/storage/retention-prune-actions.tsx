@@ -152,8 +152,9 @@ export function RetentionPruneActions() {
             Last sweep deleted {lastResult.securityEventsDeleted} security_events,{" "}
             {lastResult.securityLogsDeleted} security_logs, {lastResult.usageSnapshotsDeleted} usage_snapshots,{" "}
             {lastResult.passwordResetTokensDeleted} password_reset_tokens,{" "}
-            {lastResult.dbSizeSnapshotsDeleted} db_size_snapshots in{" "}
-            {lastResult.durationMs}ms with {lastResult.errors.length} errors.
+            {lastResult.dbSizeSnapshotsDeleted} db_size_snapshots, {lastResult.userLocationEventsDeleted}{" "}
+            user_location_events, {lastResult.aiInteractionsDeleted} ai_interactions in {lastResult.durationMs}ms with{" "}
+            {lastResult.errors.length} errors.
           </div>
         ) : null}
       </CardContent>

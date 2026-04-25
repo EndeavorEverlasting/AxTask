@@ -638,17 +638,37 @@ export const locationEventSourceSchema = z.enum(LOCATION_EVENT_SOURCES);
 export const reminderKindSchema = z.enum(REMINDER_KINDS);
 export const reminderTriggerTypeSchema = z.enum(REMINDER_TRIGGER_TYPES);
 
-export const createLocationPlaceSchema = z.object({
-  slug: z.string().min(1).max(64),
-  placeType: locationPlaceTypeSchema,
-  label: z.string().min(1).max(120),
-  notes: z.string().max(1000).optional().nullable(),
-  lat: z.number().optional().nullable(),
-  lng: z.number().optional().nullable(),
-  radiusMeters: z.number().int().min(50).max(5000).default(200),
-  isDefault: z.boolean().default(false),
-  source: locationPlaceSourceSchema.default("manual_pin"),
-});
+export const createLocationPlaceSchema = z
+  .object({
+    slug: z.string().min(1).max(64),
+    placeType: locationPlaceTypeSchema,
+    label: z.string().min(1).max(120),
+    notes: z.string().max(1000).optional().nullable(),
+    lat: z.number().optional().nullable(),
+    lng: z.number().optional().nullable(),
+    radiusMeters: z.number().int().min(50).max(5000).default(200),
+    isDefault: z.boolean().default(false),
+    source: locationPlaceSourceSchema.default("manual_pin"),
+  })
+  .superRefine((data, ctx) => {
+    const hasLat = data.lat != null;
+    const hasLng = data.lng != null;
+    if (hasLat !== hasLng) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "lat and lng must both be set or both omitted",
+        path: hasLat ? ["lng"] : ["lat"],
+      });
+    }
+    if (hasLat && hasLng) {
+      if (data.lat! < -90 || data.lat! > 90) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "lat must be between -90 and 90", path: ["lat"] });
+      }
+      if (data.lng! < -180 || data.lng! > 180) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "lng must be between -180 and 180", path: ["lng"] });
+      }
+    }
+  });
 
 export const createLocationEventSchema = z.object({
   placeId: z.string().min(1),

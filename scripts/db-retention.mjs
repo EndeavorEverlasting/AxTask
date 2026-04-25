@@ -38,6 +38,8 @@ const RETENTION_WINDOWS = [
   { table: "usage_snapshots",           column: "created_at", window: "180 days" },
   { table: "organization_aptitude_events", column: "created_at", window: "180 days" },
   { table: "dm_messages",               column: "created_at", window: "365 days" },
+  { table: "user_location_events",        column: "created_at", window: "90 days"  },
+  { table: "ai_interactions",           column: "created_at", window: "30 days"  },
 ];
 
 async function main() {

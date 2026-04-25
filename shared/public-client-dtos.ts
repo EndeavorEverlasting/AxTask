@@ -398,7 +398,9 @@ export type PublicRetentionPreviewRow = {
     | "security_logs"
     | "usage_snapshots"
     | "password_reset_tokens"
-    | "db_size_snapshots";
+    | "db_size_snapshots"
+    | "user_location_events"
+    | "ai_interactions";
   cutoff: string;
   rowsToDelete: number;
 };
@@ -415,6 +417,8 @@ export type PublicRetentionRunResponse = {
   usageSnapshotsDeleted: number;
   passwordResetTokensDeleted: number;
   dbSizeSnapshotsDeleted: number;
+  userLocationEventsDeleted: number;
+  aiInteractionsDeleted: number;
   startedAt: string;
   finishedAt: string;
   durationMs: number;

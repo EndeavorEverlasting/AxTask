@@ -11,15 +11,17 @@ export async function createReminderWithTrigger(input: {
   reminder: typeof userReminders.$inferInsert;
   trigger: Omit<typeof userReminderTriggers.$inferInsert, "reminderId">;
 }) {
-  const [reminder] = await db.insert(userReminders).values(input.reminder).returning();
-  const [trigger] = await db
-    .insert(userReminderTriggers)
-    .values({
-      ...input.trigger,
-      reminderId: reminder.id,
-    })
-    .returning();
-  return { reminder, trigger };
+  return db.transaction(async (tx) => {
+    const [reminder] = await tx.insert(userReminders).values(input.reminder).returning();
+    const [trigger] = await tx
+      .insert(userReminderTriggers)
+      .values({
+        ...input.trigger,
+        reminderId: reminder.id,
+      })
+      .returning();
+    return { reminder, trigger };
+  });
 }
 
 export async function listUserReminders(userId: string) {
@@ -61,16 +63,19 @@ export async function disableReminder(id: string, userId: string) {
 }
 
 export async function listDueReminderTriggers(now: Date) {
-  return db
-    .select()
+  const rows = await db
+    .select({ t: userReminderTriggers })
     .from(userReminderTriggers)
+    .innerJoin(userReminders, eq(userReminderTriggers.reminderId, userReminders.id))
     .where(
       and(
+        eq(userReminders.enabled, true),
         eq(userReminderTriggers.isActive, true),
         isNotNull(userReminderTriggers.nextRunAt),
         lte(userReminderTriggers.nextRunAt, now),
       ),
     );
+  return rows.map((r) => r.t);
 }
 
 export async function markReminderTriggered(triggerId: string, when: Date) {

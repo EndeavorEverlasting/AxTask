@@ -38,6 +38,8 @@ const WHALE_TABLES = [
   "premium_events",
   "study_review_events",
   "usage_snapshots",
+  "user_location_events",
+  "ai_interactions",
   "applied_sql_migrations",
 ];
 
