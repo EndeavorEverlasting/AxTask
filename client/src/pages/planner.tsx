@@ -52,6 +52,7 @@ import { useBriefing } from "@/hooks/use-briefing";
 import type { BriefingData } from "@/hooks/use-briefing";
 import { TaskGantt } from "@/components/task-gantt";
 import { useGanttPackUnlocked } from "@/hooks/use-gantt-pack-unlocked";
+import { usePretextSurface } from "@/hooks/use-pretext-surface";
 import { isShoppingTask } from "@shared/shopping-tasks";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -91,6 +92,7 @@ export default function PlannerPage() {
   const [reviewUnmatched, setReviewUnmatched] = useState<string[]>([]);
   const voice = useVoice();
   const { toast } = useToast();
+  usePretextSurface("dense");
 
   useEffect(() => {
     sendProductFunnelBeacon("planner_viewed");
@@ -104,6 +106,17 @@ export default function PlannerPage() {
     staleTime: 30_000,
   });
   const ganttPack = useGanttPackUnlocked();
+  const [timelineRangeDays, setTimelineRangeDays] = useState<14 | 21 | 30>(21);
+  const [timelineDensity, setTimelineDensity] = useState<"compact" | "comfortable">("comfortable");
+  const [timelineShowLabels, setTimelineShowLabels] = useState(true);
+  const [timelineFocusLane, setTimelineFocusLane] = useState<string>("all");
+  const timelineLaneOptions = useMemo(
+    () =>
+      Array.from(new Set(allTasks.map((t) => t.classification?.trim() || "Unclassified")))
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b)),
+    [allTasks],
+  );
 
   interface PatternInsight {
     type: "topic" | "recurrence" | "deadline_rhythm" | "similarity_cluster" | "markov_local";
@@ -509,10 +522,82 @@ export default function PlannerPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                  <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Window</span>
+                  {[14, 21, 30].map((d) => (
+                    <Button
+                      key={d}
+                      type="button"
+                      size="sm"
+                      variant={timelineRangeDays === d ? "default" : "outline"}
+                      className="h-7 text-xs"
+                      onClick={() => setTimelineRangeDays(d as 14 | 21 | 30)}
+                    >
+                      {d}d
+                    </Button>
+                  ))}
+                  <span className="ml-2 text-[11px] font-medium text-gray-500 dark:text-gray-400">Density</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={timelineDensity === "comfortable" ? "default" : "outline"}
+                    className="h-7 text-xs"
+                    onClick={() => setTimelineDensity("comfortable")}
+                  >
+                    Comfortable
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={timelineDensity === "compact" ? "default" : "outline"}
+                    className="h-7 text-xs"
+                    onClick={() => setTimelineDensity("compact")}
+                  >
+                    Compact
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={timelineShowLabels ? "default" : "outline"}
+                    className="ml-auto h-7 text-xs"
+                    onClick={() => setTimelineShowLabels((v) => !v)}
+                  >
+                    {timelineShowLabels ? "Labels on" : "Labels off"}
+                  </Button>
+                </div>
+                {ganttPack.unlocked && timelineLaneOptions.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-2">
+                    <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Focus lane</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={timelineFocusLane === "all" ? "default" : "outline"}
+                      className="h-7 text-xs"
+                      onClick={() => setTimelineFocusLane("all")}
+                    >
+                      All
+                    </Button>
+                    {timelineLaneOptions.slice(0, 6).map((lane) => (
+                      <Button
+                        key={lane}
+                        type="button"
+                        size="sm"
+                        variant={timelineFocusLane === lane ? "default" : "outline"}
+                        className="h-7 text-xs"
+                        onClick={() => setTimelineFocusLane(lane)}
+                      >
+                        {lane}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
                 <TaskGantt
                   tasks={allTasks}
                   unlocked={ganttPack.unlocked}
-                  rangeDays={21}
+                  rangeDays={timelineRangeDays}
+                  density={timelineDensity}
+                  showLabels={timelineShowLabels}
+                  focusLane={timelineFocusLane === "all" ? undefined : timelineFocusLane}
                   emptyHint="Schedule a task with a date to see it on the timeline."
                 />
                 <p className="text-[11px] text-gray-500 dark:text-gray-400">

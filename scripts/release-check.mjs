@@ -7,7 +7,7 @@
  * release-critical evidence is missing.
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -77,8 +77,20 @@ function addedEnvKeysFromDiff(range) {
   return keys;
 }
 
+const ENV_KEYS_EXEMPT_FROM_TEMPLATE = new Set([
+  // CI/runtime metadata keys are not application config surface.
+  "GITHUB_BASE_REF",
+]);
+
 function envExampleKeys() {
-  const src = readFileSync(path.join(root, ".env.example"), "utf8");
+  const envPath = path.join(root, ".env.example");
+  if (!existsSync(envPath)) return new Set();
+  let src = "";
+  try {
+    src = readFileSync(envPath, "utf8");
+  } catch {
+    return new Set();
+  }
   const keys = new Set();
   for (const line of src.split(/\r?\n/)) {
     const m = line.match(/^\s*#?\s*([A-Z][A-Z0-9_]*)\s*=/);
@@ -121,7 +133,9 @@ function main() {
   const addedEnvKeys = addedEnvKeysFromDiff(range);
   if (addedEnvKeys.size > 0) {
     const allowed = envExampleKeys();
-    const missing = [...addedEnvKeys].filter((k) => !allowed.has(k));
+    const missing = [...addedEnvKeys].filter(
+      (k) => !allowed.has(k) && !ENV_KEYS_EXEMPT_FROM_TEMPLATE.has(k) && !k.startsWith("GITHUB_"),
+    );
     if (missing.length > 0 && !files.includes(".env.example")) {
       failures.push(
         `New process.env keys detected (${missing.join(", ")}) but .env.example was not updated.`,

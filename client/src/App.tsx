@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTutorial } from "@/hooks/use-tutorial";
 import { PersistedQueryLayer } from "./lib/app-query-provider";
 import { Toaster } from "@/components/ui/toaster";
@@ -344,6 +344,25 @@ function AuthenticatedApp() {
   const { zoom } = useZoom();
   const isMobile = useIsMobile();
   const scale = isMobile ? 1 : zoom / 100;
+  const safeRenderMode = useMemo(() => {
+    if (typeof window === "undefined") {
+      return {
+        disableScale: true,
+        disableCvRows: true,
+        disableAmbientFx: false,
+      };
+    }
+    const qs = new URLSearchParams(window.location.search);
+    const ff = qs.get("fx");
+    return {
+      // Stability-first default: avoid transformed app scroller unless explicitly requested.
+      disableScale: ff !== "legacy-scale",
+      // Stability-first default: disable row-level content-visibility unless explicitly requested.
+      disableCvRows: ff !== "legacy-cv",
+      // Allow emergency "safe visuals" mode via ?fx=safe.
+      disableAmbientFx: ff === "safe",
+    };
+  }, []);
   const [location, setLocation] = useLocation();
   const { isActive: isTutorialActive, startTutorial, stopTutorial } = useTutorial();
 
@@ -501,6 +520,17 @@ function AuthenticatedApp() {
     return () => window.removeEventListener("axtask-open-global-search", onOpenGlobalSearch);
   }, [user, loading, ensureGlobalSearchOpenLazy]);
 
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const body = document.body;
+    body.dataset.axtaskCvRows = safeRenderMode.disableCvRows ? "off" : "on";
+    body.dataset.axtaskAmbientFx = safeRenderMode.disableAmbientFx ? "off" : "on";
+    return () => {
+      delete body.dataset.axtaskCvRows;
+      delete body.dataset.axtaskAmbientFx;
+    };
+  }, [safeRenderMode.disableAmbientFx, safeRenderMode.disableCvRows]);
+
   if (location === "/mfa/confirm" || location === "/welcome-confirm") {
     return <ExperienceConfirmPage />;
   }
@@ -566,7 +596,7 @@ function AuthenticatedApp() {
             <div
               className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0 [scrollbar-gutter:stable]"
               style={
-                scale !== 1
+                !safeRenderMode.disableScale && scale !== 1
                   ? {
                       transform: `scale(${scale})`,
                       transformOrigin: "top left",

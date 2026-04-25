@@ -74,8 +74,9 @@ export function CursorOrbsBackdrop() {
 
         const el = orbRefs.current[i];
         if (el) {
-          el.style.left = `calc(${pos[i].x}% - ${o.size / 2}px)`;
-          el.style.top = `calc(${pos[i].y}% - ${o.size / 2}px)`;
+          const tx = `calc(${pos[i].x}% - ${o.size / 2}px)`;
+          const ty = `calc(${pos[i].y}% - ${o.size / 2}px)`;
+          el.style.transform = `translate3d(${tx}, ${ty}, 0)`;
         }
       }
       raf = requestAnimationFrame(tick);
@@ -111,9 +112,8 @@ export function CursorOrbsBackdrop() {
           style={{
             width: orb.size,
             height: orb.size,
-            left: `calc(${orb.baseX}% - ${orb.size / 2}px)`,
-            top: `calc(${orb.baseY}% - ${orb.size / 2}px)`,
-            willChange: "left, top",
+            transform: `translate3d(calc(${orb.baseX}% - ${orb.size / 2}px), calc(${orb.baseY}% - ${orb.size / 2}px), 0)`,
+            willChange: "transform",
           }}
         />
       ))}
