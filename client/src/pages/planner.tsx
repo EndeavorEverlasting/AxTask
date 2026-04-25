@@ -522,34 +522,36 @@ export default function PlannerPage() {
           </p>
 
           <div id="gantt">
-            <Card className="axtask-stable-panel border-gray-200 dark:border-gray-800 overflow-hidden">
-              <CardHeader className="pb-3 border-b border-gray-200/80 dark:border-gray-800/80 bg-slate-950/30 dark:bg-slate-900/40">
+            <section className="axtask-stable-panel glass-panel-glossy overflow-hidden flex flex-col">
+              <header className="px-5 py-4 border-b border-white/10 dark:border-white/5 bg-gradient-to-r from-indigo-50/50 to-purple-50/50 dark:from-indigo-900/20 dark:to-purple-900/20">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <BarChart3 className="h-4 w-4 text-indigo-500" />
-                    Task Timeline
-                    <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
-                      · Gantt view of scheduled work
-                    </span>
-                  </CardTitle>
+                  <div>
+                    <h2 className="text-base font-semibold flex items-center gap-2 text-indigo-900 dark:text-indigo-100">
+                      <BarChart3 className="h-5 w-5 text-indigo-500" />
+                      Task Timeline
+                    </h2>
+                    <p className="text-xs mt-1 text-indigo-700/80 dark:text-indigo-300/80">
+                      AI-assisted Gantt view of scheduled work
+                    </p>
+                  </div>
                   {ganttPack.unlocked ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-400/30 px-2 py-0.5 text-[11px] text-emerald-600 dark:text-emerald-400">
-                      <Sparkles className="h-3 w-3" />
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/30 px-2.5 py-1 text-xs text-emerald-600 dark:text-emerald-400 shadow-sm">
+                      <Sparkles className="h-3.5 w-3.5" />
                       {ganttPack.reason === "avatar-level" ? "Unlocked via avatar" : "Unlocked"}
                     </span>
                   ) : (
                     <Link
                       href="/rewards?tab=shop"
-                      className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-400/30 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400 hover:bg-amber-500/25 transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 border border-amber-400/30 px-2.5 py-1 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-500/25 transition-colors shadow-sm"
                     >
-                      <Lock className="h-3 w-3" />
-                      Customize (avatar L{3}+ or 250 AxCoins)
+                      <Lock className="h-3.5 w-3.5" />
+                      Customize (avatar L3+ or 250 AxCoins)
                     </Link>
                   )}
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-3 pt-4">
-                <div className="w-full min-w-0 rounded-lg border border-white/10 bg-black/10 p-2">
+              </header>
+              <div className="p-5 flex-1 flex flex-col gap-4">
+                <div className="w-full min-w-0 rounded-xl border border-white/10 bg-black/5 dark:bg-black/20 p-3 shadow-inner">
                   <TaskGantt
                     tasks={allTasks}
                     unlocked={ganttPack.unlocked}
@@ -557,13 +559,35 @@ export default function PlannerPage() {
                     emptyHint="Schedule a task with a date to see it on the timeline."
                   />
                 </div>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                  {ganttPack.unlocked
-                    ? "Swimlanes group by classification, bars are colored by priority, and arrows follow task dependencies."
-                    : "Free preview — bars are colored by status. Unlock the Gantt Timeline Pack in the Rewards shop for swimlanes, dependency arrows, and priority coloring."}
-                </p>
-              </CardContent>
-            </Card>
+
+                {/* Legend & Context */}
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-2 border-t border-white/5 dark:border-white/5">
+                  <p className="text-xs text-indigo-800/70 dark:text-indigo-200/60 leading-relaxed max-w-lg pt-2 lg:pt-0">
+                    {ganttPack.unlocked
+                      ? "Interactive timeline with swimlanes grouped by classification. Hover over tasks for details. Priority colors map and dependency arrows guide your execution flow."
+                      : "Interactive preview. Unlock the Gantt Timeline Pack in the Rewards shop for classification swimlanes, dependency arrows, and priority heat-mapping."}
+                  </p>
+
+                  {/* Visual Legend */}
+                  <div className="flex flex-wrap items-center gap-4 text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400 pt-2 lg:pt-0">
+                    {ganttPack.unlocked ? (
+                      <>
+                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#ef4444]" />Highest</div>
+                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#f97316]" />High</div>
+                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#3b82f6]" />Normal</div>
+                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#64748b]" />Low</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#10b981]" />Completed</div>
+                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#3b82f6]" />In Progress</div>
+                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#6366f1]" />Pending</div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
 
           {briefing.overdue.count > 0 && (

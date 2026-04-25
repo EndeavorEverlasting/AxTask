@@ -34,7 +34,7 @@ Read this before changing Pretext shells, glass utilities, `animation-budget`, a
 | **Chip layer** | Calm dims `.axtask-chip-layer` **without** `transition: opacity` (opacity animation caused extra flash). |
 | **Hysteresis** | **`CALM_RELEASE_HYSTERESIS_MS = 90`** after scroll pause expiry extends `data-axtask-calm` briefly ([`client/src/lib/animation-budget.ts`](../client/src/lib/animation-budget.ts)). |
 | **Stable panels** | Critical planner blocks use **`.axtask-stable-panel`** (translateZ, `contain: paint`, calm-scoped animation suppression) — see `index.css`. |
-| **Gantt** | Wrapper **`aspectRatio: 100 / svgHeight`** + SVG **`preserveAspectRatio="xMidYMid meet"`** so axis text scales **uniformly** ([`client/src/components/task-gantt.tsx`](../client/src/components/task-gantt.tsx)). |
+| **Gantt** | Wrapper uses **`ResizeObserver`** to pass absolute pixels to SVG `viewBox`, ensuring exact `fontSize` and row scaling regardless of container width ([`client/src/components/task-gantt.tsx`](../client/src/components/task-gantt.tsx)). |
 
 **Reference integration commit (example):** `fa546f8` on branch `aaa/2026-04-25-gentle-reminder-chat-integration` (holistic nav chrome, Gantt meet, hysteresis, doc seed). Earlier reader-mask work includes `2b1120c` and follow-up tuning; always **`git log`** / **`git show`** on your branch for exact literals.
 
@@ -115,7 +115,7 @@ Use this before deep-diving the wrong subsystem.
 | Calm CSS family | [`client/src/index.css`](../client/src/index.css) | **`body[data-axtask-calm]`** rules: backdrop off, aurora/orb, **reader mask** on `.glass-panel*`, **`.axtask-calm-blur-fallback`**, **`.axtask-chip-layer`**, **`.axtask-nav-chrome`**, **`.axtask-stable-panel`**, glass **transition-property** list (not `all`). |
 | Pretext stack | [`client/src/components/pretext/pretext-shell.tsx`](../client/src/components/pretext/pretext-shell.tsx) | Single-mount aurora + orbs + optional chips; default chip labels. |
 | Ambient chips | [`client/src/components/pretext/pretext-confirmation-shell.tsx`](../client/src/components/pretext/pretext-confirmation-shell.tsx) | **`PretextAmbientChips`**, **`data-pretext-chip`**, rAF drift (respects **`isAnimationAllowed()`**). |
-| Gantt | [`client/src/components/task-gantt.tsx`](../client/src/components/task-gantt.tsx) | Timeline SVG: **`meet`** + wrapper **`aspectRatio`**. |
+| Gantt | [`client/src/components/task-gantt.tsx`](../client/src/components/task-gantt.tsx) | Timeline SVG: **ResizeObserver** rendering pixel-exact SVG layout. |
 | Contracts | [`client/src/index.calm-mode.contract.test.ts`](../client/src/index.calm-mode.contract.test.ts), [`client/src/lib/animation-budget.test.ts`](../client/src/lib/animation-budget.test.ts), [`client/src/components/task-gantt.test.ts`](../client/src/components/task-gantt.test.ts) | String / behaviour guards so calm CSS and Gantt policy do not regress silently. |
 
 Related **refresh / cache** (not calm compositor):
@@ -155,7 +155,7 @@ If the report is “only after I hit reload,” verify **network** (304 / SW), *
 
 **Root cause:** SVG **`preserveAspectRatio="none"`** scales X and Y independently; **`<text>`** inherits non-uniform scale.
 
-**Mitigation:** [`task-gantt.tsx`](../client/src/components/task-gantt.tsx) — outer wrapper sets `aspectRatio` to `100 / ${svgHeight}` (see source); `<svg>` uses **`preserveAspectRatio="xMidYMid meet"`**, **`width="100%"`**, **`height="100%"`**, **`className="block h-full w-full"`**.
+**Mitigation:** [`task-gantt.tsx`](../client/src/components/task-gantt.tsx) — outer wrapper uses a **`ResizeObserver`** to establish exact pixel bounds, allowing the `<svg>` to render with a 1:1 `viewBox`. This guarantees text `fontSize` and row heights remain exactly as specified in pixels, independent of the responsive container width.
 
 ---
 

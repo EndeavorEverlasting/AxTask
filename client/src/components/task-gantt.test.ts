@@ -112,9 +112,8 @@ describe("deriveTaskRange — premium Gantt fields", () => {
 describe("TaskGantt SVG layout contract", () => {
   const src = fs.readFileSync(path.resolve(__dirname, "task-gantt.tsx"), "utf8");
 
-  it("uses uniform scale so axis text is not non-uniformly stretched", () => {
-    expect(src).toContain('preserveAspectRatio="xMidYMid meet"');
+  it("uses ResizeObserver for pixel-exact layout so text is not stretched", () => {
+    expect(src).toContain("ResizeObserver");
     expect(src).not.toMatch(/<svg[\s\S]*preserveAspectRatio="none"/);
-    expect(src).toContain("aspectRatio: `100 / ${svgHeight}`");
   });
 });

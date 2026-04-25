@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import type { Task } from "@shared/schema";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
  * Pure-SVG Gantt chart for the user's tasks.
@@ -124,6 +125,20 @@ function truncate(text: string, max: number): string {
 export function TaskGantt(props: TaskGanttProps) {
   const { tasks, unlocked = false, dimmed = false, rangeDays = 21, height, className, emptyHint } = props;
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
   const { laidOut, window, lanes, windowSpanMs, windowGridLines } = useMemo(() => {
     const withRanges: LaidOutTask[] = [];
     for (const task of tasks) {
@@ -196,29 +211,31 @@ export function TaskGantt(props: TaskGanttProps) {
     };
   }, [tasks, rangeDays, unlocked]);
 
-  const rowHeight = 26;
-  const headerHeight = 28;
-  const laneGap = unlocked ? 8 : 0;
+  const rowHeight = 36;
+  const headerHeight = 32;
+  const laneGap = unlocked ? 12 : 0;
   const rows = laidOut.length;
   const totalLaneGap = Math.max(0, (lanes.length - 1) * laneGap);
   const autoHeight = headerHeight + rows * rowHeight + totalLaneGap + 8;
   const svgHeight = height ?? Math.max(autoHeight, 120);
-  const axisTickCount = windowGridLines.length;
-  const axisLabelsCompact = axisTickCount > 5;
-  const axisLabelFontSize = axisLabelsCompact ? 7.5 : 9;
+  const svgWidth = containerWidth || 800;
 
-  const todayPct = (() => {
+  const axisTickCount = windowGridLines.length;
+  const axisLabelsCompact = axisTickCount > 7;
+  const axisLabelFontSize = axisLabelsCompact ? 10 : 12;
+
+  const todayX = (() => {
     const now = Date.now();
     if (now < window.start.getTime() || now > window.end.getTime()) return null;
-    return ((now - window.start.getTime()) / windowSpanMs) * 100;
+    return ((now - window.start.getTime()) / windowSpanMs) * svgWidth;
   })();
 
-  const toXPct = (d: Date) => ((d.getTime() - window.start.getTime()) / windowSpanMs) * 100;
+  const toX = (d: Date) => ((d.getTime() - window.start.getTime()) / windowSpanMs) * svgWidth;
 
   // Map by task id for dependency arrow lookup.
   const laidOutByTaskId = new Map(laidOut.map((l) => [l.task.id, l]));
 
-  const barY = (row: number, laneIdx: number) => headerHeight + row * rowHeight + laneIdx * laneGap + 4;
+  const barY = (row: number, laneIdx: number) => headerHeight + row * rowHeight + laneIdx * laneGap + 6;
 
   const visibleTasks = laidOut;
 
@@ -242,110 +259,111 @@ export function TaskGantt(props: TaskGanttProps) {
   }
 
   return (
-    <div
-      className={`relative w-full ${dimmed ? "pointer-events-none select-none" : ""} ${className ?? ""}`}
-      aria-hidden={dimmed || undefined}
-      style={{ aspectRatio: `100 / ${svgHeight}` }}
-    >
-      <svg
-        className="block h-full w-full"
-        viewBox={`0 0 100 ${svgHeight}`}
-        preserveAspectRatio="xMidYMid meet"
-        width="100%"
-        height="100%"
-        role={dimmed ? "presentation" : "img"}
-        aria-label={dimmed ? undefined : "Task timeline Gantt chart"}
-        style={{ opacity: dimmed ? 0.22 : 1 }}
+    <TooltipProvider>
+      <div
+        ref={containerRef}
+        className={`relative w-full ${dimmed ? "pointer-events-none select-none" : ""} ${className ?? ""}`}
+        aria-hidden={dimmed || undefined}
       >
-        <defs>
-          <marker
-            id="gantt-arrow"
-            viewBox="0 0 10 10"
-            refX="8"
-            refY="5"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto-start-reverse"
+        {containerWidth > 0 && (
+          <svg
+            className="block w-full"
+            viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+            style={{ height: `${svgHeight}px`, opacity: dimmed ? 0.22 : 1 }}
+            role={dimmed ? "presentation" : "img"}
+            aria-label={dimmed ? undefined : "Task timeline Gantt chart"}
           >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
-          </marker>
-        </defs>
-
-        {/* Day gridlines */}
-        {windowGridLines.map((g, i) => (
-          <g key={`grid-${i}`}>
-            <line
-              x1={g.pct}
-              x2={g.pct}
-              y1={headerHeight - 4}
-              y2={svgHeight - 2}
-              stroke="rgba(148, 163, 184, 0.18)"
-              strokeWidth="0.12"
-              vectorEffect="non-scaling-stroke"
-            />
-            {!dimmed && (
-              <text
-                x={g.pct}
-                y={headerHeight - 10}
-                fontSize={axisLabelFontSize}
-                fill="rgba(148, 163, 184, 0.85)"
-                textAnchor="middle"
-                style={{ fontFamily: "ui-sans-serif, system-ui", pointerEvents: "none" }}
+            <defs>
+              <marker
+                id="gantt-arrow"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="8"
+                markerHeight="8"
+                orient="auto-start-reverse"
               >
-                {formatAxisDayLabel(g.d, axisLabelsCompact)}
-              </text>
-            )}
-          </g>
-        ))}
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+              </marker>
+            </defs>
 
-        {/* Swimlane backgrounds when unlocked */}
-        {unlocked &&
-          lanes.map((lane, laneIdx) => {
-            const laneRows = laidOut.filter((l) => l.lane === lane.name).length;
-            const y = headerHeight + lane.rowStart * rowHeight + laneIdx * laneGap;
-            const h = laneRows * rowHeight;
-            return (
-              <g key={`lane-${lane.name}`}>
-                <rect
-                  x={0}
-                  y={y}
-                  width={100}
-                  height={h}
-                  fill={laneIdx % 2 === 0 ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.05)"}
-                />
-                {!dimmed && (
-                  <text
-                    x={0.5}
-                    y={y + 10}
-                    fontSize="8"
-                    fill="rgba(148, 163, 184, 0.9)"
-                    style={{ fontFamily: "ui-sans-serif, system-ui", pointerEvents: "none" }}
-                  >
-                    {truncate(lane.name, 22)}
-                  </text>
-                )}
-              </g>
-            );
-          })}
+            {/* Day gridlines */}
+            {windowGridLines.map((g, i) => {
+              const xPos = ((g.pct) / 100) * svgWidth;
+              return (
+                <g key={`grid-${i}`}>
+                  <line
+                    x1={xPos}
+                    x2={xPos}
+                    y1={headerHeight - 4}
+                    y2={svgHeight - 2}
+                    stroke="rgba(148, 163, 184, 0.15)"
+                    strokeWidth="1"
+                  />
+                  {!dimmed && (
+                    <text
+                      x={xPos}
+                      y={headerHeight - 12}
+                      fontSize={axisLabelFontSize}
+                      fill="rgba(148, 163, 184, 0.85)"
+                      textAnchor="middle"
+                      style={{ fontFamily: "ui-sans-serif, system-ui", pointerEvents: "none" }}
+                    >
+                      {formatAxisDayLabel(g.d, axisLabelsCompact)}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+
+            {/* Swimlane backgrounds when unlocked */}
+            {unlocked &&
+              lanes.map((lane, laneIdx) => {
+                const laneRows = laidOut.filter((l) => l.lane === lane.name).length;
+                const y = headerHeight + lane.rowStart * rowHeight + laneIdx * laneGap;
+                const h = laneRows * rowHeight;
+                return (
+                  <g key={`lane-${lane.name}`}>
+                    <rect
+                      x={0}
+                      y={y}
+                      width={svgWidth}
+                      height={h}
+                      fill={laneIdx % 2 === 0 ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)"}
+                    />
+                    {!dimmed && (
+                      <text
+                        x={8}
+                        y={y + 14}
+                        fontSize="11"
+                        fontWeight="500"
+                        fill="rgba(148, 163, 184, 0.9)"
+                        style={{ fontFamily: "ui-sans-serif, system-ui", pointerEvents: "none" }}
+                      >
+                        {truncate(lane.name, 22)}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
 
         {/* Today marker */}
-        {todayPct !== null && (
+        {todayX !== null && (
           <g>
             <line
-              x1={todayPct}
-              x2={todayPct}
+              x1={todayX}
+              x2={todayX}
               y1={headerHeight - 6}
               y2={svgHeight - 2}
               stroke="rgba(16, 185, 129, 0.8)"
-              strokeWidth="0.22"
-              strokeDasharray="1 1"
-              vectorEffect="non-scaling-stroke"
+              strokeWidth="2"
+              strokeDasharray="4 4"
             />
             {!dimmed && (
               <text
-                x={todayPct}
-                y={headerHeight - 18}
-                fontSize="9"
+                x={todayX}
+                y={headerHeight - 22}
+                fontSize="11"
                 fontWeight="600"
                 fill="rgb(16, 185, 129)"
                 textAnchor="middle"
@@ -357,15 +375,49 @@ export function TaskGantt(props: TaskGanttProps) {
           </g>
         )}
 
+        {/* Dependency arrows (rendered BEFORE tasks so they sit underneath) */}
+        {unlocked &&
+          visibleTasks.map((lo) => {
+            const deps = Array.isArray(lo.task.dependsOn) ? lo.task.dependsOn : [];
+            if (deps.length === 0) return null;
+            const targetLane = rowLane(lo.task);
+            const targetRow = rowFromLaidOut(lo);
+            const targetX = Math.max(0, toX(lo.range.start));
+            const targetY = barY(targetRow, targetLane) + (rowHeight - 12) / 2;
+            return (
+              <g key={`arrow-${lo.task.id}`} color="rgba(234, 179, 8, 0.7)">
+                {deps.map((predId: string) => {
+                  const pred = laidOutByTaskId.get(predId);
+                  if (!pred) return null;
+                  const predLane = rowLane(pred.task);
+                  const predRow = rowFromLaidOut(pred);
+                  const sourceX = Math.min(svgWidth, toX(pred.range.end));
+                  const sourceY = barY(predRow, predLane) + (rowHeight - 12) / 2;
+                  const midX = Math.min(svgWidth, Math.max(sourceX + 8, targetX - 8));
+                  return (
+                    <path
+                      key={`${lo.task.id}-${predId}`}
+                      d={`M ${sourceX} ${sourceY} L ${midX} ${sourceY} L ${midX} ${targetY} L ${targetX} ${targetY}`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      markerEnd="url(#gantt-arrow)"
+                    />
+                  );
+                })}
+              </g>
+            );
+          })}
+
         {/* Task bars */}
         {visibleTasks.map((lo) => {
           const laneIdx = rowLane(lo.task);
           const row = rowFromLaidOut(lo);
-          const x1 = Math.max(0, toXPct(lo.range.start));
-          const x2 = Math.min(100, toXPct(lo.range.end));
-          const width = Math.max(0.4, x2 - x1);
+          const x1 = Math.max(0, toX(lo.range.start));
+          const x2 = Math.min(svgWidth, toX(lo.range.end));
+          const width = Math.max(6, x2 - x1);
           const y = barY(row, laneIdx);
-          const barHeight = rowHeight - 10;
+          const barHeight = rowHeight - 12;
           const fill = unlocked
             ? PRIORITY_FILL[lo.task.priority] ?? "#6366f1"
             : lo.task.status === "completed"
@@ -374,72 +426,61 @@ export function TaskGantt(props: TaskGanttProps) {
                 ? "#3b82f6"
                 : "#6366f1";
           const opacity = STATUS_OPACITY[lo.task.status] ?? 0.85;
-          return (
-            <g key={lo.task.id}>
+
+          const barContent = (
+            <g className={!dimmed ? "cursor-pointer hover:brightness-125 transition-all duration-200" : ""}>
               <rect
                 x={x1}
                 y={y}
                 width={width}
                 height={barHeight}
-                rx="1"
-                ry="1"
+                rx="4"
+                ry="4"
                 fill={fill}
                 opacity={opacity}
               />
-              {!dimmed && width > 6 && (
+              {!dimmed && width > 24 && (
                 <text
-                  x={x1 + 0.4}
-                  y={y + barHeight / 2 + 3}
-                  fontSize="9"
+                  x={x1 + 6}
+                  y={y + barHeight / 2 + 4}
+                  fontSize="12"
+                  fontWeight="500"
                   fill="rgba(255,255,255,0.95)"
                   style={{
                     fontFamily: "ui-sans-serif, system-ui",
                     pointerEvents: "none",
                   }}
                 >
-                  {truncate(lo.task.activity, Math.max(6, Math.floor(width * 2.2)))}
+                  {truncate(lo.task.activity, Math.max(4, Math.floor(width / 7)))}
                 </text>
               )}
             </g>
           );
-        })}
 
-        {/* Dependency arrows (customization-gated) */}
-        {unlocked &&
-          visibleTasks.map((lo) => {
-            const deps = Array.isArray(lo.task.dependsOn) ? lo.task.dependsOn : [];
-            if (deps.length === 0) return null;
-            const targetLane = rowLane(lo.task);
-            const targetRow = rowFromLaidOut(lo);
-            const targetX = Math.max(0, toXPct(lo.range.start));
-            const targetY = barY(targetRow, targetLane) + (rowHeight - 10) / 2;
-            return (
-              <g key={`arrow-${lo.task.id}`} color="rgba(234, 179, 8, 0.8)">
-                {deps.map((predId: string) => {
-                  const pred = laidOutByTaskId.get(predId);
-                  if (!pred) return null;
-                  const predLane = rowLane(pred.task);
-                  const predRow = rowFromLaidOut(pred);
-                  const sourceX = Math.min(100, toXPct(pred.range.end));
-                  const sourceY = barY(predRow, predLane) + (rowHeight - 10) / 2;
-                  const midX = Math.min(100, Math.max(sourceX + 0.6, targetX - 0.6));
-                  return (
-                    <path
-                      key={`${lo.task.id}-${predId}`}
-                      d={`M ${sourceX} ${sourceY} L ${midX} ${sourceY} L ${midX} ${targetY} L ${targetX} ${targetY}`}
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="0.18"
-                      vectorEffect="non-scaling-stroke"
-                      markerEnd="url(#gantt-arrow)"
-                    />
-                  );
-                })}
-              </g>
-            );
-          })}
+          if (dimmed) return <g key={lo.task.id}>{barContent}</g>;
+
+          return (
+            <Tooltip key={lo.task.id} delayDuration={150}>
+              <TooltipTrigger asChild>
+                {barContent}
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[260px] bg-slate-900 border-slate-700 text-slate-100 shadow-xl z-[100]">
+                <div className="space-y-1.5">
+                  <p className="font-medium text-sm leading-tight">{lo.task.activity}</p>
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>{formatDayLabel(lo.range.start)} - {formatDayLabel(lo.range.end)}</span>
+                    {unlocked && <span className="uppercase text-[10px] tracking-wider px-1.5 py-0.5 rounded bg-slate-800">{lo.task.priority}</span>}
+                  </div>
+                  <p className="text-xs text-slate-500 capitalize">{lo.task.status.replace("-", " ")}</p>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
       </svg>
-    </div>
+        )}
+      </div>
+    </TooltipProvider>
   );
 }
 
