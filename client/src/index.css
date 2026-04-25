@@ -493,10 +493,7 @@
   body[data-axtask-calm] .backdrop-blur-lg,
   body[data-axtask-calm] .backdrop-blur-md,
   body[data-axtask-calm] .backdrop-blur-sm,
-  body[data-axtask-calm] .backdrop-blur,
-  body[data-axtask-calm] .glass-panel,
-  body[data-axtask-calm] .glass-panel-elevated,
-  body[data-axtask-calm] .glass-panel-glossy {
+  body[data-axtask-calm] .backdrop-blur {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
@@ -541,6 +538,16 @@
     }
   }
   body[data-axtask-calm] .axtask-fade-in-up {
+    animation: none !important;
+  }
+  /* Stable panel profile: keep critical cards visible/steady while scrolling. */
+  .axtask-stable-panel {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    contain: paint;
+  }
+  body[data-axtask-calm] .axtask-stable-panel {
+    transition: none !important;
     animation: none !important;
   }
 

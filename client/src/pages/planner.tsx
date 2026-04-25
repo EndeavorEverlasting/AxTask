@@ -522,8 +522,8 @@ export default function PlannerPage() {
           </p>
 
           <div id="gantt">
-            <Card className="border-gray-200 dark:border-gray-800">
-              <CardHeader className="pb-3">
+            <Card className="axtask-stable-panel border-gray-200 dark:border-gray-800 overflow-hidden">
+              <CardHeader className="pb-3 border-b border-gray-200/80 dark:border-gray-800/80 bg-slate-950/30 dark:bg-slate-900/40">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <CardTitle className="text-base flex items-center gap-2">
                     <BarChart3 className="h-4 w-4 text-indigo-500" />
@@ -548,8 +548,8 @@ export default function PlannerPage() {
                   )}
                 </div>
               </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="w-full min-w-0">
+              <CardContent className="space-y-3 pt-4">
+                <div className="w-full min-w-0 rounded-lg border border-white/10 bg-black/10 p-2">
                   <TaskGantt
                     tasks={allTasks}
                     unlocked={ganttPack.unlocked}
@@ -567,8 +567,8 @@ export default function PlannerPage() {
           </div>
 
           {briefing.overdue.count > 0 && (
-            <div className="axtask-fade-in-up" style={{ animationDelay: "80ms" }}>
-              <Card className="border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10">
+            <div className="axtask-stable-panel">
+              <Card className="axtask-stable-panel border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2 text-red-700 dark:text-red-400">
                     <AlertTriangle className="h-4 w-4" />
@@ -638,8 +638,8 @@ export default function PlannerPage() {
           )}
 
           {briefing.dueWithinHour.count > 0 && (
-            <div className="axtask-fade-in-up" style={{ animationDelay: "100ms" }}>
-              <Card className="border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-900/10">
+            <div className="axtask-stable-panel">
+              <Card className="axtask-stable-panel border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-900/10">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2 text-orange-700 dark:text-orange-400">
                     <Clock className="h-4 w-4" />
@@ -670,8 +670,8 @@ export default function PlannerPage() {
             </div>
           )}
 
-          <div className="axtask-fade-in-up" style={{ animationDelay: "112ms" }}>
-            <Card className="border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-900/10">
+          <div className="axtask-stable-panel">
+            <Card className="axtask-stable-panel border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-900/10">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
                   <ShoppingCart className="h-4 w-4" />
@@ -742,8 +742,8 @@ export default function PlannerPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="axtask-fade-in-up" style={{ animationDelay: "120ms" }}>
-              <Card>
+            <div className="axtask-stable-panel">
+              <Card className="axtask-stable-panel">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-purple-500" />
@@ -786,8 +786,8 @@ export default function PlannerPage() {
               </Card>
             </div>
 
-            <div className="axtask-fade-in-up" style={{ animationDelay: "140ms" }}>
-              <Card>
+            <div className="axtask-stable-panel">
+              <Card className="axtask-stable-panel">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
                     <CalendarDays className="h-4 w-4 text-indigo-500" />
@@ -822,8 +822,8 @@ export default function PlannerPage() {
             </div>
           </div>
 
-          <div className="axtask-fade-in-up" style={{ animationDelay: "160ms" }}>
-            <Card className="border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50/50 to-purple-50/50 dark:from-indigo-900/10 dark:to-purple-900/10">
+          <div className="axtask-stable-panel">
+            <Card className="axtask-stable-panel border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50/50 to-purple-50/50 dark:from-indigo-900/10 dark:to-purple-900/10">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <ClipboardCheck className="h-4 w-4 text-indigo-500" />
@@ -895,8 +895,8 @@ export default function PlannerPage() {
             </Card>
           </div>
 
-          <div className="axtask-fade-in-up" style={{ animationDelay: "180ms" }}>
-            <Card className="border-emerald-200 dark:border-emerald-800 bg-gradient-to-r from-emerald-50/50 to-teal-50/50 dark:from-emerald-900/10 dark:to-teal-900/10">
+          <div className="axtask-stable-panel">
+            <Card className="axtask-stable-panel border-emerald-200 dark:border-emerald-800 bg-gradient-to-r from-emerald-50/50 to-teal-50/50 dark:from-emerald-900/10 dark:to-teal-900/10">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Lightbulb className="h-4 w-4 text-emerald-500" />
@@ -1012,8 +1012,8 @@ export default function PlannerPage() {
             </Card>
           </div>
 
-          <div className="axtask-fade-in-up" style={{ animationDelay: "200ms" }}>
-            <Card>
+          <div className="axtask-stable-panel">
+            <Card className="axtask-stable-panel">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <MessageCircle className="h-4 w-4 text-purple-500" />
@@ -1089,8 +1089,8 @@ export default function PlannerPage() {
             </Card>
           </div>
 
-          <div className="axtask-fade-in-up" style={{ animationDelay: "220ms" }}>
-            <Card className="border-violet-200 dark:border-violet-800 bg-violet-50/40 dark:bg-violet-900/10">
+          <div className="axtask-stable-panel">
+            <Card className="axtask-stable-panel border-violet-200 dark:border-violet-800 bg-violet-50/40 dark:bg-violet-900/10">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <MessageCircle className="h-4 w-4 text-violet-500" />

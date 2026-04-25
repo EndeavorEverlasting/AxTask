@@ -2,7 +2,7 @@ import { matchSidebarChord } from "@/lib/hotkey-actions";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useBriefingBadge } from "@/hooks/use-briefing";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   LayoutDashboard,
   List,
@@ -62,6 +62,7 @@ import { PretextPeekStrip } from "@/components/layout/pretext-peek-strip";
 import { PretextShortcutsBeacon } from "@/components/pretext/pretext-shortcuts-beacon";
 import { ShellSplitter } from "@/components/layout/shell-splitter";
 import { cn } from "@/lib/utils";
+import { notifyScrollBudget } from "@/lib/animation-budget";
 import { useToast } from "@/hooks/use-toast";
 import type { PublicSessionUser } from "@shared/public-client-dtos";
 import { computeShoppingListUnlocked } from "@shared/shopping-list-feature";
@@ -107,7 +108,7 @@ function AccountUserAvatar({
   );
 }
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarContent({ onNavigate, onScroll }: { onNavigate?: () => void; onScroll?: () => void }) {
   const [location, setLocation] = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { toast } = useToast();
@@ -205,7 +206,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0 outline-none overflow-y-auto overscroll-contain" tabIndex={-1}>
+    <div className="flex flex-col h-full min-h-0 outline-none overflow-y-auto overscroll-contain" tabIndex={-1} onScroll={onScroll}>
       <div className="p-6 border-b border-border shrink-0">
         <div className="flex items-center justify-between">
           <button
@@ -532,6 +533,23 @@ export function Sidebar() {
   const isMobile = useIsMobile();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { sidebarWidthPx, isNavFocus, toggleSidebarHidden } = useImmersiveShell();
+  const scrollBudgetRaf = useRef<number | null>(null);
+  const onSidebarScroll = useCallback(() => {
+    if (scrollBudgetRaf.current != null) return;
+    scrollBudgetRaf.current = requestAnimationFrame(() => {
+      scrollBudgetRaf.current = null;
+      notifyScrollBudget();
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      if (scrollBudgetRaf.current != null) {
+        cancelAnimationFrame(scrollBudgetRaf.current);
+        scrollBudgetRaf.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     /** Ctrl/Cmd+Shift+Backslash toggles the rail (see KBD.sidebar); avoids browser bookmark conflicts on B. */
@@ -581,8 +599,8 @@ export function Sidebar() {
               <SheetDescription>App navigation menu</SheetDescription>
             </SheetHeader>
             <PretextShortcutsBeacon layout="sheetStrip" />
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <SidebarContent onNavigate={() => setMobileOpen(false)} />
+            <div className="min-h-0 flex-1 overflow-y-auto" onScroll={onSidebarScroll}>
+              <SidebarContent onNavigate={() => setMobileOpen(false)} onScroll={onSidebarScroll} />
             </div>
           </SheetContent>
         </Sheet>
@@ -596,7 +614,7 @@ export function Sidebar() {
         )}
         style={{ width: sidebarWidthPx }}
       >
-        {sidebarWidthPx > 0 ? <SidebarContent /> : null}
+        {sidebarWidthPx > 0 ? <SidebarContent onScroll={onSidebarScroll} /> : null}
       </aside>
       {sidebarWidthPx === 0 ? <PretextPeekStrip /> : null}
       {sidebarWidthPx > 0 ? <ShellSplitter /> : null}
