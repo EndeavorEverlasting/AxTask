@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { OfflineDataBanner } from "./offline-data-banner";
 import * as network from "@/hooks/use-network-status";
+import * as persistPolicy from "@/lib/query-persist-policy";
 import { STALE_DATA_WARNING_AFTER_MS } from "@/lib/query-persist-policy";
 import { Toaster } from "@/components/ui/toaster";
 
@@ -65,7 +66,7 @@ describe("OfflineDataBanner", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("shows refreshing state and calls invalidateQueries when Refresh now is clicked", async () => {
+  it("shows refreshing state and calls invalidateQueries when Soft refresh is clicked", async () => {
     seedStalePersistedQuery(queryClient);
     let resolveInvalidate: () => void = () => {};
     const invalidatePromise = new Promise<void>((resolve) => {
@@ -81,7 +82,7 @@ describe("OfflineDataBanner", () => {
     expect(screen.getByText(/Some cached data hasn/)).toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /refresh now/i }));
+      fireEvent.click(screen.getByRole("button", { name: /soft refresh/i }));
     });
 
     expect(invalidateSpy).toHaveBeenCalledTimes(1);
@@ -94,9 +95,33 @@ describe("OfflineDataBanner", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /refresh now/i })).not.toBeDisabled();
+      expect(screen.getByRole("button", { name: /soft refresh/i })).not.toBeDisabled();
     });
 
     invalidateSpy.mockRestore();
+  });
+
+  it("hard refresh clears query state and persisted blobs before reload", async () => {
+    seedStalePersistedQuery(queryClient);
+    const clearPersistSpy = vi
+      .spyOn(persistPolicy, "clearAllQueryPersistStorage")
+      .mockImplementation(() => {});
+    const clearSpy = vi.spyOn(queryClient, "clear");
+    const cancelSpy = vi
+      .spyOn(queryClient, "cancelQueries")
+      .mockResolvedValue(undefined as never);
+    const reloadSpy = vi.fn();
+    (window as typeof window & { __axtaskTestReload?: () => void }).__axtaskTestReload = reloadSpy;
+
+    wrap();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /hard refresh/i }));
+    });
+
+    expect(cancelSpy).toHaveBeenCalledTimes(1);
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+    expect(clearPersistSpy).toHaveBeenCalledTimes(1);
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    delete (window as typeof window & { __axtaskTestReload?: () => void }).__axtaskTestReload;
   });
 });

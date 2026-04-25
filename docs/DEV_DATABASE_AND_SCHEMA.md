@@ -139,6 +139,8 @@ So: **versioned SQL migrations → forced Drizzle schema sync → Node server**.
 
 [`package.json`](../package.json) **`npm run start`** runs [`scripts/production-start.mjs`](../scripts/production-start.mjs): **`apply-migrations.mjs` → `drizzle-kit push --force` → `node dist/index.js`**, matching Path D. Use **`npm run start:app`** only if you intentionally skip migrations/push (rare; not recommended for production).
 
+This means startup is not a passive boot step; it mutates schema state before serving traffic. Treat each deploy as a release event with explicit contract evidence (`docs/releases/*.md`) and run `npm run release:check` in CI/PR validation before merge.
+
 [`drizzle-kit`](../package.json) is a **production dependency** so installs that omit devDependencies still have the CLI at runtime.
 
 [`render.yaml`](../render.yaml) `startCommand: npm run start` therefore applies schema changes on each deploy restart, given a valid **`DATABASE_URL`**.

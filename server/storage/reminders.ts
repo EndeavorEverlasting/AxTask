@@ -3,6 +3,7 @@ import { and, eq, isNotNull, lte } from "drizzle-orm";
 import {
   userReminders,
   userReminderTriggers,
+  userLocationEvents,
   userLocationPlaces,
   type UserLocationEvent,
 } from "@shared/schema";
@@ -87,6 +88,30 @@ export async function markReminderTriggered(triggerId: string, when: Date) {
       nextRunAt: null,
     })
     .where(eq(userReminderTriggers.id, triggerId))
+    .returning();
+  return row ?? null;
+}
+
+export async function createUserLocationEvent(input: {
+  userId: string;
+  placeId: string;
+  eventType: "enter" | "exit";
+  source?: "browser" | "mobile" | "native_bridge";
+  confidence?: number;
+  metadataJson?: Record<string, unknown> | null;
+  occurredAt?: Date;
+}) {
+  const [row] = await db
+    .insert(userLocationEvents)
+    .values({
+      userId: input.userId,
+      placeId: input.placeId,
+      eventType: input.eventType,
+      source: input.source ?? "browser",
+      confidence: input.confidence ?? 100,
+      metadataJson: input.metadataJson ?? {},
+      occurredAt: input.occurredAt ?? new Date(),
+    })
     .returning();
   return row ?? null;
 }

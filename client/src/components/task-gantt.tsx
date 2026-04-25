@@ -29,6 +29,9 @@ export interface TaskGanttProps {
   rangeDays?: number;
   /** Override height (px). Auto-computed from row count when omitted. */
   height?: number;
+  density?: "compact" | "comfortable";
+  focusLane?: string;
+  showLabels?: boolean;
   className?: string;
   emptyHint?: string;
 }
@@ -116,7 +119,18 @@ function truncate(text: string, max: number): string {
 }
 
 export function TaskGantt(props: TaskGanttProps) {
-  const { tasks, unlocked = false, dimmed = false, rangeDays = 21, height, className, emptyHint } = props;
+  const {
+    tasks,
+    unlocked = false,
+    dimmed = false,
+    rangeDays = 21,
+    height,
+    density = "comfortable",
+    focusLane,
+    showLabels = true,
+    className,
+    emptyHint,
+  } = props;
 
   const { laidOut, window, lanes, windowSpanMs, windowGridLines } = useMemo(() => {
     const withRanges: LaidOutTask[] = [];
@@ -125,20 +139,25 @@ export function TaskGantt(props: TaskGanttProps) {
       if (!range) continue;
       withRanges.push({ task, range, row: 0, lane: classificationLabel(task) });
     }
+    const laneFocus = focusLane?.trim().toLowerCase();
+    const eligible =
+      laneFocus && unlocked
+        ? withRanges.filter((row) => row.lane.toLowerCase() === laneFocus)
+        : withRanges;
 
-    withRanges.sort((a, b) => a.range.start.getTime() - b.range.start.getTime());
+    eligible.sort((a, b) => a.range.start.getTime() - b.range.start.getTime());
 
     const laneOrder: string[] = [];
     const laneRowStart = new Map<string, number>();
     if (unlocked) {
       const seen = new Map<string, LaidOutTask[]>();
-      for (const item of withRanges) {
+      for (const item of eligible) {
         const list = seen.get(item.lane) ?? [];
         list.push(item);
         seen.set(item.lane, list);
       }
       // Stable lane ordering by first appearance.
-      for (const item of withRanges) if (!laneOrder.includes(item.lane)) laneOrder.push(item.lane);
+      for (const item of eligible) if (!laneOrder.includes(item.lane)) laneOrder.push(item.lane);
       let row = 0;
       for (const lane of laneOrder) {
         laneRowStart.set(lane, row);
@@ -148,13 +167,13 @@ export function TaskGantt(props: TaskGanttProps) {
         }
       }
     } else {
-      withRanges.forEach((item, idx) => {
+      eligible.forEach((item, idx) => {
         item.row = idx;
       });
     }
 
     const win = computeWindow(
-      withRanges.map((r) => r.range),
+      eligible.map((r) => r.range),
       rangeDays,
     );
     const spanMs = Math.max(win.end.getTime() - win.start.getTime(), MS_PER_DAY);
@@ -172,15 +191,15 @@ export function TaskGantt(props: TaskGanttProps) {
     }
 
     return {
-      laidOut: withRanges,
+      laidOut: eligible,
       window: win,
       lanes: unlocked ? laneOrder.map((name) => ({ name, rowStart: laneRowStart.get(name) ?? 0 })) : [],
       windowSpanMs: spanMs,
       windowGridLines: grid,
     };
-  }, [tasks, rangeDays, unlocked]);
+  }, [tasks, rangeDays, unlocked, focusLane]);
 
-  const rowHeight = 26;
+  const rowHeight = density === "compact" ? 22 : 30;
   const headerHeight = 28;
   const laneGap = unlocked ? 8 : 0;
   const rows = laidOut.length;
@@ -262,7 +281,7 @@ export function TaskGantt(props: TaskGanttProps) {
               strokeWidth="0.12"
               vectorEffect="non-scaling-stroke"
             />
-            {!dimmed && (
+              {!dimmed && showLabels && (
               <text
                 x={g.pct}
                 y={headerHeight - 10}
@@ -292,7 +311,7 @@ export function TaskGantt(props: TaskGanttProps) {
                   height={h}
                   fill={laneIdx % 2 === 0 ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.05)"}
                 />
-                {!dimmed && (
+                {!dimmed && showLabels && (
                   <text
                     x={0.5}
                     y={y + 10}
@@ -320,7 +339,7 @@ export function TaskGantt(props: TaskGanttProps) {
               strokeDasharray="1 1"
               vectorEffect="non-scaling-stroke"
             />
-            {!dimmed && (
+            {!dimmed && showLabels && (
               <text
                 x={todayPct}
                 y={headerHeight - 18}
@@ -365,7 +384,7 @@ export function TaskGantt(props: TaskGanttProps) {
                 fill={fill}
                 opacity={opacity}
               />
-              {!dimmed && width > 6 && (
+              {!dimmed && showLabels && width > 6 && (
                 <text
                   x={x1 + 0.4}
                   y={y + barHeight / 2 + 3}

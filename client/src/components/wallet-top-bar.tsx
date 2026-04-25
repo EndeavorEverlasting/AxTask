@@ -83,7 +83,7 @@ export function WalletTopBar() {
   });
 
   return (
-    <div className="sticky top-0 z-50 shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-amber-300/50 dark:border-amber-800/50 bg-gradient-to-r from-amber-400/20 via-amber-100/40 to-violet-200/25 dark:from-amber-600/15 dark:via-amber-950/40 dark:to-violet-950/30 px-3 py-3 md:px-5 md:py-3.5 shadow-sm shadow-amber-900/5 backdrop-blur-md">
+    <div className="sticky top-0 z-50 shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-amber-300/50 dark:border-amber-800/50 bg-gradient-to-r from-amber-200/80 via-amber-100/92 to-violet-100/88 dark:from-amber-800/50 dark:via-slate-950/94 dark:to-violet-900/45 px-3 py-3 md:px-5 md:py-3.5 shadow-sm shadow-amber-900/10">
       <div className="min-w-0 flex flex-col gap-0.5">
         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-800/90 dark:text-amber-300/95">
           AxCoins

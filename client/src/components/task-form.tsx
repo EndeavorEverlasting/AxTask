@@ -754,6 +754,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       if (prefill.activity) form.setValue("activity", prefill.activity);
       if (prefill.date) form.setValue("date", prefill.date);
       if (prefill.time) form.setValue("time", prefill.time);
+      if (prefill.recurrence) form.setValue("recurrence", prefill.recurrence);
     }
   }, [consumeTaskPrefill, form, task]);
 

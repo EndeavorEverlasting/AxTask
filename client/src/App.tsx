@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTutorial } from "@/hooks/use-tutorial";
 import { PersistedQueryLayer } from "./lib/app-query-provider";
 import { Toaster } from "@/components/ui/toaster";
@@ -92,6 +92,11 @@ import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
 const GlobalSearch = lazy(() =>
   import("@/components/global-search").then((m) => ({
     default: m.GlobalSearch,
+  })),
+);
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette").then((m) => ({
+    default: m.CommandPalette,
   })),
 );
 import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
@@ -206,7 +211,7 @@ function MobileBottomNav() {
   };
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass-panel-glossy rounded-none border-x-0 border-b-0 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.45)] safe-area-bottom">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 axtask-chrome-surface rounded-none border-x-0 border-b-0 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.12)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.55)] safe-area-bottom">
       <div className="flex items-center justify-around h-14">
         {BOTTOM_NAV_ITEMS.map(({ path, icon: Icon, label }) => (
           <Link
@@ -339,6 +344,25 @@ function AuthenticatedApp() {
   const { zoom } = useZoom();
   const isMobile = useIsMobile();
   const scale = isMobile ? 1 : zoom / 100;
+  const safeRenderMode = useMemo(() => {
+    if (typeof window === "undefined") {
+      return {
+        disableScale: true,
+        disableCvRows: true,
+        disableAmbientFx: false,
+      };
+    }
+    const qs = new URLSearchParams(window.location.search);
+    const ff = qs.get("fx");
+    return {
+      // Stability-first default: avoid transformed app scroller unless explicitly requested.
+      disableScale: ff !== "legacy-scale",
+      // Stability-first default: disable row-level content-visibility unless explicitly requested.
+      disableCvRows: ff !== "legacy-cv",
+      // Allow emergency "safe visuals" mode via ?fx=safe.
+      disableAmbientFx: ff === "safe",
+    };
+  }, []);
   const [location, setLocation] = useLocation();
   const { isActive: isTutorialActive, startTutorial, stopTutorial } = useTutorial();
 
@@ -350,6 +374,7 @@ function AuthenticatedApp() {
 
   const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   const toggleGlobalSearchLazy = useCallback(() => {
     setGlobalSearchOpen((wasOpen) => {
@@ -366,6 +391,16 @@ function AuthenticatedApp() {
       if (wasOpen) return true;
       void import("@/components/global-search").then(() => {
         setGlobalSearchOpen(true);
+      });
+      return false;
+    });
+  }, []);
+
+  const toggleCommandPaletteLazy = useCallback(() => {
+    setCommandPaletteOpen((wasOpen) => {
+      if (wasOpen) return false;
+      void import("@/components/command-palette").then(() => {
+        setCommandPaletteOpen(true);
       });
       return false;
     });
@@ -434,6 +469,12 @@ function AuthenticatedApp() {
           toggleGlobalSearchLazy();
           break;
         }
+        case "openCommandPalette": {
+          if (!user || loading) return;
+          e.preventDefault();
+          toggleCommandPaletteLazy();
+          break;
+        }
         case "openAlarmPanel": {
           if (!user || loading) return;
           e.preventDefault();
@@ -446,7 +487,17 @@ function AuthenticatedApp() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [user, loading, hotkeyHelpOpen, setLocation, isTutorialActive, startTutorial, stopTutorial, toggleGlobalSearchLazy]);
+  }, [
+    user,
+    loading,
+    hotkeyHelpOpen,
+    setLocation,
+    isTutorialActive,
+    startTutorial,
+    stopTutorial,
+    toggleGlobalSearchLazy,
+    toggleCommandPaletteLazy,
+  ]);
 
   useEffect(() => {
     if (!user || loading) return;
@@ -468,6 +519,17 @@ function AuthenticatedApp() {
     window.addEventListener("axtask-open-global-search", onOpenGlobalSearch);
     return () => window.removeEventListener("axtask-open-global-search", onOpenGlobalSearch);
   }, [user, loading, ensureGlobalSearchOpenLazy]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const body = document.body;
+    body.dataset.axtaskCvRows = safeRenderMode.disableCvRows ? "off" : "on";
+    body.dataset.axtaskAmbientFx = safeRenderMode.disableAmbientFx ? "off" : "on";
+    return () => {
+      delete body.dataset.axtaskCvRows;
+      delete body.dataset.axtaskAmbientFx;
+    };
+  }, [safeRenderMode.disableAmbientFx, safeRenderMode.disableCvRows]);
 
   if (location === "/mfa/confirm" || location === "/welcome-confirm") {
     return <ExperienceConfirmPage />;
@@ -534,7 +596,7 @@ function AuthenticatedApp() {
             <div
               className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0 [scrollbar-gutter:stable]"
               style={
-                scale !== 1
+                !safeRenderMode.disableScale && scale !== 1
                   ? {
                       transform: `scale(${scale})`,
                       transformOrigin: "top left",
@@ -561,6 +623,11 @@ function AuthenticatedApp() {
                 onOpenChange={setGlobalSearchOpen}
                 onSelectTask={handleGlobalSearchSelect}
               />
+            </Suspense>
+          ) : null}
+          {user ? (
+            <Suspense fallback={null}>
+              <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
             </Suspense>
           ) : null}
           <TutorialOverlay />

@@ -101,6 +101,7 @@
   "taskCollaborators",
   "taskImportFingerprints",
   "taskPatterns",
+  "taskReminders",
   "tasks",
   "updateCalendarPreferenceSchema",
   "updateNotificationPreferenceSchema",

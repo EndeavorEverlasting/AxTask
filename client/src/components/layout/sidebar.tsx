@@ -482,7 +482,7 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
     queueMicrotask(() => startTutorial());
   };
   return (
-    <div className="md:hidden flex items-center justify-between px-4 py-3 glass-panel-glossy rounded-none border-x-0 border-t-0 shrink-0">
+    <div className="md:hidden flex items-center justify-between px-4 py-3 axtask-chrome-surface rounded-none border-x-0 border-t-0 shrink-0">
       <Button
         variant="ghost"
         size="icon"
@@ -575,7 +575,7 @@ export function Sidebar() {
       <div className="md:hidden">
         <MobileTopBar onMenuOpen={() => setMobileOpen(true)} />
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-[280px] p-0 glass-panel-glossy rounded-none border-y-0 border-l-0 flex flex-col min-h-0">
+          <SheetContent side="left" className="w-[280px] p-0 axtask-chrome-surface rounded-none border-y-0 border-l-0 flex flex-col min-h-0">
             <SheetHeader className="sr-only">
               <SheetTitle>Navigation</SheetTitle>
               <SheetDescription>App navigation menu</SheetDescription>
@@ -590,7 +590,7 @@ export function Sidebar() {
 
       <aside
         className={cn(
-          "glass-panel-glossy rounded-none border-y-0 border-l-0 shadow-lg flex-col shrink-0 hidden md:flex transition-[width,box-shadow] duration-200 overflow-hidden min-h-0 outline-none",
+          "axtask-chrome-surface rounded-none border-y-0 border-l-0 shadow-lg flex-col shrink-0 hidden md:flex transition-[width,box-shadow] duration-200 overflow-hidden min-h-0 outline-none",
           sidebarWidthPx === 0 && "border-r-0 shadow-none",
           isNavFocus && "ring-2 ring-primary/35 shadow-2xl z-10",
         )}
