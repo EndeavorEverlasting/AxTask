@@ -64,7 +64,7 @@ export default function LandingPage() {
       chips={AMBIENT_CHIP_LABELS}
       className="relative min-h-dvh w-full overflow-x-hidden text-white"
     >
-      <header className="relative z-10 border-b border-white/10 bg-black/20 backdrop-blur-md">
+      <header className="relative z-10 border-b border-white/10 bg-black/20 backdrop-blur-md axtask-calm-blur-fallback">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-2">
             <img
@@ -134,7 +134,7 @@ export default function LandingPage() {
             {FEATURES.map(({ title, body, icon: Icon }) => (
               <div
                 key={title}
-                className="rounded-2xl border border-white/15 bg-white/5 p-6 shadow-xl shadow-black/20 backdrop-blur-xl ring-1 ring-white/[0.06]"
+                className="rounded-2xl border border-white/15 bg-white/5 p-6 shadow-xl shadow-black/20 backdrop-blur-xl ring-1 ring-white/[0.06] axtask-calm-blur-fallback"
               >
                 <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-400/15 border border-emerald-300/25">
                   <Icon className="h-5 w-5 text-emerald-300" />
@@ -148,7 +148,7 @@ export default function LandingPage() {
 
         <section className="border-t border-white/10 bg-black/20 py-14">
           <div className="mx-auto max-w-3xl px-4 sm:px-6">
-            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-950/20 p-6 sm:p-8 backdrop-blur-md ring-1 ring-white/[0.06]">
+            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-950/20 p-6 sm:p-8 backdrop-blur-md ring-1 ring-white/[0.06] axtask-calm-blur-fallback">
               <div className="flex items-center gap-2 text-emerald-200/95">
                 <Shield className="h-5 w-5 shrink-0" aria-hidden />
                 <h2 className="text-base font-semibold tracking-tight">Security at a glance</h2>
@@ -195,7 +195,7 @@ export default function LandingPage() {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, amount: 0.5 }}
                   transition={{ duration: 0.5 }}
-                  className="rounded-2xl border border-white/12 bg-white/[0.05] backdrop-blur-md p-6 sm:p-8 ring-1 ring-white/[0.05]"
+                  className="rounded-2xl border border-white/12 bg-white/[0.05] backdrop-blur-md p-6 sm:p-8 ring-1 ring-white/[0.05] axtask-calm-blur-fallback"
                 >
                   <div className="flex items-start gap-4">
                     <Quote className="mt-1 h-5 w-5 shrink-0 text-violet-400/60" />
@@ -270,7 +270,7 @@ function ShowcaseDeck() {
 
   return (
     <div className="grid gap-8 lg:grid-cols-2 lg:items-stretch">
-      <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-black/40 p-6 shadow-2xl backdrop-blur-xl">
+      <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-black/40 p-6 shadow-2xl backdrop-blur-xl axtask-calm-blur-fallback">
         <div className="mb-4 flex items-center gap-2 text-xs text-slate-400">
           <Terminal className="h-4 w-4 text-emerald-400" />
           <span className="font-mono">axtask / dev</span>

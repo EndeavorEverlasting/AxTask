@@ -511,7 +511,7 @@ export default function LoginPage() {
 
         <div
           id="login-help-card"
-          className="rounded-2xl border border-white/15 bg-white/5 backdrop-blur-xl shadow-2xl shadow-black/20 p-8"
+          className="rounded-2xl border border-white/15 bg-white/5 backdrop-blur-xl shadow-2xl shadow-black/20 p-8 axtask-calm-blur-fallback"
         >
           {totpStep && mode === "login" ? (
             <div className="space-y-4">

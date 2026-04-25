@@ -86,7 +86,7 @@ export default function PremiumPage() {
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.2, duration: 0.5 }}
-          className="rounded-2xl border border-amber-400/20 bg-white/5 backdrop-blur-xl p-6 md:p-8 text-center space-y-4"
+          className="rounded-2xl border border-amber-400/20 bg-white/5 backdrop-blur-xl p-6 md:p-8 text-center space-y-4 axtask-calm-blur-fallback"
         >
           <div className="inline-flex items-center gap-2 rounded-full bg-amber-500/15 px-4 py-2 border border-amber-400/30">
             <Lock className="h-4 w-4 text-amber-400" />
@@ -114,7 +114,7 @@ export default function PremiumPage() {
                 className={`group rounded-xl border p-5 space-y-3 transition-all duration-300 h-full ${
                   isShipped
                     ? "border-emerald-400/30 bg-emerald-500/5 hover:border-emerald-300/50 hover:bg-emerald-500/10"
-                    : "border-white/10 bg-white/5 backdrop-blur-md hover:border-amber-400/30 hover:bg-white/10"
+                    : "border-white/10 bg-white/5 backdrop-blur-md hover:border-amber-400/30 hover:bg-white/10 axtask-calm-blur-fallback"
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -162,7 +162,7 @@ export default function PremiumPage() {
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.5 + i * 0.1, duration: 0.4 }}
-                  className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-md p-5 space-y-3"
+                  className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-md p-5 space-y-3 axtask-calm-blur-fallback"
                 >
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-slate-200">{plan.planKey}</h3>

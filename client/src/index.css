@@ -633,11 +633,16 @@
    * `animation-budget` toggles `data-axtask-calm` for ~250 ms windows; a
    * 220 ms fade reads as atmospheric breathing rather than a contrast flash.
    * Properties are listed explicitly (not `all`) so the calm-mode rule
-   * `.transition-all { transition-property: none }` does not also kill this. */
+   * `.transition-all { transition-property: none }` does not also kill this.
+   * `.axtask-calm-blur-fallback` is the opt-in marker for panels that use
+   * bare Tailwind `backdrop-blur-*` utilities (no `.glass-panel` class) on
+   * heavy aurora surfaces (landing, login, premium); it gets the same
+   * smooth fade + reader-fill so they don't appear washed out mid-scroll. */
   .glass-panel,
   .glass-panel-elevated,
   .glass-panel-glossy,
-  .glass-panel-interactive {
+  .glass-panel-interactive,
+  .axtask-calm-blur-fallback {
     transition-property: background-color, backdrop-filter, -webkit-backdrop-filter, transform, box-shadow;
     transition-duration: 220ms;
     transition-timing-function: ease-out;
@@ -646,7 +651,8 @@
     .glass-panel,
     .glass-panel-elevated,
     .glass-panel-glossy,
-    .glass-panel-interactive {
+    .glass-panel-interactive,
+    .axtask-calm-blur-fallback {
       transition: none;
     }
   }
@@ -661,7 +667,8 @@
   body[data-axtask-calm] .glass-panel,
   body[data-axtask-calm] .glass-panel-elevated,
   body[data-axtask-calm] .glass-panel-glossy,
-  body[data-axtask-calm] .glass-panel-interactive {
+  body[data-axtask-calm] .glass-panel-interactive,
+  body[data-axtask-calm] .axtask-calm-blur-fallback {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
     background-color: rgba(255, 255, 255, 0.86) !important;
@@ -670,7 +677,8 @@
   .dark body[data-axtask-calm] .glass-panel,
   .dark body[data-axtask-calm] .glass-panel-elevated,
   .dark body[data-axtask-calm] .glass-panel-glossy,
-  .dark body[data-axtask-calm] .glass-panel-interactive {
+  .dark body[data-axtask-calm] .glass-panel-interactive,
+  .dark body[data-axtask-calm] .axtask-calm-blur-fallback {
     background-color: hsla(222, 38%, 13%, 0.88) !important;
   }
 

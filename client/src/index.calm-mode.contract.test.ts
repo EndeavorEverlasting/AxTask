@@ -87,4 +87,25 @@ describe("calm-mode stylesheet contract", () => {
       /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]+?\.glass-panel[\s\S]+?transition:\s*none/,
     );
   });
+
+  it("extends calm-mode reader-fill behavior to bare backdrop-blur panels via .axtask-calm-blur-fallback", () => {
+    /* Marketing/auth surfaces (landing, login, premium) use bare Tailwind
+     * `backdrop-blur-*` utilities with very translucent fills (`bg-white/5`,
+     * `bg-black/20-40`). Without the marker class they'd lose blur on scroll
+     * with no fallback fill and appear washed out / disappear over the
+     * aurora. Marker is opt-in so we don't accidentally clobber consumers
+     * that already have an opaque resting bg. */
+    expect(CSS).toMatch(
+      /\.axtask-calm-blur-fallback[\s\S]+?transition-property:\s*background-color/,
+    );
+    expect(CSS).toMatch(
+      /body\[data-axtask-calm\][\s\S]+?\.axtask-calm-blur-fallback[\s\S]+?backdrop-filter:\s*none\s*!important/,
+    );
+    expect(CSS).toMatch(
+      /body\[data-axtask-calm\][\s\S]+?\.axtask-calm-blur-fallback[\s\S]+?background-color:\s*rgba\(255,\s*255,\s*255,\s*0\.86\)\s*!important/,
+    );
+    expect(CSS).toMatch(
+      /\.dark\s+body\[data-axtask-calm\][\s\S]+?\.axtask-calm-blur-fallback[\s\S]+?background-color:\s*hsla\(222,\s*38%,\s*13%,\s*0\.88\)\s*!important/,
+    );
+  });
 });
