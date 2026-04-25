@@ -7,6 +7,7 @@ import type { PersistedClient } from "@tanstack/query-persist-client-core";
  * `migrateLegacyQueryPersistStorageOnce` so older installs do not keep a shared blob.
  */
 export const QUERY_PERSIST_LEGACY_GLOBAL_KEY = "axtask.react-query.v1";
+export const QUERY_PERSIST_USER_KEY_PREFIX = "axtask.react-query.v1.u.";
 
 /** @deprecated Prefer `QUERY_PERSIST_LEGACY_GLOBAL_KEY` or `getQueryPersistStorageKeyForUser`. */
 export const QUERY_PERSIST_STORAGE_KEY = QUERY_PERSIST_LEGACY_GLOBAL_KEY;
@@ -42,7 +43,7 @@ function sanitizeUserIdForStorageKey(id: string): string {
 }
 
 export function getQueryPersistStorageKeyForUser(userId: string | null | undefined): string {
-  const base = "axtask.react-query.v1.u.";
+  const base = QUERY_PERSIST_USER_KEY_PREFIX;
   if (userId && userId.length > 0) {
     return `${base}${sanitizeUserIdForStorageKey(userId)}`;
   }
@@ -118,6 +119,26 @@ export function clearQueryPersistStorage(): void {
 
 export function clearQueryPersistStorageForUser(userId: string | null | undefined): void {
   tryRemoveLocalStorageItem(getQueryPersistStorageKeyForUser(userId));
+}
+
+/** Clears every query-persist bucket (legacy + all user/anon shards). */
+export function clearAllQueryPersistStorage(): void {
+  clearQueryPersistStorage();
+  try {
+    const removals: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith(QUERY_PERSIST_USER_KEY_PREFIX)) {
+        removals.push(key);
+      }
+    }
+    for (const key of removals) {
+      tryRemoveLocalStorageItem(key);
+    }
+  } catch {
+    /* private mode / SSR */
+  }
 }
 
 /** Logout: drop legacy blob, signed-in bucket, and guest bucket. */

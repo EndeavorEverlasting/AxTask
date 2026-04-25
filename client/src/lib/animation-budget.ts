@@ -36,8 +36,9 @@ interface AnimationBudgetOptions {
   win?: Window | null;
 }
 
-const DEFAULT_SCROLL_PAUSE_MS = 250;
-const DEFAULT_LONG_TASK_PAUSE_MS = 400;
+const DEFAULT_SCROLL_PAUSE_MS = 650;
+const DEFAULT_LONG_TASK_PAUSE_MS = 900;
+const CALM_RELEASE_HYSTERESIS_MS = 300;
 
 class AnimationBudget {
   private state: AnimationBudgetState = { allowed: true, reason: "", version: 0 };
@@ -130,7 +131,8 @@ class AnimationBudget {
 
   pauseFor(ms: number, reason: string): void {
     if (ms <= 0) return;
-    const until = this.now() + ms;
+    const holdMs = ms + CALM_RELEASE_HYSTERESIS_MS;
+    const until = this.now() + holdMs;
     if (until > this.pauseUntil) this.pauseUntil = until;
     if (this.timer) {
       clearTimeout(this.timer);
@@ -140,7 +142,7 @@ class AnimationBudget {
       this.pauseUntil = 0;
       this.timer = null;
       this.recompute();
-    }, ms);
+    }, holdMs);
     this.recompute(reason);
   }
 

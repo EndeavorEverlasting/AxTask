@@ -7,13 +7,12 @@ import { describe, it, expect } from "vitest";
  *
  * The `data-axtask-calm` attribute is set on <body> by
  * animation-budget.ts while the user is scrolling / a longtask just
- * fired / the tab is hidden. These CSS rules drop the three heaviest
- * compositor inputs for that window so we don't pay for glass + aurora
- * + orb effects mid-scroll:
+ * fired / the tab is hidden. These CSS rules reduce animation and
+ * ambient compositor pressure mid-scroll:
  *
- *   1. `backdrop-filter: blur(...)`     → re-sampled per frame
- *   2. `filter: blur(...)`              → full-resolution texture
- *   3. `will-change: transform`         → forced GPU layer
+ *   1. `transition-all` suppression
+ *   2. ambient `filter` drop on aurora/orb layer
+ *   3. `will-change` reset for orb/chip surfaces
  *
  * If any of these rules disappears, the calm-mode RAM/scroll win
  * regresses. This contract test makes that regression loud before it
@@ -26,14 +25,6 @@ const CSS = fs.readFileSync(
 );
 
 describe("calm-mode stylesheet contract", () => {
-  it("drops backdrop-filter on the four glass/blur class families", () => {
-    expect(CSS).toMatch(/body\[data-axtask-calm\][^{]*\.backdrop-blur-xl/);
-    expect(CSS).toMatch(/body\[data-axtask-calm\][^{]*\.glass-panel-glossy/);
-    expect(CSS).toMatch(
-      /body\[data-axtask-calm\][^}]+backdrop-filter:\s*none\s*!important/,
-    );
-  });
-
   it("suppresses transition-all during calm-mode so scroll isn't jittered by hover transitions", () => {
     expect(CSS).toMatch(
       /body\[data-axtask-calm\]\s+\.transition-all\s*\{[^}]*transition-property:\s*none\s*!important/,

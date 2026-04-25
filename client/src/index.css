@@ -65,7 +65,7 @@
   #root {
     height: 100%;
     min-height: 100dvh;
-    overflow: auto;
+    overflow: hidden;
   }
 
   body {
@@ -413,8 +413,8 @@
   content: "";
   position: absolute;
   border-radius: 9999px;
-  filter: blur(84px);
-  opacity: 0.62;
+  filter: blur(52px);
+  opacity: 0.42;
 }
 
 .axtask-aurora-body::before {
@@ -463,12 +463,12 @@
 }
 
 [data-surface="dense"] .axtask-orb-layer {
-  opacity: 0.16;
-  filter: saturate(0.7);
+  opacity: 0.08;
+  filter: saturate(0.6);
 }
 
 [data-surface="dense"] .axtask-chip-layer {
-  opacity: 0.2;
+  opacity: 0.1;
 }
 
 [data-surface="dense"] .axtask-aurora-body::before,
@@ -512,17 +512,6 @@ body[data-axtask-ambient-fx="off"] .axtask-aurora-body::after {
    * background glass. Surfaces that need animation for interactivity should
    * use `transition-transform` / `transition-opacity` / `motion-safe:` and
    * are not affected by this rule. */
-  body[data-axtask-calm] .backdrop-blur-xl,
-  body[data-axtask-calm] .backdrop-blur-lg,
-  body[data-axtask-calm] .backdrop-blur-md,
-  body[data-axtask-calm] .backdrop-blur-sm,
-  body[data-axtask-calm] .backdrop-blur,
-  body[data-axtask-calm] .glass-panel,
-  body[data-axtask-calm] .glass-panel-elevated,
-  body[data-axtask-calm] .glass-panel-glossy {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
   body[data-axtask-calm] .transition-all {
     transition-property: none !important;
   }
@@ -593,11 +582,11 @@ body[data-axtask-ambient-fx="off"] .axtask-aurora-body::after {
 
   /* Split light/dark: @apply with stacked dark:.../opacity utilities fails Tailwind expandApply in prod (Docker). */
   .glass-panel {
-    @apply rounded-2xl border border-white/60 bg-white/70 backdrop-blur-xl shadow-sm ring-1 ring-black/[0.04];
+    @apply rounded-2xl border border-white/60 bg-white/88 shadow-sm ring-1 ring-black/[0.04];
   }
 
   .dark .glass-panel {
-    @apply border-white/15 bg-white/[0.05] ring-white/[0.06] shadow-2xl shadow-black/20;
+    @apply border-white/15 bg-slate-950/88 ring-white/[0.06] shadow-2xl shadow-black/20;
   }
 
   .glass-panel-elevated {
@@ -612,6 +601,15 @@ body[data-axtask-ambient-fx="off"] .axtask-aurora-body::after {
    * .glass-panel variant. Used by PretextPageHeader and AvatarOrb. */
   .glass-panel-glossy {
     @apply glass-panel-elevated relative overflow-hidden;
+  }
+
+  /* Stability-first shell chrome: no backdrop blur, no filter sampling while scrolling. */
+  .axtask-chrome-surface {
+    @apply border border-white/15 bg-slate-950/92 text-slate-100 shadow-lg;
+  }
+
+  .light .axtask-chrome-surface {
+    @apply border-slate-300/80 bg-white/96 text-slate-900 shadow-sm;
   }
 
   .glass-panel-glossy::before {

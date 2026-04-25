@@ -211,7 +211,7 @@ function MobileBottomNav() {
   };
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass-panel-glossy rounded-none border-x-0 border-b-0 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.45)] safe-area-bottom">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 axtask-chrome-surface rounded-none border-x-0 border-b-0 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.12)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.55)] safe-area-bottom">
       <div className="flex items-center justify-around h-14">
         {BOTTOM_NAV_ITEMS.map(({ path, icon: Icon, label }) => (
           <Link

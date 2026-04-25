@@ -4,6 +4,7 @@ import { WifiOff, RefreshCw, HardDrive, CloudUpload } from "lucide-react";
 import { useNetworkOnline } from "@/hooks/use-network-status";
 import { useToast } from "@/hooks/use-toast";
 import {
+  clearAllQueryPersistStorage,
   isPersistableQueryKey,
   STALE_DATA_WARNING_AFTER_MS,
 } from "@/lib/query-persist-policy";
@@ -40,6 +41,15 @@ function useOfflineTaskQueueLength(): number {
   );
 }
 
+export function forceWindowReload(): void {
+  const testReload = (window as typeof window & { __axtaskTestReload?: () => void }).__axtaskTestReload;
+  if (typeof testReload === "function") {
+    testReload();
+    return;
+  }
+  window.location.reload();
+}
+
 /**
  * Phase A: shows when the browser is offline, cache is restoring from storage,
  * or cached data is old while online (subtle nudge to refresh).
@@ -54,6 +64,7 @@ export function OfflineDataBanner() {
   const { toast } = useToast();
   const prevOnline = useRef(online);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isHardRefreshing, setIsHardRefreshing] = useState(false);
 
   useEffect(() => {
     if (!prevOnline.current && online) {
@@ -72,6 +83,36 @@ export function OfflineDataBanner() {
       setIsRefreshing(false);
     });
   }, [queryClient]);
+
+  const onHardRefresh = useCallback(() => {
+    if (isHardRefreshing) return;
+    setIsHardRefreshing(true);
+    void (async () => {
+      try {
+        await queryClient.cancelQueries();
+      } catch {
+        /* best effort */
+      }
+      queryClient.clear();
+      clearAllQueryPersistStorage();
+      try {
+        localStorage.removeItem("axtask_last_route");
+        localStorage.removeItem("axtask-zoom");
+        localStorage.removeItem("axtask_sidebar_width_px");
+      } catch {
+        /* best effort */
+      }
+      try {
+        if ("caches" in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => caches.delete(key)));
+        }
+      } catch {
+        /* best effort */
+      }
+      forceWindowReload();
+    })();
+  }, [isHardRefreshing, queryClient]);
 
   if (isRestoring) {
     return (
@@ -138,11 +179,23 @@ export function OfflineDataBanner() {
             size="sm"
             className="h-7 gap-1.5 text-xs"
             onClick={onRefresh}
-            disabled={isRefreshing}
+            disabled={isRefreshing || isHardRefreshing}
             aria-busy={isRefreshing}
           >
             <RefreshCw className={cn("h-3.5 w-3.5 shrink-0", isRefreshing && "animate-spin")} aria-hidden />
-            {isRefreshing ? "Refreshing…" : "Refresh data"}
+            {isRefreshing ? "Soft refreshing…" : "Soft refresh"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 text-xs text-amber-700 dark:text-amber-300"
+            onClick={onHardRefresh}
+            disabled={isRefreshing || isHardRefreshing}
+            aria-busy={isHardRefreshing}
+          >
+            <HardDrive className={cn("h-3.5 w-3.5 shrink-0", isHardRefreshing && "animate-spin")} aria-hidden />
+            {isHardRefreshing ? "Hard refreshing…" : "Hard refresh"}
           </Button>
         </div>
       </div>
@@ -168,11 +221,23 @@ export function OfflineDataBanner() {
             size="sm"
             className="h-7 gap-1.5 text-xs"
             onClick={onRefresh}
-            disabled={isRefreshing}
+            disabled={isRefreshing || isHardRefreshing}
             aria-busy={isRefreshing}
           >
             <RefreshCw className={cn("h-3.5 w-3.5 shrink-0", isRefreshing && "animate-spin")} aria-hidden />
-            {isRefreshing ? "Refreshing…" : "Refresh now"}
+            {isRefreshing ? "Soft refreshing…" : "Soft refresh"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 text-xs text-amber-700 dark:text-amber-300"
+            onClick={onHardRefresh}
+            disabled={isRefreshing || isHardRefreshing}
+            aria-busy={isHardRefreshing}
+          >
+            <HardDrive className={cn("h-3.5 w-3.5 shrink-0", isHardRefreshing && "animate-spin")} aria-hidden />
+            {isHardRefreshing ? "Hard refreshing…" : "Hard refresh"}
           </Button>
         </div>
       </div>

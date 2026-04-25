@@ -2,7 +2,7 @@
 // clients rotate to the latest bundle/copy. See docs/NOTIFICATIONS_AND_PUSH.md
 // for why this matters for push delivery (stale bundles can keep showing
 // pre-refactor toasts that no longer exist in the current client source).
-const CACHE_VERSION = "v2026-04-18-push";
+const CACHE_VERSION = "v2026-04-25-scroll-stability";
 const CACHE_NAME = `axtask-offline-${CACHE_VERSION}`;
 const OFFLINE_ASSETS = ["/", "/manifest.webmanifest"];
 
@@ -32,10 +32,21 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  const isSameOrigin = url.origin === self.location.origin;
+  const isApiRequest = isSameOrigin && url.pathname.startsWith("/api/");
+
+  // API responses should always come from network to avoid stale JSON
+  // surviving across user-triggered refreshes.
+  if (isApiRequest) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
 
   event.respondWith(
     fetch(event.request)
       .then((response) => {
+        if (!response.ok) return response;
         const copied = response.clone();
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(event.request, copied).catch(() => {
