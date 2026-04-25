@@ -159,16 +159,26 @@ export function TaskGantt(props: TaskGanttProps) {
     );
     const spanMs = Math.max(win.end.getTime() - win.start.getTime(), MS_PER_DAY);
 
-    // Build day gridlines, at most ~8 labels to avoid clutter.
+    // Build day gridlines — cap label count and enforce minimum x-gap so axis
+    // text never stacks (was visible when SVG used preserveAspectRatio="none").
     const spanDays = Math.max(1, Math.round(spanMs / MS_PER_DAY));
-    const step = Math.max(1, Math.ceil(spanDays / 8));
-    const grid: Array<{ d: Date; pct: number }> = [];
+    const maxTicks = 7;
+    const step = Math.max(1, Math.ceil(spanDays / maxTicks));
+    const gridRaw: Array<{ d: Date; pct: number }> = [];
     const startDay = new Date(win.start);
     startDay.setHours(0, 0, 0, 0);
     for (let i = 0; i <= spanDays; i += step) {
       const d = new Date(startDay.getTime() + i * MS_PER_DAY);
       const pct = ((d.getTime() - win.start.getTime()) / spanMs) * 100;
-      if (pct >= 0 && pct <= 100) grid.push({ d, pct });
+      if (pct >= 0 && pct <= 100) gridRaw.push({ d, pct });
+    }
+    const minPctGap = 6;
+    const grid: Array<{ d: Date; pct: number }> = [];
+    let prevPct = -Infinity;
+    for (const g of gridRaw.sort((a, b) => a.pct - b.pct)) {
+      if (g.pct - prevPct < minPctGap) continue;
+      grid.push(g);
+      prevPct = g.pct;
     }
 
     return {
@@ -229,7 +239,7 @@ export function TaskGantt(props: TaskGanttProps) {
     >
       <svg
         viewBox={`0 0 100 ${svgHeight}`}
-        preserveAspectRatio="none"
+        preserveAspectRatio="xMidYMid meet"
         width="100%"
         height={svgHeight}
         role={dimmed ? "presentation" : "img"}

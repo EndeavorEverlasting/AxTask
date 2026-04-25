@@ -97,8 +97,9 @@ export function OfflineDataBanner() {
           <div className="flex items-center gap-2 min-w-0">
             <WifiOff className="h-4 w-4 shrink-0" aria-hidden />
             <span>
-              You&apos;re offline - showing cached data from this device. Task edits are queued on this device and
-              will sync when you reconnect.
+              {
+                "You're offline — showing cached data from this device. Task edits are queued on this device and will sync when you reconnect."
+              }
             </span>
           </div>
           <Button
@@ -160,7 +161,7 @@ export function OfflineDataBanner() {
           <span>
             {isRefreshing
               ? "Refreshing data from the server…"
-              : "Some cached data hasn&apos;t been refreshed recently."}
+              : "Some cached data hasn't been refreshed recently."}
           </span>
           <Button
             type="button"

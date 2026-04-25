@@ -52,9 +52,9 @@ export function ShellSplitter() {
             aria-valuenow={Math.round(sidebarWidthPx)}
             aria-labelledby={labelId}
             className={cn(
-              "group relative z-20 w-2 shrink-0 cursor-ew-resize select-none touch-none",
-              "hover:bg-primary/15 active:bg-primary/25 transition-colors",
-              isNavFocus && "bg-primary/10 ring-1 ring-primary/25",
+              "group relative z-20 w-2 shrink-0 cursor-ew-resize select-none touch-none bg-transparent",
+              "hover:bg-primary/10 active:bg-primary/20 transition-colors",
+              isNavFocus && "bg-primary/5 ring-1 ring-primary/20",
             )}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
@@ -64,7 +64,7 @@ export function ShellSplitter() {
             <span id={labelId} className="sr-only">
               Resize sidebar
             </span>
-            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border group-hover:bg-primary/40" />
+            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-slate-300/35 dark:bg-slate-600/50 group-hover:bg-primary/50" />
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <GripVertical className="h-4 w-4 text-muted-foreground/80 opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>

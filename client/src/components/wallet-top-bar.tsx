@@ -83,7 +83,7 @@ export function WalletTopBar() {
   });
 
   return (
-    <div className="sticky top-0 z-50 shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-amber-300/50 dark:border-amber-800/50 bg-gradient-to-r from-amber-400/20 via-amber-100/40 to-violet-200/25 dark:from-amber-600/15 dark:via-amber-950/40 dark:to-violet-950/30 px-3 py-3 md:px-5 md:py-3.5 shadow-sm shadow-amber-900/5 backdrop-blur-md">
+    <div className="sticky top-0 z-50 shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-amber-300/50 dark:border-amber-800/50 bg-gradient-to-r from-amber-400/20 via-amber-100/40 to-violet-200/25 dark:from-amber-600/15 dark:via-amber-950/40 dark:to-violet-950/30 px-3 py-3 md:px-5 md:py-3.5 shadow-sm shadow-amber-900/5">
       <div className="min-w-0 flex flex-col gap-0.5">
         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-800/90 dark:text-amber-300/95">
           AxCoins
@@ -103,7 +103,9 @@ export function WalletTopBar() {
             aria-label="Open AxCoins menu"
           >
             <Coins className="h-6 w-6 text-amber-600 dark:text-amber-300 shrink-0 drop-shadow-sm" aria-hidden />
-            <span className="text-xl md:text-2xl font-bold tabular-nums tracking-tight leading-none">{animated}</span>
+            <span className="text-xl md:text-2xl font-bold tabular-nums tracking-tight leading-none">
+              {animated.toLocaleString("en-US")}
+            </span>
             {(wallet?.currentStreak ?? 0) > 0 && (
               <span className="text-xs font-semibold text-orange-600 dark:text-orange-400 tabular-nums">
                 🔥{wallet?.currentStreak}

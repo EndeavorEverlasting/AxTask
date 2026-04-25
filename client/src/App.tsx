@@ -342,6 +342,10 @@ function AuthenticatedApp() {
   const [location, setLocation] = useLocation();
   const { isActive: isTutorialActive, startTutorial, stopTutorial } = useTutorial();
 
+  const pathOnly = (location.split("?")[0] || "").replace(/_/g, "-");
+  const suppressAmbientChips =
+    pathOnly === "/planner" || pathOnly === "/skill-tree" || pathOnly.startsWith("/analytics");
+
   useRoutePersistence(Boolean(user) && !loading);
 
   const handleNavigate = useCallback((path: string) => {
@@ -520,7 +524,10 @@ function AuthenticatedApp() {
        * the authenticated surface so rAF loops and pointer listeners never
        * remount across wouter route changes. See
        * client/src/components/pretext/pretext-shell.tsx. */}
-      <PretextShell className="relative isolate h-dvh min-h-0 w-full overflow-hidden">
+      <PretextShell
+        className="relative isolate h-dvh min-h-0 w-full overflow-hidden"
+        showChips={!suppressAmbientChips}
+      >
         <div className="relative z-10 flex h-dvh min-h-0 flex-col md:flex-row overflow-hidden">
           <Sidebar />
           <main
@@ -532,7 +539,7 @@ function AuthenticatedApp() {
             <InstallCtaBanner userId={user.id} />
             <AdherenceNudges />
             <div
-              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0 [scrollbar-gutter:stable]"
+              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0"
               style={
                 scale !== 1
                   ? {
