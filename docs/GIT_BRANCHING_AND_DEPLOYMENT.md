@@ -31,6 +31,35 @@ Naming of the default or production branch can differ per fork (`main`, `master`
 - Avoid **force-push** to shared branches others build from, especially any branch connected to production.
 - Keep a release contract doc under `docs/releases/*.md` for each feature/release branch and run `npm run release:check` before opening the PR.
 
+## Divergence playbook (copy/paste)
+
+Use this whenever your feature branch and `main` are no longer aligned and you want
+to avoid risky rework.
+
+1. Confirm position:
+   - `git branch --show-current`
+   - `git fetch origin`
+   - `git rev-list --left-right --count origin/main...HEAD` (behind/ahead counts)
+2. Refresh evidence before code changes:
+   - `git diff --name-only origin/main...HEAD`
+   - `npm run release:check`
+3. Reconcile safely from your feature branch:
+   - `git merge origin/main` (preferred in this repo for explicit history)
+   - Resolve conflicts and re-run focused tests for touched areas.
+4. Re-validate deploy discipline:
+   - Confirm migration/docs/env/route-inventory deltas are intentional.
+   - Re-run `npm run release:check` and required test suites.
+5. Ship through PR only:
+   - Push branch, open/update PR, and keep Render pinned to the production branch
+     until checks are green and review is complete.
+
+### Branch divergence decision table
+
+- **Small drift, no conflicts**: merge `origin/main` into feature branch now.
+- **Drift + schema/migration overlap**: merge immediately and inspect SQL/data impact before deploy.
+- **Large drift + mixed concerns**: split into smaller PRs first (feature vs deploy guardrails).
+- **Hotfix needed now**: cut a dedicated hotfix branch from `main`, then back-merge into ongoing features.
+
 ## Related checks
 
 - Large infrastructure moves: see [MORNING_NEW_BOX_MIGRATION_CHECKLIST.md](./MORNING_NEW_BOX_MIGRATION_CHECKLIST.md) (includes confirming the active branch before risky steps).
