@@ -94,6 +94,11 @@ const GlobalSearch = lazy(() =>
     default: m.GlobalSearch,
   })),
 );
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
 import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
 import { matchHotkeyFromKeyboardEvent, voiceBarOpenRef } from "@/lib/hotkey-actions";
 import type { Task } from "@shared/schema";
@@ -350,6 +355,7 @@ function AuthenticatedApp() {
 
   const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   const toggleGlobalSearchLazy = useCallback(() => {
     setGlobalSearchOpen((wasOpen) => {
@@ -366,6 +372,16 @@ function AuthenticatedApp() {
       if (wasOpen) return true;
       void import("@/components/global-search").then(() => {
         setGlobalSearchOpen(true);
+      });
+      return false;
+    });
+  }, []);
+
+  const toggleCommandPaletteLazy = useCallback(() => {
+    setCommandPaletteOpen((wasOpen) => {
+      if (wasOpen) return false;
+      void import("@/components/command-palette").then(() => {
+        setCommandPaletteOpen(true);
       });
       return false;
     });
@@ -434,6 +450,12 @@ function AuthenticatedApp() {
           toggleGlobalSearchLazy();
           break;
         }
+        case "openCommandPalette": {
+          if (!user || loading) return;
+          e.preventDefault();
+          toggleCommandPaletteLazy();
+          break;
+        }
         case "openAlarmPanel": {
           if (!user || loading) return;
           e.preventDefault();
@@ -446,7 +468,17 @@ function AuthenticatedApp() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [user, loading, hotkeyHelpOpen, setLocation, isTutorialActive, startTutorial, stopTutorial, toggleGlobalSearchLazy]);
+  }, [
+    user,
+    loading,
+    hotkeyHelpOpen,
+    setLocation,
+    isTutorialActive,
+    startTutorial,
+    stopTutorial,
+    toggleGlobalSearchLazy,
+    toggleCommandPaletteLazy,
+  ]);
 
   useEffect(() => {
     if (!user || loading) return;
@@ -561,6 +593,11 @@ function AuthenticatedApp() {
                 onOpenChange={setGlobalSearchOpen}
                 onSelectTask={handleGlobalSearchSelect}
               />
+            </Suspense>
+          ) : null}
+          {user ? (
+            <Suspense fallback={null}>
+              <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
             </Suspense>
           ) : null}
           <TutorialOverlay />

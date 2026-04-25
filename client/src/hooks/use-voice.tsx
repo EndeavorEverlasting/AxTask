@@ -66,6 +66,7 @@ export interface TaskPrefill {
   activity: string;
   date?: string;
   time?: string;
+  recurrence?: "daily" | "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly";
 }
 
 export interface ReviewProposal {
@@ -119,6 +120,8 @@ interface VoiceContextType {
   consumeTaskPrefill: () => TaskPrefill | null;
   consumeVoiceSearch: () => string | null;
   clearReviewProposal: () => void;
+  /** POST `/api/voice/process` with typed text; same effect as a voice transcript. */
+  submitTextCommand: (transcript: string) => void;
   /** Server-synced preference: background wake-style listening after first mic use, or manual-only. */
   voiceListeningMode: VoiceListeningMode;
   /** Dominant companion while the voice bar is open (matches server voice XP target). */
@@ -211,20 +214,24 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
           onNavigateRef.current?.(data.payload.path as string);
           break;
         case "open_new_task": {
+          const p = data.payload as { activity?: string; date?: string; time?: string; recurrence?: TaskPrefill["recurrence"] };
           const prefill: TaskPrefill = {
-            activity: (data.payload.activity as string) || "",
-            date: data.payload.date as string | undefined,
-            time: data.payload.time as string | undefined,
+            activity: p.activity || "",
+            date: p.date,
+            time: p.time,
+            ...(p.recurrence ? { recurrence: p.recurrence } : {}),
           };
           setTaskPrefill(prefill);
           onNavigateRef.current?.("/tasks?new=1");
           break;
         }
         case "prefill_task": {
+          const p = data.payload as { activity?: string; date?: string; time?: string; recurrence?: TaskPrefill["recurrence"] };
           const prefill: TaskPrefill = {
-            activity: (data.payload.activity as string) || "",
-            date: data.payload.date as string | undefined,
-            time: data.payload.time as string | undefined,
+            activity: p.activity || "",
+            date: p.date,
+            time: p.time,
+            ...(p.recurrence ? { recurrence: p.recurrence } : {}),
           };
           setTaskPrefill(prefill);
           onNavigateRef.current?.("/tasks?new=1");
@@ -747,6 +754,14 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
     setReviewProposal(null);
   }, []);
 
+  const submitTextCommand = useCallback(
+    (transcript: string) => {
+      setLastResponse(null);
+      processMutation.mutate(transcript);
+    },
+    [processMutation],
+  );
+
   voiceBarOpenRef.current = isBarOpen;
 
   useEffect(() => {
@@ -816,6 +831,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         consumeTaskPrefill,
         consumeVoiceSearch,
         clearReviewProposal,
+        submitTextCommand,
         voiceListeningMode,
         voiceCompanionPreview,
       }}

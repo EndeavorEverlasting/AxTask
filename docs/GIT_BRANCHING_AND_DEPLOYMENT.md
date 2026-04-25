@@ -29,8 +29,65 @@ Naming of the default or production branch can differ per fork (`main`, `master`
 - Run `git branch --show-current` (or your UI equivalent) and confirm you are on the branch you intend.
 - Prefer pushing a **feature branch** first; merge to the deploy-connected branch only via PR after checks pass.
 - Avoid **force-push** to shared branches others build from, especially any branch connected to production.
+- Keep a release contract doc under `docs/releases/*.md` for each feature/release branch and run `npm run release:check` before opening the PR.
 
 ## Related checks
 
 - Large infrastructure moves: see [MORNING_NEW_BOX_MIGRATION_CHECKLIST.md](./MORNING_NEW_BOX_MIGRATION_CHECKLIST.md) (includes confirming the active branch before risky steps).
 - If you add or rename Express routes, update the route inventory snapshot as described in [server/routes-inventory.contract.test.ts](../server/routes-inventory.contract.test.ts) (`vitest run` with `-u` on that file when the change is intentional).
+
+## Branch checkpoint engine
+
+Use date-stamped branch names so future-you can identify context quickly:
+
+`feature/YYYY-MM-DD-system-area-purpose`
+
+Examples:
+
+- `feature/2026-04-25-axtask-intent-parser`
+- `feature/2026-04-25-llm-module-routing`
+- `feature/2026-04-25-rag-context-engine`
+- `feature/2026-04-25-task-reminder-nlp`
+- `feature/2026-04-25-branch-checkpoint-system`
+
+### Interactive usage
+
+Run the helper and follow prompts for slug, optional commit, and optional push:
+
+```powershell
+npm run git:checkpoint
+```
+
+or:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/git-checkpoint.ps1
+```
+
+The helper always prints:
+
+- `git status`
+- `git diff --stat`
+- `git diff --name-only`
+
+before branch creation so the checkpoint name can match current work.
+
+### Non-interactive examples
+
+Create branch only:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/git-checkpoint.ps1 -Slug axtask-reminder-intent-engine -NonInteractive
+```
+
+Create branch and commit:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/git-checkpoint.ps1 -Slug axtask-reminder-intent-engine -Commit -CommitMessage "Checkpoint 2026-04-25: add AxTask reminder intent engine" -NonInteractive
+```
+
+Create branch, commit, and push:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/git-checkpoint.ps1 -Slug axtask-reminder-intent-engine -Commit -Push -CommitMessage "Checkpoint 2026-04-25: add AxTask reminder intent engine" -NonInteractive
+```
