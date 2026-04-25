@@ -104,7 +104,7 @@ Web Push needs a **key pair** plus a **contact subject** and a **client-visible 
 
 ---
 
-## 7. AI classification and NodeWeaver
+## 7. AI classification, assistant, and NodeWeaver
 
 | Variable | Purpose |
 |----------|---------|
@@ -112,6 +112,9 @@ Web Push needs a **key pair** plus a **contact subject** and a **client-visible 
 | `UNIVERSAL_CLASSIFIER_API_KEY` | Optional Bearer token for that API. |
 | `NODEWEAVER_URL` | **Required** for NodeWeaver path in [`universal-classifier.ts`](../server/services/classification/universal-classifier.ts) when that integration is used. |
 | `AI_EXTERNAL_CLASSIFIER_ENABLED` | Default on unless `"false"`. |
+| `OPENAI_API_KEY` | Required for `/api/ai/interpret` and `/api/ai/execute` when a prompt is not handled by deterministic parsing. |
+| `OPENAI_MODEL` | Optional model override for assistant parsing (default: `gpt-4o-mini`). |
+| `OPENAI_BASE_URL` | Optional OpenAI-compatible base URL override (default: `https://api.openai.com/v1`). |
 
 See [NODEWEAVER.md](NODEWEAVER.md), [RAG_CLASSIFICATION_BLUEPRINT.md](RAG_CLASSIFICATION_BLUEPRINT.md).
 
