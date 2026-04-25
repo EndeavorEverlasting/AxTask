@@ -2,12 +2,12 @@ import { useEffect, useRef } from "react";
 import { isAnimationAllowed, startSharedAnimationBudget } from "@/lib/animation-budget";
 
 const ORB_DEFS = [
-  { size: 380, baseX: 10, baseY: 8, color: "from-sky-500/30 to-indigo-500/18", drift: 44, speed: 7 },
-  { size: 320, baseX: 78, baseY: 14, color: "from-violet-500/28 to-fuchsia-500/16", drift: 38, speed: 9 },
-  { size: 260, baseX: 48, baseY: 72, color: "from-cyan-400/24 to-teal-400/16", drift: 48, speed: 8 },
-  { size: 340, baseX: 88, baseY: 58, color: "from-emerald-500/22 to-cyan-500/14", drift: 34, speed: 11 },
-  { size: 240, baseX: 18, baseY: 52, color: "from-rose-500/18 to-pink-500/14", drift: 52, speed: 6 },
-  { size: 300, baseX: 42, baseY: 28, color: "from-amber-500/18 to-orange-500/14", drift: 40, speed: 10 },
+  { size: 480, baseX: 10, baseY: 8, color: "from-sky-500/40 to-indigo-500/25", drift: 64, speed: 5 },
+  { size: 420, baseX: 78, baseY: 14, color: "from-violet-500/35 to-fuchsia-500/20", drift: 58, speed: 7 },
+  { size: 360, baseX: 48, baseY: 72, color: "from-cyan-400/30 to-teal-400/20", drift: 68, speed: 6 },
+  { size: 440, baseX: 88, baseY: 58, color: "from-emerald-500/30 to-cyan-500/20", drift: 54, speed: 9 },
+  { size: 340, baseX: 18, baseY: 52, color: "from-rose-500/25 to-pink-500/20", drift: 72, speed: 4 },
+  { size: 400, baseX: 42, baseY: 28, color: "from-amber-500/25 to-orange-500/20", drift: 60, speed: 8 },
 ];
 
 const REPEL_RADIUS = 40;
@@ -99,9 +99,9 @@ export function CursorOrbsBackdrop() {
        * rendering directly. When PretextShell wraps the app, the fixed
        * .axtask-aurora-body provides the base wash and these local glows
        * layer softly over it. */}
-      <div className="absolute inset-0">
-        <div className="absolute -top-1/4 left-1/4 h-[60vh] w-[80vw] rotate-12 rounded-full bg-gradient-to-r from-emerald-600/10 via-cyan-500/8 to-transparent blur-[120px]" />
-        <div className="absolute -bottom-1/4 right-1/4 h-[50vh] w-[70vw] -rotate-12 rounded-full bg-gradient-to-l from-violet-600/10 via-indigo-500/8 to-transparent blur-[100px]" />
+      <div className="absolute inset-0 opacity-80">
+        <div className="absolute -top-1/4 left-1/4 h-[60vh] w-[80vw] rotate-12 rounded-full bg-gradient-to-r from-emerald-600/15 via-cyan-500/10 to-transparent blur-[120px] motion-safe:animate-[spin_40s_linear_infinite]" />
+        <div className="absolute -bottom-1/4 right-1/4 h-[50vh] w-[70vw] -rotate-12 rounded-full bg-gradient-to-l from-violet-600/15 via-indigo-500/10 to-transparent blur-[100px] motion-safe:animate-[spin_50s_linear_infinite_reverse]" />
       </div>
       {ORB_DEFS.map((orb, i) => (
         <div

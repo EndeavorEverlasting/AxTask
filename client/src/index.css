@@ -475,12 +475,12 @@
 }
 
 [data-surface="dense"] .axtask-orb-layer {
-  opacity: 0.45;
-  filter: saturate(0.85);
+  opacity: 0.85;
+  filter: saturate(1.1);
 }
 
 [data-surface="dense"] .axtask-chip-layer {
-  opacity: 0.55;
+  opacity: 0.85;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -779,6 +779,32 @@
 .axtask-cv-row {
   content-visibility: auto;
   contain-intrinsic-size: 1px 64px;
+  animation: axtask-row-entry 0.5s ease-out both;
+}
+
+@keyframes axtask-row-entry {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); filter: blur(2px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+.axtask-cv-row:nth-child(1) { animation-delay: 0.05s; }
+.axtask-cv-row:nth-child(2) { animation-delay: 0.10s; }
+.axtask-cv-row:nth-child(3) { animation-delay: 0.15s; }
+.axtask-cv-row:nth-child(4) { animation-delay: 0.20s; }
+.axtask-cv-row:nth-child(5) { animation-delay: 0.25s; }
+.axtask-cv-row:nth-child(6) { animation-delay: 0.30s; }
+.axtask-cv-row:nth-child(7) { animation-delay: 0.35s; }
+.axtask-cv-row:nth-child(8) { animation-delay: 0.40s; }
+.axtask-cv-row:nth-child(9) { animation-delay: 0.45s; }
+.axtask-cv-row:nth-child(10) { animation-delay: 0.50s; }
+.axtask-cv-row:nth-child(11) { animation-delay: 0.55s; }
+.axtask-cv-row:nth-child(12) { animation-delay: 0.60s; }
+.axtask-cv-row:nth-child(n+13) { animation-delay: 0.65s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .axtask-cv-row {
+    animation: none !important;
+  }
 }
 
 /* ---- AvatarOrb: glossy circular orb with specular highlight and rim light.

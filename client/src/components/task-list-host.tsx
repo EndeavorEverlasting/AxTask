@@ -805,7 +805,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   }, [visibleTasks]);
 
   return (
-    <Card ref={surfaceRef} data-testid="task-list-host">
+    <Card ref={surfaceRef} data-testid="task-list-host" className="glass-panel-glossy border-border/40">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ClipboardList className="h-5 w-5 text-primary" aria-hidden />
@@ -919,7 +919,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
           data-testid="task-list-scroll"
         >
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-background z-10 border-b">
+            <thead className="sticky top-0 bg-white/40 dark:bg-black/40 backdrop-blur-md z-10 border-b border-border/50">
               <tr className="text-left text-muted-foreground">
                 <th
                   className="py-2 pr-4 font-medium"

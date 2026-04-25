@@ -117,39 +117,39 @@ function ensureTemplate(doc: Document): HTMLTemplateElement {
   const cached = TEMPLATE_CACHE.get(doc);
   if (cached) return cached;
   const rowHtml = `
-<tr class="axtask-cv-row hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" data-action="open">
+<tr class="axtask-cv-row group hover:bg-indigo-50/50 dark:hover:bg-indigo-900/30 transition-all duration-300 cursor-pointer border-b border-transparent dark:border-white/5 hover:border-indigo-500/20" data-action="open">
   <td class="axtask-drag-cell hidden w-8" data-action="drag-handle">
-    <button type="button" class="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded" data-action="drag-handle" aria-label="Drag">
+    <button type="button" class="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded opacity-0 group-hover:opacity-100 transition-opacity" data-action="drag-handle" aria-label="Drag">
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 4h2v2H9zm4 0h2v2h-2zM9 8h2v2H9zm4 0h2v2h-2zM9 12h2v2H9zm4 0h2v2h-2zM9 16h2v2H9zm4 0h2v2h-2zM9 20h2v2H9zm4 0h2v2h-2z"/></svg>
     </button>
   </td>
-  <td class="font-mono text-sm">
+  <td class="font-mono text-sm py-2">
     <span class="axtask-cell-date"></span>
-    <span class="axtask-cell-recurrence hidden ml-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"></span>
+    <span class="axtask-cell-recurrence hidden ml-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 border border-violet-200/50 dark:border-violet-700/50"></span>
   </td>
   <td class="max-w-[140px] font-mono text-xs text-muted-foreground whitespace-nowrap axtask-cell-created"></td>
   <td class="max-w-[140px] font-mono text-xs text-muted-foreground whitespace-nowrap axtask-cell-updated"></td>
-  <td><span class="axtask-cell-priority inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"></span></td>
+  <td><span class="axtask-cell-priority inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold shadow-sm border border-transparent"></span></td>
   <td class="max-w-md">
-    <div class="axtask-cell-activity truncate"></div>
+    <div class="axtask-cell-activity font-medium group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors truncate"></div>
     <div class="axtask-cell-notes text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 hidden"></div>
   </td>
   <td>
     <div class="flex items-center gap-1.5">
-      <button type="button" class="axtask-cell-classification inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200" data-action="classify"></button>
+      <button type="button" class="axtask-cell-classification inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 border border-gray-200/50 dark:border-gray-700/50 shadow-sm" data-action="classify"></button>
       <span class="axtask-cell-classification-extra text-[10px] text-muted-foreground hidden"></span>
     </div>
   </td>
-  <td class="font-mono text-sm axtask-cell-priority-score"></td>
+  <td class="font-mono text-sm axtask-cell-priority-score font-semibold text-slate-700 dark:text-slate-300"></td>
   <td>
-    <span class="axtask-cell-status inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"></span>
+    <span class="axtask-cell-status inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold shadow-sm border border-transparent"></span>
   </td>
   <td>
-    <div class="flex space-x-2">
-      <button type="button" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700" data-action="toggle-status" aria-label="Toggle status">
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M5 12l4 4L19 6"/></svg>
+    <div class="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+      <button type="button" class="px-2 py-1 rounded-md bg-white/50 dark:bg-black/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-gray-500 hover:text-emerald-700 dark:text-gray-400 dark:hover:text-emerald-300 border border-gray-200/50 dark:border-white/10 transition-colors shadow-sm" data-action="toggle-status" aria-label="Toggle status">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.5" d="M5 12l4 4L19 6"/></svg>
       </button>
-      <button type="button" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700" data-action="delete" aria-label="Delete">
+      <button type="button" class="px-2 py-1 rounded-md bg-white/50 dark:bg-black/20 hover:bg-red-100 dark:hover:bg-red-900/50 text-gray-500 hover:text-red-700 dark:text-gray-400 dark:hover:text-red-300 border border-gray-200/50 dark:border-white/10 transition-colors shadow-sm" data-action="delete" aria-label="Delete">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M4 7h16M9 7V4h6v3m-8 0l1 13h10l1-13"/></svg>
       </button>
     </div>
