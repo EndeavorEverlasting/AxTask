@@ -4,7 +4,7 @@
  * when the main thread is under pressure.
  *
  * Inputs:
- *  - scroll events on window (and any registered ancestor) → pause 250ms
+ *  - scroll events on window (and any registered ancestor) → pause 250ms, plus a short calm release hysteresis so `data-axtask-calm` does not edge-flash
  *  - `PerformanceObserver("longtask")` → pause 400ms
  *  - `document.visibilityState === "hidden"` → pause until visible
  *  - user `prefers-reduced-motion: reduce` → permanently report !allowed
@@ -38,6 +38,8 @@ interface AnimationBudgetOptions {
 
 const DEFAULT_SCROLL_PAUSE_MS = 250;
 const DEFAULT_LONG_TASK_PAUSE_MS = 400;
+/** After scroll pause expires, keep `data-axtask-calm` briefly so glass/chip CSS does not edge-flash on every wheel tick. */
+const CALM_RELEASE_HYSTERESIS_MS = 90;
 
 class AnimationBudget {
   private state: AnimationBudgetState = { allowed: true, reason: "", version: 0 };
@@ -142,8 +144,18 @@ class AnimationBudget {
       this.timer = null;
     }
     this.timer = setTimeout(() => {
-      this.pauseUntil = 0;
       this.timer = null;
+      if (CALM_RELEASE_HYSTERESIS_MS <= 0) {
+        this.pauseUntil = 0;
+        this.recompute();
+        return;
+      }
+      this.pauseUntil = this.now() + CALM_RELEASE_HYSTERESIS_MS;
+      this.timer = setTimeout(() => {
+        this.pauseUntil = 0;
+        this.timer = null;
+        this.recompute();
+      }, CALM_RELEASE_HYSTERESIS_MS);
       this.recompute();
     }, ms);
     this.recompute(reason);

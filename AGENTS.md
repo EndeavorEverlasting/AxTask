@@ -15,6 +15,11 @@ Per-user overlay for public holidays (Nager + Western Easter merge), `GET`/`PATC
 ## Task list UX contract
 
 Do not remove header sorting/filtering from `TaskListHost`; this is a required `/tasks` UX contract documented at [docs/TASK_LIST_INTERACTION_CONTRACT.md](docs/TASK_LIST_INTERACTION_CONTRACT.md).
+
+## Scroll / calm-mode visual stability (Pretext + glass)
+
+Before changing `data-axtask-calm` rules, `.glass-panel*`, Pretext ambient chips, app scroll roots, sidebar chrome, or the planner **TaskGantt** SVG, read [docs/SCROLL_REFRESH_VISUAL_STABILITY.md](docs/SCROLL_REFRESH_VISUAL_STABILITY.md). It documents hue-flash and Gantt text-stretch failure modes and the **chrome vs content** split (`.axtask-nav-chrome` vs glass reader surfaces).
+
 ## Performance budgets
 
 CI enforces client bundle size (`npm run perf:bundle`) and API latency heuristics (`npm run perf:api-replay`) on every PR. Tightening a budget requires bumping the paired fixture/test; loosening requires an operator-visible note in the PR. Full map of budgets, signals, fixtures, and runtime knobs: [docs/PERF_PERFORMANCE_BUDGETS.md](docs/PERF_PERFORMANCE_BUDGETS.md).

@@ -110,7 +110,7 @@ function formatDayLabel(d: Date): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-/** Shorter axis text when many ticks + non-uniform SVG stretch (`preserveAspectRatio="none"`). */
+/** Shorter axis text when many ticks + compact axis (see SVG `preserveAspectRatio`). */
 function formatAxisDayLabel(d: Date, compact: boolean): string {
   if (!compact) return formatDayLabel(d);
   return `${d.getMonth() + 1}/${d.getDate()}`;
@@ -166,7 +166,7 @@ export function TaskGantt(props: TaskGanttProps) {
     const spanMs = Math.max(win.end.getTime() - win.start.getTime(), MS_PER_DAY);
 
     // Build day gridlines — cap label count and enforce minimum x-gap so axis
-    // text stays separated under preserveAspectRatio="none" (full-width stretch).
+    // text stays separated when the timeline is dense.
     const spanDays = Math.max(1, Math.round(spanMs / MS_PER_DAY));
     const maxTicks = 7;
     const step = Math.max(1, Math.ceil(spanDays / maxTicks));
@@ -245,12 +245,14 @@ export function TaskGantt(props: TaskGanttProps) {
     <div
       className={`relative w-full ${dimmed ? "pointer-events-none select-none" : ""} ${className ?? ""}`}
       aria-hidden={dimmed || undefined}
+      style={{ aspectRatio: `100 / ${svgHeight}` }}
     >
       <svg
+        className="block h-full w-full"
         viewBox={`0 0 100 ${svgHeight}`}
-        preserveAspectRatio="none"
+        preserveAspectRatio="xMidYMid meet"
         width="100%"
-        height={svgHeight}
+        height="100%"
         role={dimmed ? "presentation" : "img"}
         aria-label={dimmed ? undefined : "Task timeline Gantt chart"}
         style={{ opacity: dimmed ? 0.22 : 1 }}

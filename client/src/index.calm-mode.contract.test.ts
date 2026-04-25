@@ -73,6 +73,21 @@ describe("calm-mode stylesheet contract", () => {
     expect(CSS).toMatch(
       /body\[data-axtask-calm\]\s+\.axtask-chip-layer\s*\{[^}]*opacity:\s*0\.32/,
     );
+    expect(CSS).not.toMatch(
+      /body\[data-axtask-calm\]\s+\.axtask-chip-layer\s*\{[^}]*transition:\s*opacity/,
+    );
+  });
+
+  it("declares opaque nav chrome class for sidebar / sheet (no glass calm swap)", () => {
+    expect(CSS).toContain(".axtask-nav-chrome");
+    expect(CSS).toMatch(/\.axtask-nav-chrome\s*\{[^}]*background-color:\s*var\(--card\)/);
+    const sidebar = fs.readFileSync(
+      path.resolve(__dirname, "components", "layout", "sidebar.tsx"),
+      "utf8",
+    );
+    expect(sidebar).toContain("axtask-nav-chrome");
+    expect(sidebar).toMatch(/<aside[\s\S]*axtask-nav-chrome/);
+    expect(sidebar).toContain("SheetContent side=\"left\" className=\"w-[280px] p-0 axtask-nav-chrome");
   });
 
   it("smooths the calm-mode reader-fill swap so panels don't snap colour on every scroll burst", () => {

@@ -1,4 +1,6 @@
 // @vitest-environment node
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Task } from "@shared/schema";
 import { deriveTaskRange } from "./task-gantt";
@@ -104,5 +106,15 @@ describe("deriveTaskRange — premium Gantt fields", () => {
     const r = deriveTaskRange(baseTask({ startDate: "garbage" }));
     expect(r).not.toBeNull();
     expect(r!.start.toISOString()).toBe(new Date("2026-04-20T09:00:00").toISOString());
+  });
+});
+
+describe("TaskGantt SVG layout contract", () => {
+  const src = fs.readFileSync(path.resolve(__dirname, "task-gantt.tsx"), "utf8");
+
+  it("uses uniform scale so axis text is not non-uniformly stretched", () => {
+    expect(src).toContain('preserveAspectRatio="xMidYMid meet"');
+    expect(src).not.toMatch(/<svg[\s\S]*preserveAspectRatio="none"/);
+    expect(src).toContain("aspectRatio: `100 / ${svgHeight}`");
   });
 });

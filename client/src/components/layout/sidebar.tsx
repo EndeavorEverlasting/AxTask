@@ -593,7 +593,7 @@ export function Sidebar() {
       <div className="md:hidden">
         <MobileTopBar onMenuOpen={() => setMobileOpen(true)} />
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-[280px] p-0 glass-panel-glossy rounded-none border-y-0 border-l-0 flex flex-col min-h-0">
+          <SheetContent side="left" className="w-[280px] p-0 axtask-nav-chrome rounded-none border-y-0 border-l-0 flex flex-col min-h-0">
             <SheetHeader className="sr-only">
               <SheetTitle>Navigation</SheetTitle>
               <SheetDescription>App navigation menu</SheetDescription>
@@ -608,7 +608,7 @@ export function Sidebar() {
 
       <aside
         className={cn(
-          "glass-panel-glossy rounded-none border-y-0 border-l-0 shadow-lg flex-col shrink-0 hidden md:flex transition-[width,box-shadow] duration-200 overflow-hidden min-h-0 outline-none",
+          "axtask-nav-chrome rounded-none border-y-0 border-l-0 shadow-lg flex-col shrink-0 hidden md:flex transition-[width,box-shadow] duration-200 overflow-hidden min-h-0 outline-none",
           sidebarWidthPx === 0 && "border-r-0 shadow-none",
           isNavFocus && "ring-2 ring-primary/35 shadow-2xl z-10",
         )}

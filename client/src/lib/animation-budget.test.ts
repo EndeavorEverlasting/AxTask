@@ -60,7 +60,7 @@ describe("AnimationBudget", () => {
     expect(b.isAllowed()).toBe(false);
     expect(received).toContain(false);
 
-    vi.advanceTimersByTime(150);
+    vi.advanceTimersByTime(190);
     expect(b.isAllowed()).toBe(true);
     expect(received.at(-1)).toBe(true);
     b.stop();
@@ -72,7 +72,7 @@ describe("AnimationBudget", () => {
     dispatch("scroll");
     expect(b.isAllowed()).toBe(false);
     expect(b.getState().reason).toBe("scroll");
-    vi.advanceTimersByTime(260);
+    vi.advanceTimersByTime(340);
     expect(b.isAllowed()).toBe(true);
     b.stop();
   });
@@ -135,7 +135,7 @@ describe("AnimationBudget", () => {
     b.pauseFor(100, "scroll");
     expect(body.getAttribute("data-axtask-calm")).toBe("scroll");
 
-    vi.advanceTimersByTime(150);
+    vi.advanceTimersByTime(190);
     expect(body.hasAttribute("data-axtask-calm")).toBe(false);
     b.stop();
   });
@@ -147,11 +147,11 @@ describe("AnimationBudget", () => {
     const off = b.subscribe(cb);
     b.pauseFor(50, "scroll");
     off();
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
     expect(cb).toHaveBeenCalled();
     const calls = cb.mock.calls.length;
     b.pauseFor(50, "scroll");
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
     expect(cb.mock.calls.length).toBe(calls);
     b.stop();
   });
