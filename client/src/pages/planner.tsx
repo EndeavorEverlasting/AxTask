@@ -521,11 +521,7 @@ export default function PlannerPage() {
                 : `You have ${briefing.thisWeek.total} task${briefing.thisWeek.total !== 1 ? "s" : ""} this week. Looking good!`}
           </p>
 
-          <div
-            id="gantt"
-            className="axtask-fade-in-up"
-            style={{ animationDelay: "60ms" }}
-          >
+          <div id="gantt">
             <Card className="border-gray-200 dark:border-gray-800">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -553,12 +549,14 @@ export default function PlannerPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
-                <TaskGantt
-                  tasks={allTasks}
-                  unlocked={ganttPack.unlocked}
-                  rangeDays={21}
-                  emptyHint="Schedule a task with a date to see it on the timeline."
-                />
+                <div className="w-full min-w-0">
+                  <TaskGantt
+                    tasks={allTasks}
+                    unlocked={ganttPack.unlocked}
+                    rangeDays={21}
+                    emptyHint="Schedule a task with a date to see it on the timeline."
+                  />
+                </div>
                 <p className="text-[11px] text-gray-500 dark:text-gray-400">
                   {ganttPack.unlocked
                     ? "Swimlanes group by classification, bars are colored by priority, and arrows follow task dependencies."

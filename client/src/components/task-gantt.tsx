@@ -110,6 +110,12 @@ function formatDayLabel(d: Date): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** Shorter axis text when many ticks + non-uniform SVG stretch (`preserveAspectRatio="none"`). */
+function formatAxisDayLabel(d: Date, compact: boolean): string {
+  if (!compact) return formatDayLabel(d);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max - 1)}…`;
@@ -160,7 +166,7 @@ export function TaskGantt(props: TaskGanttProps) {
     const spanMs = Math.max(win.end.getTime() - win.start.getTime(), MS_PER_DAY);
 
     // Build day gridlines — cap label count and enforce minimum x-gap so axis
-    // text never stacks (was visible when SVG used preserveAspectRatio="none").
+    // text stays separated under preserveAspectRatio="none" (full-width stretch).
     const spanDays = Math.max(1, Math.round(spanMs / MS_PER_DAY));
     const maxTicks = 7;
     const step = Math.max(1, Math.ceil(spanDays / maxTicks));
@@ -197,6 +203,9 @@ export function TaskGantt(props: TaskGanttProps) {
   const totalLaneGap = Math.max(0, (lanes.length - 1) * laneGap);
   const autoHeight = headerHeight + rows * rowHeight + totalLaneGap + 8;
   const svgHeight = height ?? Math.max(autoHeight, 120);
+  const axisTickCount = windowGridLines.length;
+  const axisLabelsCompact = axisTickCount > 5;
+  const axisLabelFontSize = axisLabelsCompact ? 7.5 : 9;
 
   const todayPct = (() => {
     const now = Date.now();
@@ -239,7 +248,7 @@ export function TaskGantt(props: TaskGanttProps) {
     >
       <svg
         viewBox={`0 0 100 ${svgHeight}`}
-        preserveAspectRatio="xMidYMid meet"
+        preserveAspectRatio="none"
         width="100%"
         height={svgHeight}
         role={dimmed ? "presentation" : "img"}
@@ -276,12 +285,12 @@ export function TaskGantt(props: TaskGanttProps) {
               <text
                 x={g.pct}
                 y={headerHeight - 10}
-                fontSize="9"
+                fontSize={axisLabelFontSize}
                 fill="rgba(148, 163, 184, 0.85)"
                 textAnchor="middle"
                 style={{ fontFamily: "ui-sans-serif, system-ui", pointerEvents: "none" }}
               >
-                {formatDayLabel(g.d)}
+                {formatAxisDayLabel(g.d, axisLabelsCompact)}
               </text>
             )}
           </g>

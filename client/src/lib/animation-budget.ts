@@ -128,6 +128,11 @@ class AnimationBudget {
     this.removeListeners = null;
   }
 
+  /** Same pause duration as window scroll — call from the app shell scroll root. */
+  notifyShellScroll(): void {
+    this.pauseFor(this.scrollPauseMs, "scroll");
+  }
+
   pauseFor(ms: number, reason: string): void {
     if (ms <= 0) return;
     const until = this.now() + ms;
@@ -213,6 +218,11 @@ export function isAnimationAllowed(): boolean {
 
 export function subscribeAnimationBudget(cb: Listener): () => void {
   return getAnimationBudget().subscribe(cb);
+}
+
+/** Throttle-friendly hook: main app scroll is on an inner `overflow-y-auto` div, not `window`. */
+export function notifyScrollBudget(): void {
+  getAnimationBudget().notifyShellScroll();
 }
 
 /** For tests — deterministic budget injection. */

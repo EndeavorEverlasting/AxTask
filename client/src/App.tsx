@@ -1,5 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { notifyScrollBudget } from "@/lib/animation-budget";
 import { useTutorial } from "@/hooks/use-tutorial";
 import { PersistedQueryLayer } from "./lib/app-query-provider";
 import { Toaster } from "@/components/ui/toaster";
@@ -354,6 +355,23 @@ function AuthenticatedApp() {
 
   const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const mainScrollBudgetRaf = useRef<number | null>(null);
+  const onMainShellScroll = useCallback(() => {
+    if (mainScrollBudgetRaf.current != null) return;
+    mainScrollBudgetRaf.current = requestAnimationFrame(() => {
+      mainScrollBudgetRaf.current = null;
+      notifyScrollBudget();
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (mainScrollBudgetRaf.current != null) {
+        cancelAnimationFrame(mainScrollBudgetRaf.current);
+        mainScrollBudgetRaf.current = null;
+      }
+    };
+  }, []);
 
   const toggleGlobalSearchLazy = useCallback(() => {
     setGlobalSearchOpen((wasOpen) => {
@@ -540,6 +558,7 @@ function AuthenticatedApp() {
             <AdherenceNudges />
             <div
               className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0"
+              onScroll={onMainShellScroll}
               style={
                 scale !== 1
                   ? {
