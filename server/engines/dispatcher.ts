@@ -9,6 +9,9 @@ import {
 import { classifyCalendarIntent, processCalendarCommand, type CalendarResult } from "./calendar-engine";
 import { processPlannerQuery, type PlannerResult } from "./planner-engine";
 import { isTaskReviewIntent, processTaskReview, type ReviewResult } from "./review-engine";
+import { mapParsedCommandToIntent } from "@shared/intent/map-to-dispatcher";
+import { parseNaturalCommand } from "@shared/intent/parse-natural-command";
+import type { ParsedCommand } from "@shared/intent/intent-types";
 
 export type IntentType =
   | "task_create"
@@ -265,6 +268,25 @@ export function classifyIntent(text: string): IntentType {
   return bestIntent;
 }
 
+function recurrenceForPrefill(
+  parsed: ParsedCommand,
+):
+  | "daily"
+  | "weekly"
+  | "biweekly"
+  | "monthly"
+  | "quarterly"
+  | "yearly"
+  | undefined {
+  if (parsed.kind !== "create_task" && parsed.kind !== "create_recurring_task") return undefined;
+  const r = parsed.recurrence;
+  if (!r || r === "none" || r === "irregular") return undefined;
+  if (r === "daily" || r === "weekly" || r === "biweekly" || r === "monthly" || r === "quarterly" || r === "yearly") {
+    return r;
+  }
+  return undefined;
+}
+
 export async function dispatchVoiceCommand(
   rawTranscript: string,
   tasks: Task[],
@@ -274,11 +296,32 @@ export async function dispatchVoiceCommand(
 ): Promise<EngineResponse> {
   const afterWake = stripWakeWord(rawTranscript);
   const { text: delegated, delegation } = stripAvatarDelegationPhrase(afterWake);
-  const intent = classifyIntent(delegated);
+  const parsed = parseNaturalCommand(delegated, { now, todayStr });
+
+  if (classifyCalendarIntent(delegated) !== "unknown") {
+    const result = processCalendarCommand(delegated, tasks, todayStr, now);
+    return {
+      intent: "calendar_command",
+      action: result.action,
+      payload: result.payload,
+      message: voiceAck(result.message, delegation),
+    };
+  }
+
+  const mapped = mapParsedCommandToIntent(parsed);
+  const intent: IntentType =
+    isTaskReviewIntent(delegated) || parsed.kind === "task_review"
+      ? "task_review"
+      : mapped !== null
+        ? mapped
+        : classifyIntent(delegated);
 
   switch (intent) {
     case "navigation": {
-      const target = extractNavigationTarget(delegated);
+      const target =
+        parsed.kind === "navigation" && parsed.navigationTarget
+          ? parsed.navigationTarget
+          : extractNavigationTarget(delegated);
       const pageName =
         target === "/"
           ? "Dashboard"
@@ -320,7 +363,19 @@ export async function dispatchVoiceCommand(
         }
       }
 
-      const details = extractTaskDetails(delegated);
+      const base = extractTaskDetails(delegated);
+      let details = base;
+      if (
+        (parsed.kind === "create_task" || parsed.kind === "create_recurring_task") &&
+        (parsed.activity != null && parsed.activity !== "" || parsed.date || parsed.time)
+      ) {
+        details = {
+          activity: parsed.activity ?? base.activity,
+          date: parsed.date ?? base.date,
+          time: parsed.time ?? base.time,
+        };
+      }
+      const rec = recurrenceForPrefill(parsed);
       return {
         intent: "task_create",
         action: "prefill_task",
@@ -328,6 +383,7 @@ export async function dispatchVoiceCommand(
           activity: details.activity,
           date: details.date || todayStr,
           time: details.time || "",
+          ...(rec ? { recurrence: rec } : {}),
         },
         message: voiceAck(
           details.activity ? `Ready to create task: "${details.activity}"` : "Opening task form for you.",
@@ -336,32 +392,24 @@ export async function dispatchVoiceCommand(
       };
     }
 
-    case "calendar_command": {
-      const calIntent = classifyCalendarIntent(delegated);
-      if (calIntent !== "unknown") {
-        const result = processCalendarCommand(delegated, tasks, todayStr, now);
-        return {
-          intent: "calendar_command",
-          action: result.action,
-          payload: result.payload,
-          message: voiceAck(result.message, delegation),
-        };
-      }
-      return {
-        intent: "calendar_command",
-        action: "navigate",
-        payload: { path: "/calendar" },
-        message: voiceAck("Opening your calendar.", delegation),
-      };
-    }
-
     case "planner_query": {
-      const result = processPlannerQuery(delegated, tasks, todayStr, now);
+      const qText = parsed.kind === "planning_request" && parsed.planningTopic ? parsed.planningTopic : delegated;
+      const result = processPlannerQuery(qText, tasks, todayStr, now);
       return {
         intent: "planner_query",
         action: result.action,
         payload: { answer: result.answer, relatedTasks: result.relatedTasks },
         message: voiceAck(result.answer, delegation),
+      };
+    }
+
+    case "calendar_command": {
+      const result = processCalendarCommand(delegated, tasks, todayStr, now);
+      return {
+        intent: "calendar_command",
+        action: result.action,
+        payload: result.payload,
+        message: voiceAck(result.message, delegation),
       };
     }
 
@@ -404,7 +452,11 @@ export async function dispatchVoiceCommand(
           message: voiceAck("Loading your latest alarm snapshot.", delegation),
         };
       }
-      const query = extractAlarmTaskQuery(delegated);
+      const qSource =
+        parsed.kind === "create_reminder" && typeof parsed.activity === "string" && parsed.activity.trim() !== ""
+          ? parsed.activity
+          : delegated;
+      const query = extractAlarmTaskQuery(qSource);
       const fallbackTask = tasks.find((t) => t.status !== "completed");
       const matchedTask =
         tasks.find((t) => t.activity.toLowerCase().includes(query.toLowerCase())) ?? fallbackTask;
@@ -416,15 +468,17 @@ export async function dispatchVoiceCommand(
           message: voiceAck("Open alarm panel so I can map this to a task.", delegation),
         };
       }
-      const parsed = extractAlarmDateTime(delegated, now);
+      const defaultAlarm = extractAlarmDateTime(delegated, now);
+      const alarmDate = parsed.kind === "create_reminder" && parsed.date ? parsed.date : defaultAlarm.date;
+      const alarmTime = parsed.kind === "create_reminder" && parsed.time ? parsed.time : defaultAlarm.time;
       return {
         intent: "alarm_config",
         action: "alarm_create_for_task",
         payload: {
           taskId: matchedTask.id,
           taskActivity: matchedTask.activity,
-          alarmDate: parsed.date,
-          alarmTime: parsed.time,
+          alarmDate,
+          alarmTime,
         },
         message: voiceAck(`Preparing alarm for "${matchedTask.activity}".`, delegation),
       };
@@ -432,7 +486,10 @@ export async function dispatchVoiceCommand(
 
     case "search":
     default: {
-      const query = extractSearchQuery(delegated);
+      const query =
+        parsed.kind === "search" && typeof parsed.searchQuery === "string" && parsed.searchQuery.trim() !== ""
+          ? parsed.searchQuery.trim()
+          : extractSearchQuery(delegated);
       const pendingTasks = tasks.filter(t => t.status !== "completed");
       const matches = pendingTasks.filter(t =>
         t.activity.toLowerCase().includes(query.toLowerCase()) ||

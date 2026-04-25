@@ -136,4 +136,16 @@ describe("dispatchVoiceCommand", () => {
     const r = await dispatchVoiceCommand("snooze doctor appointment", taskFixtures, userId, todayStr, now);
     expect(r.action).toBe("alarm_open_panel");
   });
+
+  it("navigates via shared parser (open calendar)", async () => {
+    const r = await dispatchVoiceCommand("open calendar", emptyTasks, userId, todayStr, now);
+    expect(r.intent).toBe("navigation");
+    expect(r.payload.path).toBe("/calendar");
+  });
+
+  it("search uses parser query for find … phrasing", async () => {
+    const r = await dispatchVoiceCommand("find billing tasks", emptyTasks, userId, todayStr, now);
+    expect(r.intent).toBe("search");
+    expect((r.payload as { query?: string }).query).toMatch(/billing/i);
+  });
 });
