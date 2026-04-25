@@ -10,6 +10,12 @@ This document provides solutions to common bugs and debugging patterns encounter
 
 ---
 
+## Scroll, hue flash, and blank panels (calm-mode)
+
+If scrolling makes panels **blank**, **glass hue-shift**, **Pretext chips read through** cards, or **Gantt axis text stretches**, you are usually in **`body[data-axtask-calm]`** + glass/Pretext compositor territory—not a stale API response. Watch **`data-axtask-calm`** in DevTools while scrolling main and sidebar; confirm nav uses **`.axtask-nav-chrome`**. Do **not** conflate with browser refresh / service worker / persisted query issues. **Canonical doc:** [docs/SCROLL_REFRESH_VISUAL_STABILITY.md](SCROLL_REFRESH_VISUAL_STABILITY.md) (playbook, file map, verification commands).
+
+---
+
 ## Deployment-Impact Test Sweep Checklist
 
 When changes can affect deployment/runtime behavior (routes, storage/schema, auth, CI, Docker, startup scripts), run this checklist before merge:

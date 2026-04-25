@@ -264,6 +264,7 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
 - **[Clarification Protocol](docs/CLARIFICATION_PROTOCOL.md)** - Mandatory question-asking rules before report generation
 - **[RAG and Classification Blueprint](docs/RAG_CLASSIFICATION_BLUEPRINT.md)** - Retrieval + classification architecture for trusted output
 - **[Orb and Avatar Experience Contract](docs/ORB_AVATAR_EXPERIENCE_CONTRACT.md)** - Orb UX philosophy and mood/avatar behavior system
+- **[Scroll and calm-mode visual stability](docs/SCROLL_REFRESH_VISUAL_STABILITY.md)** - Pretext + glass + Gantt compositor contract (`data-axtask-calm`, nav chrome, scroll budget)
 - **[Community Automation Privacy Contract](docs/COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)** - Public community automation and data-minimization guardrails
 - **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
 - **[Security Guidelines](docs/SECURITY.md)** - Security best practices

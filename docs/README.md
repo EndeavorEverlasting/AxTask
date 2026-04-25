@@ -26,6 +26,7 @@ AxTask is built to help users **complete** meaningful work, not only track tasks
 - [CLARIFICATION_PROTOCOL.md](./CLARIFICATION_PROTOCOL.md)
 - [RAG_CLASSIFICATION_BLUEPRINT.md](./RAG_CLASSIFICATION_BLUEPRINT.md)
 - [ORB_AVATAR_EXPERIENCE_CONTRACT.md](./ORB_AVATAR_EXPERIENCE_CONTRACT.md)
+- [SCROLL_REFRESH_VISUAL_STABILITY.md](./SCROLL_REFRESH_VISUAL_STABILITY.md) — scroll + calm-mode visual stability (glass, Pretext chips, Gantt SVG, `notifyScrollBudget`, hysteresis)
 - [COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md](./COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)
 - [CLIENT_VISIBLE_PRIVACY.md](./CLIENT_VISIBLE_PRIVACY.md) — browser Network/Console exposure, API serializers, and logging discipline
 

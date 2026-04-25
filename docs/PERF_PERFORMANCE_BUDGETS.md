@@ -48,14 +48,12 @@ count-ups, chips) subscribe to the shared budget and pause when:
 
 - `prefers-reduced-motion: reduce` is true (permanent pause)
 - The tab is hidden
-- A `scroll` event fires anywhere on the window (250 ms tail)
+- A `scroll` event fires on the window **or** on scroll roots that call **`notifyScrollBudget()`** (default **250 ms** tail after scroll activity)
 - A longtask is observed (400 ms tail)
 
-The budget also mirrors its state onto `body[data-axtask-calm]`, which a
-single CSS rule in `index.css` uses to drop
-`backdrop-filter` and `transition-all` for the duration of the pause.
-This is how we stop glass panels from re-compositing on scroll without
-deleting the glass treatment when the UI is idle.
+The budget mirrors its state onto **`body[data-axtask-calm]`**. After the scroll pause window ends, calm stays on for an extra **`CALM_RELEASE_HYSTERESIS_MS` (90 ms)** so the attribute does not edge-flash on every wheel tick. **`index.css`** applies a **family** of rules under `body[data-axtask-calm]` (backdrop off, reader mask on glass, chip layer, aurora/orb suppression, stable panels, nav chrome split)—not a single selector—for the duration of the pause so glass panels stop re-compositing on scroll without deleting glass when the UI is idle.
+
+**Shell scroll and visual stability:** Main app shell and sidebar wire inner `overflow-y-auto` scroll to the same budget. Full incident class, symptom matrix, and debugging playbook: **[docs/SCROLL_REFRESH_VISUAL_STABILITY.md](SCROLL_REFRESH_VISUAL_STABILITY.md)**.
 
 ## Server — API latency heuristics
 
