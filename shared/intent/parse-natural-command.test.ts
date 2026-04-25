@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseNaturalCommand, commandNeedsFullReview } from "./parse-natural-command";
+import { getCommandExecutionPolicy } from "./execution-policy";
 
 const now = new Date("2026-04-25T12:00:00-04:00");
 const todayStr = "2026-04-25";
@@ -68,5 +69,29 @@ describe("parseNaturalCommand", () => {
   it("exposes commandNeedsFullReview for low confidence", () => {
     const c = parseNaturalCommand("remind me about groceries at 9am", ctx);
     expect(commandNeedsFullReview(c) || c.warnings.length > 0).toBe(true);
+  });
+
+  it("parses realistic phrase: check oil after getting home", () => {
+    const c = parseNaturalCommand(
+      "Hey AxTask, set a reminder to check my oil five minutes after I get home every day",
+      ctx,
+    );
+    expect(c.kind).toBe("create_recurring_task");
+    expect(c.activity?.toLowerCase()).toContain("check my oil");
+    expect(c.recurrence).toBe("daily");
+    expect(getCommandExecutionPolicy(c)).toBe("review");
+  });
+
+  it("parses realistic phrase: mark billing summary done", () => {
+    const c = parseNaturalCommand("Hey AxTask, mark the April billing summary as done", ctx);
+    expect(c.kind).toBe("task_review");
+    expect(c.activity?.toLowerCase()).toContain("april billing summary");
+    expect(getCommandExecutionPolicy(c)).toBe("review");
+  });
+
+  it("routes ambiguous reminder phrasing to review policy", () => {
+    const c = parseNaturalCommand("Remind me later about that thing with the oil", ctx);
+    expect(c.kind).toMatch(/create_(task|reminder|recurring_task)|unknown/);
+    expect(getCommandExecutionPolicy(c)).not.toBe("autoRun");
   });
 });

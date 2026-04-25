@@ -77,6 +77,28 @@ function addedEnvKeysFromDiff(range) {
   return keys;
 }
 
+function combinedDiff(range) {
+  const committed = runGit(["diff", "--unified=0", range]).stdout;
+  const staged = runGit(["diff", "--unified=0", "--cached"]).stdout;
+  const unstaged = runGit(["diff", "--unified=0"]).stdout;
+  return `${committed}\n${staged}\n${unstaged}`;
+}
+
+function changedFilesWithStatus(range) {
+  const committed = runGit(["diff", "--name-status", range]).stdout;
+  const staged = runGit(["diff", "--name-status", "--cached"]).stdout;
+  const unstaged = runGit(["diff", "--name-status"]).stdout;
+  return `${committed}\n${staged}\n${unstaged}`
+    .split(/\r?\n/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [status, ...parts] = line.split(/\s+/);
+      const file = parts[parts.length - 1];
+      return { status: status?.[0] ?? "M", file };
+    });
+}
+
 const ENV_KEYS_EXEMPT_FROM_TEMPLATE = new Set([
   // CI/runtime metadata keys are not application config surface.
   "GITHUB_BASE_REF",
@@ -114,6 +136,8 @@ function main() {
   const notices = [];
 
   const schemaTouched = files.some((f) => /^shared\/schema\/.+\.ts$/i.test(f));
+  const fileStatuses = changedFilesWithStatus(range);
+  const diff = combinedDiff(range);
   if (schemaTouched) {
     const hasSqlMigration = files.some((f) => /^migrations\/\d+_.+\.sql$/i.test(f));
     if (!hasSqlMigration) {
@@ -123,8 +147,45 @@ function main() {
     }
   }
 
+  const touchedMigrationFiles = fileStatuses.filter((r) => /^migrations\/\d+_.+\.sql$/i.test(r.file));
+  const modifiedExistingMigrations = touchedMigrationFiles.filter((r) => r.status !== "A");
+  if (modifiedExistingMigrations.length > 0) {
+    failures.push(
+      `Existing migration files were modified (${modifiedExistingMigrations.map((r) => r.file).join(", ")}). Add a new numbered migration instead of editing old ones.`,
+    );
+  }
+
+  const touchedMigrationNumbers = touchedMigrationFiles
+    .map((r) => r.file.match(/^migrations\/(\d+)_/i))
+    .filter(Boolean)
+    .map((m) => Number(m[1]));
+  const duplicateTouchedNumbers = touchedMigrationNumbers.filter(
+    (n, i) => touchedMigrationNumbers.indexOf(n) !== i,
+  );
+  if (duplicateTouchedNumbers.length > 0) {
+    failures.push(
+      `Duplicate migration numbers detected in changed files: ${[...new Set(duplicateTouchedNumbers)].join(", ")}.`,
+    );
+  }
+
+  const destructiveSqlPatterns = [
+    /\bDROP\s+TABLE\b/i,
+    /\bDROP\s+COLUMN\b/i,
+    /\bTRUNCATE\b/i,
+    /\bALTER\s+COLUMN\b[\s\S]{0,120}\bTYPE\b/i,
+  ];
+  const destructiveHit = destructiveSqlPatterns.some((p) => p.test(diff));
+  if (destructiveHit && !hasReleaseDoc(files)) {
+    failures.push(
+      "Potentially destructive SQL detected; include docs/releases/*.md with explicit rollback notes before merge.",
+    );
+  }
+
   const routeTouched = files.some((f) => /^server\/(routes|shopping-lists-routes)\.ts$/i.test(f));
-  if (routeTouched && !files.includes("server/routes-inventory.contract.test.ts")) {
+  const hasRouteInventoryEvidence =
+    files.includes("server/routes-inventory.contract.test.ts") ||
+    files.includes("server/__snapshots__/routes-inventory.contract.test.ts.snap");
+  if (routeTouched && !hasRouteInventoryEvidence) {
     failures.push(
       "Routes changed but server/routes-inventory.contract.test.ts was not updated (or snapshot not refreshed).",
     );
@@ -148,6 +209,11 @@ function main() {
   }
 
   const branch = branchName();
+  if (!/^main$|^master$|^(feature|fix|chore)\/\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/.test(branch)) {
+    failures.push(
+      "Branch name must be main/master or date-scoped (feature|fix|chore)/YYYY-MM-DD-scope.",
+    );
+  }
   if (!/^main$|^master$/.test(branch)) {
     if (!hasReleaseDoc(files)) {
       failures.push("No docs/releases/*.md file changed on this feature branch.");
