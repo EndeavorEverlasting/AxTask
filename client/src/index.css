@@ -628,25 +628,50 @@
     box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.09), inset 0 -1px 0 0 rgba(0, 0, 0, 0.35);
   }
 
+  /* Smooth the calm-mode glass swap so panels don't *snap* between resting
+   * frosted state and the opaque reader-fill on every scroll burst.
+   * `animation-budget` toggles `data-axtask-calm` for ~250 ms windows; a
+   * 220 ms fade reads as atmospheric breathing rather than a contrast flash.
+   * Properties are listed explicitly (not `all`) so the calm-mode rule
+   * `.transition-all { transition-property: none }` does not also kill this. */
+  .glass-panel,
+  .glass-panel-elevated,
+  .glass-panel-glossy,
+  .glass-panel-interactive {
+    transition-property: background-color, backdrop-filter, -webkit-backdrop-filter, transform, box-shadow;
+    transition-duration: 220ms;
+    transition-timing-function: ease-out;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .glass-panel,
+    .glass-panel-elevated,
+    .glass-panel-glossy,
+    .glass-panel-interactive {
+      transition: none;
+    }
+  }
+
   /* Reader mask during calm-mode: `animation-budget` clears `backdrop-filter`
    * on scroll/longtask for perf. Dark glass panels were almost fully
    * translucent (`bg-white/[0.05]`), so Pretext ambient chips read as sharp
    * foreground through cards. Restore an opaque card-equivalent fill so
-   * background chips stay softly obscured (matches non-calm frosted look). */
+   * background chips stay softly obscured (matches non-calm frosted look).
+   * Fills are tuned to sit close to the resting frosted tone so the smooth
+   * fade above doesn't read as a colour change — only a slight thickening. */
   body[data-axtask-calm] .glass-panel,
   body[data-axtask-calm] .glass-panel-elevated,
   body[data-axtask-calm] .glass-panel-glossy,
   body[data-axtask-calm] .glass-panel-interactive {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
-    background-color: rgba(255, 255, 255, 0.93) !important;
+    background-color: rgba(255, 255, 255, 0.86) !important;
   }
 
   .dark body[data-axtask-calm] .glass-panel,
   .dark body[data-axtask-calm] .glass-panel-elevated,
   .dark body[data-axtask-calm] .glass-panel-glossy,
   .dark body[data-axtask-calm] .glass-panel-interactive {
-    background-color: hsla(222, 47%, 10%, 0.97) !important;
+    background-color: hsla(222, 38%, 13%, 0.88) !important;
   }
 
   /* Pretext ambient chips: when blur is off, pull layer back so any seam

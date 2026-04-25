@@ -62,16 +62,29 @@ describe("calm-mode stylesheet contract", () => {
   it("applies opaque reader-surface fills to glass panels during calm-mode", () => {
     expect(CSS).toContain("Reader mask during calm-mode");
     expect(CSS).toMatch(
-      /body\[data-axtask-calm\][\s\S]+?\.glass-panel[\s\S]+?background-color:\s*rgba\(255,\s*255,\s*255,\s*0\.93\)\s*!important/,
+      /body\[data-axtask-calm\][\s\S]+?\.glass-panel[\s\S]+?background-color:\s*rgba\(255,\s*255,\s*255,\s*0\.86\)\s*!important/,
     );
     expect(CSS).toMatch(
-      /\.dark\s+body\[data-axtask-calm\][\s\S]+?background-color:\s*hsla\(222,\s*47%,\s*10%,\s*0\.97\)\s*!important/,
+      /\.dark\s+body\[data-axtask-calm\][\s\S]+?background-color:\s*hsla\(222,\s*38%,\s*13%,\s*0\.88\)\s*!important/,
     );
   });
 
   it("dims ambient chip layer opacity during calm-mode", () => {
     expect(CSS).toMatch(
       /body\[data-axtask-calm\]\s+\.axtask-chip-layer\s*\{[^}]*opacity:\s*0\.32/,
+    );
+  });
+
+  it("smooths the calm-mode reader-fill swap so panels don't snap colour on every scroll burst", () => {
+    /* The calm window is ~250 ms (DEFAULT_SCROLL_PAUSE_MS in animation-budget.ts).
+     * A near-equal CSS fade on background-color + backdrop-filter turns the swap
+     * into a soft thickening rather than a contrast flash. If this rule disappears
+     * the "panels change colour after a scroll" regression returns. */
+    expect(CSS).toMatch(
+      /\.glass-panel[\s\S]+?transition-property:\s*background-color,\s*backdrop-filter,\s*-webkit-backdrop-filter[^;]*;[\s\S]+?transition-duration:\s*220ms/,
+    );
+    expect(CSS).toMatch(
+      /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]+?\.glass-panel[\s\S]+?transition:\s*none/,
     );
   });
 });
