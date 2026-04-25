@@ -27,6 +27,12 @@ CI enforces client bundle size (`npm run perf:bundle`) and API latency heuristic
 
 - Do not push experimental work directly to the remote branch that tracks **production deploy**; use a feature branch and a PR. See [docs/GIT_BRANCHING_AND_DEPLOYMENT.md](docs/GIT_BRANCHING_AND_DEPLOYMENT.md).
 
+### Agent session completion (deployable work)
+
+- When changes are meant for **deploy or review on the current remote branch** (feature branch, working branch, or the branch Render/your pipeline tracks), treat **`git commit` + `git push` to `origin/<current-branch>`** as part of the same deliverable as the code change—not a separate optional step. Prefer **`npm run ship -- "conventional message"`** (runs [`scripts/ship.ps1`](scripts/ship.ps1)) so staging, commit, and push stay one command.
+- **Skip push** only when the user explicitly asked for **local-only / no remote** work (WIP handoff, spike, or “do not push”).
+- Still obey the production-branch rule above: never bypass **feature branch + PR** for production-track deploys.
+
 ## CI polling (agent sessions)
 
 Before watching PR checks, use snapshot polls (`gh pr checks <N> --json name,status,conclusion --jq ...`) or headless `--watch` with an `Await` pattern; **never** pipe a long-running `--watch` into `Select-Object -Last N` or `Select-String` in the foreground — they buffer the whole stream and hang the shell. Full patterns, anti-patterns, and a copy-paste baseline recipe: [docs/CI_POLLING_FOR_AGENTS.md](docs/CI_POLLING_FOR_AGENTS.md).

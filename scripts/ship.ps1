@@ -11,6 +11,9 @@
   ./scripts/ship.ps1 "fix(ui): adjust splitter rail"
 
 .EXAMPLE
+  npm run ship -- "fix(ui): adjust splitter rail"
+
+.EXAMPLE
   pwsh -File scripts/ship.ps1 chore: bump cache version
 #>
 param(

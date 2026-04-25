@@ -1,0 +1,10 @@
+---
+description: Commit and push deployable agent work before handoff
+alwaysApply: true
+---
+
+# Ship before handoff (AxTask)
+
+- If you changed code that the user will **deploy or open as a PR** from the **current branch**, finish with **`npm run ship -- "conventional commit message"`** (or equivalent: `git add .`, `git commit`, `git push -u origin $(git branch --show-current)`). Run **`npm run check`** (and any other checks the user or AGENTS.md require for that area) **before** `ship` when the change touches types/build.
+- **Do not** treat the task as finished for deploy workflows until the push has succeeded (unless the user explicitly said **no push / local only**).
+- Do **not** push experimental work straight to the **production deploy** tracking branch; use a feature branch and PR per [docs/GIT_BRANCHING_AND_DEPLOYMENT.md](docs/GIT_BRANCHING_AND_DEPLOYMENT.md) and [AGENTS.md](AGENTS.md).
