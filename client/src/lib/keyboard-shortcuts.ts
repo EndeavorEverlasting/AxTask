@@ -15,6 +15,8 @@ export const KBD = {
   calendarMac: "Alt+C",
   globalSearch: "Ctrl+F",
   globalSearchMac: "Cmd+F",
+  commandPalette: "Ctrl+Shift+K",
+  commandPaletteMac: "Cmd+Shift+K",
   voice: "Ctrl+M",
   voiceMac: "Cmd+M",
   submitTask: "Ctrl+Enter",
