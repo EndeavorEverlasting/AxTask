@@ -44,7 +44,7 @@ Change them together in the same PR.
 These tables are user-facing or correctness-critical and **never** pruned by
 the retention job or the reclaim script, even in aggressive mode:
 
-- `tasks`, `task_collaborators`, `attachment_assets`, `message_attachments`
+- `tasks`, `task_reminders`, `task_collaborators`, `attachment_assets`, `message_attachments`
 - `wallets`, `coin_transactions`, `user_badges`, `rewards_catalog`,
   `user_rewards`
 - `users`, `user_*_preferences`, `user_adherence_*`, `user_avatar_*`
