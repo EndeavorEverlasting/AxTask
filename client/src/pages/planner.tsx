@@ -66,6 +66,14 @@ interface QAResponse {
   relatedTasks: Task[];
 }
 
+interface AiExecuteResponse {
+  type: "action_result" | "clarification";
+  action?: "create_reminder";
+  message?: string;
+  clarification?: string;
+  reason?: string;
+}
+
 const LOAD_COLORS: Record<string, string> = {
   none: "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500",
   light: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400",
@@ -84,6 +92,8 @@ export default function PlannerPage() {
   const [, setLocation] = useLocation();
   const [question, setQuestion] = useState("");
   const [chatHistory, setChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiChatHistory, setAiChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [reviewInput, setReviewInput] = useState("");
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewActions, setReviewActions] = useState<ProposedAction[]>([]);
@@ -301,6 +311,33 @@ export default function PlannerPage() {
     },
   });
 
+  const aiExecuteMutation = useMutation({
+    mutationFn: async (message: string) => {
+      const res = await apiRequest("POST", "/api/ai/execute", { message });
+      return res.json() as Promise<AiExecuteResponse>;
+    },
+    onSuccess: (data, message) => {
+      const assistantText =
+        data.type === "action_result"
+          ? (data.message || "Done.")
+          : `Need clarification: ${data.clarification || "Please provide more details."}`;
+      setAiChatHistory((prev) => [
+        ...prev,
+        { role: "user", text: message },
+        { role: "assistant", text: assistantText },
+      ]);
+      queryClient.invalidateQueries({ queryKey: ["/api/reminders"] });
+    },
+    onError: (error: unknown) => {
+      const text = error instanceof Error ? error.message : "Failed to process reminder chat.";
+      toast({
+        title: "Gentle Reminder chat unavailable",
+        description: text,
+        variant: "destructive",
+      });
+    },
+  });
+
   const grocerySuggestMutation = useMutation({
     mutationFn: async (applyOptInAutomation: boolean) => {
       const res = await apiRequest("POST", "/api/grocery-reminders/suggest", { applyOptInAutomation });
@@ -344,6 +381,13 @@ export default function PlannerPage() {
     setQuestion("");
     askMutation.mutate(q);
   }, [question, askMutation]);
+
+  const handleAiExecute = useCallback(() => {
+    const message = aiMessage.trim();
+    if (!message) return;
+    setAiMessage("");
+    aiExecuteMutation.mutate(message);
+  }, [aiMessage, aiExecuteMutation]);
 
   const todayStr = briefing?.today || new Date().toISOString().split("T")[0];
   const todayFormatted = new Date(todayStr + "T12:00:00").toLocaleDateString("en-US", {
@@ -1037,6 +1081,67 @@ export default function PlannerPage() {
                     className="bg-purple-600 hover:bg-purple-700 text-white"
                   >
                     {askMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="axtask-fade-in-up" style={{ animationDelay: "220ms" }}>
+            <Card className="border-violet-200 dark:border-violet-800 bg-violet-50/40 dark:bg-violet-900/10">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <MessageCircle className="h-4 w-4 text-violet-500" />
+                  Gentle Reminder Chat (beta)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  Ask in plain English to create reminders. Ambiguous prompts will ask a clarification.
+                </p>
+
+                {aiChatHistory.length > 0 && (
+                  <div className="space-y-3 max-h-52 overflow-y-auto rounded-lg bg-white/70 dark:bg-gray-800/50 p-3 border border-violet-100 dark:border-violet-900/30">
+                    {aiChatHistory.map((msg, i) => (
+                      <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                        <div
+                          className={`max-w-[88%] rounded-lg px-3 py-2 text-sm whitespace-pre-line ${
+                            msg.role === "user"
+                              ? "bg-violet-600 text-white"
+                              : "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-600"
+                          }`}
+                        >
+                          {msg.text}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Input
+                    placeholder='e.g. "Set a reminder to check my oil five minutes after I get home every day."'
+                    value={aiMessage}
+                    onChange={(e) => setAiMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAiExecute();
+                      }
+                    }}
+                    disabled={aiExecuteMutation.isPending}
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={handleAiExecute}
+                    disabled={!aiMessage.trim() || aiExecuteMutation.isPending}
+                    className="bg-violet-600 hover:bg-violet-700 text-white"
+                  >
+                    {aiExecuteMutation.isPending ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Send className="h-4 w-4" />

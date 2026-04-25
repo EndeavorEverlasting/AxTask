@@ -2,9 +2,30 @@ import { db } from "../db";
 import { and, eq } from "drizzle-orm";
 import { aiInteractions } from "@shared/schema";
 
-export async function logAiInteraction(input: typeof aiInteractions.$inferInsert) {
-  const [row] = await db.insert(aiInteractions).values(input).returning();
-  return row!;
+export async function logAiInteraction(input: {
+  userId: string;
+  sessionId?: string | null;
+  rawMessage: string;
+  intentKind?: string | null;
+  structuredOutputJson?: unknown;
+  provider?: string | null;
+  model?: string | null;
+  latencyMs?: number | null;
+}) {
+  const [row] = await db
+    .insert(aiInteractions)
+    .values({
+      userId: input.userId,
+      sessionId: input.sessionId ?? null,
+      rawMessage: input.rawMessage,
+      intentKind: input.intentKind ?? null,
+      structuredOutputJson: input.structuredOutputJson ?? null,
+      provider: input.provider ?? null,
+      model: input.model ?? null,
+      latencyMs: input.latencyMs ?? null,
+    })
+    .returning();
+  return row ?? null;
 }
 
 export async function markAiInteractionAccepted(id: string, userId: string) {
