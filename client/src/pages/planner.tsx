@@ -490,7 +490,7 @@ export default function PlannerPage() {
                 onClick={() => setLocation(buildTaskListHref(stat.filter))}
                 aria-label={`Open ${stat.label} tasks in All Tasks`}
                 data-testid={`planner-tile-${stat.filter}`}
-                className="axtask-fade-in-up w-full text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                className="axtask-stable-panel w-full text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
               >
                 <Card
                   className={`border ${stat.bg} transition-colors hover:brightness-[1.02]`}
@@ -956,8 +956,8 @@ export default function PlannerPage() {
                       return (
                         <div
                           key={idx}
-                          className="axtask-fade-in-up"
-                          style={{ animationDelay: `${Math.min(idx, 10) * 40}ms` }}
+                          className="axtask-stable-panel"
+                          data-testid={`planner-insight-shell-${insight.type}`}
                         >
                           <button
                             type="button"

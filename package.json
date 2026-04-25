@@ -30,6 +30,7 @@
     "security:node-runtime-guard": "node tools/security/check_node_runtime.mjs",
     "security:axios-guard": "node tools/security/check_no_axios.mjs",
     "test": "vitest run",
+    "test:ui:planner-scroll": "playwright test tests/ui/planner-scroll-visibility.spec.ts",
     "perf:bundle": "node tools/perf/bundle-budget.mjs",
     "perf:api-replay": "tsx tools/perf/api-replay.mjs",
     "perf:ci": "npm run build && npm run perf:bundle && npm run perf:api-replay",
@@ -38,7 +39,7 @@
     "test:deploy:artifacts": "vitest run tests/deploy/03-artifacts",
     "test:deploy:migrations": "vitest run tests/deploy/04-migrations",
     "test:deploy:health": "vitest run tests/deploy/06-health",
-    "test:deploy:regression": "vitest run tests/deploy/08-regression",
+    "test:deploy:regression": "vitest run tests/deploy/08-regression && npm run test:ui:planner-scroll",
     "test:deploy:classify": "vitest run tests/deploy/09-failure-classification",
     "test:deploy:capacity": "node scripts/deploy/check-db-capacity.mjs",
     "test:deploy": "npm run test:deploy:contract && npm run test:deploy:env && npm run test:deploy:artifacts && npm run test:deploy:migrations && npm run test:deploy:health && npm run test:deploy:regression && npm run test:deploy:classify",
@@ -166,6 +167,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@replit/vite-plugin-cartographer": "^0.2.7",
     "@replit/vite-plugin-runtime-error-modal": "^0.0.3",
     "@tailwindcss/typography": "^0.5.15",

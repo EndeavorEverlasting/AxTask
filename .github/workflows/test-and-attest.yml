@@ -54,6 +54,12 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Planner scroll visibility regression (Playwright)
+        run: npm run test:ui:planner-scroll
+
       - name: Production build
         run: npm run build
 

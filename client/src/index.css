@@ -546,7 +546,7 @@
     backface-visibility: hidden;
     contain: paint;
   }
-  body[data-axtask-calm] .axtask-stable-panel {
+  body[data-axtask-calm] [data-surface="calm"] .axtask-stable-panel {
     transition: none !important;
     animation: none !important;
   }

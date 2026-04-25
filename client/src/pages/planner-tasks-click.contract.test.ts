@@ -58,6 +58,16 @@ describe("planner page :: CSS-first motion (pass-4)", () => {
   it("does not import framer-motion in the planner page chunk", () => {
     expect(planner).not.toMatch(/from\s["']framer-motion["']/);
   });
+
+  it("keeps timeline card header structurally split from chart body", () => {
+    expect(planner).toContain('<CardHeader className="pb-3 border-b');
+    expect(planner).toContain('<CardContent className="space-y-3 pt-4">');
+  });
+
+  it("uses stable panel shells for planner tiles and insights", () => {
+    expect(planner).toContain("data-testid={`planner-insight-shell-${insight.type}`}");
+    expect(planner).toMatch(/data-testid=\{`planner-tile-\$\{stat\.filter\}`\}[\s\S]*className="axtask-stable-panel/);
+  });
 });
 
 describe("tasks page query-param handler", () => {
