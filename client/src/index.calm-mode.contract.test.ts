@@ -10,9 +10,9 @@ import { describe, it, expect } from "vitest";
  * fired / the tab is hidden. These CSS rules reduce animation and
  * ambient compositor pressure mid-scroll:
  *
- *   1. `transition-all` suppression
- *   2. ambient `filter` drop on aurora/orb layer
- *   3. `will-change` reset for orb/chip surfaces
+ *   1. ambient `filter` drop on aurora/orb layer
+ *   2. `will-change` reset for orb/chip surfaces
+ *   3. pretext interaction animations are paused
  *
  * If any of these rules disappears, the calm-mode RAM/scroll win
  * regresses. This contract test makes that regression loud before it
@@ -25,10 +25,10 @@ const CSS = fs.readFileSync(
 );
 
 describe("calm-mode stylesheet contract", () => {
-  it("suppresses transition-all during calm-mode so scroll isn't jittered by hover transitions", () => {
-    expect(CSS).toMatch(
-      /body\[data-axtask-calm\]\s+\.transition-all\s*\{[^}]*transition-property:\s*none\s*!important/,
-    );
+  it("pauses pretext interaction animations during calm mode", () => {
+    expect(CSS).toMatch(/body\[data-axtask-calm\][^{]*\.axtask-pretext-hud::before/);
+    expect(CSS).toMatch(/body\[data-axtask-calm\][^{]*\.axtask-pretext-interactive/);
+    expect(CSS).toMatch(/transition:\s*none\s*!important/);
   });
 
   it("drops `filter:` on aurora pseudos + orb layer", () => {

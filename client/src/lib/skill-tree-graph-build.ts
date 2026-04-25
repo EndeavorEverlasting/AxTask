@@ -28,8 +28,7 @@ function layoutSkillCluster(nodes: SkillNodeDto[]): {
         id: `e-${p}__${n.skillKey}`,
         source: p,
         target: n.skillKey,
-        type: "smoothstep",
-        style: { stroke: "hsl(var(--border))", strokeWidth: 1.5 },
+        type: "skillGradient",
       });
     }
   }

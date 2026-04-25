@@ -24,7 +24,7 @@ export default function SkillTreePage() {
         }
       />
 
-      <Card className="glass-panel-glossy">
+      <Card className="glass-panel-glossy axtask-pretext-hud">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-amber-500" aria-hidden />

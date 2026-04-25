@@ -464,7 +464,7 @@
 
 [data-surface="dense"] .axtask-orb-layer {
   opacity: 0.08;
-  filter: saturate(0.6);
+  filter: none;
 }
 
 [data-surface="dense"] .axtask-chip-layer {
@@ -512,10 +512,6 @@ body[data-axtask-ambient-fx="off"] .axtask-aurora-body::after {
    * background glass. Surfaces that need animation for interactivity should
    * use `transition-transform` / `transition-opacity` / `motion-safe:` and
    * are not affected by this rule. */
-  body[data-axtask-calm] .transition-all {
-    transition-property: none !important;
-  }
-
   /* Ambient / aurora / orb layers are the other major compositor cost on
    * scroll: `filter: blur(120px)` on the aurora pseudos and
    * `will-change: transform` on the orb force the compositor to keep a
@@ -530,8 +526,7 @@ body[data-axtask-ambient-fx="off"] .axtask-aurora-body::after {
   }
   body[data-axtask-calm] .axtask-orb,
   body[data-axtask-calm] .axtask-orb-layer,
-  body[data-axtask-calm] [data-pretext-chip],
-  body[data-axtask-calm] .glass-panel-glossy {
+  body[data-axtask-calm] [data-pretext-chip] {
     will-change: auto !important;
   }
 
@@ -823,6 +818,92 @@ body[data-axtask-cv-rows="off"] .axtask-cv-row {
 
 .axtask-rise-in {
   animation: axtask-rise-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Pretext interaction system: lightweight glow/fade/splash that is safe on scroll. */
+@keyframes axtask-pretext-hud-shimmer {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 140% 50%; }
+}
+
+@keyframes axtask-pretext-splash {
+  0% { opacity: 0.32; transform: scale(0.92); }
+  100% { opacity: 0; transform: scale(1.22); }
+}
+
+.axtask-pretext-hud {
+  position: relative;
+  border: 1px solid rgba(56, 189, 248, 0.24);
+  background:
+    linear-gradient(120deg, rgba(56, 189, 248, 0.08), rgba(139, 92, 246, 0.08), rgba(20, 184, 166, 0.08)),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.92));
+  background-size: 220% 220%, 100% 100%;
+  box-shadow: 0 8px 32px -18px rgba(14, 165, 233, 0.7);
+}
+
+.axtask-pretext-hud::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.1), rgba(168, 85, 247, 0.16), rgba(45, 212, 191, 0.1));
+  background-size: 180% 180%;
+  animation: axtask-pretext-hud-shimmer 5s linear infinite;
+  mix-blend-mode: screen;
+  opacity: 0.55;
+}
+
+.axtask-pretext-interactive {
+  position: relative;
+  transition: transform 180ms ease, box-shadow 220ms ease, border-color 220ms ease, opacity 220ms ease;
+}
+
+.axtask-pretext-interactive:hover,
+.axtask-pretext-interactive:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.38), 0 10px 28px -14px rgba(14, 165, 233, 0.8);
+  border-color: rgba(56, 189, 248, 0.45);
+}
+
+.axtask-pretext-splash {
+  overflow: hidden;
+}
+
+.axtask-pretext-splash::after {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.26) 0%, rgba(56, 189, 248, 0.16) 32%, transparent 70%);
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+.axtask-pretext-splash:active::after {
+  animation: axtask-pretext-splash 360ms ease-out both;
+}
+
+body[data-axtask-calm] .axtask-pretext-hud::before,
+body[data-axtask-calm] .axtask-pretext-interactive,
+body[data-axtask-calm] .axtask-pretext-splash::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+.skill-tree-flow .react-flow__controls,
+.skill-tree-flow .react-flow__attribution {
+  display: none !important;
+}
+
+.skill-tree-flow .react-flow__minimap-mask {
+  fill: rgba(15, 23, 42, 0.7) !important;
+}
+
+.skill-tree-flow .react-flow__minimap-node {
+  fill: rgba(125, 211, 252, 0.55) !important;
+  stroke: rgba(45, 212, 191, 0.7) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

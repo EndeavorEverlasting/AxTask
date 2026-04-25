@@ -253,7 +253,7 @@ function MobileVoiceFAB() {
       )}
       {/* Main button */}
       <span
-        className={`relative flex items-center justify-center w-16 h-16 rounded-full shadow-2xl transition-all duration-300 ${
+        className={`relative flex items-center justify-center w-16 h-16 rounded-full shadow-2xl transition-transform transition-colors duration-300 ${
           isListening
             ? "bg-gradient-to-br from-red-500 via-rose-500 to-pink-600 scale-110 shadow-red-500/40"
             : isProcessing

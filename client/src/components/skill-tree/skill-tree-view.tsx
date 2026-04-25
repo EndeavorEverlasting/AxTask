@@ -203,7 +203,7 @@ export function SkillTreeView({ tree, readOnly, compact, className }: SkillTreeV
             <div
               key={branch}
               className={cn(
-                "rounded-xl border border-border bg-card/60 backdrop-blur",
+                "rounded-xl border border-border bg-card/85",
                 compact ? "p-2" : "p-3",
               )}
               data-testid={`skill-tree-branch-${branch}`}
@@ -435,7 +435,7 @@ export function UnifiedSkillTreeView({ readOnly, compact, className }: UnifiedSk
               <div
                 key={branchKey}
                 className={cn(
-                  "rounded-xl border border-border bg-card/60 backdrop-blur",
+                  "rounded-xl border border-border bg-card/85",
                   compact ? "p-2" : "p-3",
                 )}
                 data-testid={`skill-tree-branch-${branchKey}`}

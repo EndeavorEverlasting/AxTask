@@ -38,6 +38,7 @@ describe("buildSkillTreeFlowLayout", () => {
     expect(edges).toHaveLength(1);
     expect(edges[0].source).toBe("guidance-depth");
     expect(edges[0].target).toBe("context-memory");
+    expect(edges[0].type).toBe("skillGradient");
     expect(rf).toHaveLength(2);
   });
 

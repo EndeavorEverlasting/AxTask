@@ -1,17 +1,20 @@
 import { createContext, memo, useContext, useEffect, useMemo } from "react";
 import {
+  BaseEdge,
   Background,
   BackgroundVariant,
-  Controls,
   Handle,
   MiniMap,
   Panel,
   Position,
   ReactFlow,
   ReactFlowProvider,
+  getSmoothStepPath,
   useEdgesState,
   useNodesState,
   useReactFlow,
+  type EdgeProps,
+  type EdgeTypes,
   type Node,
   type NodeProps,
   type NodeTypes,
@@ -30,6 +33,10 @@ import { resolveFeedbackAvatarKeyForSkillNode } from "@/lib/skill-tree-feedback"
 import { FEEDBACK_AVATAR_NAMES } from "@shared/feedback-avatar-map";
 import type { SkillNodeDto, SkillTreeKind } from "./skill-tree-view";
 import { Coins, Check, Lock, Zap } from "lucide-react";
+
+function normalizeToken(s: string): string {
+  return s.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
 
 type SkillTreeGraphActions = {
   /** Fallback when a DTO has no `domain` (single-tree mode). */
@@ -60,6 +67,89 @@ function FitViewOnLayout({ layoutKey }: { layoutKey: string }) {
     return () => cancelAnimationFrame(id);
   }, [layoutKey, fitView]);
   return null;
+}
+
+function SkillTreeGradientEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  selected,
+}: EdgeProps) {
+  const [edgePath] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  });
+  const gradientId = `skillEdgeGrad-${normalizeToken(id)}`;
+  return (
+    <>
+      <defs>
+        <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="rgba(56, 189, 248, 0.92)" />
+          <stop offset="45%" stopColor="rgba(167, 139, 250, 0.9)" />
+          <stop offset="100%" stopColor="rgba(45, 212, 191, 0.92)" />
+        </linearGradient>
+      </defs>
+      <BaseEdge
+        path={edgePath}
+        style={{
+          stroke: `url(#${gradientId})`,
+          strokeWidth: selected ? 2.9 : 2.2,
+          opacity: selected ? 0.98 : 0.88,
+          filter: "drop-shadow(0 0 5px rgba(56, 189, 248, 0.35))",
+        }}
+      />
+    </>
+  );
+}
+
+function SkillTreeHud() {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  return (
+    <Panel position="bottom-right" className="m-3 w-56 rounded-xl p-2.5 axtask-pretext-hud">
+      <p className="text-[10px] uppercase tracking-[0.16em] text-sky-200/80 font-semibold mb-1">
+        Flow controls
+      </p>
+      <div className="space-y-2">
+        <div className="space-y-1">
+          <span className="block text-[10px] font-medium text-cyan-200/90">Pretext zoom in</span>
+          <button
+            type="button"
+            className="axtask-pretext-interactive axtask-pretext-splash inline-flex w-full items-center justify-between rounded-lg border border-cyan-300/30 bg-cyan-500/10 px-2 py-1.5 text-xs font-semibold text-cyan-100"
+            onClick={() => zoomIn({ duration: 180 })}
+          >
+            <span>Amplify focus</span>
+            <span className="text-cyan-300">+</span>
+          </button>
+        </div>
+        <div className="space-y-1">
+          <span className="block text-[10px] font-medium text-violet-200/90">Pretext zoom out</span>
+          <button
+            type="button"
+            className="axtask-pretext-interactive axtask-pretext-splash inline-flex w-full items-center justify-between rounded-lg border border-violet-300/30 bg-violet-500/10 px-2 py-1.5 text-xs font-semibold text-violet-100"
+            onClick={() => zoomOut({ duration: 180 })}
+          >
+            <span>Expand context</span>
+            <span className="text-violet-300">-</span>
+          </button>
+        </div>
+        <button
+          type="button"
+          className="axtask-pretext-interactive axtask-pretext-splash inline-flex w-full items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-500/10 px-2 py-1.5 text-xs font-semibold text-emerald-100"
+          onClick={() => fitView({ padding: 0.2, duration: 220 })}
+        >
+          Recenter constellation
+        </button>
+      </div>
+    </Panel>
+  );
 }
 
 type SkillFlowRfNode = Node<SkillFlowNodeData, "skillNode">;
@@ -103,22 +193,24 @@ function SkillTreeFlowNodeImpl({ data }: NodeProps<SkillFlowRfNode>) {
   return (
     <div
       className={cn(
-        "rounded-lg border bg-background/90 shadow-sm backdrop-blur-sm w-[260px]",
+        "axtask-pretext-interactive axtask-pretext-splash relative overflow-hidden rounded-lg border bg-slate-950/90 shadow-sm w-[260px]",
         "p-2.5",
         locked && "opacity-75",
-        treeKind === "offline" && "border-cyan-500/35 shadow-cyan-950/20",
-        treeKind === "avatar" && "border-violet-500/35 shadow-violet-950/15",
+        treeKind === "offline" && "border-cyan-400/35 shadow-[0_0_0_1px_rgba(56,189,248,0.25),0_10px_20px_-14px_rgba(56,189,248,0.7)]",
+        treeKind === "avatar" && "border-violet-400/35 shadow-[0_0_0_1px_rgba(139,92,246,0.25),0_10px_20px_-14px_rgba(139,92,246,0.7)]",
+        !locked && !atMax && "after:absolute after:inset-0 after:pointer-events-none after:bg-[radial-gradient(circle_at_15%_10%,rgba(125,211,252,0.16),transparent_55%),radial-gradient(circle_at_80%_90%,rgba(167,139,250,0.14),transparent_60%)]",
+        atMax && "shadow-[0_0_0_1px_rgba(16,185,129,0.4),0_0_28px_-10px_rgba(16,185,129,0.8)]",
       )}
       data-testid={`skill-node-${treeKind}-${dto.skillKey}`}
     >
-      <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-border" />
+      <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-cyan-300/90 !border-0" />
       <div className="flex items-start gap-2">
         <AvatarOrb
           variant={avatarKey}
           size="sm"
           wobble={false}
           label={avatarName}
-          className="shrink-0 mt-0.5"
+          className="shrink-0 mt-0.5 shadow-[0_0_14px_-6px_rgba(56,189,248,0.95)]"
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -181,7 +273,7 @@ function SkillTreeFlowNodeImpl({ data }: NodeProps<SkillFlowRfNode>) {
           </Button>
         </div>
       )}
-      <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !bg-border" />
+      <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !bg-violet-300/90 !border-0" />
     </div>
   );
 }
@@ -189,6 +281,7 @@ function SkillTreeFlowNodeImpl({ data }: NodeProps<SkillFlowRfNode>) {
 const SkillTreeFlowNode = memo(SkillTreeFlowNodeImpl);
 
 const nodeTypes = { skillNode: SkillTreeFlowNode } as NodeTypes;
+const edgeTypes = { skillGradient: SkillTreeGradientEdge } as EdgeTypes;
 
 export interface SkillTreeGraphProps {
   /** Used for theming and as default when DTOs omit `domain`. */
@@ -256,7 +349,7 @@ function SkillTreeGraphInner({
     <SkillTreeGraphActionsContext.Provider value={actions}>
       <div
         className={cn(
-          "skill-tree-flow rounded-xl border border-border bg-muted/20 min-h-[420px] h-[min(70vh,640px)] w-full",
+          "skill-tree-flow axtask-pretext-hud rounded-xl border border-border min-h-[420px] h-[min(70vh,640px)] w-full",
           className,
         )}
         data-testid={`skill-tree-graph-${tree}`}
@@ -267,30 +360,31 @@ function SkillTreeGraphInner({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           fitView={false}
           defaultViewport={defaultViewport}
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={true}
-          panOnScroll
-          zoomOnScroll
+          panOnScroll={false}
+          zoomOnScroll={false}
           minZoom={0.35}
           maxZoom={1.35}
         >
           {showRegions ? (
             <>
-              <Panel position="top-left" className="m-2 max-w-[min(100%,14rem)] rounded-lg border border-violet-500/25 bg-background/85 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground shadow-sm backdrop-blur-sm">
+              <Panel position="top-left" className="m-2 max-w-[min(100%,14rem)] rounded-lg border border-violet-500/25 bg-slate-950/90 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-violet-100/90 shadow-sm">
                 Companions &amp; productivity
               </Panel>
-              <Panel position="top-right" className="m-2 max-w-[min(100%,14rem)] rounded-lg border border-cyan-500/25 bg-background/85 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground shadow-sm backdrop-blur-sm">
+              <Panel position="top-right" className="m-2 max-w-[min(100%,14rem)] rounded-lg border border-cyan-500/25 bg-slate-950/90 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-100/90 shadow-sm">
                 Idle generator
               </Panel>
             </>
           ) : null}
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-          <Controls showInteractive={false} />
+          <SkillTreeHud />
           <MiniMap
-            className="!bg-card/90 !rounded-lg !border !border-border"
+            className="!bg-slate-950/92 !rounded-lg !border !border-cyan-400/35"
             maskColor="hsl(var(--background) / 0.6)"
             zoomable
             pannable

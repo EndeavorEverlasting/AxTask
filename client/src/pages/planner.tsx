@@ -495,7 +495,7 @@ export default function PlannerPage() {
             className="axtask-fade-in-up"
             style={{ animationDelay: "60ms" }}
           >
-            <Card className="border-gray-200 dark:border-gray-800">
+            <Card className="border-gray-200 dark:border-gray-800 axtask-pretext-hud">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <CardTitle className="text-base flex items-center gap-2">
