@@ -2474,7 +2474,34 @@ export async function markCollaborationMessageRead(userId: string, messageId: st
   return !!row;
 }
 
-export { listUserLocationPlaces, upsertUserLocationPlace } from "./storage/locations";
+export {
+  listUserLocationPlaces,
+  upsertUserLocationPlace,
+  getUserDefaultHome,
+  getUserDefaultWork,
+  resolvePlaceAlias,
+  createUserLocationPlace,
+  updateUserLocationPlace,
+  deleteUserLocationPlace,
+  recordLocationEvent,
+  markPlaceEntered,
+  markPlaceExited,
+  slugifyPlaceBase,
+} from "./storage/locations";
+export {
+  createReminderWithTrigger,
+  listUserReminders,
+  getReminderById,
+  updateReminder,
+  disableReminder,
+  listDueReminderTriggers,
+  markReminderTriggered,
+  createUserLocationEvent,
+  scheduleLocationOffsetTriggersFromEvent,
+  createUserLocationEventAndScheduleOffsetTriggers,
+  LOCATION_OFFSET_SCHEDULING_META_KEY,
+} from "./storage/reminders";
+export { logAiInteraction, markAiInteractionAccepted, markAiInteractionRejected } from "./storage/ai";
 
 export async function getCommunityMomentumStats(): Promise<{
   postsLast24h: number;
