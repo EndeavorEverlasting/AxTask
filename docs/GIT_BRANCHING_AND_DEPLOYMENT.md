@@ -24,6 +24,26 @@ Risk appears when you **push commits to the remote branch that your hosting or C
 
 Naming of the default or production branch can differ per fork (`main`, `master`, `release`, etc.). The rule is: **know which remote branch is wired to production deploy**, and do not use it as a scratchpad.
 
+## Branch names (time and context)
+
+Branches are how humans and agents **find work later** (PR lists, merge commits, `git branch -a`, release notes). Names like `post-merge-hygiene`, `misc`, or `wip` strip away **when** the work happened and **what** actually changed, so they do not age well.
+
+When you create a remote branch, prefer this shape:
+
+`{type}/{YYYY-MM-DD}-{concrete-slug}`
+
+Where:
+
+1. **`{type}`** — `feat`, `fix`, `chore`, `docs`, `test`, or `ci`, aligned with the conventional commit type you expect to use on that branch.
+2. **`{YYYY-MM-DD}`** — the date you **cut** the branch (or the first push day if you are unsure). This gives an immediate time anchor without opening GitHub.
+3. **`{concrete-slug}`** — short **kebab-case** description using **real nouns** from the repo: paths, tools, routes, or components (`playwright-test-results-gitignore`, `routes-ai-reminders`, `task-gantt-scroll-contract`), not vague labels (`cleanup`, `hygiene`, `stuff`, `fixes`).
+
+**Good:** `chore/2026-04-27-gitignore-playwright-test-results-gitattributes-lf`  
+**Good:** `feat/2026-04-25-ai-reminder-create-route-and-storage`  
+**Avoid:** `chore/post-merge-hygiene`, `fix/bugs`, `feat/improvements`
+
+If one branch mixes unrelated concerns, split into two branches rather than one meaningless name. Renaming a branch **after** it is merged is usually not worth the churn; apply this rule **at creation time** (and in agent/PR instructions).
+
 ## Before every `git push`
 
 - Run `git branch --show-current` (or your UI equivalent) and confirm you are on the branch you intend.

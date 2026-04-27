@@ -33,6 +33,7 @@ CI enforces client bundle size (`npm run perf:bundle`) and API latency heuristic
 ## Git / releases
 
 - Do not push experimental work directly to the remote branch that tracks **production deploy**; use a feature branch and a PR. See [docs/GIT_BRANCHING_AND_DEPLOYMENT.md](docs/GIT_BRANCHING_AND_DEPLOYMENT.md).
+- **Branch names:** use `{type}/{YYYY-MM-DD}-{concrete-slug}` (date + what actually changed), not generic names like `hygiene` or `wip`. Full rationale and examples: [Branch names (time and context)](docs/GIT_BRANCHING_AND_DEPLOYMENT.md#branch-names-time-and-context) in that doc.
 
 ### Agent session completion (deployable work)
 
