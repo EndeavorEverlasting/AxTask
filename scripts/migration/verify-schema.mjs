@@ -45,6 +45,11 @@ const REQUIRED_TABLES = [
   "task_patterns",
   "classification_contributions",
   "classification_confirmations",
+  "ai_interactions",
+  "user_location_events",
+  "user_location_places",
+  "user_reminder_triggers",
+  "user_reminders",
 ];
 
 const OPTIONAL_TABLES = ["session"];
