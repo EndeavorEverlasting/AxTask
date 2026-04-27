@@ -47,6 +47,9 @@ tools/alarm-companion/data/
 __pycache__/
 *.pyc
 
+# Playwright / UI test output (ephemeral; regenerated each run)
+test-results/
+
 # npm audit output (ad-hoc, non-reproducible, may embed advisory URLs and
 # dependency paths we don't want checked in)
 audit.json
