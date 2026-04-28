@@ -26,6 +26,7 @@ import { matchVoiceMicChord, voiceBarOpenRef } from "@/lib/hotkey-actions";
 import { selectDominantAvatarProfile } from "@/lib/select-dominant-avatar-profile";
 import { isFeedbackAvatarKey, type FeedbackAvatarKey } from "@shared/feedback-avatar-map";
 import type { ArchetypeContinuumDto } from "@shared/archetype-continuum-dto";
+import { RETRO_VOICE_PLACEHOLDER_TASK_ID } from "@shared/retro-voice-review";
 
 /** Parse stored alarm snapshot JSON for the alarm panel; returns null if malformed. */
 function parseAlarmPanelDetailFromSnapshot(payloadJson: string): Record<string, unknown> | null {
@@ -70,12 +71,13 @@ export interface TaskPrefill {
 
 export interface ReviewProposal {
   actions: Array<{
-    type: "complete" | "reschedule" | "update";
+    type: "complete" | "reschedule" | "update" | "create_and_complete";
     taskId: string;
     taskActivity: string;
     details: Record<string, unknown>;
     confidence: number;
     reason: string;
+    actionId?: string;
   }>;
   unmatched: string[];
   message: string;
@@ -85,8 +87,16 @@ function isReviewProposalAction(x: unknown): x is ReviewProposal["actions"][numb
   if (!x || typeof x !== "object") return false;
   const o = x as Record<string, unknown>;
   const type = o.type;
-  if (type !== "complete" && type !== "reschedule" && type !== "update") return false;
+  if (
+    type !== "complete" &&
+    type !== "reschedule" &&
+    type !== "update" &&
+    type !== "create_and_complete"
+  ) {
+    return false;
+  }
   if (typeof o.taskId !== "string" || o.taskId.length === 0) return false;
+  if (type === "create_and_complete" && o.taskId !== RETRO_VOICE_PLACEHOLDER_TASK_ID) return false;
   if (typeof o.taskActivity !== "string") return false;
   if (!o.details || typeof o.details !== "object" || Array.isArray(o.details)) return false;
   if (typeof o.confidence !== "number" || !Number.isFinite(o.confidence)) return false;

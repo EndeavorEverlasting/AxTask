@@ -193,6 +193,7 @@ import { getPublicArchetypeContinuumForUser } from "./lib/archetype-continuum";
 import { hashActor } from "./lib/actor-hash";
 import { insertClassificationDisputeSchema, CATEGORY_REVIEW_STATUSES, type CategoryReviewStatus } from "@shared/schema";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
+import { RETRO_VOICE_PLACEHOLDER_TASK_ID } from "@shared/retro-voice-review";
 import { registerAiRoutes } from "./routes/ai";
 import { registerLocationRoutes } from "./routes/locations";
 import { registerReminderRoutes } from "./routes/reminders";
@@ -4151,11 +4152,125 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const userId = req.user!.id;
       const results: Array<{ taskId: string; success: boolean; error?: string }> = [];
+      const coinSummaries: Array<{ taskId: string; coinsEarned: number; newBalance: number }> = [];
 
       for (const action of actions as ReviewAction[]) {
         try {
-          if (!action.taskId || !action.type) {
+          if (!action.type) {
             results.push({ taskId: action.taskId || "unknown", success: false, error: "Invalid action" });
+            continue;
+          }
+
+          if (action.type === "create_and_complete") {
+            if (action.taskId !== RETRO_VOICE_PLACEHOLDER_TASK_ID) {
+              results.push({ taskId: action.taskId, success: false, error: "Invalid retro action" });
+              continue;
+            }
+            const activity = typeof action.taskActivity === "string" ? action.taskActivity.trim() : "";
+            const rawDate = action.details?.date;
+            const date =
+              typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
+                ? rawDate
+                : null;
+            if (!activity || activity.length < 2 || !date) {
+              results.push({
+                taskId: RETRO_VOICE_PLACEHOLDER_TASK_ID,
+                success: false,
+                error: "Invalid retro task payload",
+              });
+              continue;
+            }
+            const quota = await assertCanCreateTasks(userId, 1);
+            if (!quota.ok) {
+              results.push({
+                taskId: RETRO_VOICE_PLACEHOLDER_TASK_ID,
+                success: false,
+                error: quota.message,
+              });
+              continue;
+            }
+            const notes =
+              typeof action.details?.notes === "string"
+                ? action.details.notes.slice(0, TASK_NOTES_MAX_CHARS)
+                : "";
+            const fingerprint = computeTaskFingerprint({ activity, date, time: "", notes });
+            if (await hasImportFingerprint(userId, fingerprint)) {
+              results.push({
+                taskId: RETRO_VOICE_PLACEHOLDER_TASK_ID,
+                success: false,
+                error: "A matching task already exists.",
+              });
+              continue;
+            }
+            let task = await storage.createTask(userId, {
+              activity,
+              date,
+              status: "completed",
+              recurrence: "none",
+              notes,
+              visibility: "private",
+              communityShowNotes: false,
+            });
+            await recordImportFingerprint(userId, fingerprint, "voice_retro_log", task.id);
+            const allTasks = await storage.getTasks(userId);
+            const priorityResult = await PriorityEngine.calculatePriority(
+              task.activity,
+              task.notes || "",
+              task.urgency,
+              task.impact,
+              task.effort,
+              allTasks.filter(t => t.id !== task.id),
+            );
+            const { result: clsRes, associations } = await classifyWithAssociations(
+              task.activity,
+              task.notes || "",
+              { preferExternal: true },
+            );
+            task =
+              (await storage.updateTask(userId, {
+                id: task.id,
+                priority: priorityResult.priority,
+                priorityScore: Math.round(priorityResult.score * 10),
+                classification: clsRes.classification,
+                classificationAssociations: associations,
+                isRepeated: priorityResult.isRepeated,
+              })) ?? task;
+
+            learnFromTask(userId, task, allTasks).catch(() => undefined);
+
+            await tryCappedCoinAward({
+              userId,
+              reason: ENGAGEMENT.uniqueTaskCreate.reason,
+              amount: ENGAGEMENT.uniqueTaskCreate.amount,
+              dailyCap: ENGAGEMENT.uniqueTaskCreate.dailyCap,
+              details: `Voice retro log: ${task.activity.slice(0, 100)}`,
+              taskId: task.id,
+            });
+
+            try {
+              const reward = await awardCoinsForCompletion(userId, task, "pending");
+              if (reward) {
+                coinSummaries.push({
+                  taskId: task.id,
+                  coinsEarned: reward.coinsEarned,
+                  newBalance: reward.newBalance,
+                });
+              }
+              if (task.status === "completed") {
+                void maybeAwardOrganizationFollowthrough({
+                  userId,
+                  taskId: task.id,
+                });
+              }
+            } catch (coinErr) {
+              console.error(`Coin award failed for retro task ${task.id}:`, coinErr);
+            }
+            results.push({ taskId: task.id, success: true });
+            continue;
+          }
+
+          if (!action.taskId) {
+            results.push({ taskId: "unknown", success: false, error: "Invalid action" });
             continue;
           }
 
@@ -4172,7 +4287,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const updatedTask = await storage.updateTask(userId, { id: action.taskId, status: "completed" });
               if (updatedTask) {
                 try {
-                  await awardCoinsForCompletion(userId, updatedTask, previousStatus);
+                  const reward = await awardCoinsForCompletion(userId, updatedTask, previousStatus);
+                  if (reward) {
+                    coinSummaries.push({
+                      taskId: updatedTask.id,
+                      coinsEarned: reward.coinsEarned,
+                      newBalance: reward.newBalance,
+                    });
+                  }
                   if (updatedTask.status === "completed" && previousStatus !== "completed") {
                     void maybeAwardOrganizationFollowthrough({
                       userId,
@@ -4223,7 +4345,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const applied = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;
-      res.json({ applied, failed, results });
+      res.json({
+        applied,
+        failed,
+        results,
+        ...(coinSummaries.length > 0 ? { coinSummaries } : {}),
+      });
     } catch (error) {
       console.error("Task review apply error:", error);
       res.status(500).json({ message: "Failed to apply task review" });

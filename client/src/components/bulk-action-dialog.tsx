@@ -20,10 +20,11 @@ import {
   Sparkles,
   CheckSquare,
   XCircle,
+  History,
 } from "lucide-react";
 
 export interface ProposedAction {
-  type: "complete" | "reschedule" | "update";
+  type: "complete" | "reschedule" | "update" | "create_and_complete";
   taskId: string;
   taskActivity: string;
   details: Record<string, unknown>;
@@ -45,18 +46,21 @@ const ACTION_ICONS: Record<string, typeof CheckCircle2> = {
   complete: CheckCircle2,
   reschedule: CalendarClock,
   update: ArrowUpDown,
+  create_and_complete: History,
 };
 
 const ACTION_COLORS: Record<string, string> = {
   complete: "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20",
   reschedule: "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20",
   update: "text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20",
+  create_and_complete: "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20",
 };
 
 const ACTION_LABELS: Record<string, string> = {
   complete: "Complete",
   reschedule: "Reschedule",
   update: "Update",
+  create_and_complete: "Log done",
 };
 
 /** Max automatic retry rounds after a partial failure (each failed item tracked by stable key). */
@@ -126,7 +130,12 @@ export default function BulkActionDialog({
         "/api/tasks/review/apply",
         { actions: selectedActions },
         queryClient,
-      ) as Promise<{ applied: number; failed: number; results: Array<{ taskId: string; success: boolean; error?: string }> }>;
+      ) as Promise<{
+        applied: number;
+        failed: number;
+        results: Array<{ taskId: string; success: boolean; error?: string }>;
+        coinSummaries?: Array<{ taskId: string; coinsEarned: number; newBalance: number }>;
+      }>;
     },
     onSuccess: (data, selectedActions) => {
       if (data && typeof data === "object" && "offlineQueued" in data) {
@@ -139,21 +148,6 @@ export default function BulkActionDialog({
       }
       const results = data.results;
       const failedCount = data.failed || 0;
-      const resultByTaskId = new Map<string, { success: boolean; error?: string }>();
-      if (Array.isArray(results)) {
-        for (const r of results) {
-          if (!r || typeof r.taskId !== "string") continue;
-          const prev = resultByTaskId.get(r.taskId);
-          if (!prev) {
-            resultByTaskId.set(r.taskId, { success: r.success !== false, error: r.error });
-          } else {
-            resultByTaskId.set(r.taskId, {
-              success: prev.success && r.success !== false,
-              error: r.error ?? prev.error,
-            });
-          }
-        }
-      }
       if (failedCount > 0 && Array.isArray(results) && selectedActions.length > 0) {
         const keys = submitKeysRef.current;
         const failedEntries = selectedActions
@@ -162,8 +156,8 @@ export default function BulkActionDialog({
             i,
             key: keys[i] ?? actionKey(action, i),
           }))
-          .filter(({ action }) => {
-            const r = resultByTaskId.get(action.taskId);
+          .filter(({ i }) => {
+            const r = Array.isArray(results) ? results[i] : undefined;
             return !r || r.success === false;
           });
         const eligible = failedEntries.filter(({ key }) => (retryAttemptsRef.current.get(key) ?? 0) < MAX_RETRIES);
@@ -205,13 +199,16 @@ export default function BulkActionDialog({
 
       const cachedTasks = queryClient.getQueryData<Task[]>(["/api/tasks"]) ?? [];
       const predictionUserId = cachedTasks[0]?.userId ?? "";
-      if (predictionUserId) {
-        for (const action of selectedActions) {
-          if (action.type !== "complete") continue;
-          const r = resultByTaskId.get(action.taskId);
-          if (r && r.success === false) continue;
-          const t = cachedTasks.find((x) => x.id === action.taskId);
-          if (t && t.status !== "completed") {
+      if (predictionUserId && Array.isArray(results)) {
+        for (let i = 0; i < selectedActions.length; i++) {
+          const action = selectedActions[i];
+          const r = results[i];
+          if (!action || !r || r.success === false) continue;
+          if (action.type !== "complete" && action.type !== "create_and_complete") continue;
+          const resolvedId = r.taskId;
+          const t = cachedTasks.find((x) => x.id === resolvedId);
+          if (action.type === "create_and_complete" || !t) continue;
+          if (t.status !== "completed") {
             void recordTaskCompletedForPrediction({
               userId: predictionUserId,
               task: { ...t, status: "completed" },
@@ -226,16 +223,23 @@ export default function BulkActionDialog({
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
 
+      const coinSummaries = Array.isArray(data.coinSummaries) ? data.coinSummaries : [];
+      const totalCoins = coinSummaries.reduce((s, c) => s + (c.coinsEarned || 0), 0);
+      const coinHint =
+        totalCoins > 0
+          ? ` +${totalCoins} AxCoin${totalCoins !== 1 ? "s" : ""} earned (see wallet for breakdown).`
+          : "";
+
       if (failedCount > 0) {
         toast({
           title: "Partially applied",
-          description: `${data.applied} change${data.applied !== 1 ? "s" : ""} applied, ${failedCount} failed.`,
+          description: `${data.applied} change${data.applied !== 1 ? "s" : ""} applied, ${failedCount} failed.${coinHint}`,
           variant: "destructive",
         });
       } else {
         toast({
           title: "Changes applied",
-          description: `${data.applied} task${data.applied !== 1 ? "s" : ""} updated successfully.`,
+          description: `${data.applied} task${data.applied !== 1 ? "s" : ""} updated successfully.${coinHint}`,
         });
         if (typeof data.applied === "number" && data.applied > 0) {
           requestFeedbackNudge("bulk_actions");
@@ -357,6 +361,11 @@ export default function BulkActionDialog({
                     typeof action.details.newDate === "string" ? (
                       <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
                         Currently: {action.details.fromDate} → {action.details.newDate}
+                      </p>
+                    ) : null}
+                    {action.type === "create_and_complete" && typeof action.details.date === "string" ? (
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                        Log on: {action.details.date}
                       </p>
                     ) : null}
                     {action.confidence < 0.5 && (

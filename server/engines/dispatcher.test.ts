@@ -148,4 +148,13 @@ describe("dispatchVoiceCommand", () => {
     expect(r.intent).toBe("search");
     expect((r.payload as { query?: string }).query).toMatch(/billing/i);
   });
+
+  it("proposes retro log when completing unknown work", async () => {
+    const r = await dispatchVoiceCommand("I completed a meeting today", emptyTasks, userId, todayStr, now);
+    expect(r.intent).toBe("task_review");
+    expect(r.action).toBe("show_review");
+    const actions = (r.payload as { actions?: Array<{ type: string }> }).actions;
+    expect(Array.isArray(actions)).toBe(true);
+    expect(actions?.[0]?.type).toBe("create_and_complete");
+  });
 });
