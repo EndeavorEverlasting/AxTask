@@ -58,4 +58,18 @@ describe("server/routes.ts inventory", () => {
     ].sort((a, b) => a.localeCompare(b));
     expect(merged).toMatchSnapshot();
   });
+
+  /** Phase-1 hardening: location/reminder registrars must keep these paths (regardless of snapshot drift). */
+  it("always exposes location and reminder API paths from registrars", () => {
+    const loc = fs.readFileSync(path.join(projectRoot, "server", "routes", "locations.ts"), "utf8");
+    const rem = fs.readFileSync(path.join(projectRoot, "server", "routes", "reminders.ts"), "utf8");
+    const locPaths = extractExpressRoutePaths(loc);
+    const remPaths = extractExpressRoutePaths(rem);
+    for (const p of ["/api/location-places", "/api/location-events"]) {
+      expect(locPaths, p).toContain(p);
+    }
+    for (const p of ["/api/reminders", "/api/reminders/:id"]) {
+      expect(remPaths, p).toContain(p);
+    }
+  });
 });

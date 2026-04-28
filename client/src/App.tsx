@@ -26,6 +26,11 @@ const VoiceCommandBar = lazy(() =>
     default: m.VoiceCommandBar,
   })),
 );
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
 import { InstallCtaBanner } from "@/components/install-cta-banner";
 import { WalletTopBar } from "@/components/wallet-top-bar";
 import { FeedbackNudgeDialog } from "@/components/feedback-nudge-dialog";
@@ -355,6 +360,7 @@ function AuthenticatedApp() {
 
   const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const mainScrollBudgetRaf = useRef<number | null>(null);
   const onMainShellScroll = useCallback(() => {
     if (mainScrollBudgetRaf.current != null) return;
@@ -388,6 +394,16 @@ function AuthenticatedApp() {
       if (wasOpen) return true;
       void import("@/components/global-search").then(() => {
         setGlobalSearchOpen(true);
+      });
+      return false;
+    });
+  }, []);
+
+  const toggleCommandPaletteLazy = useCallback(() => {
+    setCommandPaletteOpen((wasOpen) => {
+      if (wasOpen) return false;
+      void import("@/components/command-palette").then(() => {
+        setCommandPaletteOpen(true);
       });
       return false;
     });
@@ -456,6 +472,12 @@ function AuthenticatedApp() {
           toggleGlobalSearchLazy();
           break;
         }
+        case "openCommandPalette": {
+          if (!user || loading) return;
+          e.preventDefault();
+          toggleCommandPaletteLazy();
+          break;
+        }
         case "openAlarmPanel": {
           if (!user || loading) return;
           e.preventDefault();
@@ -468,7 +490,17 @@ function AuthenticatedApp() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [user, loading, hotkeyHelpOpen, setLocation, isTutorialActive, startTutorial, stopTutorial, toggleGlobalSearchLazy]);
+  }, [
+    user,
+    loading,
+    hotkeyHelpOpen,
+    setLocation,
+    isTutorialActive,
+    startTutorial,
+    stopTutorial,
+    toggleGlobalSearchLazy,
+    toggleCommandPaletteLazy,
+  ]);
 
   useEffect(() => {
     if (!user || loading) return;
@@ -596,6 +628,11 @@ function AuthenticatedApp() {
           <Suspense fallback={null}>
             <VoiceCommandBar />
           </Suspense>
+          {user ? (
+            <Suspense fallback={null}>
+              <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
+            </Suspense>
+          ) : null}
           <ReviewDialogBridge />
           <AlarmPanel />
           <FeedbackNudgeDialog />

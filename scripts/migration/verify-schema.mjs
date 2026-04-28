@@ -43,6 +43,7 @@ const REQUIRED_TABLES = [
   "premium_insights",
   "premium_events",
   "task_patterns",
+  "task_reminders",
   "classification_contributions",
   "classification_confirmations",
   "ai_interactions",

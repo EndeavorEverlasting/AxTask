@@ -4,6 +4,7 @@ import {
   matchAltNavigationHotkey,
   matchEscapeHotkey,
   matchGlobalSearchChord,
+  matchCommandPaletteChord,
   matchHotkeyFromKeyboardEvent,
   matchLoginHelpChord,
   matchSidebarChord,
@@ -129,6 +130,20 @@ describe("KBD.globalSearch / Ctrl|Cmd+F", () => {
       path: "/tasks",
       postEvents: [{ name: "axtask-focus-task-search", delayMs: 100 }],
     });
+  });
+});
+
+describe("KBD.commandPalette / Ctrl+Shift+K", () => {
+  it("matchCommandPaletteChord matches Ctrl+Shift+K", () => {
+    expect(matchCommandPaletteChord(key({ key: "k", ctrlKey: true, shiftKey: true }))).toEqual({
+      kind: "openCommandPalette",
+    });
+  });
+
+  it("matchHotkeyFromKeyboardEvent routes Ctrl+Shift+K after global search chord", () => {
+    expect(
+      matchHotkeyFromKeyboardEvent(key({ key: "k", ctrlKey: true, shiftKey: true }), ctx(false, false)),
+    ).toEqual({ kind: "openCommandPalette" });
   });
 });
 

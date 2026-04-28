@@ -115,6 +115,8 @@ interface VoiceContextType {
   openBarAndToggleListening: () => void;
   closeBar: () => void;
   toggleBar: () => void;
+  /** Typed command palette: run the same pipeline as a finalized voice transcript (shortcuts + POST /api/voice/process). */
+  submitTextCommand: (text: string) => void;
   clearResponse: () => void;
   consumeTaskPrefill: () => TaskPrefill | null;
   consumeVoiceSearch: () => string | null;
@@ -747,6 +749,15 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
     setReviewProposal(null);
   }, []);
 
+  const submitTextCommand = useCallback(
+    (text: string) => {
+      const t = text.trim();
+      if (!t || processMutation.isPending) return;
+      handleVoiceResult(t);
+    },
+    [handleVoiceResult, processMutation.isPending],
+  );
+
   voiceBarOpenRef.current = isBarOpen;
 
   useEffect(() => {
@@ -812,6 +823,7 @@ export function VoiceProvider({ children, onNavigate }: VoiceProviderProps) {
         openBarAndToggleListening,
         closeBar,
         toggleBar,
+        submitTextCommand,
         clearResponse,
         consumeTaskPrefill,
         consumeVoiceSearch,
