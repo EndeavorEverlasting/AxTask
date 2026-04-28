@@ -30,8 +30,6 @@ import {
   listCollaborationInbox,
   appendCollaborationMessage,
   markCollaborationMessageRead,
-  listUserLocationPlaces,
-  upsertUserLocationPlace,
   getCommunityMomentumStats,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   getFeedbackSubmissionCount, getAvatarProfiles, engageAvatarMission, spendCoinsForAvatarBoost, seedAvatarSkillTree, getAvatarSkillTree, unlockAvatarSkill,
@@ -194,16 +192,10 @@ import { recordArchetypeSignal, type ArchetypeSignalKind } from "./lib/archetype
 import { getPublicArchetypeContinuumForUser } from "./lib/archetype-continuum";
 import { hashActor } from "./lib/actor-hash";
 import { insertClassificationDisputeSchema, CATEGORY_REVIEW_STATUSES, type CategoryReviewStatus } from "@shared/schema";
-import { createReminderSchema, createLocationEventSchema, reminderKindSchema } from "@shared/schema";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
-import {
-  createReminderWithTrigger,
-  listUserReminders,
-  updateReminder,
-  disableReminder,
-  createUserLocationEventAndScheduleOffsetTriggers,
-} from "./storage/reminders";
 import { registerAiRoutes } from "./routes/ai";
+import { registerLocationRoutes } from "./routes/locations";
+import { registerReminderRoutes } from "./routes/reminders";
 import {
   analyzeTaskHistory,
   suggestDeadline,
@@ -4699,137 +4691,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const locationPlaceSchema = z.object({
-    id: z.string().uuid().optional(),
-    name: z.string().min(1).max(120),
-    lat: z.number().finite().optional().nullable(),
-    lng: z.number().finite().optional().nullable(),
-    radiusMeters: z.number().int().min(50).max(5000).optional(),
-  });
-
-  app.get("/api/location-places", requireAuth, async (req, res) => {
-    try {
-      const rows = await listUserLocationPlaces(req.user!.id);
-      res.json({ places: rows });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to list places" });
-    }
-  });
-
-  app.post("/api/location-places", requireAuth, async (req, res) => {
-    try {
-      const body = locationPlaceSchema.parse(req.body || {});
-      const row = await upsertUserLocationPlace(req.user!.id, body);
-      if (!row) return res.status(404).json({ message: "Place not found" });
-      res.status(201).json(row);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to save place" });
-    }
-  });
-
-  app.get("/api/reminders", requireAuth, async (req, res) => {
-    try {
-      const rows = await listUserReminders(req.user!.id);
-      res.json({ reminders: rows });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to list reminders" });
-    }
-  });
-
-  app.post("/api/reminders", requireAuth, async (req, res) => {
-    try {
-      const body = createReminderSchema.parse(req.body || {});
-      const isActive = body.enabled ?? true;
-      const trigger =
-        body.trigger.type === "datetime"
-          ? {
-              triggerType: "datetime",
-              payloadJson: body.trigger,
-              nextRunAt: new Date(body.trigger.atIso),
-              cooldownSeconds: 0,
-              isActive,
-            }
-          : {
-              triggerType: body.trigger.type,
-              payloadJson: body.trigger,
-              nextRunAt: null,
-              cooldownSeconds: 0,
-              isActive,
-            };
-
-      const created = await createReminderWithTrigger({
-        reminder: {
-          userId: req.user!.id,
-          kind: body.kind,
-          title: body.title,
-          body: body.body ?? null,
-          enabled: body.enabled ?? true,
-          createdBy: "user",
-        },
-        trigger,
-      });
-
-      res.status(201).json(created);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to create reminder" });
-    }
-  });
-
-  const updateReminderSchema = z
-    .object({
-      title: z.string().min(1).max(200).optional(),
-      body: z.string().max(2000).nullable().optional(),
-      enabled: z.boolean().optional(),
-      kind: reminderKindSchema.optional(),
-    })
-    .refine((data) => Object.keys(data).length > 0, "At least one field is required");
-
-  app.patch("/api/reminders/:id", requireAuth, async (req, res) => {
-    try {
-      const patch = updateReminderSchema.parse(req.body || {});
-      const row = await updateReminder(req.params.id, req.user!.id, patch);
-      if (!row) return res.status(404).json({ message: "Reminder not found" });
-      res.json(row);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to update reminder" });
-    }
-  });
-
-  app.delete("/api/reminders/:id", requireAuth, async (req, res) => {
-    try {
-      const row = await disableReminder(req.params.id, req.user!.id);
-      if (!row) return res.status(404).json({ message: "Reminder not found" });
-      res.json({ ok: true, reminder: row });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to disable reminder" });
-    }
-  });
-
-  app.post("/api/location-events", requireAuth, async (req, res) => {
-    try {
-      const body = createLocationEventSchema.parse(req.body || {});
-      const occurredAt = body.occurredAt ? new Date(body.occurredAt) : new Date();
-      const result = await createUserLocationEventAndScheduleOffsetTriggers({
-        userId: req.user!.id,
-        placeId: body.placeId,
-        eventType: body.eventType,
-        source: body.source,
-        confidence: body.confidence,
-        metadataJson: body.metadataJson ?? {},
-        occurredAt,
-      });
-      if (!result) return res.status(500).json({ message: "Failed to persist location event" });
-      const { event, scheduling } = result;
-      res.status(201).json({ event, scheduling });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to process location event" });
-    }
-  });
-
   app.get("/api/gamification/profile", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
@@ -8183,6 +8044,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  registerLocationRoutes(app, requireAuth);
+  registerReminderRoutes(app, requireAuth);
   registerAiRoutes(app, requireAuth);
   attachShoppingListRoutes(app);
 
