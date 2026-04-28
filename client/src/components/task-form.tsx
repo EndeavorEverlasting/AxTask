@@ -40,6 +40,9 @@ import { PriorityBadge } from "./priority-badge";
 import { ClockTimePicker } from "@/components/ui/clock-time-picker";
 import {
   Plus,
+  CheckCircle2,
+  AlertCircle,
+  Info,
   CalendarIcon,
   Lightbulb,
   Save,
@@ -58,6 +61,7 @@ import { useLocation } from "wouter";
 import { useFieldFlow } from "@/hooks/use-field-flow";
 import { useLiveClassificationStream } from "@/hooks/use-live-classification-stream";
 import { detectShoppingListContent } from "@shared/shopping-tasks";
+import { __internal as pasteUploadInternal } from "@/lib/use-paste-upload";
 
 interface TaskFormProps {
   task?: Task;
@@ -147,8 +151,14 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   // ── Image attachments ──────────────────────────────────────────────────────
   type TaskAttachment = { assetId: string; fileName: string; mimeType: string; uploading?: boolean };
   const [taskAttachments, setTaskAttachments] = useState<TaskAttachment[]>([]);
+  const [attachmentFeedback, setAttachmentFeedback] = useState<{
+    tone: "info" | "success" | "error";
+    message: string;
+  } | null>(null);
+  const [highlightNotesPreview, setHighlightNotesPreview] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const imageCameraInputRef = useRef<HTMLInputElement>(null);
+  const previewHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const removeAttachment = useCallback(async (assetId: string) => {
     try {
@@ -267,11 +277,15 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     [activityWatch, notesWatch],
   );
 
-  const handleImageUpload = useCallback(async (file: File) => {
+  const handleImageUpload = useCallback(async (file: File, source: "paste" | "picker" | "camera" = "picker") => {
     if (!file.type.startsWith("image/")) {
       toast({
         title: "Only image files are supported (e.g. PNG, JPEG, GIF, WebP)",
         variant: "destructive",
+      });
+      setAttachmentFeedback({
+        tone: "error",
+        message: "That paste did not include a supported image format.",
       });
       return;
     }
@@ -280,8 +294,16 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
         title: `Image must be under ${Math.round(ATTACHMENT_IMAGE_MAX_BYTES / (1024 * 1024))} MB`,
         variant: "destructive",
       });
+      setAttachmentFeedback({
+        tone: "error",
+        message: `Image is too large. Maximum size is ${Math.round(ATTACHMENT_IMAGE_MAX_BYTES / (1024 * 1024))} MB.`,
+      });
       return;
     }
+    setAttachmentFeedback({
+      tone: "info",
+      message: source === "paste" ? "Pasted image detected. Uploading..." : "Uploading image...",
+    });
     const placeholder: TaskAttachment = { assetId: "uploading", fileName: file.name, mimeType: file.type, uploading: true };
     setTaskAttachments((prev) => [...prev, placeholder]);
     try {
@@ -302,9 +324,29 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       const cur = form.getValues("notes") || "";
       const snippet = `![](attachment:${assetId})`;
       form.setValue("notes", cur.trim() ? `${cur.trimEnd()}\n\n${snippet}\n` : `${snippet}\n`);
+      setAttachmentFeedback({
+        tone: "success",
+        message:
+          source === "paste"
+            ? "Image pasted and attached. Preview updated below."
+            : "Image attached. Preview updated below.",
+      });
+      if (previewHighlightTimerRef.current) clearTimeout(previewHighlightTimerRef.current);
+      setHighlightNotesPreview(true);
+      previewHighlightTimerRef.current = setTimeout(() => setHighlightNotesPreview(false), 2400);
+      if (source === "paste") {
+        toast({
+          title: "Image pasted",
+          description: "Attached to Notes and inserted into markdown.",
+        });
+      }
     } catch {
       setTaskAttachments((prev) => prev.filter((a) => a !== placeholder));
       toast({ title: "Failed to upload image", variant: "destructive" });
+      setAttachmentFeedback({
+        tone: "error",
+        message: "Upload failed. Try pasting again or use Add image.",
+      });
     }
   }, [form, task?.id, toast]);
 
@@ -686,6 +728,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   useEffect(() => {
     return () => {
       warningTimers.current.forEach(t => clearTimeout(t));
+      if (previewHighlightTimerRef.current) clearTimeout(previewHighlightTimerRef.current);
     };
   }, []);
 
@@ -1198,7 +1241,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   name="notes"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Notes <span className="text-xs text-muted-foreground font-normal ml-1">Supports **bold**, *italic*, `code`, and - lists</span></FormLabel>
+                      <FormLabel>Notes <span className="text-xs text-muted-foreground font-normal ml-1">Supports **bold**, *italic*, `code`, - lists, and image paste (Ctrl+V)</span></FormLabel>
                       <FormControl>
                         <div className="flex gap-2 items-start">
                           <div className="relative flex-1">
@@ -1209,12 +1252,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full font-mono text-sm")}
                               style={getCollabFieldColor("notes") ? { "--tw-ring-color": getCollabFieldColor("notes") } as React.CSSProperties : undefined}
                               onPaste={(e) => {
-                                const files = e.clipboardData?.files;
-                                if (!files?.length) return;
-                                const img = Array.from(files).find((f) => f.type.startsWith("image/"));
+                                const img = pasteUploadInternal.extractImageFilesFromClipboardData(e.clipboardData)[0];
                                 if (!img) return;
                                 e.preventDefault();
-                                void handleImageUpload(img);
+                                void handleImageUpload(img, "paste");
                               }}
                               onFocus={() => { setVoiceTarget("notes"); collab.focusField("notes"); }}
                               onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); collab.blurField(); }}
@@ -1280,7 +1321,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               className="hidden"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
-                                if (file) handleImageUpload(file);
+                                if (file) handleImageUpload(file, "picker");
                                 e.target.value = "";
                               }}
                             />
@@ -1292,13 +1333,32 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               className="hidden"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
-                                if (file) handleImageUpload(file);
+                                if (file) handleImageUpload(file, "camera");
                                 e.target.value = "";
                               }}
                             />
                           </div>
                         </div>
                       </FormControl>
+                      {attachmentFeedback ? (
+                        <div
+                          className={cn(
+                            "mt-2 flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs",
+                            attachmentFeedback.tone === "success" && "border-emerald-300/70 bg-emerald-50/70 text-emerald-800 dark:border-emerald-700/70 dark:bg-emerald-950/30 dark:text-emerald-200",
+                            attachmentFeedback.tone === "info" && "border-blue-300/70 bg-blue-50/70 text-blue-800 dark:border-blue-700/70 dark:bg-blue-950/30 dark:text-blue-200",
+                            attachmentFeedback.tone === "error" && "border-red-300/70 bg-red-50/70 text-red-800 dark:border-red-700/70 dark:bg-red-950/30 dark:text-red-200",
+                          )}
+                        >
+                          {attachmentFeedback.tone === "success" ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          ) : attachmentFeedback.tone === "error" ? (
+                            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          ) : (
+                            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          )}
+                          <span>{attachmentFeedback.message}</span>
+                        </div>
+                      ) : null}
                       {/* Attachment thumbnails */}
                       {taskAttachments.length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-2">
@@ -1334,7 +1394,12 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                         </p>
                       )}
                       {notesWatch?.trim() ? (
-                        <div className="mt-2 rounded-md border border-border bg-muted/30 p-3 space-y-1">
+                        <div
+                          className={cn(
+                            "mt-2 rounded-md border border-border bg-muted/30 p-3 space-y-1 transition-shadow",
+                            highlightNotesPreview && "ring-2 ring-emerald-400/80 shadow-[0_0_0_2px_rgba(52,211,153,0.35)]",
+                          )}
+                        >
                           <p className="text-xs font-medium text-muted-foreground">Preview</p>
                           <SafeMarkdown
                             source={notesWatch}
