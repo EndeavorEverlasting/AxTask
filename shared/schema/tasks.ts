@@ -481,6 +481,31 @@ export type CategoryReviewTrigger = typeof categoryReviewTriggers.$inferSelect;
 export const CATEGORY_REVIEW_STATUSES = ["monitoring", "contested", "review_needed", "resolved"] as const;
 export type CategoryReviewStatus = (typeof CATEGORY_REVIEW_STATUSES)[number];
 
+/** DB-backed reminder rows; delivery workers (e.g. alarm companion) consume these. */
+export const taskReminders = pgTable(
+  "task_reminders",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    taskId: varchar("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    activity: text("activity").notNull(),
+    remindAt: timestamp("remind_at", { withTimezone: true }).notNull(),
+    recurrenceRule: text("recurrence_rule"),
+    deliveryChannel: text("delivery_channel").notNull().default("auto"),
+    status: text("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("idx_task_reminders_user").on(table.userId),
+    index("idx_task_reminders_remind_at").on(table.remindAt),
+  ],
+);
+
+export type TaskReminder = typeof taskReminders.$inferSelect;
+
 export const insertClassificationDisputeSchema = createInsertSchema(classificationDisputes).omit({
   id: true,
   createdAt: true,
