@@ -120,6 +120,7 @@ import {
 } from "./storage/locations";
 import {
   createReminderWithTrigger,
+  computeNextRunAtFromRecurrence,
   listDueReminderTriggers,
   markReminderTriggered,
 } from "./storage/reminders";
@@ -220,6 +221,15 @@ describe("location + reminder storage (mocked db)", () => {
     const row = await markReminderTriggered("t1", when);
     expect(row?.nextRunAt).toBeNull();
     expect(row?.lastTriggeredAt).toEqual(when);
+  });
+
+  it("computeNextRunAtFromRecurrence returns the next daily occurrence", () => {
+    const from = new Date("2030-01-10T00:00:00.000Z");
+    const next = computeNextRunAtFromRecurrence(
+      { recurrence: { frequency: "daily", interval: 2 } },
+      from,
+    );
+    expect(next?.toISOString()).toBe("2030-01-12T00:00:00.000Z");
   });
 
   it("logAiInteraction then mark accepted / rejected", async () => {

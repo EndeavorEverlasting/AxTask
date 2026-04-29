@@ -1,7 +1,13 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { createReminderSchema, reminderKindSchema } from "@shared/schema";
-import { createReminderWithTrigger, listUserReminders, updateReminder, disableReminder } from "../storage/reminders";
+import {
+  computeNextRunAtFromRecurrence,
+  createReminderWithTrigger,
+  listUserReminders,
+  updateReminder,
+  disableReminder,
+} from "../storage/reminders";
 
 const updateReminderSchema = z
   .object({
@@ -40,7 +46,10 @@ export function registerReminderRoutes(app: Express, requireAuth: RequireAuthMid
           : {
               triggerType: body.trigger.type,
               payloadJson: body.trigger,
-              nextRunAt: null,
+              nextRunAt:
+                body.trigger.type === "recurring_time"
+                  ? computeNextRunAtFromRecurrence(body.trigger, new Date())
+                  : null,
               cooldownSeconds: 0,
               isActive,
             };

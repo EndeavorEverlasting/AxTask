@@ -1,5 +1,5 @@
 import type { AiIntentResult } from "../schemas/intent-result";
-import { createReminderWithTrigger } from "../../storage/reminders";
+import { computeNextRunAtFromRecurrence, createReminderWithTrigger } from "../../storage/reminders";
 import { resolvePlaceAlias } from "../../storage/locations";
 
 type ReminderToolResult =
@@ -39,7 +39,10 @@ export async function executeCreateReminderIntent(
       : {
           triggerType: payload.trigger.type,
           payloadJson: payload.trigger,
-          nextRunAt: null,
+          nextRunAt:
+            payload.trigger.type === "recurring_time"
+              ? computeNextRunAtFromRecurrence(payload.trigger, new Date())
+              : null,
           cooldownSeconds: 0,
           isActive: true,
         };

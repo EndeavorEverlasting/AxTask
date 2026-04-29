@@ -51,6 +51,7 @@
   "dmMessages",
   "feedbackAvatarKeySchema",
   "feedbackNudgePrefsSchema",
+  "foundryRunLogs",
   "idempotencyKeys",
   "insertClassificationDisputeSchema",
   "insertCollaboratorSchema",

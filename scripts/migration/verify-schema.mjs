@@ -51,6 +51,7 @@ const REQUIRED_TABLES = [
   "user_location_places",
   "user_reminder_triggers",
   "user_reminders",
+  "foundry_run_logs",
 ];
 
 const OPTIONAL_TABLES = ["session"];

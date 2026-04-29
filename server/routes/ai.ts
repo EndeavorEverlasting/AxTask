@@ -28,6 +28,14 @@ export function registerAiRoutes(app: Express, requireAuth: RequireAuthMiddlewar
         latencyMs: parsed.latencyMs,
       });
 
+      if (interaction?.id) {
+        if (parsed.intent.type === "clarification") {
+          await markAiInteractionRejected(interaction.id, req.user!.id, parsed.intent.payload.reason);
+        } else {
+          await markAiInteractionAccepted(interaction.id, req.user!.id);
+        }
+      }
+
       res.json({
         intent: parsed.intent,
         meta: {
@@ -49,6 +57,7 @@ export function registerAiRoutes(app: Express, requireAuth: RequireAuthMiddlewar
   });
 
   app.post("/api/ai/execute", requireAuth, async (req, res) => {
+    let interactionId: string | null = null;
     try {
       const body = aiChatRequestSchema.parse(req.body ?? {});
       const parsed = await interpretIntent(body.message);
@@ -63,6 +72,7 @@ export function registerAiRoutes(app: Express, requireAuth: RequireAuthMiddlewar
         model: parsed.model,
         latencyMs: parsed.latencyMs,
       });
+      interactionId = interaction?.id ?? null;
 
       if (parsed.intent.type === "clarification") {
         if (interaction?.id) {
@@ -114,6 +124,9 @@ export function registerAiRoutes(app: Express, requireAuth: RequireAuthMiddlewar
         interactionId: interaction?.id ?? null,
       });
     } catch (error) {
+      if (interactionId) {
+        await markAiInteractionRejected(interactionId, req.user!.id, "execution_error");
+      }
       if (error instanceof LlmProviderConfigError) {
         return res.status(503).json({ message: "AI provider is not configured on this server." });
       }

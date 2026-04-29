@@ -16,6 +16,7 @@ import { appendSecurityEvent } from "./storage";
 import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
 import { evaluateAdherenceForAllUsers } from "./services/adherence-evaluator";
 import { dispatchAdherencePushNotifications } from "./services/adherence-dispatch";
+import { dispatchDueReminderTriggers } from "./services/reminder-dispatch";
 import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence-thresholds";
 import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
 import { startRetentionPruneTicker } from "./workers/retention-prune";
@@ -314,6 +315,22 @@ function warnIfVapidMissing(): void {
     setInterval(() => {
       void runAdherenceTick();
     }, thresholds.cronIntervalMs);
+  }
+
+  if (process.env.NODE_ENV !== "test" && process.env.DISABLE_REMINDER_DISPATCH !== "true") {
+    const intervalMs = Number(process.env.REMINDER_DISPATCH_INTERVAL_MS) || 60 * 1000;
+    const maxPerTick = Number(process.env.REMINDER_DISPATCH_MAX_PER_TICK) || 100;
+    const runReminderTick = async () => {
+      try {
+        await dispatchDueReminderTriggers(maxPerTick);
+      } catch (error) {
+        console.warn("[reminders] background tick failed:", (error as Error)?.message || String(error));
+      }
+    };
+    void runReminderTick();
+    setInterval(() => {
+      void runReminderTick();
+    }, intervalMs);
   }
 
   // Archetype empathy rollup worker: see docs/ARCHETYPE_EMPATHY_ANALYTICS.md.

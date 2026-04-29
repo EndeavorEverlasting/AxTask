@@ -630,6 +630,22 @@ export const aiInteractions = pgTable(
 
 export type AiInteraction = typeof aiInteractions.$inferSelect;
 
+/** Admin Foundry: append-only agent session / handoff entries (see server/routes/foundry.ts). */
+export const foundryRunLogs = pgTable(
+  "foundry_run_logs",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    payloadJson: jsonb("payload_json").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [index("idx_foundry_run_logs_created").on(table.createdAt)],
+);
+
+export type FoundryRunLog = typeof foundryRunLogs.$inferSelect;
+
 // ─── Location + reminder validation (Zod) ────────────────────────────────────
 export const locationPlaceTypeSchema = z.enum(LOCATION_PLACE_TYPES);
 export const locationPlaceSourceSchema = z.enum(LOCATION_PLACE_SOURCES);

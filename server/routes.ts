@@ -197,6 +197,7 @@ import { RETRO_VOICE_PLACEHOLDER_TASK_ID } from "@shared/retro-voice-review";
 import { registerAiRoutes } from "./routes/ai";
 import { registerLocationRoutes } from "./routes/locations";
 import { registerReminderRoutes } from "./routes/reminders";
+import { registerFoundryRoutes } from "./routes/foundry";
 import {
   analyzeTaskHistory,
   suggestDeadline,
@@ -8171,6 +8172,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  registerFoundryRoutes(app, { requireAdmin, requireAdminStepUp });
   registerLocationRoutes(app, requireAuth);
   registerReminderRoutes(app, requireAuth);
   registerAiRoutes(app, requireAuth);

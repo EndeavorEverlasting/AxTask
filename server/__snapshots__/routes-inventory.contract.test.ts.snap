@@ -33,6 +33,8 @@ exports[`server/routes.ts inventory > matches snapshot of all Express path regis
   "/api/admin/feedback-inbox",
   "/api/admin/feedback-inbox/:feedbackEventId/review",
   "/api/admin/feedback-inbox/review-bulk",
+  "/api/admin/foundry/runs",
+  "/api/admin/foundry/status",
   "/api/admin/import",
   "/api/admin/import/validate",
   "/api/admin/organization-aptitude-trends",

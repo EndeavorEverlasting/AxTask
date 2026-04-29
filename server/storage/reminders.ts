@@ -20,6 +20,13 @@ function asMetadataRecord(value: unknown): Record<string, unknown> {
 
 /** DB root or transaction client — both support the queries used by offset scheduling. */
 type RemindersExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+type ReminderTriggerRow = typeof userReminderTriggers.$inferSelect;
+type ReminderRow = typeof userReminders.$inferSelect;
+
+export type DueReminderDispatchRow = {
+  trigger: ReminderTriggerRow;
+  reminder: ReminderRow;
+};
 
 export async function createReminderWithTrigger(input: {
   reminder: typeof userReminders.$inferInsert;
@@ -92,6 +99,26 @@ export async function listDueReminderTriggers(now: Date) {
   return rows.map((r) => r.t);
 }
 
+export async function listDueReminderDispatchRows(
+  now: Date,
+  limit = 100,
+): Promise<DueReminderDispatchRow[]> {
+  const rows = await db
+    .select({ trigger: userReminderTriggers, reminder: userReminders })
+    .from(userReminderTriggers)
+    .innerJoin(userReminders, eq(userReminderTriggers.reminderId, userReminders.id))
+    .where(
+      and(
+        eq(userReminders.enabled, true),
+        eq(userReminderTriggers.isActive, true),
+        isNotNull(userReminderTriggers.nextRunAt),
+        lte(userReminderTriggers.nextRunAt, now),
+      ),
+    )
+    .limit(Math.max(1, limit));
+  return rows;
+}
+
 export async function markReminderTriggered(triggerId: string, when: Date) {
   const [row] = await db
     .update(userReminderTriggers)
@@ -101,6 +128,66 @@ export async function markReminderTriggered(triggerId: string, when: Date) {
       nextRunAt: null,
     })
     .where(eq(userReminderTriggers.id, triggerId))
+    .returning();
+  return row ?? null;
+}
+
+type ReminderRecurrence = {
+  frequency?: "daily" | "weekly" | "monthly";
+  interval?: number;
+};
+
+function normalizePositiveInterval(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 1;
+  return Math.max(1, Math.trunc(value));
+}
+
+function getRecurrenceFromPayload(payloadJson: unknown): ReminderRecurrence | null {
+  if (!payloadJson || typeof payloadJson !== "object" || Array.isArray(payloadJson)) return null;
+  const rec = (payloadJson as { recurrence?: unknown }).recurrence;
+  if (!rec || typeof rec !== "object" || Array.isArray(rec)) return null;
+  const typed = rec as ReminderRecurrence;
+  if (!typed.frequency) return null;
+  return {
+    frequency: typed.frequency,
+    interval: normalizePositiveInterval(typed.interval),
+  };
+}
+
+export function computeNextRunAtFromRecurrence(payloadJson: unknown, from: Date): Date | null {
+  const recurrence = getRecurrenceFromPayload(payloadJson);
+  if (!recurrence?.frequency) return null;
+
+  const next = new Date(from);
+  const interval = recurrence.interval ?? 1;
+  if (recurrence.frequency === "daily") {
+    next.setUTCDate(next.getUTCDate() + interval);
+    return next;
+  }
+  if (recurrence.frequency === "weekly") {
+    next.setUTCDate(next.getUTCDate() + interval * 7);
+    return next;
+  }
+  if (recurrence.frequency === "monthly") {
+    next.setUTCMonth(next.getUTCMonth() + interval);
+    return next;
+  }
+  return null;
+}
+
+export async function finalizeReminderTriggerDispatch(input: {
+  triggerId: string;
+  firedAt: Date;
+  nextRunAt: Date | null;
+}) {
+  const [row] = await db
+    .update(userReminderTriggers)
+    .set({
+      lastTriggeredAt: input.firedAt,
+      updatedAt: input.firedAt,
+      nextRunAt: input.nextRunAt,
+    })
+    .where(eq(userReminderTriggers.id, input.triggerId))
     .returning();
   return row ?? null;
 }
@@ -133,7 +220,7 @@ type OffsetPayload = { placeSlug: string; offsetMinutes: number; recurrence?: un
 
 /**
  * When a location event arrives, schedule `location_arrival_offset` triggers that match the place slug.
- * Sets `nextRunAt` to occurredAt + offset (first fire; recurrence handled in a later scheduler PR).
+ * Sets `nextRunAt` to occurredAt + offset. Recurring variants are re-armed by dispatch workers.
  *
  * Idempotent per persisted `event.id`: if `metadata_json.locationOffsetSchedulingAppliedAt` is set, returns
  * `{ updated: 0, skipped: true }` without mutating triggers. Pass `executor` (e.g. a transaction client) so
@@ -189,9 +276,17 @@ export async function scheduleLocationOffsetTriggersFromEvent(
       continue;
     }
     const next = new Date(occurred.getTime() + payload.offsetMinutes * 60_000);
+    const existingNext =
+      row.t.nextRunAt instanceof Date
+        ? row.t.nextRunAt
+        : row.t.nextRunAt
+          ? new Date(String(row.t.nextRunAt))
+          : null;
+    const targetNext =
+      existingNext && existingNext.getTime() < next.getTime() ? existingNext : next;
     await executor
       .update(userReminderTriggers)
-      .set({ nextRunAt: next, updatedAt: new Date() })
+      .set({ nextRunAt: targetNext, updatedAt: new Date() })
       .where(eq(userReminderTriggers.id, row.t.id));
     updated += 1;
   }

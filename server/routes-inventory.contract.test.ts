@@ -11,6 +11,7 @@ const registrarRouteSources = [
   path.join(projectRoot, "server", "routes", "locations.ts"),
   path.join(projectRoot, "server", "routes", "reminders.ts"),
   path.join(projectRoot, "server", "routes", "ai.ts"),
+  path.join(projectRoot, "server", "routes", "foundry.ts"),
 ];
 
 /**
