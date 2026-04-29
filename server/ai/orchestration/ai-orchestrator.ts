@@ -66,24 +66,17 @@ function parseQuickIntent(message: string): AiIntentResult | null {
     };
   }
 
-  if (/\bevery day\b|\bdaily\b/.test(lower)) {
-    const title = text.replace(/^set a reminder to\s*/i, "").trim() || "Reminder";
-    return {
-      type: "create_reminder",
-      payload: {
-        kind: "recurring",
-        title,
-        body: null,
-        enabled: true,
-        trigger: {
-          type: "recurring_time",
-          recurrence: {
-            frequency: "daily",
-            interval: 1,
-          },
-        },
-      },
-    };
+  if (/\bevery day\b|\bdaily\b|\bweekly\b|\bmonthly\b/.test(lower)) {
+    const hasTime = /\bat\b|\bam\b|\bpm\b|\b(\d{1,2}):(\d{2})\b|\bmorning\b|\bafternoon\b|\bevening\b/.test(lower);
+    if (!hasTime) {
+      return buildClarificationIntent(
+        "At what time of day should I remind you?",
+        "The recurrence phrase lacks an explicit time.",
+        ["time"],
+      );
+    }
+    // Fall through to LLM for precise time extraction
+    return null;
   }
 
   return null;

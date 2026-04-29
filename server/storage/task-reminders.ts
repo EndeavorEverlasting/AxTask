@@ -36,6 +36,14 @@ export async function createTaskReminder(input: {
   return row;
 }
 
+export async function listTaskRemindersForUser(userId: string) {
+  return db
+    .select()
+    .from(taskReminders)
+    .where(eq(taskReminders.userId, userId))
+    .orderBy(asc(taskReminders.remindAt));
+}
+
 export async function listDueTaskReminderRows(now: Date, limit = 100): Promise<DueTaskReminderRow[]> {
   return db
     .select()
@@ -58,6 +66,18 @@ export async function finalizeTaskReminderDispatch(input: {
       updatedAt: input.firedAt,
     })
     .where(eq(taskReminders.id, input.taskReminderId))
+    .returning();
+  return row ?? null;
+}
+
+export async function cancelTaskReminder(id: string, userId: string) {
+  const [row] = await db
+    .update(taskReminders)
+    .set({
+      status: "cancelled",
+      updatedAt: new Date(),
+    })
+    .where(and(eq(taskReminders.id, id), eq(taskReminders.userId, userId)))
     .returning();
   return row ?? null;
 }

@@ -20,6 +20,26 @@ describe("interpretIntent", () => {
     expect(out.intent.payload.trigger.offsetMinutes).toBe(5);
   });
 
+
+  it("returns clarification when recurrence lacks explicit time", async () => {
+    const outDaily = await interpretIntent("Remind me to drink water every day");
+    expect(outDaily.intent.type).toBe("clarification");
+    expect(outDaily.intent.payload.missingFields).toContain("time");
+
+    const outWeekly = await interpretIntent("Remind me weekly to water plants");
+    expect(outWeekly.intent.type).toBe("clarification");
+    expect(outWeekly.intent.payload.missingFields).toContain("time");
+
+    const outMonthly = await interpretIntent("Remind me to pay bills monthly");
+    expect(outMonthly.intent.type).toBe("clarification");
+    expect(outMonthly.intent.payload.missingFields).toContain("time");
+  });
+
+  it("throws config error when provider is missing for explicit time recurrence", async () => {
+    await expect(interpretIntent("Remind me daily at 3pm to stretch")).rejects.toBeInstanceOf(
+      LlmProviderConfigError
+    );
+  });
   it("throws config error when provider is required but missing", async () => {
     await expect(interpretIntent("Please help me with my schedule soon")).rejects.toBeInstanceOf(LlmProviderConfigError);
   });

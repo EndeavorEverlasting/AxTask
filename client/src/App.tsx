@@ -108,6 +108,7 @@ import { PretextShortcutsBeacon } from "@/components/pretext/pretext-shortcuts-b
 import { AlarmPanel } from "@/components/alarm-panel";
 
 const AdminPageLazy = lazy(() => import("@/pages/admin"));
+const AdminAiReminderLabPage = lazy(() => import("@/pages/admin-ai-reminder-lab"));
 
 /* Lazy-load the voice/review bulk-action dialog + its framer-motion
  * AnimatePresence subtree. The dialog is only opened after a voice or
@@ -161,6 +162,7 @@ function Router() {
         <Route path="/huddle" component={VideoHuddlePage} />
         <Route path="/messages" component={MessagesPage} />
         <Route path="/admin" component={AdminRoute} />
+        <Route path="/admin/ai-reminder-lab" component={AdminAiReminderLabPage} />
         <Route path="/rewards" component={RewardsPage} />
         <Route path="/skill-tree" component={SkillTreePage} />
         <Route path="/premium" component={PremiumPage} />

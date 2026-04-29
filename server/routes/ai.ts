@@ -84,6 +84,11 @@ export function registerAiRoutes(app: Express, requireAuth: RequireAuthMiddlewar
           reason: parsed.intent.payload.reason,
           missingFields: parsed.intent.payload.missingFields,
           interactionId: interaction?.id ?? null,
+          meta: {
+            provider: parsed.provider,
+            model: parsed.model,
+            latencyMs: parsed.latencyMs,
+          },
         });
       }
 
@@ -113,6 +118,11 @@ export function registerAiRoutes(app: Express, requireAuth: RequireAuthMiddlewar
           triggerId: result.persistence === "ops" ? result.triggerId : null,
           taskReminderId: result.persistence === "task_reminder" ? result.taskReminderId : null,
           interactionId: interaction?.id ?? null,
+          meta: {
+            provider: parsed.provider,
+            model: parsed.model,
+            latencyMs: parsed.latencyMs,
+          },
         });
       }
 
@@ -124,6 +134,11 @@ export function registerAiRoutes(app: Express, requireAuth: RequireAuthMiddlewar
         reason: "unsupported_intent",
         intentType: (parsed.intent as { type: string }).type,
         interactionId: interaction?.id ?? null,
+        meta: {
+          provider: parsed.provider,
+          model: parsed.model,
+          latencyMs: parsed.latencyMs,
+        },
       });
     } catch (error) {
       if (interactionId) {

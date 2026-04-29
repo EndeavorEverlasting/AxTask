@@ -52,6 +52,38 @@ export async function listUserReminders(userId: string) {
     .where(eq(userReminders.userId, userId));
 }
 
+export type UserReminderWithPrimaryTrigger = {
+  reminder: ReminderRow;
+  trigger: ReminderTriggerRow | null;
+};
+
+export async function listUserRemindersWithPrimaryTrigger(
+  userId: string,
+): Promise<UserReminderWithPrimaryTrigger[]> {
+  const rows = await db
+    .select({ reminder: userReminders, trigger: userReminderTriggers })
+    .from(userReminders)
+    .leftJoin(userReminderTriggers, eq(userReminderTriggers.reminderId, userReminders.id))
+    .where(eq(userReminders.userId, userId));
+
+  const byReminderId = new Map<string, UserReminderWithPrimaryTrigger>();
+  for (const row of rows) {
+    const current = byReminderId.get(row.reminder.id);
+    if (!current) {
+      byReminderId.set(row.reminder.id, row);
+      continue;
+    }
+    if (!current.trigger && row.trigger) {
+      byReminderId.set(row.reminder.id, row);
+      continue;
+    }
+    if (current.trigger && row.trigger && !current.trigger.isActive && row.trigger.isActive) {
+      byReminderId.set(row.reminder.id, row);
+    }
+  }
+  return [...byReminderId.values()];
+}
+
 export async function getReminderById(id: string, userId: string) {
   const [row] = await db
     .select()
