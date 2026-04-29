@@ -107,9 +107,11 @@ export function registerAiRoutes(app: Express, requireAuth: RequireAuthMiddlewar
         return res.status(201).json({
           type: "action_result",
           action: "create_reminder",
+          persistence: result.persistence,
           message: result.message,
-          reminderId: result.reminderId,
-          triggerId: result.triggerId,
+          reminderId: result.persistence === "ops" ? result.reminderId : null,
+          triggerId: result.persistence === "ops" ? result.triggerId : null,
+          taskReminderId: result.persistence === "task_reminder" ? result.taskReminderId : null,
           interactionId: interaction?.id ?? null,
         });
       }

@@ -25,9 +25,25 @@ Use **`task_reminders`** when the product path is “persist a concrete fire tim
 
 Use **`user_reminders` + `user_reminder_triggers`** when the product path is “assistant / user authored reminder with one or more trigger kinds including location.”
 
-## 4. Unification direction
+## 4. Current branch policy (LLM writes)
+
+- `datetime` and `recurring_time` intents persist to **`task_reminders`**.
+- `location_arrival`, `location_departure`, and `location_arrival_offset` persist to **`user_reminders` + `user_reminder_triggers`**.
+- **No dual-write for now.** We keep one source per write path to avoid accidental divergence while the bridge contract is still evolving.
+
+## 5. Unification direction
 
 - One **user-facing** reminder story should eventually **read** from both stores where appropriate (e.g. planner summary), keyed by source.
 - **Writes** stay typed: NL + location → ops tables; companion-native task alarms → `task_reminders` until a deliberate bridge exists.
+- Planned unified read route: `GET /api/reminders/summary` returning both stores with `source: "task_reminder" | "ops_reminder"`.
+
+## 6. Optional future bridge metadata (only if dual-write lands)
+
+If we later choose dual-write, add provenance fields before enabling it:
+
+- `source_type`
+- `source_reminder_id`
+- `source_trigger_id`
+- `idempotency_key`
 
 Update this doc when a sync job or API aggregates both into a single DTO for clients.

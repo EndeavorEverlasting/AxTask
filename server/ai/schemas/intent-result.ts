@@ -6,6 +6,7 @@ export type AiIntentType = z.infer<typeof aiIntentTypeSchema>;
 
 export const aiCreateReminderPayloadSchema = z.object({
   kind: z.enum(["time", "recurring", "location_event", "location_offset", "hybrid"]),
+  taskId: z.string().min(1).max(128).optional(),
   title: z.string().min(1).max(200),
   body: z.string().max(2000).optional().nullable(),
   enabled: z.boolean().optional(),
