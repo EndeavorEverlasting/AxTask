@@ -1,9 +1,32 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
 const GIT_TIMEOUT_MS = 12_000;
+
+type DeployManifest = {
+  generatedAt?: string | null;
+  buildId?: string | null;
+  commitSha?: string | null;
+  branch?: string | null;
+  provider?: string | null;
+};
+
+function readDeployManifest(cwd: string): DeployManifest | null {
+  try {
+    const p = path.join(cwd, "dist", "deploy-manifest.json");
+    if (!fs.existsSync(p)) return null;
+    const raw = fs.readFileSync(p, "utf8");
+    const parsed = JSON.parse(raw) as DeployManifest;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 export type FoundryGitStatusPayload =
   | {
@@ -15,15 +38,18 @@ export type FoundryGitStatusPayload =
       statusShort: string;
       porcelainLines: string[];
       porcelainTruncated: boolean;
+      deployManifest: DeployManifest | null;
     }
   | {
       error: string;
+      deployManifest: DeployManifest | null;
     };
 
 /**
  * Read-only git snapshot for Admin Foundry. Runs from `cwd` (typically repo root).
  */
 export async function collectFoundryGitStatus(cwd: string): Promise<FoundryGitStatusPayload> {
+  const deployManifest = readDeployManifest(cwd);
   const opts = { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 512_000 };
   try {
     const [{ stdout: branchOut }, { stdout: shaOut }, { stdout: statusSb }, { stdout: porcelainOut }] =
@@ -61,16 +87,30 @@ export async function collectFoundryGitStatus(cwd: string): Promise<FoundryGitSt
     const porcelainLines = lines.slice(0, maxLines);
 
     return {
-      branch: String(branchOut).trim(),
-      commitSha: String(shaOut).trim(),
+      branch: String(branchOut).trim() || deployManifest?.branch || "unknown",
+      commitSha: String(shaOut).trim() || deployManifest?.commitSha || "unknown",
       upstream,
       ahead,
       behind,
       statusShort: String(statusSb).trim(),
       porcelainLines,
       porcelainTruncated: lines.length > porcelainLines.length,
+      deployManifest,
     };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
+    if (deployManifest) {
+      return {
+        branch: deployManifest.branch || "unknown",
+        commitSha: deployManifest.commitSha || "unknown",
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        statusShort: "git unavailable; using deploy manifest",
+        porcelainLines: [],
+        porcelainTruncated: false,
+        deployManifest,
+      };
+    }
+    return { error: err instanceof Error ? err.message : String(err), deployManifest };
   }
 }

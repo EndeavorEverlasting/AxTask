@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { dispatchDueReminderTriggers } from "./reminder-dispatch";
+import { createReminderDispatcher } from "./reminder-dispatch-core";
 
 const hoisted = vi.hoisted(() => ({
   sendNotification: vi.fn(),
@@ -14,41 +14,7 @@ vi.mock("web-push", () => ({
   },
 }));
 
-const reminderStorageMocks = vi.hoisted(() => ({
-  listDueReminderDispatchRows: vi.fn(),
-  computeNextRunAtFromRecurrence: vi.fn(),
-  finalizeReminderTriggerDispatch: vi.fn(),
-}));
-
-vi.mock("../storage/reminders", () => ({
-  listDueReminderDispatchRows: reminderStorageMocks.listDueReminderDispatchRows,
-  computeNextRunAtFromRecurrence: reminderStorageMocks.computeNextRunAtFromRecurrence,
-  finalizeReminderTriggerDispatch: reminderStorageMocks.finalizeReminderTriggerDispatch,
-}));
-
-const taskReminderStorageMocks = vi.hoisted(() => ({
-  listDueTaskReminderRows: vi.fn(),
-  finalizeTaskReminderDispatch: vi.fn(),
-}));
-
-vi.mock("../storage/task-reminders", () => ({
-  listDueTaskReminderRows: taskReminderStorageMocks.listDueTaskReminderRows,
-  finalizeTaskReminderDispatch: taskReminderStorageMocks.finalizeTaskReminderDispatch,
-}));
-
-const coreStorageMocks = vi.hoisted(() => ({
-  getUserNotificationPreference: vi.fn(),
-  listPushDispatchCandidates: vi.fn(),
-  markPushSubscriptionDispatched: vi.fn(),
-}));
-
-vi.mock("../storage", () => ({
-  getUserNotificationPreference: coreStorageMocks.getUserNotificationPreference,
-  listPushDispatchCandidates: coreStorageMocks.listPushDispatchCandidates,
-  markPushSubscriptionDispatched: coreStorageMocks.markPushSubscriptionDispatched,
-}));
-
-describe("dispatchDueReminderTriggers", () => {
+describe("dispatchDueReminderTriggers (createReminderDispatcher)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.VAPID_PUBLIC_KEY = "pub";
@@ -57,9 +23,17 @@ describe("dispatchDueReminderTriggers", () => {
   });
 
   it("returns empty summary when no due reminders", async () => {
-    reminderStorageMocks.listDueReminderDispatchRows.mockResolvedValueOnce([]);
-    taskReminderStorageMocks.listDueTaskReminderRows.mockResolvedValueOnce([]);
-    const result = await dispatchDueReminderTriggers(10);
+    const dispatch = createReminderDispatcher({
+      listDueReminderDispatchRows: vi.fn().mockResolvedValueOnce([]),
+      listDueTaskReminderRows: vi.fn().mockResolvedValueOnce([]),
+      getUserNotificationPreference: vi.fn(),
+      listPushDispatchCandidates: vi.fn(),
+      markPushSubscriptionDispatched: vi.fn(),
+      computeNextRunAtFromRecurrence: vi.fn(),
+      finalizeReminderTriggerDispatch: vi.fn(),
+      finalizeTaskReminderDispatch: vi.fn(),
+    });
+    const result = await dispatch(10);
     expect(result).toEqual({
       scanned: 0,
       attempted: 0,
@@ -75,14 +49,14 @@ describe("dispatchDueReminderTriggers", () => {
     const now = new Date("2030-01-01T00:00:00.000Z");
     vi.useFakeTimers();
     vi.setSystemTime(now);
-    reminderStorageMocks.listDueReminderDispatchRows.mockResolvedValueOnce([
+    const listDueReminderDispatchRows = vi.fn().mockResolvedValueOnce([
       {
         reminder: { id: "r1", userId: "u1", title: "Check oil", body: null },
         trigger: { id: "t1", payloadJson: { recurrence: { frequency: "daily", interval: 1 } } },
       },
     ]);
-    taskReminderStorageMocks.listDueTaskReminderRows.mockResolvedValueOnce([]);
-    coreStorageMocks.listPushDispatchCandidates.mockResolvedValueOnce([
+    const listDueTaskReminderRows = vi.fn().mockResolvedValueOnce([]);
+    const listPushDispatchCandidates = vi.fn().mockResolvedValueOnce([
       {
         userId: "u1",
         subscription: {
@@ -93,17 +67,31 @@ describe("dispatchDueReminderTriggers", () => {
         },
       },
     ]);
-    coreStorageMocks.getUserNotificationPreference.mockResolvedValueOnce({ enabled: true });
-    reminderStorageMocks.computeNextRunAtFromRecurrence.mockReturnValueOnce(new Date("2030-01-02T00:00:00.000Z"));
-    hoisted.sendNotification.mockResolvedValueOnce(undefined);
-    coreStorageMocks.markPushSubscriptionDispatched.mockResolvedValueOnce(undefined);
-    reminderStorageMocks.finalizeReminderTriggerDispatch.mockResolvedValueOnce(undefined);
+    const getUserNotificationPreference = vi.fn().mockResolvedValueOnce({ enabled: true });
+    const computeNextRunAtFromRecurrence = vi
+      .fn()
+      .mockReturnValueOnce(new Date("2030-01-02T00:00:00.000Z"));
+    const finalizeReminderTriggerDispatch = vi.fn().mockResolvedValueOnce(undefined);
+    const markPushSubscriptionDispatched = vi.fn().mockResolvedValueOnce(undefined);
 
-    const result = await dispatchDueReminderTriggers(10);
+    const dispatch = createReminderDispatcher({
+      listDueReminderDispatchRows,
+      listDueTaskReminderRows,
+      getUserNotificationPreference,
+      listPushDispatchCandidates,
+      markPushSubscriptionDispatched,
+      computeNextRunAtFromRecurrence,
+      finalizeReminderTriggerDispatch,
+      finalizeTaskReminderDispatch: vi.fn(),
+    });
+
+    hoisted.sendNotification.mockResolvedValueOnce(undefined);
+
+    const result = await dispatch(10);
 
     expect(hoisted.sendNotification).toHaveBeenCalledTimes(1);
-    expect(coreStorageMocks.markPushSubscriptionDispatched).toHaveBeenCalledWith("https://push.example/sub");
-    expect(reminderStorageMocks.finalizeReminderTriggerDispatch).toHaveBeenCalledWith({
+    expect(markPushSubscriptionDispatched).toHaveBeenCalledWith("https://push.example/sub");
+    expect(finalizeReminderTriggerDispatch).toHaveBeenCalledWith({
       triggerId: "t1",
       firedAt: now,
       nextRunAt: new Date("2030-01-02T00:00:00.000Z"),
@@ -124,8 +112,8 @@ describe("dispatchDueReminderTriggers", () => {
     const now = new Date("2030-01-01T00:00:00.000Z");
     vi.useFakeTimers();
     vi.setSystemTime(now);
-    reminderStorageMocks.listDueReminderDispatchRows.mockResolvedValueOnce([]);
-    taskReminderStorageMocks.listDueTaskReminderRows.mockResolvedValueOnce([
+    const listDueReminderDispatchRows = vi.fn().mockResolvedValueOnce([]);
+    const listDueTaskReminderRows = vi.fn().mockResolvedValueOnce([
       {
         id: "tr1",
         userId: "u1",
@@ -137,7 +125,7 @@ describe("dispatchDueReminderTriggers", () => {
         status: "pending",
       },
     ]);
-    coreStorageMocks.listPushDispatchCandidates.mockResolvedValueOnce([
+    const listPushDispatchCandidates = vi.fn().mockResolvedValueOnce([
       {
         userId: "u1",
         subscription: {
@@ -148,14 +136,26 @@ describe("dispatchDueReminderTriggers", () => {
         },
       },
     ]);
-    coreStorageMocks.getUserNotificationPreference.mockResolvedValueOnce({ enabled: true });
+    const getUserNotificationPreference = vi.fn().mockResolvedValueOnce({ enabled: true });
+    const finalizeTaskReminderDispatch = vi.fn().mockResolvedValueOnce(undefined);
+    const markPushSubscriptionDispatched = vi.fn().mockResolvedValueOnce(undefined);
+
+    const dispatch = createReminderDispatcher({
+      listDueReminderDispatchRows,
+      listDueTaskReminderRows,
+      getUserNotificationPreference,
+      listPushDispatchCandidates,
+      markPushSubscriptionDispatched,
+      computeNextRunAtFromRecurrence: vi.fn(),
+      finalizeReminderTriggerDispatch: vi.fn(),
+      finalizeTaskReminderDispatch,
+    });
+
     hoisted.sendNotification.mockResolvedValueOnce(undefined);
-    coreStorageMocks.markPushSubscriptionDispatched.mockResolvedValueOnce(undefined);
-    taskReminderStorageMocks.finalizeTaskReminderDispatch.mockResolvedValueOnce(undefined);
 
-    const result = await dispatchDueReminderTriggers(10);
+    const result = await dispatch(10);
 
-    expect(taskReminderStorageMocks.finalizeTaskReminderDispatch).toHaveBeenCalledWith({
+    expect(finalizeTaskReminderDispatch).toHaveBeenCalledWith({
       taskReminderId: "tr1",
       firedAt: now,
       nextRemindAt: null,
@@ -172,4 +172,3 @@ describe("dispatchDueReminderTriggers", () => {
     vi.useRealTimers();
   });
 });
-

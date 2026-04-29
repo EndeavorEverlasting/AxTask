@@ -322,7 +322,18 @@ function warnIfVapidMissing(): void {
     const maxPerTick = Number(process.env.REMINDER_DISPATCH_MAX_PER_TICK) || 100;
     const runReminderTick = async () => {
       try {
-        await dispatchDueReminderTriggers(maxPerTick);
+        const summary = await dispatchDueReminderTriggers(maxPerTick);
+        if (summary.scanned > 0 || summary.failedSend > 0) {
+          console.info("[reminders] dispatch tick", {
+            scanned: summary.scanned,
+            attempted: summary.attempted,
+            sent: summary.sent,
+            skipped: summary.skipped,
+            skippedPreferenceDisabled: summary.skippedPreferenceDisabled,
+            skippedNoSubscription: summary.skippedNoSubscription,
+            failedSend: summary.failedSend,
+          });
+        }
       } catch (error) {
         console.warn("[reminders] background tick failed:", (error as Error)?.message || String(error));
       }
