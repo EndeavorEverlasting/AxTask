@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import "./planner-ai-layout.css";
 import { startSharedLongTaskAttributor } from "./lib/long-task-attributor";
 import { startSharedAnimationBudget } from "./lib/animation-budget";
 
