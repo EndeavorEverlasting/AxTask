@@ -1,19 +1,36 @@
 import dagre from "dagre";
-import type { Edge, Node } from "@xyflow/react";
+import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import type { SkillNodeDto } from "@/components/skill-tree/skill-tree-view";
 
-export const SKILL_TREE_NODE_WIDTH = 260;
-export const SKILL_TREE_NODE_HEIGHT = 156;
+export const SKILL_TREE_NODE_WIDTH = 280;
+export const SKILL_TREE_NODE_HEIGHT = 168;
 
 /** Horizontal gap between avatar and idle subgraphs when both are present. */
-export const SKILL_TREE_DOMAIN_GAP = 120;
+export const SKILL_TREE_DOMAIN_GAP = 180;
 
 export type SkillFlowNodeData = {
   dto: SkillNodeDto;
 };
 
+function edgeToneForTarget(target: SkillNodeDto): string {
+  if (target.domain === "offline") return "hsl(188 95% 58%)";
+  if (target.isUnlocked) return "hsl(45 96% 58%)";
+  if (target.isAvailable) return "hsl(199 95% 62%)";
+  return "hsl(var(--muted-foreground))";
+}
+
+function edgeOpacityForTarget(target: SkillNodeDto): number {
+  if (target.isUnlocked) return 0.92;
+  if (target.isAvailable) return 0.82;
+  return 0.38;
+}
+
 /**
- * Lays out a single connected cluster (one domain) with dagre.
+ * Lays out a single connected cluster (one domain).
+ *
+ * Visual contract: these edges are intentionally glowing and animated. The skill tree is a
+ * core progression surface, not a plain admin table. Do not flatten these edges back to the
+ * default React Flow styling unless replacing them with an equal or stronger visual affordance.
  */
 function layoutSkillCluster(nodes: SkillNodeDto[]): {
   nodes: Node<SkillFlowNodeData>[];
@@ -24,12 +41,26 @@ function layoutSkillCluster(nodes: SkillNodeDto[]): {
   for (const n of nodes) {
     const p = n.prerequisiteSkillKey;
     if (p && byKey.has(p)) {
+      const stroke = edgeToneForTarget(n);
       edges.push({
         id: `e-${p}__${n.skillKey}`,
         source: p,
         target: n.skillKey,
         type: "smoothstep",
-        style: { stroke: "hsl(var(--border))", strokeWidth: 1.5 },
+        animated: n.isAvailable || n.isUnlocked,
+        className: "skill-tree-glow-edge",
+        style: {
+          stroke,
+          strokeWidth: n.isUnlocked ? 3 : n.isAvailable ? 2.5 : 1.6,
+          opacity: edgeOpacityForTarget(n),
+          filter: `drop-shadow(0 0 7px ${stroke})`,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: stroke,
+          width: 18,
+          height: 18,
+        },
       });
     }
   }
@@ -38,10 +69,10 @@ function layoutSkillCluster(nodes: SkillNodeDto[]): {
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({
     rankdir: "TB",
-    nodesep: 56,
-    ranksep: 96,
-    marginx: 28,
-    marginy: 28,
+    nodesep: 72,
+    ranksep: 124,
+    marginx: 48,
+    marginy: 48,
   });
 
   for (const n of nodes) {
