@@ -1,0 +1,22 @@
+/* AI Planner layout triage
+ *
+ * The Gantt timeline is useful, but it is still experimental and not polished
+ * enough to lead the planner page. Keep it available, but park it below the
+ * stronger briefing, urgency, insight, and chat sections until the timeline is
+ * upgraded.
+ */
+
+@supports selector(:has(*)) {
+  body:has(#gantt) .max-w-5xl.mx-auto:has(> #gantt) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  body:has(#gantt) .max-w-5xl.mx-auto:has(> #gantt) > * {
+    order: 10;
+  }
+
+  body:has(#gantt) .max-w-5xl.mx-auto:has(> #gantt) > #gantt {
+    order: 90;
+  }
+}
