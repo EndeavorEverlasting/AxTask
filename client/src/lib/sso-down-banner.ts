@@ -12,7 +12,7 @@ const SSO_NOT_CONFIGURED_SET = new Set<string>(SSO_NOT_CONFIGURED_ERROR_CODES);
 /** User-facing copy for OAuth redirect errors (keep in sync with login page). */
 export const SSO_NOT_CONFIGURED_USER_MESSAGES: Record<SsoNotConfiguredErrorCode, string> = {
   google_not_configured: "Google sign-in is not available. Please use another sign-in method.",
-  workos_not_configured: "WorkOS sign-in is not available. Please use another sign-in method.",
+  workos_not_configured: "Work sign-in is not available. Please use another sign-in method.",
   replit_not_configured: "Replit sign-in is not available. Please use another sign-in method.",
 };
 

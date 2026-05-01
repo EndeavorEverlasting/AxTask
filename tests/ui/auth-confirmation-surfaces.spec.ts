@@ -47,6 +47,46 @@ test.describe.serial("Auth + confirmation URL surfaces", () => {
     expect(errors, `unexpected pageerrors: ${errors.join(" | ")}`).toEqual([]);
   });
 
+  test("first-time /login surfaces primary email before OAuth (local primary)", async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        localStorage.removeItem("axtask_known_accounts");
+        localStorage.removeItem("axtask_last_email");
+        localStorage.removeItem("axtask_last_provider");
+      } catch {
+        /* ignore */
+      }
+    });
+    await page.route("**/api/auth/config", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          registrationMode: "open",
+          inviteConfigured: true,
+          authProvider: "local",
+          loginUrl: "",
+          providers: [
+            { name: "google", loginUrl: "/api/auth/google/login" },
+            { name: "workos", loginUrl: "/api/auth/workos/login" },
+          ],
+        }),
+      });
+    });
+    await page.goto("/login", { waitUntil: "domcontentloaded" });
+    const primaryEmail = page.getByTestId("login-primary-email");
+    const oauthHost = page.locator("#login-help-oauth");
+    await expect(primaryEmail).toBeVisible({ timeout: 15_000 });
+    await expect(oauthHost).toBeVisible();
+    const oauthFollowsEmail = await page.evaluate(() => {
+      const email = document.querySelector('[data-testid="login-primary-email"]');
+      const oauth = document.getElementById("login-help-oauth");
+      if (!email || !oauth) return false;
+      return (email.compareDocumentPosition(oauth) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    });
+    expect(oauthFollowsEmail).toBe(true);
+  });
+
   test("/login?error=auth_failed shows OAuth error copy and cleans URL", async ({ page }) => {
     await waitForLoginShell(page, "/login?error=auth_failed");
     await expect(page.getByText("Authentication failed. Please try again.")).toBeVisible({

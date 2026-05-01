@@ -1,23 +1,11 @@
 import type { TutorialStep } from "@/lib/tutorial-types";
-
-function humanizeProvider(name: string): string {
-  switch (name.toLowerCase()) {
-    case "google":
-      return "Google";
-    case "replit":
-      return "Replit";
-    case "workos":
-      return "WorkOS";
-    default:
-      return name.charAt(0).toUpperCase() + name.slice(1);
-  }
-}
+import { humanizeProviderForHelp } from "@/lib/auth-provider-labels";
 
 /**
  * Build ordered login / recovery tour steps. OAuth-specific step is omitted when no SSO providers exist.
  */
 export function buildLoginHelpSteps(options: { oauthProviderNames: string[] }): TutorialStep[] {
-  const labels = options.oauthProviderNames.map(humanizeProvider);
+  const labels = options.oauthProviderNames.map(humanizeProviderForHelp);
   const listText =
     labels.length === 0
       ? ""
@@ -53,7 +41,7 @@ export function buildLoginHelpSteps(options: { oauthProviderNames: string[] }): 
       id: "login-help-password",
       title: "Email and password",
       description:
-        "Choose Password or Sign in with email & password. Enter your account email and password, then submit. Passwords are not stored in the browser; only your email and provider type may be saved locally if you enabled \"Remember my login method.\"",
+        "Choose Sign in with email and password (or the email path at the top when it is highlighted). Enter your account email and password, then submit. Passwords are not stored in the browser; only your email and sign-in method may be saved locally if you enabled \"Remember my login method.\"",
       targetId: "login-help-password-cta",
       position: "right",
       glowClass: "field-glow-tutorial-success",

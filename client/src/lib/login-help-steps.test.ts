@@ -14,7 +14,7 @@ describe("buildLoginHelpSteps", () => {
     const oauth = steps.find((s) => s.id === "login-help-oauth");
     expect(oauth).toBeDefined();
     expect(oauth?.description).toMatch(/Google/);
-    expect(oauth?.description).toMatch(/WorkOS/);
+    expect(oauth?.description).toMatch(/Work account/);
     expect(oauth?.targetId).toBe("login-help-oauth");
   });
 
