@@ -1,5 +1,11 @@
 # Branch retirement plan — `feature/2026-05-01-session-security` (2026-05-01)
 
+## 2026-05-01 Main Convergence Candidate
+
+`feature/2026-05-01-session-security` began as session security work but became the convergence runway for session hardening, env audit, browser signals, command parsing, AI task/reminder execution, reminder dispatch, and unstable branch retirement.
+
+No new feature work should be added before merge to `main`.
+
 Single reference for what lives on the consolidation branch and how to split or retire it without losing release-blocking work.
 
 ```mermaid
@@ -98,3 +104,42 @@ git log --oneline origin/main..HEAD
 - Session / cookie model: [SESSION_THREAT_MODEL.md](./SESSION_THREAT_MODEL.md)
 - Env audit and templates: [ENVIRONMENT_VARIABLES.md](./ENVIRONMENT_VARIABLES.md)
 - Git / deploy branching: [GIT_BRANCHING_AND_DEPLOYMENT.md](./GIT_BRANCHING_AND_DEPLOYMENT.md)
+
+## Superseded Branches
+
+These remote branches are candidates for deletion **after** `main` includes this convergence work and has been stable for a verification window — always confirm containment with `git log` before deleting.
+
+- `feature/ai-location-reminders-foundation`
+- `feature/2026-04-25-command-engine-release-guardrails`
+- `feature/2026-04-25-command-parser-tests`
+- `feature/2026-04-25-command-ui-dispatcher`
+- `feature/2026-04-25-durable-reminders`
+
+## Merged Concepts
+
+What this convergence branch is intended to carry into `main` (high level):
+
+- shared intent parser
+- command dispatcher updates
+- AI create-task execution
+- AI create-reminder execution
+- AI interaction feedback
+- location/reminder routes
+- reminder dispatch service
+- task reminders
+- session TTL hardening
+- registration config audit
+- safe boot config summary
+- browser-bound signal documentation
+- env/deploy audit
+
+## Not Yet Claimed Complete
+
+Honest scope boundaries — do **not** treat as shipped product completeness:
+
+- full recurring task UX
+- full mobile-native reminders
+- full report planning retrieval
+- full branch deletion (supersedes list above)
+- production push delivery verification
+- full Foundry productization

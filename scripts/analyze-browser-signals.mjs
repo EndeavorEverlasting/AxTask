@@ -12,6 +12,13 @@
 import pgModule from "pg";
 const pg = pgModule.default || pgModule;
 
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log(`Read-only rollup of browser-bound signals in security_events (requires DATABASE_URL).
+Usage: node scripts/analyze-browser-signals.mjs
+See docs/BROWSER_BOUND_SIGNALS.md`);
+  process.exit(0);
+}
+
 const url = process.env.DATABASE_URL?.trim();
 if (!url) {
   console.error("DATABASE_URL is required.");
