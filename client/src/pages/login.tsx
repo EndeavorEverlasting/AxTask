@@ -937,11 +937,16 @@ export default function LoginPage() {
 
               <div>
                 <Label htmlFor="email">Email</Label>
-                <SecureInput id="email" type="email" required value={email}
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  inactivityTimeout={120}
-                  onInactivityClear={() => setEmail("")}
-                  placeholder="you@example.com" className="mt-1" />
+                  placeholder="you@example.com"
+                  className="mt-1"
+                  autoComplete="email"
+                />
               </div>
 
               <div>
@@ -994,8 +999,13 @@ export default function LoginPage() {
               </div>
 
               {mode === "register" && regMode === "invite" && !inviteConfigured ? (
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 p-4 rounded-lg text-sm">
-                  Signup is temporarily unavailable. The server is set to invite-only, but no invite code is configured.
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 p-4 rounded-lg text-sm space-y-2">
+                  <p>
+                    Signup is temporarily unavailable. The server is set to invite-only, but no invite code is configured.
+                  </p>
+                  <p className="font-medium">
+                    Existing users can still sign in.
+                  </p>
                 </div>
               ) : mode === "register" && regMode === "invite" && inviteConfigured ? (
                 <div>

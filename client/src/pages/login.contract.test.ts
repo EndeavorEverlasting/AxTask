@@ -43,6 +43,16 @@ describe("/login query-string branches", () => {
   });
 });
 
+describe("/login email field", () => {
+  it("renders the email input with a plain <Input>, not SecureInput", () => {
+    const idx = SRC.indexOf('htmlFor="email"');
+    expect(idx, 'expected an "email" label in login.tsx').toBeGreaterThan(-1);
+    const region = SRC.slice(idx, idx + 500);
+    expect(region).toMatch(/<Input\b/);
+    expect(region).not.toMatch(/<SecureInput\b/);
+  });
+});
+
 describe("/login invite-code field", () => {
   it("renders the invite-code input with a plain <Input>, not SecureInput", () => {
     // Extract the JSX region that contains the invite-code label + input.
@@ -63,6 +73,10 @@ describe("/login invite-code field", () => {
     expect(region).not.toMatch(/onInactivityClear/);
     expect(region).not.toMatch(/alwaysMask/);
     expect(region).not.toMatch(/maskWhenBlurred/);
+  });
+
+  it("shows reassurance when invite signup is misconfigured", () => {
+    expect(SRC).toMatch(/Existing users can still sign in/);
   });
 
   it("uses autoComplete=off on the invite-code field so password managers stay out", () => {
