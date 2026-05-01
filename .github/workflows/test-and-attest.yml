@@ -56,6 +56,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Release contract guardrail
+        run: npm run release:check
+
       # Playwright `webServer` (see playwright.config.ts) runs `npm run start:app`, which
       # requires `dist/index.js` from the production bundle. Build must precede UI tests.
       - name: Production build

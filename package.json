@@ -25,6 +25,7 @@
     "start:app": "cross-env NODE_ENV=production node dist/index.js",
     "analyze:browser-signals": "node scripts/analyze-browser-signals.mjs",
     "check": "tsc",
+    "release:check": "node scripts/release-check.mjs",
     "ship": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/ship.ps1",
     "security:node-provenance-guard": "node tools/security/check_node_provenance.mjs",
     "security:node-provenance:approve-local": "node tools/security/approve_local_node_provenance.mjs",
