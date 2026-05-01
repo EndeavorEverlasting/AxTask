@@ -1,5 +1,10 @@
 # Agent notes (AxTask)
 
+
+## Clean sprints and closed plans
+
+When a feature sprint or planning artifact is completed and the work is merged to main, start by moving the closed plan document (e.g., `docs/VERSION_*_PLAN.md`, `docs/*_PLAN.md`) into the `docs/closed/` folder so that we don't spend time, energy, and tokens parsing them in active development. Update its status to "CLOSED" if not already done.
+
 ## Pre-push gamification / engagement objectives
 
 Before pushing release branches that touch rewards, classification, feedback, coins, or p-score UX, run the objective-to-code checklist: [docs/OBJECTIVE_CODE_PUSH_CHECKLIST.md](docs/OBJECTIVE_CODE_PUSH_CHECKLIST.md).
