@@ -4,6 +4,8 @@
 
 Read this before changing Pretext shells, glass utilities, `animation-budget`, app scroll roots, sidebar chrome, or the planner **TaskGantt** SVG.
 
+**Auth / login / MFA / welcome confirmation** — Branded `RouteFallback`, session `loading` shell, `/login`, `/mfa/confirm`, and `/welcome-confirm` stability and URL checklist: **[docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md](./AUTH_CONFIRMATION_SURFACE_STABILITY.md)** (avoid duplicating that checklist here).
+
 ---
 
 ## Vocabulary

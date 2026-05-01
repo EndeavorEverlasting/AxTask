@@ -55,6 +55,8 @@ The budget mirrors its state onto **`body[data-axtask-calm]`**. After the scroll
 
 **Shell scroll and visual stability:** Main app shell and sidebar wire inner `overflow-y-auto` scroll to the same budget. Full incident class, symptom matrix, and debugging playbook: **[docs/SCROLL_REFRESH_VISUAL_STABILITY.md](SCROLL_REFRESH_VISUAL_STABILITY.md)**.
 
+**Flashing-screen / first-paint flicker (lazy routes + auth):** If lazy `Suspense` or session **`loading`** shows an unbranded `bg-background` spinner or bright blank frame, users perceive a **white flash**. Keep **`RouteFallback`** in [`client/src/App.tsx`](../client/src/App.tsx) branded (gradient + lightweight spinner; no framer-motion in the fallback chunk). Auth-critical pages stay **eager-imported** so they avoid Suspense before paint. Auth URL checklist and calm-mode primitives for `/login`, `/mfa/confirm`, `/welcome-confirm`: **[docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md](AUTH_CONFIRMATION_SURFACE_STABILITY.md)**. Do **not** "fix" flicker by removing Pretext or disabling animations globally.
+
 ## Server — API latency heuristics
 
 Enforced by `npm run perf:api-replay` (run in

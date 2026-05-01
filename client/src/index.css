@@ -502,7 +502,10 @@
    * so the main thread can spend its budget on user scroll instead of
    * background glass. Surfaces that need animation for interactivity should
    * use `transition-transform` / `transition-opacity` / `motion-safe:` and
-   * are not affected by this rule. */
+   * are not affected by this rule.
+   * Reader mask + .axtask-calm-blur-fallback avoid chips bleeding through glass
+   * when blur is stripped; .axtask-nav-chrome / .axtask-stable-panel below.
+   * docs/SCROLL_REFRESH_VISUAL_STABILITY.md, docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md */
   body[data-axtask-calm] .backdrop-blur-xl,
   body[data-axtask-calm] .backdrop-blur-lg,
   body[data-axtask-calm] .backdrop-blur-md,
