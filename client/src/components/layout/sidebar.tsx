@@ -483,7 +483,7 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
     queueMicrotask(() => startTutorial());
   };
   return (
-    <div className="md:hidden flex items-center justify-between px-4 py-3 glass-panel-glossy rounded-none border-x-0 border-t-0 shrink-0">
+    <div className="md:hidden flex items-center justify-between px-4 py-3 axtask-mobile-chrome rounded-none border-x-0 border-t-0 shrink-0">
       <Button
         variant="ghost"
         size="icon"

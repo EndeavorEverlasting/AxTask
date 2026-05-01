@@ -12,6 +12,14 @@ import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = fs.readFileSync(path.join(__dirname, "login.tsx"), "utf8");
+const EMAIL_PASSWORD_FORM_SRC = fs.readFileSync(
+  path.join(__dirname, "login", "email-password-form.tsx"),
+  "utf8",
+);
+const REGISTER_FORM_SRC = fs.readFileSync(
+  path.join(__dirname, "login", "register-form.tsx"),
+  "utf8",
+);
 
 describe("/login query-string branches", () => {
   it("handles ?mode=register by switching to the register form", () => {
@@ -45,9 +53,9 @@ describe("/login query-string branches", () => {
 
 describe("/login email field", () => {
   it("renders the email input with a plain <Input>, not SecureInput", () => {
-    const idx = SRC.indexOf('htmlFor="email"');
-    expect(idx, 'expected an "email" label in login.tsx').toBeGreaterThan(-1);
-    const region = SRC.slice(idx, idx + 500);
+    const idx = EMAIL_PASSWORD_FORM_SRC.indexOf('htmlFor="email"');
+    expect(idx, 'expected an "email" label in email-password-form.tsx').toBeGreaterThan(-1);
+    const region = EMAIL_PASSWORD_FORM_SRC.slice(idx, idx + 500);
     expect(region).toMatch(/<Input\b/);
     expect(region).not.toMatch(/<SecureInput\b/);
   });
@@ -56,19 +64,19 @@ describe("/login email field", () => {
 describe("/login invite-code field", () => {
   it("renders the invite-code input with a plain <Input>, not SecureInput", () => {
     // Extract the JSX region that contains the invite-code label + input.
-    const idx = SRC.indexOf('htmlFor="inviteCode"');
-    expect(idx, 'expected an "inviteCode" label in login.tsx').toBeGreaterThan(
+    const idx = REGISTER_FORM_SRC.indexOf('htmlFor="inviteCode"');
+    expect(idx, 'expected an "inviteCode" label in register-form.tsx').toBeGreaterThan(
       -1,
     );
-    const region = SRC.slice(idx, idx + 600);
+    const region = REGISTER_FORM_SRC.slice(idx, idx + 600);
     expect(region).toMatch(/<Input\b/);
     expect(region).not.toMatch(/<SecureInput\b/);
   });
 
   it("does not apply inactivity-timeout or masking props to the invite-code field", () => {
-    const idx = SRC.indexOf('htmlFor="inviteCode"');
+    const idx = REGISTER_FORM_SRC.indexOf('htmlFor="inviteCode"');
     expect(idx).toBeGreaterThan(-1);
-    const region = SRC.slice(idx, idx + 600);
+    const region = REGISTER_FORM_SRC.slice(idx, idx + 600);
     expect(region).not.toMatch(/inactivityTimeout/);
     expect(region).not.toMatch(/onInactivityClear/);
     expect(region).not.toMatch(/alwaysMask/);
@@ -76,13 +84,13 @@ describe("/login invite-code field", () => {
   });
 
   it("shows reassurance when invite signup is misconfigured", () => {
-    expect(SRC).toMatch(/Existing users can still sign in/);
+    expect(REGISTER_FORM_SRC).toMatch(/Existing users can still sign in/);
   });
 
   it("uses autoComplete=off on the invite-code field so password managers stay out", () => {
-    const idx = SRC.indexOf('htmlFor="inviteCode"');
+    const idx = REGISTER_FORM_SRC.indexOf('htmlFor="inviteCode"');
     expect(idx).toBeGreaterThan(-1);
-    const region = SRC.slice(idx, idx + 600);
+    const region = REGISTER_FORM_SRC.slice(idx, idx + 600);
     expect(region).toMatch(/autoComplete=\s*"off"/);
   });
 });

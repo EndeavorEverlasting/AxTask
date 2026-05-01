@@ -5,6 +5,37 @@
 Read this before changing Pretext shells, glass utilities, `animation-budget`, app scroll roots, sidebar chrome, or the planner **TaskGantt** SVG.
 
 ---
+## 2026-05-01 mobile flashing regression note
+
+**Symptom:** Mobile users may see visible flashing, brightness pulses, or rapid glass/background changes while interacting with the app. This is not layout shaking. Treat it as a calm-mode / Pretext / glass-layer regression unless proven otherwise.
+
+**Primary suspicion:** Mobile surfaces are entering and leaving `body[data-axtask-calm]` while translucent panels, nav chrome, ambient chips, or backdrop blur fallbacks are visually mismatched between resting and calm states.
+
+**Do not chase first:** Do not begin with routing, task state, database state, or generic React re-render theory. First verify the visual stack.
+
+**Mobile-first checks:**
+
+1. Inspect `<body>` while scrolling/tapping on mobile viewport. Confirm whether `data-axtask-calm` appears exactly when the flash occurs.
+2. Inspect mobile drawer / sheet / bottom nav surfaces. Full-height chrome must use `.axtask-nav-chrome` or another opaque shell, not bare `.glass-panel-glossy`.
+3. Inspect cards over the Pretext layer. Any large translucent surface using `backdrop-blur-*` must also have `.axtask-calm-blur-fallback` or a proper `.glass-panel*` class.
+4. Confirm `.axtask-chip-layer` does not animate opacity during calm entry/exit.
+5. Confirm mobile-only components do not introduce `transition-all` on large shell/card regions.
+6. Confirm no mobile surface uses blur-only readability. Calm-mode removes blur under pressure.
+
+**Stabilization rule:** On mobile, prefer opacity-stable surfaces over decorative glass. The app may look less ethereal, but it must not flash. Beauty loses to stability. Judge score: 6.0 for restraint.
+
+### LIT: mobile flashing stabilization
+
+| Field | Entry |
+| ----- | ----- |
+| Incident class | Mobile visual flashing during interaction |
+| User language | “The app is shaking” later clarified as flashing |
+| Real subsystem | Calm-mode / Pretext / glass-layer visual stack |
+| Prior fix reused | Scroll refresh visual stability doctrine |
+| Regression guard | Calm-mode CSS contract + mobile chrome opacity rule |
+| Forbidden pattern | Mobile full-height chrome relying on translucent glass over Pretext |
+| Stabilization bias | Mobile opacity and compositing stability over decorative glass |
+
 
 ## Vocabulary
 
@@ -83,24 +114,24 @@ flowchart TB
 
 Use this before deep-diving the wrong subsystem.
 
-- **Symptom:** Entire card or region goes **empty white/grey** mid-scroll, then returns.  
-  **Likely cause:** `content-visibility`, transform scale, or aggressive transitions on a large subtree.  
+- **Symptom:** Entire card or region goes **empty white/grey** mid-scroll, then returns.
+  **Likely cause:** `content-visibility`, transform scale, or aggressive transitions on a large subtree.
   **Start:** [`client/src/App.tsx`](../client/src/App.tsx) (`safeRenderMode` / scale), [`client/src/index.css`](../client/src/index.css) (`.axtask-stable-panel`, calm rules), the specific page card classes.
 
-- **Symptom:** **Green pill chips** readable **through** sidebar or glass cards after scroll.  
-  **Likely cause:** Calm stripped blur; panel relied on blur for masking; or nav still used glass over Pretext.  
+- **Symptom:** **Green pill chips** readable **through** sidebar or glass cards after scroll.
+  **Likely cause:** Calm stripped blur; panel relied on blur for masking; or nav still used glass over Pretext.
   **Start:** `index.css` reader mask + `.axtask-nav-chrome` on [`sidebar.tsx`](../client/src/components/layout/sidebar.tsx); chip markup [`pretext-confirmation-shell.tsx`](../client/src/components/pretext/pretext-confirmation-shell.tsx).
 
-- **Symptom:** **Subtle colour / brightness pulse** every time scrolling “settles”.  
-  **Likely cause:** `data-axtask-calm` toggling while glass background jumps between translucent and opaque; chip opacity edge.  
+- **Symptom:** **Subtle colour / brightness pulse** every time scrolling “settles”.
+  **Likely cause:** `data-axtask-calm` toggling while glass background jumps between translucent and opaque; chip opacity edge.
   **Start:** [`animation-budget.ts`](../client/src/lib/animation-budget.ts) (timers, hysteresis), `index.css` glass transitions and chip layer rules.
 
-- **Symptom:** Gantt **dates look stretched or crushed**.  
-  **Likely cause:** SVG `preserveAspectRatio="none"` with `<text>` in the same scaled coordinate system.  
+- **Symptom:** Gantt **dates look stretched or crushed**.
+  **Likely cause:** SVG `preserveAspectRatio="none"` with `<text>` in the same scaled coordinate system.
   **Start:** [`task-gantt.tsx`](../client/src/components/task-gantt.tsx).
 
-- **Symptom:** “Refresh didn’t fix it” — **stale UI or old bundle**.  
-  **Likely cause:** Service worker cache, persisted React Query, or CDN — **not** calm-mode.  
+- **Symptom:** “Refresh didn’t fix it” — **stale UI or old bundle**.
+  **Likely cause:** Service worker cache, persisted React Query, or CDN — **not** calm-mode.
   **Start:** [`client/public/service-worker.js`](../client/public/service-worker.js), [`client/src/lib/query-persist-policy.ts`](../client/src/lib/query-persist-policy.ts), [`client/src/components/offline-data-banner.tsx`](../client/src/components/offline-data-banner.tsx) (hard refresh path).
 
 ---
