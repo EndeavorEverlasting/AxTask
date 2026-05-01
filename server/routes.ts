@@ -621,11 +621,15 @@ function maskEmailForOtp(email: string): string {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  app.use("/api", (req, _res, next) => {
-    // Fire-and-forget: the client-instance rollup is a best-effort side
-    // effect and must not add latency to API traffic or break on rejection.
-    void maybeRecordClientInstanceObservation(req).catch(() => {
-      // Optional client-instance rollup must not break API traffic.
+  app.use("/api", (req, res, next) => {
+    // Defer the observation to post-response. express-session's auto-save
+    // runs inside the wrapped res.end before `finish` fires, so by the time
+    // we touch req.session here the request's own session write has already
+    // landed and we become a clean post-write instead of a concurrent one.
+    res.on("finish", () => {
+      void maybeRecordClientInstanceObservation(req).catch(() => {
+        // Optional client-instance rollup must not break API traffic.
+      });
     });
     next();
   });
@@ -4211,12 +4215,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
               continue;
             }
-            const fingerprint = computeTaskFingerprint({
-              activity: validated.activity,
-              date: validated.date,
-              time: "",
-              notes: validated.notes ?? "",
-            });
+            const fingerprint = computeTaskFingerprint(validated);
             if (await hasImportFingerprint(userId, fingerprint)) {
               results.push({
                 taskId: RETRO_VOICE_PLACEHOLDER_TASK_ID,
