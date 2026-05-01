@@ -516,13 +516,6 @@ export default function LoginPage() {
                     setError("");
                   }}
                   onNeedHelp={() => setLoginHelpOpen(true)}
-                  canRegister={canRegister}
-                  onCreateAccount={() => {
-                    setMode("register");
-                    setShowForm(true);
-                    setError("");
-                  }}
-                  onNeedHelp={() => setLoginHelpOpen(true)}
                 />
               )}
 

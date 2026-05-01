@@ -55,7 +55,11 @@ describe("/login email field", () => {
   it("renders the email input with a plain <Input>, not SecureInput", () => {
     const idx = EMAIL_PASSWORD_FORM_SRC.indexOf('htmlFor="email"');
     expect(idx, 'expected an "email" label in email-password-form.tsx').toBeGreaterThan(-1);
-    const region = EMAIL_PASSWORD_FORM_SRC.slice(idx, idx + 500);
+    const pwdIdx = EMAIL_PASSWORD_FORM_SRC.indexOf('htmlFor="password"', idx);
+    expect(pwdIdx, 'expected password field after email in email-password-form.tsx').toBeGreaterThan(
+      -1,
+    );
+    const region = EMAIL_PASSWORD_FORM_SRC.slice(idx, pwdIdx);
     expect(region).toMatch(/<Input\b/);
     expect(region).not.toMatch(/<SecureInput\b/);
   });
