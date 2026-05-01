@@ -38,6 +38,9 @@ export default defineConfig({
         timeout: 60_000,
         stdout: "pipe",
         stderr: "pipe",
+        /* Production defaults REGISTRATION_MODE to invite without env — hides register UI.
+         * Force open so auth-confirmation-surfaces.spec.ts can assert the register form. */
+        env: { ...process.env, REGISTRATION_MODE: "open" },
       },
   projects: [
     {

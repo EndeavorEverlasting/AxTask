@@ -6,13 +6,26 @@ Canonical policy map: [docs/ACTIVE_LEGACY_INDEX.md](ACTIVE_LEGACY_INDEX.md) (act
 
 This document provides solutions to common bugs and debugging patterns encountered during AxTask development. Keep this updated as new issues are discovered and resolved.
 
-**Last Updated:** August 3, 2025
+**Last Updated:** May 1, 2026
 
 ---
 
 ## Scroll, hue flash, and blank panels (calm-mode)
 
-If scrolling makes panels **blank**, **glass hue-shift**, **Pretext chips read through** cards, or **Gantt axis text stretches**, you are usually in **`body[data-axtask-calm]`** + glass/Pretext compositor territory—not a stale API response. Watch **`data-axtask-calm`** in DevTools while scrolling main and sidebar; confirm nav uses **`.axtask-nav-chrome`**. Do **not** conflate with browser refresh / service worker / persisted query issues. **Canonical doc:** [docs/SCROLL_REFRESH_VISUAL_STABILITY.md](SCROLL_REFRESH_VISUAL_STABILITY.md) (playbook, file map, verification commands).
+If scrolling makes panels **blank**, **glass hue-shift**, **Pretext chips read through** cards, or **Gantt axis text stretches**, you are usually in **`body[data-axtask-calm]`** + glass/Pretext compositor territory—not a stale API response. Watch **`data-axtask-calm`** in DevTools while scrolling main and sidebar; confirm nav uses **`.axtask-nav-chrome`**. Do **not** conflate with browser refresh / service worker / persisted query issues.
+
+**Symptom quick map:**
+
+| What you see | Where to look |
+|--------------|----------------|
+| **Blank white flash** on route or session load | Branded `RouteFallback` vs plain spinner — [docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md](AUTH_CONFIRMATION_SURFACE_STABILITY.md) |
+| **Hue pulse** when scroll starts or settles | `CALM_RELEASE_HYSTERESIS_MS`, glass `transition-property` list — [docs/SCROLL_REFRESH_VISUAL_STABILITY.md](SCROLL_REFRESH_VISUAL_STABILITY.md) |
+| **Glass cards blanking** mid-scroll | Reader mask, `notifyScrollBudget()` on inner scroll roots — SCROLL doc |
+| **Chips bleeding through** panels | `.axtask-calm-blur-fallback` / `.glass-panel*` reader fill — SCROLL + AUTH_CONFIRMATION |
+| **Sidebar / nav flicker** over Pretext | `.axtask-nav-chrome` (opaque), not glossy glass on full-height nav — SCROLL doc |
+| **Gantt / timeline text stretching** | TaskGantt SVG scaling — SCROLL doc |
+
+**Canonical playbook:** [docs/SCROLL_REFRESH_VISUAL_STABILITY.md](SCROLL_REFRESH_VISUAL_STABILITY.md). **Auth routes + loading shell:** [docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md](AUTH_CONFIRMATION_SURFACE_STABILITY.md).
 
 ---
 
