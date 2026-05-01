@@ -86,7 +86,7 @@ const CommunityPage = lazy(() => import("@/pages/community"));
 const CollabInboxPage = lazy(() => import("@/pages/collab-inbox"));
 const VideoHuddlePage = lazy(() => import("@/pages/video-huddle"));
 const MessagesPage = lazy(() => import("@/pages/messages"));
-const BillingBridgePage = lazy(() => import("@/pages/billing-bridge"));
+const BillingBridgePage = lazy(() => import("@/pages/billing-bridge-dashboard"));
 import { DeepLinkGate } from "@/components/marketing/deep-link-gate";
 import { isValidAppPath } from "@/lib/app-routes";
 import {
