@@ -10,6 +10,7 @@ import * as tasksDomain from "./tasks";
 import * as gamification from "./gamification";
 import * as ops from "./ops";
 import * as shoppingListsDomain from "./shopping-lists";
+import * as conversionArtifactsDomain from "./conversion-artifacts";
 
 /**
  * Phase F-1 contract: the per-domain schema split must preserve every public
@@ -59,6 +60,7 @@ describe("shared/schema Phase F-1 split", () => {
       e2ee: new Set(Object.keys(e2eeDomain)),
       tasks: new Set(Object.keys(tasksDomain)),
       shoppingLists: new Set(Object.keys(shoppingListsDomain)),
+      conversionArtifacts: new Set(Object.keys(conversionArtifactsDomain)),
       gamification: new Set(Object.keys(gamification)),
       ops: new Set(Object.keys(ops)),
     };
@@ -126,6 +128,14 @@ describe("shared/schema Phase F-1 split", () => {
       expect(src).toMatch(/from\s+["']\.\/core["']/);
       expect(src).toMatch(/from\s+["']\.\/tasks["']/);
       expect(src).not.toMatch(/from\s+["']\.\/gamification["']/);
+    });
+
+    it("conversion-artifacts.ts depends on ./core and ./tasks only", () => {
+      const src = readSourceWithoutComments("conversion-artifacts.ts");
+      expect(src).toMatch(/from\s+["']\.\/core["']/);
+      expect(src).toMatch(/from\s+["']\.\/tasks["']/);
+      expect(src).not.toMatch(/from\s+["']\.\/gamification["']/);
+      expect(src).not.toMatch(/from\s+["']\.\/ops["']/);
     });
   });
 

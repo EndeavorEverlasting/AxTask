@@ -25,6 +25,8 @@ export type TaskListRouteFilter =
 export interface TaskListRouteState {
   filter: TaskListRouteFilter;
   q: string;
+  /** `?bundle=` conversion artifact id (task bundle membership filter). */
+  bundleId: string;
 }
 
 const VALID_FILTERS = new Set<TaskListRouteFilter>([
@@ -65,7 +67,7 @@ export function readTaskListRouteFilters(
   try {
     params = new URLSearchParams(raw);
   } catch {
-    return { filter: "none", q: "" };
+    return { filter: "none", q: "", bundleId: "" };
   }
   const filterRaw = params.get("filter")?.toLowerCase() ?? "";
   const filter: TaskListRouteFilter = VALID_FILTERS.has(
@@ -74,7 +76,12 @@ export function readTaskListRouteFilters(
     ? (filterRaw as TaskListRouteFilter)
     : "none";
   const q = params.get("q") ?? "";
-  return { filter, q };
+  const bundleRaw = params.get("bundle")?.trim() ?? "";
+  const bundleId =
+    /^[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$/i.test(bundleRaw)
+      ? bundleRaw
+      : "";
+  return { filter, q, bundleId };
 }
 
 export function clearTaskListRouteFilters(): void {
@@ -82,10 +89,13 @@ export function clearTaskListRouteFilters(): void {
   try {
     const url = new URL(window.location.href);
     const hadAny =
-      url.searchParams.has("filter") || url.searchParams.has("q");
+      url.searchParams.has("filter") ||
+      url.searchParams.has("q") ||
+      url.searchParams.has("bundle");
     if (!hadAny) return;
     url.searchParams.delete("filter");
     url.searchParams.delete("q");
+    url.searchParams.delete("bundle");
     const next = url.pathname + (url.search ? url.search : "") + url.hash;
     window.history.replaceState(window.history.state, "", next);
   } catch {
@@ -118,6 +128,17 @@ export function buildTaskListHref(
   if (q && q.trim().length > 0) params.set("q", q.trim());
   const qs = params.toString();
   return qs ? `/tasks?${qs}` : "/tasks";
+}
+
+export function buildTaskListBundleHref(artifactId: string): string {
+  const params = new URLSearchParams();
+  params.set("bundle", artifactId);
+  return `/tasks?${params.toString()}`;
+}
+
+export function describeBundleRouteChip(bundleId: string, title?: string): string {
+  if (title?.trim()) return `Bundle: ${title.trim()}`;
+  return `Bundle: ${bundleId.slice(0, 8)}…`;
 }
 
 /**

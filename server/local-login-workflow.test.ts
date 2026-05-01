@@ -38,7 +38,7 @@ describe("local login workflow contracts", () => {
     );
     const loginPage = fs.readFileSync(loginPagePath, "utf8");
 
-    expect(loginPage).toContain("Sign in with email & password");
+    expect(loginPage).toContain("or use email and password");
     expect(loginPage).toContain("Forgot your password?");
     expect(loginPage).toContain('await login(email, password)');
     expect(loginPage).toContain("/api/auth/forgot-password");

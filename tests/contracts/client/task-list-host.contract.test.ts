@@ -34,6 +34,11 @@ describe("TaskListHost :: source contract", () => {
     expect(HOST_SRC).toContain('"@/lib/pretext-imperative-list"');
   });
 
+  it("supports bundle route filter chip alongside planner-style route filters", () => {
+    expect(HOST_SRC).toContain("task-list-bundle-chip");
+    expect(HOST_SRC).toContain("describeBundleRouteChip");
+  });
+
   it("keeps interactive header sort/filter controls on the table", () => {
     expect(HOST_SRC).toContain("header-sort-date");
     expect(HOST_SRC).toContain("header-sort-created");

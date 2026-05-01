@@ -11,7 +11,10 @@ export const VALID_APP_PATHS = [
   "/google-sheets",
   "/checklist",
   "/shopping",
+  "/bundles",
+  "/bundles/new",
   "/planner",
+  "/planner/timeline",
   "/mini-games",
   "/feedback",
   "/community",
@@ -34,9 +37,16 @@ export const VALID_APP_PATHS = [
   "/billing-bridge",
 ] as const;
 
-export type ValidAppPath = (typeof VALID_APP_PATHS)[number] | `/shopping/shared/${string}`;
+export type ValidAppPath =
+  | (typeof VALID_APP_PATHS)[number]
+  | `/shopping/shared/${string}`
+  | `/bundles/${string}`;
 
 export function isValidAppPath(path: string): path is ValidAppPath {
   if ((VALID_APP_PATHS as readonly string[]).includes(path)) return true;
-  return /^\/shopping\/shared\/[^/?#]+$/.test(path);
+  if (/^\/shopping\/shared\/[^/?#]+$/.test(path)) return true;
+  if (/^\/bundles\/[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$/i.test(path)) {
+    return true;
+  }
+  return false;
 }

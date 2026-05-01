@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from "react";
-import { useLocation, Link } from "wouter";
+import { useLocation, Link, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isBrowserOnline, syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
@@ -8,6 +8,13 @@ import { useVoice } from "@/hooks/use-voice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PriorityBadge } from "@/components/priority-badge";
 import type { ProposedAction } from "@/components/bulk-action-dialog";
 
@@ -51,10 +58,14 @@ import {
 import { useBriefing } from "@/hooks/use-briefing";
 import { useRemindersSummary } from "@/hooks/use-reminders";
 import type { BriefingData } from "@/hooks/use-briefing";
-import { TaskGantt } from "@/components/task-gantt";
+import {
+  TimelineSummaryCard,
+  computeTimelineSummaryCounts,
+} from "@/components/gantt/timeline-summary-card";
 import { useGanttPackUnlocked } from "@/hooks/use-gantt-pack-unlocked";
 import { isShoppingTask } from "@shared/shopping-tasks";
 import { useAuth } from "@/lib/auth-context";
+import { computeCriticalPathIds } from "@shared/critical-path";
 import {
   buildLocalMarkovInsights,
   loadLocalCompletionLedger,
@@ -107,6 +118,7 @@ const SUGGESTED_QUESTIONS = [
 
 export default function PlannerPage() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const [question, setQuestion] = useState("");
   const [chatHistory, setChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [aiMessage, setAiMessage] = useState("");
@@ -132,6 +144,92 @@ export default function PlannerPage() {
     staleTime: 30_000,
   });
   const ganttPack = useGanttPackUnlocked();
+
+  const bundleId = useMemo(() => {
+    try {
+      const raw = new URLSearchParams(search).get("bundle")?.trim() ?? "";
+      return /^[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$/i.test(raw)
+        ? raw
+        : "";
+    } catch {
+      return "";
+    }
+  }, [search]);
+
+  const { data: bundlePrefilter } = useQuery({
+    queryKey: ["/api/conversion-artifacts", bundleId],
+    enabled: Boolean(bundleId),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/conversion-artifacts/${bundleId}`);
+      if (!r.ok) throw new Error("bundle");
+      return (await r.json()) as { tasks: Task[] };
+    },
+  });
+
+  const bundleMemberIds = useMemo(
+    () => new Set(bundlePrefilter?.tasks.map((t) => t.id) ?? []),
+    [bundlePrefilter],
+  );
+
+  const [certificationView, setCertificationView] = useState<
+    "all" | "certification" | "hard" | "blocked"
+  >("all");
+
+  const ganttSourceTasks = useMemo(() => {
+    let t = allTasks;
+    if (bundleId) t = t.filter((x) => bundleMemberIds.has(x.id));
+    if (certificationView === "certification") {
+      t = t.filter((x) => x.classification === "Certification");
+    } else if (certificationView === "hard") {
+      t = t.filter(
+        (x) =>
+          x.deadlineType === "hard" ||
+          x.deadlineType === "audit-risk" ||
+          x.deadlineType === "exam",
+      );
+    } else if (certificationView === "blocked") {
+      const done = new Set(
+        allTasks.filter((x) => x.status === "completed").map((x) => x.id),
+      );
+      t = t.filter((x) => {
+        const deps = x.dependsOn ?? [];
+        return deps.some((d) => !done.has(d));
+      });
+    }
+    return t;
+  }, [allTasks, bundleId, bundleMemberIds, certificationView]);
+
+  const ganttCriticalIds = useMemo(() => {
+    const exam = ganttSourceTasks.find((x) => x.deadlineType === "exam");
+    const terminal = exam?.id ?? ganttSourceTasks[ganttSourceTasks.length - 1]?.id;
+    if (!terminal) return undefined;
+    return computeCriticalPathIds(ganttSourceTasks, terminal);
+  }, [ganttSourceTasks]);
+
+  const timelineSummary = useMemo(
+    () => computeTimelineSummaryCounts(ganttSourceTasks),
+    [ganttSourceTasks],
+  );
+
+  const timelineScopeParam = useMemo(() => {
+    switch (certificationView) {
+      case "certification":
+        return "certification";
+      case "hard":
+        return "hard-deadlines";
+      case "blocked":
+        return "blocked";
+      default:
+        return "next-21-days";
+    }
+  }, [certificationView]);
+
+  const openTimelineWorkspace = useCallback(() => {
+    const q = new URLSearchParams();
+    q.set("scope", timelineScopeParam);
+    if (bundleId) q.set("bundle", bundleId);
+    setLocation(`/planner/timeline?${q.toString()}`);
+  }, [bundleId, setLocation, timelineScopeParam]);
 
   interface PatternInsight {
     type: "topic" | "recurrence" | "deadline_rhythm" | "similarity_cluster" | "markov_local";
@@ -572,7 +670,31 @@ export default function PlannerPage() {
                     </h2>
                     <p className="text-xs mt-1 text-indigo-700/80 dark:text-indigo-300/80">
                       AI-assisted Gantt view of scheduled work
+                      {ganttCriticalIds && ganttCriticalIds.size > 0
+                        ? ` · ${ganttCriticalIds.size} tasks on critical path (exam milestone)`
+                        : ""}
                     </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select
+                      value={certificationView}
+                      onValueChange={(v) => setCertificationView(v as typeof certificationView)}
+                    >
+                      <SelectTrigger className="h-8 w-[200px] text-xs" aria-label="Timeline task filter">
+                        <SelectValue placeholder="Filter" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All tasks</SelectItem>
+                        <SelectItem value="certification">Certification only</SelectItem>
+                        <SelectItem value="hard">Hard deadlines</SelectItem>
+                        <SelectItem value="blocked">Blocked</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {bundleId ? (
+                      <span className="text-[10px] rounded-full border border-indigo-400/40 px-2 py-0.5 text-indigo-700 dark:text-indigo-300">
+                        Bundle
+                      </span>
+                    ) : null}
                   </div>
                   {ganttPack.unlocked ? (
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/30 px-2.5 py-1 text-xs text-emerald-600 dark:text-emerald-400 shadow-sm">
@@ -591,41 +713,17 @@ export default function PlannerPage() {
                 </div>
               </header>
               <div className="p-5 flex-1 flex flex-col gap-4">
-                <div className="w-full min-w-0 rounded-xl border border-white/10 bg-black/5 dark:bg-black/20 p-3 shadow-inner">
-                  <TaskGantt
-                    tasks={allTasks}
-                    unlocked={ganttPack.unlocked}
-                    rangeDays={21}
-                    emptyHint="Schedule a task with a date to see it on the timeline."
-                  />
-                </div>
-
-                {/* Legend & Context */}
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-2 border-t border-white/5 dark:border-white/5">
-                  <p className="text-xs text-indigo-800/70 dark:text-indigo-200/60 leading-relaxed max-w-lg pt-2 lg:pt-0">
-                    {ganttPack.unlocked
-                      ? "Interactive timeline with swimlanes grouped by classification. Hover over tasks for details. Priority colors map and dependency arrows guide your execution flow."
-                      : "Interactive preview. Unlock the Gantt Timeline Pack in the Rewards shop for classification swimlanes, dependency arrows, and priority heat-mapping."}
-                  </p>
-
-                  {/* Visual Legend */}
-                  <div className="flex flex-wrap items-center gap-4 text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400 pt-2 lg:pt-0">
-                    {ganttPack.unlocked ? (
-                      <>
-                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#ef4444]" />Highest</div>
-                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#f97316]" />High</div>
-                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#3b82f6]" />Normal</div>
-                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#64748b]" />Low</div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#10b981]" />Completed</div>
-                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#3b82f6]" />In Progress</div>
-                        <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#6366f1]" />Pending</div>
-                      </>
-                    )}
-                  </div>
-                </div>
+                <TimelineSummaryCard
+                  blockerCount={timelineSummary.blockerCount}
+                  milestoneCount={timelineSummary.milestoneCount}
+                  hardDeadlineCount={timelineSummary.hardDeadlineCount}
+                  onOpenWorkspace={openTimelineWorkspace}
+                />
+                <p className="text-xs text-indigo-800/70 dark:text-indigo-200/60 leading-relaxed max-w-lg">
+                  {ganttPack.unlocked
+                    ? "Open the Timeline Workspace for pan/zoom, minimap, dependency arrows, swimlanes, and the full legend."
+                    : "Open the Timeline Workspace for the navigable chart. Unlock the Gantt Timeline Pack in the Rewards shop for swimlanes, dependency arrows, and priority coloring."}
+                </p>
               </div>
             </section>
           </div>

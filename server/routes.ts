@@ -9,6 +9,7 @@ import rateLimit from "express-rate-limit";
 import passport from "passport";
 import multer from "multer";
 import { attachShoppingListRoutes } from "./shopping-lists-routes";
+import { attachConversionArtifactRoutes } from "./conversion-artifacts-routes";
 import { listPurchasedShoppingEventsForUser } from "./shopping-lists-storage";
 import { exportFullDatabase, exportUserData } from "./migration/export";
 import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
@@ -8190,6 +8191,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerReminderRoutes(app, requireAuth);
   registerAiRoutes(app, requireAuth);
   attachShoppingListRoutes(app);
+  attachConversionArtifactRoutes(app);
 
   const httpServer = createServer(app);
   return httpServer;

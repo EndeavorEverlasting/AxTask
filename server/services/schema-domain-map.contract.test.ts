@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 
 import * as barrel from "@shared/schema";
+import * as conversionArtifacts from "@shared/schema/conversion-artifacts";
 import * as core from "@shared/schema/core";
 import * as tasks from "@shared/schema/tasks";
 import * as shoppingLists from "@shared/schema/shopping-lists";
@@ -39,6 +40,9 @@ function tablesIn(ns: Record<string, unknown>): string[] {
 describe("schema-domain-map Phase F-1 contract", () => {
   const coreTables = tablesIn(core as unknown as Record<string, unknown>);
   const taskTables = tablesIn(tasks as unknown as Record<string, unknown>);
+  const conversionArtifactTables = tablesIn(
+    conversionArtifacts as unknown as Record<string, unknown>,
+  );
   const shoppingListTables = tablesIn(shoppingLists as unknown as Record<string, unknown>);
   const gameTables = tablesIn(gamification as unknown as Record<string, unknown>);
   const opsTables = tablesIn(ops as unknown as Record<string, unknown>);
@@ -58,6 +62,12 @@ describe("schema-domain-map Phase F-1 contract", () => {
 
   it("assigns every tasks table to the 'tasks' domain", () => {
     for (const t of taskTables) {
+      expect({ table: t, domain: domainOfTable(t) }).toEqual({ table: t, domain: "tasks" });
+    }
+  });
+
+  it("assigns every conversion-artifact table to the 'tasks' domain", () => {
+    for (const t of conversionArtifactTables) {
       expect({ table: t, domain: domainOfTable(t) }).toEqual({ table: t, domain: "tasks" });
     }
   });
@@ -108,7 +118,12 @@ describe("schema-domain-map Phase F-1 contract", () => {
     const seen = new Map<string, string[]>();
     const buckets: Array<[string, string[]]> = [
       ["core", coreTables.map((t) => t.toLowerCase())],
-      ["tasks", [...taskTables, ...shoppingListTables].map((t) => t.toLowerCase())],
+      [
+        "tasks",
+        [...taskTables, ...conversionArtifactTables, ...shoppingListTables].map((t) =>
+          t.toLowerCase(),
+        ),
+      ],
       ["gamification", gameTables.map((t) => t.toLowerCase())],
       ["ops", opsTables.map((t) => t.toLowerCase())],
     ];
