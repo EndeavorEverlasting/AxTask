@@ -24,8 +24,8 @@ NodeWeaver._pre_submodule_backup/
 .idea/
 
 # Local planning artifacts
-docs/AxTask_Migration_Master_Plan.md
-docs/AxTask_Robust_Hosting_Migration_Plan_*.docx
+docs/closed/AxTask_Migration_Master_Plan.md
+docs/closed/AxTask_Robust_Hosting_Migration_Plan_*.docx
 .security/local-node-provenance.json
 
 
