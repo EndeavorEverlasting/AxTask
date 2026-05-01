@@ -1,6 +1,10 @@
 /**
  * Full-viewport pretext confirmation layout (gradient shell + glass card).
  * Use `PretextGlassCard` alone inside main app chrome when a full bleed shell is not needed.
+ *
+ * MFA/welcome surfaces: chips + blur participate in calm-mode; PretextGlassCard
+ * includes `.axtask-calm-blur-fallback` for reader-fill when blur is stripped.
+ * docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md, docs/SCROLL_REFRESH_VISUAL_STABILITY.md
  */
 import { useEffect, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
@@ -233,7 +237,7 @@ export function PretextConfirmationShell({
 }
 
 const glassCardBase =
-  "rounded-2xl border border-white/15 bg-white/10 backdrop-blur p-7 sm:p-10 shadow-2xl";
+  "rounded-2xl border border-white/15 bg-white/10 backdrop-blur p-7 sm:p-10 shadow-2xl axtask-calm-blur-fallback";
 
 export type PretextGlassCardProps = {
   children: ReactNode;

@@ -256,7 +256,7 @@ export default function ExperienceConfirmPage() {
               </Button>
             </div>
             <p className="mt-4 text-xs text-slate-300/90">
-              No confirmation was performed. This screen will not auto-redirect.
+              <span>No confirmation was performed.</span> This screen will not auto-redirect.
             </p>
           </PretextGlassCard>
         </div>

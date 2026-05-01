@@ -15,6 +15,10 @@
  *   element (we default main to "calm"). CSS dims the orb/chip layers on
  *   dense surfaces without remounting anything. See
  *   [docs/ORB_AVATAR_EXPERIENCE_CONTRACT.md] for doctrine.
+ *
+ * Visual stability: do not remove Pretext to "fix" flicker — chips sit behind
+ * content; calm-mode + reader masks handle bleed/hue (docs/SCROLL_REFRESH_VISUAL_STABILITY.md,
+ * docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md).
  */
 import { memo, type ReactNode } from "react";
 import { CursorOrbsBackdrop } from "@/components/marketing/cursor-orbs-backdrop";
