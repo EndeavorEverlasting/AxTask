@@ -38,7 +38,7 @@ interface AnimationBudgetOptions {
 
 const DEFAULT_SCROLL_PAUSE_MS = 250;
 const DEFAULT_LONG_TASK_PAUSE_MS = 400;
-/** After scroll pause expires, keep `data-axtask-calm` briefly so glass/chip CSS does not edge-flash on every wheel tick. */
+/** After scroll pause expires, keep `data-axtask-calm` briefly so glass/chip CSS does not edge-flash on every wheel tick (hue pulse). See docs/SCROLL_REFRESH_VISUAL_STABILITY.md, docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md */
 const CALM_RELEASE_HYSTERESIS_MS = 90;
 
 class AnimationBudget {
@@ -232,7 +232,7 @@ export function subscribeAnimationBudget(cb: Listener): () => void {
   return getAnimationBudget().subscribe(cb);
 }
 
-/** Throttle-friendly hook: main app scroll is on an inner `overflow-y-auto` div, not `window`. */
+/** Throttle-friendly: main shell + sidebar use inner `overflow-y-auto`, not `window` scroll alone. docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md */
 export function notifyScrollBudget(): void {
   getAnimationBudget().notifyShellScroll();
 }

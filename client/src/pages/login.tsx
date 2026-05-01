@@ -470,6 +470,7 @@ export default function LoginPage() {
                     openEmailPasswordPath();
                   }}
                   onShowHelp={() => setLoginHelpOpen(true)}
+
                 />
               ) : null}
               <h2 className="text-xl font-semibold text-slate-100 mb-6">{cardTitle}</h2>
@@ -596,6 +597,8 @@ export default function LoginPage() {
                   onBackToSignIn={resetForgotFlow}
                 />
               )}
+
+
             </>
           )}
 

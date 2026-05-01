@@ -534,6 +534,9 @@ export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { sidebarWidthPx, isNavFocus, toggleSidebarHidden } = useImmersiveShell();
   const scrollBudgetRaf = useRef<number | null>(null);
+  // Sidebar is its own overflow root — must feed notifyScrollBudget like App main.
+  // Nav uses .axtask-nav-chrome (opaque) to reduce Pretext/hue flicker; see
+  // docs/SCROLL_REFRESH_VISUAL_STABILITY.md, docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md
   const onSidebarScroll = useCallback(() => {
     if (scrollBudgetRaf.current != null) return;
     scrollBudgetRaf.current = requestAnimationFrame(() => {

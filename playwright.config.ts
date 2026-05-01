@@ -20,6 +20,9 @@ export default defineConfig({
   expect: {
     timeout: 5_000,
   },
+  /* One shared webServer + client navigations: multiple workers can starve the server and yield
+   * blank-body flakes on Windows/CI. Serial describes help per-file; this caps cross-file load. */
+  workers: process.env.CI ? 1 : undefined,
   fullyParallel: true,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
@@ -38,6 +41,9 @@ export default defineConfig({
         timeout: 60_000,
         stdout: "pipe",
         stderr: "pipe",
+        /* Production defaults REGISTRATION_MODE to invite without env — hides register UI.
+         * Force open so auth-confirmation-surfaces.spec.ts can assert the register form. */
+        env: { ...process.env, REGISTRATION_MODE: "open" },
       },
   projects: [
     {

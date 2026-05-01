@@ -123,9 +123,10 @@ const BulkActionDialogLazy = lazy(
 );
 
 function RouteFallback() {
-  // Intentionally framer-motion-free and ambient-chip-free so the fallback
-  // chunk stays tiny — this renders before any lazy page resolves and before
-  // the authenticated PretextShell mounts. See docs/PERF_PERFORMANCE_BUDGETS.md.
+  // Branded lazy-route + session-loading shell — avoids blank white flash during
+  // Suspense (see docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md). Intentionally
+  // framer-motion-free and ambient-chip-free so the fallback chunk stays tiny.
+  // Also docs/PERF_PERFORMANCE_BUDGETS.md.
   return (
     <div
       role="status"
@@ -386,6 +387,9 @@ function AuthenticatedApp() {
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const mainScrollBudgetRaf = useRef<number | null>(null);
+  // Inner scroll roots must call notifyScrollBudget — window scroll alone misses
+  // main content; dropping this brings hue pulse, glass blanking, chip bleed-back.
+  // docs/SCROLL_REFRESH_VISUAL_STABILITY.md, docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md
   const onMainShellScroll = useCallback(() => {
     if (mainScrollBudgetRaf.current != null) return;
     mainScrollBudgetRaf.current = requestAnimationFrame(() => {
@@ -551,6 +555,8 @@ function AuthenticatedApp() {
     return <ExperienceConfirmPage />;
   }
 
+  // Auth loading: same branded RouteFallback as lazy Suspense — avoids white flash
+  // while /api/auth/me resolves (docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md).
   if (loading) {
     return (
       <div className="h-full min-h-0 overflow-y-auto">
