@@ -18,7 +18,7 @@ export type BrowserConnectionLike = {
   removeEventListener?: (type: "change", listener: () => void) => void;
 };
 
-const CELLULAR_TYPES = new Set(["cellular", "3g", "4g", "5g", "2g"]);
+const CELLULAR_TYPES = new Set(["cellular", "slow-2g", "2g", "3g", "4g"]);
 const WIFI_TYPES = new Set(["wifi", "ethernet", "wimax"]);
 
 function normalize(value: unknown): string | undefined {

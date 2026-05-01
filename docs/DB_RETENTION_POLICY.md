@@ -35,6 +35,7 @@ tables default to having a retention window instead of growing forever.
 | `user_location_events`        | `created_at`| 90 days   | Enter/exit event stream for place-based reminders; high volume, mainly used for short-term trigger evaluation. Older events add little value once processed. |
 | `ai_interactions`             | `created_at`| 30 days   | LLM/assistant audit with `raw_message` and model metadata; short window limits privacy exposure and table growth while recent rows still support basic debugging. |
 | `foundry_run_logs`            | `created_at`| 90 days   | Admin Foundry append-only agent handoff entries (branch/commit summaries); bounded operational history without retaining indefinite deploy narratives. |
+| `task_reminders`              | `created_at`| 365 days  | Per-user reminder rows; completed/cancelled records age out after a year. Cascade from `tasks` is `SET NULL`, so pruning never breaks a user task. |
 
 **Windows explicitly live in two places** — this table and
 `RETENTION_WINDOWS` at the top of [scripts/db-retention.mjs](../scripts/db-retention.mjs).

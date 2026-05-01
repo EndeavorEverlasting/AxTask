@@ -156,9 +156,8 @@ function collectCodeKeys(rootDir) {
     for (const file of walkFiles(abs, exts)) {
       const text = readText(file);
       if (!text) continue;
-      let m;
-      while ((m = PROCESS_ENV_RE.exec(text)) !== null) keys.add(m[1]);
-      while ((m = IMPORT_META_ENV_RE.exec(text)) !== null) keys.add(m[1]);
+      for (const m of text.matchAll(PROCESS_ENV_RE)) keys.add(m[1]);
+      for (const m of text.matchAll(IMPORT_META_ENV_RE)) keys.add(m[1]);
     }
   }
   return keys;

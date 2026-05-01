@@ -39,7 +39,7 @@ describe("/login query-string branches", () => {
     const matches = SRC.match(
       /window\.history\.replaceState\(\{\},\s*""\s*,\s*"\/login"\)/g,
     );
-    expect(matches?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(matches?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 });
 

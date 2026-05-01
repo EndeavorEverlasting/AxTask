@@ -65,7 +65,12 @@ export async function finalizeTaskReminderDispatch(input: {
       status: input.nextRemindAt ? "pending" : "completed",
       updatedAt: input.firedAt,
     })
-    .where(eq(taskReminders.id, input.taskReminderId))
+    .where(
+      and(
+        eq(taskReminders.id, input.taskReminderId),
+        eq(taskReminders.status, "pending"),
+      ),
+    )
     .returning();
   return row ?? null;
 }

@@ -11,6 +11,9 @@ describe("Admin Foundry routes contract", () => {
     const src = fs.readFileSync(foundryRoutesPath, "utf8");
     expect(src).toContain('"/api/admin/foundry/status"');
     expect(src).toContain('"/api/admin/foundry/runs"');
+    // Both GET and POST share the /runs path string; assert the POST handler
+    // is actually registered so the test description stays honest.
+    expect(src).toMatch(/app\.post\(\s*"\/api\/admin\/foundry\/runs"/);
     expect(src).toContain("deps.requireAdmin");
     expect(src).toContain("deps.requireAdminStepUp");
     expect(src).toContain("requireFoundryEnabled");

@@ -621,12 +621,12 @@ function maskEmailForOtp(email: string): string {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  app.use("/api", async (req, res, next) => {
-    try {
-      await maybeRecordClientInstanceObservation(req);
-    } catch {
+  app.use("/api", (req, _res, next) => {
+    // Fire-and-forget: the client-instance rollup is a best-effort side
+    // effect and must not add latency to API traffic or break on rejection.
+    void maybeRecordClientInstanceObservation(req).catch(() => {
       // Optional client-instance rollup must not break API traffic.
-    }
+    });
     next();
   });
 
@@ -4178,13 +4178,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
               results.push({ taskId: action.taskId, success: false, error: "Invalid retro action" });
               continue;
             }
-            const activity = typeof action.taskActivity === "string" ? action.taskActivity.trim() : "";
-            const rawDate = action.details?.date;
-            const date =
-              typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
-                ? rawDate
-                : null;
-            if (!activity || activity.length < 2 || !date) {
+            const parsed = insertTaskSchema.safeParse({
+              activity:
+                typeof action.taskActivity === "string"
+                  ? action.taskActivity.trim()
+                  : "",
+              date: typeof action.details?.date === "string" ? action.details.date : "",
+              status: "completed",
+              recurrence: "none",
+              notes:
+                typeof action.details?.notes === "string"
+                  ? action.details.notes.slice(0, TASK_NOTES_MAX_CHARS)
+                  : "",
+              visibility: "private",
+              communityShowNotes: false,
+            });
+            if (!parsed.success) {
               results.push({
                 taskId: RETRO_VOICE_PLACEHOLDER_TASK_ID,
                 success: false,
@@ -4192,6 +4201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
               continue;
             }
+            const validated = parsed.data;
             const quota = await assertCanCreateTasks(userId, 1);
             if (!quota.ok) {
               results.push({
@@ -4201,11 +4211,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
               continue;
             }
-            const notes =
-              typeof action.details?.notes === "string"
-                ? action.details.notes.slice(0, TASK_NOTES_MAX_CHARS)
-                : "";
-            const fingerprint = computeTaskFingerprint({ activity, date, time: "", notes });
+            const fingerprint = computeTaskFingerprint({
+              activity: validated.activity,
+              date: validated.date,
+              time: "",
+              notes: validated.notes ?? "",
+            });
             if (await hasImportFingerprint(userId, fingerprint)) {
               results.push({
                 taskId: RETRO_VOICE_PLACEHOLDER_TASK_ID,
@@ -4214,15 +4225,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
               continue;
             }
-            let task = await storage.createTask(userId, {
-              activity,
-              date,
-              status: "completed",
-              recurrence: "none",
-              notes,
-              visibility: "private",
-              communityShowNotes: false,
-            });
+            let task = await storage.createTask(userId, validated);
             await recordImportFingerprint(userId, fingerprint, "voice_retro_log", task.id);
             const allTasks = await storage.getTasks(userId);
             const priorityResult = await PriorityEngine.calculatePriority(
