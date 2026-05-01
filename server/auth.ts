@@ -4,6 +4,7 @@ import { Strategy as LocalStrategy } from "passport-local";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
+import { getSessionMaxAgeMs, getSessionStoreTtlSeconds } from "./session-config";
 import { getUserByEmail, getUserById, verifyPassword } from "./storage";
 import type { Express, Request, Response, NextFunction } from "express";
 import type { SafeUser } from "@shared/schema";
@@ -59,18 +60,17 @@ export function setupAuth(app: Express) {
 
   // ── Session store: Postgres (default) or in-memory (dev-only escape hatch) ─
   const PgStore = connectPgSimple(session);
+  const maxAgeMs = getSessionMaxAgeMs();
   const store = memoryStore
     ? undefined
     : new PgStore({
         pool: pool as any, // Neon Pool is compatible
         createTableIfMissing: true,
+        ttl: getSessionStoreTtlSeconds(),
       });
 
-  const sessionStore = new PgStore({
-    pool: pool as any,
-    createTableIfMissing: true,
-  });
-  (global as { __sessionStore?: InstanceType<typeof PgStore> }).__sessionStore = sessionStore;
+  // WebSocket auth (collaboration) reads sessions from the same store instance as express-session.
+  (global as { __sessionStore?: InstanceType<typeof PgStore> | undefined }).__sessionStore = store;
 
   app.use(
     session({
@@ -80,7 +80,7 @@ export function setupAuth(app: Express) {
       resave: false,
       saveUninitialized: false,
       cookie: {
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        maxAge: maxAgeMs,
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",

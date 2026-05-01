@@ -50,6 +50,7 @@ This document **groups and explains** the environment variables AxTask uses. It 
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `SESSION_SECRET` | **Yes** (prod) | Signs sessions; must be long random. |
+| `SESSION_MAX_AGE_MS` | No | Session cookie `maxAge` and CSRF cookie lifetime (integer ms). Default **604800000** (7 days). Min **300000** (5 min), max **34560000000** (~400 days). Shorter values reduce impact of a copied cookie; tune with UX (login frequency). See [SESSION_THREAT_MODEL.md](SESSION_THREAT_MODEL.md). |
 | `DEV_SESSION_MEMORY_STORE` | No | Dev-only in-memory sessions when Postgres is down. |
 | `TOTP_ENCRYPTION_KEY` | Prod if TOTP used | 64 hex chars; encrypts TOTP secrets at rest. |
 | `ATTACHMENT_UPLOAD_SECRET` | No | HMAC for upload tokens; falls back to `SESSION_SECRET` or dev default. |

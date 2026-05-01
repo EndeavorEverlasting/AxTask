@@ -5,6 +5,7 @@ import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
+import { getSessionMaxAgeMs } from "./session-config";
 import { registerOAuthRoutes } from "./auth-providers";
 import { seedDevAccounts } from "./seed-dev";
 import { pool } from "./db";
@@ -191,6 +192,7 @@ const CSRF_COOKIE = "axtask.csrf";
 const CSRF_HEADER = "x-csrf-token";
 
 app.use("/api", (req, res, next) => {
+  const csrfMaxAge = getSessionMaxAgeMs();
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
     if (!req.cookies?.[CSRF_COOKIE]) {
       const token = csrfRandomBytes(32).toString("base64url");
@@ -199,7 +201,7 @@ app.use("/api", (req, res, next) => {
         secure: !isDev,
         sameSite: "lax",
         path: "/",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: csrfMaxAge,
       });
     }
     return next();
@@ -218,7 +220,7 @@ app.use("/api", (req, res, next) => {
       secure: !isDev,
       sameSite: "lax",
       path: "/",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: csrfMaxAge,
     });
     return res.status(403).json({ message: "Invalid CSRF token" });
   }
