@@ -51,24 +51,42 @@ services:
         sync: false
       - key: AUTH_PROVIDER
         sync: false
+      - key: REGISTRATION_MODE
+        sync: false
+      - key: INVITE_CODE
+        sync: false
+      - key: AUTH_AUDIT_PEPPER
+        sync: false
+      - key: ARCHETYPE_ANALYTICS_SALT
+        sync: false
+      - key: TOTP_ENCRYPTION_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VITE_VAPID_PUBLIC_KEY
+        sync: false
+      # Admin Foundry controls: allow production access to /api/admin/foundry/*
+      # while keeping admin role + step-up protection in place.
+      - key: ENABLE_FOUNDRY
+        value: "true"
       # Neon Launch tier includes 10 GiB storage. Keep the gate's budget
       # aligned with the plan so scripts/deploy/check-db-capacity.mjs
       # reflects reality instead of the default 512 MB free-tier ceiling.
       - key: AXTASK_DB_SIZE_BUDGET_BYTES
         value: "10737418240"
 
-  # Nightly retention sweep. Uncomment to activate; requires a Render cron
-  # service (paid add-on) and the same DATABASE_URL secret as axtask-prod.
-  # See docs/DB_RETENTION_POLICY.md for the windows this runs against.
-  # - type: cron
-  #   name: axtask-db-retention
-  #   env: node
-  #   plan: starter
-  #   schedule: "15 4 * * *"  # 04:15 UTC daily
-  #   buildCommand: npm ci
-  #   startCommand: node scripts/db-retention.mjs
-  #   envVars:
-  #     - key: NODE_ENV
-  #       value: production
-  #     - key: DATABASE_URL
-  #       sync: false
+  # Nightly retention sweep for append-only tables (including foundry_run_logs).
+  - type: cron
+    name: axtask-db-retention
+    env: node
+    plan: starter
+    schedule: "15 4 * * *"  # 04:15 UTC daily
+    buildCommand: npm ci
+    startCommand: node scripts/db-retention.mjs
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false

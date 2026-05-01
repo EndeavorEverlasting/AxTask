@@ -5,6 +5,7 @@ import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
+import { getSessionMaxAgeMs } from "./session-config";
 import { registerOAuthRoutes } from "./auth-providers";
 import { seedDevAccounts } from "./seed-dev";
 import { pool } from "./db";
@@ -16,10 +17,13 @@ import { appendSecurityEvent } from "./storage";
 import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
 import { evaluateAdherenceForAllUsers } from "./services/adherence-evaluator";
 import { dispatchAdherencePushNotifications } from "./services/adherence-dispatch";
+import { dispatchDueReminderTriggers } from "./services/reminder-dispatch";
 import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence-thresholds";
 import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
 import { startRetentionPruneTicker } from "./workers/retention-prune";
 import { captureDbSizeSnapshot } from "./workers/db-size-snapshot";
+import { logBootConfigSummary } from "./boot-config-summary";
+import { getRegistrationConfig } from "./registration-config";
 
 const app = express();
 
@@ -190,6 +194,7 @@ const CSRF_COOKIE = "axtask.csrf";
 const CSRF_HEADER = "x-csrf-token";
 
 app.use("/api", (req, res, next) => {
+  const csrfMaxAge = getSessionMaxAgeMs();
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
     if (!req.cookies?.[CSRF_COOKIE]) {
       const token = csrfRandomBytes(32).toString("base64url");
@@ -198,7 +203,7 @@ app.use("/api", (req, res, next) => {
         secure: !isDev,
         sameSite: "lax",
         path: "/",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: csrfMaxAge,
       });
     }
     return next();
@@ -217,7 +222,7 @@ app.use("/api", (req, res, next) => {
       secure: !isDev,
       sameSite: "lax",
       path: "/",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: csrfMaxAge,
     });
     return res.status(403).json({ message: "Invalid CSRF token" });
   }
@@ -283,8 +288,38 @@ function warnIfVapidMissing(): void {
   );
 }
 
+function warnIfInviteConfigBroken(): void {
+  const cfg = getRegistrationConfig();
+
+  if (cfg.rawModeWasUnknown && cfg.rawRegistrationModeEnv) {
+    console.warn(
+      `[auth] Unknown REGISTRATION_MODE "${cfg.rawRegistrationModeEnv}" — falling back to ${cfg.mode} (NODE_ENV=${process.env.NODE_ENV}).`,
+    );
+  }
+
+  if (cfg.inviteCode && cfg.mode !== "invite") {
+    console.warn(
+      `[auth] INVITE_CODE is set but REGISTRATION_MODE is "${cfg.mode}" (not invite). Invite codes are ignored unless mode is invite.`,
+    );
+  }
+
+  if (cfg.mode === "invite") {
+    if (!cfg.inviteCode) {
+      console.warn("[auth] REGISTRATION_MODE=invite but INVITE_CODE is not configured.");
+    } else if (cfg.inviteCodeWeak) {
+      console.warn(
+        "[auth] INVITE_CODE is shorter than 8 characters — users may have trouble; consider a longer code.",
+      );
+    } else {
+      console.info("[auth] Registration invite mode is active with INVITE_CODE configured.");
+    }
+  }
+}
+
 (async () => {
   warnIfVapidMissing();
+  warnIfInviteConfigBroken();
+  logBootConfigSummary();
 
   try {
     await seedDevAccounts();
@@ -314,6 +349,33 @@ function warnIfVapidMissing(): void {
     setInterval(() => {
       void runAdherenceTick();
     }, thresholds.cronIntervalMs);
+  }
+
+  if (process.env.NODE_ENV !== "test" && process.env.DISABLE_REMINDER_DISPATCH !== "true") {
+    const intervalMs = Number(process.env.REMINDER_DISPATCH_INTERVAL_MS) || 60 * 1000;
+    const maxPerTick = Number(process.env.REMINDER_DISPATCH_MAX_PER_TICK) || 100;
+    const runReminderTick = async () => {
+      try {
+        const summary = await dispatchDueReminderTriggers(maxPerTick);
+        if (summary.scanned > 0 || summary.failedSend > 0) {
+          console.info("[reminders] dispatch tick", {
+            scanned: summary.scanned,
+            attempted: summary.attempted,
+            sent: summary.sent,
+            skipped: summary.skipped,
+            skippedPreferenceDisabled: summary.skippedPreferenceDisabled,
+            skippedNoSubscription: summary.skippedNoSubscription,
+            failedSend: summary.failedSend,
+          });
+        }
+      } catch (error) {
+        console.warn("[reminders] background tick failed:", (error as Error)?.message || String(error));
+      }
+    };
+    void runReminderTick();
+    setInterval(() => {
+      void runReminderTick();
+    }, intervalMs);
   }
 
   // Archetype empathy rollup worker: see docs/ARCHETYPE_EMPATHY_ANALYTICS.md.

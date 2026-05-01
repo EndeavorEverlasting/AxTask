@@ -30,8 +30,6 @@ import {
   listCollaborationInbox,
   appendCollaborationMessage,
   markCollaborationMessageRead,
-  listUserLocationPlaces,
-  upsertUserLocationPlace,
   getCommunityMomentumStats,
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   getFeedbackSubmissionCount, getAvatarProfiles, engageAvatarMission, spendCoinsForAvatarBoost, seedAvatarSkillTree, getAvatarSkillTree, unlockAvatarSkill,
@@ -136,6 +134,8 @@ import {
   getDominantArchetypeKeyForUser,
   createArchetypePollWithOptions,
 } from "./storage";
+import { maybeRecordClientInstanceObservation } from "./client-instance-observation";
+import { getRegistrationConfig, inviteConfiguredForClient } from "./registration-config";
 import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS, processChipHuntSync } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { DENDRITIC_SHOPPING_LIST_SKILL_KEY } from "@shared/shopping-list-feature";
@@ -194,16 +194,12 @@ import { recordArchetypeSignal, type ArchetypeSignalKind } from "./lib/archetype
 import { getPublicArchetypeContinuumForUser } from "./lib/archetype-continuum";
 import { hashActor } from "./lib/actor-hash";
 import { insertClassificationDisputeSchema, CATEGORY_REVIEW_STATUSES, type CategoryReviewStatus } from "@shared/schema";
-import { createReminderSchema, createLocationEventSchema, reminderKindSchema } from "@shared/schema";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
-import {
-  createReminderWithTrigger,
-  listUserReminders,
-  updateReminder,
-  disableReminder,
-  createUserLocationEventAndScheduleOffsetTriggers,
-} from "./storage/reminders";
+import { RETRO_VOICE_PLACEHOLDER_TASK_ID } from "@shared/retro-voice-review";
 import { registerAiRoutes } from "./routes/ai";
+import { registerLocationRoutes } from "./routes/locations";
+import { registerReminderRoutes } from "./routes/reminders";
+import { registerFoundryRoutes } from "./routes/foundry";
 import {
   analyzeTaskHistory,
   suggestDeadline,
@@ -614,11 +610,9 @@ const gifSearchLimiter = rateLimit({
 });
 
 
-// ── Invite-code / registration gate ─────────────────────────────────────────
-// In production, set REGISTRATION_MODE=invite in .env and provide INVITE_CODE.
-// Allowed values: "open" (anyone), "invite" (requires code), "closed" (no signups).
-const REGISTRATION_MODE = process.env.REGISTRATION_MODE || (process.env.NODE_ENV === "production" ? "invite" : "open");
-const INVITE_CODE = process.env.INVITE_CODE || "";
+// ── Invite-code / registration gate (normalized in server/registration-config.ts)
+// Registration config is read once at server boot. Restart required after env changes.
+const registration = getRegistrationConfig();
 
 function maskEmailForOtp(email: string): string {
   const [u, dom] = email.split("@");
@@ -627,6 +621,19 @@ function maskEmailForOtp(email: string): string {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  app.use("/api", (req, res, next) => {
+    // Defer the observation to post-response. express-session's auto-save
+    // runs inside the wrapped res.end before `finish` fires, so by the time
+    // we touch req.session here the request's own session write has already
+    // landed and we become a clean post-write instead of a concurrent one.
+    res.on("finish", () => {
+      void maybeRecordClientInstanceObservation(req).catch(() => {
+        // Optional client-instance rollup must not break API traffic.
+      });
+    });
+    next();
+  });
+
   app.use("/api", (req, res, next) => {
     const startedAt = Date.now();
     const actorUserId = req.user?.id;
@@ -699,15 +706,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/register", registerLimiter, async (req: Request, res: Response) => {
     try {
       // ── Registration gate ──────────────────────────────────────────────
-      if (REGISTRATION_MODE === "closed") {
+      if (registration.mode === "closed") {
         return res.status(403).json({ message: "Registration is currently closed" });
       }
-      if (REGISTRATION_MODE === "invite") {
-        const code = typeof req.body.inviteCode === "string" ? req.body.inviteCode : "";
-        if (!INVITE_CODE) {
-          return res.status(403).json({ message: "Registration requires an invite code, but none is configured on the server" });
+      if (registration.mode === "invite") {
+        const code = typeof req.body.inviteCode === "string" ? req.body.inviteCode.trim() : "";
+        if (!registration.inviteCode) {
+          console.warn("[auth] REGISTRATION_MODE=invite but INVITE_CODE is missing.");
+          return res.status(403).json({ message: "Signup is temporarily unavailable. Please contact the AxTask owner for access." });
         }
-        if (!safeEqual(code, INVITE_CODE)) {
+        if (!safeEqual(code, registration.inviteCode)) {
           return res.status(403).json({ message: "Invalid invite code" });
         }
       }
@@ -879,7 +887,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       local: "",
     };
     res.json({
-      registrationMode: REGISTRATION_MODE,
+      registrationMode: registration.mode,
+      inviteConfigured: inviteConfiguredForClient(registration),
       authProvider,
       loginUrl: loginUrls[authProvider] || "",
       providers,
@@ -4159,11 +4168,123 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const userId = req.user!.id;
       const results: Array<{ taskId: string; success: boolean; error?: string }> = [];
+      const coinSummaries: Array<{ taskId: string; coinsEarned: number; newBalance: number }> = [];
 
       for (const action of actions as ReviewAction[]) {
         try {
-          if (!action.taskId || !action.type) {
+          if (!action.type) {
             results.push({ taskId: action.taskId || "unknown", success: false, error: "Invalid action" });
+            continue;
+          }
+
+          if (action.type === "create_and_complete") {
+            if (action.taskId !== RETRO_VOICE_PLACEHOLDER_TASK_ID) {
+              results.push({ taskId: action.taskId, success: false, error: "Invalid retro action" });
+              continue;
+            }
+            const parsed = insertTaskSchema.safeParse({
+              activity:
+                typeof action.taskActivity === "string"
+                  ? action.taskActivity.trim()
+                  : "",
+              date: typeof action.details?.date === "string" ? action.details.date : "",
+              status: "completed",
+              recurrence: "none",
+              notes:
+                typeof action.details?.notes === "string"
+                  ? action.details.notes.slice(0, TASK_NOTES_MAX_CHARS)
+                  : "",
+              visibility: "private",
+              communityShowNotes: false,
+            });
+            if (!parsed.success) {
+              results.push({
+                taskId: RETRO_VOICE_PLACEHOLDER_TASK_ID,
+                success: false,
+                error: "Invalid retro task payload",
+              });
+              continue;
+            }
+            const validated = parsed.data;
+            const quota = await assertCanCreateTasks(userId, 1);
+            if (!quota.ok) {
+              results.push({
+                taskId: RETRO_VOICE_PLACEHOLDER_TASK_ID,
+                success: false,
+                error: quota.message,
+              });
+              continue;
+            }
+            const fingerprint = computeTaskFingerprint(validated);
+            if (await hasImportFingerprint(userId, fingerprint)) {
+              results.push({
+                taskId: RETRO_VOICE_PLACEHOLDER_TASK_ID,
+                success: false,
+                error: "A matching task already exists.",
+              });
+              continue;
+            }
+            let task = await storage.createTask(userId, validated);
+            await recordImportFingerprint(userId, fingerprint, "voice_retro_log", task.id);
+            const allTasks = await storage.getTasks(userId);
+            const priorityResult = await PriorityEngine.calculatePriority(
+              task.activity,
+              task.notes || "",
+              task.urgency,
+              task.impact,
+              task.effort,
+              allTasks.filter(t => t.id !== task.id),
+            );
+            const { result: clsRes, associations } = await classifyWithAssociations(
+              task.activity,
+              task.notes || "",
+              { preferExternal: true },
+            );
+            task =
+              (await storage.updateTask(userId, {
+                id: task.id,
+                priority: priorityResult.priority,
+                priorityScore: Math.round(priorityResult.score * 10),
+                classification: clsRes.classification,
+                classificationAssociations: associations,
+                isRepeated: priorityResult.isRepeated,
+              })) ?? task;
+
+            learnFromTask(userId, task, allTasks).catch(() => undefined);
+
+            await tryCappedCoinAward({
+              userId,
+              reason: ENGAGEMENT.uniqueTaskCreate.reason,
+              amount: ENGAGEMENT.uniqueTaskCreate.amount,
+              dailyCap: ENGAGEMENT.uniqueTaskCreate.dailyCap,
+              details: `Voice retro log: ${task.activity.slice(0, 100)}`,
+              taskId: task.id,
+            });
+
+            try {
+              const reward = await awardCoinsForCompletion(userId, task, "pending");
+              if (reward) {
+                coinSummaries.push({
+                  taskId: task.id,
+                  coinsEarned: reward.coinsEarned,
+                  newBalance: reward.newBalance,
+                });
+              }
+              if (task.status === "completed") {
+                void maybeAwardOrganizationFollowthrough({
+                  userId,
+                  taskId: task.id,
+                });
+              }
+            } catch (coinErr) {
+              console.error(`Coin award failed for retro task ${task.id}:`, coinErr);
+            }
+            results.push({ taskId: task.id, success: true });
+            continue;
+          }
+
+          if (!action.taskId) {
+            results.push({ taskId: "unknown", success: false, error: "Invalid action" });
             continue;
           }
 
@@ -4180,7 +4301,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const updatedTask = await storage.updateTask(userId, { id: action.taskId, status: "completed" });
               if (updatedTask) {
                 try {
-                  await awardCoinsForCompletion(userId, updatedTask, previousStatus);
+                  const reward = await awardCoinsForCompletion(userId, updatedTask, previousStatus);
+                  if (reward) {
+                    coinSummaries.push({
+                      taskId: updatedTask.id,
+                      coinsEarned: reward.coinsEarned,
+                      newBalance: reward.newBalance,
+                    });
+                  }
                   if (updatedTask.status === "completed" && previousStatus !== "completed") {
                     void maybeAwardOrganizationFollowthrough({
                       userId,
@@ -4231,7 +4359,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const applied = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;
-      res.json({ applied, failed, results });
+      res.json({
+        applied,
+        failed,
+        results,
+        ...(coinSummaries.length > 0 ? { coinSummaries } : {}),
+      });
     } catch (error) {
       console.error("Task review apply error:", error);
       res.status(500).json({ message: "Failed to apply task review" });
@@ -4696,137 +4829,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ ok: true });
     } catch (error) {
       res.status(500).json({ message: "Failed to mark read" });
-    }
-  });
-
-  const locationPlaceSchema = z.object({
-    id: z.string().uuid().optional(),
-    name: z.string().min(1).max(120),
-    lat: z.number().finite().optional().nullable(),
-    lng: z.number().finite().optional().nullable(),
-    radiusMeters: z.number().int().min(50).max(5000).optional(),
-  });
-
-  app.get("/api/location-places", requireAuth, async (req, res) => {
-    try {
-      const rows = await listUserLocationPlaces(req.user!.id);
-      res.json({ places: rows });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to list places" });
-    }
-  });
-
-  app.post("/api/location-places", requireAuth, async (req, res) => {
-    try {
-      const body = locationPlaceSchema.parse(req.body || {});
-      const row = await upsertUserLocationPlace(req.user!.id, body);
-      if (!row) return res.status(404).json({ message: "Place not found" });
-      res.status(201).json(row);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to save place" });
-    }
-  });
-
-  app.get("/api/reminders", requireAuth, async (req, res) => {
-    try {
-      const rows = await listUserReminders(req.user!.id);
-      res.json({ reminders: rows });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to list reminders" });
-    }
-  });
-
-  app.post("/api/reminders", requireAuth, async (req, res) => {
-    try {
-      const body = createReminderSchema.parse(req.body || {});
-      const isActive = body.enabled ?? true;
-      const trigger =
-        body.trigger.type === "datetime"
-          ? {
-              triggerType: "datetime",
-              payloadJson: body.trigger,
-              nextRunAt: new Date(body.trigger.atIso),
-              cooldownSeconds: 0,
-              isActive,
-            }
-          : {
-              triggerType: body.trigger.type,
-              payloadJson: body.trigger,
-              nextRunAt: null,
-              cooldownSeconds: 0,
-              isActive,
-            };
-
-      const created = await createReminderWithTrigger({
-        reminder: {
-          userId: req.user!.id,
-          kind: body.kind,
-          title: body.title,
-          body: body.body ?? null,
-          enabled: body.enabled ?? true,
-          createdBy: "user",
-        },
-        trigger,
-      });
-
-      res.status(201).json(created);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to create reminder" });
-    }
-  });
-
-  const updateReminderSchema = z
-    .object({
-      title: z.string().min(1).max(200).optional(),
-      body: z.string().max(2000).nullable().optional(),
-      enabled: z.boolean().optional(),
-      kind: reminderKindSchema.optional(),
-    })
-    .refine((data) => Object.keys(data).length > 0, "At least one field is required");
-
-  app.patch("/api/reminders/:id", requireAuth, async (req, res) => {
-    try {
-      const patch = updateReminderSchema.parse(req.body || {});
-      const row = await updateReminder(req.params.id, req.user!.id, patch);
-      if (!row) return res.status(404).json({ message: "Reminder not found" });
-      res.json(row);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to update reminder" });
-    }
-  });
-
-  app.delete("/api/reminders/:id", requireAuth, async (req, res) => {
-    try {
-      const row = await disableReminder(req.params.id, req.user!.id);
-      if (!row) return res.status(404).json({ message: "Reminder not found" });
-      res.json({ ok: true, reminder: row });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to disable reminder" });
-    }
-  });
-
-  app.post("/api/location-events", requireAuth, async (req, res) => {
-    try {
-      const body = createLocationEventSchema.parse(req.body || {});
-      const occurredAt = body.occurredAt ? new Date(body.occurredAt) : new Date();
-      const result = await createUserLocationEventAndScheduleOffsetTriggers({
-        userId: req.user!.id,
-        placeId: body.placeId,
-        eventType: body.eventType,
-        source: body.source,
-        confidence: body.confidence,
-        metadataJson: body.metadataJson ?? {},
-        occurredAt,
-      });
-      if (!result) return res.status(500).json({ message: "Failed to persist location event" });
-      const { event, scheduling } = result;
-      res.status(201).json({ event, scheduling });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to process location event" });
     }
   });
 
@@ -8183,6 +8185,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  registerFoundryRoutes(app, { requireAdmin, requireAdminStepUp });
+  registerLocationRoutes(app, requireAuth);
+  registerReminderRoutes(app, requireAuth);
   registerAiRoutes(app, requireAuth);
   attachShoppingListRoutes(app);
 

@@ -37,6 +37,15 @@ describe("App shell :: lazy-load perf contract", () => {
     );
   });
 
+  it("CommandPalette is lazy-imported", () => {
+    expect(appSrc).not.toMatch(
+      /^import\s*\{\s*CommandPalette\s*\}\s*from\s*"@\/components\/command-palette"/m,
+    );
+    expect(appSrc).toMatch(
+      /const\s+CommandPalette\s*=\s*lazy\([\s\S]*?import\("@\/components\/command-palette"\)/,
+    );
+  });
+
   it("BulkActionDialog stays lazy (pass-2 invariant)", () => {
     expect(appSrc).toMatch(
       /const\s+BulkActionDialogLazy\s*=\s*lazy\(\s*\(\)\s*=>\s*import\(\s*"@\/components\/bulk-action-dialog"\s*\)/,
@@ -47,6 +56,7 @@ describe("App shell :: lazy-load perf contract", () => {
     // Anchor on null-fallback boundaries — the first <Suspense> in the file is the route tree, miles from GlobalSearch.
     expect(appSrc).toMatch(/<Suspense\s+[^>]*fallback=\{null\}[^>]*>\s*<GlobalSearch/);
     expect(appSrc).toMatch(/<Suspense\s+[^>]*fallback=\{null\}[^>]*>\s*<VoiceCommandBar/);
+    expect(appSrc).toMatch(/<Suspense\s+[^>]*fallback=\{null\}[^>]*>\s*<CommandPalette/);
   });
 
   it("openGlobalSearch prefetches the chunk before setGlobalSearchOpen(true)", () => {
@@ -55,6 +65,13 @@ describe("App shell :: lazy-load perf contract", () => {
     expect(appSrc).toMatch(/case\s+"openGlobalSearch"/);
     expect(appSrc).toMatch(
       /import\("@\/components\/global-search"\)[\s\S]{0,120}setGlobalSearchOpen\(true\)/,
+    );
+  });
+
+  it("openCommandPalette prefetches the chunk before setCommandPaletteOpen(true)", () => {
+    expect(appSrc).toMatch(/case\s+"openCommandPalette"/);
+    expect(appSrc).toMatch(
+      /import\("@\/components\/command-palette"\)[\s\S]{0,120}setCommandPaletteOpen\(true\)/,
     );
   });
 });

@@ -942,7 +942,11 @@ export async function getLatestLoginAt(userId: string): Promise<Date | null> {
     .from(securityEvents)
     .where(and(
       eq(securityEvents.actorUserId, userId),
-      eq(securityEvents.eventType, "auth_login_success"),
+      inArray(securityEvents.eventType, [
+        "auth_login_success",
+        "oauth_login_success",
+        "auth_totp_login_success",
+      ]),
     ));
   return row?.value ?? null;
 }
@@ -2474,7 +2478,34 @@ export async function markCollaborationMessageRead(userId: string, messageId: st
   return !!row;
 }
 
-export { listUserLocationPlaces, upsertUserLocationPlace } from "./storage/locations";
+export {
+  listUserLocationPlaces,
+  upsertUserLocationPlace,
+  getUserDefaultHome,
+  getUserDefaultWork,
+  resolvePlaceAlias,
+  createUserLocationPlace,
+  updateUserLocationPlace,
+  deleteUserLocationPlace,
+  recordLocationEvent,
+  markPlaceEntered,
+  markPlaceExited,
+  slugifyPlaceBase,
+} from "./storage/locations";
+export {
+  createReminderWithTrigger,
+  listUserReminders,
+  getReminderById,
+  updateReminder,
+  disableReminder,
+  listDueReminderTriggers,
+  markReminderTriggered,
+  createUserLocationEvent,
+  scheduleLocationOffsetTriggersFromEvent,
+  createUserLocationEventAndScheduleOffsetTriggers,
+  LOCATION_OFFSET_SCHEDULING_META_KEY,
+} from "./storage/reminders";
+export { logAiInteraction, markAiInteractionAccepted, markAiInteractionRejected } from "./storage/ai";
 
 export async function getCommunityMomentumStats(): Promise<{
   postsLast24h: number;

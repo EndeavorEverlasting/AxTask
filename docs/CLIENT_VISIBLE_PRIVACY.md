@@ -34,3 +34,9 @@ Endpoints that accept or return user-composed bodies (collab inbox, community po
 ## Account backup imports (v1 backward compatibility)
 
 `POST /api/account/import` and its challenge endpoint accept both the current export shape and older `schemaVersion: 1` exports (pre-`visibility` / pre-`communityShowNotes`, with `time`/`urgency`/`impact`/`effort` as JSON `null`). [`server/account-backup.ts`](../server/account-backup.ts) applies `normalizeV1TaskRow` on the import boundary so these legacy rows pass `insertTaskSchema` without widening the shared schema — `POST /api/tasks` and other write paths stay strict. Real user zips (for example, `docs/json imports of rich perez account.zip`) are gitignored and must never be committed; CI exercises the compat layer via the PII-free [`test-fixtures/account-backup-v1-sample.json`](../test-fixtures/account-backup-v1-sample.json), and developers can smoke a full extract locally with `npm run smoke:v1-zip <path-to-extracted.json>`.
+
+## Session cookies and stronger browser binding
+
+Signed-in API access relies on an HttpOnly session cookie. That model does not stop **same-user malware** from replaying a copied cookie on the same machine until expiry, and it is not the same as **Device Bound Session Credentials (DBSC)** or passkeys. For a concise threat model and future DBSC notes, see [docs/SESSION_THREAT_MODEL.md](SESSION_THREAT_MODEL.md).
+
+The SPA may send an optional **`x-axtask-client-instance`** header (a random UUID per browser profile in `localStorage`). The server never stores the raw UUID in the security ledger—only an **HMAC-SHA256** for analytics. See [docs/BROWSER_BOUND_SIGNALS.md](BROWSER_BOUND_SIGNALS.md).

@@ -14,6 +14,7 @@ export type HotkeyMatch =
   | { kind: "closeHotkeyHelp" }
   | { kind: "closeMobileNav" }
   | { kind: "openGlobalSearch" }
+  | { kind: "openCommandPalette" }
   | { kind: "openAlarmPanel" }
   | { kind: "submitTask" };
 
@@ -61,6 +62,13 @@ export function matchAltNavigationHotkey(e: KeyboardEvent): HotkeyMatch | null {
 export function matchGlobalSearchChord(e: KeyboardEvent): HotkeyMatch | null {
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
     return { kind: "openGlobalSearch" };
+  }
+  return null;
+}
+
+export function matchCommandPaletteChord(e: KeyboardEvent): HotkeyMatch | null {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
+    return { kind: "openCommandPalette" };
   }
   return null;
 }
@@ -130,6 +138,9 @@ export function matchHotkeyFromKeyboardEvent(
 
   const search = matchGlobalSearchChord(e);
   if (search) return search;
+
+  const commandPalette = matchCommandPaletteChord(e);
+  if (commandPalette) return commandPalette;
 
   const alt = matchAltNavigationHotkey(e);
   if (alt) return alt;

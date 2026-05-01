@@ -18,6 +18,17 @@ if (!existsSync(distIndex)) {
   process.exit(1);
 }
 
+console.log("[production-start] Environment gate (check-env.mjs --prod)…");
+const envGate = spawnSync(
+  process.execPath,
+  [join(root, "scripts/deploy/check-env.mjs"), "--prod"],
+  { cwd: root, stdio: "inherit", env: process.env },
+);
+if (envGate.status !== 0) {
+  console.error("[production-start] check-env failed — fix environment variables before start.");
+  process.exit(envGate.status ?? 1);
+}
+
 // DB capacity gate (Phase J): runs BEFORE migrations. This catches the
 // Neon 512 MB failure class that killed a prior manual deploy *before* we
 // start modifying the schema, so a capacity miss is a clean abort rather

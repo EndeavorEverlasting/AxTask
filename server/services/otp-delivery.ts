@@ -1,7 +1,11 @@
 /**
  * Production OTP delivery via Resend (email) and Twilio (SMS).
  * Development: logs only; API still returns devCode for local testing.
+ *
+ * Email HTML is built by server/services/email-templates.ts so every OTP
+ * email ships with the AxTask brand shell, preheader, and escaped OTP block.
  */
+import { buildOtpEmail } from "./email-templates";
 
 export type MfaDeliveryChannel = "email" | "sms";
 
@@ -26,14 +30,21 @@ export type DeliverMfaParams = {
   phoneE164: string | null;
 };
 
-async function sendResendEmail(to: string, subject: string, html: string): Promise<{ ok: true } | { ok: false; error: string }> {
+async function sendResendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  text?: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const key = process.env.RESEND_API_KEY?.trim();
   if (!key) return { ok: false, error: "RESEND_API_KEY is not set" };
   const from = process.env.RESEND_FROM?.trim() || "AxTask <onboarding@resend.dev>";
+  const body: Record<string, unknown> = { from, to: [to], subject, html };
+  if (text) body.text = text;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [to], subject, html }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -83,8 +94,8 @@ export async function deliverMfaOtp(params: DeliverMfaParams): Promise<{ ok: tru
   }
 
   if (channel === "email") {
-    const html = `<p>Your AxTask verification code is <strong>${code}</strong>.</p><p>If you did not request this, you can ignore this email.</p>`;
-    return sendResendEmail(email, "Your AxTask verification code", html);
+    const email_ = buildOtpEmail({ code, purpose });
+    return sendResendEmail(email, email_.subject, email_.html, email_.text);
   }
 
   if (!phoneE164) {

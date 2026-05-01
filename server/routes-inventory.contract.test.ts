@@ -6,6 +6,13 @@ import { describe, expect, it } from "vitest";
 const projectRoot = path.resolve(__dirname, "..");
 const routesPath = path.join(projectRoot, "server", "routes.ts");
 const shoppingListsRoutesPath = path.join(projectRoot, "server", "shopping-lists-routes.ts");
+/** Registrar modules that call `app.METHOD(...)` outside `routes.ts` (must stay in sync with snapshot). */
+const registrarRouteSources = [
+  path.join(projectRoot, "server", "routes", "locations.ts"),
+  path.join(projectRoot, "server", "routes", "reminders.ts"),
+  path.join(projectRoot, "server", "routes", "ai.ts"),
+  path.join(projectRoot, "server", "routes", "foundry.ts"),
+];
 
 /**
  * Paths registered as `app.METHOD("...",` or `app.METHOD(\n  "...",` in routes.ts.
@@ -46,9 +53,24 @@ describe("server/routes.ts inventory", () => {
   it("matches snapshot of all Express path registrations", () => {
     const routes = fs.readFileSync(routesPath, "utf8");
     const shopping = fs.readFileSync(shoppingListsRoutesPath, "utf8");
-    const merged = [...new Set([...extractExpressRoutePaths(routes), ...extractExpressRoutePaths(shopping)])].sort(
-      (a, b) => a.localeCompare(b),
-    );
+    const registrarPaths = registrarRouteSources.flatMap((p) => extractExpressRoutePaths(fs.readFileSync(p, "utf8")));
+    const merged = [
+      ...new Set([...extractExpressRoutePaths(routes), ...extractExpressRoutePaths(shopping), ...registrarPaths]),
+    ].sort((a, b) => a.localeCompare(b));
     expect(merged).toMatchSnapshot();
+  });
+
+  /** Phase-1 hardening: location/reminder registrars must keep these paths (regardless of snapshot drift). */
+  it("always exposes location and reminder API paths from registrars", () => {
+    const loc = fs.readFileSync(path.join(projectRoot, "server", "routes", "locations.ts"), "utf8");
+    const rem = fs.readFileSync(path.join(projectRoot, "server", "routes", "reminders.ts"), "utf8");
+    const locPaths = extractExpressRoutePaths(loc);
+    const remPaths = extractExpressRoutePaths(rem);
+    for (const p of ["/api/location-places", "/api/location-events"]) {
+      expect(locPaths, p).toContain(p);
+    }
+    for (const p of ["/api/reminders", "/api/reminders/:id"]) {
+      expect(remPaths, p).toContain(p);
+    }
   });
 });

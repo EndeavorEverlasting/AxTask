@@ -170,6 +170,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [regMode, setRegMode] = useState<string>("open");
+  const [inviteConfigured, setInviteConfigured] = useState<boolean>(true);
   const [authProvider, setAuthProvider] = useState<string>("local");
   const [loginUrl, setLoginUrl] = useState<string>("");
   const [providers, setProviders] = useState<{ name: string; loginUrl: string }[]>([]);
@@ -254,6 +255,7 @@ export default function LoginPage() {
       .then((r) => r.json())
       .then((d) => {
         setRegMode(d.registrationMode);
+        setInviteConfigured(d.inviteConfigured ?? true);
         setAuthProvider(d.authProvider || "local");
         setLoginUrl(d.loginUrl || "");
         if (d.providers) setProviders(d.providers);
@@ -964,32 +966,53 @@ export default function LoginPage() {
                 </div>
 
                 {mode === "register" && password.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    <div className="h-1.5 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                      <div className={`h-full ${strength.color} transition-all duration-300 rounded-full`}
-                        style={{ width: `${strength.pct}%` }} />
-                    </div>
-                    <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                      {strength.pct === 100
-                        ? <ShieldCheck className="h-3 w-3 text-green-500" />
-                        : <ShieldAlert className="h-3 w-3 text-yellow-500" />}
-                      {strength.label}
-                      {strength.pct < 100 && " — needs uppercase, lowercase, number & special char"}
-                    </div>
+                  <div className="mt-3">
+                    <ul className="text-xs space-y-1.5 ml-1 text-gray-500 dark:text-gray-400">
+                      <li className={cn("flex items-center gap-2 transition-colors", password.length >= 8 ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                        {password.length >= 8 ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                        8+ characters
+                      </li>
+                      <li className={cn("flex items-center gap-2 transition-colors", /[A-Z]/.test(password) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                        {/[A-Z]/.test(password) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                        an uppercase letter
+                      </li>
+                      <li className={cn("flex items-center gap-2 transition-colors", /[a-z]/.test(password) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                        {/[a-z]/.test(password) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                        a lowercase letter
+                      </li>
+                      <li className={cn("flex items-center gap-2 transition-colors", /[0-9]/.test(password) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                        {/[0-9]/.test(password) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                        a number
+                      </li>
+                      <li className={cn("flex items-center gap-2 transition-colors", /[^A-Za-z0-9]/.test(password) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                        {/[^A-Za-z0-9]/.test(password) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                        a symbol
+                      </li>
+                    </ul>
                   </div>
                 )}
               </div>
 
-              {mode === "register" && regMode === "invite" && (
+              {mode === "register" && regMode === "invite" && !inviteConfigured ? (
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 p-4 rounded-lg text-sm">
+                  Signup is temporarily unavailable. The server is set to invite-only, but no invite code is configured.
+                </div>
+              ) : mode === "register" && regMode === "invite" && inviteConfigured ? (
                 <div>
                   <Label htmlFor="inviteCode">Invite Code</Label>
-                  <SecureInput id="inviteCode" type="text" required value={inviteCode}
+                  <Input
+                    id="inviteCode"
+                    type="text"
+                    required
+                    value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value)}
-                    inactivityTimeout={30}
-                    onInactivityClear={() => setInviteCode("")}
-                    placeholder="Enter your invite code" className="mt-1" />
+                    placeholder="Enter your invite code"
+                    className="mt-1"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
                 </div>
-              )}
+              ) : null}
 
               {error && (
                 <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
@@ -1000,7 +1023,7 @@ export default function LoginPage() {
               <Button
                 type="submit"
                 className={cn("w-full h-11", pretextGradientCtaClassName)}
-                disabled={submitting}
+                disabled={submitting || (mode === "register" && regMode === "invite" && !inviteConfigured)}
               >
                 {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {mode === "login" ? "Sign in" : "Create account"}
@@ -1098,15 +1121,29 @@ export default function LoginPage() {
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="Min 8 chars, A-z, 0-9, !@#" className="mt-1" />
                     {newPassword.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        <div className="h-1.5 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                          <div className={`h-full ${newPasswordStrength.color} transition-all duration-300 rounded-full`}
-                            style={{ width: `${newPasswordStrength.pct}%` }} />
-                        </div>
-                        <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                          {newPasswordStrength.pct === 100 ? <ShieldCheck className="h-3 w-3 text-green-500" /> : <ShieldAlert className="h-3 w-3 text-yellow-500" />}
-                          {newPasswordStrength.label}
-                        </div>
+                      <div className="mt-3">
+                        <ul className="text-xs space-y-1.5 ml-1 text-gray-500 dark:text-gray-400">
+                          <li className={cn("flex items-center gap-2 transition-colors", newPassword.length >= 8 ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                            {newPassword.length >= 8 ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                            8+ characters
+                          </li>
+                          <li className={cn("flex items-center gap-2 transition-colors", /[A-Z]/.test(newPassword) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                            {/[A-Z]/.test(newPassword) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                            an uppercase letter
+                          </li>
+                          <li className={cn("flex items-center gap-2 transition-colors", /[a-z]/.test(newPassword) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                            {/[a-z]/.test(newPassword) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                            a lowercase letter
+                          </li>
+                          <li className={cn("flex items-center gap-2 transition-colors", /[0-9]/.test(newPassword) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                            {/[0-9]/.test(newPassword) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                            a number
+                          </li>
+                          <li className={cn("flex items-center gap-2 transition-colors", /[^A-Za-z0-9]/.test(newPassword) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                            {/[^A-Za-z0-9]/.test(newPassword) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                            a symbol
+                          </li>
+                        </ul>
                       </div>
                     )}
                   </div>

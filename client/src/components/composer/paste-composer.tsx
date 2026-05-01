@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   usePasteUpload,
+  __internal as pasteUploadInternal,
   type UploadedAttachment,
 } from "@/lib/use-paste-upload";
 import { renderSafeMarkdownHtmlString } from "@/lib/safe-markdown";
@@ -159,9 +160,7 @@ export const PasteComposer = React.forwardRef<
     async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
       if (disabled) return;
       const native = event.clipboardData;
-      const hasImageFile = Array.from(native.files || []).some((f) =>
-        (f.type || "").startsWith("image/"),
-      );
+      const hasImageFile = pasteUploadInternal.extractImageFilesFromClipboardData(native).length > 0;
       if (hasImageFile) {
         event.preventDefault();
         await paste.consumeClipboard(event);

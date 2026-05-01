@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { and, eq, isNotNull, lte } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import {
   userReminders,
   userReminderTriggers,
@@ -20,6 +20,13 @@ function asMetadataRecord(value: unknown): Record<string, unknown> {
 
 /** DB root or transaction client — both support the queries used by offset scheduling. */
 type RemindersExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+type ReminderTriggerRow = typeof userReminderTriggers.$inferSelect;
+type ReminderRow = typeof userReminders.$inferSelect;
+
+export type DueReminderDispatchRow = {
+  trigger: ReminderTriggerRow;
+  reminder: ReminderRow;
+};
 
 export async function createReminderWithTrigger(input: {
   reminder: typeof userReminders.$inferInsert;
@@ -43,6 +50,38 @@ export async function listUserReminders(userId: string) {
     .select()
     .from(userReminders)
     .where(eq(userReminders.userId, userId));
+}
+
+export type UserReminderWithPrimaryTrigger = {
+  reminder: ReminderRow;
+  trigger: ReminderTriggerRow | null;
+};
+
+export async function listUserRemindersWithPrimaryTrigger(
+  userId: string,
+): Promise<UserReminderWithPrimaryTrigger[]> {
+  const rows = await db
+    .select({ reminder: userReminders, trigger: userReminderTriggers })
+    .from(userReminders)
+    .leftJoin(userReminderTriggers, eq(userReminderTriggers.reminderId, userReminders.id))
+    .where(eq(userReminders.userId, userId));
+
+  const byReminderId = new Map<string, UserReminderWithPrimaryTrigger>();
+  for (const row of rows) {
+    const current = byReminderId.get(row.reminder.id);
+    if (!current) {
+      byReminderId.set(row.reminder.id, row);
+      continue;
+    }
+    if (!current.trigger && row.trigger) {
+      byReminderId.set(row.reminder.id, row);
+      continue;
+    }
+    if (current.trigger && row.trigger && !current.trigger.isActive && row.trigger.isActive) {
+      byReminderId.set(row.reminder.id, row);
+    }
+  }
+  return [...byReminderId.values()];
 }
 
 export async function getReminderById(id: string, userId: string) {
@@ -92,6 +131,26 @@ export async function listDueReminderTriggers(now: Date) {
   return rows.map((r) => r.t);
 }
 
+export async function listDueReminderDispatchRows(
+  now: Date,
+  limit = 100,
+): Promise<DueReminderDispatchRow[]> {
+  const rows = await db
+    .select({ trigger: userReminderTriggers, reminder: userReminders })
+    .from(userReminderTriggers)
+    .innerJoin(userReminders, eq(userReminderTriggers.reminderId, userReminders.id))
+    .where(
+      and(
+        eq(userReminders.enabled, true),
+        eq(userReminderTriggers.isActive, true),
+        isNotNull(userReminderTriggers.nextRunAt),
+        lte(userReminderTriggers.nextRunAt, now),
+      ),
+    )
+    .limit(Math.max(1, limit));
+  return rows;
+}
+
 export async function markReminderTriggered(triggerId: string, when: Date) {
   const [row] = await db
     .update(userReminderTriggers)
@@ -101,6 +160,66 @@ export async function markReminderTriggered(triggerId: string, when: Date) {
       nextRunAt: null,
     })
     .where(eq(userReminderTriggers.id, triggerId))
+    .returning();
+  return row ?? null;
+}
+
+type ReminderRecurrence = {
+  frequency?: "daily" | "weekly" | "monthly";
+  interval?: number;
+};
+
+function normalizePositiveInterval(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 1;
+  return Math.max(1, Math.trunc(value));
+}
+
+function getRecurrenceFromPayload(payloadJson: unknown): ReminderRecurrence | null {
+  if (!payloadJson || typeof payloadJson !== "object" || Array.isArray(payloadJson)) return null;
+  const rec = (payloadJson as { recurrence?: unknown }).recurrence;
+  if (!rec || typeof rec !== "object" || Array.isArray(rec)) return null;
+  const typed = rec as ReminderRecurrence;
+  if (!typed.frequency) return null;
+  return {
+    frequency: typed.frequency,
+    interval: normalizePositiveInterval(typed.interval),
+  };
+}
+
+export function computeNextRunAtFromRecurrence(payloadJson: unknown, from: Date): Date | null {
+  const recurrence = getRecurrenceFromPayload(payloadJson);
+  if (!recurrence?.frequency) return null;
+
+  const next = new Date(from);
+  const interval = recurrence.interval ?? 1;
+  if (recurrence.frequency === "daily") {
+    next.setUTCDate(next.getUTCDate() + interval);
+    return next;
+  }
+  if (recurrence.frequency === "weekly") {
+    next.setUTCDate(next.getUTCDate() + interval * 7);
+    return next;
+  }
+  if (recurrence.frequency === "monthly") {
+    next.setUTCMonth(next.getUTCMonth() + interval);
+    return next;
+  }
+  return null;
+}
+
+export async function finalizeReminderTriggerDispatch(input: {
+  triggerId: string;
+  firedAt: Date;
+  nextRunAt: Date | null;
+}) {
+  const [row] = await db
+    .update(userReminderTriggers)
+    .set({
+      lastTriggeredAt: input.firedAt,
+      updatedAt: input.firedAt,
+      nextRunAt: input.nextRunAt,
+    })
+    .where(eq(userReminderTriggers.id, input.triggerId))
     .returning();
   return row ?? null;
 }
@@ -130,10 +249,14 @@ export async function createUserLocationEvent(input: {
 }
 
 type OffsetPayload = { placeSlug: string; offsetMinutes: number; recurrence?: unknown };
+type ArrivalPayload = { placeSlug: string };
 
 /**
- * When a location event arrives, schedule `location_arrival_offset` triggers that match the place slug.
- * Sets `nextRunAt` to occurredAt + offset (first fire; recurrence handled in a later scheduler PR).
+ * When a location event arrives, schedule location-based triggers that match the place slug:
+ * - `location_arrival_offset`: `nextRunAt` = occurredAt + offset minutes
+ * - `location_arrival`: `nextRunAt` = occurredAt (immediate handoff to push dispatcher)
+ *
+ * Recurring offset variants are re-armed by dispatch workers.
  *
  * Idempotent per persisted `event.id`: if `metadata_json.locationOffsetSchedulingAppliedAt` is set, returns
  * `{ updated: 0, skipped: true }` without mutating triggers. Pass `executor` (e.g. a transaction client) so
@@ -175,7 +298,7 @@ export async function scheduleLocationOffsetTriggersFromEvent(
         eq(userReminders.userId, fresh.userId),
         eq(userReminders.enabled, true),
         eq(userReminderTriggers.isActive, true),
-        eq(userReminderTriggers.triggerType, "location_arrival_offset"),
+        inArray(userReminderTriggers.triggerType, ["location_arrival_offset", "location_arrival"]),
       ),
     );
 
@@ -184,14 +307,36 @@ export async function scheduleLocationOffsetTriggersFromEvent(
     fresh.occurredAt instanceof Date ? fresh.occurredAt : new Date(String(fresh.occurredAt));
 
   for (const row of joined) {
-    const payload = row.t.payloadJson as unknown as OffsetPayload | null;
-    if (!payload || typeof payload.offsetMinutes !== "number" || payload.placeSlug !== place.slug) {
+    const triggerType = row.t.triggerType;
+    let next: Date;
+
+    if (triggerType === "location_arrival_offset") {
+      const payload = row.t.payloadJson as unknown as OffsetPayload | null;
+      if (!payload || typeof payload.offsetMinutes !== "number" || payload.placeSlug !== place.slug) {
+        continue;
+      }
+      next = new Date(occurred.getTime() + payload.offsetMinutes * 60_000);
+    } else if (triggerType === "location_arrival") {
+      const payload = row.t.payloadJson as unknown as ArrivalPayload | null;
+      if (!payload || typeof payload.placeSlug !== "string" || payload.placeSlug !== place.slug) {
+        continue;
+      }
+      next = occurred;
+    } else {
       continue;
     }
-    const next = new Date(occurred.getTime() + payload.offsetMinutes * 60_000);
+
+    const existingNext =
+      row.t.nextRunAt instanceof Date
+        ? row.t.nextRunAt
+        : row.t.nextRunAt
+          ? new Date(String(row.t.nextRunAt))
+          : null;
+    const targetNext =
+      existingNext && existingNext.getTime() < next.getTime() ? existingNext : next;
     await executor
       .update(userReminderTriggers)
-      .set({ nextRunAt: next, updatedAt: new Date() })
+      .set({ nextRunAt: targetNext, updatedAt: new Date() })
       .where(eq(userReminderTriggers.id, row.t.id));
     updated += 1;
   }

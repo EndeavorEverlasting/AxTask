@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { reminderTriggerSchema } from "@shared/schema";
+import { reminderTriggerSchema, TASK_NOTES_MAX_CHARS } from "@shared/schema";
 
-export const aiIntentTypeSchema = z.enum(["create_reminder", "clarification"]);
+export const aiIntentTypeSchema = z.enum(["create_reminder", "create_task", "clarification"]);
 export type AiIntentType = z.infer<typeof aiIntentTypeSchema>;
 
 export const aiCreateReminderPayloadSchema = z.object({
   kind: z.enum(["time", "recurring", "location_event", "location_offset", "hybrid"]),
+  taskId: z.string().min(1).max(128).optional(),
   title: z.string().min(1).max(200),
   body: z.string().max(2000).optional().nullable(),
   enabled: z.boolean().optional(),
@@ -18,10 +19,21 @@ export const aiClarificationPayloadSchema = z.object({
   missingFields: z.array(z.string().min(1).max(64)).default([]),
 });
 
+export const aiCreateTaskPayloadSchema = z.object({
+  activity: z.string().min(1).max(500),
+  notes: z.string().max(TASK_NOTES_MAX_CHARS).optional().nullable(),
+  /** ISO calendar date (YYYY-MM-DD); defaults to today in executor when omitted */
+  date: z.string().min(10).max(40).optional(),
+});
+
 export const aiIntentResultSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("create_reminder"),
     payload: aiCreateReminderPayloadSchema,
+  }),
+  z.object({
+    type: z.literal("create_task"),
+    payload: aiCreateTaskPayloadSchema,
   }),
   z.object({
     type: z.literal("clarification"),

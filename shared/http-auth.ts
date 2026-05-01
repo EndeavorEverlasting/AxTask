@@ -8,3 +8,6 @@ export const AUTH_REFRESH_PATH = "/api/auth/refresh";
 
 export const AXTASK_CSRF_HEADER = "x-csrf-token";
 export const AXTASK_CSRF_COOKIE = "axtask.csrf";
+
+/** Optional per-browser-profile UUID; server hashes before persisting (see docs/BROWSER_BOUND_SIGNALS.md). */
+export const AXTASK_CLIENT_INSTANCE_HEADER = "x-axtask-client-instance";

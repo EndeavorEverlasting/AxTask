@@ -43,8 +43,15 @@ const REQUIRED_TABLES = [
   "premium_insights",
   "premium_events",
   "task_patterns",
+  "task_reminders",
   "classification_contributions",
   "classification_confirmations",
+  "ai_interactions",
+  "user_location_events",
+  "user_location_places",
+  "user_reminder_triggers",
+  "user_reminders",
+  "foundry_run_logs",
 ];
 
 const OPTIONAL_TABLES = ["session"];

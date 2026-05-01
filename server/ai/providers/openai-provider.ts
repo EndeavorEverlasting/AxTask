@@ -29,6 +29,7 @@ export class OpenAiProvider implements LlmProvider {
     const systemPrompt =
       "You are AxTask's intent parser. Return ONLY strict JSON matching one of these shapes: " +
       "{type:'create_reminder',payload:{kind,title,body?,enabled?,trigger}} or " +
+      "{type:'create_task',payload:{activity,notes?,date?}} or " +
       "{type:'clarification',payload:{question,reason,missingFields[]}}. " +
       "Never guess vague recurrence. Use clarification when user intent is ambiguous.";
 
@@ -36,9 +37,10 @@ export class OpenAiProvider implements LlmProvider {
       message,
       context,
       rules: [
-        "For 'after I get home/work', use trigger type location_arrival_offset or location_arrival.",
+        "For 'after I get home/work', use trigger type location_arrival_offset with explicit offset minutes, or location_arrival when no delay.",
         "If phrase is vague like 'every now and again', return clarification.",
         "Offset minutes must be integer 1..1440.",
+        "Use create_task when the user asks to add a task or to-do without reminder triggers.",
       ],
     });
 

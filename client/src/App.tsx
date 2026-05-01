@@ -26,6 +26,11 @@ const VoiceCommandBar = lazy(() =>
     default: m.VoiceCommandBar,
   })),
 );
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
 import { InstallCtaBanner } from "@/components/install-cta-banner";
 import { WalletTopBar } from "@/components/wallet-top-bar";
 import { FeedbackNudgeDialog } from "@/components/feedback-nudge-dialog";
@@ -103,6 +108,7 @@ import { PretextShortcutsBeacon } from "@/components/pretext/pretext-shortcuts-b
 import { AlarmPanel } from "@/components/alarm-panel";
 
 const AdminPageLazy = lazy(() => import("@/pages/admin"));
+const AdminAiReminderLabPage = lazy(() => import("@/pages/admin-ai-reminder-lab"));
 
 /* Lazy-load the voice/review bulk-action dialog + its framer-motion
  * AnimatePresence subtree. The dialog is only opened after a voice or
@@ -113,9 +119,23 @@ const BulkActionDialogLazy = lazy(
 );
 
 function RouteFallback() {
+  // Intentionally framer-motion-free and ambient-chip-free so the fallback
+  // chunk stays tiny — this renders before any lazy page resolves and before
+  // the authenticated PretextShell mounts. See docs/PERF_PERFORMANCE_BUDGETS.md.
   return (
-    <div className="flex min-h-[40vh] w-full items-center justify-center bg-background">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex min-h-[40vh] w-full items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white"
+    >
+      <div className="flex flex-col items-center gap-3 px-6 text-center">
+        <div className="text-[11px] uppercase tracking-[0.28em] text-emerald-300/80">AxTask</div>
+        <div className="h-1 w-32 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-300 animate-pulse" />
+        </div>
+        <Loader2 className="h-6 w-6 animate-spin text-emerald-300" aria-hidden />
+        <span className="sr-only">Loading AxTask…</span>
+      </div>
     </div>
   );
 }
@@ -156,6 +176,7 @@ function Router() {
         <Route path="/huddle" component={VideoHuddlePage} />
         <Route path="/messages" component={MessagesPage} />
         <Route path="/admin" component={AdminRoute} />
+        <Route path="/admin/ai-reminder-lab" component={AdminAiReminderLabPage} />
         <Route path="/rewards" component={RewardsPage} />
         <Route path="/skill-tree" component={SkillTreePage} />
         <Route path="/premium" component={PremiumPage} />
@@ -355,6 +376,7 @@ function AuthenticatedApp() {
 
   const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const mainScrollBudgetRaf = useRef<number | null>(null);
   const onMainShellScroll = useCallback(() => {
     if (mainScrollBudgetRaf.current != null) return;
@@ -388,6 +410,16 @@ function AuthenticatedApp() {
       if (wasOpen) return true;
       void import("@/components/global-search").then(() => {
         setGlobalSearchOpen(true);
+      });
+      return false;
+    });
+  }, []);
+
+  const toggleCommandPaletteLazy = useCallback(() => {
+    setCommandPaletteOpen((wasOpen) => {
+      if (wasOpen) return false;
+      void import("@/components/command-palette").then(() => {
+        setCommandPaletteOpen(true);
       });
       return false;
     });
@@ -456,6 +488,12 @@ function AuthenticatedApp() {
           toggleGlobalSearchLazy();
           break;
         }
+        case "openCommandPalette": {
+          if (!user || loading) return;
+          e.preventDefault();
+          toggleCommandPaletteLazy();
+          break;
+        }
         case "openAlarmPanel": {
           if (!user || loading) return;
           e.preventDefault();
@@ -468,7 +506,17 @@ function AuthenticatedApp() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [user, loading, hotkeyHelpOpen, setLocation, isTutorialActive, startTutorial, stopTutorial, toggleGlobalSearchLazy]);
+  }, [
+    user,
+    loading,
+    hotkeyHelpOpen,
+    setLocation,
+    isTutorialActive,
+    startTutorial,
+    stopTutorial,
+    toggleGlobalSearchLazy,
+    toggleCommandPaletteLazy,
+  ]);
 
   useEffect(() => {
     if (!user || loading) return;
@@ -497,8 +545,8 @@ function AuthenticatedApp() {
 
   if (loading) {
     return (
-      <div className="h-full min-h-0 overflow-y-auto flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="h-full min-h-0 overflow-y-auto">
+        <RouteFallback />
       </div>
     );
   }
@@ -596,6 +644,11 @@ function AuthenticatedApp() {
           <Suspense fallback={null}>
             <VoiceCommandBar />
           </Suspense>
+          {user ? (
+            <Suspense fallback={null}>
+              <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
+            </Suspense>
+          ) : null}
           <ReviewDialogBridge />
           <AlarmPanel />
           <FeedbackNudgeDialog />

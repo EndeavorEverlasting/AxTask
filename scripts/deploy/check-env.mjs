@@ -22,6 +22,9 @@ const ALWAYS_REQUIRED = ["DATABASE_URL", "SESSION_SECRET"];
 
 const PROD_REQUIRED = [
   "NODE_ENV",
+  "AUTH_AUDIT_PEPPER",
+  "ARCHETYPE_ANALYTICS_SALT",
+  "TOTP_ENCRYPTION_KEY",
   // NOTE: CANONICAL_HOST is "sync: false" in render.yaml but recommended
   // for production; we warn rather than hard-fail.
 ];
@@ -30,12 +33,24 @@ const PROD_RECOMMENDED = ["CANONICAL_HOST", "FORCE_HTTPS"];
 
 // Minimum length for secret-ish values so obvious placeholders are caught.
 const MIN_SECRET_LENGTH = 20;
+const MIN_ARCHETYPE_SALT_LENGTH = 16;
+const MIN_INVITE_CODE_LENGTH = 8;
 const SECRET_KEYS = new Set([
   "SESSION_SECRET",
   "AUTH_AUDIT_PEPPER",
   "GOOGLE_CLIENT_SECRET",
   "WORKOS_API_KEY",
 ]);
+
+const REG_MODES = new Set(["open", "invite", "closed"]);
+
+/** Effective registration mode (matches server/registration-config.ts). */
+function effectiveRegistrationMode(env) {
+  const raw = String(env.REGISTRATION_MODE ?? "").trim();
+  const token = raw.toLowerCase();
+  if (token && REG_MODES.has(token)) return token;
+  return String(env.NODE_ENV) === "production" ? "invite" : "open";
+}
 
 export function validateEnv(env, { isProd } = { isProd: false }) {
   const errors = [];
@@ -63,6 +78,21 @@ export function validateEnv(env, { isProd } = { isProd: false }) {
         `${key} is too short (${String(raw).length} chars, need >= ${MIN_SECRET_LENGTH})`,
       );
     }
+    if (key === "ARCHETYPE_ANALYTICS_SALT" && isProd) {
+      if (String(raw).length < MIN_ARCHETYPE_SALT_LENGTH) {
+        errors.push(
+          `ARCHETYPE_ANALYTICS_SALT is too short (${String(raw).length} chars, need >= ${MIN_ARCHETYPE_SALT_LENGTH})`,
+        );
+      }
+    }
+    if (key === "TOTP_ENCRYPTION_KEY" && isProd) {
+      const v = String(raw).trim();
+      if (!/^[0-9a-fA-F]{64}$/.test(v)) {
+        errors.push(
+          "TOTP_ENCRYPTION_KEY must be exactly 64 hexadecimal characters (32 bytes)",
+        );
+      }
+    }
     if (key === "DATABASE_URL") {
       if (!/^postgres(ql)?:\/\//i.test(String(raw))) {
         errors.push(
@@ -74,6 +104,56 @@ export function validateEnv(env, { isProd } = { isProd: false }) {
       errors.push(
         `NODE_ENV must be "production" when deploying to prod (got "${raw}")`,
       );
+    }
+  }
+
+  const regRaw = String(env.REGISTRATION_MODE ?? "").trim();
+  const regToken = regRaw.toLowerCase();
+  if (regRaw && !REG_MODES.has(regToken)) {
+    if (isProd) {
+      errors.push(
+        `REGISTRATION_MODE must be one of open, invite, closed (got "${regRaw}")`,
+      );
+    } else {
+      warnings.push(
+        `REGISTRATION_MODE unrecognized value "${regRaw}" — falling back to open in development`,
+      );
+    }
+  }
+
+  if (isProd && !ignore.has("INVITE_CODE")) {
+    const mode = effectiveRegistrationMode(env);
+    const invite = String(env.INVITE_CODE ?? "").trim();
+    if (mode === "invite") {
+      if (!invite) {
+        errors.push(
+          "INVITE_CODE is required when registration is invite-only (including the production default when REGISTRATION_MODE is unset)",
+        );
+      } else if (invite.length < MIN_INVITE_CODE_LENGTH) {
+        errors.push(
+          `INVITE_CODE must be at least ${MIN_INVITE_CODE_LENGTH} characters`,
+        );
+      }
+    }
+  }
+
+  if (isProd) {
+    const pub = String(env.VAPID_PUBLIC_KEY ?? "").trim();
+    const pubVite = String(env.VITE_VAPID_PUBLIC_KEY ?? "").trim();
+    const priv = String(env.VAPID_PRIVATE_KEY ?? "").trim();
+    const anyVapid = Boolean(pub || pubVite || priv);
+    if (anyVapid) {
+      if (!pub && !ignore.has("VAPID_PUBLIC_KEY")) {
+        errors.push("VAPID_PUBLIC_KEY is required when any web push key is set");
+      }
+      if (!priv && !ignore.has("VAPID_PRIVATE_KEY")) {
+        errors.push("VAPID_PRIVATE_KEY is required when any web push key is set");
+      }
+      if (!pubVite && !ignore.has("VITE_VAPID_PUBLIC_KEY")) {
+        errors.push(
+          "VITE_VAPID_PUBLIC_KEY is required when any web push key is set (must match VAPID_PUBLIC_KEY at build time)",
+        );
+      }
     }
   }
 

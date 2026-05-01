@@ -4,7 +4,7 @@ This document captures **product intent** so future refactors (especially around
 
 ## Freemium vs premium
 
-- **AxCoins** are an in-product engagement currency. They reward actions (completions, feedback, classification, substantive voice commands via capped `voice_command_companion_reward`, and similar loops) and fund optional productivity exports.
+- **AxCoins** are an in-product engagement currency. They reward actions (completions, feedback, classification, substantive voice commands via capped `voice_command_companion_reward`, **retro voice logs** that create a completed task and then run the normal completion ledger, and similar loops) and fund optional productivity exports.
 - **Avatar levels and the avatar skill tree** improve returns on engagement: for example, the `export-efficiency` skill reduces the **Markdown task export** price stepwise for free users (default base **5 → 4 → 3 → 2 → 1 → 0** coins as the skill levels up, capped at zero).
 - **Paid subscribers** (AxTask Pro or bundle, as reflected in `getPremiumEntitlements().products`) pay **0 AxCoins** for Markdown single-task export regardless of skill level—convenience and economics, not exclusive access to the underlying task data.
 

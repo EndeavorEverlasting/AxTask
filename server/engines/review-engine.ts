@@ -1,12 +1,18 @@
 import type { Task } from "@shared/schema";
+import { randomUUID } from "node:crypto";
+import { RETRO_VOICE_PLACEHOLDER_TASK_ID } from "@shared/retro-voice-review";
+
+export type ReviewActionType = "complete" | "reschedule" | "update" | "create_and_complete";
 
 export interface ReviewAction {
-  type: "complete" | "reschedule" | "update";
+  type: ReviewActionType;
   taskId: string;
   taskActivity: string;
   details: Record<string, unknown>;
   confidence: number;
   reason: string;
+  /** Stable key for UI when several retro rows share the placeholder task id. */
+  actionId?: string;
 }
 
 export interface ReviewResult {
@@ -107,6 +113,58 @@ function splitTaskReferences(text: string): string[] {
     .filter(s => s.length > 0);
 }
 
+function stripLeadingArticles(s: string): string {
+  return s.replace(/^(a|an|the)\s+/i, "").trim();
+}
+
+/**
+ * When the user says they finished something that is not on their pending list,
+ * offer to create a new completed task (retro log) with inferred activity + date.
+ */
+function tryRetroLogFromRef(cleaned: string, now: Date): ReviewAction | null {
+  let working = cleaned.trim();
+  if (!working) return null;
+
+  let date = now.toISOString().split("T")[0];
+
+  if (/\byesterday\b/i.test(working)) {
+    const d = new Date(now.getTime());
+    d.setUTCDate(d.getUTCDate() - 1);
+    date = d.toISOString().split("T")[0];
+    working = working.replace(/\byesterday\b/gi, "").trim();
+  } else if (/\btoday\b/i.test(working)) {
+    date = now.toISOString().split("T")[0];
+    working = working.replace(/\btoday\b/gi, "").trim();
+  } else if (/\btomorrow\b/i.test(working)) {
+    const d = new Date(now.getTime());
+    d.setUTCDate(d.getUTCDate() + 1);
+    date = d.toISOString().split("T")[0];
+    working = working.replace(/\btomorrow\b/gi, "").trim();
+  } else {
+    const onDay = working.match(/\bon\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+    if (onDay) {
+      date = resolveDay(onDay[1], now);
+      working = working.replace(/\bon\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi, "").trim();
+    }
+  }
+
+  working = stripLeadingArticles(working);
+  working = working.replace(/\s{2,}/g, " ").trim();
+  if (working.length < 2) return null;
+
+  const activity = working.slice(0, 500);
+
+  return {
+    type: "create_and_complete",
+    taskId: RETRO_VOICE_PLACEHOLDER_TASK_ID,
+    taskActivity: activity,
+    details: { date, source: "voice_retro" },
+    confidence: 0.72,
+    reason: "Log work you already finished (new completed task)",
+    actionId: randomUUID(),
+  };
+}
+
 export function processTaskReview(
   transcript: string,
   tasks: Task[],
@@ -201,7 +259,12 @@ export function processTaskReview(
               reason: "Mark as completed",
             });
           } else if (!result) {
-            unmatched.push(cleaned);
+            const retro = tryRetroLogFromRef(cleaned, now);
+            if (retro) {
+              actions.push(retro);
+            } else {
+              unmatched.push(cleaned);
+            }
           }
         }
         handled = true;
@@ -233,11 +296,13 @@ export function processTaskReview(
   }
 
   const completeCount = actions.filter(a => a.type === "complete").length;
+  const retroLogCount = actions.filter(a => a.type === "create_and_complete").length;
   const rescheduleCount = actions.filter(a => a.type === "reschedule").length;
   const updateCount = actions.filter(a => a.type === "update").length;
 
   const parts: string[] = [];
   if (completeCount > 0) parts.push(`${completeCount} to complete`);
+  if (retroLogCount > 0) parts.push(`${retroLogCount} to log as already done`);
   if (rescheduleCount > 0) parts.push(`${rescheduleCount} to reschedule`);
   if (updateCount > 0) parts.push(`${updateCount} to update`);
 

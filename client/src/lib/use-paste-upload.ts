@@ -51,6 +51,28 @@ export type UsePasteUploadOptions = {
 
 const DEFAULT_MAX = 8;
 
+function extractImageFilesFromClipboardData(data: DataTransfer | null | undefined): File[] {
+  if (!data) return [];
+  const out: File[] = [];
+  const seen = new Set<string>();
+  const tryPush = (file: File | null | undefined) => {
+    if (!file) return;
+    if (!PASTE_ACCEPTED_MIME.has(file.type)) return;
+    const sig = `${file.name}:${file.size}:${file.type}:${file.lastModified}`;
+    if (seen.has(sig)) return;
+    seen.add(sig);
+    out.push(file);
+  };
+  for (const file of Array.from(data.files || [])) {
+    tryPush(file);
+  }
+  for (const item of Array.from(data.items || [])) {
+    if (item.kind !== "file") continue;
+    tryPush(item.getAsFile());
+  }
+  return out;
+}
+
 function isLikelyImageUrl(value: string): boolean {
   if (!/^https:\/\//i.test(value)) return false;
   if (value.length > 2048) return false;
@@ -268,9 +290,8 @@ export function usePasteUpload(options: UsePasteUploadOptions = {}): UseLike {
       if (!native) return null;
 
       const uploaded: UploadedAttachment[] = [];
-      const files = Array.from(native.files || []);
+      const files = extractImageFilesFromClipboardData(native);
       for (const file of files) {
-        if (!PASTE_ACCEPTED_MIME.has(file.type)) continue;
         const a = await addFile(file);
         if (a) uploaded.push(a);
       }
@@ -303,6 +324,7 @@ export function usePasteUpload(options: UsePasteUploadOptions = {}): UseLike {
 export const __internal = {
   isLikelyImageUrl,
   sanitizeFilename,
+  extractImageFilesFromClipboardData,
   PASTE_IMAGE_BYTE_CAP,
   PASTE_ACCEPTED_MIME,
 };

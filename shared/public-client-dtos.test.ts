@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CoinTransaction, UserBadge } from "./schema";
+import type { CoinTransaction, UserBadge, UserReminder, TaskReminder } from "./schema";
 import {
   toPublicBadge,
   toPublicBadgeDefinitions,
@@ -8,6 +8,8 @@ import {
   toPublicWallet,
   toPublicArchetypePollSummary,
   toPublicInviteUserPreview,
+  toPublicUnifiedReminderFromOps,
+  toPublicUnifiedReminderFromTask,
 } from "./public-client-dtos";
 import type { SafeUser } from "./schema";
 
@@ -164,5 +166,62 @@ describe("public client DTOs", () => {
     });
     expect(pub).not.toHaveProperty("email");
     expect(pub).not.toHaveProperty("id");
+  });
+
+  it("converts ops reminder to unified reminder", () => {
+    const ops: UserReminder = {
+      id: "ops-1",
+      userId: "u1",
+      kind: "location_offset",
+      title: "Ops Title",
+      body: "Ops Body",
+      enabled: true,
+      createdBy: "user",
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    const pub = toPublicUnifiedReminderFromOps(ops);
+    expect(pub).toEqual({
+      id: "ops-1",
+      lane: "ops",
+      title: "Ops Title",
+      body: "Ops Body",
+      taskId: null,
+      enabled: true,
+      remindAt: null,
+      recurrenceRule: null,
+      deliveryChannel: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("converts task reminder to unified reminder", () => {
+    const task: TaskReminder = {
+      id: "task-1",
+      userId: "u1",
+      taskId: "t1",
+      activity: "Task Title",
+      status: "pending",
+      remindAt: new Date("2026-01-02T00:00:00Z"),
+      recurrenceRule: "FREQ=DAILY",
+      deliveryChannel: "push",
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    const pub = toPublicUnifiedReminderFromTask(task);
+    expect(pub).toEqual({
+      id: "task-1",
+      lane: "task",
+      title: "Task Title",
+      body: null,
+      taskId: "t1",
+      enabled: true,
+      remindAt: "2026-01-02T00:00:00.000Z",
+      recurrenceRule: "FREQ=DAILY",
+      deliveryChannel: "push",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
   });
 });

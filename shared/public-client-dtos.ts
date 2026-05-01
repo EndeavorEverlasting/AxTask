@@ -5,6 +5,8 @@ import type {
   Task,
   User,
   UserBadge,
+  UserReminder,
+  TaskReminder,
   Wallet,
 } from "./schema";
 import type { ArchetypeKey } from "./avatar-archetypes";
@@ -424,4 +426,52 @@ export type PublicRetentionRunResponse = {
   durationMs: number;
   errors: Array<{ table: string; message: string }>;
 };
+
+// ─── Unified Reminders DTO ─────────────────────────────────────────────
+
+export type PublicUnifiedReminder = {
+  id: string;
+  lane: "ops" | "task";
+  title: string;
+  body: string | null;
+  taskId: string | null;
+  enabled: boolean;
+  remindAt: string | null;
+  recurrenceRule: string | null;
+  deliveryChannel: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export function toPublicUnifiedReminderFromOps(row: UserReminder): PublicUnifiedReminder {
+  return {
+    id: row.id,
+    lane: "ops",
+    title: row.title,
+    body: row.body,
+    taskId: null,
+    enabled: row.enabled,
+    remindAt: null,
+    recurrenceRule: null,
+    deliveryChannel: null,
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
+
+export function toPublicUnifiedReminderFromTask(row: TaskReminder): PublicUnifiedReminder {
+  return {
+    id: row.id,
+    lane: "task",
+    title: row.activity,
+    body: null,
+    taskId: row.taskId,
+    enabled: row.status === "pending",
+    remindAt: row.remindAt instanceof Date ? row.remindAt.toISOString() : new Date(String(row.remindAt)).toISOString(),
+    recurrenceRule: row.recurrenceRule,
+    deliveryChannel: row.deliveryChannel,
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
 

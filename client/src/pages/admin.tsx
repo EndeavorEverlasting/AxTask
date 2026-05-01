@@ -408,6 +408,51 @@ export default function AdminPage() {
     },
   });
 
+  type FoundryGitStatus =
+    | {
+        branch: string;
+        commitSha: string;
+        upstream: string | null;
+        ahead: number;
+        behind: number;
+        statusShort: string;
+        porcelainLines: string[];
+        porcelainTruncated: boolean;
+      }
+    | { error: string };
+
+  const { data: foundryStatus, isError: foundryStatusQueryError, refetch: refetchFoundryStatus } =
+    useQuery<FoundryGitStatus>({
+      queryKey: ["/api/admin/foundry/status"],
+      enabled: adminApiEnabled,
+      queryFn: async () => {
+        const r = await apiRequest("GET", "/api/admin/foundry/status");
+        return r.json() as Promise<FoundryGitStatus>;
+      },
+    });
+
+  const { data: foundryRuns } = useQuery<{
+    runs: Array<{ id: string; userId: string; createdAt: string | null; payload: unknown }>;
+  }>({
+    queryKey: ["/api/admin/foundry/runs", 30],
+    enabled: adminApiEnabled,
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/foundry/runs?limit=30");
+      return r.json();
+    },
+  });
+
+  const [foundryNote, setFoundryNote] = useState("");
+  const appendFoundryRunMutation = useMutation({
+    mutationFn: async (body: Record<string, unknown>) => {
+      const r = await apiRequest("POST", "/api/admin/foundry/runs", body);
+      return r.json() as Promise<{ id: string }>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/foundry/runs"] });
+    },
+  });
+
   const previousTotalsRef = useRef<AdminAnalyticsOverview["totals"] | null>(null);
   const [liveDelta, setLiveDelta] = useState({
     tasks: 0,
@@ -2296,6 +2341,123 @@ export default function AdminPage() {
                   <pre className="text-xs max-h-64 overflow-auto rounded border bg-muted/40 p-2 whitespace-pre-wrap">
                     {repoInventory?.recentCommits ?? (adminApiEnabled ? "Loading…" : "—")}
                   </pre>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Foundry</CardTitle>
+              <CardDescription>
+                Live git snapshot and append-only handoff log. In production, set{" "}
+                <code className="text-xs">ENABLE_FOUNDRY=true</code> or use a non-production deploy; requires admin
+                step-up like repo inventory.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2 items-center">
+                <Button type="button" variant="outline" size="sm" onClick={() => void refetchFoundryStatus()}>
+                  Refresh git status
+                </Button>
+                {foundryStatusQueryError && (
+                  <span className="text-xs text-muted-foreground">
+                    Foundry API unavailable (404 if disabled in production).
+                  </span>
+                )}
+              </div>
+              {"error" in (foundryStatus ?? {}) ? (
+                <p className="text-sm text-destructive">{(foundryStatus as { error: string }).error}</p>
+              ) : foundryStatus && !("error" in foundryStatus) ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-1 text-sm">
+                    <p>
+                      <span className="text-muted-foreground">Branch:</span>{" "}
+                      <span className="font-mono">{foundryStatus.branch}</span>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">HEAD:</span>{" "}
+                      <span className="font-mono text-xs break-all">{foundryStatus.commitSha}</span>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Upstream:</span>{" "}
+                      <span className="font-mono text-xs">{foundryStatus.upstream ?? "—"}</span>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Ahead / behind:</span>{" "}
+                      {foundryStatus.ahead} / {foundryStatus.behind}
+                    </p>
+                    <p className="text-xs text-muted-foreground break-all">{foundryStatus.statusShort}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Porcelain (capped)</p>
+                    <pre className="text-xs max-h-48 overflow-auto rounded border bg-muted/40 p-2 whitespace-pre-wrap">
+                      {foundryStatus.porcelainLines.length > 0
+                        ? foundryStatus.porcelainLines.join("\n")
+                        : "(clean)"}
+                      {foundryStatus.porcelainTruncated ? "\n…" : ""}
+                    </pre>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">{adminApiEnabled ? "Loading…" : "—"}</p>
+              )}
+
+              <div className="border-t pt-4 space-y-2">
+                <Label htmlFor="foundry-note">Handoff note (optional)</Label>
+                <Textarea
+                  id="foundry-note"
+                  value={foundryNote}
+                  onChange={(e) => setFoundryNote(e.target.value)}
+                  placeholder="What shipped, what to verify next…"
+                  rows={3}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={appendFoundryRunMutation.isPending || !adminApiEnabled}
+                  onClick={() => {
+                    const status = foundryStatus && !("error" in foundryStatus) ? foundryStatus : null;
+                    appendFoundryRunMutation.mutate({
+                      branch: status?.branch,
+                      commitSha: status?.commitSha,
+                      dirtySummary:
+                        status && status.porcelainLines.length > 0
+                          ? `${status.porcelainLines.length} paths dirty`
+                          : undefined,
+                      note: foundryNote.trim() || undefined,
+                    });
+                  }}
+                >
+                  {appendFoundryRunMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Logging…
+                    </>
+                  ) : (
+                    "Append run log"
+                  )}
+                </Button>
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Recent run logs</p>
+                <div className="max-h-56 overflow-y-auto space-y-2 rounded border bg-muted/30 p-2">
+                  {(foundryRuns?.runs ?? []).length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No entries yet.</p>
+                  ) : (
+                    (foundryRuns?.runs ?? []).map((run) => (
+                      <div key={run.id} className="text-xs border-b border-border/60 pb-2 last:border-0">
+                        <p className="font-mono text-[10px] text-muted-foreground">
+                          {run.createdAt ? new Date(run.createdAt).toLocaleString() : run.id}
+                        </p>
+                        <pre className="mt-1 whitespace-pre-wrap break-all font-mono">
+                          {JSON.stringify(run.payload, null, 2)}
+                        </pre>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </CardContent>

@@ -1,6 +1,8 @@
 # Environment variables reference
 
-This document **groups and explains** the environment variables AxTask uses. It complements [`.env.example`](../.env.example) (local template), [`.env.docker.example`](../.env.docker.example) (Compose), and [`.env.production.example`](../.env.production.example) (hosting template).
+This document **groups and explains** the environment variables AxTask uses. It complements [`.env.example`](../.env.example) (local template), [`.env.docker.example`](../.env.docker.example) (Compose), [`.env.production.example`](../.env.production.example) (general production contract), and [`.env.render.example`](../.env.render.example) (Render overlay + bootstrap source).
+
+**Cross-check templates vs code (key names only):** `npm run env:audit` — prints which `.env*` files, [`render.yaml`](../render.yaml), this doc, and the codebase reference each key. Use `npm run env:audit:strict` in CI or before release to fail when the production contract keys are missing from templates or the Render manifest.
 
 **Not a machine-complete inventory.** New code may add variables before this file is updated. To audit what the repo references today, search from the project root, for example:
 
@@ -9,6 +11,19 @@ This document **groups and explains** the environment variables AxTask uses. It 
 - Scripts: `rg "process\\.env\\.\\w+" scripts -g "*.{mjs,js}"`
 
 **Security:** Never commit real secrets. Production and Render workflows are covered in [`.cursor/rules/render-env-automation.mdc`](../.cursor/rules/render-env-automation.mdc) and related tooling.
+
+## Env-file map
+
+| File | Committed? | Role |
+|------|------------|------|
+| [`.env.example`](../.env.example) | Yes | Local dev template (`npm run local:env-init` → `.env`). |
+| [`.env.docker.example`](../.env.docker.example) | Yes | Compose template (`npm run docker:env-init` → `.env.docker`). |
+| [`.env.production.example`](../.env.production.example) | Yes | **General** production contract (any host); operators paste into the dashboard or a private `.env`. |
+| [`.env.render.example`](../.env.render.example) | Yes | **Render-specific** overlay; source for `npm run render:env-bootstrap` (writes gitignored `.env.render`). Inherits the same key set as `.env.production.example` plus Render-oriented comments. |
+| [`render.yaml`](../render.yaml) `envVars` | Yes | Declares which keys exist on Render (`sync: false` = value from dashboard). |
+| `.env`, `.env.docker`, `.env.render` | No (gitignored) | Runtime copies on a machine; never commit. |
+
+Production startup runs [`scripts/deploy/check-env.mjs`](../scripts/deploy/check-env.mjs) via [`scripts/production-start.mjs`](../scripts/production-start.mjs) (`npm run start`) with `--prod`, so missing required keys fail before migrations.
 
 ## Conventions
 
@@ -50,8 +65,10 @@ This document **groups and explains** the environment variables AxTask uses. It 
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `SESSION_SECRET` | **Yes** (prod) | Signs sessions; must be long random. |
+| `AUTH_AUDIT_PEPPER` | **Yes** (prod) | Pepper for auth/security audit hashing; length ≥ 20. Validated by [`scripts/deploy/check-env.mjs`](../scripts/deploy/check-env.mjs). |
+| `SESSION_MAX_AGE_MS` | No | Session cookie `maxAge` and CSRF cookie lifetime (integer ms). Default **604800000** (7 days). Min **300000** (5 min), max **34560000000** (~400 days). Shorter values reduce impact of a copied cookie; tune with UX (login frequency). See [SESSION_THREAT_MODEL.md](SESSION_THREAT_MODEL.md). |
 | `DEV_SESSION_MEMORY_STORE` | No | Dev-only in-memory sessions when Postgres is down. |
-| `TOTP_ENCRYPTION_KEY` | Prod if TOTP used | 64 hex chars; encrypts TOTP secrets at rest. |
+| `TOTP_ENCRYPTION_KEY` | **Yes** (prod) | Exactly **64** hexadecimal characters (32 bytes); encrypts TOTP secrets at rest. Validated by [`scripts/deploy/check-env.mjs`](../scripts/deploy/check-env.mjs). |
 | `ATTACHMENT_UPLOAD_SECRET` | No | HMAC for upload tokens; falls back to `SESSION_SECRET` or dev default. |
 | `DISABLE_DEV_SEED` | No | Skips dev account seed. |
 
@@ -67,6 +84,8 @@ Web Push needs a **key pair** plus a **contact subject** and a **client-visible 
 | `VAPID_PRIVATE_KEY` | Server runtime | **Secret** | Never expose to the browser or client bundle. |
 | `VAPID_SUBJECT` | Server runtime | Optional | `mailto:` or `https:` contact; default in code. |
 | `VITE_VAPID_PUBLIC_KEY` | **Client build** | Strongly recommended | Must equal `VAPID_PUBLIC_KEY`. Injected at **`npm run build`** so the SPA can subscribe without an extra round-trip. |
+
+**Deploy rule:** If **any** of `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, or `VITE_VAPID_PUBLIC_KEY` is set in production, **all three** must be set (see `check-env.mjs`). Leave all three unset if you are not using push yet.
 
 **Provisioning:** `npm run vapid:generate` ([`scripts/generate-vapid-keys.mjs`](../scripts/generate-vapid-keys.mjs)) prints **four** lines. Copy **all four** into:
 
@@ -89,8 +108,15 @@ Web Push needs a **key pair** plus a **contact subject** and a **client-visible 
 | `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_REDIRECT_URI` | WorkOS. |
 | `ISSUER_URL` | OIDC issuer (Replit). |
 | `REPL_ID` | Replit app id. |
-| `REGISTRATION_MODE` | `open` vs `invite` (default prod: invite). |
-| `INVITE_CODE` | When registration is invite-gated. |
+| `REGISTRATION_MODE` | See [Registration gate and invite mode](#registration-gate-and-invite-mode) below. |
+| `INVITE_CODE` | Shared secret when `REGISTRATION_MODE=invite` (including the production default when mode is unset). |
+
+### Registration gate and invite mode
+
+- **`REGISTRATION_MODE`** supports `open`, `invite`, or `closed` (case-insensitive; surrounding whitespace is trimmed). Any other value logs a warning and falls back to **`invite`** when `NODE_ENV=production`, else **`open`** (see [`server/registration-config.ts`](../server/registration-config.ts)).
+- When effective mode is **`invite`**, **`INVITE_CODE`** must be set on the server to a non-empty value **at least 8 characters** after trim. If it is missing, **`POST /api/auth/register`** returns *Signup is temporarily unavailable…* and the SPA disables account creation once `/api/auth/config` reports `inviteConfigured: false`.
+- **Production default:** If `REGISTRATION_MODE` is **unset** and `NODE_ENV=production`, the server behaves as **`invite`**. That means an empty `INVITE_CODE` blocks **all** email/password signups until you set `REGISTRATION_MODE=open` or provide a real invite code — this is the failure mode that looks like “the server is down” but is only configuration.
+- **OAuth bypass:** Google, WorkOS, and Replit callbacks still create users via [`findOrCreateOAuthUser`](../server/auth-providers.ts) and **do not** consult `REGISTRATION_MODE`. Invite-only applies to **local** email/password registration, not to SSO provisioning.
 
 ---
 
@@ -150,6 +176,7 @@ See [NODEWEAVER.md](NODEWEAVER.md), [RAG_CLASSIFICATION_BLUEPRINT.md](RAG_CLASSI
 | `RESEND_API_KEY`, `RESEND_FROM` | Email delivery (also OTP/admin). |
 | `ADMIN_ALERT_WEBHOOK_URL` | Optional webhook. |
 | `ADMIN_ALERT_DEDUPE_TTL_MS` | Dedupe window. |
+| `ENABLE_FOUNDRY` | Set to `"true"` in production to expose admin-only Foundry routes (`/api/admin/foundry/*`). In non-production it is implicitly enabled. |
 
 ---
 
@@ -243,6 +270,24 @@ These are read in the client via `import.meta.env`. The **Vite** build must see 
 | `ANALYZE=1` | Vite bundle visualizer (see [`vite.config.ts`](../vite.config.ts)). |
 
 ---
+
+## Required in production (deploy checklist)
+
+[`scripts/deploy/check-env.mjs`](../scripts/deploy/check-env.mjs) (`--prod`) enforces at least:
+
+| Variable | Rule |
+|----------|------|
+| `DATABASE_URL` | Set; must start with `postgres://` or `postgresql://`. |
+| `SESSION_SECRET` | Set; length ≥ 20. |
+| `NODE_ENV` | Must be `production`. |
+| `AUTH_AUDIT_PEPPER` | Set; length ≥ 20. |
+| `ARCHETYPE_ANALYTICS_SALT` | Set; length ≥ 16. |
+| `TOTP_ENCRYPTION_KEY` | Set; exactly 64 hex characters. |
+| `INVITE_CODE` | Required when registration is invite-only (including default invite when `REGISTRATION_MODE` is unset in production); length ≥ 8 after trim. |
+| `REGISTRATION_MODE` | If set, must be exactly `open`, `invite`, or `closed`. |
+| `VAPID_*` | If any of `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VITE_VAPID_PUBLIC_KEY` is set, all three are required. |
+
+Use `npm run env:audit` / `npm run env:audit:strict` to verify templates and [`render.yaml`](../render.yaml) list these keys.
 
 ## See also
 

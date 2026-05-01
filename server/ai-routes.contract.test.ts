@@ -8,10 +8,11 @@ const aiRoutesPath = path.join(projectRoot, "server", "routes", "ai.ts");
 const routesPath = path.join(projectRoot, "server", "routes.ts");
 
 describe("AI routes contract", () => {
-  it("registers interpret and execute endpoints", () => {
+  it("registers interpret, execute, and feedback endpoints", () => {
     const aiRoutes = fs.readFileSync(aiRoutesPath, "utf8");
     expect(aiRoutes).toContain('app.post("/api/ai/interpret"');
     expect(aiRoutes).toContain('app.post("/api/ai/execute"');
+    expect(aiRoutes).toContain('app.post("/api/ai/interactions/:id/feedback"');
   });
 
   it("wires AI route registrar into main router", () => {

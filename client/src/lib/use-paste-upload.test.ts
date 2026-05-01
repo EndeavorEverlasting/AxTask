@@ -37,4 +37,26 @@ describe("use-paste-upload :: helpers", () => {
   it("PASTE_IMAGE_BYTE_CAP matches the server scanAttachmentBuffer cap", () => {
     expect(__internal.PASTE_IMAGE_BYTE_CAP).toBe(ATTACHMENT_IMAGE_MAX_BYTES);
   });
+  it("extractImageFilesFromClipboardData reads both files and clipboard items", () => {
+    const fileFromFiles = new File(["a"], "shot-a.png", { type: "image/png", lastModified: 1 });
+    const fileFromItems = new File(["b"], "shot-b.jpeg", { type: "image/jpeg", lastModified: 2 });
+    const data = {
+      files: [fileFromFiles],
+      items: [
+        {
+          kind: "file",
+          getAsFile: () => fileFromItems,
+        },
+        {
+          kind: "string",
+          getAsFile: () => null,
+        },
+      ],
+    } as unknown as DataTransfer;
+
+    const files = __internal.extractImageFilesFromClipboardData(data);
+    expect(files).toHaveLength(2);
+    expect(files[0]?.name).toBe("shot-a.png");
+    expect(files[1]?.name).toBe("shot-b.jpeg");
+  });
 });

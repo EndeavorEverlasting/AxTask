@@ -157,54 +157,63 @@ export function GlobalSearch({ open, onOpenChange, onSelectTask }: GlobalSearchP
     >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <div
-        className="relative w-[95vw] max-w-2xl bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+        className="relative w-[95vw] max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-border/40 glass-panel-glossy"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Global task search"
       >
-        <div className="flex items-center px-4 border-b border-gray-200 dark:border-gray-700">
-          <Search className="h-5 w-5 text-gray-400 shrink-0" />
-          <Input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search all tasks by activity, notes, or classification..."
-            className="border-0 focus-visible:ring-0 text-base h-14"
-            data-testid="global-search-input"
-          />
+        <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-2xl" aria-hidden>
+          <div className="absolute -top-1/4 left-1/3 h-[45%] w-[70%] rotate-6 rounded-full bg-gradient-to-r from-emerald-600/10 via-cyan-500/8 to-transparent blur-[72px]" />
+          <div className="absolute -bottom-1/4 right-1/4 h-[40%] w-[55%] -rotate-12 rounded-full bg-gradient-to-l from-violet-600/8 via-indigo-500/6 to-transparent blur-[64px]" />
+        </div>
+
+        <div className="relative z-[1] flex items-center gap-2 border-b border-border/40 px-3 py-2.5">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Search all tasks by activity, notes, or classification..."
+              className="h-10 border-0 bg-transparent pl-9 pr-2 text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 md:text-sm"
+              data-testid="global-search-input"
+            />
+          </div>
           <button
+            type="button"
             onClick={close}
-            className="shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent"
             aria-label="Close search"
             data-testid="global-search-close"
           >
-            <X className="h-5 w-5 text-gray-400" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto" ref={listRef}>
+        <div className="relative z-[1] max-h-[60vh] overflow-y-auto" ref={listRef}>
           {trimmed.length < 2 && (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400 text-sm">
+            <div className="p-8 text-center text-sm text-muted-foreground">
               Type at least 2 characters to search across all your tasks
             </div>
           )}
 
           {isLoading && canQuery && (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400 text-sm">
-              Searching...
-            </div>
+            <div className="p-8 text-center text-sm text-muted-foreground">Searching...</div>
           )}
 
           {!isLoading && canQuery && results.length === 0 && (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400 text-sm">
+            <div className="p-8 text-center text-sm text-muted-foreground">
               No tasks found matching &ldquo;{trimmed}&rdquo;
             </div>
           )}
 
           {results.length > 0 && (
             <div className="py-2" data-testid="global-search-results">
-              <div className="px-4 py-1 text-xs text-gray-500 dark:text-gray-400">
+              <div className="px-4 py-1 text-xs text-muted-foreground">
                 {results.length} result{results.length !== 1 ? "s" : ""}
               </div>
               {results.map((task, idx) => {
@@ -213,43 +222,43 @@ export function GlobalSearch({ open, onOpenChange, onSelectTask }: GlobalSearchP
                   <button
                     key={task.id}
                     type="button"
-                    className={`w-full px-4 py-3 text-left transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0 ${
+                    className={`w-full border-b border-border/30 px-4 py-3 text-left transition-colors last:border-0 ${
                       isActive
                         ? "bg-amber-50 dark:bg-amber-900/10"
-                        : "hover:bg-gray-50 dark:hover:bg-gray-800"
+                        : "hover:bg-muted/40"
                     }`}
                     onMouseEnter={() => setSelectedIndex(idx)}
                     onClick={() => pick(task)}
                     data-testid={`global-search-result-${task.id}`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-foreground">
                           {highlightMatch(task.activity ?? "", trimmed)}
                         </div>
                         {task.notes && (
-                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 [&_.axtask-md-paragraph]:m-0 [&_.axtask-md-image]:max-h-10 [&_.axtask-md-image]:rounded">
+                          <div className="mt-1 line-clamp-2 text-xs text-muted-foreground [&_.axtask-md-paragraph]:m-0 [&_.axtask-md-image]:max-h-10 [&_.axtask-md-image]:rounded">
                             <SafeMarkdownHtml
                               source={task.notes}
                               allowedAttachmentIds={(task as Partial<PublicTaskListItem>).noteAttachmentIds ?? []}
                             />
                           </div>
                         )}
-                        <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-3">
                           {task.date && (
-                            <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
                               <Calendar className="h-3 w-3" />
                               {task.date}
                             </span>
                           )}
                           {task.classification && (
-                            <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
                               <Tag className="h-3 w-3" />
                               {highlightMatch(task.classification, trimmed)}
                             </span>
                           )}
                           {task.updatedAt && (
-                            <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
                               <Clock className="h-3 w-3" />
                               {new Date(task.updatedAt).toLocaleDateString()}
                             </span>
@@ -285,14 +294,11 @@ export function GlobalSearch({ open, onOpenChange, onSelectTask }: GlobalSearchP
           )}
         </div>
 
-        <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-400">
+        <div className="relative z-[1] flex items-center justify-between border-t border-border/40 px-4 py-2 text-xs text-muted-foreground">
           <span>
-            <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-[10px] font-mono">Esc</kbd>{" "}
-            to close &middot;{" "}
-            <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-[10px] font-mono">&uarr;&darr;</kbd>{" "}
-            to navigate &middot;{" "}
-            <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-[10px] font-mono">Enter</kbd>{" "}
-            to open
+            <kbd className="rounded px-1.5 py-0.5 font-mono text-[10px] bg-muted/50">Esc</kbd> to close &middot;{" "}
+            <kbd className="rounded px-1.5 py-0.5 font-mono text-[10px] bg-muted/50">&uarr;&darr;</kbd> to navigate
+            &middot; <kbd className="rounded px-1.5 py-0.5 font-mono text-[10px] bg-muted/50">Enter</kbd> to open
           </span>
           <span>Ctrl/Cmd+F to toggle</span>
         </div>

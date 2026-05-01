@@ -60,8 +60,9 @@ describe("planner page :: CSS-first motion (pass-4)", () => {
   });
 
   it("keeps timeline card header structurally split from chart body", () => {
-    expect(planner).toContain('<CardHeader className="pb-3 border-b');
-    expect(planner).toContain('<CardContent className="space-y-3 pt-4">');
+    expect(planner).toContain('id="gantt"');
+    expect(planner).toContain("Task Timeline");
+    expect(planner).toMatch(/id="gantt"[\s\S]*<header[\s\S]*border-b[\s\S]*<\/header>[\s\S]*<TaskGantt/);
   });
 
   it("uses stable panel shells for planner tiles and insights", () => {
