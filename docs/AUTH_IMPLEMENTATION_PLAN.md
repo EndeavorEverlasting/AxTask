@@ -1,4 +1,5 @@
 # AxTask — User Accounts Implementation Plan
+> Status: CLOSED
 
 ## Overview
 

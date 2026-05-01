@@ -2,7 +2,7 @@
 # AxTask Version 1.3.0 - "Context + Control"
 
 **Planned Release Date**: Q2 2025  
-**Status**: In Development  
+**Status**: CLOSED
 **Type**: Minor Release
 
 ## Overview

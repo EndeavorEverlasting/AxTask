@@ -1,4 +1,5 @@
 # AxTask Integration Plan
+> Status: CLOSED
 
 ## Recommendation
 

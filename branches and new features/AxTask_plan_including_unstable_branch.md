@@ -1,4 +1,5 @@
 # AxTask plan including today's unstable branch
+> Status: CLOSED
 
 Prepared from live inspection of the current AxTask public branches, with special attention to the newest integration lane: `experimental/unstable-2026-04-27`.
 
@@ -8,7 +9,7 @@ Prepared from live inspection of the current AxTask public branches, with specia
 
 Today’s unstable branch should be in the plan as the **working daytime integration base**.
 
-Not because “latest” is magically correct.  
+Not because “latest” is magically correct.
 Because in this case it is both:
 
 - the **latest**

@@ -1,6 +1,6 @@
 # AxTask + NodeWeaver Emergency Publishing Plan (Off Replit)
 
-> Status: Transitional runbook.  
+> Status: CLOSED. Transitional runbook.
 > Canonical architecture/policy references: `docs/ACTIVE_LEGACY_INDEX.md`, `docs/ARCHITECTURE.md`, `docs/PR_SEGMENTATION.md`.
 
 **Date:** 2026-04-03  

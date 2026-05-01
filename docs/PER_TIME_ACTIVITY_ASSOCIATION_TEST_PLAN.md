@@ -1,4 +1,5 @@
 # Per-Time Activity Association Test Plan
+> Status: CLOSED
 
 ## Purpose
 

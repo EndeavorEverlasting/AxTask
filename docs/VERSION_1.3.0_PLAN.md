@@ -1,6 +1,6 @@
 # AxTask Version 1.3.0 - Planned Features
 
-> Status: Legacy planning artifact (non-authoritative).  
+> Status: CLOSED. Legacy planning artifact (non-authoritative).
 > Do not use as active roadmap input; refer to `docs/ACTIVE_LEGACY_INDEX.md` and current canonical docs.
 
 **Planned Release Date**: TBD  
