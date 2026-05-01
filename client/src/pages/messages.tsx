@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { decryptDmUtf8, encryptDmUtf8, generateDmDeviceIdentity } from "@/lib/e2ee-dm-crypto";
 import { loadDmDeviceState, saveDmDeviceState } from "@/lib/e2ee-device-storage";
-import { parseApiRequestError, participationAgeUserHint } from "@/lib/parse-api-request-error";
+import { parseApiRequestError, participationAgeUserHint } from "@/lib/api-request-parse";
 import QRCode from "qrcode";
 
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;

@@ -122,6 +122,23 @@ function main() {
     process.exit(1);
   }
 
+  /**
+   * Deploy log hygiene: Docker `npm run build` prints every hashed chunk name.
+   * A source path containing `parse-api-request-error` becomes a chunk filename with
+   * that substring, which looks like a failure when grepping logs for "error". Rename
+   * the module instead of reintroducing this artifact name.
+   */
+  const FORBIDDEN_CHUNK_NAME_SUBSTRINGS = ["parse-api-request-error"];
+  for (const file of files) {
+    const bad = FORBIDDEN_CHUNK_NAME_SUBSTRINGS.find((s) => file.name.includes(s));
+    if (bad) {
+      console.error(
+        `[bundle-budget] Forbidden substring ${JSON.stringify(bad)} in chunk filename ${JSON.stringify(file.name)} — rename the source module so deploy logs stay greppable.`,
+      );
+      process.exit(1);
+    }
+  }
+
   const largest = files[0];
   const total = files.reduce((s, f) => s + f.bytes, 0);
 
