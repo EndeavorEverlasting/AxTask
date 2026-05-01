@@ -48,6 +48,8 @@ export interface SecureInputProps
   onInactivityClear?: () => void;
   /** If true, always mask (even when focused) — useful for password fields. */
   alwaysMask?: boolean;
+  /** If true, mask when blurred. Default is true for password, false otherwise. */
+  maskWhenBlurred?: boolean;
 }
 
 const SecureInput = React.forwardRef<HTMLInputElement, SecureInputProps>(
@@ -59,6 +61,7 @@ const SecureInput = React.forwardRef<HTMLInputElement, SecureInputProps>(
       inactivityTimeout = 0,
       onInactivityClear,
       alwaysMask,
+      maskWhenBlurred,
       type,
       ...props
     },
@@ -79,14 +82,16 @@ const SecureInput = React.forwardRef<HTMLInputElement, SecureInputProps>(
       [ref]
     );
 
+    const secureMode = type === "password" || alwaysMask || maskWhenBlurred;
+
     // Recompute hash whenever value changes and field is blurred
     React.useEffect(() => {
-      if (!focused && value) {
+      if (!focused && value && secureMode) {
         sha256Hex(value).then((h) => setMaskedValue(computeMask(h)));
       } else if (!value) {
         setMaskedValue("");
       }
-    }, [value, focused]);
+    }, [value, focused, secureMode]);
 
     // ── Focus / Blur handlers ──────────────────────────────────────────────
     const handleFocus = React.useCallback(
@@ -104,7 +109,7 @@ const SecureInput = React.forwardRef<HTMLInputElement, SecureInputProps>(
       (e: React.FocusEvent<HTMLInputElement>) => {
         setFocused(false);
         // Replace DOM value with hash immediately
-        if (internalRef.current && value) {
+        if (secureMode && internalRef.current && value) {
           sha256Hex(value).then((h) => {
             const mask = computeMask(h);
             setMaskedValue(mask);
@@ -142,8 +147,8 @@ const SecureInput = React.forwardRef<HTMLInputElement, SecureInputProps>(
     React.useEffect(() => () => clearTimeout(inactivityTimer.current), []);
 
     // The value shown in the DOM
-    const displayValue = focused ? value : maskedValue;
-    const inputType = focused ? type : "text"; // masked value is always text
+    const displayValue = focused ? value : (secureMode ? maskedValue : value);
+    const inputType = focused ? type : (secureMode ? "text" : type); // masked value is always text
 
     return (
       <div className="relative">
