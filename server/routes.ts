@@ -699,7 +699,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (REGISTRATION_MODE === "invite") {
         const code = typeof req.body.inviteCode === "string" ? req.body.inviteCode : "";
         if (!INVITE_CODE) {
-          return res.status(403).json({ message: "Registration requires an invite code, but none is configured on the server" });
+          console.warn("[auth] REGISTRATION_MODE=invite but INVITE_CODE is missing.");
+          return res.status(403).json({ message: "Signup is temporarily unavailable. Please contact the AxTask owner for access." });
         }
         if (!safeEqual(code, INVITE_CODE)) {
           return res.status(403).json({ message: "Invalid invite code" });
@@ -874,6 +875,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
     res.json({
       registrationMode: REGISTRATION_MODE,
+      inviteConfigured: Boolean(INVITE_CODE),
       authProvider,
       loginUrl: loginUrls[authProvider] || "",
       providers,

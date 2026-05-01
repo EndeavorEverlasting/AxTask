@@ -286,8 +286,17 @@ function warnIfVapidMissing(): void {
   );
 }
 
+function warnIfInviteConfigBroken(): void {
+  const mode = process.env.REGISTRATION_MODE || (process.env.NODE_ENV === "production" ? "invite" : "open");
+  const code = process.env.INVITE_CODE || "";
+  if (mode === "invite" && !code) {
+    console.warn("[auth] REGISTRATION_MODE=invite but INVITE_CODE is not configured.");
+  }
+}
+
 (async () => {
   warnIfVapidMissing();
+  warnIfInviteConfigBroken();
 
   try {
     await seedDevAccounts();
