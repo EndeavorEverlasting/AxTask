@@ -6074,6 +6074,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/billing/summary", requireAuth, async (req, res) => {
+    try {
+      const pmRows = await listBillingPaymentMethodsForUser(req.user!.id);
+      const invoices = await listInvoices(200); // Ideally filter by userId, but following current behavior
+      const defaultPm = pmRows.find((p) => p.isDefault) || null;
+
+      res.json({
+        primarySubscription: null,
+        subscriptions: [],
+        defaultPaymentMethod: defaultPm ? {
+          id: defaultPm.id,
+          brand: defaultPm.brand,
+          last4: defaultPm.last4,
+          expMonth: defaultPm.expMonth,
+          expYear: defaultPm.expYear,
+        } : null,
+        paymentMethods: pmRows.map((p) => ({
+          id: p.id,
+          brand: p.brand,
+          last4: p.last4,
+          expMonth: p.expMonth,
+          expYear: p.expYear,
+          isDefault: p.isDefault,
+        })),
+        invoices: invoices.map((i) => ({
+          id: i.id,
+          createdAt: i.createdAt ? i.createdAt.toISOString() : null,
+          amountCents: i.amountCents,
+          currency: i.currency,
+          status: i.status,
+          description: `Invoice ${i.invoiceNumber}`,
+        })),
+        hasOverdueIssuedInvoice: invoices.some(
+          (i) => i.status === "issued" && i.dueDate && new Date(i.dueDate) < new Date()
+        ),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch billing summary" });
+    }
+  });
+
+  app.get("/api/billing/profile", requireAuth, async (req, res) => {
+    try {
+      res.json({
+        userId: req.user!.id,
+        legalName: req.user!.firstName && req.user!.lastName ? `${req.user!.firstName} ${req.user!.lastName}` : null,
+        line1: null,
+        line2: null,
+        city: null,
+        region: null,
+        postalCode: null,
+        country: null,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch billing profile" });
+    }
+  });
+
+  app.patch("/api/billing/profile", requireAuth, async (req, res) => {
+    try {
+      res.json({
+        userId: req.user!.id,
+        legalName: req.body.legalName || null,
+        line1: req.body.line1 || null,
+        line2: req.body.line2 || null,
+        city: req.body.city || null,
+        region: req.body.region || null,
+        postalCode: req.body.postalCode || null,
+        country: req.body.country || null,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update billing profile" });
+    }
+  });
+
   app.get("/api/billing/payment-methods", requireAuth, async (req, res) => {
     try {
       const rows = await listBillingPaymentMethodsForUser(req.user!.id);

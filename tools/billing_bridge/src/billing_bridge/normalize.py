@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -14,7 +15,17 @@ def _clean_text(value: object) -> str:
 
 
 def normalize_name(value: object) -> str:
-    text = _clean_text(value)
+    text = str(value or "").replace("\xa0", " ")
+    pm_suffix = bool(re.search(r"\(\s*pm\s*\)", text, flags=re.IGNORECASE))
+    text = re.sub(r"\([^)]*\)", "", text)
+    text = re.sub(r"[^a-z0-9, ]+", " ", text.lower())
+    text = re.sub(r"\s+", " ", text).strip(" ,")
+    if "," in text:
+        parts = [part.strip() for part in text.split(",", 1)]
+        if len(parts) == 2:
+            text = f"{parts[1]} {parts[0]}".strip()
+    if pm_suffix:
+        text = f"{text} pm".strip()
     return " ".join(part for part in text.replace("  ", " ").split())
 
 
