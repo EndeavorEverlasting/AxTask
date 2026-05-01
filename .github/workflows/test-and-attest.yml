@@ -54,14 +54,16 @@ jobs:
       - name: Run tests
         run: npm test
 
+      # Playwright `webServer` (see playwright.config.ts) runs `npm run start:app`, which
+      # requires `dist/index.js` from the production bundle. Build must precede UI tests.
+      - name: Production build
+        run: npm run build
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
       - name: Planner scroll visibility regression (Playwright)
         run: npm run test:ui:planner-scroll
-
-      - name: Production build
-        run: npm run build
 
       - name: Client bundle size budget
         # AXTASK_STRICT_CHUNKS promotes the per-vendor-chunk soft ceilings
