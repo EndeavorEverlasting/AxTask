@@ -108,6 +108,56 @@ describe("dispatchDueReminderTriggers (createReminderDispatcher)", () => {
     vi.useRealTimers();
   });
 
+  it("finalizes non-recurring reminder with nextRunAt null", async () => {
+    const now = new Date("2030-01-01T00:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const listDueReminderDispatchRows = vi.fn().mockResolvedValueOnce([
+      {
+        reminder: { id: "r1", userId: "u1", title: "Welcome home", body: null },
+        trigger: { id: "t-loc", payloadJson: { type: "location_arrival", placeSlug: "home" } },
+      },
+    ]);
+    const listDueTaskReminderRows = vi.fn().mockResolvedValueOnce([]);
+    const listPushDispatchCandidates = vi.fn().mockResolvedValueOnce([
+      {
+        userId: "u1",
+        subscription: {
+          endpoint: "https://push.example/sub",
+          expirationTime: null,
+          p256dh: "k1",
+          auth: "k2",
+        },
+      },
+    ]);
+    const getUserNotificationPreference = vi.fn().mockResolvedValueOnce({ enabled: true });
+    const computeNextRunAtFromRecurrence = vi.fn().mockReturnValueOnce(null);
+    const finalizeReminderTriggerDispatch = vi.fn().mockResolvedValueOnce(undefined);
+    const markPushSubscriptionDispatched = vi.fn().mockResolvedValueOnce(undefined);
+
+    const dispatch = createReminderDispatcher({
+      listDueReminderDispatchRows,
+      listDueTaskReminderRows,
+      getUserNotificationPreference,
+      listPushDispatchCandidates,
+      markPushSubscriptionDispatched,
+      computeNextRunAtFromRecurrence,
+      finalizeReminderTriggerDispatch,
+      finalizeTaskReminderDispatch: vi.fn(),
+    });
+
+    hoisted.sendNotification.mockResolvedValueOnce(undefined);
+
+    await dispatch(10);
+
+    expect(finalizeReminderTriggerDispatch).toHaveBeenCalledWith({
+      triggerId: "t-loc",
+      firedAt: now,
+      nextRunAt: null,
+    });
+    vi.useRealTimers();
+  });
+
   it("dispatches due task reminder and finalizes task row", async () => {
     const now = new Date("2030-01-01T00:00:00.000Z");
     vi.useFakeTimers();

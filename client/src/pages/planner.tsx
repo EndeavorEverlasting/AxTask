@@ -49,6 +49,7 @@ import {
   type TaskListRouteFilter,
 } from "@/lib/task-list-route-filters";
 import { useBriefing } from "@/hooks/use-briefing";
+import { useRemindersSummary } from "@/hooks/use-reminders";
 import type { BriefingData } from "@/hooks/use-briefing";
 import { TaskGantt } from "@/components/task-gantt";
 import { useGanttPackUnlocked } from "@/hooks/use-gantt-pack-unlocked";
@@ -68,11 +69,27 @@ interface QAResponse {
 
 interface AiExecuteResponse {
   type: "action_result" | "clarification";
-  action?: "create_reminder";
+  action?: "create_reminder" | "create_task";
   message?: string;
   clarification?: string;
   reason?: string;
+  interactionId?: string | null;
+  taskId?: string | null;
+  reminderId?: string | null;
+  meta?: {
+    confidence?: number;
+    fallbackLayer?: string;
+    provider?: string;
+    model?: string;
+    latencyMs?: number;
+  };
 }
+
+type GentleReminderTurn = {
+  role: "user" | "assistant";
+  text: string;
+  interactionId?: string | null;
+};
 
 const LOAD_COLORS: Record<string, string> = {
   none: "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500",
@@ -93,7 +110,7 @@ export default function PlannerPage() {
   const [question, setQuestion] = useState("");
   const [chatHistory, setChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [aiMessage, setAiMessage] = useState("");
-  const [aiChatHistory, setAiChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [aiChatHistory, setAiChatHistory] = useState<GentleReminderTurn[]>([]);
   const [reviewInput, setReviewInput] = useState("");
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewActions, setReviewActions] = useState<ProposedAction[]>([]);
@@ -108,6 +125,7 @@ export default function PlannerPage() {
 
   const { data: briefing, isLoading } = useBriefing();
   const { user } = useAuth();
+  const remindersSummary = useRemindersSummary({ enabled: Boolean(user) });
 
   const { data: allTasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -311,6 +329,20 @@ export default function PlannerPage() {
     },
   });
 
+  const aiFeedbackMutation = useMutation({
+    mutationFn: async (input: { interactionId: string; verdict: "correct" | "wrong" | "needs_edit" }) => {
+      await apiRequest("POST", `/api/ai/interactions/${encodeURIComponent(input.interactionId)}/feedback`, {
+        verdict: input.verdict,
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Thanks — feedback saved." });
+    },
+    onError: () => {
+      toast({ title: "Could not save feedback", variant: "destructive" });
+    },
+  });
+
   const aiExecuteMutation = useMutation({
     mutationFn: async (message: string) => {
       const res = await apiRequest("POST", "/api/ai/execute", { message });
@@ -324,9 +356,17 @@ export default function PlannerPage() {
       setAiChatHistory((prev) => [
         ...prev,
         { role: "user", text: message },
-        { role: "assistant", text: assistantText },
+        {
+          role: "assistant",
+          text: assistantText,
+          interactionId: data.interactionId ?? null,
+        },
       ]);
       queryClient.invalidateQueries({ queryKey: ["/api/reminders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/reminders/summary"] });
+      if (data.type === "action_result" && data.action === "create_task") {
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      }
     },
     onError: (error: unknown) => {
       const text = error instanceof Error ? error.message : "Failed to process reminder chat.";
@@ -1123,13 +1163,31 @@ export default function PlannerPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-xs text-gray-600 dark:text-gray-400">
-                  Ask in plain English to create reminders. Ambiguous prompts will ask a clarification.
+                  Ask in plain English to create reminders or tasks. Set home/work places under Settings so
+                  location reminders can run.
                 </p>
+
+                {remindersSummary.data?.reminders && remindersSummary.data.reminders.length > 0 ? (
+                  <div className="rounded-md border border-violet-100 dark:border-violet-900/40 bg-white/50 dark:bg-gray-900/30 px-2 py-2 text-xs space-y-1 max-h-28 overflow-y-auto">
+                    <div className="font-medium text-muted-foreground">Your reminders</div>
+                    {remindersSummary.data.reminders.slice(0, 8).map((r) => (
+                      <div key={`${r.source}-${r.id}`} className="flex justify-between gap-2 min-w-0">
+                        <span className="truncate text-foreground">{r.title}</span>
+                        <span className="shrink-0 text-muted-foreground tabular-nums">
+                          {r.triggerType ?? r.source}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
 
                 {aiChatHistory.length > 0 && (
                   <div className="space-y-3 max-h-52 overflow-y-auto rounded-lg bg-white/70 dark:bg-gray-800/50 p-3 border border-violet-100 dark:border-violet-900/30">
                     {aiChatHistory.map((msg, i) => (
-                      <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                      <div
+                        key={i}
+                        className={`flex flex-col gap-1.5 ${msg.role === "user" ? "items-end" : "items-start"}`}
+                      >
                         <div
                           className={`max-w-[88%] rounded-lg px-3 py-2 text-sm whitespace-pre-line ${
                             msg.role === "user"
@@ -1139,6 +1197,55 @@ export default function PlannerPage() {
                         >
                           {msg.text}
                         </div>
+                        {msg.role === "assistant" && msg.interactionId ? (
+                          <div className="flex flex-wrap gap-1 max-w-[88%]">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
+                              disabled={aiFeedbackMutation.isPending}
+                              onClick={() =>
+                                aiFeedbackMutation.mutate({
+                                  interactionId: msg.interactionId!,
+                                  verdict: "correct",
+                                })
+                              }
+                            >
+                              Correct
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
+                              disabled={aiFeedbackMutation.isPending}
+                              onClick={() =>
+                                aiFeedbackMutation.mutate({
+                                  interactionId: msg.interactionId!,
+                                  verdict: "wrong",
+                                })
+                              }
+                            >
+                              Wrong
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
+                              disabled={aiFeedbackMutation.isPending}
+                              onClick={() =>
+                                aiFeedbackMutation.mutate({
+                                  interactionId: msg.interactionId!,
+                                  verdict: "needs_edit",
+                                })
+                              }
+                            >
+                              Needs edit
+                            </Button>
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                   </div>

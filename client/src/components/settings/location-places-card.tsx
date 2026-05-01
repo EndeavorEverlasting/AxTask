@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useLocationPlaces } from "@/hooks/use-locations";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,14 +9,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { MapPin } from "lucide-react";
 import { readGeofenceNudgesEnabled, writeGeofenceNudgesEnabled } from "@/hooks/use-geofence-suggestion-nudge";
-
-type Place = {
-  id: string;
-  name: string;
-  lat: number | null;
-  lng: number | null;
-  radiusMeters: number;
-};
 
 export function LocationPlacesSettingsCard() {
   const qc = useQueryClient();
@@ -28,13 +21,7 @@ export function LocationPlacesSettingsCard() {
     setGeofenceNudges(readGeofenceNudgesEnabled());
   }, []);
 
-  const { data } = useQuery({
-    queryKey: ["/api/location-places"],
-    queryFn: async () => {
-      const r = await apiRequest("GET", "/api/location-places");
-      return r.json() as Promise<{ places: Place[] }>;
-    },
-  });
+  const { data } = useLocationPlaces();
 
   const saveMutation = useMutation({
     mutationFn: async () => {

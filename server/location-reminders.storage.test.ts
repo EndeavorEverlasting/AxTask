@@ -379,6 +379,128 @@ describe("scheduleLocationOffsetTriggersFromEvent (fake executor)", () => {
     expect(typeof meta[LOCATION_OFFSET_SCHEDULING_META_KEY]).toBe("string");
   });
 
+  it("schedules nextRunAt for matching location_arrival trigger on enter (immediate)", async () => {
+    const occurred = new Date("2030-01-15T10:00:00.000Z");
+    const event: UserLocationEvent = {
+      id: "evt-arrival",
+      userId: "u1",
+      placeId: "place-home",
+      eventType: "enter",
+      source: "browser",
+      confidence: 100,
+      metadataJson: {},
+      occurredAt: occurred,
+      createdAt: occurred,
+    };
+    const place: UserLocationPlace = {
+      id: "place-home",
+      userId: "u1",
+      name: "Home",
+      slug: "home",
+      placeType: "home",
+      label: "Home",
+      notes: null,
+      lat: null,
+      lng: null,
+      radiusMeters: 200,
+      isDefault: true,
+      isActive: true,
+      source: "manual_pin",
+      geocodeAccuracyMeters: null,
+      lastVerifiedAt: null,
+      lastEnteredAt: null,
+      lastExitedAt: null,
+      createdAt: occurred,
+      updatedAt: occurred,
+    };
+    const reminder = {
+      id: "rem-ar",
+      userId: "u1",
+      kind: "location_event",
+      title: "Lights",
+      body: null,
+      enabled: true,
+      createdBy: "user",
+      createdAt: occurred,
+      updatedAt: occurred,
+    };
+    const triggerRow = {
+      id: "trig-ar",
+      reminderId: "rem-ar",
+      triggerType: "location_arrival",
+      payloadJson: { type: "location_arrival", placeSlug: "home" },
+      nextRunAt: null as Date | null,
+      lastTriggeredAt: null as Date | null,
+      cooldownSeconds: 0,
+      isActive: true,
+      createdAt: occurred,
+      updatedAt: occurred,
+    };
+
+    const triggerUpdates: { id: string; nextRunAt: Date | null }[] = [];
+    const eventMetaUpdates: unknown[] = [];
+
+    const executor = {
+      select() {
+        return {
+          from(table: typeof userLocationEvents | typeof userLocationPlaces | typeof userReminderTriggers) {
+            if (table === userReminderTriggers) {
+              return {
+                innerJoin(_other: unknown, _on: unknown) {
+                  return {
+                    where() {
+                      return Promise.resolve([{ t: triggerRow, r: reminder }]);
+                    },
+                  };
+                },
+              };
+            }
+            return {
+              where() {
+                return {
+                  limit() {
+                    if (table === userLocationEvents) {
+                      return Promise.resolve([event]);
+                    }
+                    if (table === userLocationPlaces) {
+                      return Promise.resolve([place]);
+                    }
+                    return Promise.resolve([]);
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+      update(table: typeof userReminderTriggers | typeof userLocationEvents) {
+        return {
+          set(patch: Record<string, unknown>) {
+            return {
+              where() {
+                if (table === userReminderTriggers) {
+                  triggerUpdates.push({
+                    id: "trig-ar",
+                    nextRunAt: patch.nextRunAt as Date | null,
+                  });
+                }
+                if (table === userLocationEvents) {
+                  eventMetaUpdates.push(patch.metadataJson);
+                }
+                return Promise.resolve([]);
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const result = await scheduleLocationOffsetTriggersFromEvent(event, executor as never);
+    expect(result.updated).toBe(1);
+    expect(triggerUpdates[0]?.nextRunAt?.toISOString()).toBe("2030-01-15T10:00:00.000Z");
+    expect(eventMetaUpdates.length).toBe(1);
+  });
+
   it("returns skipped when offset scheduling marker already present", async () => {
     const occurred = new Date("2030-01-15T10:00:00.000Z");
     const event: UserLocationEvent = {

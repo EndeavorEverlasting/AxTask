@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { and, eq, isNotNull, lte } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import {
   userReminders,
   userReminderTriggers,
@@ -249,10 +249,14 @@ export async function createUserLocationEvent(input: {
 }
 
 type OffsetPayload = { placeSlug: string; offsetMinutes: number; recurrence?: unknown };
+type ArrivalPayload = { placeSlug: string };
 
 /**
- * When a location event arrives, schedule `location_arrival_offset` triggers that match the place slug.
- * Sets `nextRunAt` to occurredAt + offset. Recurring variants are re-armed by dispatch workers.
+ * When a location event arrives, schedule location-based triggers that match the place slug:
+ * - `location_arrival_offset`: `nextRunAt` = occurredAt + offset minutes
+ * - `location_arrival`: `nextRunAt` = occurredAt (immediate handoff to push dispatcher)
+ *
+ * Recurring offset variants are re-armed by dispatch workers.
  *
  * Idempotent per persisted `event.id`: if `metadata_json.locationOffsetSchedulingAppliedAt` is set, returns
  * `{ updated: 0, skipped: true }` without mutating triggers. Pass `executor` (e.g. a transaction client) so
@@ -294,7 +298,7 @@ export async function scheduleLocationOffsetTriggersFromEvent(
         eq(userReminders.userId, fresh.userId),
         eq(userReminders.enabled, true),
         eq(userReminderTriggers.isActive, true),
-        eq(userReminderTriggers.triggerType, "location_arrival_offset"),
+        inArray(userReminderTriggers.triggerType, ["location_arrival_offset", "location_arrival"]),
       ),
     );
 
@@ -303,11 +307,25 @@ export async function scheduleLocationOffsetTriggersFromEvent(
     fresh.occurredAt instanceof Date ? fresh.occurredAt : new Date(String(fresh.occurredAt));
 
   for (const row of joined) {
-    const payload = row.t.payloadJson as unknown as OffsetPayload | null;
-    if (!payload || typeof payload.offsetMinutes !== "number" || payload.placeSlug !== place.slug) {
+    const triggerType = row.t.triggerType;
+    let next: Date;
+
+    if (triggerType === "location_arrival_offset") {
+      const payload = row.t.payloadJson as unknown as OffsetPayload | null;
+      if (!payload || typeof payload.offsetMinutes !== "number" || payload.placeSlug !== place.slug) {
+        continue;
+      }
+      next = new Date(occurred.getTime() + payload.offsetMinutes * 60_000);
+    } else if (triggerType === "location_arrival") {
+      const payload = row.t.payloadJson as unknown as ArrivalPayload | null;
+      if (!payload || typeof payload.placeSlug !== "string" || payload.placeSlug !== place.slug) {
+        continue;
+      }
+      next = occurred;
+    } else {
       continue;
     }
-    const next = new Date(occurred.getTime() + payload.offsetMinutes * 60_000);
+
     const existingNext =
       row.t.nextRunAt instanceof Date
         ? row.t.nextRunAt
