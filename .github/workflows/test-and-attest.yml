@@ -32,6 +32,8 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/axtask
+      # Playwright `webServer` runs `npm run start:app` (NODE_ENV=production); server requires this.
+      SESSION_SECRET: ci-playwright-session-secret-must-be-at-least-32-chars
     steps:
       - name: Checkout
         uses: actions/checkout@v4
