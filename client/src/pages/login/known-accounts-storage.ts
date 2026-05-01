@@ -90,10 +90,3 @@ export function setRememberPref(val: boolean) {
     /* ignore */
   }
 }
-
-export const KNOWN_ACCOUNTS_STORAGE_KEYS = {
-  ACCOUNTS_KEY,
-  LAST_KEY,
-  LAST_PROVIDER_KEY,
-  REMEMBER_PREF_KEY,
-} as const;
