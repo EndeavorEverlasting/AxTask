@@ -64,6 +64,8 @@ import { SafeMarkdown } from "@/lib/safe-markdown";
 import { format, parse } from "date-fns";
 import { useLocation, Link } from "wouter";
 import { useFieldFlow } from "@/hooks/use-field-flow";
+import { useTaskFocusFlow } from "@/hooks/use-task-focus-flow";
+import { useFieldResize } from "@/hooks/use-field-resize";
 import { useLiveClassificationStream } from "@/hooks/use-live-classification-stream";
 import { detectShoppingListContent, detectStructuredPrompt } from "@shared/shopping-tasks";
 import { ConversionArtifactPreview } from "@/components/conversion-artifact-preview";
@@ -144,6 +146,8 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
   const { onFieldBlur, isHinted } = useFieldFlow();
   const [warningFields, setWarningFields] = useState<Set<string>>(new Set());
+  const { registerField, focusFirst, cycleNext, fieldRefs } = useTaskFocusFlow();
+  const { height: notesHeight, updateHeight: setNotesHeight } = useFieldResize("notes", 120);
   const warningTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [voiceTarget, setVoiceTarget] = useState<"activity" | "notes" | "prerequisites">("activity");
   const [debouncedActivity, setDebouncedActivity] = useState("");
@@ -491,6 +495,24 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
       extraClass
     );
   }, [isHinted, isWarned]);
+
+  useEffect(() => {
+    // Focus first field on mount
+    const timer = setTimeout(() => {
+      focusFirst();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [focusFirst]);
+
+  useEffect(() => {
+    const handleAltN = () => {
+      cycleNext();
+      // Ensure the task form is visible in scroll
+      document.getElementById("tutorial-task-form")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    };
+    window.addEventListener("axtask-open-new-task", handleAltN);
+    return () => window.removeEventListener("axtask-open-new-task", handleAltN);
+  }, [cycleNext]);
 
   const createTaskMutation = useMutation({
     mutationFn: async (taskData: InsertTask) => {
@@ -1175,6 +1197,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                             <Input
                               placeholder="Enter task activity or use the mic..."
                               {...field}
+                              ref={(e) => { field.ref(e); registerField("activity", e); }}
                               className={cn("min-h-[44px]", getFieldClass("activity"), getCollabFieldStyle("activity"), "w-full")}
                               style={getCollabFieldColor("activity") ? { "--tw-ring-color": getCollabFieldColor("activity") } as React.CSSProperties : undefined}
                               onFocus={() => { setVoiceTarget("activity"); collab.focusField("activity"); }}
@@ -1321,8 +1344,17 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                               rows={3}
                               placeholder="Add detailed notes with **markdown**, tags (@urgent, #blocker), or dictate with mic..."
                               {...field}
-                              className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full font-mono text-sm")}
-                              style={getCollabFieldColor("notes") ? { "--tw-ring-color": getCollabFieldColor("notes") } as React.CSSProperties : undefined}
+                              ref={(e) => { field.ref(e); registerField("notes", e); }}
+                              className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full font-mono text-sm resize-y")}
+                              style={{
+                                ...(getCollabFieldColor("notes") ? { "--tw-ring-color": getCollabFieldColor("notes") } as React.CSSProperties : {}),
+                                height: notesHeight,
+                              }}
+                              onMouseUp={(e) => {
+                                if (e.currentTarget.clientHeight !== notesHeight) {
+                                  setNotesHeight(e.currentTarget.clientHeight);
+                                }
+                              }}
                               onPaste={(e) => {
                                 const img = pasteUploadInternal.extractImageFilesFromClipboardData(e.clipboardData)[0];
                                 if (!img) return;
@@ -1633,6 +1665,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           <Input
                             placeholder="Dependencies or prerequisites..."
                             {...field}
+                            ref={(e) => { field.ref(e); registerField("prerequisites", e); }}
                             className={cn("min-h-[44px]", getFieldClass("prerequisites"), getCollabFieldStyle("prerequisites"), "w-full")}
                             style={getCollabFieldColor("prerequisites") ? { "--tw-ring-color": getCollabFieldColor("prerequisites") } as React.CSSProperties : undefined}
                             onFocus={() => { setVoiceTarget("prerequisites"); collab.focusField("prerequisites"); }}
@@ -1808,28 +1841,28 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 </div>
               </div>
               <div className="flex space-x-3">
-                <Button 
-                  type="button" 
+                <Button
+                  type="button"
                   variant="outline"
                   className="min-h-[44px]"
                   onClick={() => { form.reset(freshDefaults); clearDraft(draftKey); }}
                 >
                   Clear
                 </Button>
-                <Button 
-                  type="submit" 
-                  disabled={createTaskMutation.isPending} 
-                  title="Submit (Ctrl+Enter / Cmd+Enter — focus in the page)" 
+                <Button
+                  type="submit"
+                  disabled={createTaskMutation.isPending}
+                  title="Submit (Ctrl+Enter / Cmd+Enter — focus in the page)"
                   className={cn(
                     "min-h-[44px]",
-                    task 
-                      ? "bg-blue-600 hover:bg-blue-700 text-white" 
+                    task
+                      ? "bg-blue-600 hover:bg-blue-700 text-white"
                       : "bg-green-600 hover:bg-green-700 text-white field-glow-success"
                   )}
                 >
                   {task ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
-                  {createTaskMutation.isPending 
-                    ? (task ? "Updating..." : "Adding...") 
+                  {createTaskMutation.isPending
+                    ? (task ? "Updating..." : "Adding...")
                     : (task ? "Update Task" : "+ Add Task")
                   }
                   <kbd className="ml-2 hidden sm:inline-flex items-center gap-0.5 rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-mono opacity-70">⌃↵</kbd>
