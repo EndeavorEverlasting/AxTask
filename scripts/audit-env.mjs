@@ -4,7 +4,7 @@
  * Never prints values — key names and presence only.
  *
  * Usage:
- *   node scripts/audit-env.mjs [--json] [--strict]
+ *   node scripts/audit-env.mjs [--json] [--strict] [--root=PATH]
  *
  * --strict exits 1 if production contract keys are missing from templates or render.yaml.
  */
@@ -14,7 +14,7 @@ import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "..");
+const DEFAULT_ROOT = path.resolve(__dirname, "..");
 
 /** Keys enforced by deploy/runtime but not always spelled as literal `process.env.*` reads in TS (see registration-config, check-env). */
 const CODE_KEYS_EXTRA = new Set([
@@ -60,7 +60,15 @@ function logErr(msg) {
 }
 
 function parseArgs(argv) {
-  return { json: argv.includes("--json"), strict: argv.includes("--strict") };
+  let json = false;
+  let strict = false;
+  let root = null;
+  for (const a of argv) {
+    if (a === "--json") json = true;
+    else if (a === "--strict") strict = true;
+    else if (a.startsWith("--root=")) root = a.slice("--root=".length).trim();
+  }
+  return { json, strict, root };
 }
 
 function readText(p) {
@@ -140,10 +148,10 @@ function* walkFiles(rootDir, exts) {
   }
 }
 
-function collectCodeKeys() {
+function collectCodeKeys(rootDir) {
   const keys = new Set();
   for (const { dir, exts } of SCAN_DIRS) {
-    const abs = path.join(ROOT, dir);
+    const abs = path.join(rootDir, dir);
     if (!fs.existsSync(abs)) continue;
     for (const file of walkFiles(abs, exts)) {
       const text = readText(file);
@@ -162,13 +170,14 @@ function unionSets(sets) {
   return u;
 }
 
-export function runAudit({ json = false, strict = false } = {}) {
+export function runAudit({ json = false, strict = false, root: rootOpt } = {}) {
+  const ROOT = rootOpt ? path.resolve(rootOpt) : DEFAULT_ROOT;
   const templateProd = parseEnvFileKeys(readText(path.join(ROOT, ".env.production.example")));
   const templateRender = parseEnvFileKeys(readText(path.join(ROOT, ".env.render.example")));
   const renderYaml = parseRenderYamlKeys(readText(path.join(ROOT, "render.yaml")));
   const docsPath = path.join(ROOT, "docs", "ENVIRONMENT_VARIABLES.md");
   const docsKeys = parseDocsCatalogKeys(readText(docsPath));
-  const codeKeys = new Set([...collectCodeKeys(), ...CODE_KEYS_EXTRA]);
+  const codeKeys = new Set([...collectCodeKeys(ROOT), ...CODE_KEYS_EXTRA]);
 
   const envColKeys = {};
   for (const name of ENV_FILES) {
@@ -257,7 +266,11 @@ export function runAudit({ json = false, strict = false } = {}) {
 
 function main() {
   const opts = parseArgs(process.argv.slice(2));
-  const { ok } = runAudit(opts);
+  const { ok } = runAudit({
+    json: opts.json,
+    strict: opts.strict,
+    root: opts.root || undefined,
+  });
   process.exit(ok ? 0 : 1);
 }
 

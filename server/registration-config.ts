@@ -1,6 +1,6 @@
 /**
  * Normalized registration gate (REGISTRATION_MODE / INVITE_CODE).
- * Single source of truth for invite-only defaults and env typo handling.
+ * Centralized registration gate for invite-only defaults and env typo handling.
  */
 
 export type RegistrationMode = "open" | "invite" | "closed";

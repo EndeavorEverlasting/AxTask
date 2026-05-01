@@ -22,6 +22,7 @@ import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence
 import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
 import { startRetentionPruneTicker } from "./workers/retention-prune";
 import { captureDbSizeSnapshot } from "./workers/db-size-snapshot";
+import { logBootConfigSummary } from "./boot-config-summary";
 import { getRegistrationConfig } from "./registration-config";
 
 const app = express();
@@ -318,6 +319,7 @@ function warnIfInviteConfigBroken(): void {
 (async () => {
   warnIfVapidMissing();
   warnIfInviteConfigBroken();
+  logBootConfigSummary();
 
   try {
     await seedDevAccounts();

@@ -611,6 +611,7 @@ const gifSearchLimiter = rateLimit({
 
 
 // ── Invite-code / registration gate (normalized in server/registration-config.ts)
+// Registration config is read once at server boot. Restart required after env changes.
 const registration = getRegistrationConfig();
 
 function maskEmailForOtp(email: string): string {

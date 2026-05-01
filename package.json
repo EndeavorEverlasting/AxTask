@@ -32,6 +32,7 @@
     "security:axios-guard": "node tools/security/check_no_axios.mjs",
     "test": "vitest run",
     "test:ui:planner-scroll": "playwright test tests/ui/planner-scroll-visibility.spec.ts",
+    "test:ui:auth-surfaces": "playwright test tests/ui/auth-confirmation-surfaces.spec.ts",
     "perf:bundle": "node tools/perf/bundle-budget.mjs",
     "perf:api-replay": "tsx tools/perf/api-replay.mjs",
     "perf:ci": "npm run build && npm run perf:bundle && npm run perf:api-replay",

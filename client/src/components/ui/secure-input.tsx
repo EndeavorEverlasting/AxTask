@@ -11,7 +11,7 @@
  *   - On every keystroke the real value is stored in React state (parent-controlled)
  *
  * Additional hardening:
- *   - Clipboard is scrubbed 2s after any paste into the field
+ *   - Clipboard is scrubbed 2s after paste only when secureMode is active (password / masked fields)
  *   - autocomplete / password-manager attrs are disabled
  *   - Configurable inactivity timeout clears the field value
  */
@@ -128,11 +128,11 @@ const SecureInput = React.forwardRef<HTMLInputElement, SecureInputProps>(
       [value, inactivityTimeout, onInactivityClear, props.onBlur, secureMode]
     );
 
-    // ── Clipboard scrub on paste ───────────────────────────────────────────
+    // ── Clipboard scrub on paste (secure fields only) ───────────────────────
     const handlePaste = React.useCallback(
       (e: React.ClipboardEvent<HTMLInputElement>) => {
         props.onPaste?.(e);
-        // Scrub clipboard 2s after paste to prevent exfiltration
+        if (!secureMode) return;
         setTimeout(async () => {
           try {
             await navigator.clipboard.writeText("");
@@ -141,7 +141,7 @@ const SecureInput = React.forwardRef<HTMLInputElement, SecureInputProps>(
           }
         }, 2000);
       },
-      [props.onPaste]
+      [props.onPaste, secureMode]
     );
 
     // Cleanup timer on unmount

@@ -972,9 +972,13 @@ export default function LoginPage() {
                         {password.length >= 8 ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
                         8+ characters
                       </li>
-                      <li className={cn("flex items-center gap-2 transition-colors", /[A-Z]/.test(password) && /[a-z]/.test(password) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
-                        {/[A-Z]/.test(password) && /[a-z]/.test(password) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
-                        uppercase and lowercase letters
+                      <li className={cn("flex items-center gap-2 transition-colors", /[A-Z]/.test(password) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                        {/[A-Z]/.test(password) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                        an uppercase letter
+                      </li>
+                      <li className={cn("flex items-center gap-2 transition-colors", /[a-z]/.test(password) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                        {/[a-z]/.test(password) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                        a lowercase letter
                       </li>
                       <li className={cn("flex items-center gap-2 transition-colors", /[0-9]/.test(password) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
                         {/[0-9]/.test(password) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
@@ -1123,9 +1127,13 @@ export default function LoginPage() {
                             {newPassword.length >= 8 ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
                             8+ characters
                           </li>
-                          <li className={cn("flex items-center gap-2 transition-colors", /[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
-                            {/[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
-                            uppercase and lowercase letters
+                          <li className={cn("flex items-center gap-2 transition-colors", /[A-Z]/.test(newPassword) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                            {/[A-Z]/.test(newPassword) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                            an uppercase letter
+                          </li>
+                          <li className={cn("flex items-center gap-2 transition-colors", /[a-z]/.test(newPassword) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
+                            {/[a-z]/.test(newPassword) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
+                            a lowercase letter
                           </li>
                           <li className={cn("flex items-center gap-2 transition-colors", /[0-9]/.test(newPassword) ? "text-green-600 dark:text-green-500 font-medium" : "")}>
                             {/[0-9]/.test(newPassword) ? <ShieldCheck className="h-3.5 w-3.5" /> : <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />}
