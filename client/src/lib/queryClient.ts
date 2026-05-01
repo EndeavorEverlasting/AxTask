@@ -1,5 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { AXTASK_CSRF_COOKIE, AXTASK_CSRF_HEADER } from "@shared/http-auth";
+import { AXTASK_CLIENT_INSTANCE_HEADER, AXTASK_CSRF_COOKIE, AXTASK_CSRF_HEADER } from "@shared/http-auth";
+import { getClientInstanceId } from "./client-instance-id";
 
 const csrfCookiePattern = new RegExp(
   `(?:^|;\\s*)${AXTASK_CSRF_COOKIE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^;]*)`,
@@ -29,6 +30,7 @@ export async function apiFetch(
   if (data !== undefined && data !== null) headers["Content-Type"] = "application/json";
   const csrfToken = getCsrfToken();
   if (csrfToken && method !== "GET") headers[AXTASK_CSRF_HEADER] = csrfToken;
+  headers[AXTASK_CLIENT_INSTANCE_HEADER] = getClientInstanceId();
 
   return fetch(url, {
     method,
@@ -58,6 +60,9 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
+      headers: {
+        [AXTASK_CLIENT_INSTANCE_HEADER]: getClientInstanceId(),
+      },
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

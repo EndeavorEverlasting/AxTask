@@ -942,7 +942,11 @@ export async function getLatestLoginAt(userId: string): Promise<Date | null> {
     .from(securityEvents)
     .where(and(
       eq(securityEvents.actorUserId, userId),
-      eq(securityEvents.eventType, "auth_login_success"),
+      inArray(securityEvents.eventType, [
+        "auth_login_success",
+        "oauth_login_success",
+        "auth_totp_login_success",
+      ]),
     ));
   return row?.value ?? null;
 }

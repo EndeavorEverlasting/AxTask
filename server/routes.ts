@@ -134,6 +134,7 @@ import {
   getDominantArchetypeKeyForUser,
   createArchetypePollWithOptions,
 } from "./storage";
+import { maybeRecordClientInstanceObservation } from "./client-instance-observation";
 import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS, processChipHuntSync } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { DENDRITIC_SHOPPING_LIST_SKILL_KEY } from "@shared/shopping-list-feature";
@@ -621,6 +622,15 @@ function maskEmailForOtp(email: string): string {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  app.use("/api", async (req, res, next) => {
+    try {
+      await maybeRecordClientInstanceObservation(req);
+    } catch {
+      // Optional client-instance rollup must not break API traffic.
+    }
+    next();
+  });
+
   app.use("/api", (req, res, next) => {
     const startedAt = Date.now();
     const actorUserId = req.user?.id;

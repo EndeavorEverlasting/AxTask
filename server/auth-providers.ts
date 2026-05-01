@@ -12,7 +12,7 @@
 import { WorkOS } from "@workos-inc/node";
 import * as oidcClient from "openid-client";
 import type { Express, Request, Response } from "express";
-import { findOrCreateOAuthUser, isUserBanned, logSecurityEvent } from "./storage";
+import { appendSecurityEvent, findOrCreateOAuthUser, isUserBanned, logSecurityEvent } from "./storage";
 import { loginOrPendingTotp } from "./auth-totp-login";
 import { randomBytes } from "crypto";
 import memoize from "memoizee";
@@ -133,6 +133,16 @@ export function registerOAuthRoutes(app: Express) {
 
       try {
         await loginOrPendingTotp(req, res, user, async () => {
+          await appendSecurityEvent({
+            eventType: "oauth_login_success",
+            actorUserId: user.id,
+            route: req.path,
+            method: "GET",
+            statusCode: 302,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+            payload: { provider: "workos" },
+          });
           await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "WorkOS OAuth login");
           res.redirect("/");
         });
@@ -233,6 +243,16 @@ export function registerOAuthRoutes(app: Express) {
 
       try {
         await loginOrPendingTotp(req, res, user, async () => {
+          await appendSecurityEvent({
+            eventType: "oauth_login_success",
+            actorUserId: user.id,
+            route: req.path,
+            method: "GET",
+            statusCode: 302,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+            payload: { provider: "google" },
+          });
           await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "Google OAuth login");
           res.redirect("/");
         });
@@ -331,6 +351,16 @@ export function registerOAuthRoutes(app: Express) {
 
       try {
         await loginOrPendingTotp(req, res, user, async () => {
+          await appendSecurityEvent({
+            eventType: "oauth_login_success",
+            actorUserId: user.id,
+            route: req.path,
+            method: "GET",
+            statusCode: 302,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+            payload: { provider: "replit" },
+          });
           await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "Replit OAuth login");
           res.redirect("/");
         });

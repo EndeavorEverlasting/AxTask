@@ -25,6 +25,10 @@ AxTask does **not** implement DBSC today. When the protocol and server integrati
 - **Encrypted browser cache** (DPAPI, Keychain, etc.) is implemented by the **browser/OS**, not by this Express app.
 - **WebAuthn / passkeys** provide hardware-backed challenge–response for sign-in or step-up; AxTask does not ship passkeys yet. Consider them for high-risk flows independently of DBSC.
 
+## Browser-bound signals (multi-client analysis)
+
+To reason about **which browsers or profiles** use an account (distinct from DBSC’s device possession proof), see [BROWSER_BOUND_SIGNALS.md](BROWSER_BOUND_SIGNALS.md): User-Agent hashing on the security ledger, optional per-profile client instance id, and the read-only `scripts/analyze-browser-signals.mjs` helper.
+
 ## Server-side controls in this repo
 
 - Session signing secret: `SESSION_SECRET`.

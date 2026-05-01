@@ -10,5 +10,7 @@ declare module "express-session" {
     adminStepUp?: { expiresAt: number };
     /** Import/Export JSON backup: satisfied after MFA step-up (epoch ms). */
     dataExportStepUp?: { expiresAt: number };
+    /** After first `client_instance_observed` event for optional `x-axtask-client-instance` header. */
+    clientInstanceObserved?: boolean;
   }
 }

@@ -38,3 +38,5 @@ Endpoints that accept or return user-composed bodies (collab inbox, community po
 ## Session cookies and stronger browser binding
 
 Signed-in API access relies on an HttpOnly session cookie. That model does not stop **same-user malware** from replaying a copied cookie on the same machine until expiry, and it is not the same as **Device Bound Session Credentials (DBSC)** or passkeys. For a concise threat model and future DBSC notes, see [docs/SESSION_THREAT_MODEL.md](SESSION_THREAT_MODEL.md).
+
+The SPA may send an optional **`x-axtask-client-instance`** header (a random UUID per browser profile in `localStorage`). The server never stores the raw UUID in the security ledger—only an **HMAC-SHA256** for analytics. See [docs/BROWSER_BOUND_SIGNALS.md](BROWSER_BOUND_SIGNALS.md).

@@ -23,6 +23,7 @@
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist && node scripts/deploy/write-deploy-manifest.mjs",
     "start": "cross-env NODE_ENV=production node scripts/production-start.mjs",
     "start:app": "cross-env NODE_ENV=production node dist/index.js",
+    "analyze:browser-signals": "node scripts/analyze-browser-signals.mjs",
     "check": "tsc",
     "ship": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/ship.ps1",
     "security:node-provenance-guard": "node tools/security/check_node_provenance.mjs",

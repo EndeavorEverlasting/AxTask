@@ -6,8 +6,10 @@ import {
   AUTH_ME_PATH,
   AUTH_REFRESH_PATH,
   AUTH_REGISTER_PATH,
+  AXTASK_CLIENT_INSTANCE_HEADER,
   AXTASK_CSRF_HEADER,
 } from "@shared/http-auth";
+import { getClientInstanceId } from "./client-instance-id";
 import { queryClient, getCsrfToken } from "./queryClient";
 import { clearPersistOnLogout, clearQueryPersistStorageForUser } from "./query-persist-policy";
 import { clearOfflineTaskQueue, setOfflineQueueUserScope } from "./offline-task-queue";
@@ -17,15 +19,21 @@ const ROUTE_STORAGE_KEY = "axtask_last_route";
 
 function csrfHeaders(): Record<string, string> {
   const token = getCsrfToken();
-  return token
-    ? { "Content-Type": "application/json", [AXTASK_CSRF_HEADER]: token }
-    : { "Content-Type": "application/json" };
+  const base: Record<string, string> = {
+    "Content-Type": "application/json",
+    [AXTASK_CLIENT_INSTANCE_HEADER]: getClientInstanceId(),
+  };
+  if (token) base[AXTASK_CSRF_HEADER] = token;
+  return base;
 }
 
 /** Phase B: session cookie missing/expired but device refresh cookie may still work. */
 async function fetchSessionUser(): Promise<PublicSessionUser | null> {
   try {
-    let res = await fetch(AUTH_ME_PATH, { credentials: "include" });
+    let res = await fetch(AUTH_ME_PATH, {
+      credentials: "include",
+      headers: { [AXTASK_CLIENT_INSTANCE_HEADER]: getClientInstanceId() },
+    });
     if (res.ok) return res.json() as Promise<PublicSessionUser>;
     if (res.status === 401) {
       const r2 = await fetch(AUTH_REFRESH_PATH, {
