@@ -22,6 +22,7 @@ import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence
 import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
 import { startRetentionPruneTicker } from "./workers/retention-prune";
 import { captureDbSizeSnapshot } from "./workers/db-size-snapshot";
+import { getRegistrationConfig } from "./registration-config";
 
 const app = express();
 
@@ -287,10 +288,30 @@ function warnIfVapidMissing(): void {
 }
 
 function warnIfInviteConfigBroken(): void {
-  const mode = process.env.REGISTRATION_MODE || (process.env.NODE_ENV === "production" ? "invite" : "open");
-  const code = process.env.INVITE_CODE || "";
-  if (mode === "invite" && !code) {
-    console.warn("[auth] REGISTRATION_MODE=invite but INVITE_CODE is not configured.");
+  const cfg = getRegistrationConfig();
+
+  if (cfg.rawModeWasUnknown && cfg.rawRegistrationModeEnv) {
+    console.warn(
+      `[auth] Unknown REGISTRATION_MODE "${cfg.rawRegistrationModeEnv}" — falling back to ${cfg.mode} (NODE_ENV=${process.env.NODE_ENV}).`,
+    );
+  }
+
+  if (cfg.inviteCode && cfg.mode !== "invite") {
+    console.warn(
+      `[auth] INVITE_CODE is set but REGISTRATION_MODE is "${cfg.mode}" (not invite). Invite codes are ignored unless mode is invite.`,
+    );
+  }
+
+  if (cfg.mode === "invite") {
+    if (!cfg.inviteCode) {
+      console.warn("[auth] REGISTRATION_MODE=invite but INVITE_CODE is not configured.");
+    } else if (cfg.inviteCodeWeak) {
+      console.warn(
+        "[auth] INVITE_CODE is shorter than 8 characters — users may have trouble; consider a longer code.",
+      );
+    } else {
+      console.info("[auth] Registration invite mode is active with INVITE_CODE configured.");
+    }
   }
 }
 

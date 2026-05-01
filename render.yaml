@@ -51,6 +51,22 @@ services:
         sync: false
       - key: AUTH_PROVIDER
         sync: false
+      - key: REGISTRATION_MODE
+        sync: false
+      - key: INVITE_CODE
+        sync: false
+      - key: AUTH_AUDIT_PEPPER
+        sync: false
+      - key: ARCHETYPE_ANALYTICS_SALT
+        sync: false
+      - key: TOTP_ENCRYPTION_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VITE_VAPID_PUBLIC_KEY
+        sync: false
       # Admin Foundry controls: allow production access to /api/admin/foundry/*
       # while keeping admin role + step-up protection in place.
       - key: ENABLE_FOUNDRY

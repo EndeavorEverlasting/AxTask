@@ -135,6 +135,7 @@ import {
   createArchetypePollWithOptions,
 } from "./storage";
 import { maybeRecordClientInstanceObservation } from "./client-instance-observation";
+import { getRegistrationConfig, inviteConfiguredForClient } from "./registration-config";
 import { awardCoinsForCompletion, awardFeedbackBadges, BADGE_DEFINITIONS, processChipHuntSync } from "./coin-engine";
 import { countCoinEventsToday, tryCappedCoinAward, ENGAGEMENT } from "./engagement-rewards";
 import { DENDRITIC_SHOPPING_LIST_SKILL_KEY } from "@shared/shopping-list-feature";
@@ -609,11 +610,8 @@ const gifSearchLimiter = rateLimit({
 });
 
 
-// ── Invite-code / registration gate ─────────────────────────────────────────
-// In production, set REGISTRATION_MODE=invite in .env and provide INVITE_CODE.
-// Allowed values: "open" (anyone), "invite" (requires code), "closed" (no signups).
-const REGISTRATION_MODE = process.env.REGISTRATION_MODE || (process.env.NODE_ENV === "production" ? "invite" : "open");
-const INVITE_CODE = process.env.INVITE_CODE || "";
+// ── Invite-code / registration gate (normalized in server/registration-config.ts)
+const registration = getRegistrationConfig();
 
 function maskEmailForOtp(email: string): string {
   const [u, dom] = email.split("@");
@@ -703,16 +701,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/register", registerLimiter, async (req: Request, res: Response) => {
     try {
       // ── Registration gate ──────────────────────────────────────────────
-      if (REGISTRATION_MODE === "closed") {
+      if (registration.mode === "closed") {
         return res.status(403).json({ message: "Registration is currently closed" });
       }
-      if (REGISTRATION_MODE === "invite") {
-        const code = typeof req.body.inviteCode === "string" ? req.body.inviteCode : "";
-        if (!INVITE_CODE) {
+      if (registration.mode === "invite") {
+        const code = typeof req.body.inviteCode === "string" ? req.body.inviteCode.trim() : "";
+        if (!registration.inviteCode) {
           console.warn("[auth] REGISTRATION_MODE=invite but INVITE_CODE is missing.");
           return res.status(403).json({ message: "Signup is temporarily unavailable. Please contact the AxTask owner for access." });
         }
-        if (!safeEqual(code, INVITE_CODE)) {
+        if (!safeEqual(code, registration.inviteCode)) {
           return res.status(403).json({ message: "Invalid invite code" });
         }
       }
@@ -884,8 +882,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       local: "",
     };
     res.json({
-      registrationMode: REGISTRATION_MODE,
-      inviteConfigured: Boolean(INVITE_CODE),
+      registrationMode: registration.mode,
+      inviteConfigured: inviteConfiguredForClient(registration),
       authProvider,
       loginUrl: loginUrls[authProvider] || "",
       providers,

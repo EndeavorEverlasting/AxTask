@@ -63,6 +63,7 @@ const SecureInput = React.forwardRef<HTMLInputElement, SecureInputProps>(
       alwaysMask,
       maskWhenBlurred,
       type,
+      autoComplete: autoCompleteProp,
       ...props
     },
     ref
@@ -124,7 +125,7 @@ const SecureInput = React.forwardRef<HTMLInputElement, SecureInputProps>(
         }
         props.onBlur?.(e);
       },
-      [value, inactivityTimeout, onInactivityClear, props.onBlur]
+      [value, inactivityTimeout, onInactivityClear, props.onBlur, secureMode]
     );
 
     // ── Clipboard scrub on paste ───────────────────────────────────────────
@@ -149,6 +150,7 @@ const SecureInput = React.forwardRef<HTMLInputElement, SecureInputProps>(
     // The value shown in the DOM
     const displayValue = focused ? value : (secureMode ? maskedValue : value);
     const inputType = focused ? type : (secureMode ? "text" : type); // masked value is always text
+    const autoComplete = secureMode ? "off" : (autoCompleteProp ?? undefined);
 
     return (
       <div className="relative">
@@ -156,30 +158,36 @@ const SecureInput = React.forwardRef<HTMLInputElement, SecureInputProps>(
           ref={mergedRef}
           type={alwaysMask && !focused ? "password" : inputType}
           value={displayValue}
-          onChange={focused ? onChange : undefined}
+          onChange={secureMode && !focused ? undefined : onChange}
           onFocus={handleFocus}
           onBlur={handleBlur}
           onPaste={handlePaste}
-          readOnly={!focused}
-          autoComplete="off"
-          data-lpignore="true"
-          data-1p-ignore="true"
-          data-form-type="other"
+          readOnly={secureMode && !focused}
+          autoComplete={autoComplete}
+          {...(secureMode
+            ? {
+                "data-lpignore": "true" as const,
+                "data-1p-ignore": "true" as const,
+                "data-form-type": "other" as const,
+              }
+            : {})}
           className={cn(
             "flex h-10 w-full rounded-md border border-input bg-background pl-3 pr-9 py-2 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
-            !focused && value && "text-muted-foreground font-mono text-xs",
+            secureMode && !focused && value && "text-muted-foreground font-mono text-xs",
             className
           )}
           {...props}
         />
         {/* Lock indicator */}
-        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
-          {focused ? (
-            <Unlock className="h-3.5 w-3.5 text-green-500/70" />
-          ) : value ? (
-            <Lock className="h-3.5 w-3.5 text-amber-500/70" />
-          ) : null}
-        </div>
+        {secureMode ? (
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+            {focused ? (
+              <Unlock className="h-3.5 w-3.5 text-green-500/70" />
+            ) : value ? (
+              <Lock className="h-3.5 w-3.5 text-amber-500/70" />
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   }
