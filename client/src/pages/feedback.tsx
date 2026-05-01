@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
-import { parseApiRequestError, participationAgeUserHint } from "@/lib/parse-api-request-error";
+import { parseApiRequestError, participationAgeUserHint } from "@/lib/api-request-parse";
 import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import { useToast } from "@/hooks/use-toast";
 import { requestFeedbackNudge } from "@/lib/feedback-nudge";

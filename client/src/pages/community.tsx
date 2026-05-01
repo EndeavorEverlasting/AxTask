@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
 import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
 import { apiRequest } from "@/lib/queryClient";
-import { parseApiRequestError, participationAgeUserHint } from "@/lib/parse-api-request-error";
+import { parseApiRequestError, participationAgeUserHint } from "@/lib/api-request-parse";
 import { useToast } from "@/hooks/use-toast";
 import {
   Globe2, ChevronLeft, Loader2, Sparkles, Clock, Flame, Zap,
