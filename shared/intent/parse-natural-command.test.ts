@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseNaturalCommand, commandNeedsFullReview } from "./parse-natural-command";
+import { getCommandExecutionPolicy } from "./execution-policy";
 
 const now = new Date("2026-04-25T12:00:00-04:00");
 const todayStr = "2026-04-25";
@@ -68,5 +69,21 @@ describe("parseNaturalCommand", () => {
   it("exposes commandNeedsFullReview for low confidence", () => {
     const c = parseNaturalCommand("remind me about groceries at 9am", ctx);
     expect(commandNeedsFullReview(c) || c.warnings.length > 0).toBe(true);
+  });
+
+  it("routes task-like commands to review policy", () => {
+    const c = parseNaturalCommand("Hey AxTask, mark the April billing summary as done", ctx);
+    expect(c.kind).toBe("task_review");
+    expect(c.activity?.toLowerCase()).toContain("april billing summary");
+    expect(getCommandExecutionPolicy(c)).toBe("review");
+  });
+
+  it("blocks unknown commands by policy", () => {
+    const c = parseNaturalCommand("do the vague thing eventually", ctx);
+    if (c.kind === "unknown") {
+      expect(getCommandExecutionPolicy(c)).toBe("block");
+    } else {
+      expect(getCommandExecutionPolicy(c)).not.toBe("autoRun");
+    }
   });
 });

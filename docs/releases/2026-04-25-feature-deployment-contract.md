@@ -14,6 +14,7 @@
 - Shared schema/types: `shared/intent/*`, `shared/schema/tasks.ts`, `shared/schema/__fixtures__/public-symbols.json`.
 - Routes added/changed: No new route paths in this branch; dispatcher behavior for existing voice/text command processing was updated.
 - Components added/changed: Added `CommandPalette`; updated task form + hotkey help + related shell wiring.
+- Follow-up integration: Added shared command execution policy so typed previews and parser tests agree on auto-run, review, and block behavior.
 
 ## 3) Database impact
 

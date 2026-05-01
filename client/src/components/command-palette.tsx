@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ParsedCommand } from "@shared/intent/intent-types";
 import { parseNaturalCommand, commandNeedsFullReview } from "@shared/intent/parse-natural-command";
+import { getCommandExecutionPolicy } from "@shared/intent/execution-policy";
 import { useVoice } from "@/hooks/use-voice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ function summarizeParsed(cmd: ParsedCommand): string {
     parts.push(`topic: ${t.slice(0, 120)}${t.length > 120 ? "…" : ""}`);
   }
   parts.push(`confidence ${(cmd.confidence * 100).toFixed(0)}%`);
+  parts.push(`policy ${getCommandExecutionPolicy(cmd)}`);
   if (commandNeedsFullReview(cmd)) parts.push("(review recommended)");
   return parts.join(" · ");
 }
