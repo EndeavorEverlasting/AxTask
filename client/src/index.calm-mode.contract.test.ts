@@ -120,4 +120,15 @@ describe("calm-mode stylesheet contract", () => {
       /\.dark\s+body\[data-axtask-calm\][\s\S]+?\.axtask-calm-blur-fallback[\s\S]+?background-color:\s*hsla\(222,\s*38%,\s*13%,\s*0\.88\)\s*!important/,
     );
   });
+
+  it("enforces mobile chrome opacity and stable panel rules to prevent mobile flashing", () => {
+    expect(CSS).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]+?\.axtask-nav-chrome,\s*\.axtask-mobile-chrome\s*\{[^}]*backdrop-filter:\s*none\s*!important/);
+    expect(CSS).toMatch(/body\[data-axtask-calm\]\s*\.axtask-nav-chrome,\s*body\[data-axtask-calm\]\s*\.axtask-mobile-chrome\s*\{[^}]*transition:\s*none\s*!important/);
+    expect(CSS).toMatch(/\.axtask-mobile-stable-panel\s*\{[^}]*transform:\s*translateZ\(0\)/);
+  });
+
+  it("reduces mobile ambient layer aggression", () => {
+    expect(CSS).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]+?\.axtask-orb-layer\s*\{[^}]*opacity:\s*0\.45/);
+    expect(CSS).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]+?\.axtask-chip-layer\s*\{[^}]*opacity:\s*0\.18/);
+  });
 });

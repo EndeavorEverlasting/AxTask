@@ -20,6 +20,9 @@ export function FirstTimeSignInOptions({
   providerButtonClass,
   persistNextBeforeExternalAuth,
   onOpenEmailPassword,
+  canRegister,
+  onCreateAccount,
+  onNeedHelp,
 }: {
   providers: OAuthProviderInfo[];
   authProvider: string;
@@ -32,6 +35,9 @@ export function FirstTimeSignInOptions({
   providerButtonClass: (providerName: string, base: string) => string;
   persistNextBeforeExternalAuth: () => void;
   onOpenEmailPassword: () => void;
+  canRegister: boolean;
+  onCreateAccount: () => void;
+  onNeedHelp: () => void;
 }) {
   const ordered = orderProvidersForDisplay(providers, authProvider);
   const isServerPrimarySso =
@@ -46,15 +52,38 @@ export function FirstTimeSignInOptions({
       data-testid="login-primary-email"
       className={providerButtonClass("local", cn("w-full h-12 text-base", pretextGradientCtaClassName))}
       onClick={onOpenEmailPassword}
+      aria-label="Sign in with email and password"
     >
       <User className="h-5 w-5 mr-2 shrink-0" />
-      Sign in with email and password
+      Sign in with email
       {isLastUsedProvider("local") && <span className="text-xs font-medium ml-2 opacity-90">★ Last used</span>}
     </Button>
   );
 
+  const secondaryActions = (
+    <div className="flex flex-col gap-3 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+      {canRegister && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCreateAccount}
+          className="w-full h-11 bg-transparent border-gray-200 dark:border-gray-700 text-slate-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+        >
+          Create account
+        </Button>
+      )}
+      <button
+        type="button"
+        onClick={onNeedHelp}
+        className="w-full text-center text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-primary transition-colors py-1"
+      >
+        Need help signing in?
+      </button>
+    </div>
+  );
+
   const rememberRow = (
-    <div className="flex items-center justify-between pt-1">
+    <div className="flex items-center justify-between pt-4 mt-2">
       <button
         type="button"
         onClick={onToggleRemember}
@@ -94,6 +123,7 @@ export function FirstTimeSignInOptions({
           </p>
         ) : null}
         {emailPrimaryCta}
+        {secondaryActions}
         {rememberRow}
         {securityBlurb}
       </div>
@@ -160,6 +190,7 @@ export function FirstTimeSignInOptions({
           Sign in with email and password
           {isLastUsedProvider("local") && <span className="text-xs text-primary font-medium ml-1">★ Last used</span>}
         </button>
+        {secondaryActions}
         {rememberRow}
         {securityBlurb}
       </div>
@@ -191,6 +222,7 @@ export function FirstTimeSignInOptions({
           size="md"
         />
       </div>
+      {secondaryActions}
       {rememberRow}
       {securityBlurb}
     </div>

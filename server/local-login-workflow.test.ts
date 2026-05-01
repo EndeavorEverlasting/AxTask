@@ -36,10 +36,19 @@ describe("local login workflow contracts", () => {
       "pages",
       "login.tsx",
     );
+    const emailPasswordFormPath = path.join(
+      projectRoot,
+      "client",
+      "src",
+      "pages",
+      "login",
+      "email-password-form.tsx",
+    );
     const loginPage = fs.readFileSync(loginPagePath, "utf8");
+    const emailPasswordForm = fs.readFileSync(emailPasswordFormPath, "utf8");
 
-    expect(loginPage).toContain("Sign in with email & password");
-    expect(loginPage).toContain("Forgot your password?");
+    expect(emailPasswordForm).toContain("or use email and password");
+    expect(emailPasswordForm).toContain("Forgot your password?");
     expect(loginPage).toContain('await login(email, password)');
     expect(loginPage).toContain("/api/auth/forgot-password");
   });

@@ -3,7 +3,12 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ATTACHMENT_IMAGE_MAX_BYTES } from "@shared/attachment-image-limits";
-import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
+import {
+  insertTaskSchema,
+  type ConversionArtifactType,
+  type InsertTask,
+  type Task,
+} from "@shared/schema";
 import { apiFetch, apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
 import {
@@ -57,10 +62,12 @@ import {
 import { cn } from "@/lib/utils";
 import { SafeMarkdown } from "@/lib/safe-markdown";
 import { format, parse } from "date-fns";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useFieldFlow } from "@/hooks/use-field-flow";
 import { useLiveClassificationStream } from "@/hooks/use-live-classification-stream";
-import { detectShoppingListContent } from "@shared/shopping-tasks";
+import { detectShoppingListContent, detectStructuredPrompt } from "@shared/shopping-tasks";
+import { ConversionArtifactPreview } from "@/components/conversion-artifact-preview";
+import { TaskDependencyPicker } from "@/components/task-dependency-picker";
 import { __internal as pasteUploadInternal } from "@/lib/use-paste-upload";
 
 interface TaskFormProps {
@@ -242,6 +249,11 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
         status: task.status as "pending" | "in-progress" | "completed",
         visibility: (task.visibility as "private" | "public") ?? "private",
         communityShowNotes: Boolean(task.communityShowNotes),
+        startDate: task.startDate ?? undefined,
+        endDate: task.endDate ?? undefined,
+        durationMinutes: task.durationMinutes ?? undefined,
+        dependsOn: task.dependsOn ?? undefined,
+        deadlineType: task.deadlineType ?? undefined,
       }
     : {
         date: defaultDate || new Date().toISOString().split("T")[0],
@@ -256,6 +268,11 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
         status: "pending",
         visibility: "private",
         communityShowNotes: false,
+        startDate: undefined,
+        endDate: undefined,
+        durationMinutes: undefined,
+        dependsOn: undefined,
+        deadlineType: undefined,
       };
 
   const draft = !task ? loadDraft(draftKey) : null;
@@ -268,14 +285,27 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
 
   const notesWatch = useWatch({ control: form.control, name: "notes" });
   const activityWatch = useWatch({ control: form.control, name: "activity" });
-  const shoppingDetection = useMemo(
-    () => resolveShoppingConversionSuggestion(activityWatch || "", notesWatch || ""),
+  const structuredPrompt = useMemo(
+    () => detectStructuredPrompt(activityWatch || "", notesWatch || ""),
     [activityWatch, notesWatch],
   );
   const shoppingPretextLine = useMemo(
     () => pickShoppingPretextQuip(`${activityWatch || ""}\n${notesWatch || ""}`),
     [activityWatch, notesWatch],
   );
+
+  const [conversionPreviewOpen, setConversionPreviewOpen] = useState(false);
+
+  const { data: bundlePartOf } = useQuery({
+    queryKey: ["/api/conversion-artifacts", "by-task", task?.id ?? ""],
+    enabled: Boolean(task?.id),
+    queryFn: async () => {
+      const res = await apiFetch("GET", `/api/conversion-artifacts?taskId=${encodeURIComponent(task!.id)}`);
+      if (res.status === 404) return null;
+      if (!res.ok) return null;
+      return (await res.json()) as { artifactId: string; title: string };
+    },
+  });
 
   const handleImageUpload = useCallback(async (file: File, source: "paste" | "picker" | "camera" = "picker") => {
     if (!file.type.startsWith("image/")) {
@@ -562,6 +592,13 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
           prerequisites: "",
           recurrence: "none",
           status: "pending",
+          visibility: "private",
+          communityShowNotes: false,
+          startDate: undefined,
+          endDate: undefined,
+          durationMinutes: undefined,
+          dependsOn: undefined,
+          deadlineType: undefined,
         });
         clearDraft(draftKey);
         setTaskAttachments([]);
@@ -579,49 +616,71 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     },
   });
 
-  const convertShoppingListMutation = useMutation({
-    mutationFn: async (items: string[]) => {
+  const convertBundleMutation = useMutation({
+    mutationFn: async (payload: {
+      conversionType: ConversionArtifactType;
+      title: string;
+      items: string[];
+    }) => {
       const base = form.getValues();
-      const created: unknown[] = [];
-      for (const item of items) {
-        created.push(
-          await syncCreateTask(
-            {
-              date: base.date || defaultDate || new Date().toISOString().split("T")[0],
-              time: base.time || "",
-              activity: item,
-              notes: "",
-              urgency: base.urgency,
-              impact: base.impact,
-              effort: base.effort,
-              prerequisites: "",
-              recurrence: "none",
-              status: "pending",
-              visibility: base.visibility ?? "private",
-              communityShowNotes: base.communityShowNotes ?? false,
-            },
-            queryClient,
-            user?.id ?? "",
-          ),
-        );
+      const res = await apiFetch("POST", "/api/conversion-artifacts", {
+        conversionType: payload.conversionType,
+        title: payload.title,
+        originalActivity: base.activity ?? "",
+        originalNotes: base.notes ?? "",
+        items: payload.items.map((activity) => ({ activity })),
+        taskDefaults: {
+          date: base.date || defaultDate || new Date().toISOString().split("T")[0],
+          time: base.time || "",
+          urgency: base.urgency,
+          impact: base.impact,
+          effort: base.effort,
+          visibility: base.visibility ?? "private",
+          communityShowNotes: base.communityShowNotes ?? false,
+        },
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => res.statusText);
+        throw new Error(t || "Conversion failed");
       }
-      return created;
+      return (await res.json()) as { artifact: { id: string } };
     },
-    onSuccess: (_, items) => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-      toast({
-        title: "Converted to shopping items",
-        description: `Created ${items.length} interactive shopping task${items.length === 1 ? "" : "s"}.`,
+      queryClient.invalidateQueries({ queryKey: ["/api/conversion-artifacts"] });
+      const id = data.artifact?.id;
+      if (!id) return;
+      form.reset({
+        date: defaultDate || new Date().toISOString().split("T")[0],
+        time: "",
+        activity: "",
+        notes: "",
+        urgency: undefined,
+        impact: undefined,
+        effort: undefined,
+        prerequisites: "",
+        recurrence: "none",
+        status: "pending",
+        visibility: "private",
+        communityShowNotes: false,
+        startDate: undefined,
+        endDate: undefined,
+        durationMinutes: undefined,
+        dependsOn: undefined,
+        deadlineType: undefined,
       });
-      form.setValue("activity", "");
-      form.setValue("notes", "");
       clearWarning("activity");
       clearWarning("notes");
+      setConversionPreviewOpen(false);
+      toast({
+        title: "Task bundle created",
+        description: "Opening your bundle…",
+      });
+      setLocation(`/bundles/${id}`);
     },
     onError: (error: unknown) => {
-      if (error instanceof TaskSyncAbortedError) return;
-      const message = error instanceof Error ? error.message : "Failed to convert shopping list";
+      const message = error instanceof Error ? error.message : "Failed to create bundle";
       toast({
         title: "Conversion failed",
         description: message,
@@ -831,6 +890,17 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
             <CardDescription>
               {task ? "Update this task's details" : "Add a new task with automatic priority calculation"}
             </CardDescription>
+            {task && bundlePartOf ? (
+              <p className="text-sm mt-2 text-muted-foreground">
+                Part of:{" "}
+                <Link
+                  href={`/bundles/${bundlePartOf.artifactId}`}
+                  className="text-primary font-medium underline-offset-4 hover:underline"
+                >
+                  {bundlePartOf.title}
+                </Link>
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-col items-end gap-1.5">
             <div className="flex items-center gap-2">
@@ -1148,7 +1218,9 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 />
               </div>
 
-              {!task && shoppingDetection && (
+              {!task &&
+                structuredPrompt.items.length > 0 &&
+                (structuredPrompt.detected || structuredPrompt.conversionCandidates.length > 0) && (
                 <div
                   className={cn(
                     "lg:col-span-2 relative overflow-hidden rounded-xl border border-emerald-400/45",
@@ -1178,10 +1250,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           Pretext · shopping runway
                         </p>
                         <p className="text-sm font-semibold text-emerald-950 dark:text-emerald-50">
-                          {shoppingDetection.items.length} line{shoppingDetection.items.length === 1 ? "" : "s"} look shoppable
+                          {structuredPrompt.items.length} line{structuredPrompt.items.length === 1 ? "" : "s"} detected
                           <span className="text-emerald-700/80 dark:text-emerald-300/80 font-normal">
                             {" "}
-                            ({shoppingDetection.format.replace(/_/g, " ")})
+                            ({structuredPrompt.format.replace(/_/g, " ")})
                           </span>
                         </p>
                         <p className="text-xs leading-relaxed text-emerald-900/85 dark:text-emerald-100/80 italic">
@@ -1190,7 +1262,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {shoppingDetection.items.slice(0, 6).map((item) => (
+                      {structuredPrompt.items.slice(0, 6).map((item) => (
                         <span
                           key={item}
                           className="inline-flex max-w-[10rem] truncate rounded-full border border-emerald-500/25 bg-background/55 px-2.5 py-0.5 text-[11px] font-medium text-emerald-900 dark:text-emerald-100"
@@ -1199,9 +1271,9 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           {item}
                         </span>
                       ))}
-                      {shoppingDetection.items.length > 6 ? (
+                      {structuredPrompt.items.length > 6 ? (
                         <span className="text-[11px] text-muted-foreground self-center px-1">
-                          +{shoppingDetection.items.length - 6} more
+                          +{structuredPrompt.items.length - 6} more
                         </span>
                       ) : null}
                     </div>
@@ -1214,11 +1286,11 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           "hover:from-emerald-500 hover:via-teal-500 hover:to-cyan-500 text-white",
                           "shadow-lg shadow-teal-600/25 ring-1 ring-teal-400/35 min-h-[40px]",
                         )}
-                        disabled={convertShoppingListMutation.isPending}
-                        onClick={() => convertShoppingListMutation.mutate(shoppingDetection.items)}
+                        disabled={convertBundleMutation.isPending}
+                        onClick={() => setConversionPreviewOpen(true)}
                       >
                         <Wand2 className="h-4 w-4 shrink-0" aria-hidden />
-                        {convertShoppingListMutation.isPending ? "Conjuring rows…" : "Convert — interactive list"}
+                        {convertBundleMutation.isPending ? "Conjuring rows…" : "Convert — task bundle"}
                       </Button>
                       <Button
                         type="button"
@@ -1599,6 +1671,136 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
               />
             </div>
 
+            <Card className="border-dashed border-primary/20 bg-muted/10">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Timeline planning</CardTitle>
+                <CardDescription>
+                  Start, end, duration, predecessors, and deadline temperament (shown on the planner Gantt).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="startDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Planned start</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="date"
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(e.target.value || undefined)}
+                          className="min-h-[44px]"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="endDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Planned end</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="date"
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(e.target.value || undefined)}
+                          className="min-h-[44px]"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="durationMinutes"
+                  render={({ field }) => (
+                    <FormItem className="lg:col-span-2">
+                      <FormLabel>Duration</FormLabel>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        {[15, 30, 60, 120, 240].map((m) => (
+                          <Button
+                            key={m}
+                            type="button"
+                            size="sm"
+                            variant={field.value === m ? "default" : "outline"}
+                            onClick={() => field.onChange(m)}
+                          >
+                            {m >= 60 ? `${m / 60}h` : `${m}m`}
+                          </Button>
+                        ))}
+                        <Input
+                          type="number"
+                          min={1}
+                          max={525600}
+                          placeholder="Custom minutes"
+                          className="w-36 min-h-[36px]"
+                          value={field.value != null && ![15, 30, 60, 120, 240].includes(field.value) ? field.value : ""}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            field.onChange(Number.isFinite(v) ? v : undefined);
+                          }}
+                        />
+                        <Button type="button" size="sm" variant="ghost" onClick={() => field.onChange(undefined)}>
+                          Clear
+                        </Button>
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="deadlineType"
+                  render={({ field }) => (
+                    <FormItem className="lg:col-span-2">
+                      <FormLabel>Deadline type</FormLabel>
+                      <Select
+                        onValueChange={(v) => field.onChange(v === "none" ? undefined : v)}
+                        value={field.value ?? "none"}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="min-h-[44px]">
+                            <SelectValue placeholder="Flexible" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="none">Flexible (default)</SelectItem>
+                          <SelectItem value="flexible">Flexible</SelectItem>
+                          <SelectItem value="hard">Hard</SelectItem>
+                          <SelectItem value="audit-risk">Audit risk</SelectItem>
+                          <SelectItem value="external">External</SelectItem>
+                          <SelectItem value="exam">Exam</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="dependsOn"
+                  render={({ field }) => (
+                    <FormItem className="lg:col-span-2">
+                      <FormLabel>Depends on</FormLabel>
+                      <FormControl>
+                        <TaskDependencyPicker
+                          value={field.value ?? []}
+                          onChange={field.onChange}
+                          excludeTaskId={task?.id}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
+
             <div className="flex items-center justify-between pt-6 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center space-x-4">
                 <div className="text-sm text-gray-600 dark:text-gray-400">
@@ -1636,6 +1838,16 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
             </div>
           </form>
         </Form>
+        {!task ? (
+          <ConversionArtifactPreview
+            open={conversionPreviewOpen}
+            detection={structuredPrompt}
+            originalActivity={activityWatch || ""}
+            originalNotes={notesWatch || ""}
+            onCancel={() => setConversionPreviewOpen(false)}
+            onConfirm={(payload) => convertBundleMutation.mutate(payload)}
+          />
+        ) : null}
       </CardContent>
     </Card>
   );

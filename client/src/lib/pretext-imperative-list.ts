@@ -45,6 +45,8 @@ export interface ImperativeRowTask {
   priorityScoreTenths: number;
   status: TaskRowStatus;
   recurrence: string | null;
+  /** When set, shows a “Part of: …” line under the activity. */
+  bundleTitle?: string | null;
 }
 
 export type RowAction =
@@ -80,6 +82,7 @@ type RowBinding = {
   updatedText: Text;
   priority: HTMLElement;
   activity: HTMLElement;
+  bundle: HTMLElement;
   notes: HTMLElement;
   classification: HTMLElement;
   classificationExtra: HTMLElement;
@@ -132,6 +135,7 @@ function ensureTemplate(doc: Document): HTMLTemplateElement {
   <td><span class="axtask-cell-priority inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold shadow-sm border border-transparent"></span></td>
   <td class="max-w-md">
     <div class="axtask-cell-activity font-medium group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors truncate"></div>
+    <div class="axtask-cell-bundle mt-0.5 text-[10px] text-indigo-600 dark:text-indigo-400 truncate hidden"></div>
     <div class="axtask-cell-notes text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 hidden"></div>
   </td>
   <td>
@@ -198,6 +202,7 @@ function bindRow(el: HTMLTableRowElement): RowBinding {
     updatedText: el.querySelector<HTMLElement>(".axtask-cell-updated")!.appendChild(document.createTextNode("")),
     priority: el.querySelector<HTMLElement>(".axtask-cell-priority")!,
     activity: el.querySelector<HTMLElement>(".axtask-cell-activity")!,
+    bundle: el.querySelector<HTMLElement>(".axtask-cell-bundle")!,
     notes: el.querySelector<HTMLElement>(".axtask-cell-notes")!,
     classification: el.querySelector<HTMLElement>(".axtask-cell-classification")!,
     classificationExtra: el.querySelector<HTMLElement>(".axtask-cell-classification-extra")!,
@@ -231,6 +236,16 @@ function applyRow(binding: RowBinding, task: ImperativeRowTask): void {
   if (binding.priority.textContent !== task.priority) binding.priority.textContent = task.priority;
 
   if (binding.activity.textContent !== task.activity) binding.activity.textContent = task.activity;
+  const bundleText = task.bundleTitle?.trim()
+    ? `Part of: ${task.bundleTitle.trim()}`
+    : "";
+  if (bundleText) {
+    binding.bundle.classList.remove("hidden");
+    if (binding.bundle.textContent !== bundleText) binding.bundle.textContent = bundleText;
+  } else if (!binding.bundle.classList.contains("hidden")) {
+    binding.bundle.classList.add("hidden");
+    binding.bundle.textContent = "";
+  }
   if (task.notes?.trim()) {
     binding.notes.classList.remove("hidden");
     const html = renderTaskNotesPreviewHtml(task.notes, task.noteAttachmentIds);

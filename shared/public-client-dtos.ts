@@ -1,6 +1,7 @@
 import type {
   AttachmentAsset,
   CoinTransaction,
+  ConversionArtifact,
   SafeUser,
   Task,
   User,
@@ -119,6 +120,20 @@ export function toPublicTaskDetail(
 ): PublicTaskDetail {
   const { userId: _uid, ...rest } = task;
   return { ...rest, viewerRole };
+}
+
+/** Conversion artifact / task bundle — no `userId` or raw ciphertext in the SPA. */
+export type PublicConversionArtifact = Omit<ConversionArtifact, "userId" | "encryptedPayload"> & {
+  totalChildren?: number;
+  completedChildren?: number;
+};
+
+export function toPublicConversionArtifact(
+  row: ConversionArtifact,
+  stats?: { totalChildren: number; completedChildren: number },
+): PublicConversionArtifact {
+  const { userId: _uid, encryptedPayload: _blob, ...rest } = row;
+  return stats ? { ...rest, ...stats } : { ...rest };
 }
 
 /** Wallet row without redundant owner id (caller is always the authenticated user). */

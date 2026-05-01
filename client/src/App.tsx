@@ -65,7 +65,11 @@ const GoogleSheetsSyncPage = lazy(() => import("@/pages/google-sheets-sync"));
 const ChecklistPage = lazy(() => import("@/pages/checklist"));
 const ShoppingPage = lazy(() => import("@/pages/shopping"));
 const ShoppingSharedPage = lazy(() => import("@/pages/shopping-shared"));
+const BundlesPage = lazy(() => import("@/pages/bundles"));
+const BundleNewPage = lazy(() => import("@/pages/bundle-new"));
+const BundleDetailPage = lazy(() => import("@/pages/bundle-detail"));
 const PlannerPage = lazy(() => import("@/pages/planner"));
+const PlannerTimelinePage = lazy(() => import("@/pages/planner-timeline"));
 const MiniGamesPage = lazy(() => import("@/pages/mini-games"));
 const RewardsPage = lazy(() => import("@/pages/rewards"));
 const SkillTreePage = lazy(() => import("@/pages/skill-tree"));
@@ -169,6 +173,10 @@ function Router() {
         <Route path="/checklist" component={ChecklistPage} />
         <Route path="/shopping" component={ShoppingPage} />
         <Route path="/shopping/shared/:listId" component={ShoppingSharedPage} />
+        <Route path="/bundles/new" component={BundleNewPage} />
+        <Route path="/bundles/:artifactId" component={BundleDetailPage} />
+        <Route path="/bundles" component={BundlesPage} />
+        <Route path="/planner/timeline" component={PlannerTimelinePage} />
         <Route path="/planner" component={PlannerPage} />
         <Route path="/mini-games" component={MiniGamesPage} />
         <Route path="/feedback" component={FeedbackPage} />

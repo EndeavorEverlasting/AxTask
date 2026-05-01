@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { Search, ClipboardList, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import { applyWalletRewardHybrid } from "@/lib/wallet-cache";
 import type { Task } from "@shared/schema";
 import type { PublicTaskListItem } from "@shared/public-client-dtos";
@@ -49,6 +50,7 @@ import {
   clearTaskListRouteFilters,
   taskMatchesRouteFilter,
   describeRouteFilter,
+  describeBundleRouteChip,
   type TaskListRouteFilter,
 } from "@/lib/task-list-route-filters";
 import { isShoppingTask } from "@shared/shopping-tasks";
@@ -215,7 +217,7 @@ function formatTimestamp(value: unknown): string {
  * helper tolerates either shape: pick up the integer when present,
  * fall back to `associations.length - 1` otherwise.
  */
-type TaskListRow = PublicTaskListItem | Task;
+type TaskListRow = (PublicTaskListItem | Task) & { bundleTitle?: string };
 
 function toRowTask(task: TaskListRow): ImperativeRowTask {
   let extras: number;
@@ -248,6 +250,7 @@ function toRowTask(task: TaskListRow): ImperativeRowTask {
     priorityScoreTenths: task.priorityScore,
     status: (task.status as ImperativeRowTask["status"]) ?? "pending",
     recurrence: task.recurrence ?? null,
+    bundleTitle: task.bundleTitle,
   };
 }
 
@@ -374,6 +377,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   const [routeFilter, setRouteFilter] = useState<TaskListRouteFilter>(
     initialRoute.filter,
   );
+  const [bundleFilterId, setBundleFilterId] = useState(initialRoute.bundleId);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [classifyTask, setClassifyTask] = useState<Task | null>(null);
   const [headerRewardHint, setHeaderRewardHint] = useState<HeaderInteractionReward | null>(null);
@@ -389,6 +393,33 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
   });
+
+  const { data: bundleLinksPayload } = useQuery({
+    queryKey: ["/api/conversion-artifacts/bundle-links"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/conversion-artifacts/bundle-links");
+      if (!r.ok) throw new Error("bundle-links");
+      return (await r.json()) as {
+        links: { taskId: string; title: string; artifactId: string }[];
+      };
+    },
+    staleTime: 60_000,
+  });
+
+  const { data: bundleRouteDetail } = useQuery({
+    queryKey: ["/api/conversion-artifacts", bundleFilterId],
+    enabled: Boolean(bundleFilterId),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/conversion-artifacts/${bundleFilterId}`);
+      if (!r.ok) throw new Error("bundle");
+      return (await r.json()) as { artifact: { title: string }; tasks: { id: string }[] };
+    },
+  });
+
+  const bundleMemberIds = useMemo(
+    () => new Set(bundleRouteDetail?.tasks.map((t) => t.id) ?? []),
+    [bundleRouteDetail],
+  );
 
   const voiceOptional = useVoiceOptional();
   const voiceSearchSignal = voiceOptional?.voiceSearchQuery ?? null;
@@ -458,6 +489,21 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
   const prefilteredTasks = useMemo(
     () => applyVariantPrefilter(variant, tasks),
     [variant, tasks],
+  );
+
+  const bundleTitleByTaskId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of bundleLinksPayload?.links ?? []) m.set(l.taskId, l.title);
+    return m;
+  }, [bundleLinksPayload]);
+
+  const listRows = useMemo(
+    () =>
+      prefilteredTasks.map((t) => ({
+        ...t,
+        bundleTitle: bundleTitleByTaskId.get(t.id),
+      })),
+    [prefilteredTasks, bundleTitleByTaskId],
   );
 
   const classificationOptions = useMemo(
@@ -561,13 +607,15 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
 
   const visibleTasks = useMemo(() => {
     /* Variant prefilter first (cheap classification check), then the
-     * per-user search/priority/status/route filters. Kept in this
-     * order so the pure `applyVariantPrefilter` helper can be
-     * exercised by a contract test without doing any UI mounting. */
-    const filtered = prefilteredTasks.filter(
+     * per-user search/priority/status/route filters, then optional
+     * `?bundle=` membership. Kept in this order so the pure
+     * `applyVariantPrefilter` helper can be exercised by a contract
+     * test without doing any UI mounting. */
+    const filtered = listRows.filter(
       (t) =>
         matchesFilters(t, priorityFilter, statusFilter, deferredSearch) &&
         taskMatchesRouteFilter(t, routeFilter) &&
+        (!bundleFilterId || bundleMemberIds.has(t.id)) &&
         headerFilterMatches(t, headerFilters),
     );
     if (!sortState) return filtered;
@@ -601,11 +649,13 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
     });
     return sorted;
   }, [
-    prefilteredTasks,
+    listRows,
     priorityFilter,
     statusFilter,
     deferredSearch,
     routeFilter,
+    bundleFilterId,
+    bundleMemberIds,
     headerFilters,
     sortState,
   ]);
@@ -764,7 +814,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
    * filter doesn't reapply after the user clears it. We keep state in
    * React so the chip stays clickable until the user dismisses it. */
   useEffect(() => {
-    if (initialRoute.filter !== "none" || initialRoute.q !== "") {
+    if (initialRoute.filter !== "none" || initialRoute.q !== "" || initialRoute.bundleId !== "") {
       clearTaskListRouteFilters();
     }
   }, [initialRoute]);
@@ -913,6 +963,27 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
             </span>
           </div>
         )}
+
+        {bundleFilterId ? (
+          <div
+            className="flex items-center gap-2 text-xs text-muted-foreground"
+            data-testid="task-list-bundle-chip"
+          >
+            <span>Showing:</span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-indigo-400/35 bg-indigo-500/10 px-2.5 py-0.5 font-medium text-indigo-700 dark:text-indigo-300">
+              {describeBundleRouteChip(bundleFilterId, bundleRouteDetail?.artifact.title)}
+              <button
+                type="button"
+                onClick={() => setBundleFilterId("")}
+                className="ml-1 -mr-1 rounded-full hover:bg-indigo-500/20 p-0.5"
+                aria-label="Clear bundle filter"
+                data-testid="task-list-bundle-chip-clear"
+              >
+                <X className="h-3 w-3" aria-hidden />
+              </button>
+            </span>
+          </div>
+        ) : null}
 
         <div
           className="min-h-0 overflow-x-auto overflow-y-visible md:max-h-[min(70vh,42rem)] md:overflow-y-auto"

@@ -18,6 +18,7 @@ import * as core from "@shared/schema/core";
 import * as e2ee from "@shared/schema/e2ee";
 import * as tasks from "@shared/schema/tasks";
 import * as shoppingLists from "@shared/schema/shopping-lists";
+import * as conversionArtifacts from "@shared/schema/conversion-artifacts";
 import * as gamification from "@shared/schema/gamification";
 import * as ops from "@shared/schema/ops";
 
@@ -56,7 +57,13 @@ function buildDomainMap(): Readonly<Record<string, SchemaDomain>> {
   rows.push(...extractTables("core", core as unknown as Record<string, unknown>));
   rows.push(...extractTables("core", e2ee as unknown as Record<string, unknown>));
   rows.push(...extractTables("tasks", tasks as unknown as Record<string, unknown>));
+  rows.push(
+    ...extractTables("tasks", conversionArtifacts as unknown as Record<string, unknown>),
+  );
   rows.push(...extractTables("tasks", shoppingLists as unknown as Record<string, unknown>));
+  rows.push(
+    ...extractTables("tasks", conversionArtifacts as unknown as Record<string, unknown>),
+  );
   rows.push(
     ...extractTables("gamification", gamification as unknown as Record<string, unknown>),
   );

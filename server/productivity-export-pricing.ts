@@ -9,6 +9,8 @@ export type ProductivityExportPrices = {
   taskReportXlsx: number;
   /** Paid shopping-list exports (HTML, spreadsheet, PDF) share one catalog line. */
   shoppingListExport: number;
+  /** Task bundle / conversion artifact exports (markdown, PDF, CSV). */
+  conversionBundleExport: number;
   freeInDev: boolean;
 };
 
@@ -27,6 +29,7 @@ export function getBaseProductivityExportPrices(): Omit<ProductivityExportPrices
     taskReportPdf: parseNonNegativeInt(process.env.PRODUCTIVITY_EXPORT_TASK_REPORT_PDF, 8),
     taskReportXlsx: parseNonNegativeInt(process.env.PRODUCTIVITY_EXPORT_TASK_REPORT_XLSX, 8),
     shoppingListExport: parseNonNegativeInt(process.env.PRODUCTIVITY_EXPORT_SHOPPING_LIST, 8),
+    conversionBundleExport: parseNonNegativeInt(process.env.PRODUCTIVITY_EXPORT_CONVERSION_BUNDLE, 8),
   };
 }
 
@@ -74,6 +77,7 @@ export async function getProductivityExportPricesForUser(userId: string): Promis
       taskReportPdf: 0,
       taskReportXlsx: 0,
       shoppingListExport: 0,
+      conversionBundleExport: 0,
       freeInDev: true,
     };
   }
@@ -88,6 +92,7 @@ export async function getProductivityExportPricesForUser(userId: string): Promis
     taskReportPdf: price(base.taskReportPdf),
     taskReportXlsx: price(base.taskReportXlsx),
     shoppingListExport: price(base.shoppingListExport),
+    conversionBundleExport: price(base.conversionBundleExport),
     freeInDev: false,
   };
 }

@@ -34,6 +34,8 @@ import {
   type KnownAccount,
 } from "@/pages/login/known-accounts-storage";
 import { OAuthProviderStackedList, type OAuthProviderInfo } from "@/pages/login/oauth-provider-links";
+import { EmailPasswordForm } from "@/pages/login/email-password-form";
+import { RegisterForm } from "@/pages/login/register-form";
 
 function csrfHeaders(): Record<string, string> {
   const token = getCsrfToken();
@@ -468,6 +470,7 @@ export default function LoginPage() {
                     openEmailPasswordPath();
                   }}
                   onShowHelp={() => setLoginHelpOpen(true)}
+
                 />
               ) : null}
               <h2 className="text-xl font-semibold text-slate-100 mb-6">{cardTitle}</h2>
@@ -507,254 +510,69 @@ export default function LoginPage() {
                   providerButtonClass={providerButtonClass}
                   persistNextBeforeExternalAuth={persistNextBeforeExternalAuth}
                   onOpenEmailPassword={openEmailPasswordPath}
+                  canRegister={canRegister}
+                  onCreateAccount={() => {
+                    setMode("register");
+                    setShowForm(true);
+                    setError("");
+                  }}
+                  onNeedHelp={() => setLoginHelpOpen(true)}
                 />
               )}
 
-              {mode !== "forgot" && (showForm || mode === "register") && (
-                <>
-                  {mode === "login" && providers.length > 0 && (
-                    <div id="login-help-oauth" className="space-y-2 mb-4">
-                      <OAuthProviderStackedList
-                        providers={providers}
-                        persistNextBeforeExternalAuth={persistNextBeforeExternalAuth}
-                        isLastUsedProvider={isLastUsedProvider}
-                        providerButtonClass={providerButtonClass}
-                        size="sm"
-                      />
-                      <div className="relative my-1">
-                        <div className="absolute inset-0 flex items-center">
-                          <div className="w-full border-t border-gray-200 dark:border-gray-700" />
-                        </div>
-                        <div className="relative flex justify-center text-xs">
-                          <span className="bg-white dark:bg-gray-800 px-2 text-gray-400">
-                            or use email and password
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <form
-                    onSubmit={handleSubmit}
-                    className="space-y-4"
-                    id={
-                      (mode === "login" && showForm) || mode === "register"
-                        ? "login-help-password-cta"
-                        : undefined
-                    }
-                  >
-                    {mode === "register" && (
-                      <div>
-                        <Label htmlFor="displayName">Name (optional)</Label>
-                        <Input
-                          id="displayName"
-                          type="text"
-                          value={displayName}
-                          onChange={(e) => setDisplayName(e.target.value)}
-                          placeholder="Your name"
-                          className="mt-1"
-                        />
-                      </div>
-                    )}
 
-                    <div>
-                      <Label htmlFor="email">Email</Label>
-                      <Input
-                        ref={emailRef}
-                        id="email"
-                        type="email"
-                        required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="you@example.com"
-                        className="mt-1"
-                        autoComplete="email"
-                      />
-                    </div>
+              {mode === "login" && showForm && (
+                <EmailPasswordForm
+                  emailRef={emailRef}
+                  email={email}
+                  setEmail={setEmail}
+                  password={password}
+                  setPassword={setPassword}
+                  showPassword={showPassword}
+                  setShowPassword={setShowPassword}
+                  error={error}
+                  submitting={submitting}
+                  onSubmit={handleSubmit}
+                  onForgot={() => {
+                    setMode("forgot");
+                    setForgotStep("email");
+                    setError("");
+                  }}
+                  onBackToAccounts={(knownAccounts.length > 0) ? () => {
+                    setShowForm(false);
+                    setError("");
+                    setPassword("");
+                  } : undefined}
+                  onBackToOptions={knownAccounts.length === 0 ? () => {
+                    setShowForm(false);
+                    setError("");
+                    setPassword("");
+                  } : undefined}
+                  providers={providers}
+                  persistNextBeforeExternalAuth={persistNextBeforeExternalAuth}
+                  isLastUsedProvider={isLastUsedProvider}
+                  providerButtonClass={providerButtonClass}
+                />
+              )}
 
-                    <div>
-                      <Label htmlFor="password">Password</Label>
-                      <div className="relative mt-1">
-                        <SecureInput
-                          id="password"
-                          type={showPassword ? "text" : "password"}
-                          alwaysMask={!showPassword}
-                          required
-                          minLength={mode === "register" ? 8 : 1}
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          inactivityTimeout={60}
-                          onInactivityClear={() => setPassword("")}
-                          placeholder={mode === "register" ? "Min 8 chars, A-z, 0-9, !@#" : "••••••••"}
-                          className="pr-16"
-                        />
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-8 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-
-                      {mode === "register" && password.length > 0 && (
-                        <div className="mt-3">
-                          <ul className="text-xs space-y-1.5 ml-1 text-gray-500 dark:text-gray-400">
-                            <li
-                              className={cn(
-                                "flex items-center gap-2 transition-colors",
-                                password.length >= 8 ? "text-green-600 dark:text-green-500 font-medium" : "",
-                              )}
-                            >
-                              {password.length >= 8 ? (
-                                <ShieldCheck className="h-3.5 w-3.5" />
-                              ) : (
-                                <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />
-                              )}
-                              8+ characters
-                            </li>
-                            <li
-                              className={cn(
-                                "flex items-center gap-2 transition-colors",
-                                /[A-Z]/.test(password) ? "text-green-600 dark:text-green-500 font-medium" : "",
-                              )}
-                            >
-                              {/[A-Z]/.test(password) ? (
-                                <ShieldCheck className="h-3.5 w-3.5" />
-                              ) : (
-                                <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />
-                              )}
-                              an uppercase letter
-                            </li>
-                            <li
-                              className={cn(
-                                "flex items-center gap-2 transition-colors",
-                                /[a-z]/.test(password) ? "text-green-600 dark:text-green-500 font-medium" : "",
-                              )}
-                            >
-                              {/[a-z]/.test(password) ? (
-                                <ShieldCheck className="h-3.5 w-3.5" />
-                              ) : (
-                                <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />
-                              )}
-                              a lowercase letter
-                            </li>
-                            <li
-                              className={cn(
-                                "flex items-center gap-2 transition-colors",
-                                /[0-9]/.test(password) ? "text-green-600 dark:text-green-500 font-medium" : "",
-                              )}
-                            >
-                              {/[0-9]/.test(password) ? (
-                                <ShieldCheck className="h-3.5 w-3.5" />
-                              ) : (
-                                <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />
-                              )}
-                              a number
-                            </li>
-                            <li
-                              className={cn(
-                                "flex items-center gap-2 transition-colors",
-                                /[^A-Za-z0-9]/.test(password)
-                                  ? "text-green-600 dark:text-green-500 font-medium"
-                                  : "",
-                              )}
-                            >
-                              {/[^A-Za-z0-9]/.test(password) ? (
-                                <ShieldCheck className="h-3.5 w-3.5" />
-                              ) : (
-                                <div className="h-3.5 w-3.5 rounded-full border-2 border-current opacity-30" />
-                              )}
-                              a symbol
-                            </li>
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-
-                    {mode === "register" && regMode === "invite" && !inviteConfigured ? (
-                      <div className="bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 p-4 rounded-lg text-sm space-y-2">
-                        <p>
-                          Signup is temporarily unavailable. The server is set to invite-only, but no invite code is
-                          configured.
-                        </p>
-                        <p className="font-medium">Existing users can still sign in.</p>
-                      </div>
-                    ) : mode === "register" && regMode === "invite" && inviteConfigured ? (
-                      <div>
-                        <Label htmlFor="inviteCode">Invite Code</Label>
-                        <Input
-                          id="inviteCode"
-                          type="text"
-                          required
-                          value={inviteCode}
-                          onChange={(e) => setInviteCode(e.target.value)}
-                          placeholder="Enter your invite code"
-                          className="mt-1"
-                          autoComplete="off"
-                          spellCheck={false}
-                        />
-                      </div>
-                    ) : null}
-
-                    {error && (
-                      <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
-                        {error}
-                      </p>
-                    )}
-
-                    <Button
-                      type="submit"
-                      className={cn("w-full h-11", pretextGradientCtaClassName)}
-                      disabled={submitting || (mode === "register" && regMode === "invite" && !inviteConfigured)}
-                    >
-                      {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      {mode === "login" ? "Sign in" : "Create account"}
-                    </Button>
-
-                    {mode === "login" && (
-                      <button
-                        type="button"
-                        id="login-help-forgot-link"
-                        onClick={() => {
-                          setMode("forgot");
-                          setForgotStep("email");
-                          setError("");
-                        }}
-                        className="w-full text-center text-xs text-gray-400 hover:text-primary transition-colors"
-                      >
-                        Forgot your password?
-                      </button>
-                    )}
-
-                    {mode === "login" && knownAccounts.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowForm(false);
-                          setError("");
-                          setPassword("");
-                        }}
-                        className="w-full text-center text-sm text-gray-500 dark:text-gray-400 hover:text-primary"
-                      >
-                        ← Choose a saved account
-                      </button>
-                    )}
-                    {mode === "login" && knownAccounts.length === 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowForm(false);
-                          setError("");
-                          setPassword("");
-                        }}
-                        className="w-full text-center text-sm text-gray-500 dark:text-gray-400 hover:text-primary"
-                      >
-                        ← Other sign-in options
-                      </button>
-                    )}
-                  </form>
-                </>
+              {mode === "register" && (
+                <RegisterForm
+                  displayName={displayName}
+                  setDisplayName={setDisplayName}
+                  email={email}
+                  setEmail={setEmail}
+                  password={password}
+                  setPassword={setPassword}
+                  showPassword={showPassword}
+                  setShowPassword={setShowPassword}
+                  error={error}
+                  submitting={submitting}
+                  onSubmit={handleSubmit}
+                  regMode={regMode}
+                  inviteConfigured={inviteConfigured}
+                  inviteCode={inviteCode}
+                  setInviteCode={setInviteCode}
+                />
               )}
 
               {mode === "forgot" && (
@@ -779,6 +597,8 @@ export default function LoginPage() {
                   onBackToSignIn={resetForgotFlow}
                 />
               )}
+
+
             </>
           )}
 

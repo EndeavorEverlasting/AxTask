@@ -57,7 +57,7 @@ test.describe.serial("Auth + confirmation URL surfaces", () => {
         /* ignore */
       }
     });
-    await page.route("**/api/auth/config", async (route) => {
+    await page.route(/\/api\/auth\/config/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -74,9 +74,12 @@ test.describe.serial("Auth + confirmation URL surfaces", () => {
       });
     });
     await page.goto("/login", { waitUntil: "domcontentloaded" });
+    await page.waitForResponse(/\/api\/auth\/config/);
+
     const primaryEmail = page.getByTestId("login-primary-email");
     const oauthHost = page.locator("#login-help-oauth");
     await expect(primaryEmail).toBeVisible({ timeout: 15_000 });
+
     await expect(oauthHost).toBeVisible();
     const oauthFollowsEmail = await page.evaluate(() => {
       const email = document.querySelector('[data-testid="login-primary-email"]');
@@ -85,6 +88,52 @@ test.describe.serial("Auth + confirmation URL surfaces", () => {
       return (email.compareDocumentPosition(oauth) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     });
     expect(oauthFollowsEmail).toBe(true);
+  });
+
+  test("first-time /login requires CTA click before showing email and password fields (progressive disclosure)", async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        localStorage.removeItem("axtask_known_accounts");
+        localStorage.removeItem("axtask_last_email");
+        localStorage.removeItem("axtask_last_provider");
+      } catch {
+        /* ignore */
+      }
+    });
+    await page.route(/\/api\/auth\/config/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          registrationMode: "open",
+          inviteConfigured: true,
+          authProvider: "local",
+          loginUrl: "",
+          providers: [],
+        }),
+      });
+    });
+    await page.goto("/login", { waitUntil: "domcontentloaded" });
+    await page.waitForResponse(/\/api\/auth\/config/);
+
+    const primaryEmail = page.getByTestId("login-primary-email");
+    await expect(primaryEmail).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("h2")).toContainText(/Sign in/i);
+
+    // Assert Create account is visible on first-time shell
+    await expect(page.getByRole("button", { name: /Create account/i })).toBeVisible();
+
+    // Assert form is NOT visible yet
+    await expect(page.getByRole("textbox", { name: /^email$/i })).not.toBeVisible();
+    await expect(page.getByLabel(/^password$/i)).not.toBeVisible();
+
+    // Click primary CTA
+    await primaryEmail.click();
+
+    // Assert form is visible
+    await expect(page.getByRole("textbox", { name: /^email$/i })).toBeVisible();
+    await expect(page.getByLabel(/^password$/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
   });
 
   test("/login?error=auth_failed shows OAuth error copy and cleans URL", async ({ page }) => {

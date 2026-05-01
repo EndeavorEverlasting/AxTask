@@ -30,19 +30,28 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 describe("task-list-route-filters", () => {
   describe("readTaskListRouteFilters", () => {
     it("returns defaults on no params", () => {
-      expect(readTaskListRouteFilters("")).toEqual({ filter: "none", q: "" });
+      expect(readTaskListRouteFilters("")).toEqual({ filter: "none", q: "", bundleId: "" });
     });
 
     it("parses a valid filter + query", () => {
       expect(
         readTaskListRouteFilters("?filter=overdue&q=report"),
-      ).toEqual({ filter: "overdue", q: "report" });
+      ).toEqual({ filter: "overdue", q: "report", bundleId: "" });
+    });
+
+    it("parses bundle uuid", () => {
+      expect(
+        readTaskListRouteFilters(
+          "?bundle=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        ).bundleId,
+      ).toBe("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
     });
 
     it("rejects unknown filter values to 'none' so we don't silently apply garbage", () => {
       expect(readTaskListRouteFilters("?filter=nuke")).toEqual({
         filter: "none",
         q: "",
+        bundleId: "",
       });
     });
 

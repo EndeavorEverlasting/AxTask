@@ -32,6 +32,8 @@ export interface TaskGanttProps {
   height?: number;
   className?: string;
   emptyHint?: string;
+  /** Task ids on the critical path (longest chain to terminal + hard deadlines). */
+  criticalIds?: Set<string>;
 }
 
 export type TaskGanttRange = { start: Date; end: Date };
@@ -123,7 +125,16 @@ function truncate(text: string, max: number): string {
 }
 
 export function TaskGantt(props: TaskGanttProps) {
-  const { tasks, unlocked = false, dimmed = false, rangeDays = 21, height, className, emptyHint } = props;
+  const {
+    tasks,
+    unlocked = false,
+    dimmed = false,
+    rangeDays = 21,
+    height,
+    className,
+    emptyHint,
+    criticalIds,
+  } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(0);
@@ -215,6 +226,7 @@ export function TaskGantt(props: TaskGanttProps) {
   const headerHeight = 32;
   const laneGap = unlocked ? 12 : 0;
   const rows = laidOut.length;
+  const criticalCount = criticalIds?.size ?? 0;
   const totalLaneGap = Math.max(0, (lanes.length - 1) * laneGap);
   const autoHeight = headerHeight + rows * rowHeight + totalLaneGap + 8;
   const svgHeight = height ?? Math.max(autoHeight, 120);
@@ -273,6 +285,17 @@ export function TaskGantt(props: TaskGanttProps) {
             role={dimmed ? "presentation" : "img"}
             aria-label={dimmed ? undefined : "Task timeline Gantt chart"}
           >
+            {criticalCount > 0 && !dimmed && (
+              <text
+                x={8}
+                y={svgHeight - 6}
+                fontSize={11}
+                fill="rgba(251, 191, 36, 0.95)"
+                style={{ fontFamily: "ui-sans-serif, system-ui" }}
+              >
+                {criticalCount} critical on path
+              </text>
+            )}
             <defs>
               <marker
                 id="gantt-arrow"
@@ -426,6 +449,7 @@ export function TaskGantt(props: TaskGanttProps) {
                 ? "#3b82f6"
                 : "#6366f1";
           const opacity = STATUS_OPACITY[lo.task.status] ?? 0.85;
+          const isCritical = criticalIds?.has(lo.task.id) ?? false;
 
           const barContent = (
             <g className={!dimmed ? "cursor-pointer hover:brightness-125 transition-all duration-200" : ""}>
@@ -438,6 +462,8 @@ export function TaskGantt(props: TaskGanttProps) {
                 ry="4"
                 fill={fill}
                 opacity={opacity}
+                stroke={isCritical ? "rgba(251, 191, 36, 0.95)" : "none"}
+                strokeWidth={isCritical ? 3 : 0}
               />
               {!dimmed && width > 24 && (
                 <text
@@ -466,6 +492,9 @@ export function TaskGantt(props: TaskGanttProps) {
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-[260px] bg-slate-900 border-slate-700 text-slate-100 shadow-xl z-[100]">
                 <div className="space-y-1.5">
+                  {isCritical ? (
+                    <p className="text-[10px] uppercase tracking-wide text-amber-300 font-semibold">Critical path</p>
+                  ) : null}
                   <p className="font-medium text-sm leading-tight">{lo.task.activity}</p>
                   <div className="flex items-center justify-between text-xs text-slate-400">
                     <span>{formatDayLabel(lo.range.start)} - {formatDayLabel(lo.range.end)}</span>

@@ -335,6 +335,47 @@ export function detectShoppingListContent(activity: string, notes = ""): Shoppin
   return { ...EMPTY_SHOPPING_DETECTION, hasShoppingCue: cue };
 }
 
+export type StructuredConversionHint =
+  | "shopping_list"
+  | "checklist"
+  | "project_plan"
+  | "gantt_plan";
+
+export type StructuredPromptDetection = ShoppingListDetection & {
+  conversionCandidates: StructuredConversionHint[];
+};
+
+/**
+ * Broadens shopping-line detection into conversion-type candidates for the
+ * bundle preview (shopping vs checklist vs project/Gantt plans).
+ */
+export function detectStructuredPrompt(activity: string, notes: string): StructuredPromptDetection {
+  const base = detectShoppingListContent(activity, notes);
+  const candidates: StructuredConversionHint[] = [];
+  const combined = `${activity || ""}\n${notes || ""}`;
+  if (base.detected && base.items.length >= 2) {
+    candidates.push("shopping_list", "checklist");
+  }
+  if (/(?:^|\n)(?:[-*+]|\d+\.)\s+\S/m.test(combined)) {
+    if (!candidates.includes("checklist")) candidates.push("checklist");
+    candidates.push("project_plan", "gantt_plan");
+  }
+  if (/\b(project(\s+(plan|charter|schedule))?|work\s+breakdown|wbs)\b/i.test(combined)) {
+    if (!candidates.includes("project_plan")) candidates.push("project_plan");
+    if (!candidates.includes("gantt_plan")) candidates.push("gantt_plan");
+  }
+  const conversionCandidates = [...new Set(candidates)];
+  return {
+    ...base,
+    conversionCandidates:
+      conversionCandidates.length > 0
+        ? conversionCandidates
+        : base.detected && base.items.length > 0
+          ? ["shopping_list"]
+          : [],
+  };
+}
+
 export function withNodeWeaverShoppingDetection(
   base: ShoppingListDetection,
   input: {
