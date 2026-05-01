@@ -3,6 +3,8 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useBriefingBadge } from "@/hooks/use-briefing";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { motion } from "framer-motion";
+import { useScrollDirection } from "@/hooks/use-scroll-direction";
 import {
   LayoutDashboard,
   List,
@@ -478,12 +480,19 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const { startTutorial } = useTutorial();
+  const scrollDirection = useScrollDirection();
+
   const goHomeAndStartTutorial = () => {
     setLocation("/");
     queueMicrotask(() => startTutorial());
   };
   return (
-    <div className="md:hidden flex items-center justify-between px-4 py-3 axtask-mobile-chrome rounded-none border-x-0 border-t-0 shrink-0">
+    <motion.div
+      initial={{ marginTop: 0 }}
+      animate={{ marginTop: scrollDirection === "down" ? "-72px" : 0 }}
+      transition={{ duration: 0.3, ease: "easeInOut" }}
+      className="md:hidden flex items-center justify-between px-4 py-3 glass-panel-glossy rounded-none border-x-0 border-t-0 shrink-0 relative z-50"
+    >
       <Button
         variant="ghost"
         size="icon"
@@ -525,7 +534,7 @@ export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
           <div className="h-12 w-12" />
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 

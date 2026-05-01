@@ -1,5 +1,7 @@
 import { Switch, Route, useLocation } from "wouter";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { useScrollDirection } from "@/hooks/use-scroll-direction";
 import { notifyScrollBudget } from "@/lib/animation-budget";
 import { useTutorial } from "@/hooks/use-tutorial";
 import { PersistedQueryLayer } from "./lib/app-query-provider";
@@ -230,6 +232,7 @@ const BOTTOM_NAV_ITEMS = [
 
 function MobileBottomNav() {
   const [location] = useLocation();
+  const scrollDirection = useScrollDirection();
 
   const isActive = (path: string) => {
     if (path === "/") return location === "/";
@@ -237,7 +240,12 @@ function MobileBottomNav() {
   };
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 axtask-nav-chrome rounded-none border-x-0 border-b-0 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.45)] safe-area-bottom">
+    <motion.nav
+      initial={{ y: 0 }}
+      animate={{ y: scrollDirection === "down" ? "100%" : 0 }}
+      transition={{ duration: 0.3, ease: "easeInOut" }}
+      className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass-panel-glossy rounded-none border-x-0 border-b-0 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.45)] safe-area-bottom"
+    >
       <div className="flex items-center justify-around h-14">
         {BOTTOM_NAV_ITEMS.map(({ path, icon: Icon, label }) => (
           <Link
@@ -254,7 +262,7 @@ function MobileBottomNav() {
           </Link>
         ))}
       </div>
-    </nav>
+    </motion.nav>
   );
 }
 
@@ -387,10 +395,20 @@ function AuthenticatedApp() {
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const mainScrollBudgetRaf = useRef<number | null>(null);
+  const lastScrollY = useRef(0);
   // Inner scroll roots must call notifyScrollBudget — window scroll alone misses
   // main content; dropping this brings hue pulse, glass blanking, chip bleed-back.
   // docs/SCROLL_REFRESH_VISUAL_STABILITY.md, docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md
-  const onMainShellScroll = useCallback(() => {
+  const onMainShellScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const currentScrollY = e.currentTarget.scrollTop;
+    if (Math.abs(currentScrollY - lastScrollY.current) > 10) {
+      const direction = currentScrollY > lastScrollY.current ? "down" : "up";
+      window.dispatchEvent(
+        new CustomEvent("axtask-scroll-direction", { detail: { direction } })
+      );
+      lastScrollY.current = currentScrollY;
+    }
+
     if (mainScrollBudgetRaf.current != null) return;
     mainScrollBudgetRaf.current = requestAnimationFrame(() => {
       mainScrollBudgetRaf.current = null;
