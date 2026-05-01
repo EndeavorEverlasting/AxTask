@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { CheckCheck, Loader2, Sparkles } from "lucide-react";
+import { CheckCheck, Loader2, ShieldAlert, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
@@ -53,6 +53,14 @@ export default function ExperienceConfirmPage() {
   const [sent, setSent] = useState(() => mfaHandoffSentRef.current);
   const [adminHandoffBlocked, setAdminHandoffBlocked] = useState(false);
 
+  /**
+   * An /mfa/confirm URL that is missing any of challengeId, code, or purpose
+   * cannot be a successful confirmation. Treat it as an invalid-link state
+   * and render a clear failure surface instead of silently redirecting to
+   * the app as if the confirmation succeeded.
+   */
+  const isInvalidMfaLink = mode === "mfa" && (!challengeId || !code || !purpose);
+
   const [redirectTarget, setRedirectTarget] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [userCancelledRedirect, setUserCancelledRedirect] = useState(false);
@@ -79,6 +87,9 @@ export default function ExperienceConfirmPage() {
   }, [locationPath]);
 
   useEffect(() => {
+    if (isInvalidMfaLink) {
+      return;
+    }
     if (mode === "mfa" && challengeId && code && purpose) {
       const persist = shouldPersistMfaEmailHandoff(purpose, {
         userRole: user?.role,
@@ -111,7 +122,7 @@ export default function ExperienceConfirmPage() {
         startRedirectCountdown("/");
       }
     }
-  }, [mode, challengeId, code, purpose, user?.role, authLoading, startRedirectCountdown, userCancelledRedirect]);
+  }, [mode, challengeId, code, purpose, user?.role, authLoading, startRedirectCountdown, userCancelledRedirect, isInvalidMfaLink]);
 
   useEffect(() => {
     if (userCancelledRedirect) return;
@@ -191,6 +202,67 @@ export default function ExperienceConfirmPage() {
       ? "Pretext already queued the launch — your workspace wants you back on the canvas. We’ll send you there when the countdown hits zero, unless you’d rather stay and keep reading every measured line on this screen."
       : "Pretext logged the handoff — your other tab should be glowing. We’ll slide you to the app when the timer finishes, unless you tap stay and savor the gradient a little longer.";
   }, [mode, showRedirectPanel]);
+
+  if (isInvalidMfaLink) {
+    const missing = [
+      !challengeId ? "challengeId" : null,
+      !code ? "code" : null,
+      !purpose ? "purpose" : null,
+    ].filter(Boolean) as string[];
+
+    return (
+      <PretextConfirmationShell chips={CHIP_LABELS}>
+        <div className="space-y-6">
+          <PretextGlassCard className="border-amber-300/30 bg-amber-500/10">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="grid place-items-center h-12 w-12 rounded-xl bg-amber-400/20 border border-amber-300/40">
+                <ShieldAlert className="h-6 w-6 text-amber-200" aria-hidden />
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-amber-200/90">AxTask Confirmation</p>
+                <h1 className="text-xl sm:text-2xl font-semibold leading-tight">
+                  This confirmation link is incomplete.
+                </h1>
+              </div>
+            </div>
+            <p className="text-sm sm:text-base text-slate-200/90 mb-3">
+              We can’t finish the verification because this link is missing
+              {" "}
+              <span className="font-mono text-amber-100">{missing.join(", ")}</span>.
+              {" "}
+              The link may have been truncated by your email client, expired, or tampered with in transit.
+            </p>
+            <p className="text-sm text-slate-300 mb-6">
+              Your account has not been changed. Request a fresh code from AxTask and try again, or head back to the app if you were just exploring.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+              <Button
+                type="button"
+                onClick={() => { window.location.href = "/login"; }}
+                className={cn("h-12 px-6", pretextGradientCtaClassName)}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  Request a new code
+                </span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 rounded-xl border-white/25 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                onClick={() => { window.location.href = "/"; }}
+              >
+                Back to AxTask
+              </Button>
+            </div>
+            <p className="mt-4 text-xs text-slate-300/90">
+              No confirmation was performed. This screen will not auto-redirect.
+            </p>
+          </PretextGlassCard>
+        </div>
+      </PretextConfirmationShell>
+    );
+  }
 
   return (
     <PretextConfirmationShell chips={CHIP_LABELS}>

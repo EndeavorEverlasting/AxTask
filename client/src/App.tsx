@@ -119,9 +119,23 @@ const BulkActionDialogLazy = lazy(
 );
 
 function RouteFallback() {
+  // Intentionally framer-motion-free and ambient-chip-free so the fallback
+  // chunk stays tiny — this renders before any lazy page resolves and before
+  // the authenticated PretextShell mounts. See docs/PERF_PERFORMANCE_BUDGETS.md.
   return (
-    <div className="flex min-h-[40vh] w-full items-center justify-center bg-background">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex min-h-[40vh] w-full items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white"
+    >
+      <div className="flex flex-col items-center gap-3 px-6 text-center">
+        <div className="text-[11px] uppercase tracking-[0.28em] text-emerald-300/80">AxTask</div>
+        <div className="h-1 w-32 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-300 animate-pulse" />
+        </div>
+        <Loader2 className="h-6 w-6 animate-spin text-emerald-300" aria-hidden />
+        <span className="sr-only">Loading AxTask…</span>
+      </div>
     </div>
   );
 }
@@ -531,8 +545,8 @@ function AuthenticatedApp() {
 
   if (loading) {
     return (
-      <div className="h-full min-h-0 overflow-y-auto flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="h-full min-h-0 overflow-y-auto">
+        <RouteFallback />
       </div>
     );
   }

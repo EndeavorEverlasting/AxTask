@@ -996,11 +996,17 @@ export default function LoginPage() {
               ) : mode === "register" && regMode === "invite" && inviteConfigured ? (
                 <div>
                   <Label htmlFor="inviteCode">Invite Code</Label>
-                  <SecureInput id="inviteCode" type="text" required value={inviteCode}
+                  <Input
+                    id="inviteCode"
+                    type="text"
+                    required
+                    value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value)}
-                    inactivityTimeout={30}
-                    onInactivityClear={() => setInviteCode("")}
-                    placeholder="Enter your invite code" className="mt-1" />
+                    placeholder="Enter your invite code"
+                    className="mt-1"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
                 </div>
               ) : null}
 
