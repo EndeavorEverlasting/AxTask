@@ -3,7 +3,7 @@
 
 **Version:** 1.2.0 (Robustness + Security Hardening)
 **Status:** Production-oriented foundation under active hardening
-**Last Updated:** April 3rd, 2026
+**Last Updated:** May 2, 2026
 
 ## Overview
 
@@ -327,6 +327,9 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
 - Save/load feedback filter presets for repeat triage views
 
 ### Premium Features (30-day retention rollout)
+
+> All listed routes are implemented and operational. External billing-provider webhooks for live invoice/payment processing are still pending — see **Pending / Not Yet Implemented** below.
+
 - Hybrid catalog (`AxTask Pro`, `NodeWeaver Pro`, `Power Bundle`) via `GET /api/premium/catalog`
 - Entitlements + subscriptions via `GET /api/premium/entitlements` and activation/lifecycle routes
 - Smart saved views with default landing and auto-refresh controls:
