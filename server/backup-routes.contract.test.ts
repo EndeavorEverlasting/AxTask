@@ -135,6 +135,29 @@ describe("backup routes contract", () => {
     const content = fs.readFileSync(backupRoutesPath, "utf8");
     expect(content).toContain('"/api/admin/backup/health"');
     expect(content).toContain("latestBackupRecord");
+    expect(content).toContain("testBackupTargetWritable");
+    expect(content).toContain("resolveBackupTarget");
+  });
+
+  it("backup routes expose admin verify endpoint", () => {
+    const content = fs.readFileSync(backupRoutesPath, "utf8");
+    expect(content).toContain('"/api/admin/backup/verify"');
+    expect(content).toContain("verifyBackupByRecord");
+  });
+
+  it("backup service computes and stores sha256 hash", () => {
+    const content = fs.readFileSync(backupServicePath, "utf8");
+    expect(content).toContain("createHash(\"sha256\")");
+    expect(content).toContain("sha256");
+    expect(content).toContain("verifyBackupByRecord");
+    expect(content).toContain("testBackupTargetWritable");
+  });
+
+  it("scheduler processes users in configurable chunks", () => {
+    const content = fs.readFileSync(backupSchedulerPath, "utf8");
+    expect(content).toContain("chunkArray");
+    expect(content).toContain("BACKUP_SCHEDULER_BATCH_SIZE");
+    expect(content).toContain("batchSize");
   });
 
   it("registers task attachment routes in routes.ts", () => {

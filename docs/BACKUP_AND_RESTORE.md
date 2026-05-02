@@ -64,10 +64,11 @@ Set the environment variable to activate:
 ```bash
 BACKUP_SCHEDULER_ENABLED=true
 BACKUP_SCHEDULER_INTERVAL_MS=86400000   # 24h default
+BACKUP_SCHEDULER_BATCH_SIZE=100         # users per chunk (default 100)
 BACKUP_LOCAL_DIR=./backups              # optional output directory
 ```
 
-The scheduler iterates over all users, exports a JSON bundle per user, and writes a `backup_records` ledger entry. One user failing does not abort the batch.
+The scheduler iterates over all users in configurable chunks, exports a JSON bundle per user, and writes a `backup_records` ledger entry. One user failing does not abort the batch or the chunk. A small delay is inserted between chunks to avoid hammering the database.
 
 Users can opt in or out of automatic backups individually via `PATCH /api/account/backup/preferences`:
 
@@ -105,6 +106,7 @@ Returns the active server-wide backup configuration:
 {
   "automaticBackupsConfigured": true,
   "intervalMs": 86400000,
+  "batchSize": 100,
   "target": "s3",
   "s3Bucket": "my-axtask-backups",
   "localDir": null
@@ -115,7 +117,7 @@ Returns the active server-wide backup configuration:
 
 `GET /api/admin/backup/health` (admin auth required)
 
-Returns `200` if healthy or `503` if the scheduler is enabled but no recent successful backup exists:
+Returns `200` if healthy or `503` if the scheduler is enabled but no recent successful backup exists or the target is not writable:
 
 ```json
 {
@@ -132,6 +134,24 @@ Returns `200` if healthy or `503` if the scheduler is enabled but no recent succ
 }
 ```
 
+The `writable` field is now a live write-test: the endpoint attempts to write a small probe file to the configured target and reports whether it succeeded.
+
+### Admin Verify Endpoint
+
+`POST /api/admin/backup/verify` (admin auth required)
+
+Re-reads the most recent completed backup from its stored location, recomputes the SHA-256 hash, and compares it with the hash recorded at backup time:
+
+```json
+{
+  "verified": true,
+  "recordId": "...",
+  "sha256": "a1b2c3..."
+}
+```
+
+Returns `409` if the hash does not match or the file cannot be read, indicating the backup may be corrupted or truncated.
+
 ## What Is Not Yet Automated
 
 - No Windows Task Scheduler integration (use the Node.js scheduler or cron).
@@ -140,7 +160,6 @@ Returns `200` if healthy or `503` if the scheduler is enabled but no recent succ
 ## Future Roadmap
 
 1. **Migration Airlock** — safe migration commands that refuse to run without a verified backup.
-2. **Backup Verification** — automatic read-back / checksum validation after upload.
 
 See also the repository-wide [**Reliability Roadmap**](../README.md#reliability-roadmap).
 

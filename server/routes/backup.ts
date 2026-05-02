@@ -1,8 +1,14 @@
 import type { Express, Request, Response, NextFunction } from "express";
-import { getBackupStatus, isAutomaticBackupsConfigured } from "../services/backup-service";
+import {
+  getBackupStatus,
+  isAutomaticBackupsConfigured,
+  verifyBackupByRecord,
+  testBackupTargetWritable,
+  resolveBackupTarget,
+} from "../services/backup-service";
 import { getLastBackupRecordForUser, upsertUserBackupPreference } from "../storage";
 import { db } from "../db";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { backupRecords } from "@shared/schema";
 
 type RequireAuthMiddleware = (req: Request, res: Response, next: NextFunction) => unknown;
@@ -41,6 +47,7 @@ export function registerBackupRoutes(
       res.json({
         automaticBackupsConfigured: isAutomaticBackupsConfigured(),
         intervalMs: Number(process.env.BACKUP_SCHEDULER_INTERVAL_MS) || 24 * 60 * 60 * 1000,
+        batchSize: Number(process.env.BACKUP_SCHEDULER_BATCH_SIZE) || 100,
         target: process.env.BACKUP_S3_ENDPOINT ? "s3" : "local",
         s3Bucket: process.env.BACKUP_S3_BUCKET || null,
         localDir: process.env.BACKUP_LOCAL_DIR || null,
@@ -56,6 +63,8 @@ export function registerBackupRoutes(
           .orderBy(desc(backupRecords.createdAt))
           .limit(1);
 
+        const writable = await testBackupTargetWritable(resolveBackupTarget());
+
         const health = {
           schedulerEnabled: isAutomaticBackupsConfigured(),
           latestBackupRecord: latest
@@ -68,16 +77,54 @@ export function registerBackupRoutes(
               }
             : null,
           envTarget: process.env.BACKUP_S3_ENDPOINT ? "s3" : "local",
-          writable: true, // placeholder: real write-test requires target instantiation
+          writable,
         };
 
         const isHealthy =
           !isAutomaticBackupsConfigured() ||
-          (latest && latest.status === "completed" && !latest.errorMessage);
+          (writable && latest && latest.status === "completed" && !latest.errorMessage);
 
         res.status(isHealthy ? 200 : 503).json(health);
       } catch (error) {
         res.status(500).json({ message: "Failed to check backup health" });
+      }
+    });
+
+    app.post("/api/admin/backup/verify", requireAdmin, async (_req, res) => {
+      try {
+        const [latest] = await db
+          .select()
+          .from(backupRecords)
+          .where(eq(backupRecords.status, "completed"))
+          .orderBy(desc(backupRecords.createdAt))
+          .limit(1);
+
+        if (!latest) {
+          return res.status(404).json({ message: "No completed backup record found" });
+        }
+
+        const result = await verifyBackupByRecord({
+          pathOrUrl: latest.pathOrUrl,
+          metadataJson: latest.metadataJson,
+        });
+
+        if (result.ok) {
+          res.json({
+            verified: true,
+            recordId: latest.id,
+            sha256: result.sha256,
+          });
+        } else {
+          res.status(409).json({
+            verified: false,
+            recordId: latest.id,
+            sha256: result.sha256,
+            expectedSha256: result.expectedSha256,
+            message: "Backup integrity check failed: hash mismatch or unreadable file",
+          });
+        }
+      } catch (error) {
+        res.status(500).json({ message: "Failed to verify backup" });
       }
     });
   }

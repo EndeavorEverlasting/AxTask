@@ -1,4 +1,5 @@
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { buildUserExportBundle, type UserExportBundle } from "../account-backup";
 import { createBackupRecord, getLastBackupRecordForUser, getUserBackupPreference } from "../storage";
@@ -30,7 +31,7 @@ export async function getBackupStatus(userId: string): Promise<BackupStatus> {
   };
 }
 
-function resolveBackupTarget(preferredTarget?: string): BackupTarget {
+export function resolveBackupTarget(preferredTarget?: string): BackupTarget {
   const s3Endpoint = process.env.BACKUP_S3_ENDPOINT;
   const s3Bucket = process.env.BACKUP_S3_BUCKET;
   const s3Region = process.env.BACKUP_S3_REGION || "us-east-1";
@@ -97,6 +98,7 @@ export async function generateLocalBackup(
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `axtask-backup-${userId.slice(0, 8)}-${timestamp}.json`;
     const data = JSON.stringify(bundle, null, 2);
+    const sha256 = createHash("sha256").update(data, "utf8").digest("hex");
     const { pathOrUrl } = await target.writeBackup(fileName, data);
 
     await createBackupRecord({
@@ -108,6 +110,7 @@ export async function generateLocalBackup(
         mode: target.name,
         taskCount: bundle.data.tasks?.length ?? 0,
         previousRecordId: pending.id,
+        sha256,
       }),
     });
 
@@ -122,5 +125,60 @@ export async function generateLocalBackup(
       metadataJson: JSON.stringify({ previousRecordId: pending.id }),
     });
     throw err;
+  }
+}
+
+/** Re-read a completed backup and verify its SHA-256 hash matches the ledger. */
+export async function verifyBackupByRecord(record: {
+  pathOrUrl: string | null;
+  metadataJson: string | null;
+}): Promise<{ ok: boolean; sha256: string; expectedSha256: string | null }> {
+  if (!record.pathOrUrl) {
+    return { ok: false, sha256: "", expectedSha256: null };
+  }
+  const meta = (() => {
+    try {
+      return JSON.parse(record.metadataJson ?? "{}");
+    } catch {
+      return {};
+    }
+  })();
+  const expectedSha256: string | null = meta.sha256 ?? null;
+
+  let raw: Buffer | string;
+  if (record.pathOrUrl.startsWith("http://") || record.pathOrUrl.startsWith("https://")) {
+    const res = await fetch(record.pathOrUrl);
+    if (!res.ok) {
+      return { ok: false, sha256: "", expectedSha256 };
+    }
+    raw = await res.text();
+  } else {
+    raw = await readFile(record.pathOrUrl, "utf8");
+  }
+
+  const sha256 = createHash("sha256").update(raw, "utf8").digest("hex");
+  return { ok: sha256 === expectedSha256, sha256, expectedSha256 };
+}
+
+/** Lightweight write test to verify the backup target is currently writable. */
+export async function testBackupTargetWritable(target: BackupTarget): Promise<boolean> {
+  const testPayload = JSON.stringify({ _axtask_backup_probe: true, t: Date.now() });
+  const testFileName = `_probe-${Date.now()}.json`;
+  try {
+    const { pathOrUrl } = await target.writeBackup(testFileName, testPayload);
+    // For local targets, clean up the probe file
+    if (target instanceof LocalFileBackupTarget && !pathOrUrl.startsWith("http")) {
+      try {
+        const { unlink } = await import("node:fs/promises");
+        await unlink(pathOrUrl);
+      } catch {
+        // ignore cleanup failure
+      }
+    }
+    // For S3, a successful PUT is sufficient evidence; we don't delete to avoid
+    // needing DELETE signing complexity in the minimal target implementation.
+    return true;
+  } catch {
+    return false;
   }
 }
