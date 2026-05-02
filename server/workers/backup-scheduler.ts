@@ -11,7 +11,7 @@
  */
 
 import { generateLocalBackup, isAutomaticBackupsConfigured } from "../services/backup-service";
-import { getAllUsers } from "../storage";
+import { getAllUsers, getUserBackupPreference } from "../storage";
 
 const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
 const DEFAULT_INITIAL_DELAY_MS = 5 * 60 * 1000; // 5min after boot
@@ -26,12 +26,18 @@ async function runBackupBatch(outputDir?: string): Promise<void> {
   const users = await getAllUsers();
   let succeeded = 0;
   let failed = 0;
+  let skipped = 0;
 
   const targetName = process.env.BACKUP_S3_ENDPOINT ? "s3" : "local";
   console.info(`[backup-scheduler] starting batch for ${users.length} users using target: ${targetName}`);
 
   for (const user of users) {
     try {
+      const pref = await getUserBackupPreference(user.id);
+      if (pref && pref.autoBackupEnabled === false) {
+        skipped += 1;
+        continue;
+      }
       await generateLocalBackup(user.id, outputDir);
       succeeded += 1;
     } catch (err) {
@@ -42,7 +48,7 @@ async function runBackupBatch(outputDir?: string): Promise<void> {
   }
 
   console.info(
-    `[backup-scheduler] batch complete. ${succeeded} succeeded, ${failed} failed, ${users.length} total`,
+    `[backup-scheduler] batch complete. ${succeeded} succeeded, ${failed} failed, ${skipped} skipped, ${users.length} total`,
   );
 }
 

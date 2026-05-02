@@ -60,6 +60,7 @@ import {
   collaborationInboxMessages,
   userClassificationLabels,
   backupRecords,
+  userBackupPreferences,
   type Task,
   type InsertTask,
   type UpdateTask,
@@ -122,6 +123,7 @@ import {
   type UserAlarmSnapshot,
   type CollaborationInboxMessage,
   type BackupRecord,
+  type UserBackupPreference,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ne, ilike, or, asc, lt, lte, gt, gte, count, avg, sql, desc, inArray, isNull, isNotNull } from "drizzle-orm";
@@ -5589,4 +5591,42 @@ export async function getLastBackupRecordForUser(userId: string): Promise<Backup
     .orderBy(desc(backupRecords.createdAt))
     .limit(1);
   return row || null;
+}
+
+// ─── User Backup Preference helpers ─────────────────────────────────────────
+
+export async function getUserBackupPreference(userId: string): Promise<UserBackupPreference | null> {
+  const [row] = await db
+    .select()
+    .from(userBackupPreferences)
+    .where(eq(userBackupPreferences.userId, userId))
+    .limit(1);
+  return row || null;
+}
+
+export async function upsertUserBackupPreference(input: {
+  userId: string;
+  autoBackupEnabled?: boolean;
+  preferredTarget?: string;
+}): Promise<UserBackupPreference> {
+  const now = new Date();
+  const [row] = await db
+    .insert(userBackupPreferences)
+    .values({
+      userId: input.userId,
+      autoBackupEnabled: input.autoBackupEnabled ?? true,
+      preferredTarget: input.preferredTarget ?? "default",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: userBackupPreferences.userId,
+      set: {
+        autoBackupEnabled: input.autoBackupEnabled ?? true,
+        preferredTarget: input.preferredTarget ?? "default",
+        updatedAt: now,
+      },
+    })
+    .returning();
+  return row;
 }

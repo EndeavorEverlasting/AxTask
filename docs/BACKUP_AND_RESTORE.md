@@ -69,6 +69,17 @@ BACKUP_LOCAL_DIR=./backups              # optional output directory
 
 The scheduler iterates over all users, exports a JSON bundle per user, and writes a `backup_records` ledger entry. One user failing does not abort the batch.
 
+Users can opt in or out of automatic backups individually via `PATCH /api/account/backup/preferences`:
+
+```json
+{
+  "autoBackupEnabled": false,
+  "preferredTarget": "local"
+}
+```
+
+Default is `autoBackupEnabled: true` and `preferredTarget: "default"` (falls back to server env configuration).
+
 ### S3-Compatible Target (Optional)
 
 Instead of writing to local disk, set S3-compatible environment variables:
@@ -82,7 +93,7 @@ BACKUP_S3_SECRET_ACCESS_KEY=...
 BACKUP_S3_PREFIX=backups/          # optional key prefix
 ```
 
-Works with AWS S3, MinIO, Wasabi, DigitalOcean Spaces, and any other service that accepts AWS Signature Version 4 PUT requests.
+Works with AWS S3, MinIO, Wasabi, DigitalOcean Spaces, and any other service that accepts AWS Signature Version 4 PUT requests. Users can override the server default target by setting `preferredTarget: "s3"` or `preferredTarget: "local"` in their preferences.
 
 ### Admin Config Endpoint
 
@@ -100,16 +111,36 @@ Returns the active server-wide backup configuration:
 }
 ```
 
+### Admin Health Endpoint
+
+`GET /api/admin/backup/health` (admin auth required)
+
+Returns `200` if healthy or `503` if the scheduler is enabled but no recent successful backup exists:
+
+```json
+{
+  "schedulerEnabled": true,
+  "latestBackupRecord": {
+    "status": "completed",
+    "createdAt": "2026-05-02T14:30:00.000Z",
+    "completedAt": "2026-05-02T14:30:05.000Z",
+    "type": "s3",
+    "hasError": false
+  },
+  "envTarget": "s3",
+  "writable": true
+}
+```
+
 ## What Is Not Yet Automated
 
 - No Windows Task Scheduler integration (use the Node.js scheduler or cron).
-- No cloud object storage uploads (S3, GCS, etc.).
 - No CLI-authenticated backup (the `backup:local` script is informational only).
 
 ## Future Roadmap
 
-1. **Backup Targets** — pluggable write-only targets (local disk, S3-compatible, rsync).
-2. **Migration Airlock** — safe migration commands that refuse to run without a verified backup.
+1. **Migration Airlock** — safe migration commands that refuse to run without a verified backup.
+2. **Backup Verification** — automatic read-back / checksum validation after upload.
 
 See also the repository-wide [**Reliability Roadmap**](../README.md#reliability-roadmap).
 

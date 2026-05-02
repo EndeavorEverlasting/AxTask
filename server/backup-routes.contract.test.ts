@@ -7,6 +7,8 @@ const projectRoot = path.resolve(__dirname, "..");
 const routesPath = path.join(projectRoot, "server", "routes.ts");
 const backupServicePath = path.join(projectRoot, "server", "services", "backup-service.ts");
 const backupRoutesPath = path.join(projectRoot, "server", "routes", "backup.ts");
+const backupSchedulerPath = path.join(projectRoot, "server", "workers", "backup-scheduler.ts");
+const schemaPath = path.join(projectRoot, "shared", "schema", "ops.ts");
 const accountBackupRoutesPath = path.join(projectRoot, "server", "routes", "account-backup.ts");
 const accountRoutesPath = path.join(projectRoot, "server", "routes", "account.ts");
 
@@ -100,5 +102,68 @@ describe("backup routes contract", () => {
     expect(content).toContain("isAutomaticBackupsConfigured()");
     expect(content).toContain("lastServerBackupAt");
     expect(content).toContain("restoreDryRunAvailable: true");
+    expect(content).toContain("userAutoBackupEnabled");
+    expect(content).toContain("userPreferredTarget");
+  });
+
+  it("schema defines userBackupPreferences table", () => {
+    const content = fs.readFileSync(schemaPath, "utf8");
+    expect(content).toContain("userBackupPreferences");
+    expect(content).toContain("autoBackupEnabled");
+    expect(content).toContain("preferredTarget");
+  });
+
+  it("backup service queries user preferences", () => {
+    const content = fs.readFileSync(backupServicePath, "utf8");
+    expect(content).toContain("getUserBackupPreference");
+  });
+
+  it("scheduler respects user autoBackupEnabled preference", () => {
+    const content = fs.readFileSync(backupSchedulerPath, "utf8");
+    expect(content).toContain("getUserBackupPreference");
+    expect(content).toContain("autoBackupEnabled");
+    expect(content).toContain("skipped");
+  });
+
+  it("backup routes expose user preferences PATCH endpoint", () => {
+    const content = fs.readFileSync(backupRoutesPath, "utf8");
+    expect(content).toContain('"/api/account/backup/preferences"');
+    expect(content).toContain("upsertUserBackupPreference");
+  });
+
+  it("backup routes expose admin health endpoint", () => {
+    const content = fs.readFileSync(backupRoutesPath, "utf8");
+    expect(content).toContain('"/api/admin/backup/health"');
+    expect(content).toContain("latestBackupRecord");
+  });
+
+  it("registers task attachment routes in routes.ts", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes).toContain('import { registerTaskAttachmentRoutes } from "./routes/task-attachments"');
+    expect(routes).toContain("registerTaskAttachmentRoutes(app, requireAuth)");
+  });
+
+  it("exposes task attachment routes in the task-attachments route module", () => {
+    const content = fs.readFileSync(
+      path.join(projectRoot, "server", "routes", "task-attachments.ts"),
+      "utf8",
+    );
+    expect(content).toContain('"/api/tasks/:taskId/attachments"');
+    expect(content).toContain('"/api/tasks/:taskId/attachments/link"');
+  });
+
+  it("registers task collaboration routes in routes.ts", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes).toContain('import { registerTaskCollaborationRoutes } from "./routes/task-collaboration"');
+    expect(routes).toContain("registerTaskCollaborationRoutes(app, requireAuth)");
+  });
+
+  it("exposes task collaboration routes in the task-collaboration route module", () => {
+    const content = fs.readFileSync(
+      path.join(projectRoot, "server", "routes", "task-collaboration.ts"),
+      "utf8",
+    );
+    expect(content).toContain('"/api/tasks/shared"');
+    expect(content).toContain('"/api/tasks/:id/collaborators"');
   });
 });

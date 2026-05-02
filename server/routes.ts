@@ -14,7 +14,7 @@ import { listPurchasedShoppingEventsForUser } from "./shopping-lists-storage";
 import { exportFullDatabase, exportUserData } from "./migration/export";
 import { importBundle, validateBundleWithDb } from "./migration/import";
 import {
-  storage, getUserByPublicHandle,
+  storage,
   verifyResetToken,
   banUser, unbanUser, getAllUsers, isUserBanned,
   logSecurityEvent, getSecurityLogs,
@@ -33,7 +33,7 @@ import {
   getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
   getFeedbackSubmissionCount, getAvatarProfiles, engageAvatarMission, spendCoinsForAvatarBoost, seedAvatarSkillTree, getAvatarSkillTree, unlockAvatarSkill,
   userHasAvatarSkillUnlocked,
-  assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachments, getTaskAttachmentIdsForTasks, linkAttachmentToTask,
+  assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachmentIdsForTasks,
   linkAttachmentsToOwner, getAttachmentsForOwner, getAttachmentsForOwnerPublic,
   getAttachmentsForOwnersBatch, getAttachmentsForOwnersPublicBatch,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
@@ -191,6 +191,8 @@ import { registerBackupRoutes } from "./routes/backup";
 import { registerAccountBackupRoutes } from "./routes/account-backup";
 import { registerAccountRoutes } from "./routes/account";
 import { registerAuthRoutes } from "./routes/auth";
+import { registerTaskAttachmentRoutes } from "./routes/task-attachments";
+import { registerTaskCollaborationRoutes } from "./routes/task-collaboration";
 import {
   analyzeTaskHistory,
   suggestDeadline,
@@ -5371,28 +5373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ── Task attachment endpoints ─────────────────────────────────────────────
 
-  app.get("/api/tasks/:taskId/attachments", requireAuth, async (req, res) => {
-    try {
-      const assets = await getTaskAttachments(req.user!.id, req.params.taskId);
-      res.json(assets);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch task attachments" });
-    }
-  });
-
-  app.post("/api/tasks/:taskId/attachments/link", requireAuth, async (req, res) => {
-    try {
-      const { assetId } = z.object({ assetId: z.string().min(1) }).parse(req.body);
-      const linked = await linkAttachmentToTask(req.user!.id, assetId, req.params.taskId);
-      if (!linked) return res.status(404).json({ message: "Attachment not found" });
-      res.json(linked);
-    } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to link attachment to task" });
-    }
-  });
 
   app.get("/api/attachments/:assetId/download", requireAuth, async (req, res) => {
     try {
@@ -7199,71 +7180,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/tasks/shared", requireAuth, async (req, res) => {
-    try {
-      const shared = await getSharedTasks(req.user!.id);
-      res.json(shared);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch shared tasks" });
-    }
-  });
 
-  app.get("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
-    try {
-      const access = await canAccessTask(req.user!.id, req.params.id);
-      if (!access.canAccess) return res.status(403).json({ message: "Access denied" });
-      const collaborators = await getTaskCollaborators(req.params.id);
-      res.json(collaborators);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch collaborators" });
-    }
-  });
-
-  app.post("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
-    try {
-      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
-      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can add collaborators" });
-      const { handle, role } = req.body;
-      if (!handle) return res.status(400).json({ message: "Handle is required" });
-      const validRoles = ["editor", "viewer"];
-      if (role && !validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
-      const user = await getUserByPublicHandle(handle);
-      if (!user) return res.status(404).json({ message: "User not found" });
-      if (user.id === req.user!.id) return res.status(400).json({ message: "Cannot add yourself" });
-      const collab = await addCollaborator(req.params.id, user.id, role || "viewer", req.user!.id);
-      res.json(collab);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to add collaborator" });
-    }
-  });
-
-  app.put("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
-    try {
-      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
-      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can change roles" });
-      const { role } = req.body;
-      const validRoles = ["editor", "viewer"];
-      if (!validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
-      const updated = await updateCollaboratorRole(req.params.id, req.params.userId, role);
-      if (!updated) return res.status(404).json({ message: "Collaborator not found" });
-      res.json(updated);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update collaborator" });
-    }
-  });
-
-  app.delete("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
-    try {
-      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
-      const isSelf = req.params.userId === req.user!.id;
-      if (!ownerCheck && !isSelf) return res.status(403).json({ message: "Access denied" });
-      const removed = await removeCollaborator(req.params.id, req.params.userId);
-      if (!removed) return res.status(404).json({ message: "Collaborator not found" });
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to remove collaborator" });
-    }
-  });
 
   // ════════════════════════════════════════════════════════════════════════
   // ARCHETYPE EMPATHY READ API (admin + scoped RAG token)
@@ -7420,6 +7337,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAccountBackupRoutes(app, requireAuth);
   registerAccountRoutes(app, requireAuth);
   registerAuthRoutes(app, requireAuth);
+  registerTaskAttachmentRoutes(app, requireAuth);
+  registerTaskCollaborationRoutes(app, requireAuth);
   attachShoppingListRoutes(app);
   attachConversionArtifactRoutes(app);
 

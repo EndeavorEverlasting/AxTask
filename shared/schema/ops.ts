@@ -847,4 +847,14 @@ export const backupRecords = pgTable("backup_records", {
   index("idx_backup_records_status").on(table.status),
 ]);
 
+export const userBackupPreferences = pgTable("user_backup_preferences", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  autoBackupEnabled: boolean("auto_backup_enabled").notNull().default(true),
+  preferredTarget: text("preferred_target").default("default"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export type BackupRecord = typeof backupRecords.$inferSelect;
+
+export type UserBackupPreference = typeof userBackupPreferences.$inferSelect;
