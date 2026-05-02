@@ -9,6 +9,8 @@ vite.config.ts.*
 .env
 *.env
 .env.docker
+env/
+
 pics/
 NodeWeaver._pre_submodule_backup/
 
