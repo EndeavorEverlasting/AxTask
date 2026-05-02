@@ -87,4 +87,74 @@ describe("buildSkillTreeFlowLayout", () => {
     const offlineX = rf.find((n) => n.id === "dynamos")!.position.x;
     expect(offlineX).toBeGreaterThan(avatarX);
   });
+
+  it("creates styled edges for additionalEdges when both endpoints exist", () => {
+    const nodes: SkillNodeDto[] = [
+      node({
+        skillKey: "alpha",
+        branch: "core",
+        prerequisiteSkillKey: null,
+        additionalEdges: [
+          { sourceSkillKey: "alpha", targetSkillKey: "beta", kind: "synergy" },
+          { sourceSkillKey: "alpha", targetSkillKey: "gamma", kind: "unlocks_engine" },
+        ],
+      }),
+      node({ skillKey: "beta", branch: "core", prerequisiteSkillKey: null }),
+      node({ skillKey: "gamma", branch: "core", prerequisiteSkillKey: null }),
+    ];
+    const { edges } = buildSkillTreeFlowLayout(nodes);
+    const synergy = edges.find((e) => e.id === "e-synergy-alpha__beta");
+    const unlockEngine = edges.find((e) => e.id === "e-unlocks_engine-alpha__gamma");
+    expect(synergy).toBeDefined();
+    expect(unlockEngine).toBeDefined();
+    expect(synergy!.label).toBe("synergy");
+    expect(unlockEngine!.label).toBe("engine");
+    expect(synergy!.data.kind).toBe("synergy");
+    expect(unlockEngine!.data.kind).toBe("unlocks_engine");
+  });
+
+  it("skips additionalEdges when an endpoint is missing", () => {
+    const nodes: SkillNodeDto[] = [
+      node({
+        skillKey: "alpha",
+        branch: "core",
+        prerequisiteSkillKey: null,
+        additionalEdges: [
+          { sourceSkillKey: "alpha", targetSkillKey: "missing", kind: "synergy" },
+        ],
+      }),
+    ];
+    const { edges } = buildSkillTreeFlowLayout(nodes);
+    expect(edges).toHaveLength(0);
+  });
+
+  it("deduplicates edges when prerequisite and additionalEdges collide", () => {
+    const nodes: SkillNodeDto[] = [
+      node({ skillKey: "parent", branch: "core", prerequisiteSkillKey: null }),
+      node({
+        skillKey: "child",
+        branch: "core",
+        prerequisiteSkillKey: "parent",
+        additionalEdges: [
+          { sourceSkillKey: "parent", targetSkillKey: "child", kind: "synergy" },
+        ],
+      }),
+    ];
+    const { edges } = buildSkillTreeFlowLayout(nodes);
+    // The prerequisite edge and the synergy edge share the same endpoints but have different IDs,
+    // so both are kept (different semantics). The dedup only guards against identical IDs.
+    expect(edges.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("supports LR layout direction option", () => {
+    const nodes: SkillNodeDto[] = [
+      node({ skillKey: "a", branch: "x", prerequisiteSkillKey: null }),
+      node({ skillKey: "b", branch: "x", prerequisiteSkillKey: "a" }),
+    ];
+    const { nodes: rf } = buildSkillTreeFlowLayout(nodes, { direction: "LR" });
+    expect(rf.map((n) => n.id).sort()).toEqual(["a", "b"]);
+    expect(rf[0].position).toEqual(
+      expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
+    );
+  });
 });

@@ -104,12 +104,15 @@ function SkillTreeFlowNodeImpl({ data }: NodeProps<SkillFlowRfNode>) {
     <div
       className={cn(
         "rounded-lg border bg-background/90 shadow-sm backdrop-blur-sm w-[260px]",
-        "p-2.5",
+        "p-2.5 select-none cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
         locked && "opacity-75",
         treeKind === "offline" && "border-cyan-500/35 shadow-cyan-950/20",
         treeKind === "avatar" && "border-violet-500/35 shadow-violet-950/15",
       )}
       data-testid={`skill-node-${treeKind}-${dto.skillKey}`}
+      tabIndex={0}
+      role="group"
+      aria-label={`${dto.name}, level ${dto.currentLevel} of ${dto.maxLevel}`}
     >
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-border" />
       <div className="flex items-start gap-2">

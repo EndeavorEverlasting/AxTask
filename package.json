@@ -10,6 +10,7 @@
     "offline:start": "node tools/local/offline-start.mjs",
     "offline:shortcut": "powershell -ExecutionPolicy Bypass -File tools/local/create-desktop-shortcut.ps1",
     "local:env-init": "node tools/local/copy-env-local.mjs",
+    "backup:local": "node scripts/backup-local.mjs",
     "docker:start": "docker compose --env-file .env.docker up -d --build",
     "docker:stop": "docker compose --env-file .env.docker down",
     "docker:status": "docker compose --env-file .env.docker ps",

@@ -87,6 +87,7 @@ const CollabInboxPage = lazy(() => import("@/pages/collab-inbox"));
 const VideoHuddlePage = lazy(() => import("@/pages/video-huddle"));
 const MessagesPage = lazy(() => import("@/pages/messages"));
 const BillingBridgePage = lazy(() => import("@/pages/billing-bridge-dashboard"));
+const BackupPage = lazy(() => import("@/pages/backup"));
 import { DeepLinkGate } from "@/components/marketing/deep-link-gate";
 import { isValidAppPath } from "@/lib/app-routes";
 import {
@@ -200,6 +201,7 @@ function Router() {
         <Route path="/privacy" component={PrivacyPolicyPage} />
         <Route path="/terms" component={TermsOfServicePage} />
         <Route path="/billing-bridge" component={BillingBridgePage} />
+        <Route path="/backup" component={BackupPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

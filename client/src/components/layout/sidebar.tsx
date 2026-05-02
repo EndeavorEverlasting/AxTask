@@ -45,6 +45,7 @@ import {
   MessagesSquare,
   Video,
   MessageCircle,
+  Database,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -190,6 +191,7 @@ function SidebarContent({ onNavigate, onScroll }: { onNavigate?: () => void; onS
       { path: "/contact", icon: Mail, label: "Contact" },
       { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
       { path: "/import-export", icon: Upload, label: "Import/Export" },
+      { path: "/backup", icon: Database, label: "Backup Center" },
       { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
       { path: "/billing-bridge", icon: ClipboardCheck, label: "Billing Bridge" },
       ...(user?.role === "admin" ? [{ path: "/admin", icon: Shield, label: "Security Admin" }] : []),

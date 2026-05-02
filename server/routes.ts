@@ -201,6 +201,7 @@ import { registerAiRoutes } from "./routes/ai";
 import { registerLocationRoutes } from "./routes/locations";
 import { registerReminderRoutes } from "./routes/reminders";
 import { registerFoundryRoutes } from "./routes/foundry";
+import { registerBackupRoutes } from "./routes/backup";
 import {
   analyzeTaskHistory,
   suggestDeadline,
@@ -6119,7 +6120,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       res.json({
         userId: req.user!.id,
-        legalName: req.user!.firstName && req.user!.lastName ? `${req.user!.firstName} ${req.user!.lastName}` : null,
+        legalName: req.user!.displayName || null,
         line1: null,
         line2: null,
         city: null,
@@ -8267,6 +8268,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerLocationRoutes(app, requireAuth);
   registerReminderRoutes(app, requireAuth);
   registerAiRoutes(app, requireAuth);
+  registerBackupRoutes(app, requireAuth);
   attachShoppingListRoutes(app);
   attachConversionArtifactRoutes(app);
 
