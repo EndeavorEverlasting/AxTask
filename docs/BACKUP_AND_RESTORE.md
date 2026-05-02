@@ -73,22 +73,26 @@ Set the environment variable to activate:
 ```bash
 BACKUP_SCHEDULER_ENABLED=true
 BACKUP_SCHEDULER_INTERVAL_MS=86400000   # 24h default
-BACKUP_SCHEDULER_BATCH_SIZE=100         # users per chunk (default 100)
+BACKUP_SCHEDULER_BATCH_SIZE=100         # users per page (default 100)
+BACKUP_SCHEDULER_CONCURRENCY=4          # parallel backups within a page (default 4)
 BACKUP_LOCAL_DIR=./backups              # optional output directory
 ```
 
-The scheduler iterates over all users in configurable chunks, exports a JSON bundle per user, and writes a `backup_records` ledger entry. One user failing does not abort the batch or the chunk. A small delay is inserted between chunks to avoid hammering the database.
+The scheduler iterates over all users in configurable pages, exports a JSON bundle per user (up to 4 concurrently within a page), and writes a `backup_records` ledger entry. One user failing does not abort the batch or the page. A small delay is inserted between pages to avoid hammering the database.
+
+After the backup batch completes, a **retention cleanup** runs that respects each user's `retentionPolicyJson` (default: keep last 30 backups + oldest from 12 months). Old records are removed from `backup_records`.
 
 Users can opt in or out of automatic backups individually via `PATCH /api/account/backup/preferences`:
 
 ```json
 {
   "autoBackupEnabled": false,
-  "preferredTarget": "local"
+  "preferredTarget": "local",
+  "retentionPolicyJson": "{\"keepLastN\":30,\"keepMonthly\":12}"
 }
 ```
 
-Default is `autoBackupEnabled: true` and `preferredTarget: "default"` (falls back to server env configuration).
+Default is `autoBackupEnabled: true`, `preferredTarget: "default"`, and `retentionPolicyJson: null` (falls back to server defaults).
 
 The Import/Export UI shows a **warning banner** when consecutive automatic backups have failed, alerting users that their data may not be safely backed up.
 
@@ -106,6 +110,19 @@ BACKUP_S3_PREFIX=backups/          # optional key prefix
 ```
 
 Works with AWS S3, MinIO, Wasabi, DigitalOcean Spaces, and any other service that accepts AWS Signature Version 4 PUT requests. Users can override the server default target by setting `preferredTarget: "s3"` or `preferredTarget: "local"` in their preferences.
+
+### Multi-Target S3 Replication (Optional)
+
+Write to multiple S3-compatible targets in parallel for redundancy:
+
+```bash
+BACKUP_S3_TARGETS_JSON='[
+  {"endpoint":"https://s3.us-east-1.amazonaws.com","bucket":"my-backups-east","region":"us-east-1","accessKeyId":"...","secretAccessKey":"...","prefix":"backups/"},
+  {"endpoint":"https://s3.eu-west-1.amazonaws.com","bucket":"my-backups-west","region":"eu-west-1","accessKeyId":"...","secretAccessKey":"...","prefix":"backups/"}
+]'
+```
+
+When `BACKUP_S3_TARGETS_JSON` is set, it takes precedence over `BACKUP_S3_ENDPOINT`. The scheduler writes to all targets in parallel and reports partial failures without aborting the batch.
 
 ### Encryption at Rest (Optional)
 
@@ -208,8 +225,8 @@ MIGRATION_SKIP_AIRLOCK=true npm run db:push
 
 ## Future Roadmap
 
-1. **Cross-region Replication** — write to multiple S3 buckets/regions for redundancy.
-2. **Backup Retention Policies** — per-user rules (e.g., "keep last 30 daily, 12 monthly").
+1. **Queue-based scheduler** — replace tick-based loop with BullMQ or similar for horizontal scaling beyond tens of thousands of users.
+2. **Backup compression** — gzip JSON bundles before encryption to reduce storage and bandwidth.
 
 See also the repository-wide [**Reliability Roadmap**](../README.md#reliability-roadmap).
 

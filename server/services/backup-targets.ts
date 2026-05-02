@@ -234,3 +234,67 @@ export class S3CompatibleBackupTarget implements BackupTarget {
     }
   }
 }
+
+/**
+ * Multi-target S3 replication.
+ *
+ * Accepts an array of S3-compatible target configs and writes to all
+ * in parallel. If any target fails, the error is thrown after all
+ * promises settle so the caller can decide whether to abort.
+ *
+ * Configure via BACKUP_S3_TARGETS_JSON env var:
+ *   [{"endpoint":"...","bucket":"...","region":"...","accessKeyId":"...","secretAccessKey":"...","prefix":"..."}]
+ */
+export class MultiS3BackupTarget implements BackupTarget {
+  name = "multi_s3";
+  private targets: S3CompatibleBackupTarget[];
+
+  constructor(configs: Array<{
+    endpoint: string;
+    bucket: string;
+    region: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    prefix?: string;
+    retries?: number;
+    retryDelayMs?: number;
+  }>) {
+    if (configs.length === 0) {
+      throw new Error("MultiS3BackupTarget requires at least one S3 config");
+    }
+    this.targets = configs.map((c) => new S3CompatibleBackupTarget(c));
+  }
+
+  async writeBackup(fileName: string, data: string): Promise<{ pathOrUrl: string }> {
+    const results = await Promise.allSettled(
+      this.targets.map((t) => t.writeBackup(fileName, data)),
+    );
+
+    const succeeded = results.filter((r) => r.status === "fulfilled") as PromiseFulfilledResult<{ pathOrUrl: string }>[];
+    const failed = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+
+    if (succeeded.length === 0) {
+      const reasons = failed.map((f) => (f.reason instanceof Error ? f.reason.message : String(f.reason))).join("; ");
+      throw new Error(`All S3 targets failed: ${reasons}`);
+    }
+
+    if (failed.length > 0) {
+      const reasons = failed.map((f) => (f.reason instanceof Error ? f.reason.message : String(f.reason))).join("; ");
+      console.warn(`[multi-s3] ${failed.length}/${this.targets.length} targets failed: ${reasons}`);
+    }
+
+    // Return the first successful URL as the canonical pathOrUrl
+    return { pathOrUrl: succeeded[0].value.pathOrUrl };
+  }
+
+  async deleteBackup(fileName: string): Promise<void> {
+    const results = await Promise.allSettled(
+      this.targets.map((t) => t.deleteBackup(fileName)),
+    );
+    const failed = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+    if (failed.length > 0) {
+      const reasons = failed.map((f) => (f.reason instanceof Error ? f.reason.message : String(f.reason))).join("; ");
+      console.warn(`[multi-s3] delete failed on ${failed.length}/${this.targets.length} targets: ${reasons}`);
+    }
+  }
+}

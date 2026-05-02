@@ -30,11 +30,12 @@ export function registerBackupRoutes(
 
   app.patch("/api/account/backup/preferences", requireAuth, async (req, res) => {
     try {
-      const { autoBackupEnabled, preferredTarget } = req.body || {};
+      const { autoBackupEnabled, preferredTarget, retentionPolicyJson } = req.body || {};
       const pref = await upsertUserBackupPreference({
         userId: req.user!.id,
         autoBackupEnabled: typeof autoBackupEnabled === "boolean" ? autoBackupEnabled : undefined,
         preferredTarget: typeof preferredTarget === "string" ? preferredTarget : undefined,
+        retentionPolicyJson: typeof retentionPolicyJson === "string" ? retentionPolicyJson : undefined,
       });
       res.json(pref);
     } catch (error) {

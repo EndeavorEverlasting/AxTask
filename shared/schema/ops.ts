@@ -851,6 +851,7 @@ export const userBackupPreferences = pgTable("user_backup_preferences", {
   userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   autoBackupEnabled: boolean("auto_backup_enabled").notNull().default(true),
   preferredTarget: text("preferred_target").default("default"),
+  retentionPolicyJson: text("retention_policy_json"), // e.g. {"keepLastN":30,"keepMonthly":12}
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

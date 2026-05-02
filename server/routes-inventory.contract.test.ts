@@ -21,6 +21,7 @@ const registrarRouteSources = [
   path.join(projectRoot, "server", "routes", "patterns.ts"),
   path.join(projectRoot, "server", "routes", "alarms.ts"),
   path.join(projectRoot, "server", "routes", "collaboration.ts"),
+  path.join(projectRoot, "server", "routes", "dm-e2ee.ts"),
 ];
 
 /**

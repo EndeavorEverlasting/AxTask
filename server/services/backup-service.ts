@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { buildUserExportBundle, type UserExportBundle } from "../account-backup";
 import { createBackupRecord, getLastBackupRecordForUser, getUserBackupPreference, countRecentBackupFailuresForUser } from "../storage";
-import { BackupTarget, LocalFileBackupTarget, S3CompatibleBackupTarget } from "./backup-targets";
+import { BackupTarget, LocalFileBackupTarget, S3CompatibleBackupTarget, MultiS3BackupTarget } from "./backup-targets";
 import { encryptBackup, decryptBackup } from "./backup-crypto";
 
 export type BackupStatus = {
@@ -36,6 +36,19 @@ export async function getBackupStatus(userId: string): Promise<BackupStatus> {
 }
 
 export function resolveBackupTarget(preferredTarget?: string): BackupTarget {
+  // Multi-target S3 replication via BACKUP_S3_TARGETS_JSON
+  const multiTargetsJson = process.env.BACKUP_S3_TARGETS_JSON;
+  if (multiTargetsJson) {
+    try {
+      const configs = JSON.parse(multiTargetsJson);
+      if (Array.isArray(configs) && configs.length > 0) {
+        return new MultiS3BackupTarget(configs);
+      }
+    } catch {
+      console.warn("[backup] BACKUP_S3_TARGETS_JSON is invalid JSON, ignoring");
+    }
+  }
+
   const s3Endpoint = process.env.BACKUP_S3_ENDPOINT;
   const s3Bucket = process.env.BACKUP_S3_BUCKET;
   const s3Region = process.env.BACKUP_S3_REGION || "us-east-1";

@@ -5620,6 +5620,77 @@ export async function countRecentBackupFailuresForUser(userId: string): Promise<
   return failures;
 }
 
+/**
+ * Clean up old backup records for a user according to their retention policy.
+ * Default policy keeps the last 30 completed backups + 12 monthly oldest.
+ * Returns the number of deleted rows.
+ */
+export async function cleanupBackupRecords(userId: string): Promise<number> {
+  const pref = await getUserBackupPreference(userId);
+  let keepLastN = 30;
+  let keepMonthly = 12;
+
+  if (pref?.retentionPolicyJson) {
+    try {
+      const policy = JSON.parse(pref.retentionPolicyJson);
+      if (typeof policy.keepLastN === "number") keepLastN = policy.keepLastN;
+      if (typeof policy.keepMonthly === "number") keepMonthly = policy.keepMonthly;
+    } catch {
+      // ignore invalid JSON
+    }
+  }
+
+  // Get all completed backups for the user, newest first
+  const records = await db
+    .select({ id: backupRecords.id, createdAt: backupRecords.createdAt })
+    .from(backupRecords)
+    .where(eq(backupRecords.userId, userId))
+    .orderBy(desc(backupRecords.createdAt));
+
+  if (records.length <= keepLastN) {
+    return 0;
+  }
+
+  const idsToDelete: string[] = [];
+  const keepSet = new Set<string>();
+
+  // Always keep the most recent N
+  for (let i = 0; i < Math.min(keepLastN, records.length); i++) {
+    keepSet.add(records[i].id);
+  }
+
+  // Keep the oldest backup from each month (up to keepMonthly)
+  const monthlyKept = new Map<string, string>();
+  for (const record of records) {
+    const monthKey = record.createdAt
+      ? `${record.createdAt.getUTCFullYear()}-${String(record.createdAt.getUTCMonth() + 1).padStart(2, "0")}`
+      : "unknown";
+    if (!monthlyKept.has(monthKey)) {
+      monthlyKept.set(monthKey, record.id);
+    }
+    if (monthlyKept.size >= keepMonthly) break;
+  }
+  for (const id of monthlyKept.values()) {
+    keepSet.add(id);
+  }
+
+  for (const record of records) {
+    if (!keepSet.has(record.id)) {
+      idsToDelete.push(record.id);
+    }
+  }
+
+  if (idsToDelete.length === 0) return 0;
+
+  // Drizzle doesn't support bulk delete with IN in all dialects; use a loop
+  let deleted = 0;
+  for (const id of idsToDelete) {
+    const result = await db.delete(backupRecords).where(eq(backupRecords.id, id)).returning();
+    deleted += result.length;
+  }
+  return deleted;
+}
+
 // ─── User Backup Preference helpers ─────────────────────────────────────────
 
 export async function getUserBackupPreference(userId: string): Promise<UserBackupPreference | null> {
@@ -5635,6 +5706,7 @@ export async function upsertUserBackupPreference(input: {
   userId: string;
   autoBackupEnabled?: boolean;
   preferredTarget?: string;
+  retentionPolicyJson?: string;
 }): Promise<UserBackupPreference> {
   const now = new Date();
   const [row] = await db
@@ -5643,6 +5715,7 @@ export async function upsertUserBackupPreference(input: {
       userId: input.userId,
       autoBackupEnabled: input.autoBackupEnabled ?? true,
       preferredTarget: input.preferredTarget ?? "default",
+      retentionPolicyJson: input.retentionPolicyJson ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -5651,6 +5724,7 @@ export async function upsertUserBackupPreference(input: {
       set: {
         autoBackupEnabled: input.autoBackupEnabled ?? true,
         preferredTarget: input.preferredTarget ?? "default",
+        retentionPolicyJson: input.retentionPolicyJson ?? null,
         updatedAt: now,
       },
     })

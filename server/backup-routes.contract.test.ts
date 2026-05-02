@@ -159,12 +159,14 @@ describe("backup routes contract", () => {
     expect(content).toContain("testBackupTargetWritable");
   });
 
-  it("scheduler processes users in configurable pages", () => {
+  it("scheduler processes users in configurable pages with concurrency", () => {
     const content = fs.readFileSync(backupSchedulerPath, "utf8");
     expect(content).toContain("getUsersPaginated");
     expect(content).not.toContain("getAllUsers");
     expect(content).toContain("BACKUP_SCHEDULER_BATCH_SIZE");
-    expect(content).toContain("batchSize");
+    expect(content).toContain("BACKUP_SCHEDULER_CONCURRENCY");
+    expect(content).toContain("withConcurrency");
+    expect(content).toContain("concurrency");
   });
 
   it("registers task attachment routes in routes.ts", () => {
@@ -271,6 +273,23 @@ describe("backup routes contract", () => {
     expect(content).toContain('"/api/collaboration/inbox/:id/read"');
   });
 
+  it("registers dm-e2ee routes in routes.ts", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes).toContain('import { registerDmE2eeRoutes } from "./routes/dm-e2ee"');
+    expect(routes).toContain("registerDmE2eeRoutes(app, requireAuth)");
+  });
+
+  it("exposes e2ee device and dm routes in the dm-e2ee route module", () => {
+    const content = fs.readFileSync(
+      path.join(projectRoot, "server", "routes", "dm-e2ee.ts"),
+      "utf8",
+    );
+    expect(content).toContain('"/api/e2ee/devices"');
+    expect(content).toContain('"/api/dm/public-identity"');
+    expect(content).toContain('"/api/dm/conversations"');
+    expect(content).toContain('"/api/dm/conversations/:id/messages"');
+  });
+
   it("apply-migrations script wires migration airlock", () => {
     const content = fs.readFileSync(applyMigrationsPath, "utf8");
     expect(content).toContain("migration-airlock.mjs");
@@ -332,5 +351,39 @@ describe("backup routes contract", () => {
     );
     expect(content).toContain("countRecentBackupFailuresForUser");
     expect(content).toContain('row.status === "failed"');
+  });
+
+  it("backup targets support multi-target S3 replication", () => {
+    const content = fs.readFileSync(backupTargetsPath, "utf8");
+    expect(content).toContain("MultiS3BackupTarget");
+    expect(content).toContain("Promise.allSettled");
+    expect(content).toContain("multi_s3");
+  });
+
+  it("backup service resolves multi-target S3 from BACKUP_S3_TARGETS_JSON", () => {
+    const content = fs.readFileSync(backupServicePath, "utf8");
+    expect(content).toContain("BACKUP_S3_TARGETS_JSON");
+    expect(content).toContain("MultiS3BackupTarget");
+  });
+
+  it("schema defines retentionPolicyJson on userBackupPreferences", () => {
+    const content = fs.readFileSync(schemaPath, "utf8");
+    expect(content).toContain("retentionPolicyJson");
+  });
+
+  it("storage provides cleanupBackupRecords with retention policy", () => {
+    const content = fs.readFileSync(
+      path.join(projectRoot, "server", "storage.ts"),
+      "utf8",
+    );
+    expect(content).toContain("cleanupBackupRecords");
+    expect(content).toContain("keepLastN");
+    expect(content).toContain("keepMonthly");
+  });
+
+  it("scheduler runs retention cleanup after backup batch", () => {
+    const content = fs.readFileSync(backupSchedulerPath, "utf8");
+    expect(content).toContain("cleanupBackupRecords");
+    expect(content).toContain("retention cleanup");
   });
 });
