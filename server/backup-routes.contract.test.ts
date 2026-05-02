@@ -220,6 +220,15 @@ describe("backup routes contract", () => {
     expect(content).toContain("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
   });
 
+  it("S3 target retries transient errors with exponential backoff", () => {
+    const content = fs.readFileSync(backupTargetsPath, "utf8");
+    expect(content).toContain("retryFetch");
+    expect(content).toContain("isTransientError");
+    expect(content).toContain("exponential");
+    expect(content).toContain("retries");
+    expect(content).toContain("retryDelayMs");
+  });
+
   it("migration airlock script exists and checks backup_records", () => {
     const content = fs.readFileSync(migrationAirlockPath, "utf8");
     expect(content).toContain("backup_records");
@@ -241,5 +250,15 @@ describe("backup routes contract", () => {
     expect(content).toContain("migration-airlock.mjs");
     expect(content).toContain("--skip-airlock");
     expect(content).toContain("MIGRATION_SKIP_AIRLOCK");
+  });
+
+  it("client UI queries backup status and preferences endpoint", () => {
+    const uiPath = path.join(projectRoot, "client", "src", "pages", "import-export.tsx");
+    const content = fs.readFileSync(uiPath, "utf8");
+    expect(content).toContain('"/api/account/backup/status"');
+    expect(content).toContain('"/api/account/backup/preferences"');
+    expect(content).toContain("Automatic Backup Preferences");
+    expect(content).toContain("userAutoBackupEnabled");
+    expect(content).toContain("userPreferredTarget");
   });
 });

@@ -119,6 +119,38 @@ export default function ImportExport() {
     queryKey: ["/api/tasks"],
   });
 
+  const { data: backupStatus } = useQuery({
+    queryKey: ["/api/account/backup/status"],
+    queryFn: async () => {
+      const res = await fetch("/api/account/backup/status", { credentials: "include" });
+      if (!res.ok) throw new Error("Could not load backup status");
+      return res.json() as Promise<{
+        manualExportAvailable: boolean;
+        automaticBackupsConfigured: boolean;
+        userAutoBackupEnabled: boolean;
+        userPreferredTarget: string;
+        lastServerBackupAt: string | null;
+        restoreDryRunAvailable: boolean;
+      }>;
+    },
+    staleTime: 30_000,
+  });
+
+  const updateBackupPrefMutation = useMutation({
+    mutationFn: async (payload: { autoBackupEnabled?: boolean; preferredTarget?: string }) => {
+      const res = await apiRequest("PATCH", "/api/account/backup/preferences", payload);
+      if (!res.ok) throw new Error("Failed to update preferences");
+      return res.json();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/account/backup/status"] });
+      toast({ title: "Backup preferences updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const { data: exportPrices } = useQuery<ProductivityExportPrices>({
     queryKey: ["/api/gamification/productivity-export-prices"],
   });
@@ -1032,6 +1064,94 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Automatic Backup Preferences</CardTitle>
+          <CardDescription>
+            Control whether the server automatically backs up your account data.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {backupStatus ? (
+            <>
+              <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <div>
+                  <div className="text-sm font-medium">Server Backups</div>
+                  <div className="text-xs text-muted-foreground">
+                    {backupStatus.automaticBackupsConfigured
+                      ? backupStatus.lastServerBackupAt
+                        ? `Last backup: ${new Date(backupStatus.lastServerBackupAt).toLocaleString()}`
+                        : "Scheduled, no completed backup yet"
+                      : "Not configured on this server"}
+                  </div>
+                </div>
+                <div
+                  className={`text-xs font-medium px-2 py-1 rounded-full ${
+                    backupStatus.automaticBackupsConfigured
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
+                      : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                  }`}
+                >
+                  {backupStatus.automaticBackupsConfigured ? "Enabled" : "Disabled"}
+                </div>
+              </div>
+
+              {backupStatus.automaticBackupsConfigured && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium">Include my account</div>
+                      <div className="text-xs text-muted-foreground">
+                        Opt in or out of automatic server-side backups
+                      </div>
+                    </div>
+                    <Checkbox
+                      checked={backupStatus.userAutoBackupEnabled}
+                      onCheckedChange={(checked) =>
+                        updateBackupPrefMutation.mutate({
+                          autoBackupEnabled: checked === true,
+                        })
+                      }
+                      disabled={updateBackupPrefMutation.isPending}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium">Preferred target</div>
+                    <div className="flex gap-2">
+                      {(["default", "local", "s3"] as const).map((target) => (
+                        <Button
+                          key={target}
+                          variant={backupStatus.userPreferredTarget === target ? "default" : "outline"}
+                          size="sm"
+                          onClick={() =>
+                            updateBackupPrefMutation.mutate({
+                              preferredTarget: target,
+                            })
+                          }
+                          disabled={updateBackupPrefMutation.isPending}
+                        >
+                          {target === "default" ? "Server default" : target.toUpperCase()}
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      &quot;Server default&quot; follows the server&apos;s configured target. &quot;Local&quot; or &quot;S3"
+                      overrides it for your account.
+                    </p>
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading backup status…
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

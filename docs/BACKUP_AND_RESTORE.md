@@ -57,6 +57,15 @@ docker run --rm \
   alpine tar cvf /backup/postgres-backup.tar /data
 ```
 
+## User Backup Preferences
+
+On **Settings → Import/Export**, users can toggle automatic backup inclusion and choose a preferred target:
+
+- **Include my account** checkbox — opt in or out of server-side automatic backups
+- **Preferred target** — override the server default (`default`, `local`, or `s3`)
+
+These preferences are stored per-user in `user_backup_preferences` and respected by the scheduler.
+
 ## Automated Local Backup Scheduler (Opt-in)
 
 Set the environment variable to activate:

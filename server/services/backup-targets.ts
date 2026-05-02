@@ -33,6 +33,9 @@ export class LocalFileBackupTarget implements BackupTarget {
  * and any other service that accepts V4-signed PUT requests.
  *
  * No external AWS SDK dependency required.
+ *
+ * Transient failures (5xx, 429, network errors) are retried with exponential
+ * backoff. Retries default to 3 attempts with a 500ms base delay.
  */
 export class S3CompatibleBackupTarget implements BackupTarget {
   name = "s3";
@@ -44,6 +47,8 @@ export class S3CompatibleBackupTarget implements BackupTarget {
     accessKeyId: string;
     secretAccessKey: string;
     prefix?: string;
+    retries?: number;
+    retryDelayMs?: number;
   }) {}
 
   private isoDate(d: Date): { dateStamp: string; amzDate: string } {
@@ -71,6 +76,53 @@ export class S3CompatibleBackupTarget implements BackupTarget {
     const kService = this.hmac(kRegion, service);
     const kSigning = this.hmac(kService, "aws4_request");
     return this.hmac(kSigning, stringToSign).toString("hex");
+  }
+
+  private isTransientError(res: Response | null, error: unknown): boolean {
+    if (!res) return true; // network/fetch error
+    return res.status >= 500 || res.status === 429 || res.status === 408;
+  }
+
+  private async retryFetch(
+    url: string,
+    init: RequestInit,
+    methodLabel: string,
+  ): Promise<Response> {
+    const maxRetries = this.opts.retries ?? 3;
+    const baseDelay = this.opts.retryDelayMs ?? 500;
+    let lastError: Error | null = null;
+    let lastRes: Response | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await fetch(url, init);
+        if (!res.ok && this.isTransientError(res, null)) {
+          lastRes = res;
+          if (attempt < maxRetries) {
+            const delay = baseDelay * Math.pow(2, attempt);
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+        }
+        return res;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt);
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+    }
+
+    if (lastRes) {
+      const text = await lastRes.text().catch(() => "");
+      throw new Error(
+        `S3 ${methodLabel} failed after ${maxRetries + 1} attempts (${lastRes.status}): ${text.slice(0, 200)}`,
+      );
+    }
+    throw new Error(
+      `S3 ${methodLabel} failed after ${maxRetries + 1} attempts: ${lastError?.message ?? "unknown error"}`,
+    );
   }
 
   async writeBackup(fileName: string, data: string): Promise<{ pathOrUrl: string }> {
@@ -115,11 +167,11 @@ export class S3CompatibleBackupTarget implements BackupTarget {
     const signature = this.sign(secretAccessKey, dateStamp, region, "s3", stringToSign);
     headers["Authorization"] = `AWS4-HMAC-SHA256 Credential=${credential}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
-    const res = await fetch(url, {
+    const res = await this.retryFetch(url, {
       method: "PUT",
       headers,
       body: data,
-    });
+    }, "upload");
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -171,10 +223,10 @@ export class S3CompatibleBackupTarget implements BackupTarget {
     const signature = this.sign(secretAccessKey, dateStamp, region, "s3", stringToSign);
     headers["Authorization"] = `AWS4-HMAC-SHA256 Credential=${credential}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
-    const res = await fetch(url, {
+    const res = await this.retryFetch(url, {
       method: "DELETE",
       headers,
-    });
+    }, "delete");
 
     if (!res.ok && res.status !== 404) {
       const text = await res.text().catch(() => "");
