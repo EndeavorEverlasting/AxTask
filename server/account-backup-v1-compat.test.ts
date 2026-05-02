@@ -45,7 +45,7 @@ import {
   runAccountImport,
 } from "./account-backup";
 import { db } from "./db";
-import { appendSecurityEvent, storage } from "./storage";
+import { appendSecurityEvent, hasImportFingerprint, storage } from "./storage";
 
 /**
  * Backward-compatibility contract for schemaVersion-1 backup JSON.
@@ -344,6 +344,49 @@ describe("account import v1 backward compatibility", () => {
       }),
     );
   });
+
+  // ─── Intra-Bundle Deduplication ──────────────────────────────────────────
+
+  it("deduplicates identical tasks within the same bundle before DB check", async () => {
+    // Two identical tasks; the second must be dropped by the in-bundle set
+    // before ever querying the DB.
+    const unique = "UniqueDedupeActivityXYZ";
+    const bundle = {
+      metadata: { exportMode: "user" as const },
+      data: {
+        tasks: [
+          insertTaskSchema.parse({ date: "2025-01-01", activity: unique }),
+          insertTaskSchema.parse({ date: "2025-01-01", activity: unique }),
+        ],
+      },
+    };
+    const challenge = buildImportChallenge(bundle);
+
+    const answers = challenge.questions.map((q) => ({
+      questionId: q.id,
+      selectedIndex: q.choices.indexOf(q.choices.find((c) => c === unique)!),
+    }));
+
+    // Reset call counts so we measure only this import.
+    storage.createTasksBulk.mockClear();
+    hasImportFingerprint.mockClear();
+
+    const result = await runAccountImport({
+      userId: "user-dedupe",
+      bundle,
+      dryRun: false,
+      importOwnershipAnswers: answers,
+    });
+
+    expect(result.success).toBe(true);
+    // First task is new; second is an intra-bundle duplicate and skipped
+    // before hasImportFingerprint is ever called.
+    expect(result.inserted.tasks).toBe(1);
+    expect(result.skipped.duplicateFingerprints).toBe(1);
+    expect(storage.createTasksBulk).toHaveBeenCalledTimes(1);
+    expect(hasImportFingerprint).toHaveBeenCalledTimes(1);
+  });
+
 
   // ─── Bundle Fingerprint Collision Smoke Test ───────────────────────────────
 

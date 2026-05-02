@@ -150,13 +150,13 @@ describe.skipIf(!RUN)("account backup integration", () => {
       selectedIndex: q.choices.indexOf("Dedupe A"),
     }));
 
-    // First import (wet) — intra-bundle duplicates are both inserted because
-    // hasImportFingerprint only checks the DB, not the in-flight bundle.
+    // First import (wet) — intra-bundle duplicate is coalesced before DB check.
     const first = await runAccountImport({ userId, bundle, dryRun: false, importOwnershipAnswers: answers });
     expect(first.success).toBe(true);
-    expect(first.inserted.tasks).toBe(2);
+    expect(first.inserted.tasks).toBe(1);
+    expect(first.skipped.duplicateFingerprints).toBe(1);
 
-    // Second import (wet) — both fingerprints already exist in DB → skipped
+    // Second import (wet) — both tasks collide with the DB fingerprint.
     const second = await runAccountImport({ userId, bundle, dryRun: false, importOwnershipAnswers: answers });
     expect(second.success).toBe(true);
     expect(second.inserted.tasks).toBe(0);
