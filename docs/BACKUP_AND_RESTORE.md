@@ -61,6 +61,8 @@ docker run --rm \
 3. **Backup Targets** — pluggable write-only targets (local disk, S3-compatible, rsync).
 4. **Migration Airlock** — safe migration commands that refuse to run without a verified backup.
 
+See also the repository-wide [**Reliability Roadmap**](../README.md#reliability-roadmap).
+
 ## Script
 
 ```bash

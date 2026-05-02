@@ -1,8 +1,8 @@
 
 # Priority Engine Task Management System
 
-**Version:** 1.2.0 (Robustness + Security Hardening)  
-**Status:** Production Ready  
+**Version:** 1.2.0 (Robustness + Security Hardening)
+**Status:** Production-oriented foundation under active hardening
 **Last Updated:** April 3rd, 2026
 
 ## Overview
@@ -85,9 +85,9 @@ You can run AxTask fully local (including when offline) as long as your PostgreS
 
 ### Why local runs fail most often
 
-- `npm error Missing script: "db:push"`  
+- `npm error Missing script: "db:push"`
   You ran the command outside the AxTask folder. Run it from `AxTask`.
-- `DATABASE_URL, ensure the database is provisioned`  
+- `DATABASE_URL, ensure the database is provisioned`
   `DATABASE_URL` is missing or invalid. Create `.env` from `.env.example` and update the DB URL.
 
 ## Key Features
@@ -247,7 +247,7 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
 ### File Structure
 ```
 ├── client/          # React frontend
-├── server/          # Express backend  
+├── server/          # Express backend
 ├── shared/          # Shared types/schemas
 ├── docs/            # Documentation
 └── dist/            # Built application
@@ -446,6 +446,17 @@ The following roadmap items are intentionally still open:
 - Billing provider integration for live invoice payments/webhooks (foundation routes exist)
 - Wider in-app analytics/event visualization beyond admin security and usage/storage surfaces
 - Additional high-signal anomaly rules and automated alert delivery channels (email/Slack/Pager)
+
+## Reliability Roadmap
+
+The following items are the current hardening priorities (not yet fully shipped):
+
+1. **Backup Center** — A unified UI for manual export, dry-run restore, and restore history.
+2. **Restore Drill Tests** — Automated validation that exported bundles round-trip correctly.
+3. **Route Modularization** — Splitting `server/routes.ts` into per-domain route files to reduce monolith risk.
+4. **Skill Graph Contract** — Persisted `additionalEdges` in the schema so synergy/continuum edges survive restarts.
+5. **Scheduled Backup Foundation** — Cron, Task Scheduler, or Docker volume hooks for automated JSON export.
+
 
 ## License
 
