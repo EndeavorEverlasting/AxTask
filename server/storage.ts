@@ -122,7 +122,7 @@ import {
   type CollaborationInboxMessage,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ne, ilike, or, asc, lt, lte, gt, gte, count, avg, sql, desc, inArray } from "drizzle-orm";
+import { eq, and, ne, ilike, or, asc, lt, lte, gt, gte, count, avg, sql, desc, inArray, isNull, isNotNull } from "drizzle-orm";
 import type { ArchetypeKey } from "@shared/avatar-archetypes";
 import { isArchetypeKey } from "@shared/avatar-archetypes";
 import { bumpUserArchetypeContinuumFromArchetype } from "./lib/archetype-continuum";
@@ -932,7 +932,7 @@ export async function getLatestTaskMutationAt(userId: string): Promise<Date | nu
   const [row] = await db
     .select({ value: sql<Date | null>`max(${tasks.updatedAt})` })
     .from(tasks)
-    .where(eq(tasks.userId, userId));
+    .where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt)));
   return row?.value ?? null;
 }
 
@@ -1603,6 +1603,9 @@ export interface IStorage {
     completedToday: number;
     avgPriorityScore: number;
   }>;
+  restoreTask(userId: string, id: string): Promise<Task | undefined>;
+  purgeTask(userId: string, id: string): Promise<boolean>;
+  getDeletedTasks(userId: string): Promise<Task[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1610,7 +1613,7 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(tasks)
-      .where(eq(tasks.userId, userId))
+      .where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt)))
       .orderBy(asc(tasks.sortOrder));
   }
 
@@ -1618,7 +1621,7 @@ export class DatabaseStorage implements IStorage {
     const [task] = await db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId), isNull(tasks.deletedAt)));
     return task || undefined;
   }
 
@@ -1671,30 +1674,39 @@ export class DatabaseStorage implements IStorage {
     const [task] = await db
       .update(tasks)
       .set({ ...updateTask, updatedAt: new Date() })
-      .where(and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId)))
+      .where(and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId), isNull(tasks.deletedAt)))
       .returning();
     return task || undefined;
   }
 
   async deleteTask(userId: string, id: string): Promise<boolean> {
-    const result = await db
-      .delete(tasks)
-      .where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
-    return (result.rowCount || 0) > 0;
+    const now = new Date();
+    const [task] = await db
+      .update(tasks)
+      .set({
+        deletedAt: now,
+        deletedBy: userId,
+        deleteReason: "user_delete",
+        purgeAfter: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        updatedAt: now,
+      })
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId), isNull(tasks.deletedAt)))
+      .returning();
+    return !!task;
   }
 
   async getTasksByStatus(userId: string, status: string): Promise<Task[]> {
     return await db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.userId, userId), eq(tasks.status, status)));
+      .where(and(eq(tasks.userId, userId), eq(tasks.status, status), isNull(tasks.deletedAt)));
   }
 
   async getTasksByPriority(userId: string, priority: string): Promise<Task[]> {
     return await db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.userId, userId), eq(tasks.priority, priority)));
+      .where(and(eq(tasks.userId, userId), eq(tasks.priority, priority), isNull(tasks.deletedAt)));
   }
 
   async searchTasks(userId: string, query: string): Promise<Task[]> {
@@ -1705,6 +1717,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(tasks.userId, userId),
+          isNull(tasks.deletedAt),
           or(
             ilike(tasks.activity, lowercaseQuery),
             ilike(tasks.notes, lowercaseQuery),
@@ -1759,7 +1772,7 @@ export class DatabaseStorage implements IStorage {
           classification_associations = ${associationsCase},
           is_repeated = ${buildCase('is_repeated', u => u.isRepeated)},
           updated_at = ${now}
-        WHERE user_id = ${userId} AND id IN (${sql.join(idParams, sql`, `)})
+        WHERE user_id = ${userId} AND deleted_at IS NULL AND id IN (${sql.join(idParams, sql`, `)})
       `);
     }
   }
@@ -1774,7 +1787,7 @@ export class DatabaseStorage implements IStorage {
           db
             .update(tasks)
             .set({ sortOrder: i + idx, updatedAt: now })
-            .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
+            .where(and(eq(tasks.id, id), eq(tasks.userId, userId), isNull(tasks.deletedAt)))
         )
       );
     }
@@ -1789,21 +1802,23 @@ export class DatabaseStorage implements IStorage {
     const today = new Date().toISOString().split("T")[0];
 
     const [[totalRow], [highPriorityRow], [completedTodayRow], [avgRow]] = await Promise.all([
-      db.select({ value: count() }).from(tasks).where(eq(tasks.userId, userId)),
+      db.select({ value: count() }).from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt))),
       db.select({ value: count() }).from(tasks).where(
         and(
           eq(tasks.userId, userId),
+          isNull(tasks.deletedAt),
           or(eq(tasks.priority, "Highest"), eq(tasks.priority, "High"))
         )
       ),
       db.select({ value: count() }).from(tasks).where(
         and(
           eq(tasks.userId, userId),
+          isNull(tasks.deletedAt),
           eq(tasks.status, "completed"),
           sql`${tasks.updatedAt}::date = ${today}::date`
         )
       ),
-      db.select({ value: avg(tasks.priorityScore) }).from(tasks).where(eq(tasks.userId, userId)),
+      db.select({ value: avg(tasks.priorityScore) }).from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt))),
     ]);
 
     const rawAvg = Number(avgRow?.value) || 0;
@@ -1814,6 +1829,37 @@ export class DatabaseStorage implements IStorage {
       /** Same scale as task list / planner: DB stores score × 10. */
       avgPriorityScore: displayAveragePriorityScoreFromDb(rawAvg),
     };
+  }
+
+  async restoreTask(userId: string, id: string): Promise<Task | undefined> {
+    const [task] = await db
+      .update(tasks)
+      .set({
+        deletedAt: null,
+        deletedBy: null,
+        deleteReason: null,
+        purgeAfter: null,
+        restoreCount: sql`${tasks.restoreCount} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId), isNotNull(tasks.deletedAt)))
+      .returning();
+    return task || undefined;
+  }
+
+  async purgeTask(userId: string, id: string): Promise<boolean> {
+    const result = await db
+      .delete(tasks)
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId), isNotNull(tasks.deletedAt)));
+    return (result.rowCount || 0) > 0;
+  }
+
+  async getDeletedTasks(userId: string): Promise<Task[]> {
+    return await db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), isNotNull(tasks.deletedAt)))
+      .orderBy(desc(tasks.deletedAt));
   }
 }
 
@@ -4934,7 +4980,7 @@ export async function getSharedTasks(userId: string): Promise<Task[]> {
   if (rows.length === 0) return [];
   const taskIds = rows.map(r => r.taskId);
   const result = await db.select().from(tasks).where(
-    or(...taskIds.map(id => eq(tasks.id, id)))
+    and(or(...taskIds.map(id => eq(tasks.id, id))), isNull(tasks.deletedAt))
   );
   return result;
 }
@@ -4950,7 +4996,7 @@ export async function getAccessibleTasksForUser(userId: string): Promise<Accessi
   const ownedTasks = await db
     .select()
     .from(tasks)
-    .where(eq(tasks.userId, userId))
+    .where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt)))
     .orderBy(asc(tasks.sortOrder));
 
   const sharedMemberships = await db
@@ -4974,7 +5020,7 @@ export async function getAccessibleTasksForUser(userId: string): Promise<Accessi
     ? await db
       .select()
       .from(tasks)
-      .where(inArray(tasks.id, sharedTaskIds))
+      .where(and(inArray(tasks.id, sharedTaskIds), isNull(tasks.deletedAt)))
       .orderBy(asc(tasks.sortOrder))
     : [];
 
@@ -4988,7 +5034,7 @@ export async function getAccessibleTasksForUser(userId: string): Promise<Accessi
 }
 
 export async function getAccessibleTaskForUser(userId: string, taskId: string): Promise<AccessibleTask | null> {
-  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+  const [task] = await db.select().from(tasks).where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)));
   if (!task) return null;
   if (task.userId === userId) return { task, viewerRole: "owner" };
 
@@ -5004,13 +5050,13 @@ export async function updateTaskById(updateTask: UpdateTask): Promise<Task | und
   const [task] = await db
     .update(tasks)
     .set({ ...updateTask, updatedAt: new Date() })
-    .where(eq(tasks.id, updateTask.id))
+    .where(and(eq(tasks.id, updateTask.id), isNull(tasks.deletedAt)))
     .returning();
   return task || undefined;
 }
 
 export async function canAccessTask(userId: string, taskId: string): Promise<{ canAccess: boolean; role: string }> {
-  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
+  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)));
   if (task?.userId === userId) return { canAccess: true, role: "owner" };
   const [collab] = await db
     .select({ role: taskCollaborators.role })
@@ -5021,7 +5067,7 @@ export async function canAccessTask(userId: string, taskId: string): Promise<{ c
 }
 
 export async function isTaskOwner(userId: string, taskId: string): Promise<boolean> {
-  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
+  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)));
   return task?.userId === userId;
 }
 

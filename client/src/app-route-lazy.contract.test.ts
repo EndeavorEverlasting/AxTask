@@ -54,8 +54,9 @@ const LAZY_PAGES = [
   "collab-inbox",
   "video-huddle",
   "messages",
-  "billing-bridge",
+  "billing-bridge-dashboard",
   "admin",
+  "trash",
 ];
 
 function readApp(): string {

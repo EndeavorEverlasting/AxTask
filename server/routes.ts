@@ -153,7 +153,7 @@ import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, updateVoicePreferenceSchema, updateCalendarPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, feedbackAvatarKeySchema, archetypeRollupDaily, archetypeMarkovDaily, TASK_NOTES_MAX_CHARS, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, count, gte, lte } from "drizzle-orm";
+import { eq, and, desc, sql, count, gte, lte, isNull } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import {
@@ -1690,7 +1690,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           updatedAt: tasks.updatedAt,
         })
         .from(tasks)
-        .where(eq(tasks.visibility, "public"))
+        .where(and(eq(tasks.visibility, "public"), isNull(tasks.deletedAt)))
         .orderBy(desc(tasks.updatedAt), desc(tasks.createdAt))
         .limit(limit + 1);
 
@@ -3215,7 +3215,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Delete task
+  // Soft delete task
   app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
       const deleted = await storage.deleteTask(req.user!.id, req.params.id);
@@ -3225,6 +3225,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete task" });
+    }
+  });
+
+  // List deleted tasks (trash)
+  app.get("/api/tasks/trash", requireAuth, async (req, res) => {
+    try {
+      const rows = await storage.getDeletedTasks(req.user!.id);
+      const byTask = await getTaskAttachmentIdsForTasks(req.user!.id, rows.map((r) => r.id));
+      res.json(toPublicTaskListItems(rows, byTask));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch trash" });
+    }
+  });
+
+  // Restore soft-deleted task
+  app.post("/api/tasks/:id/restore", requireAuth, async (req, res) => {
+    try {
+      const task = await storage.restoreTask(req.user!.id, req.params.id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found in trash" });
+      }
+      res.json(task);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to restore task" });
+    }
+  });
+
+  // Permanently purge a deleted task
+  app.delete("/api/tasks/:id/purge", requireAuth, async (req, res) => {
+    try {
+      const purged = await storage.purgeTask(req.user!.id, req.params.id);
+      if (!purged) {
+        return res.status(404).json({ message: "Task not found or not in trash" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to purge task" });
     }
   });
 
@@ -6119,7 +6156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       res.json({
         userId: req.user!.id,
-        legalName: req.user!.firstName && req.user!.lastName ? `${req.user!.firstName} ${req.user!.lastName}` : null,
+        legalName: req.user!.displayName || null,
         line1: null,
         line2: null,
         city: null,

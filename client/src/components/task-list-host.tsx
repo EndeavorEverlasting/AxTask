@@ -684,7 +684,7 @@ export function TaskListHost({ variant = "default" }: TaskListHostProps = {}) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-      toast({ title: "Task deleted" });
+      toast({ title: "Task moved to trash" });
     },
     onError: () => {
       toast({

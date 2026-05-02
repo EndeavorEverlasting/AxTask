@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   conversionArtifactTasks,
@@ -184,7 +184,7 @@ export async function getConversionArtifactWithTasks(
   const taskRows = await db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.userId, userId), inArray(tasks.id, ids)));
+    .where(and(eq(tasks.userId, userId), inArray(tasks.id, ids), isNull(tasks.deletedAt)));
   const order = new Map(ids.map((id, i) => [id, i]));
   taskRows.sort((x, y) => (order.get(x.id) ?? 0) - (order.get(y.id) ?? 0));
   return { artifact: a, tasks: taskRows };
@@ -248,7 +248,7 @@ export async function listConversionArtifactsForUser(userId: string): Promise<Co
         done: sql<number>`sum(case when ${tasks.status} = 'completed' then 1 else 0 end)::int`,
       })
       .from(tasks)
-      .where(and(eq(tasks.userId, userId), inArray(tasks.id, ids)));
+      .where(and(eq(tasks.userId, userId), inArray(tasks.id, ids), isNull(tasks.deletedAt)));
     const total = Number(stats[0]?.total) || 0;
     const done = Number(stats[0]?.done) || 0;
     out.push({ ...art, totalChildren: total, completedChildren: done });

@@ -63,6 +63,7 @@ const Tasks = lazy(() => import("@/pages/tasks"));
 const Analytics = lazy(() => import("@/pages/analytics"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
 const ImportExport = lazy(() => import("@/pages/import-export"));
+const TrashPage = lazy(() => import("@/pages/trash"));
 const GoogleSheetsSyncPage = lazy(() => import("@/pages/google-sheets-sync"));
 const ChecklistPage = lazy(() => import("@/pages/checklist"));
 const ShoppingPage = lazy(() => import("@/pages/shopping"));
@@ -168,6 +169,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/tasks" component={Tasks} />
+        <Route path="/trash" component={TrashPage} />
         <Route path="/calendar" component={CalendarPage} />
         <Route path="/analytics" component={Analytics} />
         <Route path="/import-export" component={ImportExport} />

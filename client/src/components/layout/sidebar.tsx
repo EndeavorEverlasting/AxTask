@@ -45,6 +45,7 @@ import {
   MessagesSquare,
   Video,
   MessageCircle,
+  Trash2,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -166,6 +167,7 @@ function SidebarContent({ onNavigate, onScroll }: { onNavigate?: () => void; onS
       { path: "/", icon: LayoutDashboard, label: "Dashboard" },
       { path: "/planner", icon: Brain, label: "AI Planner", badge: overdueCount },
       { path: "/tasks", icon: List, label: "All Tasks" },
+      { path: "/trash", icon: Trash2, label: "Trash" },
       {
         path: "/shopping",
         icon: ShoppingCart,
