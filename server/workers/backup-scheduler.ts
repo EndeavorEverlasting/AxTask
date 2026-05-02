@@ -10,7 +10,7 @@
  * Failures are per-user: one broken export does not abort the batch.
  */
 
-import { generateLocalBackup } from "../services/backup-service";
+import { generateLocalBackup, isAutomaticBackupsConfigured } from "../services/backup-service";
 import { getAllUsers } from "../storage";
 
 const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -26,6 +26,9 @@ async function runBackupBatch(outputDir?: string): Promise<void> {
   const users = await getAllUsers();
   let succeeded = 0;
   let failed = 0;
+
+  const targetName = process.env.BACKUP_S3_ENDPOINT ? "s3" : "local";
+  console.info(`[backup-scheduler] starting batch for ${users.length} users using target: ${targetName}`);
 
   for (const user of users) {
     try {

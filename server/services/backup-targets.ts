@@ -1,0 +1,124 @@
+import { writeFile, mkdir } from "node:fs/promises";
+import { createHmac, createHash } from "node:crypto";
+import path from "node:path";
+
+export interface BackupTarget {
+  name: string;
+  writeBackup(fileName: string, data: string): Promise<{ pathOrUrl: string }>;
+}
+
+export class LocalFileBackupTarget implements BackupTarget {
+  name = "local";
+  constructor(private outputDir: string) {}
+
+  async writeBackup(fileName: string, data: string): Promise<{ pathOrUrl: string }> {
+    const dir = this.outputDir || process.cwd();
+    const filePath = path.resolve(dir, fileName);
+    await mkdir(dir, { recursive: true });
+    await writeFile(filePath, data, "utf8");
+    return { pathOrUrl: filePath };
+  }
+}
+
+/**
+ * Minimal S3-compatible backup target using Node.js built-in crypto for
+ * AWS Signature Version 4. Works with S3, MinIO, Wasabi, DigitalOcean Spaces,
+ * and any other service that accepts V4-signed PUT requests.
+ *
+ * No external AWS SDK dependency required.
+ */
+export class S3CompatibleBackupTarget implements BackupTarget {
+  name = "s3";
+
+  constructor(private opts: {
+    endpoint: string;
+    bucket: string;
+    region: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    prefix?: string;
+  }) {}
+
+  private isoDate(d: Date): { dateStamp: string; amzDate: string } {
+    const iso = d.toISOString().replace(/[:\-]|\.\d{3}/g, "");
+    return { dateStamp: iso.slice(0, 8), amzDate: iso };
+  }
+
+  private hmac(key: string | Buffer, data: string): Buffer {
+    return createHmac("sha256", key).update(data).digest();
+  }
+
+  private hash(data: string): string {
+    return createHash("sha256").update(data).digest("hex");
+  }
+
+  private sign(
+    secretKey: string,
+    dateStamp: string,
+    region: string,
+    service: string,
+    stringToSign: string,
+  ): string {
+    const kDate = this.hmac("AWS4" + secretKey, dateStamp);
+    const kRegion = this.hmac(kDate, region);
+    const kService = this.hmac(kRegion, service);
+    const kSigning = this.hmac(kService, "aws4_request");
+    return this.hmac(kSigning, stringToSign).toString("hex");
+  }
+
+  async writeBackup(fileName: string, data: string): Promise<{ pathOrUrl: string }> {
+    const { endpoint, bucket, region, accessKeyId, secretAccessKey, prefix = "" } = this.opts;
+    const key = prefix ? `${prefix.replace(/\/$/, "")}/${fileName}` : fileName;
+    const url = `${endpoint.replace(/\/$/, "")}/${bucket}/${key}`;
+    const now = new Date();
+    const { dateStamp, amzDate } = this.isoDate(now);
+
+    const headers: Record<string, string> = {
+      "Host": new URL(url).host,
+      "Content-Type": "application/json",
+      "x-amz-content-sha256": this.hash(data),
+      "x-amz-date": amzDate,
+    };
+
+    // Canonical headers sorted by key
+    const signedHeaders = Object.keys(headers).map((k) => k.toLowerCase()).sort().join(";");
+    const canonicalHeaders = Object.keys(headers)
+      .sort()
+      .map((k) => `${k.toLowerCase()}:${headers[k].trim()}\n`)
+      .join("");
+
+    const canonicalRequest = [
+      "PUT",
+      `/${bucket}/${key}`,
+      "",
+      canonicalHeaders,
+      signedHeaders,
+      headers["x-amz-content-sha256"],
+    ].join("\n");
+
+    const credential = `${accessKeyId}/${dateStamp}/${region}/s3/aws4_request`;
+    const scope = `${dateStamp}/${region}/s3/aws4_request`;
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      amzDate,
+      scope,
+      this.hash(canonicalRequest),
+    ].join("\n");
+
+    const signature = this.sign(secretAccessKey, dateStamp, region, "s3", stringToSign);
+    headers["Authorization"] = `AWS4-HMAC-SHA256 Credential=${credential}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    const res = await fetch(url, {
+      method: "PUT",
+      headers,
+      body: data,
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`S3 upload failed (${res.status}): ${text.slice(0, 200)}`);
+    }
+
+    return { pathOrUrl: url };
+  }
+}

@@ -14,7 +14,7 @@ describe("backup routes contract", () => {
   it("registers backup routes in routes.ts", () => {
     const routes = fs.readFileSync(routesPath, "utf8");
     expect(routes).toContain('import { registerBackupRoutes } from "./routes/backup"');
-    expect(routes).toContain("registerBackupRoutes(app, requireAuth)");
+    expect(routes).toContain("registerBackupRoutes(app, requireAuth, requireAdmin)");
   });
 
   it("registers account backup routes in routes.ts", () => {
@@ -55,6 +55,19 @@ describe("backup routes contract", () => {
     expect(content).toContain("req.user!.id");
   });
 
+  it("backup status endpoint requires req.user!.id", () => {
+    const content = fs.readFileSync(backupRoutesPath, "utf8");
+    expect(content).toContain("req.user!.id");
+  });
+
+  it("admin backup config endpoint exists", () => {
+    const content = fs.readFileSync(backupRoutesPath, "utf8");
+    expect(content).toContain('"/api/admin/backup/config"');
+    expect(content).toContain("isAutomaticBackupsConfigured");
+    expect(content).toContain("BACKUP_S3_ENDPOINT");
+    expect(content).toContain("BACKUP_LOCAL_DIR");
+  });
+
   it("backup service reuses buildUserExportBundle and queries ledger", () => {
     const content = fs.readFileSync(backupServicePath, "utf8");
     expect(content).toContain('import { buildUserExportBundle');
@@ -64,10 +77,27 @@ describe("backup routes contract", () => {
     expect(content).toContain("createBackupRecord");
   });
 
+  it("backup targets abstraction exists with local and S3 targets", () => {
+    const targetsPath = path.join(projectRoot, "server", "services", "backup-targets.ts");
+    const content = fs.readFileSync(targetsPath, "utf8");
+    expect(content).toContain("BackupTarget");
+    expect(content).toContain("LocalFileBackupTarget");
+    expect(content).toContain("S3CompatibleBackupTarget");
+    expect(content).toContain("AWS4-HMAC-SHA256");
+  });
+
+  it("backup service resolves target from env vars", () => {
+    const content = fs.readFileSync(backupServicePath, "utf8");
+    expect(content).toContain("BACKUP_S3_ENDPOINT");
+    expect(content).toContain("BACKUP_S3_BUCKET");
+    expect(content).toContain("S3CompatibleBackupTarget");
+    expect(content).toContain("LocalFileBackupTarget");
+  });
+
   it("backup status returns honest fields", () => {
     const content = fs.readFileSync(backupServicePath, "utf8");
     expect(content).toContain("manualExportAvailable: true");
-    expect(content).toContain("automaticBackupsConfigured: false");
+    expect(content).toContain("isAutomaticBackupsConfigured()");
     expect(content).toContain("lastServerBackupAt");
     expect(content).toContain("restoreDryRunAvailable: true");
   });

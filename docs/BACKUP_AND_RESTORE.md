@@ -69,6 +69,37 @@ BACKUP_LOCAL_DIR=./backups              # optional output directory
 
 The scheduler iterates over all users, exports a JSON bundle per user, and writes a `backup_records` ledger entry. One user failing does not abort the batch.
 
+### S3-Compatible Target (Optional)
+
+Instead of writing to local disk, set S3-compatible environment variables:
+
+```bash
+BACKUP_S3_ENDPOINT=https://s3.us-east-1.amazonaws.com
+BACKUP_S3_BUCKET=my-axtask-backups
+BACKUP_S3_REGION=us-east-1
+BACKUP_S3_ACCESS_KEY_ID=AKIA...
+BACKUP_S3_SECRET_ACCESS_KEY=...
+BACKUP_S3_PREFIX=backups/          # optional key prefix
+```
+
+Works with AWS S3, MinIO, Wasabi, DigitalOcean Spaces, and any other service that accepts AWS Signature Version 4 PUT requests.
+
+### Admin Config Endpoint
+
+`GET /api/admin/backup/config` (admin auth required)
+
+Returns the active server-wide backup configuration:
+
+```json
+{
+  "automaticBackupsConfigured": true,
+  "intervalMs": 86400000,
+  "target": "s3",
+  "s3Bucket": "my-axtask-backups",
+  "localDir": null
+}
+```
+
 ## What Is Not Yet Automated
 
 - No Windows Task Scheduler integration (use the Node.js scheduler or cron).
