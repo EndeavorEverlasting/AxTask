@@ -4,7 +4,7 @@ import path from "node:path";
 
 export interface BackupTarget {
   name: string;
-  writeBackup(fileName: string, data: string): Promise<{ pathOrUrl: string }>;
+  writeBackup(fileName: string, data: Buffer | string): Promise<{ pathOrUrl: string }>;
   deleteBackup(fileName: string): Promise<void>;
 }
 
@@ -12,11 +12,11 @@ export class LocalFileBackupTarget implements BackupTarget {
   name = "local";
   constructor(private outputDir: string) {}
 
-  async writeBackup(fileName: string, data: string): Promise<{ pathOrUrl: string }> {
+  async writeBackup(fileName: string, data: Buffer | string): Promise<{ pathOrUrl: string }> {
     const dir = this.outputDir || process.cwd();
     const filePath = path.resolve(dir, fileName);
     await mkdir(dir, { recursive: true });
-    await writeFile(filePath, data, "utf8");
+    await writeFile(filePath, data);
     return { pathOrUrl: filePath };
   }
 
@@ -60,7 +60,7 @@ export class S3CompatibleBackupTarget implements BackupTarget {
     return createHmac("sha256", key).update(data).digest();
   }
 
-  private hash(data: string): string {
+  private hash(data: Buffer | string): string {
     return createHash("sha256").update(data).digest("hex");
   }
 
@@ -125,17 +125,20 @@ export class S3CompatibleBackupTarget implements BackupTarget {
     );
   }
 
-  async writeBackup(fileName: string, data: string): Promise<{ pathOrUrl: string }> {
+  async writeBackup(fileName: string, data: Buffer | string): Promise<{ pathOrUrl: string }> {
     const { endpoint, bucket, region, accessKeyId, secretAccessKey, prefix = "" } = this.opts;
     const key = prefix ? `${prefix.replace(/\/$/, "")}/${fileName}` : fileName;
     const url = `${endpoint.replace(/\/$/, "")}/${bucket}/${key}`;
     const now = new Date();
     const { dateStamp, amzDate } = this.isoDate(now);
 
+    const dataBuf = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8");
+    const contentHash = this.hash(dataBuf);
+
     const headers: Record<string, string> = {
       "Host": new URL(url).host,
-      "Content-Type": "application/json",
-      "x-amz-content-sha256": this.hash(data),
+      "Content-Type": "application/octet-stream",
+      "x-amz-content-sha256": contentHash,
       "x-amz-date": amzDate,
     };
 
@@ -170,7 +173,7 @@ export class S3CompatibleBackupTarget implements BackupTarget {
     const res = await this.retryFetch(url, {
       method: "PUT",
       headers,
-      body: data,
+      body: dataBuf,
     }, "upload");
 
     if (!res.ok) {
@@ -265,7 +268,7 @@ export class MultiS3BackupTarget implements BackupTarget {
     this.targets = configs.map((c) => new S3CompatibleBackupTarget(c));
   }
 
-  async writeBackup(fileName: string, data: string): Promise<{ pathOrUrl: string }> {
+  async writeBackup(fileName: string, data: Buffer | string): Promise<{ pathOrUrl: string }> {
     const results = await Promise.allSettled(
       this.targets.map((t) => t.writeBackup(fileName, data)),
     );

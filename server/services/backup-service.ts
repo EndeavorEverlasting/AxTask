@@ -114,7 +114,7 @@ export async function generateLocalBackup(
     const bundle = await buildUserExportBundle(userId);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `axtask-backup-${userId.slice(0, 8)}-${timestamp}.json`;
-    let data = JSON.stringify(bundle, null, 2);
+    let data: Buffer | string = JSON.stringify(bundle, null, 2);
     const sha256 = createHash("sha256").update(data, "utf8").digest("hex");
 
     let compressionMeta: Record<string, unknown> | undefined;
@@ -183,20 +183,21 @@ export async function verifyBackupByRecord(record: {
   const expectedSha256: string | null = meta.sha256 ?? null;
 
   let raw: Buffer | string;
+  const isBinary = !!meta.encrypted || !!meta.compressed;
   if (record.pathOrUrl.startsWith("http://") || record.pathOrUrl.startsWith("https://")) {
     const res = await fetch(record.pathOrUrl);
     if (!res.ok) {
       return { ok: false, sha256: "", expectedSha256 };
     }
-    raw = await res.text();
+    raw = isBinary ? Buffer.from(await res.arrayBuffer()) : await res.text();
   } else {
-    raw = await readFile(record.pathOrUrl, "utf8");
+    raw = isBinary ? await readFile(record.pathOrUrl) : await readFile(record.pathOrUrl, "utf8");
   }
 
   // If the backup was encrypted, decrypt before computing the hash
   if (meta.encrypted && meta.encryptionMeta && process.env.BACKUP_ENCRYPTION_KEY) {
     try {
-      raw = decryptBackup(String(raw), process.env.BACKUP_ENCRYPTION_KEY);
+      raw = decryptBackup(raw, process.env.BACKUP_ENCRYPTION_KEY);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { ok: false, sha256: "", expectedSha256, error: `decrypt failed: ${msg}` };
@@ -206,14 +207,14 @@ export async function verifyBackupByRecord(record: {
   // If the backup was compressed, decompress after decryption
   if (meta.compressed && meta.compressionMeta) {
     try {
-      raw = await decompressBackup(String(raw));
+      raw = await decompressBackup(raw);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { ok: false, sha256: "", expectedSha256, error: `decompress failed: ${msg}` };
     }
   }
 
-  const sha256 = createHash("sha256").update(raw, "utf8").digest("hex");
+  const sha256 = createHash("sha256").update(raw as string, "utf8").digest("hex");
   return { ok: sha256 === expectedSha256, sha256, expectedSha256 };
 }
 

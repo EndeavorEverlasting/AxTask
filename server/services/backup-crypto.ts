@@ -46,21 +46,22 @@ function keyHash(key: Buffer): string {
 }
 
 /**
- * Encrypt a plaintext string. Returns a base64 payload that concatenates
- * iv + authTag + ciphertext so a single blob can be stored or transmitted.
+ * Encrypt plaintext (Buffer or string) using AES-256-GCM.
+ * Returns a Buffer payload that concatenates iv + authTag + ciphertext.
  */
-export function encryptBackup(plaintext: string, keyInput: string): {
-  payload: string;
+export function encryptBackup(plaintext: Buffer | string, keyInput: string): {
+  payload: Buffer;
   meta: BackupEncryptionMeta;
 } {
   const key = normalizeKey(keyInput);
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(AES_256_GCM_ALGORITHM, key, iv);
-  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const data = Buffer.isBuffer(plaintext) ? plaintext : Buffer.from(plaintext, "utf8");
+  const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
   // Concatenated blob: iv (16) + authTag (16) + ciphertext (var)
-  const payload = Buffer.concat([iv, authTag, encrypted]).toString("base64");
+  const payload = Buffer.concat([iv, authTag, encrypted]);
 
   return {
     payload,
@@ -74,12 +75,12 @@ export function encryptBackup(plaintext: string, keyInput: string): {
 }
 
 /**
- * Decrypt a payload produced by encryptBackup. Expects the same base64
- * concatenated format (iv + authTag + ciphertext).
+ * Decrypt a payload produced by encryptBackup.
+ * Accepts Buffer or base64 string. Returns a Buffer (caller must toString if needed).
  */
-export function decryptBackup(payload: string, keyInput: string): string {
+export function decryptBackup(payload: Buffer | string, keyInput: string): Buffer {
   const key = normalizeKey(keyInput);
-  const buf = Buffer.from(payload, "base64");
+  const buf = Buffer.isBuffer(payload) ? payload : Buffer.from(payload, "base64");
   if (buf.length < IV_LENGTH + TAG_LENGTH) {
     throw new Error("Backup payload too short to contain iv + authTag");
   }
@@ -91,7 +92,7 @@ export function decryptBackup(payload: string, keyInput: string): string {
   const decipher = createDecipheriv(AES_256_GCM_ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
   const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString("utf8");
+  return decrypted;
 }
 
 /**
@@ -115,24 +116,25 @@ export type BackupCompressionMeta = {
 };
 
 /**
- * Compress a string with gzip (level 6). Returns base64 of the gzipped data.
+ * Compress a string with gzip (level 6). Returns a Buffer.
  */
 export async function compressBackup(plaintext: string): Promise<{
-  payload: string;
+  payload: Buffer;
   meta: BackupCompressionMeta;
 }> {
   const compressed = await gzipAsync(Buffer.from(plaintext, "utf8"), { level: 6 });
   return {
-    payload: compressed.toString("base64"),
+    payload: compressed,
     meta: { compressed: true, algorithm: "gzip" },
   };
 }
 
 /**
- * Decompress a payload produced by compressBackup. Expects base64 gzipped data.
+ * Decompress a payload produced by compressBackup.
+ * Accepts Buffer or base64 string. Returns utf8 string.
  */
-export async function decompressBackup(payload: string): Promise<string> {
-  const buf = Buffer.from(payload, "base64");
+export async function decompressBackup(payload: Buffer | string): Promise<string> {
+  const buf = Buffer.isBuffer(payload) ? payload : Buffer.from(payload, "base64");
   const decompressed = await gunzipAsync(buf);
   return decompressed.toString("utf8");
 }

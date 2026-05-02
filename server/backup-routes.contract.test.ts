@@ -404,12 +404,18 @@ describe("backup routes contract", () => {
     expect(content).toContain("retention cleanup");
   });
 
-  it("backup crypto module provides gzip compression and decompression", () => {
+  it("backup crypto returns Buffer for encrypted and compressed payloads", () => {
     const content = fs.readFileSync(backupCryptoPath, "utf8");
-    expect(content).toContain("compressBackup");
-    expect(content).toContain("decompressBackup");
-    expect(content).toContain("gzip");
-    expect(content).toContain("gunzip");
+    expect(content).toContain("payload: Buffer");
+    expect(content).toContain("Buffer.isBuffer");
+    expect(content).toContain("return decrypted;");
+  });
+
+  it("backup targets accept Buffer|string data", () => {
+    const content = fs.readFileSync(backupTargetsPath, "utf8");
+    expect(content).toContain("data: Buffer | string");
+    expect(content).toContain("writeFile(filePath, data)");
+    expect(content).toContain("body: dataBuf");
   });
 
   it("backup service compresses when BACKUP_COMPRESSION_ENABLED is set", () => {
@@ -461,5 +467,22 @@ describe("backup routes contract", () => {
     const content = fs.readFileSync(indexPath, "utf8");
     expect(content).toContain("startBackupQueueWorker");
     expect(content).toContain("BACKUP_QUEUE_WORKER_ENABLED");
+  });
+
+  it("backup bullmq worker provides Redis queue and worker", () => {
+    const bullmqPath = path.join(projectRoot, "server", "workers", "backup-bullmq-worker.ts");
+    const content = fs.readFileSync(bullmqPath, "utf8");
+    expect(content).toContain("import { Queue, Worker, Job }");
+    expect(content).toContain("backup-jobs");
+    expect(content).toContain("startBackupBullmqWorker");
+    expect(content).toContain("REDIS_URL");
+    expect(content).toContain("enqueueBackupBatchBullmq");
+  });
+
+  it("server boot registers backup bullmq worker", () => {
+    const indexPath = path.join(projectRoot, "server", "index.ts");
+    const content = fs.readFileSync(indexPath, "utf8");
+    expect(content).toContain("startBackupBullmqWorker");
+    expect(content).toContain("BACKUP_BULLMQ_ENABLED");
   });
 });

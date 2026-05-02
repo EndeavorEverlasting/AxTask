@@ -24,6 +24,7 @@ import { startRetentionPruneTicker } from "./workers/retention-prune";
 import { captureDbSizeSnapshot } from "./workers/db-size-snapshot";
 import { startBackupSchedulerTicker } from "./workers/backup-scheduler";
 import { startBackupQueueWorker } from "./workers/backup-queue-worker";
+import { startBackupBullmqWorker } from "./workers/backup-bullmq-worker";
 import { logBootConfigSummary } from "./boot-config-summary";
 import { getRegistrationConfig } from "./registration-config";
 
@@ -431,6 +432,13 @@ function warnIfInviteConfigBroken(): void {
     const pollIntervalMs = Number(process.env.BACKUP_QUEUE_WORKER_POLL_MS) || 30_000;
     const concurrency = Number(process.env.BACKUP_QUEUE_WORKER_CONCURRENCY) || 4;
     startBackupQueueWorker({ pollIntervalMs, concurrency });
+  }
+
+  // BullMQ Redis-backed worker: opt-in only. Set BACKUP_BULLMQ_ENABLED=true
+  // for higher throughput and built-in dead-letter queues. Requires REDIS_URL
+  // or REDIS_HOST / REDIS_PORT.
+  if (process.env.NODE_ENV !== "test" && process.env.BACKUP_BULLMQ_ENABLED === "true") {
+    startBackupBullmqWorker();
   }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

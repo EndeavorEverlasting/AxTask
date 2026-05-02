@@ -42,7 +42,7 @@ function normalizeKey(keyInput) {
 
 function decryptBackupPayload(payload, keyInput) {
   const key = normalizeKey(keyInput);
-  const buf = Buffer.from(payload, "base64");
+  const buf = Buffer.isBuffer(payload) ? payload : Buffer.from(payload, "base64");
   if (buf.length < IV_LENGTH + TAG_LENGTH) {
     throw new Error("Backup payload too short to contain iv + authTag");
   }
@@ -52,7 +52,7 @@ function decryptBackupPayload(payload, keyInput) {
   const decipher = createDecipheriv(AES_256_GCM_ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
   const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString("utf8");
+  return decrypted;
 }
 
 const SKIP = process.argv.includes("--skip") || process.argv.includes("--skip-airlock");
@@ -117,14 +117,15 @@ async function main() {
 
     // Optional deep verification: re-read the file and check the hash
     if (VERIFY_FILE && record.path_or_url) {
-      let raw;
+      const isBinary = meta.encrypted || meta.compressed;
       try {
         if (record.path_or_url.startsWith("http://") || record.path_or_url.startsWith("https://")) {
           const res = await fetch(record.path_or_url);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          raw = await res.text();
+          raw = isBinary ? Buffer.from(await res.arrayBuffer()) : await res.text();
         } else {
-          raw = await readFile(record.path_or_url, "utf8");
+          const { readFile } = await import("node:fs/promises");
+          raw = isBinary ? await readFile(record.path_or_url) : await readFile(record.path_or_url, "utf8");
         }
       } catch (e) {
         console.error(`[migration-airlock] FAILED: could not re-read backup file: ${e.message}`);
@@ -144,8 +145,7 @@ async function main() {
       // Decompress if the backup was compressed (after decryption)
       if (meta.compressed && meta.compressionMeta) {
         try {
-          const buf = Buffer.from(raw, "base64");
-          const decompressed = await gunzipAsync(buf);
+          const decompressed = await gunzipAsync(raw);
           raw = decompressed.toString("utf8");
         } catch (e) {
           console.error(`[migration-airlock] FAILED: could not decompress backup: ${e.message}`);

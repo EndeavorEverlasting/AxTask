@@ -104,6 +104,25 @@ Admins can enqueue a batch for all users:
 curl -X POST /api/admin/backup/enqueue-all
 ```
 
+### BullMQ Redis Worker (Alternative for Higher Throughput)
+
+For even higher throughput and built-in dead-letter queues, use BullMQ with Redis:
+
+```bash
+BACKUP_BULLMQ_ENABLED=true
+REDIS_URL=redis://localhost:6379
+BACKUP_BULLMQ_CONCURRENCY=8            # parallel workers (default 4)
+```
+
+Jobs are pushed to a Redis-backed "backup-jobs" queue and consumed by BullMQ workers. Supports retries, exponential backoff, and dead-letter queues out of the box.
+
+Admins can enqueue all users via the queue:
+```bash
+curl -X POST /api/admin/backup/enqueue-all
+```
+
+(The PostgreSQL and BullMQ workers can coexist; choose one or both depending on your scale needs.)
+
 Users can opt in or out of automatic backups individually via `PATCH /api/account/backup/preferences`:
 
 ```json
@@ -260,8 +279,8 @@ MIGRATION_SKIP_AIRLOCK=true npm run db:push
 
 ## Future Roadmap
 
-1. **Redis-backed queue** — replace PostgreSQL job polling with BullMQ or similar for higher throughput and dead-letter queues.
-2. **Streaming compression** — further optimize with streaming gzip/pipe instead of in-memory buffers.
+1. **Streaming JSON serialization** — avoid keeping the full JSON string in memory for very large user datasets by streaming the export bundle.
+2. **Backup compression at rest** — further optimize with streaming gzip/pipe instead of in-memory buffers.
 
 See also the repository-wide [**Reliability Roadmap**](../README.md#reliability-roadmap).
 
