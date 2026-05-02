@@ -2,7 +2,7 @@ import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { buildUserExportBundle, type UserExportBundle } from "../account-backup";
-import { createBackupRecord, getLastBackupRecordForUser, getUserBackupPreference } from "../storage";
+import { createBackupRecord, getLastBackupRecordForUser, getUserBackupPreference, countRecentBackupFailuresForUser } from "../storage";
 import { BackupTarget, LocalFileBackupTarget, S3CompatibleBackupTarget } from "./backup-targets";
 
 export type BackupStatus = {
@@ -11,6 +11,7 @@ export type BackupStatus = {
   userAutoBackupEnabled: boolean;
   userPreferredTarget: string;
   lastServerBackupAt: string | null;
+  consecutiveFailures: number;
   restoreDryRunAvailable: boolean;
 };
 
@@ -21,12 +22,14 @@ export function isAutomaticBackupsConfigured(): boolean {
 export async function getBackupStatus(userId: string): Promise<BackupStatus> {
   const lastRecord = await getLastBackupRecordForUser(userId);
   const pref = await getUserBackupPreference(userId);
+  const consecutiveFailures = await countRecentBackupFailuresForUser(userId);
   return {
     manualExportAvailable: true,
     automaticBackupsConfigured: isAutomaticBackupsConfigured(),
     userAutoBackupEnabled: pref?.autoBackupEnabled ?? true,
     userPreferredTarget: pref?.preferredTarget ?? "default",
     lastServerBackupAt: lastRecord?.completedAt?.toISOString() ?? null,
+    consecutiveFailures,
     restoreDryRunAvailable: true,
   };
 }

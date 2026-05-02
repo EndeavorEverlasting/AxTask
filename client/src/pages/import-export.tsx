@@ -130,6 +130,7 @@ export default function ImportExport() {
         userAutoBackupEnabled: boolean;
         userPreferredTarget: string;
         lastServerBackupAt: string | null;
+        consecutiveFailures: number;
         restoreDryRunAvailable: boolean;
       }>;
     },
@@ -1096,6 +1097,24 @@ Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
                   {backupStatus.automaticBackupsConfigured ? "Enabled" : "Disabled"}
                 </div>
               </div>
+
+              {backupStatus.consecutiveFailures > 0 && (
+                <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <div className="text-sm text-red-900 dark:text-red-100">
+                      <p className="font-medium">
+                        {backupStatus.consecutiveFailures === 1
+                          ? "Last automatic backup failed"
+                          : `${backupStatus.consecutiveFailures} consecutive automatic backups failed`}
+                      </p>
+                      <p className="text-xs text-red-700 dark:text-red-300 mt-1">
+                        Your data may not be safely backed up. Run a manual JSON export below, or check the server logs.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {backupStatus.automaticBackupsConfigured && (
                 <>

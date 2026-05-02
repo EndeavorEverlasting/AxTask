@@ -90,6 +90,8 @@ Users can opt in or out of automatic backups individually via `PATCH /api/accoun
 
 Default is `autoBackupEnabled: true` and `preferredTarget: "default"` (falls back to server env configuration).
 
+The Import/Export UI shows a **warning banner** when consecutive automatic backups have failed, alerting users that their data may not be safely backed up.
+
 ### S3-Compatible Target (Optional)
 
 Instead of writing to local disk, set S3-compatible environment variables:
@@ -191,7 +193,8 @@ MIGRATION_SKIP_AIRLOCK=true npm run db:push
 
 ## Future Roadmap
 
-1. **Backup Verification** — automatic read-back / checksum validation after upload.
+1. **Backup Encryption at Rest** — optional AES-256-GCM encryption of JSON bundles before writing to disk or S3.
+2. **Cross-region Replication** — write to multiple S3 buckets/regions for redundancy.
 
 See also the repository-wide [**Reliability Roadmap**](../README.md#reliability-roadmap).
 

@@ -5603,6 +5603,23 @@ export async function getLastBackupRecordForUser(userId: string): Promise<Backup
   return row || null;
 }
 
+/** Count consecutive failed backup records since the most recent success. */
+export async function countRecentBackupFailuresForUser(userId: string): Promise<number> {
+  const rows = await db
+    .select()
+    .from(backupRecords)
+    .where(eq(backupRecords.userId, userId))
+    .orderBy(desc(backupRecords.createdAt))
+    .limit(50);
+
+  let failures = 0;
+  for (const row of rows) {
+    if (row.status === "completed") break;
+    if (row.status === "failed") failures += 1;
+  }
+  return failures;
+}
+
 // ─── User Backup Preference helpers ─────────────────────────────────────────
 
 export async function getUserBackupPreference(userId: string): Promise<UserBackupPreference | null> {

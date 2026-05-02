@@ -108,6 +108,7 @@ describe("backup routes contract", () => {
     expect(content).toContain("restoreDryRunAvailable: true");
     expect(content).toContain("userAutoBackupEnabled");
     expect(content).toContain("userPreferredTarget");
+    expect(content).toContain("consecutiveFailures");
   });
 
   it("schema defines userBackupPreferences table", () => {
@@ -276,5 +277,16 @@ describe("backup routes contract", () => {
     expect(content).toContain("Automatic Backup Preferences");
     expect(content).toContain("userAutoBackupEnabled");
     expect(content).toContain("userPreferredTarget");
+    expect(content).toContain("consecutiveFailures");
+    expect(content).toContain("Last automatic backup failed");
+  });
+
+  it("storage counts recent backup failures for a user", () => {
+    const content = fs.readFileSync(
+      path.join(projectRoot, "server", "storage.ts"),
+      "utf8",
+    );
+    expect(content).toContain("countRecentBackupFailuresForUser");
+    expect(content).toContain('row.status === "failed"');
   });
 });
