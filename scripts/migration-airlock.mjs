@@ -118,7 +118,7 @@ async function main() {
     // Optional deep verification: re-read the file and check the hash
     if (VERIFY_FILE && record.path_or_url) {
       const isBinary = meta.encrypted || meta.compressed;
-      let raw: Buffer | string;
+      let raw;
       try {
         if (record.path_or_url.startsWith("http://") || record.path_or_url.startsWith("https://")) {
           const res = await fetch(record.path_or_url);
@@ -154,7 +154,7 @@ async function main() {
         }
       }
 
-      const actualSha256 = createHash("sha256").update(raw, "utf8").digest("hex");
+      const actualSha256 = createHash("sha256").update(raw).digest("hex");
       if (actualSha256 !== meta.sha256) {
         console.error("[migration-airlock] FAILED: backup integrity check failed (hash mismatch).");
         console.error(`[migration-airlock]  expected: ${meta.sha256}`);
