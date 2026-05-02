@@ -12,6 +12,8 @@
  */
 
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, createHash } from "node:crypto";
+import { promisify } from "node:util";
+import { gzip, gunzip } from "node:zlib";
 
 const AES_256_GCM_ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;   // bytes
@@ -100,4 +102,37 @@ export function decryptBackup(payload: string, keyInput: string): string {
 export function deriveKeyFromPassphrase(passphrase: string): string {
   const key = scryptSync(passphrase, "axtask-backup-salt", KEY_LENGTH);
   return key.toString("hex");
+}
+
+// ─── Compression helpers ────────────────────────────────────────────────────
+
+const gzipAsync = promisify(gzip);
+const gunzipAsync = promisify(gunzip);
+
+export type BackupCompressionMeta = {
+  compressed: true;
+  algorithm: "gzip";
+};
+
+/**
+ * Compress a string with gzip (level 6). Returns base64 of the gzipped data.
+ */
+export async function compressBackup(plaintext: string): Promise<{
+  payload: string;
+  meta: BackupCompressionMeta;
+}> {
+  const compressed = await gzipAsync(Buffer.from(plaintext, "utf8"), { level: 6 });
+  return {
+    payload: compressed.toString("base64"),
+    meta: { compressed: true, algorithm: "gzip" },
+  };
+}
+
+/**
+ * Decompress a payload produced by compressBackup. Expects base64 gzipped data.
+ */
+export async function decompressBackup(payload: string): Promise<string> {
+  const buf = Buffer.from(payload, "base64");
+  const decompressed = await gunzipAsync(buf);
+  return decompressed.toString("utf8");
 }

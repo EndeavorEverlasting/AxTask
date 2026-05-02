@@ -82,6 +82,28 @@ The scheduler iterates over all users in configurable pages, exports a JSON bund
 
 After the backup batch completes, a **retention cleanup** runs that respects each user's `retentionPolicyJson` (default: keep last 30 backups + oldest from 12 months). Old records are removed from `backup_records`.
 
+### Queue-Based Worker (Alternative to Tick Scheduler)
+
+For horizontal scaling, use the PostgreSQL-backed job queue instead of the tick-based scheduler:
+
+```bash
+BACKUP_QUEUE_WORKER_ENABLED=true
+BACKUP_QUEUE_WORKER_POLL_MS=30000      # poll interval (default 30s)
+BACKUP_QUEUE_WORKER_CONCURRENCY=4      # parallel jobs (default 4)
+```
+
+Workers poll the `backup_jobs` table for pending jobs, claim them atomically (status → `running`), execute the backup, and mark them `completed` or `failed`. Multiple server instances can run workers against the same database for horizontal scaling.
+
+Enqueue a manual backup for your account via the API:
+```bash
+curl -X POST /api/account/backup/enqueue
+```
+
+Admins can enqueue a batch for all users:
+```bash
+curl -X POST /api/admin/backup/enqueue-all
+```
+
 Users can opt in or out of automatic backups individually via `PATCH /api/account/backup/preferences`:
 
 ```json
@@ -110,6 +132,19 @@ BACKUP_S3_PREFIX=backups/          # optional key prefix
 ```
 
 Works with AWS S3, MinIO, Wasabi, DigitalOcean Spaces, and any other service that accepts AWS Signature Version 4 PUT requests. Users can override the server default target by setting `preferredTarget: "s3"` or `preferredTarget: "local"` in their preferences.
+
+### Compression (Optional)
+
+Enable gzip compression before encryption to reduce storage and bandwidth:
+
+```bash
+BACKUP_COMPRESSION_ENABLED=true
+```
+
+When enabled:
+- JSON bundles are gzipped (level 6) before encryption
+- The SHA-256 hash is computed on the **plaintext** (before compression/encryption)
+- Verification and migration airlock automatically decompress after decryption
 
 ### Multi-Target S3 Replication (Optional)
 
@@ -225,8 +260,8 @@ MIGRATION_SKIP_AIRLOCK=true npm run db:push
 
 ## Future Roadmap
 
-1. **Queue-based scheduler** — replace tick-based loop with BullMQ or similar for horizontal scaling beyond tens of thousands of users.
-2. **Backup compression** — gzip JSON bundles before encryption to reduce storage and bandwidth.
+1. **Redis-backed queue** — replace PostgreSQL job polling with BullMQ or similar for higher throughput and dead-letter queues.
+2. **Streaming compression** — further optimize with streaming gzip/pipe instead of in-memory buffers.
 
 See also the repository-wide [**Reliability Roadmap**](../README.md#reliability-roadmap).
 

@@ -859,3 +859,28 @@ export const userBackupPreferences = pgTable("user_backup_preferences", {
 export type BackupRecord = typeof backupRecords.$inferSelect;
 
 export type UserBackupPreference = typeof userBackupPreferences.$inferSelect;
+
+// ─── Backup Jobs (queue-based scheduler) ──────────────────────────────────────
+/**
+ * PostgreSQL-backed job queue for backup processing.
+ * Workers poll for pending jobs, claim them by updating startedAt,
+ * and mark them completed or failed. This enables horizontal scaling
+ * without requiring Redis or BullMQ.
+ */
+export const backupJobs = pgTable("backup_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"), // pending | running | completed | failed | cancelled
+  type: text("type").notNull().default("scheduled"),    // scheduled | manual | retry
+  target: text("target").default("default"),
+  recordId: varchar("record_id"),                       // FK to backup_records after completion
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("idx_backup_jobs_user_status").on(table.userId, table.status),
+  index("idx_backup_jobs_status_created").on(table.status, table.createdAt),
+]);
+
+export type BackupJob = typeof backupJobs.$inferSelect;

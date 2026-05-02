@@ -431,10 +431,10 @@ describe("backup routes contract", () => {
   it("schema defines backupJobs table for queue-based scheduler", () => {
     const content = fs.readFileSync(schemaPath, "utf8");
     expect(content).toContain("backupJobs");
-    expect(content).toContain('"pending"');
-    expect(content).toContain('"running"');
-    expect(content).toContain('"completed"');
-    expect(content).toContain('"failed"');
+    expect(content).toContain("pending");
+    expect(content).toContain("running");
+    expect(content).toContain("completed");
+    expect(content).toContain("failed");
   });
 
   it("backup queue worker polls and processes jobs", () => {

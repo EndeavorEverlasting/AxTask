@@ -4,7 +4,7 @@ import path from "node:path";
 import { buildUserExportBundle, type UserExportBundle } from "../account-backup";
 import { createBackupRecord, getLastBackupRecordForUser, getUserBackupPreference, countRecentBackupFailuresForUser } from "../storage";
 import { BackupTarget, LocalFileBackupTarget, S3CompatibleBackupTarget, MultiS3BackupTarget } from "./backup-targets";
-import { encryptBackup, decryptBackup } from "./backup-crypto";
+import { encryptBackup, decryptBackup, compressBackup, decompressBackup } from "./backup-crypto";
 
 export type BackupStatus = {
   manualExportAvailable: boolean;
@@ -117,6 +117,13 @@ export async function generateLocalBackup(
     let data = JSON.stringify(bundle, null, 2);
     const sha256 = createHash("sha256").update(data, "utf8").digest("hex");
 
+    let compressionMeta: Record<string, unknown> | undefined;
+    if (process.env.BACKUP_COMPRESSION_ENABLED === "true") {
+      const { payload, meta } = await compressBackup(data);
+      data = payload;
+      compressionMeta = meta;
+    }
+
     let encryptionMeta: Record<string, unknown> | undefined;
     const encryptionKey = process.env.BACKUP_ENCRYPTION_KEY;
     if (encryptionKey) {
@@ -137,6 +144,8 @@ export async function generateLocalBackup(
         taskCount: bundle.data.tasks?.length ?? 0,
         previousRecordId: pending.id,
         sha256,
+        compressed: !!compressionMeta,
+        compressionMeta: compressionMeta ?? undefined,
         encrypted: !!encryptionMeta,
         encryptionMeta: encryptionMeta ?? undefined,
       }),
@@ -191,6 +200,16 @@ export async function verifyBackupByRecord(record: {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { ok: false, sha256: "", expectedSha256, error: `decrypt failed: ${msg}` };
+    }
+  }
+
+  // If the backup was compressed, decompress after decryption
+  if (meta.compressed && meta.compressionMeta) {
+    try {
+      raw = await decompressBackup(String(raw));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, sha256: "", expectedSha256, error: `decompress failed: ${msg}` };
     }
   }
 

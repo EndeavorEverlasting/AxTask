@@ -6,7 +6,8 @@ import {
   testBackupTargetWritable,
   resolveBackupTarget,
 } from "../services/backup-service";
-import { getLastBackupRecordForUser, upsertUserBackupPreference } from "../storage";
+import { getLastBackupRecordForUser, upsertUserBackupPreference, createBackupJob, getAllUsers } from "../storage";
+import { enqueueBackupBatch } from "../workers/backup-queue-worker";
 import { db } from "../db";
 import { desc, eq } from "drizzle-orm";
 import { backupRecords } from "@shared/schema";
@@ -128,5 +129,28 @@ export function registerBackupRoutes(
         res.status(500).json({ message: "Failed to verify backup" });
       }
     });
+    app.post("/api/admin/backup/enqueue-all", requireAdmin, async (_req, res) => {
+      try {
+        const result = await enqueueBackupBatch(async () => {
+          const users = await getAllUsers();
+          return users.map((u) => u.id);
+        }, "manual_admin");
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to enqueue backup jobs" });
+      }
+    });
   }
+
+  app.post("/api/account/backup/enqueue", requireAuth, async (req, res) => {
+    try {
+      const job = await createBackupJob({
+        userId: req.user!.id,
+        type: "manual",
+      });
+      res.status(201).json(job);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to enqueue backup job" });
+    }
+  });
 }

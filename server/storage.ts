@@ -61,6 +61,7 @@ import {
   userClassificationLabels,
   backupRecords,
   userBackupPreferences,
+  backupJobs,
   type Task,
   type InsertTask,
   type UpdateTask,
@@ -124,6 +125,7 @@ import {
   type CollaborationInboxMessage,
   type BackupRecord,
   type UserBackupPreference,
+  type BackupJob,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ne, ilike, or, asc, lt, lte, gt, gte, count, avg, sql, desc, inArray, isNull, isNotNull } from "drizzle-orm";
@@ -5730,4 +5732,62 @@ export async function upsertUserBackupPreference(input: {
     })
     .returning();
   return row;
+}
+
+// ─── Backup Job helpers (queue-based scheduler) ───────────────────────────────
+
+export async function createBackupJob(input: {
+  userId: string;
+  type?: string;
+  target?: string;
+}): Promise<BackupJob> {
+  const [row] = await db
+    .insert(backupJobs)
+    .values({
+      id: randomUUID(),
+      userId: input.userId,
+      type: input.type ?? "scheduled",
+      target: input.target ?? "default",
+      status: "pending",
+      createdAt: new Date(),
+    })
+    .returning();
+  return row;
+}
+
+export async function getNextPendingBackupJob(): Promise<BackupJob | null> {
+  const [row] = await db
+    .select()
+    .from(backupJobs)
+    .where(eq(backupJobs.status, "pending"))
+    .orderBy(asc(backupJobs.createdAt))
+    .limit(1);
+  return row || null;
+}
+
+export async function markBackupJobRunning(id: string): Promise<BackupJob | null> {
+  const [row] = await db
+    .update(backupJobs)
+    .set({ status: "running", startedAt: new Date() })
+    .where(eq(backupJobs.id, id))
+    .returning();
+  return row || null;
+}
+
+export async function markBackupJobCompleted(id: string, recordId: string): Promise<BackupJob | null> {
+  const [row] = await db
+    .update(backupJobs)
+    .set({ status: "completed", recordId, completedAt: new Date() })
+    .where(eq(backupJobs.id, id))
+    .returning();
+  return row || null;
+}
+
+export async function markBackupJobFailed(id: string, errorMessage: string): Promise<BackupJob | null> {
+  const [row] = await db
+    .update(backupJobs)
+    .set({ status: "failed", errorMessage, completedAt: new Date() })
+    .where(eq(backupJobs.id, id))
+    .returning();
+  return row || null;
 }

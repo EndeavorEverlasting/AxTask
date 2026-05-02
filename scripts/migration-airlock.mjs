@@ -19,6 +19,10 @@ import pgModule from "pg";
 const pg = pgModule.default || pgModule;
 import { createHash, createDecipheriv, scryptSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { promisify } from "node:util";
+import { gunzip } from "node:zlib";
+
+const gunzipAsync = promisify(gunzip);
 
 const AES_256_GCM_ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
@@ -133,6 +137,18 @@ async function main() {
           raw = decryptBackupPayload(raw, process.env.BACKUP_ENCRYPTION_KEY);
         } catch (e) {
           console.error(`[migration-airlock] FAILED: could not decrypt backup: ${e.message}`);
+          process.exit(1);
+        }
+      }
+
+      // Decompress if the backup was compressed (after decryption)
+      if (meta.compressed && meta.compressionMeta) {
+        try {
+          const buf = Buffer.from(raw, "base64");
+          const decompressed = await gunzipAsync(buf);
+          raw = decompressed.toString("utf8");
+        } catch (e) {
+          console.error(`[migration-airlock] FAILED: could not decompress backup: ${e.message}`);
           process.exit(1);
         }
       }

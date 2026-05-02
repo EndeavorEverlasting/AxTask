@@ -23,6 +23,7 @@ import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
 import { startRetentionPruneTicker } from "./workers/retention-prune";
 import { captureDbSizeSnapshot } from "./workers/db-size-snapshot";
 import { startBackupSchedulerTicker } from "./workers/backup-scheduler";
+import { startBackupQueueWorker } from "./workers/backup-queue-worker";
 import { logBootConfigSummary } from "./boot-config-summary";
 import { getRegistrationConfig } from "./registration-config";
 
@@ -421,6 +422,15 @@ function warnIfInviteConfigBroken(): void {
   if (process.env.NODE_ENV !== "test" && process.env.BACKUP_SCHEDULER_ENABLED === "true") {
     const intervalMs = Number(process.env.BACKUP_SCHEDULER_INTERVAL_MS) || 24 * 60 * 60 * 1000;
     startBackupSchedulerTicker({ intervalMs });
+  }
+
+  // Backup queue worker: opt-in only. Set BACKUP_QUEUE_WORKER_ENABLED=true
+  // for a persistent PostgreSQL-backed job queue (replaces the tick-based
+  // scheduler for horizontal scaling). Polling interval defaults to 30s.
+  if (process.env.NODE_ENV !== "test" && process.env.BACKUP_QUEUE_WORKER_ENABLED === "true") {
+    const pollIntervalMs = Number(process.env.BACKUP_QUEUE_WORKER_POLL_MS) || 30_000;
+    const concurrency = Number(process.env.BACKUP_QUEUE_WORKER_CONCURRENCY) || 4;
+    startBackupQueueWorker({ pollIntervalMs, concurrency });
   }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
