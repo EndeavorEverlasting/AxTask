@@ -19,6 +19,7 @@ const registrarRouteSources = [
   path.join(projectRoot, "server", "routes", "task-attachments.ts"),
   path.join(projectRoot, "server", "routes", "task-collaboration.ts"),
   path.join(projectRoot, "server", "routes", "patterns.ts"),
+  path.join(projectRoot, "server", "routes", "alarms.ts"),
 ];
 
 /**
@@ -43,13 +44,16 @@ const REQUIRED_IN_ROUTES_TS = [
   'app.get("/api/gamification/wallet",',
   'app.get("/api/tasks/:id/classifications",',
   'app.post("/api/tasks/:id/confirm-classification",',
-  'app.get("/api/alarm-capabilities",',
-  'app.post("/api/alarm-companion/apply",',
 ] as const;
 
 const REQUIRED_IN_AUTH_REGISTRAR = [
   'app.post("/api/auth/login",',
   'app.get("/api/auth/me",',
+] as const;
+
+const REQUIRED_IN_ALARMS_REGISTRAR = [
+  'app.get("/api/alarm-capabilities",',
+  'app.post("/api/alarm-companion/apply",',
 ] as const;
 
 describe("server/routes.ts inventory", () => {
@@ -61,6 +65,13 @@ describe("server/routes.ts inventory", () => {
     const authRoutes = fs.readFileSync(authRoutesPath, "utf8");
     for (const snippet of REQUIRED_IN_AUTH_REGISTRAR) {
       expect(authRoutes, snippet).toContain(snippet);
+    }
+    const alarmsRoutes = fs.readFileSync(
+      path.join(projectRoot, "server", "routes", "alarms.ts"),
+      "utf8",
+    );
+    for (const snippet of REQUIRED_IN_ALARMS_REGISTRAR) {
+      expect(alarmsRoutes, snippet).toContain(snippet);
     }
   });
 

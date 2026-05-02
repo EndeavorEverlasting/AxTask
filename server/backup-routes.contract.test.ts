@@ -238,6 +238,22 @@ describe("backup routes contract", () => {
     expect(content).toContain("--verify");
   });
 
+  it("registers alarm routes in routes.ts", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes).toContain('import { registerAlarmRoutes } from "./routes/alarms"');
+    expect(routes).toContain("registerAlarmRoutes(app, requireAuth)");
+  });
+
+  it("exposes alarm snapshot and companion routes in the alarms route module", () => {
+    const content = fs.readFileSync(
+      path.join(projectRoot, "server", "routes", "alarms.ts"),
+      "utf8",
+    );
+    expect(content).toContain('"/api/alarm-snapshots"');
+    expect(content).toContain('"/api/alarm-capabilities"');
+    expect(content).toContain('"/api/alarm-companion/apply"');
+  });
+
   it("apply-migrations script wires migration airlock", () => {
     const content = fs.readFileSync(applyMigrationsPath, "utf8");
     expect(content).toContain("migration-airlock.mjs");
