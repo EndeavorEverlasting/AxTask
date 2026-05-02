@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 const projectRoot = path.resolve(__dirname, "..");
 const routesPath = path.join(projectRoot, "server", "routes.ts");
 const shoppingListsRoutesPath = path.join(projectRoot, "server", "shopping-lists-routes.ts");
+const authRoutesPath = path.join(projectRoot, "server", "routes", "auth.ts");
 /** Registrar modules that call `app.METHOD(...)` outside `routes.ts` (must stay in sync with snapshot). */
 const registrarRouteSources = [
   path.join(projectRoot, "server", "routes", "locations.ts"),
@@ -14,6 +15,7 @@ const registrarRouteSources = [
   path.join(projectRoot, "server", "routes", "foundry.ts"),
   path.join(projectRoot, "server", "routes", "account-backup.ts"),
   path.join(projectRoot, "server", "routes", "account.ts"),
+  authRoutesPath,
 ];
 
 /**
@@ -30,13 +32,11 @@ function extractExpressRoutePaths(source: string): string[] {
 }
 
 /** High-surface routes that should stay obvious in code review if removed. */
-const REQUIRED_ROUTE_REGISTRATIONS = [
+const REQUIRED_IN_ROUTES_TS = [
   'app.get("/api/tasks",',
   'app.post("/api/tasks",',
   'app.get("/api/tasks/search/:query",',
   'app.post("/api/tasks/recalculate",',
-  'app.post("/api/auth/login",',
-  'app.get("/api/auth/me",',
   'app.get("/api/gamification/wallet",',
   'app.get("/api/tasks/:id/classifications",',
   'app.post("/api/tasks/:id/confirm-classification",',
@@ -44,11 +44,20 @@ const REQUIRED_ROUTE_REGISTRATIONS = [
   'app.post("/api/alarm-companion/apply",',
 ] as const;
 
+const REQUIRED_IN_AUTH_REGISTRAR = [
+  'app.post("/api/auth/login",',
+  'app.get("/api/auth/me",',
+] as const;
+
 describe("server/routes.ts inventory", () => {
   it("keeps critical API registrations present", () => {
     const routes = fs.readFileSync(routesPath, "utf8");
-    for (const snippet of REQUIRED_ROUTE_REGISTRATIONS) {
+    for (const snippet of REQUIRED_IN_ROUTES_TS) {
       expect(routes, snippet).toContain(snippet);
+    }
+    const authRoutes = fs.readFileSync(authRoutesPath, "utf8");
+    for (const snippet of REQUIRED_IN_AUTH_REGISTRAR) {
+      expect(authRoutes, snippet).toContain(snippet);
     }
   });
 
