@@ -1,8 +1,9 @@
 # AxTask Backup Fortress Plan
 
-**Status:** IN PROGRESS  
-**Branch:** `feature/backup-fortress-phase-1-soft-delete-2026-05-02`  
+**Status:** CLOSED
+**Branch:** `feature/backup-fortress-sprints-2026-05-02` → merged to `main`
 **Created:** 2026-05-02
+**Closed:** 2026-05-02
 
 ---
 
