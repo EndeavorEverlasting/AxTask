@@ -1186,6 +1186,16 @@ export async function getAllUsers(): Promise<SafeUser[]> {
   return rows.map(toSafeUser);
 }
 
+export async function getUsersPaginated(offset: number, limit: number): Promise<SafeUser[]> {
+  const rows = await db
+    .select()
+    .from(users)
+    .orderBy(asc(users.createdAt))
+    .limit(limit)
+    .offset(offset);
+  return rows.map(toSafeUser);
+}
+
 export async function isUserBanned(email: string): Promise<{ banned: boolean; reason?: string }> {
   const user = await getUserByEmail(email);
   if (!user) return { banned: false };

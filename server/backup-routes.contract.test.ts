@@ -157,9 +157,10 @@ describe("backup routes contract", () => {
     expect(content).toContain("testBackupTargetWritable");
   });
 
-  it("scheduler processes users in configurable chunks", () => {
+  it("scheduler processes users in configurable pages", () => {
     const content = fs.readFileSync(backupSchedulerPath, "utf8");
-    expect(content).toContain("chunkArray");
+    expect(content).toContain("getUsersPaginated");
+    expect(content).not.toContain("getAllUsers");
     expect(content).toContain("BACKUP_SCHEDULER_BATCH_SIZE");
     expect(content).toContain("batchSize");
   });
@@ -208,5 +209,37 @@ describe("backup routes contract", () => {
     expect(content).toContain('"/api/patterns/insights"');
     expect(content).toContain('"/api/patterns/learn"');
     expect(content).toContain('"/api/patterns/suggest-deadline"');
+  });
+
+  it("backup targets support deleteBackup", () => {
+    const content = fs.readFileSync(backupTargetsPath, "utf8");
+    expect(content).toContain("deleteBackup");
+    expect(content).toContain("LocalFileBackupTarget");
+    expect(content).toContain("S3CompatibleBackupTarget");
+    expect(content).toContain("DELETE");
+    expect(content).toContain("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  });
+
+  it("migration airlock script exists and checks backup_records", () => {
+    const content = fs.readFileSync(migrationAirlockPath, "utf8");
+    expect(content).toContain("backup_records");
+    expect(content).toContain("status = 'completed'");
+    expect(content).toContain("sha256");
+    expect(content).toContain("--skip");
+    expect(content).toContain("--verify");
+  });
+
+  it("apply-migrations script wires migration airlock", () => {
+    const content = fs.readFileSync(applyMigrationsPath, "utf8");
+    expect(content).toContain("migration-airlock.mjs");
+    expect(content).toContain("--skip-airlock");
+    expect(content).toContain("MIGRATION_SKIP_AIRLOCK");
+  });
+
+  it("drizzle-push script wires migration airlock", () => {
+    const content = fs.readFileSync(drizzlePushPath, "utf8");
+    expect(content).toContain("migration-airlock.mjs");
+    expect(content).toContain("--skip-airlock");
+    expect(content).toContain("MIGRATION_SKIP_AIRLOCK");
   });
 });

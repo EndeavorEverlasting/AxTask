@@ -25,6 +25,25 @@ async function main() {
     process.exit(1);
   }
 
+  // Migration airlock: refuse to run DDL without a recent verified backup
+  const skipAirlock = process.argv.includes("--skip-airlock") || process.env.MIGRATION_SKIP_AIRLOCK === "true";
+  if (!skipAirlock) {
+    const airlockPath = path.resolve(__dirname, "migration-airlock.mjs");
+    const { spawnSync } = await import("node:child_process");
+    const airlockResult = spawnSync(process.execPath, [airlockPath], {
+      stdio: ["ignore", "inherit", "inherit"],
+      env: process.env,
+      cwd: path.resolve(__dirname, ".."),
+    });
+    if (airlockResult.status !== 0) {
+      console.error("[migrate] Migration airlock failed. Refusing to run migrations.");
+      console.error("[migrate] Pass --skip-airlock to bypass (emergency use only).");
+      process.exit(1);
+    }
+  } else {
+    console.warn("[migrate] WARNING: migration airlock bypassed via --skip-airlock.");
+  }
+
   const pool = new pg.Pool({ connectionString: url, max: 1 });
   const client = await pool.connect();
 

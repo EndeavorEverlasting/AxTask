@@ -166,17 +166,12 @@ export async function testBackupTargetWritable(target: BackupTarget): Promise<bo
   const testFileName = `_probe-${Date.now()}.json`;
   try {
     const { pathOrUrl } = await target.writeBackup(testFileName, testPayload);
-    // For local targets, clean up the probe file
-    if (target instanceof LocalFileBackupTarget && !pathOrUrl.startsWith("http")) {
-      try {
-        const { unlink } = await import("node:fs/promises");
-        await unlink(pathOrUrl);
-      } catch {
-        // ignore cleanup failure
-      }
+    // Clean up the probe file for both local and S3 targets
+    try {
+      await target.deleteBackup(testFileName);
+    } catch {
+      // ignore cleanup failure — probes are tiny and timestamped, they won't collide
     }
-    // For S3, a successful PUT is sufficient evidence; we don't delete to avoid
-    // needing DELETE signing complexity in the minimal target implementation.
     return true;
   } catch {
     return false;

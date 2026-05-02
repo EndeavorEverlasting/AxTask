@@ -1,10 +1,11 @@
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir, unlink } from "node:fs/promises";
 import { createHmac, createHash } from "node:crypto";
 import path from "node:path";
 
 export interface BackupTarget {
   name: string;
   writeBackup(fileName: string, data: string): Promise<{ pathOrUrl: string }>;
+  deleteBackup(fileName: string): Promise<void>;
 }
 
 export class LocalFileBackupTarget implements BackupTarget {
@@ -17,6 +18,12 @@ export class LocalFileBackupTarget implements BackupTarget {
     await mkdir(dir, { recursive: true });
     await writeFile(filePath, data, "utf8");
     return { pathOrUrl: filePath };
+  }
+
+  async deleteBackup(fileName: string): Promise<void> {
+    const dir = this.outputDir || process.cwd();
+    const filePath = path.resolve(dir, fileName);
+    await unlink(filePath);
   }
 }
 
@@ -120,5 +127,58 @@ export class S3CompatibleBackupTarget implements BackupTarget {
     }
 
     return { pathOrUrl: url };
+  }
+
+  async deleteBackup(fileName: string): Promise<void> {
+    const { endpoint, bucket, region, accessKeyId, secretAccessKey, prefix = "" } = this.opts;
+    const key = prefix ? `${prefix.replace(/\/$/, "")}/${fileName}` : fileName;
+    const url = `${endpoint.replace(/\/$/, "")}/${bucket}/${key}`;
+    const now = new Date();
+    const { dateStamp, amzDate } = this.isoDate(now);
+
+    const emptySha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+    const headers: Record<string, string> = {
+      "Host": new URL(url).host,
+      "x-amz-content-sha256": emptySha256,
+      "x-amz-date": amzDate,
+    };
+
+    const signedHeaders = Object.keys(headers).map((k) => k.toLowerCase()).sort().join(";");
+    const canonicalHeaders = Object.keys(headers)
+      .sort()
+      .map((k) => `${k.toLowerCase()}:${headers[k].trim()}\n`)
+      .join("");
+
+    const canonicalRequest = [
+      "DELETE",
+      `/${bucket}/${key}`,
+      "",
+      canonicalHeaders,
+      signedHeaders,
+      emptySha256,
+    ].join("\n");
+
+    const credential = `${accessKeyId}/${dateStamp}/${region}/s3/aws4_request`;
+    const scope = `${dateStamp}/${region}/s3/aws4_request`;
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      amzDate,
+      scope,
+      this.hash(canonicalRequest),
+    ].join("\n");
+
+    const signature = this.sign(secretAccessKey, dateStamp, region, "s3", stringToSign);
+    headers["Authorization"] = `AWS4-HMAC-SHA256 Credential=${credential}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers,
+    });
+
+    if (!res.ok && res.status !== 404) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`S3 delete failed (${res.status}): ${text.slice(0, 200)}`);
+    }
   }
 }

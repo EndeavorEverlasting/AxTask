@@ -157,9 +157,32 @@ Returns `409` if the hash does not match or the file cannot be read, indicating 
 - No Windows Task Scheduler integration (use the Node.js scheduler or cron).
 - No CLI-authenticated backup (the `backup:local` script is informational only).
 
+## Migration Airlock
+
+`npm run db:migrate` and `npm run db:push` now refuse to run unless a recent verified backup exists. This prevents destructive schema changes without a safety net.
+
+The airlock checks:
+1. A completed backup record exists in `backup_records`
+2. The backup is within the retention window (default 7 days, override with `BACKUP_AIRLOCK_RETENTION_HOURS`)
+3. The backup has a SHA-256 hash in its metadata (for integrity verification)
+
+```bash
+# Normal usage — will refuse if no recent backup
+npm run db:migrate
+npm run db:push
+
+# Deep verification mode — also re-reads the file and compares the hash
+node scripts/migration-airlock.mjs --verify
+
+# Emergency bypass — use only when you understand the risk
+npm run db:migrate -- --skip-airlock
+# or
+MIGRATION_SKIP_AIRLOCK=true npm run db:push
+```
+
 ## Future Roadmap
 
-1. **Migration Airlock** — safe migration commands that refuse to run without a verified backup.
+1. **Backup Verification** — automatic read-back / checksum validation after upload.
 
 See also the repository-wide [**Reliability Roadmap**](../README.md#reliability-roadmap).
 
