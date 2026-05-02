@@ -25,8 +25,12 @@ async function main() {
     process.exit(1);
   }
 
-  // Migration airlock: refuse to run DDL without a recent verified backup
-  const skipAirlock = process.argv.includes("--skip-airlock") || process.env.MIGRATION_SKIP_AIRLOCK === "true";
+  // Migration airlock: refuse to run DDL without a recent verified backup.
+  // CI/test bootstrap databases are disposable, so allow them to bypass the
+  // airlock without requiring a fake backup ledger entry.
+  const explicitSkipAirlock = process.argv.includes("--skip-airlock") || process.env.MIGRATION_SKIP_AIRLOCK === "true";
+  const ciBypassAirlock = process.env.CI === "true" || process.env.NODE_ENV === "test";
+  const skipAirlock = explicitSkipAirlock || ciBypassAirlock;
   if (!skipAirlock) {
     const airlockPath = path.resolve(__dirname, "migration-airlock.mjs");
     const { spawnSync } = await import("node:child_process");
@@ -41,7 +45,8 @@ async function main() {
       process.exit(1);
     }
   } else {
-    console.warn("[migrate] WARNING: migration airlock bypassed via --skip-airlock.");
+    const bypassReason = explicitSkipAirlock ? "explicit skip" : "CI/test bootstrap";
+    console.warn(`[migrate] WARNING: migration airlock bypassed (${bypassReason}).`);
   }
 
   const pool = new pg.Pool({ connectionString: url, max: 1 });

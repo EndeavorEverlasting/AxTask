@@ -312,6 +312,7 @@ describe("backup routes contract", () => {
     expect(content).toContain("migration-airlock.mjs");
     expect(content).toContain("--skip-airlock");
     expect(content).toContain("MIGRATION_SKIP_AIRLOCK");
+    expect(content).toContain('process.env.CI === "true"');
   });
 
   it("drizzle-push script wires migration airlock", () => {
