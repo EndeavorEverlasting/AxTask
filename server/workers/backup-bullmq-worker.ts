@@ -108,9 +108,10 @@ export async function enqueueBackupBatchBullmq(
   outputDir?: string,
 ): Promise<{ enqueued: number }> {
   const q = getBackupQueue();
-  const jobs = userIds.map((userId) =>
+  const now = Date.now();
+  const jobs = userIds.map((userId, i) =>
     q.add("backup", { userId, outputDir, type: "scheduled" }, {
-      jobId: `backup-${userId}-${Date.now()}`,
+      jobId: `backup-${userId}-${now}-${i}`,
     }),
   );
   await Promise.all(jobs);

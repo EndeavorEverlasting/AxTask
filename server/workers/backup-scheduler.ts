@@ -83,8 +83,14 @@ async function runBackupBatch(outputDir?: string): Promise<void> {
         if (pref && pref.autoBackupEnabled === false) {
           return { status: "skipped" as const, userId: user.id };
         }
-        await generateLocalBackup(user.id, outputDir);
-        return { status: "completed" as const, userId: user.id };
+        try {
+          await generateLocalBackup(user.id, outputDir);
+          return { status: "completed" as const, userId: user.id };
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          (error as any).userId = user.id;
+          throw error;
+        }
       },
     );
 

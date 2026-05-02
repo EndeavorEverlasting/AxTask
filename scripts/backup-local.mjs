@@ -16,7 +16,9 @@ const rootDir = path.resolve(process.cwd());
 const envPath = path.join(rootDir, ".env");
 const hasEnv = existsSync(envPath);
 
-const databaseUrl = process.env.DATABASE_URL || (hasEnv ? "(check .env)" : "not set");
+const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+const databaseUrl = process.env.DATABASE_URL;
+const databaseUrlDisplay = databaseUrl || (hasEnv ? "(check .env)" : "not set");
 
 function printHeader() {
   console.log("AxTask Local Backup Helper");
@@ -25,7 +27,7 @@ function printHeader() {
 
 function printEnvironment() {
   console.log("\nEnvironment check:");
-  console.log(`  DATABASE_URL: ${databaseUrl ? "present" : "missing"}`);
+  console.log(`  DATABASE_URL: ${hasDatabaseUrl ? "present" : databaseUrlDisplay}`);
   console.log(`  NODE_ENV:     ${process.env.NODE_ENV || "not set"}`);
 }
 

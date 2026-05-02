@@ -55,9 +55,10 @@ export function registerCollaborationRoutes(app: Express, requireAuth: RequireAu
       }
 
       const body = collabBodySchema.parse(req.body || {});
+      const sanitizedBody = body.body.trim().slice(0, 10_000);
       const row = await appendCollaborationMessage({
         userId: req.user!.id,
-        body: body.body,
+        body: sanitizedBody,
         taskId: body.taskId ?? null,
         senderUserId: req.user!.id,
       });

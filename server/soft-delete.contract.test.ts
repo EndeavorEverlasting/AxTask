@@ -65,7 +65,7 @@ describe("soft delete contract", () => {
     const idx = storage.indexOf("async getTaskStats");
     expect(idx).toBeGreaterThan(-1);
     const window = storage.slice(idx, idx + 600);
-    expect(window).toMatch(/isNull\(tasks\.deletedAt\)/);
+    expect(window).toMatch(/isNull\(tasks\.deletedAt\)|deleted_at IS NULL/);
   });
 
   it("trash page is wired in App.tsx", () => {

@@ -420,7 +420,18 @@ function warnIfInviteConfigBroken(): void {
 
   // Backup scheduler worker: opt-in only. Set BACKUP_SCHEDULER_ENABLED=true
   // to activate periodic local JSON backups. Interval defaults to 24h.
-  if (process.env.NODE_ENV !== "test" && process.env.BACKUP_SCHEDULER_ENABLED === "true") {
+  // Guard: scheduler must not run alongside queue or BullMQ workers to avoid
+  // duplicate backup jobs for the same users.
+  const schedulerEnabled = process.env.NODE_ENV !== "test" && process.env.BACKUP_SCHEDULER_ENABLED === "true";
+  const queueWorkerEnabled = process.env.NODE_ENV !== "test" && process.env.BACKUP_QUEUE_WORKER_ENABLED === "true";
+  const bullmqEnabled = process.env.NODE_ENV !== "test" && process.env.BACKUP_BULLMQ_ENABLED === "true";
+
+  if (schedulerEnabled && (queueWorkerEnabled || bullmqEnabled)) {
+    console.warn(
+      "Conflicting backup flags: BACKUP_SCHEDULER_ENABLED=true cannot be used together with BACKUP_QUEUE_WORKER_ENABLED=true or BACKUP_BULLMQ_ENABLED=true. " +
+      "The scheduler will not start. Use either the scheduler OR the queue workers, not both."
+    );
+  } else if (schedulerEnabled) {
     const intervalMs = Number(process.env.BACKUP_SCHEDULER_INTERVAL_MS) || 24 * 60 * 60 * 1000;
     startBackupSchedulerTicker({ intervalMs });
   }
@@ -428,7 +439,7 @@ function warnIfInviteConfigBroken(): void {
   // Backup queue worker: opt-in only. Set BACKUP_QUEUE_WORKER_ENABLED=true
   // for a persistent PostgreSQL-backed job queue (replaces the tick-based
   // scheduler for horizontal scaling). Polling interval defaults to 30s.
-  if (process.env.NODE_ENV !== "test" && process.env.BACKUP_QUEUE_WORKER_ENABLED === "true") {
+  if (queueWorkerEnabled) {
     const pollIntervalMs = Number(process.env.BACKUP_QUEUE_WORKER_POLL_MS) || 30_000;
     const concurrency = Number(process.env.BACKUP_QUEUE_WORKER_CONCURRENCY) || 4;
     startBackupQueueWorker({ pollIntervalMs, concurrency });
@@ -437,7 +448,7 @@ function warnIfInviteConfigBroken(): void {
   // BullMQ Redis-backed worker: opt-in only. Set BACKUP_BULLMQ_ENABLED=true
   // for higher throughput and built-in dead-letter queues. Requires REDIS_URL
   // or REDIS_HOST / REDIS_PORT.
-  if (process.env.NODE_ENV !== "test" && process.env.BACKUP_BULLMQ_ENABLED === "true") {
+  if (bullmqEnabled) {
     startBackupBullmqWorker();
   }
 

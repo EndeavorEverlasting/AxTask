@@ -873,7 +873,7 @@ export const backupJobs = pgTable("backup_jobs", {
   status: text("status").notNull().default("pending"), // pending | running | completed | failed | cancelled
   type: text("type").notNull().default("scheduled"),    // scheduled | manual | retry
   target: text("target").default("default"),
-  recordId: varchar("record_id"),                       // FK to backup_records after completion
+  recordId: varchar("record_id").references(() => backupRecords.id, { onDelete: "set null" }), // FK to backup_records after completion
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").defaultNow(),
   startedAt: timestamp("started_at"),

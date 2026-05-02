@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   listUserAlarmSnapshots,
@@ -87,11 +88,12 @@ export function registerAlarmRoutes(app: Express, requireAuth: RequireAuthMiddle
         if (companionSecret) {
           headers.authorization = `Bearer ${companionSecret}`;
         }
+        const hashedId = createHash("sha256").update(req.user!.id).digest("hex").slice(0, 16);
         const upstream = await fetch(companionApplyUrl, {
           method: "POST",
           headers,
           body: JSON.stringify({
-            userId: req.user!.id,
+            userId: hashedId,
             payloadJson: body.payloadJson,
           }),
           signal: controller.signal,
@@ -107,7 +109,6 @@ export function registerAlarmRoutes(app: Express, requireAuth: RequireAuthMiddle
           return res.status(502).json({
             message: "Companion apply failed",
             companionStatus: upstream.status,
-            companionBody: text,
           });
         }
         return res.json({ ok: true, companionResponse: text || "ok" });

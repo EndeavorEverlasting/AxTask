@@ -2762,7 +2762,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!task) {
         return res.status(404).json({ message: "Task not found in trash" });
       }
-      res.json(task);
+      res.json(toPublicTaskDetail(task, "owner"));
     } catch (error) {
       res.status(500).json({ message: "Failed to restore task" });
     }

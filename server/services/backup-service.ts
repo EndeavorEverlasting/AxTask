@@ -106,7 +106,6 @@ export async function generateLocalBackup(
       mode: target.name,
       userPreferredTarget: pref?.preferredTarget ?? "default",
       outputDir: outputDir ?? (process.env.BACKUP_LOCAL_DIR || process.cwd()),
-      s3Bucket: target instanceof S3CompatibleBackupTarget ? (target as any).opts?.bucket : undefined,
     }),
   });
 
@@ -214,7 +213,7 @@ export async function verifyBackupByRecord(record: {
     }
   }
 
-  const sha256 = createHash("sha256").update(raw as string, "utf8").digest("hex");
+  const sha256 = createHash("sha256").update(raw).digest("hex");
   return { ok: sha256 === expectedSha256, sha256, expectedSha256 };
 }
 
