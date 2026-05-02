@@ -8,9 +8,13 @@ const routesPath = path.join(projectRoot, "server", "routes.ts");
 const backupServicePath = path.join(projectRoot, "server", "services", "backup-service.ts");
 const backupRoutesPath = path.join(projectRoot, "server", "routes", "backup.ts");
 const backupSchedulerPath = path.join(projectRoot, "server", "workers", "backup-scheduler.ts");
+const backupTargetsPath = path.join(projectRoot, "server", "services", "backup-targets.ts");
 const schemaPath = path.join(projectRoot, "shared", "schema", "ops.ts");
 const accountBackupRoutesPath = path.join(projectRoot, "server", "routes", "account-backup.ts");
 const accountRoutesPath = path.join(projectRoot, "server", "routes", "account.ts");
+const applyMigrationsPath = path.join(projectRoot, "scripts", "apply-migrations.mjs");
+const drizzlePushPath = path.join(projectRoot, "scripts", "drizzle-push.mjs");
+const migrationAirlockPath = path.join(projectRoot, "scripts", "migration-airlock.mjs");
 
 describe("backup routes contract", () => {
   it("registers backup routes in routes.ts", () => {
@@ -188,5 +192,21 @@ describe("backup routes contract", () => {
     );
     expect(content).toContain('"/api/tasks/shared"');
     expect(content).toContain('"/api/tasks/:id/collaborators"');
+  });
+
+  it("registers pattern routes in routes.ts", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes).toContain('import { registerPatternRoutes } from "./routes/patterns"');
+    expect(routes).toContain("registerPatternRoutes(app, requireAuth)");
+  });
+
+  it("exposes pattern routes in the patterns route module", () => {
+    const content = fs.readFileSync(
+      path.join(projectRoot, "server", "routes", "patterns.ts"),
+      "utf8",
+    );
+    expect(content).toContain('"/api/patterns/insights"');
+    expect(content).toContain('"/api/patterns/learn"');
+    expect(content).toContain('"/api/patterns/suggest-deadline"');
   });
 });

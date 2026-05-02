@@ -18,6 +18,7 @@ const registrarRouteSources = [
   authRoutesPath,
   path.join(projectRoot, "server", "routes", "task-attachments.ts"),
   path.join(projectRoot, "server", "routes", "task-collaboration.ts"),
+  path.join(projectRoot, "server", "routes", "patterns.ts"),
 ];
 
 /**

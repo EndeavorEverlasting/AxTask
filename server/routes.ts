@@ -193,10 +193,8 @@ import { registerAccountRoutes } from "./routes/account";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerTaskAttachmentRoutes } from "./routes/task-attachments";
 import { registerTaskCollaborationRoutes } from "./routes/task-collaboration";
+import { registerPatternRoutes } from "./routes/patterns";
 import {
-  analyzeTaskHistory,
-  suggestDeadline,
-  getInsights,
   learnFromTask,
   inferGroceryRepurchaseSuggestions,
 } from "./engines/pattern-engine";
@@ -3941,50 +3939,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ════════════════════════════════════════════════════════════════════════
-  //  Pattern Learning routes (protected)
-  // ════════════════════════════════════════════════════════════════════════
 
-  app.get("/api/patterns/insights", requireAuth, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      const patterns = await getPatterns(userId);
-      const insights = getInsights(patterns);
-      res.json({ insights, patternCount: patterns.length });
-    } catch (error) {
-      console.error("Pattern insights error:", error);
-      res.status(500).json({ message: "Failed to get pattern insights" });
-    }
-  });
-
-  app.post("/api/patterns/learn", requireAuth, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      const allTasks = await storage.getTasks(userId);
-      const patterns = await analyzeTaskHistory(userId, allTasks);
-      const insights = getInsights(patterns);
-      res.json({ learned: patterns.length, insights });
-    } catch (error) {
-      console.error("Pattern learning error:", error);
-      res.status(500).json({ message: "Failed to analyze patterns" });
-    }
-  });
-
-  app.post("/api/patterns/suggest-deadline", requireAuth, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      const { activity } = req.body;
-      if (!activity || typeof activity !== "string") {
-        return res.status(400).json({ message: "Activity is required" });
-      }
-      const patterns = await getPatterns(userId);
-      const suggestion = suggestDeadline(activity, patterns);
-      res.json({ suggestion });
-    } catch (error) {
-      console.error("Deadline suggestion error:", error);
-      res.status(500).json({ message: "Failed to suggest deadline" });
-    }
-  });
 
   // ════════════════════════════════════════════════════════════════════════
   //  Gamification routes (protected)
@@ -7339,6 +7294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAuthRoutes(app, requireAuth);
   registerTaskAttachmentRoutes(app, requireAuth);
   registerTaskCollaborationRoutes(app, requireAuth);
+  registerPatternRoutes(app, requireAuth);
   attachShoppingListRoutes(app);
   attachConversionArtifactRoutes(app);
 
