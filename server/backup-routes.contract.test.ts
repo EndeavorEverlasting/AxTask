@@ -9,6 +9,7 @@ const backupServicePath = path.join(projectRoot, "server", "services", "backup-s
 const backupRoutesPath = path.join(projectRoot, "server", "routes", "backup.ts");
 const backupSchedulerPath = path.join(projectRoot, "server", "workers", "backup-scheduler.ts");
 const backupTargetsPath = path.join(projectRoot, "server", "services", "backup-targets.ts");
+const backupCryptoPath = path.join(projectRoot, "server", "services", "backup-crypto.ts");
 const schemaPath = path.join(projectRoot, "shared", "schema", "ops.ts");
 const accountBackupRoutesPath = path.join(projectRoot, "server", "routes", "account-backup.ts");
 const accountRoutesPath = path.join(projectRoot, "server", "routes", "account.ts");
@@ -294,6 +295,34 @@ describe("backup routes contract", () => {
     expect(content).toContain("userPreferredTarget");
     expect(content).toContain("consecutiveFailures");
     expect(content).toContain("Last automatic backup failed");
+  });
+
+  it("backup crypto module provides AES-256-GCM encrypt and decrypt", () => {
+    const content = fs.readFileSync(backupCryptoPath, "utf8");
+    expect(content).toContain("encryptBackup");
+    expect(content).toContain("decryptBackup");
+    expect(content).toContain("aes-256-gcm");
+    expect(content).toContain("createCipheriv");
+    expect(content).toContain("createDecipheriv");
+    expect(content).toContain("randomBytes");
+  });
+
+  it("backup service encrypts when BACKUP_ENCRYPTION_KEY is set", () => {
+    const content = fs.readFileSync(backupServicePath, "utf8");
+    expect(content).toContain("BACKUP_ENCRYPTION_KEY");
+    expect(content).toContain("encryptBackup");
+    expect(content).toContain("decryptBackup");
+    expect(content).toContain("encrypted:");
+    expect(content).toContain("encryptionMeta");
+  });
+
+  it("migration airlock handles encrypted backup verification", () => {
+    const content = fs.readFileSync(migrationAirlockPath, "utf8");
+    expect(content).toContain("decryptBackupPayload");
+    expect(content).toContain("createDecipheriv");
+    expect(content).toContain("aes-256-gcm");
+    expect(content).toContain("meta.encrypted");
+    expect(content).toContain("BACKUP_ENCRYPTION_KEY");
   });
 
   it("storage counts recent backup failures for a user", () => {

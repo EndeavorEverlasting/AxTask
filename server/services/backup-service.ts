@@ -4,6 +4,7 @@ import path from "node:path";
 import { buildUserExportBundle, type UserExportBundle } from "../account-backup";
 import { createBackupRecord, getLastBackupRecordForUser, getUserBackupPreference, countRecentBackupFailuresForUser } from "../storage";
 import { BackupTarget, LocalFileBackupTarget, S3CompatibleBackupTarget } from "./backup-targets";
+import { encryptBackup, decryptBackup } from "./backup-crypto";
 
 export type BackupStatus = {
   manualExportAvailable: boolean;
@@ -100,8 +101,17 @@ export async function generateLocalBackup(
     const bundle = await buildUserExportBundle(userId);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `axtask-backup-${userId.slice(0, 8)}-${timestamp}.json`;
-    const data = JSON.stringify(bundle, null, 2);
+    let data = JSON.stringify(bundle, null, 2);
     const sha256 = createHash("sha256").update(data, "utf8").digest("hex");
+
+    let encryptionMeta: Record<string, unknown> | undefined;
+    const encryptionKey = process.env.BACKUP_ENCRYPTION_KEY;
+    if (encryptionKey) {
+      const { payload, meta } = encryptBackup(data, encryptionKey);
+      data = payload;
+      encryptionMeta = meta;
+    }
+
     const { pathOrUrl } = await target.writeBackup(fileName, data);
 
     await createBackupRecord({
@@ -114,6 +124,8 @@ export async function generateLocalBackup(
         taskCount: bundle.data.tasks?.length ?? 0,
         previousRecordId: pending.id,
         sha256,
+        encrypted: !!encryptionMeta,
+        encryptionMeta: encryptionMeta ?? undefined,
       }),
     });
 
@@ -135,7 +147,7 @@ export async function generateLocalBackup(
 export async function verifyBackupByRecord(record: {
   pathOrUrl: string | null;
   metadataJson: string | null;
-}): Promise<{ ok: boolean; sha256: string; expectedSha256: string | null }> {
+}): Promise<{ ok: boolean; sha256: string; expectedSha256: string | null; error?: string }> {
   if (!record.pathOrUrl) {
     return { ok: false, sha256: "", expectedSha256: null };
   }
@@ -157,6 +169,16 @@ export async function verifyBackupByRecord(record: {
     raw = await res.text();
   } else {
     raw = await readFile(record.pathOrUrl, "utf8");
+  }
+
+  // If the backup was encrypted, decrypt before computing the hash
+  if (meta.encrypted && meta.encryptionMeta && process.env.BACKUP_ENCRYPTION_KEY) {
+    try {
+      raw = decryptBackup(String(raw), process.env.BACKUP_ENCRYPTION_KEY);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, sha256: "", expectedSha256, error: `decrypt failed: ${msg}` };
+    }
   }
 
   const sha256 = createHash("sha256").update(raw, "utf8").digest("hex");

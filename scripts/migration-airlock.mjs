@@ -17,8 +17,39 @@
 
 import pgModule from "pg";
 const pg = pgModule.default || pgModule;
-import { createHash } from "node:crypto";
+import { createHash, createDecipheriv, scryptSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
+
+const AES_256_GCM_ALGORITHM = "aes-256-gcm";
+const IV_LENGTH = 16;
+const TAG_LENGTH = 16;
+const KEY_LENGTH = 32;
+
+function normalizeKey(keyInput) {
+  if (/^[0-9a-fA-F]{64}$/.test(keyInput)) {
+    return Buffer.from(keyInput, "hex");
+  }
+  const b64 = Buffer.from(keyInput, "base64");
+  if (b64.length === KEY_LENGTH) {
+    return b64;
+  }
+  return scryptSync(keyInput, "axtask-backup-salt", KEY_LENGTH);
+}
+
+function decryptBackupPayload(payload, keyInput) {
+  const key = normalizeKey(keyInput);
+  const buf = Buffer.from(payload, "base64");
+  if (buf.length < IV_LENGTH + TAG_LENGTH) {
+    throw new Error("Backup payload too short to contain iv + authTag");
+  }
+  const iv = buf.slice(0, IV_LENGTH);
+  const authTag = buf.slice(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
+  const encrypted = buf.slice(IV_LENGTH + TAG_LENGTH);
+  const decipher = createDecipheriv(AES_256_GCM_ALGORITHM, key, iv);
+  decipher.setAuthTag(authTag);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return decrypted.toString("utf8");
+}
 
 const SKIP = process.argv.includes("--skip") || process.argv.includes("--skip-airlock");
 const VERIFY_FILE = process.argv.includes("--verify");
@@ -94,6 +125,16 @@ async function main() {
       } catch (e) {
         console.error(`[migration-airlock] FAILED: could not re-read backup file: ${e.message}`);
         process.exit(1);
+      }
+
+      // Decrypt if the backup was encrypted
+      if (meta.encrypted && meta.encryptionMeta && process.env.BACKUP_ENCRYPTION_KEY) {
+        try {
+          raw = decryptBackupPayload(raw, process.env.BACKUP_ENCRYPTION_KEY);
+        } catch (e) {
+          console.error(`[migration-airlock] FAILED: could not decrypt backup: ${e.message}`);
+          process.exit(1);
+        }
       }
 
       const actualSha256 = createHash("sha256").update(raw, "utf8").digest("hex");

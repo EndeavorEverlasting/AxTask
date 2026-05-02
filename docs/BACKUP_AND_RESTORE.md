@@ -107,6 +107,21 @@ BACKUP_S3_PREFIX=backups/          # optional key prefix
 
 Works with AWS S3, MinIO, Wasabi, DigitalOcean Spaces, and any other service that accepts AWS Signature Version 4 PUT requests. Users can override the server default target by setting `preferredTarget: "s3"` or `preferredTarget: "local"` in their preferences.
 
+### Encryption at Rest (Optional)
+
+Set a 64-character hex string (or any passphrase) to encrypt JSON bundles before writing to disk or S3:
+
+```bash
+BACKUP_ENCRYPTION_KEY=abcd1234...efgh5678   # 64 hex chars, or any passphrase
+```
+
+When enabled:
+- Each backup file is encrypted with **AES-256-GCM**
+- Encryption metadata (IV, auth tag, key hash) is stored in `backup_records.metadataJson`
+- The SHA-256 hash is computed on the **plaintext** before encryption so verification still works after decryption
+- `migration-airlock.mjs --verify` automatically decrypts before checking the hash
+- Backups without the correct key are unreadable — keep the key in a separate location from the backups
+
 ### Admin Config Endpoint
 
 `GET /api/admin/backup/config` (admin auth required)
@@ -193,8 +208,8 @@ MIGRATION_SKIP_AIRLOCK=true npm run db:push
 
 ## Future Roadmap
 
-1. **Backup Encryption at Rest** — optional AES-256-GCM encryption of JSON bundles before writing to disk or S3.
-2. **Cross-region Replication** — write to multiple S3 buckets/regions for redundancy.
+1. **Cross-region Replication** — write to multiple S3 buckets/regions for redundancy.
+2. **Backup Retention Policies** — per-user rules (e.g., "keep last 30 daily, 12 monthly").
 
 See also the repository-wide [**Reliability Roadmap**](../README.md#reliability-roadmap).
 
