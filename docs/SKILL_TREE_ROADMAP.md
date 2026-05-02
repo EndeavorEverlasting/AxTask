@@ -31,4 +31,9 @@ Layout direction: `SkillTreeLayoutDirection` accepts `"TB"` (default) or `"LR"`.
 
 - **Single `skill_nodes` table + `kind` column:** optional when content stabilizes and migration cost is justified.
 
-Performance: new nodes increase graph layout work — keep `SkillTreeGraph` lazy-loaded and watch `npm run perf:bundle` when adding heavy client dependencies.
+## Current Capabilities
+
+- **Graph renders:** React Flow canvas with dagre auto-layout (`SkillTreeGraph`), lazy-loaded.
+- **Unlock/upgrade:** Live wallet-backed unlock via `POST /api/gamification/avatar-skills/unlock` and `POST /api/gamification/offline-skills/unlock`.
+- **Prerequisite edges:** `prerequisiteSkillKey` is enforced in the UI and rendered as solid gray edges in the graph.
+- **Continuum / synergy / unlocks edges:** The data model (`SkillGraphEdgeDto`) and layout builder support these edge kinds, but no seed data currently populates `additionalEdges`. They will appear automatically once the server DTOs begin returning them.

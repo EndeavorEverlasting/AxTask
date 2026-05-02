@@ -613,18 +613,21 @@ function SkillNodeCard({
   return (
     <div
       className={cn(
-        "rounded-lg border bg-background/60",
+        "rounded-lg border bg-background/60 select-none cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
         compact ? "p-2" : "p-3",
         locked && "opacity-70",
       )}
       data-testid={`skill-node-${tree}-${node.skillKey}`}
+      tabIndex={0}
+      role="group"
+      aria-label={`${node.name}, level ${node.currentLevel} of ${node.maxLevel}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h4
               className={cn(
-                "font-semibold text-foreground leading-tight truncate",
+                "font-semibold text-foreground leading-tight truncate cursor-default",
                 compact ? "text-xs" : "text-sm",
               )}
             >
@@ -641,7 +644,7 @@ function SkillNodeCard({
             </span>
           </div>
           {!compact && (
-            <p className="text-xs text-muted-foreground mt-1 leading-snug">{node.description}</p>
+            <p className="text-xs text-muted-foreground mt-1 leading-snug select-text">{node.description}</p>
           )}
           <p
             className={cn(
@@ -654,6 +657,11 @@ function SkillNodeCard({
           {node.prerequisiteSkillKey && !node.isUnlocked && !node.isAvailable && (
             <p className="text-[10px] text-muted-foreground/80 mt-1 italic">
               Requires: {node.prerequisiteSkillKey}
+            </p>
+          )}
+          {!locked && !atMax && node.nextCost != null && !canAfford && (
+            <p className="text-[10px] text-red-500/90 mt-1 italic">
+              Need {node.nextCost - walletBalance} more coins
             </p>
           )}
         </div>
@@ -677,7 +685,9 @@ function SkillNodeCard({
             {node.nextCost != null ? (
               <>
                 <Coins className="h-3 w-3 text-amber-500" aria-hidden />
-                <span className="tabular-nums">{node.nextCost}</span>
+                <span className={cn("tabular-nums", !canAfford && !locked && !atMax && "text-red-500")}>
+                  {node.nextCost}
+                </span>
                 <span>coins next</span>
               </>
             ) : (
@@ -685,12 +695,24 @@ function SkillNodeCard({
             )}
           </span>
           <Button
+            type="button"
             size="sm"
             variant={node.isUnlocked ? "outline" : "default"}
             disabled={atMax || locked || !canAfford || isPending || node.nextCost == null}
             onClick={onUnlock}
             className="h-7 px-2 text-[11px]"
             data-testid={`skill-unlock-${tree}-${node.skillKey}`}
+            aria-label={
+              atMax
+                ? "Maxed out"
+                : locked
+                  ? `Locked — requires ${node.prerequisiteSkillKey ?? "previous skill"}`
+                  : !canAfford
+                    ? `Need ${node.nextCost ?? 0} coins to unlock`
+                    : node.isUnlocked
+                      ? `Upgrade ${node.name}`
+                      : `Unlock ${node.name}`
+            }
           >
             {atMax
               ? "Maxed"
