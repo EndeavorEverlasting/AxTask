@@ -4,10 +4,16 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const projectRoot = path.resolve(__dirname, "..");
+const routes = [
+  "server/routes.ts",
+  "server/routes/collaboration.ts",
+  "server/routes/alarms.ts",
+]
+  .map((rel) => fs.readFileSync(path.join(projectRoot, rel), "utf8"))
+  .join("\n\n");
 
 describe("release-2026-04-15 contracts", () => {
   it("exposes classification confirmation HTTP routes", () => {
-    const routes = fs.readFileSync(path.join(projectRoot, "server", "routes.ts"), "utf8");
     expect(routes).toContain('app.get("/api/tasks/:id/classifications"');
     expect(routes).toContain('app.post("/api/tasks/:id/confirm-classification"');
   });
@@ -30,7 +36,6 @@ describe("release-2026-04-15 contracts", () => {
   });
 
   it("exposes classification categories + suggestions HTTP routes", () => {
-    const routes = fs.readFileSync(path.join(projectRoot, "server", "routes.ts"), "utf8");
     expect(routes).toContain('app.get("/api/classification/categories"');
     expect(routes).toContain('app.post("/api/classification/categories"');
     expect(routes).toContain('app.post("/api/classification/suggestions"');
@@ -43,7 +48,6 @@ describe("release-2026-04-15 contracts", () => {
   });
 
   it("refetches task from storage before completion coin award on PUT /api/tasks/:id", () => {
-    const routes = fs.readFileSync(path.join(projectRoot, "server", "routes.ts"), "utf8");
     const refetch = routes.indexOf("const latestTask = await getAccessibleTaskForUser(userId, req.params.id)");
     const award = routes.indexOf("awardCoinsForCompletion(userId, task!, previousStatus)");
     expect(refetch).toBeGreaterThan(-1);
@@ -51,7 +55,6 @@ describe("release-2026-04-15 contracts", () => {
   });
 
   it("2026-04-18 expansion: public momentum, thumbs, collab, and migration DDL", () => {
-    const routes = fs.readFileSync(path.join(projectRoot, "server", "routes.ts"), "utf8");
     expect(routes).toContain('app.get("/api/public/community/momentum"');
     expect(routes).toContain('app.get("/api/tasks/:id/classification-thumb"');
     expect(routes).toContain('app.post("/api/tasks/:id/classification-thumb"');
@@ -67,7 +70,6 @@ describe("release-2026-04-15 contracts", () => {
   });
 
   it("2026 shop sell-back + productivity exports + owner grant routes", () => {
-    const routes = fs.readFileSync(path.join(projectRoot, "server", "routes.ts"), "utf8");
     expect(routes).toContain('app.post("/api/gamification/chip-hunt/sync"');
     expect(routes).toContain('app.get("/api/gamification/productivity-export-prices"');
     expect(routes).toContain('app.post("/api/gamification/rewards/sell-back"');
