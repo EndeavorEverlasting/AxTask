@@ -1,4 +1,4 @@
-import { and, asc, eq, lte } from "drizzle-orm";
+import { and, asc, eq, isNull, lte } from "drizzle-orm";
 import { db } from "../db";
 import { taskReminders, tasks } from "@shared/schema";
 
@@ -8,7 +8,7 @@ export async function getTaskOwnedByUser(taskId: string, userId: string) {
   const [row] = await db
     .select({ id: tasks.id })
     .from(tasks)
-    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId), isNull(tasks.deletedAt)))
     .limit(1);
   return row ?? null;
 }

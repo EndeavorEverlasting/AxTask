@@ -302,6 +302,11 @@ export function optimisticTaskFromInsert(data: InsertTask, id: string, userId: s
     durationMinutes: data.durationMinutes ?? null,
     dependsOn: data.dependsOn ?? null,
     deadlineType: data.deadlineType ?? null,
+    deletedAt: null,
+    deletedBy: null,
+    deleteReason: null,
+    purgeAfter: null,
+    restoreCount: 0,
     createdAt: now,
     updatedAt: now,
   };
