@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useEffect, useMemo } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -24,6 +24,7 @@ import { formatSkillEffect } from "@/lib/skill-tree-format";
 import {
   buildSkillTreeFlowLayout,
   type SkillFlowNodeData,
+  type SkillTreeLayoutDirection,
 } from "@/lib/skill-tree-graph-build";
 import type { FeedbackAvatarKey } from "@shared/feedback-avatar-map";
 import { resolveFeedbackAvatarKeyForSkillNode } from "@/lib/skill-tree-feedback";
@@ -104,12 +105,15 @@ function SkillTreeFlowNodeImpl({ data }: NodeProps<SkillFlowRfNode>) {
     <div
       className={cn(
         "rounded-lg border bg-background/90 shadow-sm backdrop-blur-sm w-[260px]",
-        "p-2.5",
+        "p-2.5 select-none cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
         locked && "opacity-75",
         treeKind === "offline" && "border-cyan-500/35 shadow-cyan-950/20",
         treeKind === "avatar" && "border-violet-500/35 shadow-violet-950/15",
       )}
       data-testid={`skill-node-${treeKind}-${dto.skillKey}`}
+      tabIndex={0}
+      role="group"
+      aria-label={`${dto.name}, level ${dto.currentLevel} of ${dto.maxLevel}`}
     >
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-border" />
       <div className="flex items-start gap-2">
@@ -203,6 +207,26 @@ export interface SkillTreeGraphProps {
   className?: string;
 }
 
+const SKILL_TREE_LAYOUT_KEY = "axtask-skill-tree-layout-direction";
+
+function readSavedDirection(): SkillTreeLayoutDirection {
+  try {
+    const raw = localStorage.getItem(SKILL_TREE_LAYOUT_KEY);
+    if (raw === "TB" || raw === "LR") return raw;
+  } catch {
+    // Storage unavailable or restricted
+  }
+  return "TB";
+}
+
+function writeSavedDirection(dir: SkillTreeLayoutDirection) {
+  try {
+    localStorage.setItem(SKILL_TREE_LAYOUT_KEY, dir);
+  } catch {
+    // Storage unavailable or restricted
+  }
+}
+
 function SkillTreeGraphInner({
   tree,
   nodes,
@@ -213,9 +237,16 @@ function SkillTreeGraphInner({
   showRegionPanels,
   className,
 }: SkillTreeGraphProps) {
+  const [direction, setDirection] = useState<SkillTreeLayoutDirection>(readSavedDirection);
+
+  const onToggleDirection = (dir: SkillTreeLayoutDirection) => {
+    setDirection(dir);
+    writeSavedDirection(dir);
+  };
+
   const { nodes: laidNodes, edges: laidEdges } = useMemo(
-    () => buildSkillTreeFlowLayout(nodes),
-    [nodes],
+    () => buildSkillTreeFlowLayout(nodes, { direction }),
+    [nodes, direction],
   );
 
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState(laidNodes);
@@ -279,14 +310,47 @@ function SkillTreeGraphInner({
         >
           {showRegions ? (
             <>
-              <Panel position="top-left" className="m-2 max-w-[min(100%,14rem)] rounded-lg border border-violet-500/25 bg-background/85 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground shadow-sm backdrop-blur-sm">
+              <Panel position="top-left" className="m-2 max-w-[min(100%,14rem)] rounded-lg border border-violet-500/30 bg-background/90 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400 shadow-sm backdrop-blur-sm">
                 Companions &amp; productivity
               </Panel>
-              <Panel position="top-right" className="m-2 max-w-[min(100%,14rem)] rounded-lg border border-cyan-500/25 bg-background/85 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground shadow-sm backdrop-blur-sm">
+              <Panel position="top-right" className="m-2 max-w-[min(100%,14rem)] rounded-lg border border-cyan-500/30 bg-background/90 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-600 dark:text-cyan-400 shadow-sm backdrop-blur-sm">
                 Idle generator
               </Panel>
             </>
           ) : null}
+          <Panel position="bottom-left" className="m-2">
+            <div className="inline-flex rounded-md border border-border bg-background/90 shadow-sm backdrop-blur-sm overflow-hidden">
+              <button
+                type="button"
+                onClick={() => onToggleDirection("TB")}
+                className={cn(
+                  "px-2.5 py-1 text-[10px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  direction === "TB"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                )}
+                aria-pressed={direction === "TB"}
+                aria-label="Top-down layout"
+              >
+                Top-down
+              </button>
+              <div className="w-px bg-border" aria-hidden />
+              <button
+                type="button"
+                onClick={() => onToggleDirection("LR")}
+                className={cn(
+                  "px-2.5 py-1 text-[10px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  direction === "LR"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                )}
+                aria-pressed={direction === "LR"}
+                aria-label="Left-right layout"
+              >
+                Left-right
+              </button>
+            </div>
+          </Panel>
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
           <Controls showInteractive={false} />
           <MiniMap

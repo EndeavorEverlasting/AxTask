@@ -1,8 +1,8 @@
 # AxTask - Intelligent Task Management System
 
-**Version:** 1.0.0  
-**Last Updated:** July 30, 2025  
-**Status:** Production Ready
+**Version:** 1.2.0
+**Last Updated:** May 2, 2026
+**Status:** Production-oriented foundation under active hardening
 
 ## Overview
 
@@ -132,7 +132,7 @@ Automatic categorization based on content analysis:
 5. Database storage with full metadata
 
 #### Export Process
-1. Click "Export to CSV" 
+1. Click "Export to CSV"
 2. Download file in Google Sheets format
 3. Import to Google Sheets via File → Import
 4. Maintains star ratings (☆☆☆☆☆) and TRUE/FALSE status
@@ -153,7 +153,7 @@ CREATE TABLE tasks (
   activity TEXT NOT NULL,
   notes TEXT,
   urgency INTEGER CHECK (urgency >= 1 AND urgency <= 5),
-  impact INTEGER CHECK (impact >= 1 AND impact <= 5), 
+  impact INTEGER CHECK (impact >= 1 AND impact <= 5),
   effort INTEGER CHECK (effort >= 1 AND effort <= 5),
   prerequisites TEXT,
   status VARCHAR DEFAULT 'pending',
@@ -213,7 +213,7 @@ Example: 100 tasks × 150ms = 15 seconds = $0.0001
 
 ### Task Management Features
 - **Create/Edit:** Rich form with validation
-- **Priority Badges:** Color-coded priority levels  
+- **Priority Badges:** Color-coded priority levels
 - **Classification Tags:** Automatic task categorization
 - **Status Tracking:** Pending, in-progress, completed
 - **Search & Filter:** Multiple filter options
@@ -224,37 +224,37 @@ Example: 100 tasks × 150ms = 15 seconds = $0.0001
 ### Common Issues
 
 #### Import Failures
-**Symptom:** Tasks fail during CSV import  
-**Cause:** Invalid data format or missing required fields  
-**Solution:** 
+**Symptom:** Tasks fail during CSV import
+**Cause:** Invalid data format or missing required fields
+**Solution:**
 1. Check CSV format requirements
 2. Ensure Date and Activity columns exist
 3. Use Download Template for proper format
 
 #### Priority Calculation Errors
-**Symptom:** Priorities not calculating correctly  
-**Cause:** Missing or invalid urgency/impact/effort values  
+**Symptom:** Priorities not calculating correctly
+**Cause:** Missing or invalid urgency/impact/effort values
 **Solution:**
 1. Verify urgency, impact, effort are numbers 1-5
 2. Check for null or undefined values
 3. Review priority engine logs
 
 #### Database Connection Issues
-**Symptom:** 404 errors on API calls  
+**Symptom:** 404 errors on API calls
 **Solution:**
 1. Check DATABASE_URL environment variable
 2. Verify PostgreSQL connection
 3. Run `npm run db:push` to sync schema
 
 #### Local Setup / `db:push` Failures
-**Symptom:** `npm error Missing script: "db:push"`  
-**Cause:** Command was run outside the AxTask project directory.  
+**Symptom:** `npm error Missing script: "db:push"`
+**Cause:** Command was run outside the AxTask project directory.
 **Solution:**
 1. `cd` into the AxTask folder first
 2. Run `npm run db:push` again
 
-**Symptom:** `DATABASE_URL, ensure the database is provisioned`  
-**Cause:** `DATABASE_URL` is not set for local tooling.  
+**Symptom:** `DATABASE_URL, ensure the database is provisioned`
+**Cause:** `DATABASE_URL` is not set for local tooling.
 **Solution:**
 1. Create `.env` from `.env.example`
 2. Set `DATABASE_URL` to a reachable PostgreSQL instance
@@ -398,17 +398,25 @@ npm start           # Start production server
 
 ### Environment Setup
 - **Database:** PostgreSQL 12+ required
-- **Node.js:** Version 18+ required  
+- **Node.js:** Version 18+ required
 - **Memory:** 512MB minimum recommended
 - **Storage:** Minimal requirements for task data
 
 ### Monitoring
-- **Server Logs:** Express request/response logging
-- **Error Tracking:** Console error logging
-- **Performance:** Built-in timing for imports
-- **Cost Tracking:** Real-time cost estimation
+- **Security Intelligence:** Tamper-evident `security_events` ledger with anomaly alert rules
+- **Usage & Storage Observability:** Daily `usage_snapshots` and `db_size_snapshots` with admin dashboards
+- **Error Tracking:** Structured server logging; client errors surfaced via toast notifications
+- **Performance:** Import timing, CI bundle budgets (`npm run perf:bundle`), and API latency heuristics (`npm run perf:api-replay`)
+- **Cost Tracking:** Real-time cost estimation for imports
 
 ## Version History
+
+### v1.2.0 (current)
+- Focus glow accessibility system, task deletion workflow, auto-refresh sync
+- Security event ledger, admin usage/storage observability, attachment upload controls
+- Feedback engine, premium retention layer, notification push + intensity controls
+- Voice companion rewards, archetype analytics, Foundry run logs
+- See [`VERSION.md`](../VERSION.md) for full release notes
 
 ### v1.0.0 (July 30, 2025)
 - Initial production release
@@ -423,10 +431,10 @@ npm start           # Start production server
 ## Maintenance
 
 ### Regular Tasks
-- **Database Backups:** Implement regular PostgreSQL backups
+- **Database Backups:** Manual JSON export and `pg_dump` are available today; scheduled automated backups are not yet wired. See [`BACKUP_AND_RESTORE.md`](./BACKUP_AND_RESTORE.md).
 - **Dependency Updates:** Monitor for security updates
-- **Performance Monitoring:** Track import/export performance
-- **Error Log Review:** Check for recurring issues
+- **Performance Monitoring:** Track import/export performance and CI bundle budgets (`npm run perf:bundle`)
+- **Error Log Review:** Check for recurring issues in `security_events` and server logs
 
 ### Future Enhancements
 - **Batch Import API:** Server-side batch processing
@@ -434,6 +442,15 @@ npm start           # Start production server
 - **Team Collaboration:** Multi-user support
 - **Mobile App:** Native mobile application
 - **API Integration:** Third-party service connections
+
+## Reliability Roadmap
+
+1. **Backup Center** — Unified UI for manual export, dry-run restore, and restore history.
+2. **Restore Drill Tests** — Automated validation that exported bundles round-trip correctly.
+3. **Route Modularization** — Splitting `server/routes.ts` into per-domain route files to reduce monolith risk.
+4. **Skill Graph Contract** — Persisted `additionalEdges` in the schema so synergy/continuum edges survive restarts.
+5. **Scheduled Backup Foundation** — Cron, Task Scheduler, or Docker volume hooks for automated JSON export.
+
 
 ## Support
 

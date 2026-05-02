@@ -63,6 +63,7 @@ const Tasks = lazy(() => import("@/pages/tasks"));
 const Analytics = lazy(() => import("@/pages/analytics"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
 const ImportExport = lazy(() => import("@/pages/import-export"));
+const TrashPage = lazy(() => import("@/pages/trash"));
 const GoogleSheetsSyncPage = lazy(() => import("@/pages/google-sheets-sync"));
 const ChecklistPage = lazy(() => import("@/pages/checklist"));
 const ShoppingPage = lazy(() => import("@/pages/shopping"));
@@ -87,6 +88,7 @@ const CollabInboxPage = lazy(() => import("@/pages/collab-inbox"));
 const VideoHuddlePage = lazy(() => import("@/pages/video-huddle"));
 const MessagesPage = lazy(() => import("@/pages/messages"));
 const BillingBridgePage = lazy(() => import("@/pages/billing-bridge-dashboard"));
+const BackupPage = lazy(() => import("@/pages/backup"));
 import { DeepLinkGate } from "@/components/marketing/deep-link-gate";
 import { isValidAppPath } from "@/lib/app-routes";
 import {
@@ -168,6 +170,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/tasks" component={Tasks} />
+        <Route path="/trash" component={TrashPage} />
         <Route path="/calendar" component={CalendarPage} />
         <Route path="/analytics" component={Analytics} />
         <Route path="/import-export" component={ImportExport} />
@@ -200,6 +203,7 @@ function Router() {
         <Route path="/privacy" component={PrivacyPolicyPage} />
         <Route path="/terms" component={TermsOfServicePage} />
         <Route path="/billing-bridge" component={BillingBridgePage} />
+        <Route path="/backup" component={BackupPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

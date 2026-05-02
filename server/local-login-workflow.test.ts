@@ -4,12 +4,15 @@ import path from "path";
 import { describe, expect, it } from "vitest";
 
 const projectRoot = path.resolve(__dirname, "..");
+const routes = [
+  path.join(projectRoot, "server", "routes.ts"),
+  path.join(projectRoot, "server", "routes", "auth.ts"),
+]
+  .map((filePath) => fs.readFileSync(filePath, "utf8"))
+  .join("\n\n");
 
 describe("local login workflow contracts", () => {
   it("exposes local auth endpoints in API routes", () => {
-    const routesPath = path.join(projectRoot, "server", "routes.ts");
-    const routes = fs.readFileSync(routesPath, "utf8");
-
     expect(routes).toContain('app.post("/api/auth/register"');
     expect(routes).toContain('app.post("/api/auth/login"');
     expect(routes).toContain('app.post("/api/auth/logout"');

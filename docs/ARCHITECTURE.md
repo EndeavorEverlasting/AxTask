@@ -395,11 +395,12 @@ Production Server
 └── docs/              # Documentation
 ```
 
-### Testing Strategy (Future Implementation)
-- **Unit Tests**: Priority engine logic and utility functions
-- **Integration Tests**: API endpoints with test database
-- **E2E Tests**: Critical user flows with Playwright
-- **Performance Tests**: Import/export with large datasets
+### Testing Strategy
+- **Unit Tests**: Priority engine, classifier fallback, utility functions (vitest)
+- **Integration Tests**: API endpoints with test database (vitest + pg-mem)
+- **E2E Tests**: Critical user flows with Playwright (`tests/ui/`)
+- **Deploy Contract Tests**: Environment, artifacts, migrations, health, regression (vitest)
+- **Performance Tests**: Import/export with large datasets; CI bundle budgets and API latency heuristics (`npm run perf:ci`)
 
 ### Version Control
 - **Branch Strategy**: Feature branches with PR reviews

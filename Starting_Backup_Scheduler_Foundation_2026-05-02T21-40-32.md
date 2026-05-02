@@ -1,0 +1,71 @@
+[ ] NAME:Current Task List DESCRIPTION:Root task for conversation __NEW_AGENT__
+-[x] NAME:Create backup-service.ts DESCRIPTION:Create server/services/backup-service.ts that reuses buildUserExportBundle and provides a local-file write helper.
+-[x] NAME:Create backup routes module DESCRIPTION:Create server/routes/backup.ts with GET /api/account/backup/status endpoint.
+-[x] NAME:Wire backup routes into routes.ts DESCRIPTION:Import and call registerBackupRoutes in server/routes.ts alongside other route modules.
+-[x] NAME:Create local backup CLI script DESCRIPTION:Create scripts/backup-local.mjs as an honest informational script (no fake login).
+-[x] NAME:Create BACKUP_AND_RESTORE.md docs DESCRIPTION:Create docs/BACKUP_AND_RESTORE.md covering manual backup, restore dry-run, real restore warning, PG/Docker notes, and future roadmap.
+-[x] NAME:Add package.json script DESCRIPTION:Add backup:local script to package.json.
+-[x] NAME:Add contract test for backup status route DESCRIPTION:Create server/backup-routes.contract.test.ts that asserts the route string exists in routes.ts and the shape of the service module.
+-[x] NAME:Run npm run check DESCRIPTION:Verify TypeScript compilation passes after all changes.
+-[x] NAME:Add backup_records table to schema DESCRIPTION:Add backupRecords Drizzle table to shared/schema.ts with id, userId, type, status, pathOrUrl, createdAt, completedAt, errorMessage, metadataJson fields.
+-[x] NAME:Add backup record storage functions DESCRIPTION:Add createBackupRecord and getLastBackupRecordForUser to server/storage.ts or a dedicated module.
+-[x] NAME:Update backup-service.ts to use real ledger DESCRIPTION:Wire getBackupStatus to query the DB for lastServerBackupAt, and make generateLocalBackup write a ledger record.
+-[x] NAME:Create backup scheduler worker DESCRIPTION:Add server/workers/backup-scheduler.ts with a ticker that optionally runs periodic local backups based on env config.
+-[x] NAME:Wire backup scheduler into server boot DESCRIPTION:Register the backup ticker in server/index.ts behind an opt-in env flag.
+-[x] NAME:Update contract tests and docs DESCRIPTION:Update backup-routes.contract.test.ts and BACKUP_AND_RESTORE.md for the ledger and scheduler.
+-[x] NAME:Run db:push and verify typecheck/tests DESCRIPTION:Push schema changes and run npm run check + contract tests.
+-[-] NAME:Install @aws-sdk/client-s3 DESCRIPTION:Add AWS SDK S3 client for cloud backup target support.
+-[/] NAME:Create backup target abstraction DESCRIPTION:Create server/services/backup-targets.ts with BackupTarget interface, LocalFileBackupTarget, and S3CompatibleBackupTarget.
+-[/] NAME:Make automaticBackupsConfigured honest DESCRIPTION:Update getBackupStatus to reflect BACKUP_SCHEDULER_ENABLED env var as automaticBackupsConfigured.
+-[/] NAME:Add admin backup config endpoint DESCRIPTION:Add GET /api/admin/backup/config endpoint in backup routes to expose server-wide backup configuration.
+-[/] NAME:Wire target abstraction into scheduler and service DESCRIPTION:Update backup-service.ts and backup-scheduler.ts to use BackupTarget abstraction, with S3 support via env vars.
+-[x] NAME:Update docs and contract tests DESCRIPTION:Update BACKUP_AND_RESTORE.md and backup-routes.contract.test.ts for target abstraction, S3, and admin endpoint.
+-[x] NAME:Run check and tests DESCRIPTION:Run npm run check and contract tests.
+-[x] NAME:Land on branch DESCRIPTION:Commit all changes with conventional message and push to feature/backup-fortress-sprints-2026-05-02.
+-[/] NAME:Add user backup preferences schema and storage helpers DESCRIPTION:Add userBackupPreferences table to shared/schema/ops.ts with userId, autoBackupEnabled, preferredTarget, createdAt, updatedAt. Add storage helpers getUserBackupPreference and upsertUserBackupPreference.
+-[/] NAME:Add backup health check endpoint DESCRIPTION:Add GET /api/admin/backup/health that checks the most recent backup record and optionally verifies S3 target is writable.
+-[/] NAME:Wire user preferences into scheduler DESCRIPTION:Update backup-scheduler.ts to respect per-user autoBackupEnabled preference. Default to enabled for backward compatibility.
+-[/] NAME:Wire user preferences into status endpoint DESCRIPTION:Update getBackupStatus to include per-user autoBackupEnabled and preferredTarget.
+-[x] NAME:Update contract tests and docs DESCRIPTION:Add assertions for user preferences and health endpoint in contract tests. Update BACKUP_AND_RESTORE.md.
+-[x] NAME:Run check and tests DESCRIPTION:Run npm run check and contract tests.
+-[x] NAME:Land on branch DESCRIPTION:Commit with conventional message and push to feature/backup-fortress-sprints-2026-05-02.
+-[x] NAME:Add backup hash tracking DESCRIPTION:Compute SHA-256 hash of JSON bundle during generateLocalBackup and store in backup_records.metadataJson. Also store hash in file metadata.
+-[x] NAME:Add admin backup verify endpoint DESCRIPTION:Add POST /api/admin/backup/verify that re-reads the most recent backup and compares stored hash. Returns 200 if verified, 409 if mismatch.
+-[x] NAME:Add scheduler user batching DESCRIPTION:Update backup-scheduler.ts to process users in chunks of 100, with configurable chunk size. Add env var BACKUP_SCHEDULER_BATCH_SIZE.
+-[x] NAME:Make health endpoint writable check real DESCRIPTION:Update /api/admin/backup/health to attempt a lightweight write-test via target.writeBackup with a small test payload, then clean up. Return actual writable status.
+-[x] NAME:Update contract tests and docs DESCRIPTION:Add assertions for hash tracking, verify endpoint, and batching in contract tests. Update BACKUP_AND_RESTORE.md.
+-[x] NAME:Run check and tests DESCRIPTION:Run npm run check and contract tests.
+-[x] NAME:Land on branch DESCRIPTION:Commit with conventional message and push to feature/backup-fortress-sprints-2026-05-02.
+-[/] NAME:Add migration airlock script DESCRIPTION:Create scripts/migration-airlock.mjs that checks the most recent backup verifies successfully before allowing schema migrations. Exit non-zero if no verified backup exists within the retention window.
+-[/] NAME:Add S3 probe cleanup to backup targets DESCRIPTION:Add a deleteProbe or cleanup method to BackupTarget interface and implementations so health endpoint can clean up probe files from S3.
+-[/] NAME:Add paginated user fetching for scheduler DESCRIPTION:Add getUsersPaginated to storage.ts with offset/limit. Update scheduler to use pagination instead of loading all users into memory.
+-[/] NAME:Wire migration airlock into apply-migrations and db:push DESCRIPTION:Update scripts/apply-migrations.mjs to call migration-airlock before applying migrations. Add a --skip-airlock override flag.
+-[x] NAME:Update contract tests and docs DESCRIPTION:Add assertions for migration airlock, S3 cleanup, and pagination in contract tests. Update BACKUP_AND_RESTORE.md.
+-[x] NAME:Run check and tests DESCRIPTION:Run npm run check and contract tests.
+-[x] NAME:Land on branch DESCRIPTION:Commit with conventional message and push to feature/backup-fortress-sprints-2026-05-02.
+-[x] NAME:Add retry with backoff to S3 target DESCRIPTION:Add exponential backoff retry for PUT and DELETE operations in S3CompatibleBackupTarget to handle transient failures.
+-[x] NAME:Add client UI for backup preferences DESCRIPTION:Add a section to client/src/pages/import-export.tsx showing backup status and allowing users to toggle autoBackupEnabled and preferredTarget.
+-[x] NAME:Update contract tests DESCRIPTION:Add assertions for retry logic and UI components in contract tests.
+-[x] NAME:Update docs DESCRIPTION:Update BACKUP_AND_RESTORE.md with client UI information.
+-[x] NAME:Run check and tests DESCRIPTION:Run npm run check and contract tests.
+-[x] NAME:Land on branch DESCRIPTION:Commit with conventional message and push to feature/backup-fortress-sprints-2026-05-02.
+-[x] NAME:Explore existing notification system DESCRIPTION:Find existing notification/alerts infrastructure in the codebase to hook into for backup failure notifications.
+-[x] NAME:Create backup failure notification on scheduler failure DESCRIPTION:When the scheduler fails for a user, create a notification record so the user is alerted. Add a backupFailuresSinceLastSuccess counter.
+-[x] NAME:Add backup failure badge/alert to client UI DESCRIPTION:Show a warning in the Import/Export UI when recent backup failures exist for the user.
+-[x] NAME:Update contract tests and docs DESCRIPTION:Add assertions for backup failure notifications. Update BACKUP_AND_RESTORE.md.
+-[x] NAME:Run check and tests DESCRIPTION:Run npm run check and contract tests.
+-[x] NAME:Land on branch DESCRIPTION:Commit and push to feature/backup-fortress-sprints-2026-05-02.
+-[x] NAME:Create backup-crypto.ts with AES-256-GCM DESCRIPTION:Add encryptBackup and decryptBackup using Node.js crypto AES-256-GCM. Store iv, authTag, and encryptedData as base64.
+-[x] NAME:Wire encryption into generateLocalBackup DESCRIPTION:If BACKUP_ENCRYPTION_KEY is set, encrypt the JSON bundle before writing. Store encryption metadata in backup_records.
+-[x] NAME:Wire decryption into verifyBackupByRecord DESCRIPTION:If the backup record has encryption metadata, decrypt the file content before computing the SHA-256 hash for verification.
+-[x] NAME:Update migration airlock for encrypted backups DESCRIPTION:Ensure migration-airlock.mjs handles encrypted backup metadata when checking hashes.
+-[x] NAME:Update docs and contract tests DESCRIPTION:Add encryption assertions to contract tests. Document BACKUP_ENCRYPTION_KEY in BACKUP_AND_RESTORE.md.
+-[x] NAME:Fix pre-existing TypeScript error if safe DESCRIPTION:Check server/routes/collaboration.ts import error and fix if within scope.
+-[x] NAME:Run check and tests DESCRIPTION:Run npm run check and contract tests.
+-[x] NAME:Land on branch DESCRIPTION:Commit with conventional message and push to feature/backup-fortress-sprints-2026-05-02.
+-[/] NAME:Add concurrent backup processing within pages DESCRIPTION:Update backup-scheduler.ts to process multiple users within a page concurrently using Promise.all with a configurable concurrency limit (default 4). Add env var BACKUP_SCHEDULER_CONCURRENCY.
+-[/] NAME:Add multi-target S3 replication support DESCRIPTION:Add MultiS3BackupTarget that accepts an array of S3CompatibleBackupTarget configs and writes to all in parallel. Add BACKUP_S3_TARGETS_JSON env var support.
+-[/] NAME:Add per-user retention policy schema and cleanup DESCRIPTION:Add retentionPolicyJson column to userBackupPreferences. Add cleanupBackupRecords function to storage.ts. Add a cleanup job to the scheduler tick.
+-[ ] NAME:Update contract tests and docs DESCRIPTION:Add assertions for concurrency, multi-target, and retention policies. Update BACKUP_AND_RESTORE.md.
+-[ ] NAME:Run check and tests DESCRIPTION:Run npm run check and contract tests.
+-[ ] NAME:Land on branch DESCRIPTION:Commit with conventional message and push to feature/backup-fortress-sprints-2026-05-02.

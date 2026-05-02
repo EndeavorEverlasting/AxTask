@@ -22,6 +22,9 @@ import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence
 import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
 import { startRetentionPruneTicker } from "./workers/retention-prune";
 import { captureDbSizeSnapshot } from "./workers/db-size-snapshot";
+import { startBackupSchedulerTicker } from "./workers/backup-scheduler";
+import { startBackupQueueWorker } from "./workers/backup-queue-worker";
+import { startBackupBullmqWorker } from "./workers/backup-bullmq-worker";
 import { logBootConfigSummary } from "./boot-config-summary";
 import { getRegistrationConfig } from "./registration-config";
 
@@ -413,6 +416,40 @@ function warnIfInviteConfigBroken(): void {
         return runRetentionPrune(input);
       },
     });
+  }
+
+  // Backup scheduler worker: opt-in only. Set BACKUP_SCHEDULER_ENABLED=true
+  // to activate periodic local JSON backups. Interval defaults to 24h.
+  // Guard: scheduler must not run alongside queue or BullMQ workers to avoid
+  // duplicate backup jobs for the same users.
+  const schedulerEnabled = process.env.NODE_ENV !== "test" && process.env.BACKUP_SCHEDULER_ENABLED === "true";
+  const queueWorkerEnabled = process.env.NODE_ENV !== "test" && process.env.BACKUP_QUEUE_WORKER_ENABLED === "true";
+  const bullmqEnabled = process.env.NODE_ENV !== "test" && process.env.BACKUP_BULLMQ_ENABLED === "true";
+
+  if (schedulerEnabled && (queueWorkerEnabled || bullmqEnabled)) {
+    console.warn(
+      "Conflicting backup flags: BACKUP_SCHEDULER_ENABLED=true cannot be used together with BACKUP_QUEUE_WORKER_ENABLED=true or BACKUP_BULLMQ_ENABLED=true. " +
+      "The scheduler will not start. Use either the scheduler OR the queue workers, not both."
+    );
+  } else if (schedulerEnabled) {
+    const intervalMs = Number(process.env.BACKUP_SCHEDULER_INTERVAL_MS) || 24 * 60 * 60 * 1000;
+    startBackupSchedulerTicker({ intervalMs });
+  }
+
+  // Backup queue worker: opt-in only. Set BACKUP_QUEUE_WORKER_ENABLED=true
+  // for a persistent PostgreSQL-backed job queue (replaces the tick-based
+  // scheduler for horizontal scaling). Polling interval defaults to 30s.
+  if (queueWorkerEnabled) {
+    const pollIntervalMs = Number(process.env.BACKUP_QUEUE_WORKER_POLL_MS) || 30_000;
+    const concurrency = Number(process.env.BACKUP_QUEUE_WORKER_CONCURRENCY) || 4;
+    startBackupQueueWorker({ pollIntervalMs, concurrency });
+  }
+
+  // BullMQ Redis-backed worker: opt-in only. Set BACKUP_BULLMQ_ENABLED=true
+  // for higher throughput and built-in dead-letter queues. Requires REDIS_URL
+  // or REDIS_HOST / REDIS_PORT.
+  if (bullmqEnabled) {
+    startBackupBullmqWorker();
   }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

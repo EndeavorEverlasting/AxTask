@@ -1,0 +1,156 @@
+import type { Express, Request, Response, NextFunction } from "express";
+import {
+  getBackupStatus,
+  isAutomaticBackupsConfigured,
+  verifyBackupByRecord,
+  testBackupTargetWritable,
+  resolveBackupTarget,
+} from "../services/backup-service";
+import { getLastBackupRecordForUser, upsertUserBackupPreference, createBackupJob, getAllUsers } from "../storage";
+import { enqueueBackupBatch } from "../workers/backup-queue-worker";
+import { db } from "../db";
+import { desc, eq } from "drizzle-orm";
+import { backupRecords } from "@shared/schema";
+
+type RequireAuthMiddleware = (req: Request, res: Response, next: NextFunction) => unknown;
+type RequireAdminMiddleware = (req: Request, res: Response, next: NextFunction) => unknown;
+
+export function registerBackupRoutes(
+  app: Express,
+  requireAuth: RequireAuthMiddleware,
+  requireAdmin?: RequireAdminMiddleware,
+) {
+  app.get("/api/account/backup/status", requireAuth, async (req, res) => {
+    try {
+      const status = await getBackupStatus(req.user!.id);
+      res.json(status);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to load backup status" });
+    }
+  });
+
+  app.patch("/api/account/backup/preferences", requireAuth, async (req, res) => {
+    try {
+      const { autoBackupEnabled, preferredTarget, retentionPolicyJson } = req.body || {};
+      const pref = await upsertUserBackupPreference({
+        userId: req.user!.id,
+        autoBackupEnabled: typeof autoBackupEnabled === "boolean" ? autoBackupEnabled : undefined,
+        preferredTarget: typeof preferredTarget === "string" ? preferredTarget : undefined,
+        retentionPolicyJson: typeof retentionPolicyJson === "string" ? retentionPolicyJson : undefined,
+      });
+      res.json(pref);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update backup preferences" });
+    }
+  });
+
+  if (requireAdmin) {
+    app.get("/api/admin/backup/config", requireAdmin, (_req, res) => {
+      res.json({
+        automaticBackupsConfigured: isAutomaticBackupsConfigured(),
+        intervalMs: Number(process.env.BACKUP_SCHEDULER_INTERVAL_MS) || 24 * 60 * 60 * 1000,
+        batchSize: Number(process.env.BACKUP_SCHEDULER_BATCH_SIZE) || 100,
+        target: process.env.BACKUP_S3_ENDPOINT ? "s3" : "local",
+        s3Bucket: process.env.BACKUP_S3_BUCKET || null,
+        localDir: process.env.BACKUP_LOCAL_DIR || null,
+      });
+    });
+
+    app.get("/api/admin/backup/health", requireAdmin, async (_req, res) => {
+      try {
+        // Grab the most recent backup record across all users
+        const [latest] = await db
+          .select()
+          .from(backupRecords)
+          .orderBy(desc(backupRecords.createdAt))
+          .limit(1);
+
+        const writable = await testBackupTargetWritable(resolveBackupTarget());
+
+        const health = {
+          schedulerEnabled: isAutomaticBackupsConfigured(),
+          latestBackupRecord: latest
+            ? {
+                status: latest.status,
+                createdAt: latest.createdAt?.toISOString() ?? null,
+                completedAt: latest.completedAt?.toISOString() ?? null,
+                type: latest.type,
+                hasError: !!latest.errorMessage,
+              }
+            : null,
+          envTarget: process.env.BACKUP_S3_ENDPOINT ? "s3" : "local",
+          writable,
+        };
+
+        const isHealthy =
+          !isAutomaticBackupsConfigured() ||
+          (writable && latest && latest.status === "completed" && !latest.errorMessage);
+
+        res.status(isHealthy ? 200 : 503).json(health);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to check backup health" });
+      }
+    });
+
+    app.post("/api/admin/backup/verify", requireAdmin, async (_req, res) => {
+      try {
+        const [latest] = await db
+          .select()
+          .from(backupRecords)
+          .where(eq(backupRecords.status, "completed"))
+          .orderBy(desc(backupRecords.createdAt))
+          .limit(1);
+
+        if (!latest) {
+          return res.status(404).json({ message: "No completed backup record found" });
+        }
+
+        const result = await verifyBackupByRecord({
+          pathOrUrl: latest.pathOrUrl,
+          metadataJson: latest.metadataJson,
+        });
+
+        if (result.ok) {
+          res.json({
+            verified: true,
+            recordId: latest.id,
+            sha256: result.sha256,
+          });
+        } else {
+          res.status(409).json({
+            verified: false,
+            recordId: latest.id,
+            sha256: result.sha256,
+            expectedSha256: result.expectedSha256,
+            message: "Backup integrity check failed: hash mismatch or unreadable file",
+          });
+        }
+      } catch (error) {
+        res.status(500).json({ message: "Failed to verify backup" });
+      }
+    });
+    app.post("/api/admin/backup/enqueue-all", requireAdmin, async (_req, res) => {
+      try {
+        const result = await enqueueBackupBatch(async () => {
+          const users = await getAllUsers();
+          return users.map((u) => u.id);
+        }, "manual_admin");
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ message: "Failed to enqueue backup jobs" });
+      }
+    });
+  }
+
+  app.post("/api/account/backup/enqueue", requireAuth, async (req, res) => {
+    try {
+      const job = await createBackupJob({
+        userId: req.user!.id,
+        type: "manual",
+      });
+      res.status(201).json(job);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to enqueue backup job" });
+    }
+  });
+}

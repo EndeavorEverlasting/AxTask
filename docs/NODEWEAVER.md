@@ -6,11 +6,13 @@ NodeWeaver is a **standalone** HTTP classifier service: a universal classificati
 
 ## How it lives in this monorepo
 
-NodeWeaver is **vendored** (plain source in git) under:
+NodeWeaver is designed to be **vendored** (plain source in git) under:
 
 `services/nodeweaver/upstream`
 
 It is **not** a git submodule. Treat the AxTask repo as a **monorepo**: Node, React client, shared types, and the NodeWeaver Python tree ship together for integration and customization.
+
+> **Current repository reality:** The `services/nodeweaver/upstream` directory is not yet populated with the Python source tree. The upstream source lives at [`https://github.com/EndeavorEverlasting/NodeWeaver`](https://github.com/EndeavorEverlasting/NodeWeaver). AxTask’s classifier client and fallback orchestration are fully wired. To use NodeWeaver in this repo, either deploy it as an **external service** (mode 2 below) or sync the upstream release source into `upstream/` manually.
 
 ## Deployment modes
 

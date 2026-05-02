@@ -98,6 +98,26 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
+// Migration airlock: refuse to push schema without a recent verified backup
+const skipAirlock = process.argv.includes("--skip-airlock") || process.env.MIGRATION_SKIP_AIRLOCK === "true";
+if (!skipAirlock) {
+  const airlockPath = join(__dirname, "migration-airlock.mjs");
+  console.log("[db:push] running migration airlock…");
+  const { spawnSync } = await import("node:child_process");
+  const airlockResult = spawnSync(process.execPath, [airlockPath], {
+    stdio: ["ignore", "inherit", "inherit"],
+    env: process.env,
+    cwd: projectRoot,
+  });
+  if (airlockResult.status !== 0) {
+    console.error("[db:push] Migration airlock failed. Refusing to push schema.");
+    console.error("[db:push] Pass --skip-airlock to bypass (emergency use only).");
+    process.exit(1);
+  }
+} else {
+  console.warn("[db:push] WARNING: migration airlock bypassed via --skip-airlock.");
+}
+
 const desc = describeDatabaseUrl(process.env.DATABASE_URL);
 console.log(`[db:push] target (password hidden): ${desc.label}`);
 

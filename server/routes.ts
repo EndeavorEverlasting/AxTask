@@ -12,12 +12,10 @@ import { attachShoppingListRoutes } from "./shopping-lists-routes";
 import { attachConversionArtifactRoutes } from "./conversion-artifacts-routes";
 import { listPurchasedShoppingEventsForUser } from "./shopping-lists-storage";
 import { exportFullDatabase, exportUserData } from "./migration/export";
-import { importBundle, importUserBundle, validateBundle, validateBundleWithDb } from "./migration/import";
+import { importBundle, validateBundleWithDb } from "./migration/import";
 import {
-  storage, createUser, getUserByEmail, getUserByPublicHandle, recordFailedLogin, resetFailedLogins,
-  createResetToken, verifyResetToken, consumeResetToken,
-  setSecurityQuestion, getSecurityQuestion, verifySecurityAnswer,
-  adminResetPassword,
+  storage,
+  verifyResetToken,
   banUser, unbanUser, getAllUsers, isUserBanned,
   logSecurityEvent, getSecurityLogs,
   getOrCreateWallet, getTransactions, getUserBadges, getRewardsCatalog, getRewardById, getUserRewards, redeemReward, sellBackUserReward, ownerGrantCoinsToUser, seedRewardsCatalog,
@@ -25,24 +23,19 @@ import {
   getMaxAvatarLevel,
   getClassificationThumbState,
   awardClassificationThumbUp,
-  listUserAlarmSnapshots,
-  createUserAlarmSnapshot,
-  getUserAlarmSnapshot,
-  listCollaborationInbox,
-  appendCollaborationMessage,
-  markCollaborationMessageRead,
+
   getCommunityMomentumStats,
-  getOfflineGeneratorStatus, buyOfflineGenerator, upgradeOfflineGenerator, getOfflineSkillTree, unlockOfflineSkill, claimOfflineGeneratorCoins, seedOfflineSkillTree,
-  getFeedbackSubmissionCount, getAvatarProfiles, engageAvatarMission, spendCoinsForAvatarBoost, seedAvatarSkillTree, getAvatarSkillTree, unlockAvatarSkill,
+  seedOfflineSkillTree,
+  getFeedbackSubmissionCount, seedAvatarSkillTree,
   userHasAvatarSkillUnlocked,
-  assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachments, getTaskAttachmentIdsForTasks, linkAttachmentToTask,
+  assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachmentIdsForTasks,
   linkAttachmentsToOwner, getAttachmentsForOwner, getAttachmentsForOwnerPublic,
-  getAttachmentsForOwnersBatch, getAttachmentsForOwnersPublicBatch,
+  getAttachmentsForOwnersPublicBatch,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
-  createMfaChallenge, verifyMfaChallenge, verifyMfaChallengeWithMetadata, ensureIdempotencyKey,
+  createMfaChallenge, ensureIdempotencyKey,
   listBillingPaymentMethodsForUser, createBillingPaymentMethod,
-  deleteMfaChallengeById, getUserContactForMfa, setUserVerifiedPhone, getUserById,
-  getUserRowById, updateUserAccountProfile, setUserTotpSecret, clearUserTotp, verifyPassword,
+  deleteMfaChallengeById, getUserContactForMfa, getUserById,
+  getUserRowById,
   appendSecurityEvent, getSecurityEvents, getSecurityAlerts, analyzeAndCreateSecurityAlerts,
   listFeedbackInbox,
   getFeedbackInsightsForUser,
@@ -153,7 +146,7 @@ import { awardCoinsForClassification } from "./classification-engine";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, createPremiumSavedViewSchema, createPremiumReviewWorkflowSchema, updateNotificationPreferenceSchema, updateVoicePreferenceSchema, updateCalendarPreferenceSchema, createPushSubscriptionSchema, deletePushSubscriptionSchema, createStudyDeckSchema, createStudyCardSchema, startStudySessionSchema, submitStudyAnswerSchema, classificationAssociationsSchema, acknowledgeAdherenceInterventionSchema, feedbackAvatarKeySchema, archetypeRollupDaily, archetypeMarkovDaily, TASK_NOTES_MAX_CHARS, type UpdateTask, type Task, type ClassificationAssociation, tasks, coinTransactions, taskClassificationConfirmations } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, count, gte, lte } from "drizzle-orm";
+import { eq, and, desc, sql, count, gte, lte, isNull } from "drizzle-orm";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 import { maskE164ForDisplay, normalizeToE164 } from "@shared/phone";
 import {
@@ -168,31 +161,17 @@ import {
   toPublicInviteUserPreview,
   toPublicArchetypePollSummary,
   toPublicArchetypePollOptions,
-  type PublicDmConversation,
-  type PublicDmMessage,
+
   type PublicArchetypePollResultRow,
 } from "@shared/public-client-dtos";
 import { deliverMfaOtp, canDeliverMfaInProduction } from "./services/otp-delivery";
 import { verifyMfaChallengeOrTotp } from "./services/mfa-totp";
-import {
-  buildUserExportBundle,
-  buildImportChallenge,
-  runAccountImport,
-} from "./account-backup";
-import {
-  buildTotpKeyUri,
-  encryptTotpSecretBase32,
-  generateTotpSecretBase32,
-  verifyUserTotpFromCiphertext,
-  verifyTotpCode,
-} from "./services/totp";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { applyVoiceCompanionRewards } from "./voice-companion-rewards";
 import { processPlannerQuery } from "./engines/planner-engine";
 import { processFeedbackWithEngines } from "./engines/feedback-engine";
 import { recordArchetypeSignal, type ArchetypeSignalKind } from "./lib/archetype-signal";
-import { getPublicArchetypeContinuumForUser } from "./lib/archetype-continuum";
 import { hashActor } from "./lib/actor-hash";
 import { insertClassificationDisputeSchema, CATEGORY_REVIEW_STATUSES, type CategoryReviewStatus } from "@shared/schema";
 import { processTaskReview, type ReviewAction } from "./engines/review-engine";
@@ -201,10 +180,18 @@ import { registerAiRoutes } from "./routes/ai";
 import { registerLocationRoutes } from "./routes/locations";
 import { registerReminderRoutes } from "./routes/reminders";
 import { registerFoundryRoutes } from "./routes/foundry";
+import { registerBackupRoutes } from "./routes/backup";
+import { registerAccountBackupRoutes } from "./routes/account-backup";
+import { registerAccountRoutes } from "./routes/account";
+import { registerAuthRoutes } from "./routes/auth";
+import { registerTaskAttachmentRoutes } from "./routes/task-attachments";
+import { registerTaskCollaborationRoutes } from "./routes/task-collaboration";
+import { registerPatternRoutes } from "./routes/patterns";
+import { registerAlarmRoutes } from "./routes/alarms";
+import { registerCollaborationRoutes } from "./routes/collaboration";
+import { registerDmE2eeRoutes } from "./routes/dm-e2ee";
+import { registerAvatarRoutes } from "./routes/avatar";
 import {
-  analyzeTaskHistory,
-  suggestDeadline,
-  getInsights,
   learnFromTask,
   inferGroceryRepurchaseSuggestions,
 } from "./engines/pattern-engine";
@@ -258,33 +245,12 @@ import {
   assertEligibleForPublicParticipation,
   PublicParticipationAgeError,
 } from "./lib/public-participation-age";
-import {
-  upsertUserDeviceKey,
-  listUserDeviceKeysPublic,
-  createDirectDmConversation,
-  assertDmMember,
-  listDmConversationsForUser,
-  insertDmMessage,
-  listDmMessages,
-  getOtherMemberUserId,
-  getPublicDmSharePack,
-  resolvePeerUserIdByPublicIdentifier,
-} from "./dm-e2ee";
 
-/** Constant-time string comparison — prevents timing side-channel leaks. */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    // Compare against self to burn the same CPU time, then return false
-    const buf = Buffer.from(a, "utf8");
-    timingSafeEqual(buf, buf);
-    return false;
-  }
-  return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
-}
+
 
 import { computeTaskFingerprint } from "./task-fingerprint";
 import { moderateText, rejectMediaContent, sanitizeForDisplay } from "./services/content-moderation";
-import { generateOrbDialogue, getOrbReply, getOrbVoice, ensureOrbActivityLevel, listAvatarVoiceOpeners } from "./engines/dialogue-engine";
+import { getOrbReply, getOrbVoice, ensureOrbActivityLevel } from "./engines/dialogue-engine";
 import { ensureArchetypePollSchedule } from "./engines/archetype-poll-engine";
 
 function getUploadSigningSecret(): string {
@@ -510,31 +476,6 @@ async function populateAnalyticsGraphParametersWithAgent(tasks: Task[]) {
 }
 
 // ── Rate limiters ───────────────────────────────────────────────────────────
-// Strict limiter for auth endpoints — 10 attempts per 15 minutes per IP
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many attempts — try again in 15 minutes" },
-  // use default keyGenerator (handles IPv6 correctly)
-});
-
-const totpVerifyLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many authenticator attempts — try again shortly" },
-});
-
-const registerLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 3,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many registration attempts — try again in 1 hour" },
-});
 
 function userOrIpKey(req: Request): string {
   if (req.user?.id) return `user:${req.user.id}`;
@@ -611,9 +552,7 @@ const gifSearchLimiter = rateLimit({
 });
 
 
-// ── Invite-code / registration gate (normalized in server/registration-config.ts)
-// Registration config is read once at server boot. Restart required after env changes.
-const registration = getRegistrationConfig();
+
 
 function maskEmailForOtp(email: string): string {
   const [u, dom] = email.split("@");
@@ -700,429 +639,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   });
 
-  // ════════════════════════════════════════════════════════════════════════
-  //  Auth routes (public, rate-limited)
-  // ════════════════════════════════════════════════════════════════════════
-
-  app.post("/api/auth/register", registerLimiter, async (req: Request, res: Response) => {
-    try {
-      // ── Registration gate ──────────────────────────────────────────────
-      if (registration.mode === "closed") {
-        return res.status(403).json({ message: "Registration is currently closed" });
-      }
-      if (registration.mode === "invite") {
-        const code = typeof req.body.inviteCode === "string" ? req.body.inviteCode.trim() : "";
-        if (!registration.inviteCode) {
-          console.warn("[auth] REGISTRATION_MODE=invite but INVITE_CODE is missing.");
-          return res.status(403).json({ message: "Signup is temporarily unavailable. Please contact the AxTask owner for access." });
-        }
-        if (!safeEqual(code, registration.inviteCode)) {
-          return res.status(403).json({ message: "Invalid invite code" });
-        }
-      }
-
-      const { email, password, displayName } = registerSchema.parse(req.body);
-      const existing = await getUserByEmail(email);
-      if (existing) {
-        return res.status(409).json({ message: "An account with this email already exists" });
-      }
-      const user = await createUser(email, password, displayName);
-      await appendSecurityEvent({
-        eventType: "auth_register_success",
-        actorUserId: user.id,
-        route: req.path,
-        method: req.method,
-        statusCode: 201,
-        ipAddress: req.ip,
-        userAgent: req.get("user-agent") || undefined,
-      });
-      // Auto-login after registration
-      req.login(user, (err) => {
-        if (err) return res.status(500).json({ message: "Registration succeeded but login failed" });
-        void awardLoginRewards(user.id);
-        res.status(201).json(toPublicSessionUser(user));
-      });
-    } catch (error) {
-      if (error instanceof Error) {
-        res.status(400).json({ message: error.message });
-      } else {
-        res.status(500).json({ message: "Registration failed" });
-      }
-    }
-  });
-
-  app.post("/api/auth/login", authLimiter, async (req: Request, res: Response, next) => {
-    try {
-      const { email } = req.body;
-      if (email) {
-        const banStatus = await isUserBanned(email);
-        if (banStatus.banned) {
-          await logSecurityEvent("login_banned_attempt", undefined, undefined, req.ip, `Banned user tried to login: ${email}`);
-          return res.status(403).json({
-            message: "This account has been suspended. Contact an administrator for assistance.",
-          });
-        }
-
-        const dbUser = await getUserByEmail(email);
-        if (dbUser?.lockedUntil && new Date(dbUser.lockedUntil) > new Date()) {
-          const mins = Math.ceil((new Date(dbUser.lockedUntil).getTime() - Date.now()) / 60000);
-          return res.status(423).json({
-            message: `Account locked due to too many failed attempts. Try again in ${mins} minute(s).`,
-          });
-        }
-      }
-
-      passport.authenticate("local", async (err: any, user: any, info: any) => {
-        if (err) return next(err);
-        if (!user) {
-          if (email) {
-            await recordFailedLogin(email, req.ip);
-            await logSecurityEvent("login_failed", undefined, undefined, req.ip, `Failed login for: ${email}`);
-            await appendSecurityEvent({
-              eventType: "auth_login_failed",
-              route: req.path,
-              method: req.method,
-              statusCode: 401,
-              ipAddress: req.ip,
-              userAgent: req.get("user-agent") || undefined,
-              payload: { email },
-            });
-          }
-          return res.status(401).json({ message: info?.message || "Invalid credentials" });
-        }
-        await resetFailedLogins(user.email);
-        const row = await getUserRowById(user.id);
-        if (row?.totpEnabledAt && row.totpSecretCiphertext) {
-          req.session.pendingTotpLogin = {
-            userId: user.id,
-            expiresAt: Date.now() + 5 * 60 * 1000,
-          };
-          await appendSecurityEvent({
-            eventType: "auth_login_totp_pending",
-            actorUserId: user.id,
-            route: req.path,
-            method: req.method,
-            statusCode: 200,
-            ipAddress: req.ip,
-            userAgent: req.get("user-agent") || undefined,
-          });
-          return req.session.save((saveErr) => {
-            if (saveErr) return next(saveErr);
-            res.json({
-              needsTotp: true,
-              emailMask: maskEmailForOtp(user.email),
-            });
-          });
-        }
-        await logSecurityEvent("login_success", user.id, undefined, req.ip);
-        await appendSecurityEvent({
-          eventType: "auth_login_success",
-          actorUserId: user.id,
-          route: req.path,
-          method: req.method,
-          statusCode: 200,
-          ipAddress: req.ip,
-          userAgent: req.get("user-agent") || undefined,
-        });
-        req.login(user, (err) => {
-          if (err) return next(err);
-          void awardLoginRewards(user.id);
-          void evaluateAdherenceForUser(user.id, "login");
-          res.json(toPublicSessionUser(user));
-        });
-      })(req, res, next);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/auth/logout", (req: Request, res: Response) => {
-    const actorUserId = req.user?.id;
-    req.logout((err) => {
-      if (err) return res.status(500).json({ message: "Logout failed" });
-      // Destroy the session entirely so back-button can't restore it
-      req.session.destroy((destroyErr) => {
-        if (destroyErr) console.error("[auth] Session destroy error:", destroyErr);
-        res.clearCookie("axtask.sid");
-        void appendSecurityEvent({
-          eventType: "auth_logout",
-          actorUserId,
-          route: req.path,
-          method: req.method,
-          statusCode: 200,
-          ipAddress: req.ip,
-          userAgent: req.get("user-agent") || undefined,
-        });
-        res.json({ message: "Logged out" });
-      });
-    });
-  });
-
-  app.get("/api/auth/me", async (req: Request, res: Response) => {
-    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
-    res.set("Pragma", "no-cache");
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Not authenticated" });
-    }
-    if ((req.user as any)?.isBanned) {
-      req.logout(() => {});
-      return res.status(403).json({ message: "This account has been suspended." });
-    }
-    const fresh = await getUserById(req.user!.id);
-    if (!fresh) {
-      req.logout(() => {});
-      return res.status(401).json({ message: "Not authenticated" });
-    }
-    void evaluateAdherenceForUser(req.user!.id, "login");
-    res.json(toPublicSessionUser(fresh));
-  });
-
-  // Return registration mode + auth provider so the UI can adapt
-  app.get("/api/auth/config", (_req: Request, res: Response) => {
-    const authProvider = getProvider();
-    const providers = getAvailableProviders();
-    const loginUrls: Record<string, string> = {
-      workos: "/api/auth/workos/login",
-      google: "/api/auth/google/login",
-      replit: "/api/auth/replit/login",
-      local: "",
-    };
-    res.json({
-      registrationMode: registration.mode,
-      inviteConfigured: inviteConfiguredForClient(registration),
-      authProvider,
-      loginUrl: loginUrls[authProvider] || "",
-      providers,
-    });
-  });
-
-  app.get("/api/auth/totp/pending", async (req: Request, res: Response) => {
-    const p = req.session.pendingTotpLogin;
-    if (!p || p.expiresAt < Date.now()) {
-      delete req.session.pendingTotpLogin;
-      return res.json({ pending: false });
-    }
-    const row = await getUserRowById(p.userId);
-    const email = row?.email;
-    res.json({
-      pending: true,
-      emailMask: email ? maskEmailForOtp(email) : undefined,
-    });
-  });
-
-  app.post("/api/auth/totp/verify", totpVerifyLimiter, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { code } = z.object({
-        code: z.string().length(6).regex(/^\d{6}$/),
-      }).parse(req.body);
-      const pending = req.session.pendingTotpLogin;
-      if (!pending || pending.expiresAt < Date.now()) {
-        delete req.session.pendingTotpLogin;
-        return res.status(401).json({ message: "Login session expired — sign in again" });
-      }
-      const row = await getUserRowById(pending.userId);
-      if (!row?.totpSecretCiphertext || !row.totpEnabledAt) {
-        delete req.session.pendingTotpLogin;
-        return res.status(400).json({ message: "Authenticator is not enabled for this account" });
-      }
-      if (!verifyUserTotpFromCiphertext(row.totpSecretCiphertext, code)) {
-        await appendSecurityEvent({
-          eventType: "auth_totp_verify_failed",
-          actorUserId: row.id,
-          route: req.path,
-          method: req.method,
-          statusCode: 401,
-          ipAddress: req.ip,
-          userAgent: req.get("user-agent") || undefined,
-        });
-        return res.status(401).json({ message: "Invalid authenticator code" });
-      }
-      const safe = await getUserById(row.id);
-      if (!safe) {
-        delete req.session.pendingTotpLogin;
-        return res.status(401).json({ message: "Account not found" });
-      }
-      delete req.session.pendingTotpLogin;
-      req.login(safe, (err) => {
-        if (err) return next(err);
-        void awardLoginRewards(safe.id);
-        void appendSecurityEvent({
-          eventType: "auth_totp_login_success",
-          actorUserId: safe.id,
-          route: req.path,
-          method: req.method,
-          statusCode: 200,
-          ipAddress: req.ip,
-          userAgent: req.get("user-agent") || undefined,
-        });
-        res.json(toPublicSessionUser(safe));
-      });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      next(error);
-    }
-  });
-
-  // ════════════════════════════════════════════════════════════════════════
-  //  Password Reset routes (public, rate-limited)
-  // ════════════════════════════════════════════════════════════════════════
-
-  // Tier 1: Request email-based password reset
-  app.post("/api/auth/forgot-password", authLimiter, async (req: Request, res: Response) => {
-    try {
-      const { email } = req.body;
-      if (!email) return res.status(400).json({ message: "Email is required" });
-
-      const user = await getUserByEmail(email);
-      // Always return success to prevent email enumeration
-      if (!user || !user.passwordHash) {
-        return res.json({ message: "If that email exists, a reset link has been sent.", method: "email" });
-      }
-
-      const result = await createResetToken(email, "email", 30);
-      if (!result) {
-        return res.json({ message: "If that email exists, a reset link has been sent.", method: "email" });
-      }
-
-      const resetUrl = `${req.protocol}://${req.get("host")}/?reset_token=${result.token}`;
-      if (process.env.NODE_ENV !== "production") {
-        console.log(`[PASSWORD RESET] (non-production) ${email}: ${resetUrl}`);
-      }
-      await logSecurityEvent("password_reset_requested", undefined, undefined, req.ip, `Reset requested for: ${email}`);
-
-      // Check if security question is available as fallback
-      const hasSecurityQuestion = !!user.securityQuestion;
-
-      res.json({
-        message: "If that email exists, a reset link has been sent.",
-        method: "email",
-        hasSecurityQuestion,
-        // In dev, also return the token so the UI can use it directly
-        ...(process.env.NODE_ENV === "development" ? { _devToken: result.token } : {}),
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Password reset request failed" });
-    }
-  });
-
-  // Tier 2: Get security question for an email
-  app.post("/api/auth/security-question", authLimiter, async (req: Request, res: Response) => {
-    try {
-      const { email } = req.body;
-      if (!email) return res.status(400).json({ message: "Email is required" });
-
-      const question = await getSecurityQuestion(email);
-      if (!question) {
-        return res.status(404).json({ message: "No security question set for this account" });
-      }
-      res.json({ question });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to retrieve security question" });
-    }
-  });
-
-  // Tier 2: Verify security answer → get reset token
-  app.post("/api/auth/verify-security-answer", authLimiter, async (req: Request, res: Response) => {
-    try {
-      const { email, answer } = req.body;
-      if (!email || !answer) {
-        return res.status(400).json({ message: "Email and answer are required" });
-      }
-
-      const valid = await verifySecurityAnswer(email, answer);
-      if (!valid) {
-        return res.status(401).json({ message: "Incorrect answer" });
-      }
-
-      // Issue a reset token via security_question method
-      const result = await createResetToken(email, "security_question", 15);
-      if (!result) {
-        return res.status(500).json({ message: "Failed to create reset token" });
-      }
-
-      res.json({ token: result.token, expiresAt: result.expiresAt });
-    } catch (error) {
-      res.status(500).json({ message: "Security verification failed" });
-    }
-  });
-
-  // Final step: Reset password using a valid token
-  app.post("/api/auth/reset-password", authLimiter, async (req: Request, res: Response) => {
-    try {
-      const { token, newPassword } = req.body;
-      if (!token || !newPassword) {
-        return res.status(400).json({ message: "Token and new password are required" });
-      }
-
-      // Validate password strength
-      if (newPassword.length < 8) {
-        return res.status(400).json({ message: "Password must be at least 8 characters" });
-      }
-
-      const success = await consumeResetToken(token, newPassword);
-      if (!success) {
-        await logSecurityEvent("password_reset_failed", undefined, undefined, req.ip, "Invalid or expired reset token");
-        return res.status(400).json({ message: "Invalid or expired reset token" });
-      }
-
-      await logSecurityEvent("password_reset_completed", undefined, undefined, req.ip);
-      res.json({ message: "Password has been reset successfully" });
-    } catch (error) {
-      res.status(500).json({ message: "Password reset failed" });
-    }
-  });
-
-  // Tier 3: Admin reset — requires authenticated admin
-  app.post("/api/auth/admin/reset-password", requireAuth, async (req: Request, res: Response) => {
-    try {
-      if (req.user!.role !== "admin") {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-
-      const { targetEmail, newPassword } = req.body;
-      if (!targetEmail || !newPassword) {
-        return res.status(400).json({ message: "Target email and new password are required" });
-      }
-
-      const success = await adminResetPassword(targetEmail, newPassword);
-      if (!success) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      await logSecurityEvent("admin_password_reset", req.user!.id, undefined, req.ip, `Admin reset password for: ${targetEmail}`);
-      res.json({ message: `Password reset for ${targetEmail}` });
-    } catch (error) {
-      res.status(500).json({ message: "Admin password reset failed" });
-    }
-  });
-
-  // Set/update security question (requires login)
-  app.post("/api/auth/security-question/set", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const { question, answer } = req.body;
-      if (!question || !answer) {
-        return res.status(400).json({ message: "Question and answer are required" });
-      }
-      if (answer.trim().length < 2) {
-        return res.status(400).json({ message: "Answer must be at least 2 characters" });
-      }
-
-      await setSecurityQuestion(req.user!.id, question, answer);
-      res.json({ message: "Security question updated" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to set security question" });
-    }
-  });
-
-  // Check if current user has a security question set
-  app.get("/api/auth/security-question/status", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const user = await getUserByEmail(req.user!.email);
-      res.json({ hasSecurityQuestion: !!user?.securityQuestion, question: user?.securityQuestion || null });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to check security question status" });
-    }
-  });
 
   // ════════════════════════════════════════════════════════════════════════
   //  Premium routes (protected)
@@ -1690,7 +1206,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           updatedAt: tasks.updatedAt,
         })
         .from(tasks)
-        .where(eq(tasks.visibility, "public"))
+        .where(and(eq(tasks.visibility, "public"), isNull(tasks.deletedAt)))
         .orderBy(desc(tasks.updatedAt), desc(tasks.createdAt))
         .limit(limit + 1);
 
@@ -3215,7 +2731,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Delete task
+  // Soft delete task
   app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
     try {
       const deleted = await storage.deleteTask(req.user!.id, req.params.id);
@@ -3225,6 +2741,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete task" });
+    }
+  });
+
+  // List deleted tasks (trash)
+  app.get("/api/tasks/trash", requireAuth, async (req, res) => {
+    try {
+      const rows = await storage.getDeletedTasks(req.user!.id);
+      const byTask = await getTaskAttachmentIdsForTasks(req.user!.id, rows.map((r) => r.id));
+      res.json(toPublicTaskListItems(rows, byTask));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch trash" });
+    }
+  });
+
+  // Restore soft-deleted task
+  app.post("/api/tasks/:id/restore", requireAuth, async (req, res) => {
+    try {
+      const task = await storage.restoreTask(req.user!.id, req.params.id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found in trash" });
+      }
+      res.json(toPublicTaskDetail(task, "owner"));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to restore task" });
+    }
+  });
+
+  // Permanently purge a deleted task
+  app.delete("/api/tasks/:id/purge", requireAuth, async (req, res) => {
+    try {
+      const purged = await storage.purgeTask(req.user!.id, req.params.id);
+      if (!purged) {
+        return res.status(404).json({ message: "Task not found or not in trash" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to purge task" });
     }
   });
 
@@ -4372,50 +3925,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ════════════════════════════════════════════════════════════════════════
-  //  Pattern Learning routes (protected)
-  // ════════════════════════════════════════════════════════════════════════
 
-  app.get("/api/patterns/insights", requireAuth, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      const patterns = await getPatterns(userId);
-      const insights = getInsights(patterns);
-      res.json({ insights, patternCount: patterns.length });
-    } catch (error) {
-      console.error("Pattern insights error:", error);
-      res.status(500).json({ message: "Failed to get pattern insights" });
-    }
-  });
-
-  app.post("/api/patterns/learn", requireAuth, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      const allTasks = await storage.getTasks(userId);
-      const patterns = await analyzeTaskHistory(userId, allTasks);
-      const insights = getInsights(patterns);
-      res.json({ learned: patterns.length, insights });
-    } catch (error) {
-      console.error("Pattern learning error:", error);
-      res.status(500).json({ message: "Failed to analyze patterns" });
-    }
-  });
-
-  app.post("/api/patterns/suggest-deadline", requireAuth, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      const { activity } = req.body;
-      if (!activity || typeof activity !== "string") {
-        return res.status(400).json({ message: "Activity is required" });
-      }
-      const patterns = await getPatterns(userId);
-      const suggestion = suggestDeadline(activity, patterns);
-      res.json({ suggestion });
-    } catch (error) {
-      console.error("Deadline suggestion error:", error);
-      res.status(500).json({ message: "Failed to suggest deadline" });
-    }
-  });
 
   // ════════════════════════════════════════════════════════════════════════
   //  Gamification routes (protected)
@@ -4661,177 +4171,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const alarmSnapshotBodySchema = z.object({
-    deviceKey: z.string().max(80).optional(),
-    label: z.string().max(120).optional(),
-    payloadJson: z.string().min(2).max(500_000),
-  });
-
-  app.get("/api/alarm-snapshots", requireAuth, async (req, res) => {
-    try {
-      const rows = await listUserAlarmSnapshots(req.user!.id);
-      res.json({
-        snapshots: rows.map((r) => ({
-          id: r.id,
-          deviceKey: r.deviceKey,
-          label: r.label,
-          capturedAt: r.capturedAt,
-          createdAt: r.createdAt,
-        })),
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to list alarm snapshots" });
-    }
-  });
-
-  app.post("/api/alarm-snapshots", requireAuth, async (req, res) => {
-    try {
-      const body = alarmSnapshotBodySchema.parse(req.body || {});
-      const row = await createUserAlarmSnapshot(req.user!.id, body);
-      res.status(201).json({
-        id: row.id,
-        deviceKey: row.deviceKey,
-        label: row.label,
-        capturedAt: row.capturedAt,
-      });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to save alarm snapshot" });
-    }
-  });
-
-  app.get("/api/alarm-snapshots/:id/payload", requireAuth, async (req, res) => {
-    try {
-      const row = await getUserAlarmSnapshot(req.user!.id, req.params.id);
-      if (!row) return res.status(404).json({ message: "Snapshot not found" });
-      res.json({ payloadJson: row.payloadJson, label: row.label, deviceKey: row.deviceKey, capturedAt: row.capturedAt });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to load alarm snapshot" });
-    }
-  });
-
-  app.get("/api/alarm-capabilities", requireAuth, async (_req, res) => {
-    const companionApplyUrl = (process.env.AXTASK_ALARM_COMPANION_URL || "").trim();
-    const companionSecretConfigured = (process.env.AXTASK_ALARM_COMPANION_SECRET || "").trim().length > 0;
-    res.json({
-      companionConfigured: companionApplyUrl.length > 0,
-      companionSecretConfigured,
-      nativeBridgeHints: {
-        android: process.env.VITE_ENABLE_ANDROID_REMINDERS === "true",
-        windows: process.env.VITE_ENABLE_WINDOWS_REMINDERS === "true",
-      },
-    });
-  });
-
-  app.post("/api/alarm-companion/apply", requireAuth, async (req, res) => {
-    try {
-      const companionApplyUrl = (process.env.AXTASK_ALARM_COMPANION_URL || "").trim();
-      if (!companionApplyUrl) {
-        return res.status(503).json({ message: "Alarm companion endpoint is not configured" });
-      }
-      const body = z.object({ payloadJson: z.string().min(2).max(500_000) }).parse(req.body || {});
-      const companionSecret = (process.env.AXTASK_ALARM_COMPANION_SECRET || "").trim();
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8_000);
-      try {
-        const t0 = Date.now();
-        const headers: Record<string, string> = { "content-type": "application/json" };
-        if (companionSecret) {
-          headers.authorization = `Bearer ${companionSecret}`;
-        }
-        const upstream = await fetch(companionApplyUrl, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            userId: req.user!.id,
-            payloadJson: body.payloadJson,
-          }),
-          signal: controller.signal,
-        });
-        const text = await upstream.text();
-        const ms = Date.now() - t0;
-        const uid = req.user!.id;
-        const uidShort = uid.length > 8 ? `${uid.slice(0, 8)}…` : uid;
-        console.log(
-          `[alarm-companion-proxy] user=${uidShort} status=${upstream.status} ms=${ms} payloadBytes=${body.payloadJson.length}`,
-        );
-        if (!upstream.ok) {
-          return res.status(502).json({
-            message: "Companion apply failed",
-            companionStatus: upstream.status,
-            companionBody: text,
-          });
-        }
-        return res.json({ ok: true, companionResponse: text || "ok" });
-      } finally {
-        clearTimeout(timeout);
-      }
-    } catch (error) {
-      if (error instanceof Error) {
-        return res.status(400).json({ message: error.message });
-      }
-      return res.status(500).json({ message: "Failed to apply alarm via companion" });
-    }
-  });
-
-  const collabBodySchema = z.object({
-    body: z.string().min(1).max(8000),
-    taskId: z.string().uuid().optional(),
-    attachmentAssetIds: z.array(z.string().min(1)).max(8).default([]),
-  });
-
-  app.get("/api/collaboration/inbox", requireAuth, async (req, res) => {
-    try {
-      const rows = await listCollaborationInbox(req.user!.id);
-      // Single batched query instead of one per row (N+1 fix, Phase E).
-      const assetsByOwner = await getAttachmentsForOwnersBatch({
-        userId: req.user!.id,
-        ownerType: "collab_message",
-        ownerIds: rows.map((r) => r.id),
-      });
-      const decorated = rows.map((row) => ({
-        ...row,
-        attachments: toPublicAttachmentRefs(assetsByOwner.get(row.id) ?? []),
-      }));
-      res.json({ messages: decorated });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to load collaboration inbox" });
-    }
-  });
-
-  app.post("/api/collaboration/inbox", requireAuth, async (req, res) => {
-    try {
-      if (!(await guardPublicParticipationAge(req, res))) return;
-
-      const body = collabBodySchema.parse(req.body || {});
-      const row = await appendCollaborationMessage({
-        userId: req.user!.id,
-        body: body.body,
-        taskId: body.taskId ?? null,
-        senderUserId: req.user!.id,
-      });
-      const assets = await linkAttachmentsToOwner({
-        userId: req.user!.id,
-        ownerType: "collab_message",
-        ownerId: row.id,
-        assetIds: body.attachmentAssetIds,
-      });
-      res.status(201).json({ ...row, attachments: toPublicAttachmentRefs(assets) });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to append message" });
-    }
-  });
-
-  app.post("/api/collaboration/inbox/:id/read", requireAuth, async (req, res) => {
-    try {
-      const ok = await markCollaborationMessageRead(req.user!.id, req.params.id);
-      if (!ok) return res.status(404).json({ message: "Message not found" });
-      res.json({ ok: true });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to mark read" });
-    }
-  });
 
   app.get("/api/gamification/profile", requireAuth, async (req, res) => {
     try {
@@ -4892,178 +4231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const offlineSkillUnlockSchema = z.object({
-    skillKey: z.string().min(2).max(80),
-  });
 
-  const avatarEngageSchema = z.object({
-    sourceType: z.enum(["task", "feedback", "post"]),
-    sourceRef: z.string().min(2).max(160),
-    text: z.string().min(1).max(2000),
-    completed: z.boolean().default(false),
-  });
-
-  const avatarSpendSchema = z.object({
-    coins: z.number().int().min(1).max(10000),
-  });
-
-  const avatarSkillUnlockSchema = z.object({
-    skillKey: z.string().min(2).max(80),
-  });
-
-  app.get("/api/gamification/offline-generator", requireAuth, async (req, res) => {
-    try {
-      const status = await getOfflineGeneratorStatus(req.user!.id);
-      res.json(status);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch offline generator status" });
-    }
-  });
-
-  app.post("/api/gamification/offline-generator/buy", requireAuth, async (req, res) => {
-    try {
-      const result = await buyOfflineGenerator(req.user!.id);
-      if (!result.ok) {
-        return res.status(400).json(result);
-      }
-      const status = await getOfflineGeneratorStatus(req.user!.id);
-      res.status(201).json({ ...result, status });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to buy offline generator" });
-    }
-  });
-
-  app.post("/api/gamification/offline-generator/upgrade", requireAuth, async (req, res) => {
-    try {
-      const result = await upgradeOfflineGenerator(req.user!.id);
-      if (!result.ok) {
-        return res.status(400).json(result);
-      }
-      const status = await getOfflineGeneratorStatus(req.user!.id);
-      res.json({ ...result, status });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to upgrade offline generator" });
-    }
-  });
-
-  app.post("/api/gamification/offline-generator/claim", requireAuth, async (req, res) => {
-    try {
-      const result = await claimOfflineGeneratorCoins(req.user!.id);
-      if (!result.ok) {
-        return res.status(400).json(result);
-      }
-      const status = await getOfflineGeneratorStatus(req.user!.id);
-      res.json({ ...result, status });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to claim offline coins" });
-    }
-  });
-
-  app.get("/api/gamification/offline-skills", requireAuth, async (req, res) => {
-    try {
-      const skills = await getOfflineSkillTree(req.user!.id);
-      res.json(skills);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch offline skills" });
-    }
-  });
-
-  app.post("/api/gamification/offline-skills/unlock", requireAuth, async (req, res) => {
-    try {
-      const { skillKey } = offlineSkillUnlockSchema.parse(req.body);
-      const result = await unlockOfflineSkill(req.user!.id, skillKey);
-      if (!result.ok) {
-        return res.status(400).json(result);
-      }
-      const skills = await getOfflineSkillTree(req.user!.id);
-      const status = await getOfflineGeneratorStatus(req.user!.id);
-      res.json({ ...result, skills, status });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to unlock offline skill" });
-    }
-  });
-
-  app.get("/api/gamification/avatars", requireAuth, async (req, res) => {
-    try {
-      const [avatars, archetypeContinuum] = await Promise.all([
-        getAvatarProfiles(req.user!.id),
-        getPublicArchetypeContinuumForUser(req.user!.id),
-      ]);
-      res.json({ avatars, archetypeContinuum });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch avatars" });
-    }
-  });
-
-  /**
-   * Lightweight read-only feed of persona openers per avatar. The client
-   * caches this (TanStack Query `staleTime: Infinity`) and picks a random
-   * opener when rendering a feedback nudge so the dialog feels tied to a
-   * companion instead of generic copy. See docs/FEEDBACK_AVATAR_NUDGES.md.
-   */
-  app.get("/api/gamification/avatar-voices", requireAuth, async (_req, res) => {
-    try {
-      const voices = listAvatarVoiceOpeners();
-      res.json({ voices });
-    } catch {
-      res.status(500).json({ message: "Failed to fetch avatar voices" });
-    }
-  });
-
-  app.post("/api/gamification/avatars/:avatarKey/engage", requireAuth, async (req, res) => {
-    try {
-      const payload = avatarEngageSchema.parse(req.body ?? {});
-      const result = await engageAvatarMission({
-        userId: req.user!.id,
-        avatarKey: req.params.avatarKey,
-        sourceType: payload.sourceType,
-        sourceRef: payload.sourceRef,
-        text: payload.text,
-        completed: payload.completed,
-      });
-      res.json(result);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to engage avatar mission" });
-    }
-  });
-
-  app.post("/api/gamification/avatars/:avatarKey/spend", requireAuth, async (req, res) => {
-    try {
-      const { coins } = avatarSpendSchema.parse(req.body ?? {});
-      const result = await spendCoinsForAvatarBoost(req.user!.id, req.params.avatarKey, coins);
-      if (!result.ok) return res.status(400).json(result);
-      res.json(result);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to spend coins on avatar" });
-    }
-  });
-
-  app.get("/api/gamification/avatar-skills", requireAuth, async (req, res) => {
-    try {
-      const skills = await getAvatarSkillTree(req.user!.id);
-      res.json(skills);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch avatar skills" });
-    }
-  });
-
-  app.post("/api/gamification/avatar-skills/unlock", requireAuth, async (req, res) => {
-    try {
-      const { skillKey } = avatarSkillUnlockSchema.parse(req.body);
-      const result = await unlockAvatarSkill(req.user!.id, skillKey);
-      if (!result.ok) {
-        return res.status(400).json(result);
-      }
-      const skills = await getAvatarSkillTree(req.user!.id);
-      res.json({ ...result, skills });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to unlock avatar skill" });
-    }
-  });
 
   // ── Classification categories + suggestions (protected) ───────────────────
   app.get("/api/classification/categories", requireAuth, async (req, res) => {
@@ -5581,170 +4749,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ── E2EE: device keys + direct DMs (ciphertext only on server) ─────────────
-  app.post("/api/e2ee/devices", requireAuth, async (req, res) => {
-    try {
-      const body = z
-        .object({
-          deviceId: z.string().min(8).max(160),
-          publicKeySpki: z.string().min(32).max(20000),
-          label: z.string().max(120).optional().nullable(),
-        })
-        .parse(req.body);
-      await upsertUserDeviceKey({
-        userId: req.user!.id,
-        deviceId: body.deviceId,
-        publicKeySpki: body.publicKeySpki,
-        label: body.label ?? null,
-      });
-      res.json({ ok: true });
-    } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to register device key" });
-    }
-  });
-
-  app.get("/api/e2ee/devices", requireAuth, async (req, res) => {
-    try {
-      const devices = await listUserDeviceKeysPublic(req.user!.id);
-      res.json({ devices });
-    } catch {
-      res.status(500).json({ message: "Failed to list devices" });
-    }
-  });
-
-  app.get("/api/e2ee/conversations/:id/peer-devices", requireAuth, async (req, res) => {
-    try {
-      const ok = await assertDmMember(req.params.id, req.user!.id);
-      if (!ok) return res.status(404).json({ message: "Not found" });
-      const peerUserId = await getOtherMemberUserId(req.params.id, req.user!.id);
-      if (!peerUserId) return res.status(400).json({ message: "Invalid conversation" });
-      const devices = await listUserDeviceKeysPublic(peerUserId);
-      res.json({ devices });
-    } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to list peer devices" });
-    }
-  });
-
-  app.get("/api/dm/public-identity", requireAuth, async (req, res) => {
-    try {
-      const share = await getPublicDmSharePack(req.user!.id);
-      if (!share) return res.status(404).json({ message: "User not found" });
-      res.json({
-        publicHandle: share.publicHandle,
-        publicDmToken: share.publicDmToken,
-      });
-    } catch {
-      res.status(500).json({ message: "Failed to load DM identity" });
-    }
-  });
-
-  app.post("/api/dm/conversations", requireAuth, async (req, res) => {
-    try {
-      if (!(await guardPublicParticipationAge(req, res))) return;
-      const parsed = z
-        .object({
-          peerHandle: z.string().min(2).max(64).optional(),
-          peerDmToken: z.string().min(16).max(128).optional(),
-        })
-        .refine((v) => Boolean(v.peerHandle?.trim() || v.peerDmToken?.trim()), {
-          message: "Provide a peer handle or invite token",
-        })
-        .parse(req.body);
-      const peerUserId = await resolvePeerUserIdByPublicIdentifier({
-        peerHandle: parsed.peerHandle ?? null,
-        peerDmToken: parsed.peerDmToken ?? null,
-      });
-      if (!peerUserId) return res.status(404).json({ message: "Peer not found" });
-      if (peerUserId === req.user!.id) {
-        return res.status(400).json({ message: "Cannot start a conversation with yourself" });
-      }
-      const conversationId = await createDirectDmConversation(req.user!.id, peerUserId);
-      res.status(201).json({ conversationId });
-    } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to create conversation" });
-    }
-  });
-
-  app.get("/api/dm/conversations", requireAuth, async (req, res) => {
-    try {
-      const conversations = await listDmConversationsForUser(req.user!.id) as PublicDmConversation[];
-      res.json({ conversations });
-    } catch {
-      res.status(500).json({ message: "Failed to list conversations" });
-    }
-  });
-
-  app.get("/api/dm/conversations/:id/messages", requireAuth, async (req, res) => {
-    try {
-      const ok = await assertDmMember(req.params.id, req.user!.id);
-      if (!ok) return res.status(404).json({ message: "Not found" });
-      const rows = await listDmMessages(req.params.id, 200);
-      const messages: PublicDmMessage[] = [...rows].reverse().map((m) => ({
-        id: m.id,
-        conversationId: m.conversationId,
-        direction: m.senderUserId === req.user!.id ? "out" : "in",
-        senderPubSpkiB64: m.senderPubSpkiB64,
-        recipientPubSpkiB64: m.recipientPubSpkiB64,
-        ciphertextB64: m.ciphertextB64,
-        nonceB64: m.nonceB64,
-        contentEncoding: m.contentEncoding,
-        createdAt: m.createdAt ? m.createdAt.toISOString() : null,
-      }));
-      res.json({ messages });
-    } catch {
-      res.status(500).json({ message: "Failed to load messages" });
-    }
-  });
-
-  app.post("/api/dm/conversations/:id/messages", requireAuth, async (req, res) => {
-    try {
-      if (!(await guardPublicParticipationAge(req, res))) return;
-      const DM_B64_FIELD_MAX = 512 * 1024;
-      const parsed = z
-        .object({
-          ciphertextB64: z.string().min(1).max(DM_B64_FIELD_MAX),
-          nonceB64: z.string().min(1).max(256),
-          senderPubSpkiB64: z.string().min(1).max(DM_B64_FIELD_MAX),
-          recipientPubSpkiB64: z.string().min(1).max(DM_B64_FIELD_MAX),
-          contentEncoding: z.string().max(32).optional(),
-        })
-        .parse(req.body);
-      const ok = await assertDmMember(req.params.id, req.user!.id);
-      if (!ok) return res.status(404).json({ message: "Not found" });
-      const recipientUserId = await getOtherMemberUserId(req.params.id, req.user!.id);
-      if (!recipientUserId) return res.status(400).json({ message: "Invalid conversation" });
-      const row = await insertDmMessage({
-        conversationId: req.params.id,
-        senderUserId: req.user!.id,
-        recipientUserId,
-        senderPubSpkiB64: parsed.senderPubSpkiB64,
-        recipientPubSpkiB64: parsed.recipientPubSpkiB64,
-        ciphertextB64: parsed.ciphertextB64,
-        nonceB64: parsed.nonceB64,
-        contentEncoding: parsed.contentEncoding,
-      });
-      res.status(201).json({
-        id: row.id,
-        conversationId: row.conversationId,
-        direction: "out",
-        senderPubSpkiB64: row.senderPubSpkiB64,
-        recipientPubSpkiB64: row.recipientPubSpkiB64,
-        ciphertextB64: row.ciphertextB64,
-        nonceB64: row.nonceB64,
-        contentEncoding: row.contentEncoding,
-        createdAt: row.createdAt ? row.createdAt.toISOString() : null,
-      } satisfies PublicDmMessage);
-    } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to send message" });
-    }
-  });
 
   // ── Archetype nudge lifecycle events ─────────────────────────────────────
   const archetypeNudgeEventSchema = z.object({
@@ -5804,28 +4808,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ── Task attachment endpoints ─────────────────────────────────────────────
 
-  app.get("/api/tasks/:taskId/attachments", requireAuth, async (req, res) => {
-    try {
-      const assets = await getTaskAttachments(req.user!.id, req.params.taskId);
-      res.json(assets);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch task attachments" });
-    }
-  });
-
-  app.post("/api/tasks/:taskId/attachments/link", requireAuth, async (req, res) => {
-    try {
-      const { assetId } = z.object({ assetId: z.string().min(1) }).parse(req.body);
-      const linked = await linkAttachmentToTask(req.user!.id, assetId, req.params.taskId);
-      if (!linked) return res.status(404).json({ message: "Attachment not found" });
-      res.json(linked);
-    } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to link attachment to task" });
-    }
-  });
 
   app.get("/api/attachments/:assetId/download", requireAuth, async (req, res) => {
     try {
@@ -6119,7 +5102,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       res.json({
         userId: req.user!.id,
-        legalName: req.user!.firstName && req.user!.lastName ? `${req.user!.firstName} ${req.user!.lastName}` : null,
+        legalName: req.user!.displayName || null,
         line1: null,
         line2: null,
         city: null,
@@ -6228,425 +5211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const DATA_EXPORT_STEP_UP_TTL_MS = 60 * 60 * 1000;
 
-  function requireDataExportStepUp(req: Request, res: Response, next: NextFunction) {
-    if (process.env.NODE_ENV !== "production") {
-      return next();
-    }
-    const exp = req.session.dataExportStepUp?.expiresAt;
-    if (typeof exp === "number" && exp > Date.now()) {
-      return next();
-    }
-    return res.status(403).json({ message: "Verify your email before downloading or importing a JSON backup" });
-  }
-
-  app.get("/api/account/data-export-step-up-status", requireAuth, async (req, res) => {
-    try {
-      const stepUpRequired = process.env.NODE_ENV === "production";
-      const exp = req.session.dataExportStepUp?.expiresAt;
-      const stepUpSatisfied =
-        !stepUpRequired || (typeof exp === "number" && exp > Date.now());
-      const expiresAt = typeof exp === "number" && exp > Date.now() ? exp : null;
-      res.json({ stepUpRequired, stepUpSatisfied, expiresAt });
-    } catch {
-      res.status(500).json({ message: "Failed to load verification status" });
-    }
-  });
-
-  app.post("/api/account/data-export-step-up", requireAuth, async (req, res) => {
-    try {
-      const { challengeId, code } = z
-        .object({
-          challengeId: z.string().min(1),
-          code: z.string().trim().length(6),
-        })
-        .parse(req.body);
-      const ok = await verifyMfaChallengeOrTotp(
-        req.user!.id,
-        challengeId,
-        code,
-        MFA_PURPOSES.ACCOUNT_DATA_EXPORT,
-      );
-      if (!ok) {
-        await appendSecurityEvent({
-          eventType: "mfa_verify_failed",
-          actorUserId: req.user!.id,
-          route: req.path,
-          method: req.method,
-          statusCode: 403,
-          ipAddress: req.ip,
-          userAgent: req.get("user-agent") || undefined,
-          payload: { context: "account_data_export_step_up" },
-        });
-        return res.status(403).json({ message: "Invalid or expired code" });
-      }
-      req.session.dataExportStepUp = { expiresAt: Date.now() + DATA_EXPORT_STEP_UP_TTL_MS };
-      await new Promise<void>((resolve, reject) => {
-        req.session.save((err) => (err ? reject(err) : resolve()));
-      });
-      await appendSecurityEvent({
-        eventType: "account_data_export_step_up_ok",
-        actorUserId: req.user!.id,
-        route: req.path,
-        method: req.method,
-        statusCode: 200,
-        ipAddress: req.ip,
-        userAgent: req.get("user-agent") || undefined,
-      });
-      res.json({ ok: true });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to verify" });
-    }
-  });
-
-  app.get("/api/account/export", requireAuth, requireDataExportStepUp, async (req, res) => {
-    try {
-      const bundle = await buildUserExportBundle(req.user!.id);
-      await appendSecurityEvent({
-        eventType: "account_json_export",
-        actorUserId: req.user!.id,
-        route: req.path,
-        method: req.method,
-        statusCode: 200,
-        ipAddress: req.ip,
-        userAgent: req.get("user-agent") || undefined,
-        payload: { taskCount: bundle.data.tasks?.length ?? 0 },
-      });
-      res.json(bundle);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to export account backup" });
-    }
-  });
-
-  const isFullUserBundle = (bundle: unknown): bundle is import("./migration/export").ExportBundle => {
-    if (!bundle || typeof bundle !== "object") return false;
-    const record = bundle as Record<string, unknown>;
-    const metadata = (record.metadata || {}) as Record<string, unknown>;
-    const data = (record.data || {}) as Record<string, unknown>;
-    return (
-      metadata.exportMode === "user" &&
-      (Array.isArray(data.tasks) || Array.isArray(data.userBadges) || Array.isArray(data.coinTransactions))
-    );
-  };
-
-  app.post("/api/account/import/challenge", requireAuth, requireDataExportStepUp, async (req, res) => {
-    try {
-      // Full user export bundles use migration import and do not require legacy ownership quiz prompts.
-      if (isFullUserBundle(req.body?.bundle)) {
-        return res.json({
-          ownershipQuizRequired: false,
-          tasksFingerprint: "",
-          questionCount: 0,
-          questions: [],
-        });
-      }
-      const ch = buildImportChallenge(req.body?.bundle);
-      if (ch.message) {
-        return res.status(400).json(ch);
-      }
-      res.json(ch);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to build import challenge" });
-    }
-  });
-
-  app.post("/api/account/import", requireAuth, requireDataExportStepUp, async (req, res) => {
-    try {
-      const body = z
-        .object({
-          bundle: z.unknown(),
-          dryRun: z.boolean(),
-          importOwnershipAnswers: z
-            .array(
-              z.object({
-                questionId: z.string(),
-                selectedIndex: z.number().int(),
-              }),
-            )
-            .optional(),
-        })
-        .parse(req.body);
-      if (isFullUserBundle(body.bundle)) {
-        const validation = validateBundle(body.bundle);
-        if (validation.errors.length > 0) {
-          return res.status(400).json({ message: "Bundle validation failed", errors: validation.errors });
-        }
-        const result = await importUserBundle(body.bundle, req.user!.id, { dryRun: body.dryRun });
-        return res.json(result);
-      }
-      const result = await runAccountImport({
-        userId: req.user!.id,
-        bundle: body.bundle,
-        dryRun: body.dryRun,
-        importOwnershipAnswers: body.importOwnershipAnswers,
-        ipAddress: req.ip,
-        userAgent: req.get("user-agent") || undefined,
-      });
-      res.json(result);
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to import account backup" });
-    }
-  });
-
-  function isIsoCalendarDateStrict(s: string): boolean {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-    const [y, mo, d] = s.split("-").map((x) => parseInt(x, 10));
-    if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return false;
-    if (y < 1900 || y > 2100) return false;
-    const dt = new Date(Date.UTC(y, mo - 1, d));
-    return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
-  }
-
-  app.get("/api/account/profile", requireAuth, async (req, res) => {
-    try {
-      const row = await getUserRowById(req.user!.id);
-      if (!row) return res.status(404).json({ message: "User not found" });
-      res.json({
-        displayName: row.displayName ?? null,
-        birthDate: row.birthDate ?? null,
-      });
-    } catch {
-      res.status(500).json({ message: "Failed to load profile" });
-    }
-  });
-
-  app.patch("/api/account/profile", requireAuth, async (req, res) => {
-    try {
-      const body = z
-        .object({
-          displayName: z.union([z.string().max(120), z.null()]).optional(),
-          birthDate: z.union([z.string(), z.null()]).optional(),
-        })
-        .refine((o) => o.displayName !== undefined || o.birthDate !== undefined, {
-          message: "Provide at least one of displayName or birthDate",
-        })
-        .parse(req.body);
-
-      const row = await getUserRowById(req.user!.id);
-      if (!row) return res.status(404).json({ message: "User not found" });
-
-      let birthDate: string | null | undefined;
-      if (body.birthDate === undefined) {
-        birthDate = undefined;
-      } else if (body.birthDate === null || body.birthDate === "") {
-        birthDate = null;
-      } else if (typeof body.birthDate === "string" && isIsoCalendarDateStrict(body.birthDate)) {
-        birthDate = body.birthDate;
-      } else {
-        return res.status(400).json({ message: "birthDate must be null or a valid YYYY-MM-DD calendar date" });
-      }
-
-      await updateUserAccountProfile(req.user!.id, {
-        displayName: body.displayName !== undefined ? body.displayName : row.displayName ?? null,
-        birthDate: birthDate !== undefined ? birthDate : row.birthDate ?? null,
-      });
-      const fresh = await getUserById(req.user!.id);
-      if (!fresh) {
-        return res.status(500).json({ message: "Account not found after update" });
-      }
-      await appendSecurityEvent({
-        eventType: "account_profile_updated",
-        actorUserId: req.user!.id,
-        route: req.path,
-        method: req.method,
-        statusCode: 200,
-        ipAddress: req.ip,
-        userAgent: req.get("user-agent") || undefined,
-        payload: {},
-      });
-      res.json({ message: "Profile updated", user: toPublicSessionUser(fresh) });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to update profile" });
-    }
-  });
-
-  app.get("/api/account/totp/status", requireAuth, async (req, res) => {
-    try {
-      const row = await getUserRowById(req.user!.id);
-      const enr = req.session.totpEnrollment;
-      const enrollmentPending = Boolean(
-        enr && enr.userId === req.user!.id && enr.expiresAt > Date.now(),
-      );
-      res.json({
-        totpEnabled: Boolean(row?.totpEnabledAt && row?.totpSecretCiphertext),
-        enrollmentPending,
-      });
-    } catch {
-      res.status(500).json({ message: "Failed to load authenticator status" });
-    }
-  });
-
-  app.post("/api/account/totp/enrollment/start", requireAuth, async (req, res) => {
-    try {
-      const row = await getUserRowById(req.user!.id);
-      if (!row) return res.status(404).json({ message: "User not found" });
-      if (row.totpEnabledAt && row.totpSecretCiphertext) {
-        return res.status(400).json({ message: "Authenticator is already enabled" });
-      }
-      const secretBase32 = generateTotpSecretBase32();
-      req.session.totpEnrollment = {
-        userId: req.user!.id,
-        secretBase32,
-        expiresAt: Date.now() + 10 * 60 * 1000,
-      };
-      await new Promise<void>((resolve, reject) => {
-        req.session.save((err) => (err ? reject(err) : resolve()));
-      });
-      const otpauthUrl = buildTotpKeyUri(row.email, secretBase32);
-      res.json({ secretBase32, otpauthUrl });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to start enrollment" });
-    }
-  });
-
-  app.post("/api/account/totp/enrollment/confirm", requireAuth, async (req, res) => {
-    try {
-      const { code } = z.object({
-        code: z.string().length(6).regex(/^\d{6}$/),
-      }).parse(req.body);
-      const enr = req.session.totpEnrollment;
-      if (!enr || enr.userId !== req.user!.id || enr.expiresAt < Date.now()) {
-        delete req.session.totpEnrollment;
-        return res.status(400).json({ message: "Enrollment expired — start again" });
-      }
-      if (!verifyTotpCode(enr.secretBase32, code)) {
-        return res.status(401).json({ message: "Invalid code — check the clock on your device" });
-      }
-      const ciphertext = encryptTotpSecretBase32(enr.secretBase32);
-      await setUserTotpSecret(req.user!.id, ciphertext, new Date());
-      delete req.session.totpEnrollment;
-      await new Promise<void>((resolve, reject) => {
-        req.session.save((err) => (err ? reject(err) : resolve()));
-      });
-      const fresh = await getUserById(req.user!.id);
-      if (!fresh) {
-        return res.status(500).json({ message: "Account not found after enrollment" });
-      }
-      await appendSecurityEvent({
-        eventType: "totp_enabled",
-        actorUserId: req.user!.id,
-        route: req.path,
-        method: req.method,
-        statusCode: 200,
-        ipAddress: req.ip,
-        userAgent: req.get("user-agent") || undefined,
-      });
-      res.json({ message: "Authenticator enabled", user: toPublicSessionUser(fresh) });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to confirm enrollment" });
-    }
-  });
-
-  app.post("/api/account/totp/disable", requireAuth, async (req, res) => {
-    try {
-      const row = await getUserRowById(req.user!.id);
-      if (!row?.totpEnabledAt || !row.totpSecretCiphertext) {
-        return res.status(400).json({ message: "Authenticator is not enabled" });
-      }
-
-      const body = req.body as Record<string, unknown>;
-      if (row.passwordHash) {
-        const password = typeof body.password === "string" ? body.password : "";
-        if (!password) {
-          return res.status(400).json({ message: "Password is required to disable authenticator" });
-        }
-        const ok = await verifyPassword(password, row.passwordHash);
-        if (!ok) {
-          return res.status(403).json({ message: "Invalid password" });
-        }
-      } else {
-        const parsed = z.object({
-          challengeId: z.string().min(1),
-          code: z.string().length(6).regex(/^\d{6}$/),
-        }).parse(req.body);
-        const ok = await verifyMfaChallenge(
-          req.user!.id,
-          parsed.challengeId,
-          parsed.code,
-          MFA_PURPOSES.ACCOUNT_DISABLE_TOTP,
-        );
-        if (!ok) {
-          return res.status(403).json({ message: "Invalid or expired email verification code" });
-        }
-      }
-
-      await clearUserTotp(req.user!.id);
-      const fresh = await getUserById(req.user!.id);
-      if (!fresh) {
-        return res.status(500).json({ message: "Account not found after disabling authenticator" });
-      }
-      await appendSecurityEvent({
-        eventType: "totp_disabled",
-        actorUserId: req.user!.id,
-        route: req.path,
-        method: req.method,
-        statusCode: 200,
-        ipAddress: req.ip,
-        userAgent: req.get("user-agent") || undefined,
-      });
-      res.json({ message: "Authenticator removed", user: toPublicSessionUser(fresh) });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to disable authenticator" });
-    }
-  });
-
-  app.post("/api/account/phone/verify/confirm", requireAuth, async (req, res) => {
-    try {
-      const { challengeId, code } = z.object({
-        challengeId: z.string().min(1),
-        code: z.string().length(6).regex(/^\d{6}$/),
-      }).parse(req.body);
-
-      const result = await verifyMfaChallengeWithMetadata(
-        req.user!.id,
-        challengeId,
-        code,
-        MFA_PURPOSES.ACCOUNT_VERIFY_PHONE,
-      );
-      if (!result.ok || !result.smsDestinationE164?.trim()) {
-        await appendSecurityEvent({
-          eventType: "mfa_verify_failed",
-          actorUserId: req.user!.id,
-          route: req.path,
-          method: req.method,
-          statusCode: 403,
-          ipAddress: req.ip,
-          userAgent: req.get("user-agent") || undefined,
-          payload: { context: "account_verify_phone" },
-        });
-        return res.status(403).json({ message: "Invalid or expired verification code" });
-      }
-
-      await setUserVerifiedPhone(req.user!.id, result.smsDestinationE164);
-      const fresh = await getUserById(req.user!.id);
-      if (!fresh) {
-        return res.status(500).json({ message: "Account not found after phone verification" });
-      }
-      await appendSecurityEvent({
-        eventType: "phone_verified",
-        actorUserId: req.user!.id,
-        route: req.path,
-        method: req.method,
-        statusCode: 200,
-        ipAddress: req.ip,
-        userAgent: req.get("user-agent") || undefined,
-        payload: {},
-      });
-      res.json({ message: "Phone verified", user: toPublicSessionUser(fresh) });
-    } catch (error) {
-      if (error instanceof Error) return res.status(400).json({ message: error.message });
-      res.status(500).json({ message: "Failed to verify phone" });
-    }
-  });
 
   // ════════════════════════════════════════════════════════════════════════
   //  Admin routes (protected — require admin role)
@@ -8050,71 +6615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/tasks/shared", requireAuth, async (req, res) => {
-    try {
-      const shared = await getSharedTasks(req.user!.id);
-      res.json(shared);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch shared tasks" });
-    }
-  });
 
-  app.get("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
-    try {
-      const access = await canAccessTask(req.user!.id, req.params.id);
-      if (!access.canAccess) return res.status(403).json({ message: "Access denied" });
-      const collaborators = await getTaskCollaborators(req.params.id);
-      res.json(collaborators);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch collaborators" });
-    }
-  });
-
-  app.post("/api/tasks/:id/collaborators", requireAuth, async (req, res) => {
-    try {
-      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
-      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can add collaborators" });
-      const { handle, role } = req.body;
-      if (!handle) return res.status(400).json({ message: "Handle is required" });
-      const validRoles = ["editor", "viewer"];
-      if (role && !validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
-      const user = await getUserByPublicHandle(handle);
-      if (!user) return res.status(404).json({ message: "User not found" });
-      if (user.id === req.user!.id) return res.status(400).json({ message: "Cannot add yourself" });
-      const collab = await addCollaborator(req.params.id, user.id, role || "viewer", req.user!.id);
-      res.json(collab);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to add collaborator" });
-    }
-  });
-
-  app.put("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
-    try {
-      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
-      if (!ownerCheck) return res.status(403).json({ message: "Only task owner can change roles" });
-      const { role } = req.body;
-      const validRoles = ["editor", "viewer"];
-      if (!validRoles.includes(role)) return res.status(400).json({ message: "Invalid role" });
-      const updated = await updateCollaboratorRole(req.params.id, req.params.userId, role);
-      if (!updated) return res.status(404).json({ message: "Collaborator not found" });
-      res.json(updated);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update collaborator" });
-    }
-  });
-
-  app.delete("/api/tasks/:id/collaborators/:userId", requireAuth, async (req, res) => {
-    try {
-      const ownerCheck = await isTaskOwner(req.user!.id, req.params.id);
-      const isSelf = req.params.userId === req.user!.id;
-      if (!ownerCheck && !isSelf) return res.status(403).json({ message: "Access denied" });
-      const removed = await removeCollaborator(req.params.id, req.params.userId);
-      if (!removed) return res.status(404).json({ message: "Collaborator not found" });
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to remove collaborator" });
-    }
-  });
 
   // ════════════════════════════════════════════════════════════════════════
   // ARCHETYPE EMPATHY READ API (admin + scoped RAG token)
@@ -8267,6 +6768,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerLocationRoutes(app, requireAuth);
   registerReminderRoutes(app, requireAuth);
   registerAiRoutes(app, requireAuth);
+  registerBackupRoutes(app, requireAuth, requireAdmin);
+  registerAccountBackupRoutes(app, requireAuth);
+  registerAccountRoutes(app, requireAuth);
+  registerAuthRoutes(app, requireAuth);
+  registerTaskAttachmentRoutes(app, requireAuth);
+  registerTaskCollaborationRoutes(app, requireAuth);
+  registerPatternRoutes(app, requireAuth);
+  registerAlarmRoutes(app, requireAuth);
+  registerCollaborationRoutes(app, requireAuth);
+  registerDmE2eeRoutes(app, requireAuth);
+  registerAvatarRoutes(app, requireAuth);
   attachShoppingListRoutes(app);
   attachConversionArtifactRoutes(app);
 

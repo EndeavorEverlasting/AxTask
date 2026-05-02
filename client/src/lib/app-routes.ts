@@ -35,6 +35,8 @@ export const VALID_APP_PATHS = [
   "/privacy",
   "/terms",
   "/billing-bridge",
+  "/backup",
+  "/trash",
 ] as const;
 
 export type ValidAppPath =

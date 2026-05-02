@@ -63,10 +63,16 @@ export const tasks = pgTable("tasks", {
   >(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  deletedAt: timestamp("deleted_at"),
+  deletedBy: varchar("deleted_by"),
+  deleteReason: text("delete_reason"),
+  purgeAfter: timestamp("purge_after"),
+  restoreCount: integer("restore_count").notNull().default(0),
 }, (table) => [
   index("idx_tasks_user_status").on(table.userId, table.status),
   index("idx_tasks_user_priority").on(table.userId, table.priority),
   index("idx_tasks_user_sort_order").on(table.userId, table.sortOrder),
+  index("idx_tasks_user_deleted_at").on(table.userId, table.deletedAt),
 ]);
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({

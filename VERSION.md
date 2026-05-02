@@ -1,7 +1,7 @@
 # AxTask Version 1.2.0
 
 **Release Date**: November 2, 2025  
-**Status**: Stable  
+**Status**: Stable — under active hardening
 **Type**: Minor Release
 
 ## Overview

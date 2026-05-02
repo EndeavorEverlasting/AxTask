@@ -824,3 +824,63 @@ export const dbSizeSnapshots = pgTable("db_size_snapshots", {
 ]);
 
 export type DbSizeSnapshot = typeof dbSizeSnapshots.$inferSelect;
+
+// ─── Backup Records ─────────────────────────────────────────────────────────
+/**
+ * Ledger of user account backup attempts (manual or scheduled).
+ * The pathOrUrl field stores a local path or a future cloud URI.
+ * Status tracks pending/completed/failed so the status endpoint
+ * can return an honest lastServerBackupAt.
+ */
+export const backupRecords = pgTable("backup_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  type: text("type").notNull().default("manual"),
+  status: text("status").notNull().default("pending"),
+  pathOrUrl: text("path_or_url"),
+  metadataJson: text("metadata_json"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("idx_backup_records_user_created").on(table.userId, table.createdAt),
+  index("idx_backup_records_status").on(table.status),
+]);
+
+export const userBackupPreferences = pgTable("user_backup_preferences", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  autoBackupEnabled: boolean("auto_backup_enabled").notNull().default(true),
+  preferredTarget: text("preferred_target").default("default"),
+  retentionPolicyJson: text("retention_policy_json"), // e.g. {"keepLastN":30,"keepMonthly":12}
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type BackupRecord = typeof backupRecords.$inferSelect;
+
+export type UserBackupPreference = typeof userBackupPreferences.$inferSelect;
+
+// ─── Backup Jobs (queue-based scheduler) ──────────────────────────────────────
+/**
+ * PostgreSQL-backed job queue for backup processing.
+ * Workers poll for pending jobs, claim them by updating startedAt,
+ * and mark them completed or failed. This enables horizontal scaling
+ * without requiring Redis or BullMQ.
+ */
+export const backupJobs = pgTable("backup_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"), // pending | running | completed | failed | cancelled
+  type: text("type").notNull().default("scheduled"),    // scheduled | manual | retry
+  target: text("target").default("default"),
+  recordId: varchar("record_id").references(() => backupRecords.id, { onDelete: "set null" }), // FK to backup_records after completion
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("idx_backup_jobs_user_status").on(table.userId, table.status),
+  index("idx_backup_jobs_status_created").on(table.status, table.createdAt),
+]);
+
+export type BackupJob = typeof backupJobs.$inferSelect;

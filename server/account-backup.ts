@@ -426,13 +426,19 @@ export async function runAccountImport(params: {
   const conflicts: Record<string, number> = { duplicateFingerprints: 0 };
 
   const validForInsert: InsertTask[] = [];
+  const seenInBundle = new Set<string>();
   for (const t of tasks) {
     const fingerprint = computeTaskFingerprint(t);
+    if (seenInBundle.has(fingerprint)) {
+      conflicts.duplicateFingerprints += 1;
+      continue;
+    }
     const seen = await hasImportFingerprint(params.userId, fingerprint);
     if (seen) {
       conflicts.duplicateFingerprints += 1;
       continue;
     }
+    seenInBundle.add(fingerprint);
     validForInsert.push(t);
   }
 

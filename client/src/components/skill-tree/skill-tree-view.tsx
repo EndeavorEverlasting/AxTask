@@ -14,6 +14,7 @@ import {
   gamificationSkillTreeApiPaths as apiPathFor,
   type SkillTreeKind,
 } from "@/lib/skill-tree-paths";
+import type { SkillGraphEdgeDto } from "@/lib/skill-tree-graph-build";
 
 /** Matches `OFFLINE_GENERATOR_BASE_COST` in server/storage.ts */
 const OFFLINE_GENERATOR_PURCHASE_COST = 500;
@@ -44,6 +45,8 @@ export interface SkillNodeDto {
   effectPerLevel: number;
   /** Present when merging avatar + offline into one canvas. */
   domain?: SkillTreeKind;
+  /** Optional capability-graph edges beyond the single prerequisite chain. */
+  additionalEdges?: SkillGraphEdgeDto[];
 }
 
 interface Wallet {
@@ -111,7 +114,7 @@ function useSkillUnlockMutation() {
 export function SkillTreeView({ tree, readOnly, compact, className }: SkillTreeViewProps) {
   const { list: listPath } = apiPathFor(tree);
 
-  const { data: rawNodes = [], isLoading } = useQuery<SkillNodeDto[]>({
+  const { data: rawNodes = [], isLoading, isError } = useQuery<SkillNodeDto[]>({
     queryKey: [listPath],
   });
 
@@ -144,13 +147,38 @@ export function SkillTreeView({ tree, readOnly, compact, className }: SkillTreeV
 
   if (isLoading) {
     return (
-      <div className={cn("text-xs text-muted-foreground py-2", className)}>Loading skill tree…</div>
+      <div
+        className={cn(
+          "rounded-xl border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-xs text-muted-foreground animate-pulse",
+          className,
+        )}
+        data-testid="skill-tree-loading"
+      >
+        Loading skill tree…
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Alert variant="destructive" className={cn("text-xs", className)} data-testid="skill-tree-error">
+        <AlertTitle>Could not load skill tree</AlertTitle>
+        <AlertDescription>
+          The server returned an error. Try refreshing the page or check your connection.
+        </AlertDescription>
+      </Alert>
     );
   }
 
   if (rawNodes.length === 0) {
     return (
-      <div className={cn("text-xs text-muted-foreground py-2", className)}>
+      <div
+        className={cn(
+          "rounded-xl border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-xs text-muted-foreground",
+          className,
+        )}
+        data-testid="skill-tree-empty"
+      >
         No skills available yet.
       </div>
     );
@@ -263,10 +291,18 @@ export function UnifiedSkillTreeView({ readOnly, compact, className }: UnifiedSk
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: avatarRaw = [], isLoading: loadingAvatar } = useQuery<SkillNodeDto[]>({
+  const {
+    data: avatarRaw = [],
+    isLoading: loadingAvatar,
+    isError: errorAvatar,
+  } = useQuery<SkillNodeDto[]>({
     queryKey: ["/api/gamification/avatar-skills"],
   });
-  const { data: offlineRaw = [], isLoading: loadingOffline } = useQuery<SkillNodeDto[]>({
+  const {
+    data: offlineRaw = [],
+    isLoading: loadingOffline,
+    isError: errorOffline,
+  } = useQuery<SkillNodeDto[]>({
     queryKey: ["/api/gamification/offline-skills"],
   });
 
@@ -339,18 +375,45 @@ export function UnifiedSkillTreeView({ readOnly, compact, className }: UnifiedSk
   }, [nodes]);
 
   const isLoading = loadingAvatar || loadingOffline;
+  const isError = errorAvatar || errorOffline;
   const showFullGraph = !compact && !readOnly;
   const genOwned = offlineGen?.generator.isOwned ?? false;
 
   if (isLoading) {
     return (
-      <div className={cn("text-xs text-muted-foreground py-2", className)}>Loading skill tree…</div>
+      <div
+        className={cn(
+          "rounded-xl border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-xs text-muted-foreground animate-pulse",
+          className,
+        )}
+        data-testid="skill-tree-loading"
+      >
+        Loading skill tree…
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Alert variant="destructive" className={cn("text-xs", className)} data-testid="skill-tree-error">
+        <AlertTitle>Could not load skill tree</AlertTitle>
+        <AlertDescription>
+          The server returned an error while fetching skills. Try refreshing the page or check your
+          connection.
+        </AlertDescription>
+      </Alert>
     );
   }
 
   if (nodes.length === 0) {
     return (
-      <div className={cn("text-xs text-muted-foreground py-2", className)}>
+      <div
+        className={cn(
+          "rounded-xl border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-xs text-muted-foreground",
+          className,
+        )}
+        data-testid="skill-tree-empty"
+      >
         No skills available yet.
       </div>
     );
@@ -550,18 +613,21 @@ function SkillNodeCard({
   return (
     <div
       className={cn(
-        "rounded-lg border bg-background/60",
+        "rounded-lg border bg-background/60 select-none cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
         compact ? "p-2" : "p-3",
         locked && "opacity-70",
       )}
       data-testid={`skill-node-${tree}-${node.skillKey}`}
+      tabIndex={0}
+      role="group"
+      aria-label={`${node.name}, level ${node.currentLevel} of ${node.maxLevel}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h4
               className={cn(
-                "font-semibold text-foreground leading-tight truncate",
+                "font-semibold text-foreground leading-tight truncate cursor-default",
                 compact ? "text-xs" : "text-sm",
               )}
             >
@@ -578,7 +644,7 @@ function SkillNodeCard({
             </span>
           </div>
           {!compact && (
-            <p className="text-xs text-muted-foreground mt-1 leading-snug">{node.description}</p>
+            <p className="text-xs text-muted-foreground mt-1 leading-snug select-text">{node.description}</p>
           )}
           <p
             className={cn(
@@ -591,6 +657,11 @@ function SkillNodeCard({
           {node.prerequisiteSkillKey && !node.isUnlocked && !node.isAvailable && (
             <p className="text-[10px] text-muted-foreground/80 mt-1 italic">
               Requires: {node.prerequisiteSkillKey}
+            </p>
+          )}
+          {!locked && !atMax && node.nextCost != null && !canAfford && (
+            <p className="text-[10px] text-red-500/90 mt-1 italic">
+              Need {node.nextCost - walletBalance} more coins
             </p>
           )}
         </div>
@@ -614,7 +685,9 @@ function SkillNodeCard({
             {node.nextCost != null ? (
               <>
                 <Coins className="h-3 w-3 text-amber-500" aria-hidden />
-                <span className="tabular-nums">{node.nextCost}</span>
+                <span className={cn("tabular-nums", !canAfford && !locked && !atMax && "text-red-500")}>
+                  {node.nextCost}
+                </span>
                 <span>coins next</span>
               </>
             ) : (
@@ -622,12 +695,24 @@ function SkillNodeCard({
             )}
           </span>
           <Button
+            type="button"
             size="sm"
             variant={node.isUnlocked ? "outline" : "default"}
             disabled={atMax || locked || !canAfford || isPending || node.nextCost == null}
             onClick={onUnlock}
             className="h-7 px-2 text-[11px]"
             data-testid={`skill-unlock-${tree}-${node.skillKey}`}
+            aria-label={
+              atMax
+                ? "Maxed out"
+                : locked
+                  ? `Locked — requires ${node.prerequisiteSkillKey ?? "previous skill"}`
+                  : !canAfford
+                    ? `Need ${node.nextCost ?? 0} coins to unlock`
+                    : node.isUnlocked
+                      ? `Upgrade ${node.name}`
+                      : `Unlock ${node.name}`
+            }
           >
             {atMax
               ? "Maxed"
