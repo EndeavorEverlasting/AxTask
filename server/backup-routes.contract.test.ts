@@ -290,6 +290,23 @@ describe("backup routes contract", () => {
     expect(content).toContain('"/api/dm/conversations/:id/messages"');
   });
 
+  it("registers avatar routes in routes.ts", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes).toContain('import { registerAvatarRoutes } from "./routes/avatar"');
+    expect(routes).toContain("registerAvatarRoutes(app, requireAuth)");
+  });
+
+  it("exposes avatar and offline-generator routes in the avatar route module", () => {
+    const content = fs.readFileSync(
+      path.join(projectRoot, "server", "routes", "avatar.ts"),
+      "utf8",
+    );
+    expect(content).toContain('"/api/gamification/offline-generator"');
+    expect(content).toContain('"/api/gamification/avatars"');
+    expect(content).toContain('"/api/gamification/avatar-skills"');
+    expect(content).toContain('"/api/gamification/avatar-voices"');
+  });
+
   it("apply-migrations script wires migration airlock", () => {
     const content = fs.readFileSync(applyMigrationsPath, "utf8");
     expect(content).toContain("migration-airlock.mjs");
@@ -385,5 +402,64 @@ describe("backup routes contract", () => {
     const content = fs.readFileSync(backupSchedulerPath, "utf8");
     expect(content).toContain("cleanupBackupRecords");
     expect(content).toContain("retention cleanup");
+  });
+
+  it("backup crypto module provides gzip compression and decompression", () => {
+    const content = fs.readFileSync(backupCryptoPath, "utf8");
+    expect(content).toContain("compressBackup");
+    expect(content).toContain("decompressBackup");
+    expect(content).toContain("gzip");
+    expect(content).toContain("gunzip");
+  });
+
+  it("backup service compresses when BACKUP_COMPRESSION_ENABLED is set", () => {
+    const content = fs.readFileSync(backupServicePath, "utf8");
+    expect(content).toContain("BACKUP_COMPRESSION_ENABLED");
+    expect(content).toContain("compressBackup");
+    expect(content).toContain("decompressBackup");
+    expect(content).toContain("compressed:");
+    expect(content).toContain("compressionMeta");
+  });
+
+  it("migration airlock handles compressed backup verification", () => {
+    const content = fs.readFileSync(migrationAirlockPath, "utf8");
+    expect(content).toContain("meta.compressed");
+    expect(content).toContain("gunzipAsync");
+    expect(content).toContain("decompress");
+  });
+
+  it("schema defines backupJobs table for queue-based scheduler", () => {
+    const content = fs.readFileSync(schemaPath, "utf8");
+    expect(content).toContain("backupJobs");
+    expect(content).toContain('"pending"');
+    expect(content).toContain('"running"');
+    expect(content).toContain('"completed"');
+    expect(content).toContain('"failed"');
+  });
+
+  it("backup queue worker polls and processes jobs", () => {
+    const queueWorkerPath = path.join(projectRoot, "server", "workers", "backup-queue-worker.ts");
+    const content = fs.readFileSync(queueWorkerPath, "utf8");
+    expect(content).toContain("getNextPendingBackupJob");
+    expect(content).toContain("markBackupJobRunning");
+    expect(content).toContain("markBackupJobCompleted");
+    expect(content).toContain("markBackupJobFailed");
+    expect(content).toContain("startBackupQueueWorker");
+    expect(content).toContain("enqueueBackupBatch");
+  });
+
+  it("backup routes expose enqueue endpoints", () => {
+    const content = fs.readFileSync(backupRoutesPath, "utf8");
+    expect(content).toContain('"/api/account/backup/enqueue"');
+    expect(content).toContain('"/api/admin/backup/enqueue-all"');
+    expect(content).toContain("createBackupJob");
+    expect(content).toContain("enqueueBackupBatch");
+  });
+
+  it("server boot registers backup queue worker", () => {
+    const indexPath = path.join(projectRoot, "server", "index.ts");
+    const content = fs.readFileSync(indexPath, "utf8");
+    expect(content).toContain("startBackupQueueWorker");
+    expect(content).toContain("BACKUP_QUEUE_WORKER_ENABLED");
   });
 });
