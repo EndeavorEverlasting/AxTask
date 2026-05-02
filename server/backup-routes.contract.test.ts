@@ -255,6 +255,21 @@ describe("backup routes contract", () => {
     expect(content).toContain('"/api/alarm-companion/apply"');
   });
 
+  it("registers collaboration routes in routes.ts", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes).toContain('import { registerCollaborationRoutes } from "./routes/collaboration"');
+    expect(routes).toContain("registerCollaborationRoutes(app, requireAuth)");
+  });
+
+  it("exposes collaboration inbox routes in the collaboration route module", () => {
+    const content = fs.readFileSync(
+      path.join(projectRoot, "server", "routes", "collaboration.ts"),
+      "utf8",
+    );
+    expect(content).toContain('"/api/collaboration/inbox"');
+    expect(content).toContain('"/api/collaboration/inbox/:id/read"');
+  });
+
   it("apply-migrations script wires migration airlock", () => {
     const content = fs.readFileSync(applyMigrationsPath, "utf8");
     expect(content).toContain("migration-airlock.mjs");

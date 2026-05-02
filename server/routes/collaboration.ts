@@ -7,8 +7,12 @@ import {
   appendCollaborationMessage,
   markCollaborationMessageRead,
   linkAttachmentsToOwner,
+  getUserRowById,
 } from "../storage";
-import { guardPublicParticipationAge } from "../registration-config";
+import {
+  assertEligibleForPublicParticipation,
+  PublicParticipationAgeError,
+} from "../lib/public-participation-age";
 
 type RequireAuthMiddleware = (req: Request, res: Response, next: NextFunction) => unknown;
 
@@ -40,7 +44,15 @@ export function registerCollaborationRoutes(app: Express, requireAuth: RequireAu
 
   app.post("/api/collaboration/inbox", requireAuth, async (req, res) => {
     try {
-      if (!(await guardPublicParticipationAge(req, res))) return;
+      const userRow = await getUserRowById(req.user!.id);
+      try {
+        assertEligibleForPublicParticipation(userRow?.birthDate ?? null);
+      } catch (e: unknown) {
+        if (e instanceof PublicParticipationAgeError) {
+          return res.status(e.statusCode).json({ message: e.message, code: e.code });
+        }
+        throw e;
+      }
 
       const body = collabBodySchema.parse(req.body || {});
       const row = await appendCollaborationMessage({

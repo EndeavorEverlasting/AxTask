@@ -30,7 +30,7 @@ import {
   userHasAvatarSkillUnlocked,
   assertCanCreateTasks, assertCanStoreAttachment, createAttachmentAsset, getAttachmentAssets, getAttachmentAssetById, markAttachmentAssetUploaded, softDeleteAttachmentAsset, retentionSweepAttachments, getStoragePolicy, getStorageUsage, getTaskAttachmentIdsForTasks,
   linkAttachmentsToOwner, getAttachmentsForOwner, getAttachmentsForOwnerPublic,
-  getAttachmentsForOwnersBatch, getAttachmentsForOwnersPublicBatch,
+  getAttachmentsForOwnersPublicBatch,
   hasImportFingerprint, recordImportFingerprint, createInvoice, issueInvoice, confirmInvoicePayment, listInvoices, listInvoiceEvents,
   createMfaChallenge, ensureIdempotencyKey,
   listBillingPaymentMethodsForUser, createBillingPaymentMethod,
