@@ -42,6 +42,7 @@ const RETENTION_WINDOWS = [
   { table: "ai_interactions",           column: "created_at", window: "30 days"  },
   { table: "foundry_run_logs",          column: "created_at", window: "90 days"  },
   { table: "task_reminders",            column: "created_at", window: "365 days" },
+  { table: "backup_records",            column: "created_at", window: "365 days" },
 ];
 
 async function main() {

@@ -9,6 +9,16 @@ AxTask provides manual account backup and restore today. Automated backups are p
 3. The file contains tasks, wallet snapshot, and badges.
 4. In production, an email step-up code is required before download.
 
+## Backup Ledger
+
+Every backup attempt writes a row to `backup_records`:
+
+- `pending` → backup is running
+- `completed` → backup finished, `pathOrUrl` points to the file
+- `failed` → backup errored, `errorMessage` explains why
+
+The status endpoint returns the most recent `completedAt` as `lastServerBackupAt`.
+
 ## Dry-Run Restore
 
 1. On the same **Import/Export** page, select your `.json` backup under **Full account backup (JSON)**.
@@ -47,19 +57,28 @@ docker run --rm \
   alpine tar cvf /backup/postgres-backup.tar /data
 ```
 
+## Automated Local Backup Scheduler (Opt-in)
+
+Set the environment variable to activate:
+
+```bash
+BACKUP_SCHEDULER_ENABLED=true
+BACKUP_SCHEDULER_INTERVAL_MS=86400000   # 24h default
+BACKUP_LOCAL_DIR=./backups              # optional output directory
+```
+
+The scheduler iterates over all users, exports a JSON bundle per user, and writes a `backup_records` ledger entry. One user failing does not abort the batch.
+
 ## What Is Not Yet Automated
 
-- No cron-based or scheduled automatic JSON export.
-- No Windows Task Scheduler integration.
+- No Windows Task Scheduler integration (use the Node.js scheduler or cron).
 - No cloud object storage uploads (S3, GCS, etc.).
 - No CLI-authenticated backup (the `backup:local` script is informational only).
 
 ## Future Roadmap
 
-1. **Backup Ledger** — durable `backup_records` and `restore_records` table tracking.
-2. **Scheduler Foundation** — cron / Task Scheduler / Docker volume hooks built on the local script foundation.
-3. **Backup Targets** — pluggable write-only targets (local disk, S3-compatible, rsync).
-4. **Migration Airlock** — safe migration commands that refuse to run without a verified backup.
+1. **Backup Targets** — pluggable write-only targets (local disk, S3-compatible, rsync).
+2. **Migration Airlock** — safe migration commands that refuse to run without a verified backup.
 
 See also the repository-wide [**Reliability Roadmap**](../README.md#reliability-roadmap).
 

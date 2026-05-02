@@ -824,3 +824,27 @@ export const dbSizeSnapshots = pgTable("db_size_snapshots", {
 ]);
 
 export type DbSizeSnapshot = typeof dbSizeSnapshots.$inferSelect;
+
+// ─── Backup Records ─────────────────────────────────────────────────────────
+/**
+ * Ledger of user account backup attempts (manual or scheduled).
+ * The pathOrUrl field stores a local path or a future cloud URI.
+ * Status tracks pending/completed/failed so the status endpoint
+ * can return an honest lastServerBackupAt.
+ */
+export const backupRecords = pgTable("backup_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  type: text("type").notNull().default("manual"),
+  status: text("status").notNull().default("pending"),
+  pathOrUrl: text("path_or_url"),
+  metadataJson: text("metadata_json"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("idx_backup_records_user_created").on(table.userId, table.createdAt),
+  index("idx_backup_records_status").on(table.status),
+]);
+
+export type BackupRecord = typeof backupRecords.$inferSelect;

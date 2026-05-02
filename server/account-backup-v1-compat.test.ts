@@ -344,4 +344,28 @@ describe("account import v1 backward compatibility", () => {
       }),
     );
   });
+
+  // ─── Bundle Fingerprint Collision Smoke Test ───────────────────────────────
+
+  it("computeBundleTasksFingerprint shows no collisions among 1,000 random bundles", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 1_000; i++) {
+      const tasks: InsertTask[] = Array.from({ length: 3 + Math.floor(Math.random() * 5) }, () =>
+        insertTaskSchema.parse({
+          date: `2025-${String(Math.floor(Math.random() * 12) + 1).padStart(2, "0")}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, "0")}`,
+          time: [undefined, "08:00", "14:30"][Math.floor(Math.random() * 3)],
+          activity: `Activity ${Math.random().toString(36).slice(2, 8)}`,
+          notes: [undefined, "", "note"][Math.floor(Math.random() * 3)],
+          recurrence: "none",
+          status: "pending",
+          visibility: "private",
+          communityShowNotes: false,
+        }),
+      );
+      const fp = computeBundleTasksFingerprint(tasks);
+      expect(seen.has(fp)).toBe(false);
+      seen.add(fp);
+    }
+    expect(seen.size).toBe(1_000);
+  });
 });

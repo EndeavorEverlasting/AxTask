@@ -42,9 +42,9 @@ function printOptions() {
 
 function printLimitations() {
   console.log("\nCurrent limitations:");
-  console.log("  - Automated scheduled backups are not yet configured.");
+  console.log("  - Automated scheduled backups require BACKUP_SCHEDULER_ENABLED=true on the server.");
   console.log("  - CLI authenticated export is not yet supported (no session token flow).");
-  console.log("  - The status endpoint is honest: automaticBackupsConfigured = false.");
+  console.log("  - The status endpoint reports the real last completed backup from the ledger.");
 }
 
 function printNextSteps() {

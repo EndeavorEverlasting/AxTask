@@ -59,6 +59,7 @@ import {
   userAlarmSnapshots,
   collaborationInboxMessages,
   userClassificationLabels,
+  backupRecords,
   type Task,
   type InsertTask,
   type UpdateTask,
@@ -120,6 +121,7 @@ import {
   type ArchetypePollVote,
   type UserAlarmSnapshot,
   type CollaborationInboxMessage,
+  type BackupRecord,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ne, ilike, or, asc, lt, lte, gt, gte, count, avg, sql, desc, inArray } from "drizzle-orm";
@@ -5504,5 +5506,41 @@ export async function resolveCategoryReview(
     })
     .where(eq(categoryReviewTriggers.id, id))
     .returning();
+  return row || null;
+}
+
+// ─── Backup Record helpers ──────────────────────────────────────────────────
+
+export async function createBackupRecord(input: {
+  userId: string;
+  type: string;
+  status: string;
+  pathOrUrl?: string | null;
+  metadataJson?: string | null;
+  errorMessage?: string | null;
+}): Promise<BackupRecord> {
+  const [row] = await db
+    .insert(backupRecords)
+    .values({
+      id: randomUUID(),
+      userId: input.userId,
+      type: input.type,
+      status: input.status,
+      pathOrUrl: input.pathOrUrl ?? null,
+      metadataJson: input.metadataJson ?? null,
+      errorMessage: input.errorMessage ?? null,
+      createdAt: new Date(),
+    })
+    .returning();
+  return row;
+}
+
+export async function getLastBackupRecordForUser(userId: string): Promise<BackupRecord | null> {
+  const [row] = await db
+    .select()
+    .from(backupRecords)
+    .where(eq(backupRecords.userId, userId))
+    .orderBy(desc(backupRecords.createdAt))
+    .limit(1);
   return row || null;
 }

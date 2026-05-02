@@ -52,4 +52,18 @@ describe("computeTaskFingerprint", () => {
     const b = computeTaskFingerprint({ date: "2025-01-01  ", activity: "run", notes: "fast" });
     expect(a).toBe(b);
   });
+
+  it("no collisions among 2,000 distinct single-task fingerprints", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 2_000; i++) {
+      const date = `2025-${String(Math.floor(Math.random() * 12) + 1).padStart(2, "0")}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, "0")}`;
+      const time = ["", "08:00", "14:30", "23:59"][Math.floor(Math.random() * 4)];
+      const activity = `Activity ${Math.random().toString(36).slice(2, 10)}`;
+      const notes = Math.random() > 0.5 ? `Note ${Math.random().toString(36).slice(2, 10)}` : "";
+      const fp = computeTaskFingerprint({ date, time, activity, notes });
+      expect(seen.has(fp)).toBe(false);
+      seen.add(fp);
+    }
+    expect(seen.size).toBe(2_000);
+  });
 });

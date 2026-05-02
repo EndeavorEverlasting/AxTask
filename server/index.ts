@@ -22,6 +22,7 @@ import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence
 import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
 import { startRetentionPruneTicker } from "./workers/retention-prune";
 import { captureDbSizeSnapshot } from "./workers/db-size-snapshot";
+import { startBackupSchedulerTicker } from "./workers/backup-scheduler";
 import { logBootConfigSummary } from "./boot-config-summary";
 import { getRegistrationConfig } from "./registration-config";
 
@@ -413,6 +414,13 @@ function warnIfInviteConfigBroken(): void {
         return runRetentionPrune(input);
       },
     });
+  }
+
+  // Backup scheduler worker: opt-in only. Set BACKUP_SCHEDULER_ENABLED=true
+  // to activate periodic local JSON backups. Interval defaults to 24h.
+  if (process.env.NODE_ENV !== "test" && process.env.BACKUP_SCHEDULER_ENABLED === "true") {
+    const intervalMs = Number(process.env.BACKUP_SCHEDULER_INTERVAL_MS) || 24 * 60 * 60 * 1000;
+    startBackupSchedulerTicker({ intervalMs });
   }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
