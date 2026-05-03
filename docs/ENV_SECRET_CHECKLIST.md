@@ -18,6 +18,20 @@ For only the required production secrets:
 npm run env:secrets:generate -- --required-only
 ```
 
+The generator is **idempotent by default**: any key that already has a non-empty value in `.env` (at the repo root) is skipped, so appending output to `.env` will not produce duplicate entries with conflicting values. A list of skipped keys is printed to stderr.
+
+To force regeneration of every supported key:
+
+```powershell
+npm run env:secrets:generate -- --overwrite
+```
+
+To target a different env file:
+
+```powershell
+npm run env:secrets:generate -- --env-file path/to/other.env
+```
+
 ## Required stable production secrets
 
 These must be stable across deploys and restarts.

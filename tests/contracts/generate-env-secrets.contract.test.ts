@@ -47,4 +47,16 @@ describe("generate-env-secrets provisioning contract", () => {
     expect(scriptSrc).toContain('process.env.CI === "true"');
     expect(scriptSrc).toContain("--allow-ci-output");
   });
+
+  it("is idempotent: skips keys already present in the target env file", () => {
+    expect(scriptSrc).toContain("loadExistingEnv");
+    expect(scriptSrc).toContain("existingEnv.has(key)");
+    expect(scriptSrc).toContain("--overwrite");
+    expect(scriptSrc).toContain("--env-file");
+    expect(scriptSrc).toContain("--no-skip-existing");
+  });
+
+  it("reports skipped keys to stderr so operators see what was preserved", () => {
+    expect(scriptSrc).toMatch(/process\.stderr\.write[\s\S]*Skipped/);
+  });
 });

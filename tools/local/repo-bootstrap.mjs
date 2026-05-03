@@ -33,18 +33,30 @@ function verifyNodeweaver() {
     console.error("[axtask:bootstrap] Run from AxTask repo root (package.json missing).");
     process.exit(1);
   }
-  if (!fs.existsSync(nwDockerfile)) {
-    if (truthyEnv(process.env.AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER)) {
-      console.log(
-        "[axtask:bootstrap] services/nodeweaver/upstream/Dockerfile not present — skipping check (AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER).",
-      );
-      return;
-    }
-    console.error(
-      "[axtask:bootstrap] Missing services/nodeweaver/upstream/Dockerfile. Restore the vendored NodeWeaver tree from git.",
+  if (fs.existsSync(nwDockerfile)) return;
+
+  if (truthyEnv(process.env.AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER)) {
+    console.log(
+      "[axtask:bootstrap] services/nodeweaver/upstream/Dockerfile not present — skipping check (AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER).",
     );
-    process.exit(1);
+    return;
   }
+
+  // upstream/ has no Dockerfile AND no Python project files: treat as intentionally
+  // unpopulated (see services/nodeweaver/README.md) and continue. AxTask runs without
+  // the local NodeWeaver classifier; Docker compose profile or external service still works.
+  const hasPythonProject = fs.existsSync(nwPyProject) || fs.existsSync(nwUvLock);
+  if (!hasPythonProject) {
+    console.warn(
+      "[axtask:bootstrap] services/nodeweaver/upstream/ is not vendored locally — continuing without the NodeWeaver classifier. See services/nodeweaver/README.md.",
+    );
+    return;
+  }
+
+  console.error(
+    "[axtask:bootstrap] Missing services/nodeweaver/upstream/Dockerfile (Python project files are present). Restore the vendored NodeWeaver tree from git or set AXTASK_BOOTSTRAP_ALLOW_MISSING_NODEWEAVER=1.",
+  );
+  process.exit(1);
 }
 
 function hasUv() {
