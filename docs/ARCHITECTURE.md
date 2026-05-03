@@ -1,46 +1,119 @@
-# AxTask System Architecture Documentation
+# AxTask — System Architecture
+
+> **AGENT NOTE:** Domain and deployment configuration are managed externally and must not be modified. Read `AGENT_GUARDRAILS.md` before making any changes to auth, deployment, config, or database-related code.
 
 ## Overview
 
-AxTask is built using modern web development practices with a focus on type safety, performance, and maintainability. This document provides technical details for developers maintaining and extending the intelligent task management system.
+AxTask is a stateless, full-stack task management platform deployed on Replit Autoscale (Google Cloud Run). All persistent state lives in PostgreSQL. The frontend is a React SPA served by the same Express process that handles the API, both on port 5000.
+
+---
 
 ## High-Level Architecture
 
 ```
+┌──────────────────────────────────────────────────────────────────┐
+│                       Browser (Client)                           │
+│  React 18 + TypeScript                                           │
+│  ├── shadcn/ui + Radix UI components                             │
+│  ├── Wouter (routing)                                            │
+│  ├── TanStack Query v5 (server state + caching)                  │
+│  ├── React Hook Form + Zod (forms)                               │
+│  ├── Framer Motion (animations)                                  │
+│  └── WebSocket client (real-time collaboration)                  │
+└──────────────────────────────────────────────────────────────────┘
+                              │ HTTPS / WSS
+                              │
+┌──────────────────────────────────────────────────────────────────┐
+│                   Express Server (Node.js)                       │
+│  ├── REST API (/api/*)                                           │
+│  ├── WebSocket server (collaboration)                            │
+│  ├── Auth routes (WorkOS / Google / Replit OIDC / Local)        │
+│  ├── Passport.js + express-session                               │
+│  ├── helmet (security headers, CSP, HSTS)                        │
+│  ├── express-rate-limit                                          │
+│  ├── Zod validation middleware                                   │
+│  ├── Priority Engine                                             │
+│  ├── Pattern Learning Engine                                     │
+│  ├── NodeWeaver feedback classifier (scaffolded)                 │
+│  └── Static file serving (dist/public in production)            │
+└──────────────────────────────────────────────────────────────────┘
+                              │ SQL
+                              │
+┌──────────────────────────────────────────────────────────────────┐
+│                  PostgreSQL (Replit Helium)                      │
+│  ├── users, tasks, sessions                                      │
+│  ├── task_attachments, task_recurrences                          │
+│  ├── collaboration_sessions, collaboration_participants          │
+│  ├── axcoins, achievements, streaks, reward_shop_items           │
+│  ├── forum_posts, forum_comments, forum_votes, forum_reports     │
+│  ├── feedback_surveys, feedback_classifications                  │
+│  ├── classification_disputes, classification_dispute_votes       │
+│  ├── category_review_triggers                                    │
+│  ├── security_audit_log                                          │
+│  └── (many more — see shared/schema.ts for canonical list)      │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Deployment Model
+
+| Property | Value |
+|----------|-------|
+| Platform | Replit Autoscale (Google Cloud Run) |
+| Primary domain | `axtask.app` (canonical; `server/index.ts` has stale `axtask.replit.app` — needs code update) |
+| Secondary domain | `axtask.dev` |
+| Exposed port | `5000` → external `80` |
+| Build output | `dist/index.js` (backend) + `dist/public/` (frontend) |
+| Build command | `npm run build` (Vite frontend + esbuild backend) |
+| Start command | `npm run start` |
+| Process model | Single Node.js process, stateless |
+| Persistence | 100% PostgreSQL — no in-memory or on-disk state |
+
+**The deployment configuration lives in `.replit` and is managed externally. Do not edit `.replit`, `vite.config.ts`, `server/vite.ts`, `drizzle.config.ts`, or the scripts in `package.json`.**
+
+---
+
+## Authentication Architecture
+
+AxTask implements a **four-tier authentication cascade**. The active provider is determined at startup by the `AUTH_PROVIDER` environment variable, falling back to automatic detection from available credentials.
+
+```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Browser (Client)                            │
-├─────────────────────────────────────────────────────────────────┤
-│  React App (TypeScript)                                        │
-│  ├── Components (shadcn/ui + custom)                           │
-│  ├── Pages (wouter routing)                                    │
-│  ├── State Management (TanStack Query)                         │
-│  └── Business Logic (Priority Engine client-side)             │
-└─────────────────────────────────────────────────────────────────┘
-                                   │
-                                   │ HTTPS/JSON API
-                                   │
-┌─────────────────────────────────────────────────────────────────┐
-│                   Express Server (Node.js)                     │
-├─────────────────────────────────────────────────────────────────┤
-│  API Layer                                                     │
-│  ├── RESTful Routes (/api/tasks/*)                            │
-│  ├── Request Validation (Zod schemas)                         │
-│  ├── Priority Engine (server-side processing)                 │
-│  └── Error Handling & Logging                                 │
-└─────────────────────────────────────────────────────────────────┘
-                                   │
-                                   │ SQL Queries
-                                   │
-┌─────────────────────────────────────────────────────────────────┐
-│                 PostgreSQL Database                            │
-├─────────────────────────────────────────────────────────────────┤
-│  Data Layer                                                    │
-│  ├── Tasks Table (primary data)                               │
-│  ├── Session Store (user sessions)                            │
-│  ├── Indexes (performance optimization)                       │
-│  └── Connection Pool (managed by Drizzle)                     │
+│               Auth Provider Selection at Startup                │
+│                                                                 │
+│  AUTH_PROVIDER=workos → WorkOS AuthKit (Tier 1)                │
+│  AUTH_PROVIDER=google → Google OAuth 2.0 (Tier 2)             │
+│  AUTH_PROVIDER=replit → Replit OIDC (Tier 3)                  │
+│  AUTH_PROVIDER=local  → Local email/password (Tier 4)         │
+│                                                                 │
+│  Auto-detect (no AUTH_PROVIDER set):                           │
+│    WORKOS_API_KEY + WORKOS_CLIENT_ID present → WorkOS          │
+│    GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET present → Google    │
+│    REPL_ID present → Replit OIDC                               │
+│    Otherwise → Local                                           │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+All available providers register routes at startup — the cascade allows multiple providers to coexist. OAuth security controls vary by provider: only Replit OIDC validates the CSRF state token and uses PKCE; WorkOS and Google generate state tokens but do not validate them in callbacks (a known gap). Key files:
+
+- `server/auth-providers.ts` — all OAuth/OIDC route handlers
+- `server/auth.ts` — Passport.js strategy and session serialisation
+- `server/storage.ts` — `findOrCreateOAuthUser`, `isUserBanned`, `logSecurityEvent`
+
+### OAuth Security Controls
+- PKCE (S256) on Replit OIDC flows
+- Random state token (CSRF protection) on all OAuth flows
+- Redirect URI bound to session and verified on callback
+- Ban check on every successful OAuth callback
+
+### MFA / TOTP
+- TOTP-based two-factor authentication via `otpauth`
+- Secrets encrypted at rest using AES-256-GCM
+- QR code enrolment via `qrcode`
+- Required for destructive Danger Zone operations
+
+---
 
 ## Frontend Architecture
 
@@ -48,295 +121,204 @@ AxTask is built using modern web development practices with a focus on type safe
 
 ```
 App (Root)
-├── ThemeProvider (dark/light mode)
-├── QueryClient Provider (React Query)
-├── Router (wouter)
-│   ├── Dashboard Page
-│   │   ├── TaskForm Component
-│   │   └── TaskList Component (truncated)
-│   ├── Tasks Page
-│   │   └── TaskList Component (full view)
-│   ├── Analytics Page
-│   │   └── Chart Components
-│   └── Import/Export Page
-│       ├── FileUpload Component
-│       ├── ProgressIndicator Component
-│       └── CostMonitoring Component
+├── ThemeProvider (dark/light mode + localStorage sync)
+├── QueryClientProvider (TanStack Query)
+└── Router (Wouter)
+    ├── / (Dashboard)
+    │   ├── QuickEntryBar
+    │   ├── TaskList
+    │   └── VoiceOverlay
+    ├── /tasks (Full task list)
+    ├── /calendar (Calendar views)
+    ├── /analytics (Analytics Dashboard)
+    ├── /import-export (Import/Export + OCR)
+    ├── /planner (AI Planner Agent)
+    ├── /rewards (AxCoin Rewards Shop)
+    ├── /community (Community Forum feed)
+    ├── /community/:id (Forum post detail)
+    ├── /admin (Security Admin UI)
+    └── /tutorial (Interactive Tutorial)
 ```
 
-### State Management Strategy
+### State Management
+- **Server state**: TanStack Query with array query keys for hierarchical cache invalidation
+- **Form state**: React Hook Form with Zod resolver
+- **Local UI state**: React useState
+- **Global**: Context providers for theme and toast notifications
 
-- **Server State**: TanStack Query handles all API data
-  - Automatic caching with intelligent invalidation
-  - Background refetching for data freshness
-  - Optimistic updates for better UX
-  - Query keys use array format for hierarchical invalidation
+### Data Flow
+1. User action → component event handler
+2. Form validation → Zod schema (client-side)
+3. API mutation → `apiRequest` from `@lib/queryClient`
+4. Cache invalidation → `queryClient.invalidateQueries`
+5. UI update → TanStack Query re-render
 
-- **Client State**: React useState for UI-specific state
-  - Form state managed by react-hook-form
-  - Modal open/close states
-  - Filter and search parameters
-  - Import progress tracking
-
-- **Global State**: Context providers for:
-  - Theme preference (light/dark)
-  - Toast notifications
-  - Query client configuration
-
-### Data Flow Patterns
-
-1. **User Action** → Component event handler
-2. **Form Validation** → Zod schema validation (client-side)
-3. **API Request** → TanStack Query mutation
-4. **Server Processing** → Priority calculation + database storage
-5. **Response Handling** → Cache invalidation + UI updates
-6. **Error Handling** → Toast notifications + form error display
+---
 
 ## Backend Architecture
 
-### API Design Principles
-
-- **RESTful Design**: Standard HTTP methods with semantic URLs
-- **Input Validation**: Double validation (client + server) using Zod
-- **Error Handling**: Consistent error response format
-- **Type Safety**: TypeScript throughout with shared schemas
-- **Performance**: Efficient database queries with proper indexing
-
-### Request/Response Flow
+### Request/Response Pipeline
 
 ```
-HTTP Request
+HTTP/WS Request
     ↓
-Express Middleware Stack
-    ├── CORS handling
-    ├── JSON body parsing
-    ├── Session management
-    └── Request logging
+helmet (security headers)
     ↓
-Route Handler
-    ├── Input validation (Zod)
-    ├── Business logic processing
-    ├── Database operations (Drizzle)
-    └── Response formatting
+express-rate-limit
     ↓
-HTTP Response (JSON)
+express-session (PostgreSQL-backed)
+    ↓
+passport.initialize / passport.session
+    ↓
+JSON body parser / multer (file uploads)
+    ↓
+Route handlers (server/routes.ts)
+    ├── Auth check (requireAuth middleware)
+    ├── Zod input validation
+    ├── Storage layer (server/storage.ts)
+    └── Response (JSON)
+    ↓
+Error handler middleware
 ```
 
-### Database Layer
+### Key Server Files
 
-**ORM Strategy**: Drizzle ORM chosen for:
-- Type safety with automatic TypeScript generation
-- Performance comparable to raw SQL
-- Schema-first development approach
-- Minimal runtime overhead
+| File | Responsibility |
+|------|---------------|
+| `server/index.ts` | App bootstrap, middleware registration, health check |
+| `server/routes.ts` | All API route definitions |
+| `server/auth.ts` | Passport.js strategy + session serialisation |
+| `server/auth-providers.ts` | OAuth/OIDC route handlers for all four providers |
+| `server/storage.ts` | Database abstraction layer (IStorage interface) |
+| `server/db.ts` | Drizzle ORM + PostgreSQL connection pool |
+| `server/engines/priority-engine.ts` | Task scoring algorithm |
+| `server/engines/pattern-engine.ts` | RAG-style pattern learning |
+| `server/engines/nodeweaver-engine.ts` | Feedback classification (scaffolded) |
+| `server/collaboration.ts` | WebSocket real-time collaboration server |
+| `shared/schema.ts` | Drizzle table definitions + Zod insert schemas (single source of truth) |
 
-**Connection Management**:
-- Connection pooling via @neondatabase/serverless
-- WebSocket connections for serverless compatibility
-- Automatic connection cleanup and error recovery
+---
 
-## Priority Engine Algorithm
-
-### Core Logic Flow
+## Priority Engine
 
 ```
-Task Input (activity, notes, urgency, impact, effort)
+Task Input (activity, notes, urgency, impact, effort, deadline)
     ↓
-Text Analysis Pipeline
-    ├── Keyword Detection (weighted scoring)
-    ├── Tag Pattern Matching (@urgent, #blocker, etc.)
-    ├── Time Sensitivity Analysis (deadline detection)
-    ├── Problem Indicator Detection (bug, error, issue)
-    └── Content Classification (development, meeting, admin, etc.)
+Text Analysis
+    ├── Keyword detection (weighted scoring, +0.5 to +3.0)
+    ├── Tag pattern matching (@urgent, #blocker, !important)
+    ├── Deadline proximity analysis (time urgency bonus)
+    ├── Problem indicator detection (bug, error, crisis)
+    └── Content classification (Development, Meeting, Admin, etc.)
     ↓
-Priority Calculation
-    ├── Base Score = (Urgency × Impact) / Effort
-    ├── Keyword Bonuses (+0.5 to +3.0 points)
-    ├── Tag Multipliers (1.2x to 2.0x)
-    ├── Time Urgency Bonus (up to +2.0 points)
-    └── Problem Severity Bonus (up to +1.5 points)
+Priority Score = (Urgency × Impact) / Effort + bonuses
     ↓
-Similarity Check (prevent duplicates)
-    ├── Jaccard Index calculation
-    ├── Token-based comparison
-    └── Duplicate flagging (threshold: 0.7)
+Jaccard similarity check (duplicate detection, threshold 0.7)
     ↓
-Final Priority Assignment
-    ├── Score → Priority Level mapping
-    ├── Classification assignment
-    └── Database storage
+Priority Level assignment:
+    Highest ≥ 8.0 | High ≥ 6.0 | Medium-High ≥ 4.0 | Medium ≥ 2.0 | Low < 2.0
 ```
 
-### Scoring Thresholds
+---
 
-```javascript
-const PRIORITY_THRESHOLDS = {
-  HIGHEST: 8.0,  // Critical, urgent tasks
-  HIGH: 6.0,     // Important tasks
-  MEDIUM_HIGH: 4.0, // Moderate priority
-  MEDIUM: 2.0,   // Standard tasks
-  LOW: 0.0       // Nice-to-have
-};
-```
+## Real-Time Collaboration (WebSocket)
+
+- WebSocket server on the same port as Express (HTTP upgrade)
+- `server/collaboration.ts` manages rooms, participants, and event broadcasting
+- Presence indicators show active collaborators per task
+- Role-based permissions (owner, editor, viewer) enforced server-side
+- All collaboration state persisted to `collaboration_sessions` and `collaboration_participants` tables
+
+---
+
+## Voice Input Pipeline
+
+1. **Trigger**: User presses Ctrl+M or taps the microphone button
+2. **Capture**: Browser Web Speech API (`SpeechRecognition`)
+3. **Mobile**: Full-screen immersive overlay with animated waveforms
+4. **Intent Classification**: Transcript sent to `/api/voice/classify`
+5. **Routing**: Server routes intent to task creation, planner query, or review engine
+6. **Response**: Branded result card displayed to user
+
+---
+
+## AxCoin Economy
+
+| Action | Coins |
+|--------|-------|
+| Complete a task | +5 |
+| On-time completion | +2 bonus |
+| Daily streak | +1 per day |
+| Forum post | +5 |
+| Forum comment | +2 |
+| Receiving upvote | +1 |
+| Classify feedback (NodeWeaver) | +3 |
+
+**Sinks** (ways to spend coins): Streak Shield, Priority Boost, Task Bounties, Coin Gifting, Rewards Shop items.
+
+Coin state is stored in `axcoins` table. All coin mutations go through the storage layer with atomic transactions.
+
+---
+
+## NodeWeaver Feedback Classifier (Scaffolded)
+
+Engine at `server/engines/nodeweaver-engine.ts`. Processes survey responses and task reactions, classifying them as: bugs, user errors, feature requests, praise, complaints, or noise.
+
+- `@nodeweaver-hook` placeholders mark integration points for: classification logic, enrichment, batch reprocessing, digest generation, trend detection, resolution suggestions
+- DB tables: `feedback_classifications`, `classification_disputes`, `classification_dispute_votes`, `category_review_triggers`
+- Dispute system: users challenge auto-classifications; consensus (≥5 disputes, ≥70% agreement) escalates to `review_needed`
+- API: `/api/feedback/*`
+
+---
 
 ## Database Schema Design
 
-### Tasks Table Structure
+The canonical schema is in `shared/schema.ts`. Drizzle ORM handles type-safe queries and migrations via `drizzle-kit push`.
 
-```sql
-CREATE TABLE tasks (
-  id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
-  date DATE NOT NULL,
-  activity TEXT NOT NULL,
-  notes TEXT,
-  urgency INTEGER CHECK (urgency >= 1 AND urgency <= 5),
-  impact INTEGER CHECK (impact >= 1 AND impact <= 5),
-  effort INTEGER CHECK (effort >= 1 AND effort <= 5),
-  prerequisites TEXT,
-  status VARCHAR DEFAULT 'pending' 
-    CHECK (status IN ('pending', 'in-progress', 'completed')),
-  priority VARCHAR DEFAULT 'Low'
-    CHECK (priority IN ('Lowest', 'Low', 'Medium', 'Medium-High', 'High', 'Highest')),
-  priority_score INTEGER DEFAULT 0,
-  classification VARCHAR DEFAULT 'General'
-    CHECK (classification IN ('Development', 'Meeting', 'Administrative', 'Bug Fix', 'Research', 'General')),
-  is_repeated BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
+**Never drop tables or run destructive migrations without explicit user instruction.**
 
--- Performance indexes
-CREATE INDEX idx_tasks_date ON tasks(date);
-CREATE INDEX idx_tasks_priority ON tasks(priority);
-CREATE INDEX idx_tasks_status ON tasks(status);
-CREATE INDEX idx_tasks_classification ON tasks(classification);
-CREATE INDEX idx_tasks_priority_score ON tasks(priority_score DESC);
-```
+---
 
-### Data Validation Rules
+## Performance Characteristics
 
-- **Required Fields**: id, date, activity
-- **Optional Fields**: All others with sensible defaults
-- **Constraints**: Check constraints for enum values and ranges
-- **Relationships**: Currently single-table design for simplicity
+- Average REST response: <200 ms for CRUD operations
+- Priority calculation: <150 ms per task
+- Bulk import: ~50 ms per task with throttling
+- File processing: streamed (no disk persistence)
+- Connection pooling via Drizzle + `@neondatabase/serverless` driver
 
-## Performance Optimizations
-
-### Frontend Optimizations
-
-1. **Code Splitting**: Lazy loading of route components
-2. **Query Optimization**: Specific query keys for targeted cache invalidation
-3. **Virtual Scrolling**: For large task lists (future enhancement)
-4. **Image Assets**: SVG icons for scalability and performance
-5. **Bundle Size**: Tree shaking and dependency optimization
-
-### Backend Optimizations
-
-1. **Database Queries**: 
-   - Indexed columns for fast filtering and sorting
-   - Specific SELECT statements to avoid N+1 queries
-   - Connection pooling for reduced connection overhead
-
-2. **API Response Times**:
-   - Average response time: <200ms for CRUD operations
-   - Priority calculation: <150ms per task
-   - Bulk import: ~50ms per task with throttling
-
-3. **Memory Management**:
-   - Streaming file processing for large imports
-   - Garbage collection optimization
-   - Connection cleanup and resource management
-
-## Security Architecture
-
-### Input Validation
-- **Client-side**: React Hook Form with Zod validation
-- **Server-side**: Express middleware with Zod schema validation
-- **Database**: SQL injection prevention via parameterized queries
-
-### Data Protection
-- **Environment Variables**: Sensitive data in .env files
-- **Session Management**: PostgreSQL-backed sessions
-- **CORS Configuration**: Restricted to allowed origins
-- **SQL Injection**: Prevention via Drizzle ORM parameterized queries
-
-### Error Handling
-- **Client Errors**: User-friendly messages with technical details in console
-- **Server Errors**: Logged with request context, sanitized responses
-- **Database Errors**: Connection retry logic with graceful degradation
-
-## Deployment Architecture
-
-### Development Environment
-```
-Developer Machine
-├── Node.js 18+ (local runtime)
-├── PostgreSQL (local or remote)
-├── Vite Dev Server (frontend)
-├── tsx (TypeScript execution)
-└── Hot Module Replacement
-```
-
-### Production Environment
-```
-Production Server
-├── Built Static Files (served by Express)
-├── Bundled Server Code (single JavaScript file)
-├── PostgreSQL Database (persistent storage)
-├── Environment Variables (configuration)
-└── Process Management (PM2 or similar)
-```
-
-### Build Process
-1. **Frontend**: `vite build` → static files in `dist/public`
-2. **Backend**: `esbuild` → single bundled file in `dist/index.js`
-3. **Database**: `drizzle-kit push` → schema synchronization
-4. **Assets**: Static file optimization and compression
-
-## Monitoring and Observability
-
-### Logging Strategy
-- **Request Logging**: All API requests with timing
-- **Error Logging**: Structured error information
-- **Performance Metrics**: Import/export timing and success rates
-- **User Actions**: Critical user interactions for debugging
-
-### Health Checks
-- **Database Connectivity**: Connection pool status
-- **API Endpoint Availability**: Basic health endpoint
-- **Resource Usage**: Memory and CPU monitoring (external)
+---
 
 ## Development Guidelines
 
-### Code Organization
+### Code Organisation
 ```
-├── client/src/
-│   ├── components/     # Reusable UI components
-│   │   ├── ui/        # shadcn/ui base components
-│   │   └── custom/    # Application-specific components
-│   ├── pages/         # Route-level components
-│   ├── lib/           # Utilities and business logic
-│   ├── hooks/         # Custom React hooks
-│   └── types/         # TypeScript type definitions
-├── server/
-│   ├── routes.ts      # API endpoint definitions
-│   ├── storage.ts     # Database abstraction
-│   ├── db.ts          # Database connection
-│   └── utils/         # Server-side utilities
-├── shared/
-│   └── schema.ts      # Shared types and validation
-└── docs/              # Documentation
+client/src/
+├── components/ui/     # shadcn/ui base components (do not customise directly)
+├── components/        # Application-specific components
+├── pages/             # Route-level page components
+├── hooks/             # Custom React hooks
+├── lib/               # Utilities (queryClient, utils)
+└── assets/            # Static assets
+
+server/
+├── index.ts           # Bootstrap
+├── routes.ts          # API routes
+├── auth.ts            # Passport strategy
+├── auth-providers.ts  # OAuth/OIDC handlers
+├── storage.ts         # DB abstraction
+├── db.ts              # Connection pool
+├── collaboration.ts   # WebSocket
+└── engines/           # Business logic engines
+
+shared/
+└── schema.ts          # Types, Drizzle tables, Zod schemas
 ```
 
-### Testing Strategy (Future Implementation)
-- **Unit Tests**: Priority engine logic and utility functions
-- **Integration Tests**: API endpoints with test database
-- **E2E Tests**: Critical user flows with Playwright
-- **Performance Tests**: Import/export with large datasets
+### Import Conventions
+- `@/` → `client/src/`
+- `@shared/` → `shared/`
+- `@assets/` → `attached_assets/`
 
-### Version Control
-- **Branch Strategy**: Feature branches with PR reviews
-- **Commit Convention**: Conventional commits for changelog generation
-- **Release Process**: Semantic versioning with automated builds
-
-This architecture supports the current feature set while providing a foundation for future enhancements including multi-user support, advanced analytics, and mobile applications.
+### Forbidden Modifications (see AGENT_GUARDRAILS.md)
+- `.replit`, `vite.config.ts`, `server/vite.ts`, `drizzle.config.ts`, `package.json` scripts

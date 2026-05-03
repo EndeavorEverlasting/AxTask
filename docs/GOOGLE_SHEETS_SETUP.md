@@ -94,7 +94,8 @@ Team lead sets up shared project, distributes credentials securely:
      - Select "HTTP referrers (web sites)"
      - Add your domain(s):
        - `https://your-app-domain.com/*`
-       - `https://*.replit.app/*` (for Replit deployment)
+       - `https://axtask.app/*`
+       - `https://axtask.dev/*`
        - `http://localhost:*` (for development only)
    - **Additional Security Measures**:
      - Set quota limits (recommended: 100 requests/minute)
@@ -133,21 +134,16 @@ Team lead sets up shared project, distributes credentials securely:
    3. Two sections will appear with "**ADD URI**" buttons:
 
       **Authorized JavaScript origins** → click **ADD URI** and enter:
-      - `https://<your-repl-subdomain>.replit.dev`
+      - `https://axtask.app`
+      - `https://axtask.dev`
       - *(optional local)* `http://localhost:5000` (for development)
 
       **Authorized redirect URIs** → click **ADD URI** and enter:
-      - `https://<your-repl-subdomain>.replit.dev/auth/callback`
-      - *(optional local)* `http://localhost:5000/auth/callback` (for development)
+      - `https://axtask.app/api/auth/google/callback`
+      - `https://axtask.dev/api/auth/google/callback`
+      - *(optional local)* `http://localhost:5000/api/auth/google/callback` (for development)
 
    4. Click **Create** → copy the **Client ID** and **Client Secret**
-
-   **🔍 How to Find Your Replit Subdomain:**
-   - Open your Replit workspace
-   - Click the "Run" button or open the preview
-   - Look at the URL in the preview window: `https://your-project-name--username.replit.dev`
-   - Your subdomain is: `your-project-name--username`
-   - Use this in the OAuth configuration above
 
    **💡 Troubleshooting:**
    - If you don't see the "ADD URI" areas after choosing **Web application**, try scrolling down - on some displays they appear below the fold
@@ -186,15 +182,9 @@ For Replit deployment:
 ```
 GOOGLE_CLIENT_ID=...from console...
 GOOGLE_CLIENT_SECRET=...from console...
-GOOGLE_REDIRECT_URI=https://<your-repl-subdomain>.replit.dev/auth/callback
+GOOGLE_REDIRECT_URI=https://axtask.app/api/auth/google/callback
 GOOGLE_SCOPES=https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file
 SESSION_SECRET=...random string...
-```
-
-**Example with actual Replit domain:**
-If your preview URL is `https://axtask--johndoe.replit.dev`, then use:
-```
-GOOGLE_REDIRECT_URI=https://axtask--johndoe.replit.dev/auth/callback
 ```
 
 **Additional Security Configuration:**

@@ -1,13 +1,27 @@
 
-# Priority Engine Task Management System
+# AxTask — Priority Engine Task Management System
 
-**Version:** 1.1.0 (Google Sheets Integration)  
-**Status:** Production Ready  
-**Last Updated:** July 30, 2025
+**Version:** 1.2.0 (see `VERSION.md` for changelog)  
+**Status:** Production (Live at [axtask.app](https://axtask.app) and [axtask.dev](https://axtask.dev))  
+**Last Updated:** May 2026
+
+---
+
+> ### ⚠️ AGENT / DEVELOPER GUARDRAILS
+>
+> Before making any change to this repository, read **`AGENT_GUARDRAILS.md`** and the **`## AGENT GUARDRAILS — READ FIRST`** section in `replit.md`.
+>
+> **Forbidden files — never edit without explicit user approval:**
+> `.replit` · `vite.config.ts` · `server/vite.ts` · `drizzle.config.ts` · `package.json` (scripts)
+>
+> **Protected domains — managed externally, never reconfigure:**
+> `axtask.app` · `axtask.dev`
+
+---
 
 ## Overview
 
-A full-stack task management application with an intelligent priority scoring engine that automatically calculates task priorities based on content analysis. Features seamless Google Sheets integration for import/export workflows.
+AxTask is a full-stack intelligent task management application with a sophisticated priority scoring engine that automatically ranks tasks based on content analysis, keywords, tags, deadlines, and effort. It is designed for teams and individuals who need a structured, data-driven approach to productivity.
 
 ## Quick Start
 
@@ -19,120 +33,130 @@ npm run dev
 
 Visit `http://localhost:5000` to access the application.
 
-## Key Features
+## Current Feature Set
 
-- **🎯 Intelligent Priority Engine**: Automatic priority scoring based on keywords, tags, and content analysis
-- **📊 Google Sheets Integration**: Real-time API sync with comprehensive setup guide
-- **📈 Analytics Dashboard**: Visual insights and task metrics
-- **📁 Import/Export**: CSV and Excel file support with format conversion
-- **💰 Cost Monitoring**: Real-time processing cost and time estimation
-- **📱 Mobile Responsive**: Full mobile device compatibility
+### Core Task Management
+- **Intelligent Priority Engine** — Automatic scoring using urgency × impact ÷ effort, keyword/tag bonuses, deadline proximity, and crisis detection
+- **Calendar Views** — Interactive task scheduling with drag-and-drop rescheduling
+- **Task Recurrence** — Configurable recurrence schedules (daily, weekly, custom day/date patterns)
+- **Task Attachments** — Image uploads (JPEG/PNG/GIF/WebP, 5 MB limit, 3 per task) with drag-drop, thumbnails, and lightbox
+- **Rich Content Editor** — Markdown content editor per task
+
+### Import / Export
+- **Excel & CSV Import** — Bulk import with server-side batch processing and progress tracking
+- **Export** — Export tasks to Excel/CSV
+- **Print Checklist** — Generates printable PDF task checklists
+- **OCR Scanning** — Scan printed checklists back in with Tesseract.js OCR
+- **Data Migration Toolkit** — Full database export/import with referential integrity validation
+
+### AI & Intelligence
+- **AI Planner Agent** — Daily briefings, recommended tasks, weekly mini-calendars, and conversational Q&A
+- **Pattern Learning Engine** — RAG-style intelligence that learns from task history to suggest topics, recurring tasks, and deadlines
+- **Voice Input** — Browser-native Web Speech API for task dictation
+- **Universal Voice Command System** — Global Ctrl+M hotkey with intent classification (create task, query planner, etc.)
+- **Immersive Mobile Voice Overlay** — Full-screen mobile voice experience with animated waveforms
+
+### Collaboration
+- **Real-time Collaboration** — Google Drive-style collaborative task editing via WebSocket with live presence indicators and role-based permissions
+- **Task Review Engine** — Voice/text-driven bulk task management with natural language parsing
+
+### Gamification — AxCoin Economy
+- **AxCoins** — Earned by completing tasks, streaks, achievements, and classifications
+- **On-time Bonuses & Streaks** — Streak tracking with Streak Shield consumables
+- **Rewards Shop** — Priority Boost, Task Bounties, Coin Gifting, and more
+- **Achievements** — Unlockable badges tied to task behaviour
+
+### Analytics & Insights
+- **Analytics Dashboard** — Visual charts for task distribution, priority trends, completion rates, and classification breakdowns
+- **Interactive Feedback System** — Micro-surveys (thumbs/radio/text) with contextual triggers and AxCoin rewards
+
+### Community
+- **Community Forum** — Social feed with posts (markdown), categories, upvotes/downvotes, emoji reactions, threaded comments, pagination, and moderation tools
+
+### Accessibility & UX
+- **Mobile Responsive** — Full mobile device compatibility
+- **Dark Mode** — System-aware with manual toggle
+- **Keyboard Navigation** — Full keyboard support including Ctrl+Space+N for new tasks
+- **UI Scale Control** — Adjustable interface scale
+- **Interactive Tutorial** — Guided walkthrough with universal glow system
+- **Proactive Field Glow Warnings** — Visual cues for empty required fields
+
+### Administration
+- **Security Admin UI** — User management, account banning, and audit log viewer
+- **NodeWeaver Integration (Scaffolded)** — Feedback classification pipeline for bugs, feature requests, and noise detection with dispute/voting system
 
 ## Technology Stack
 
-- **Frontend**: React 18 + TypeScript + TailwindCSS + shadcn/ui
-- **Backend**: Node.js + Express + TypeScript + Drizzle ORM
-- **Database**: PostgreSQL (Neon serverless)
-- **State Management**: TanStack Query
-- **Build Tools**: Vite + esbuild
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18 + TypeScript + shadcn/ui + Tailwind CSS |
+| Routing | Wouter |
+| State | TanStack Query v5 |
+| Forms | React Hook Form + Zod |
+| Animations | Framer Motion |
+| Backend | Node.js + Express.js (TypeScript, ES modules) |
+| Database | PostgreSQL (Replit Helium) via Drizzle ORM |
+| Sessions | connect-pg-simple (PostgreSQL-backed) |
+| Auth | Passport.js + WorkOS + Google OAuth + Replit OIDC + bcrypt |
+| MFA | otpauth (TOTP) + AES-256-GCM encryption |
+| Security | helmet, express-rate-limit, bcrypt |
+| File Processing | Papa Parse, xlsx, pdfkit, multer, sharp, Tesseract.js |
+| Real-time | WebSocket (ws) |
+| Build | Vite (frontend) + esbuild (backend) |
 
-## Architecture
+## Authentication Providers
+
+AxTask uses a four-tier authentication cascade:
 
 ```
-React Client ↔ Express API ↔ PostgreSQL Database
-     ↓              ↓              ↓
-- Task Forms    - Priority      - Task Storage
-- Analytics     - Engine        - Session Data
-- Import/Export - Validation    - Indexes
+Tier 1: WorkOS AuthKit       (enterprise SSO)
+Tier 2: Google OAuth 2.0     (consumer Google accounts)
+Tier 3: Replit OIDC          (Google/GitHub/Apple via Replit identity)
+Tier 4: Local email/password (Passport.js + bcrypt — always available)
 ```
 
-## Priority Engine
+The active provider is selected at runtime via the `AUTH_PROVIDER` environment variable. MFA (TOTP) is available for all local accounts with secrets encrypted at rest.
 
-The core algorithm calculates priorities using:
+## Architecture Summary
 
-- **Base Score**: Urgency × Impact ÷ Effort
-- **Keyword Bonuses**: Context-aware term detection (+0.5 to +3.0 points)
-- **Tag Detection**: @urgent, #blocker, !important patterns
-- **Time Sensitivity**: Deadline proximity analysis
-- **Problem Indicators**: Bug/error/issue detection
-- **Similarity Check**: Jaccard algorithm to prevent duplicates
-
-**Priority Levels**: Highest (8+) → High (6-7) → Medium-High (4-5) → Medium (2-3) → Low (<2)
-
-## Google Sheets Setup
-
-Complete setup guide available in [`docs/GOOGLE_SHEETS_SETUP.md`](docs/GOOGLE_SHEETS_SETUP.md)
-
-Required environment variables:
-```env
-GOOGLE_SHEETS_API_KEY=AIza...
-GOOGLE_CLIENT_ID=123456789-abc...
-GOOGLE_CLIENT_SECRET=GOCSPX-...
+```
+React Client ↔ Express API ↔ PostgreSQL (Replit Helium)
+      ↓              ↓              ↓
+  shadcn/ui      REST + WS     Drizzle ORM
+  TanStack Q     Passport.js   connect-pg-simple
+  Wouter         helmet/rl     Sessions + Users
 ```
 
-## Development
-
-### Scripts
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run db:push` - Sync database schema
-
-### File Structure
-```
-├── client/          # React frontend
-├── server/          # Express backend  
-├── shared/          # Shared types/schemas
-├── docs/            # Documentation
-└── dist/            # Built application
-```
-
-## Documentation
-
-- **[Architecture Guide](docs/ARCHITECTURE.md)** - Technical architecture details
-- **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
-- **[Security Guidelines](docs/SECURITY.md)** - Security best practices
-- **[Version History](VERSION.md)** - Release notes and changelog
-
-## Features in Detail
-
-### Task Management
-- Create/edit/delete tasks with rich forms
-- Automatic priority calculation and classification
-- Status tracking (pending, in-progress, completed)
-- Search and advanced filtering options
-
-### Analytics
-- Task distribution charts
-- Priority trend analysis
-- Classification breakdowns
-- Performance metrics
-
-### Import/Export
-- CSV and Excel file support (.csv, .xlsx, .xls)
-- Google Sheets format compatibility
-- Batch processing with progress tracking
-- Cost estimation for large imports
-
-## Security
-
-- Input validation with Zod schemas
-- SQL injection protection via parameterized queries
-- Environment-based configuration
-- Session management with PostgreSQL storage
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full architecture description.
 
 ## Deployment
 
-Built for Replit deployment with:
-- Single port configuration (5000)
-- Static file serving via Express
-- Environment variable management
-- PostgreSQL database integration
+Deployed on **Replit Autoscale** (Google Cloud Run):
+- **Primary domain**: `axtask.app`
+- **Secondary domain**: `axtask.dev`
+- Single port: `5000` → external `80`
+- Build: `npm run build` → `dist/index.js` + `dist/public/`
+- Stateless — all state in PostgreSQL
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [`AGENT_GUARDRAILS.md`](AGENT_GUARDRAILS.md) | Hard rules for agents and developers |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Full technical architecture |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Security posture and controls |
+| [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Release notes |
+| [`replit.md`](replit.md) | Live system reference (agents read this) |
+
+## Development Scripts
+
+```bash
+npm run dev        # Start development server (frontend + backend)
+npm run build      # Build for production
+npm run start      # Start production server
+npm run db:push    # Sync database schema
+```
 
 ## License
 
-MIT License - see LICENSE file for details
-
----
-
-**Need help?** Check the [documentation](docs/) or review the [architecture guide](docs/ARCHITECTURE.md) for technical details.
+MIT License — see LICENSE file for details.

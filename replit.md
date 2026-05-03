@@ -6,6 +6,38 @@ AxTask is a full-stack intelligent task management application that automates ta
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
+---
+
+## AGENT GUARDRAILS — READ FIRST
+
+> Any agent or automated tool working on this codebase must read and respect these rules before making any changes. The full detail is in `AGENT_GUARDRAILS.md` at the project root.
+
+### Production Domains (managed externally — never reconfigure)
+- **`axtask.app`** — primary production domain
+- **`axtask.dev`** — secondary production domain
+
+Do not add, remove, or modify any domain references in `.replit`, deployment config, or environment variables related to these domains.
+
+### Forbidden Files (never edit without explicit user approval)
+| File | Why |
+|------|-----|
+| `.replit` | Deployment target, port mapping, workflow definitions |
+| `vite.config.ts` | Frontend build config — already correct, do not touch |
+| `server/vite.ts` | Dev server integration — already correct, do not touch |
+| `drizzle.config.ts` | ORM/migration config pointing at the live production database |
+| `package.json` scripts | Tuned for Replit Autoscale — changing them breaks CI/CD |
+
+### Authentication System (working in production — do not restructure)
+Four-tier cascade: **WorkOS AuthKit → Google OAuth 2.0 → Replit OIDC → Local Passport.js**. The cascade is live and fully functional. Do not reorganise, remove, or rename any tier. Key files: `server/auth-providers.ts`, `server/auth.ts`.
+
+### Deployment (live on Replit Autoscale — do not reconfigure)
+Build: `npm run build` → Start: `npm run start` → Single port: `5000`. The deployment is live. Do not change the deployment target, build command, start command, or port configuration.
+
+### Database (live production data — additive changes only)
+Never run `DROP TABLE`, `TRUNCATE`, or destructive `ALTER TABLE` without explicit written user confirmation. Never delete or reset `DATABASE_URL`. Always prefer additive migrations.
+
+---
+
 ## System Architecture
 
 ### UI/UX Decisions
@@ -64,12 +96,12 @@ Users frequently encounter 403 or `auth_failed` redirects when attempting Google
 #### Resolution Steps for Development
 1. **Check current preview URL**: Look at the browser address bar or the Replit preview pane URL.
 2. **Add to Google Cloud Console**: Go to Google Cloud Console → APIs & Credentials → OAuth 2.0 Client → Edit → Add `https://<current-preview-url>/api/auth/google/callback` to Authorized redirect URIs.
-3. **Use wildcard-friendly alternatives**: Consider adding multiple known Replit URL patterns, or use the Replit deployment URL (which is stable) for testing OAuth.
+3. **Use a stable domain for testing**: Register the production domains `https://axtask.app` and `https://axtask.dev` in Google Cloud Console. These are stable and do not change between deployments.
 4. **Dev account fallback**: For local testing without Google OAuth, use the ephemeral dev accounts printed at server startup (e.g., `dev@axtask.local` / rotated password). These use the local email/password strategy and bypass OAuth entirely.
 
 #### Resolution Steps for Production Deployment
-1. **Use a stable domain**: The deployed app URL (e.g., `https://axtask.replit.app`) is stable and should be the primary redirect URI registered in Google Cloud Console.
-2. **Register both**: Register both `https://<deploy-domain>/api/auth/google/callback` AND any custom domain callbacks.
+1. **Use a stable domain**: The production domains `https://axtask.app` and `https://axtask.dev` are stable and should be the primary redirect URIs registered in Google Cloud Console.
+2. **Register both domains**: Register both `https://axtask.app/api/auth/google/callback` and `https://axtask.dev/api/auth/google/callback` in Google Cloud Console.
 3. **Verify environment variables**: Ensure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set in the production environment (Replit Secrets or deployment config).
 4. **Session cookie settings**: In production (`NODE_ENV=production`), session cookies use `secure: true`, `sameSite: "lax"`, and `httpOnly: true`. Ensure the deployment serves over HTTPS (Replit deployments do this automatically).
 
@@ -88,7 +120,11 @@ When a 403 occurs during OAuth login:
 5. Check `req.session` persistence — if sessions are lost between requests, the redirect URI fallback may construct a different URI.
 
 ### System Design Choices
-The application is designed for **Replit Autoscale** (Google Cloud Run), necessitating a stateless architecture. All persistent state (tasks, users, sessions, patterns, coins, collaboration data) resides in PostgreSQL, preventing reliance on in-memory state. File uploads and generated files are processed or streamed immediately without persistent disk storage. The deployment process involves `npm run build` to create `dist/index.js` (backend) and `dist/public/` (frontend), which are then containerized. Critical Autoscale constraints include a single exposed port, Cloud Run controlling the `PORT` environment variable, no persistent server memory or filesystem, and fast startup times. API routes and health checks must be registered before static file serving.
+The application is designed for **Replit Autoscale** (Google Cloud Run), necessitating a stateless architecture. All persistent state (tasks, users, sessions, patterns, coins, collaboration data) resides in PostgreSQL, preventing reliance on in-memory state. File uploads and generated files are processed or streamed immediately without persistent disk storage. The deployment process involves `npm run build` to create `dist/index.js` (backend) and `dist/public/` (frontend), which are then containerised. Critical Autoscale constraints include a single exposed port, Cloud Run controlling the `PORT` environment variable, no persistent server memory or filesystem, and fast startup times. API routes and health checks must be registered before static file serving.
+
+The canonical production endpoints are **`https://axtask.app`** (primary) and **`https://axtask.dev`** (secondary). These custom domains are managed externally and must never be reconfigured in `.replit` or deployment settings.
+
+**Known stale reference**: `server/index.ts` line 17 sets `const productionDomain = "axtask.replit.app"`, which is used for CORS origin enforcement and HTTPS redirect logic. This constant needs to be updated to the live custom domains in a separate code task — do not change it without explicit user instruction as part of that task.
 
 ## External Dependencies
 
