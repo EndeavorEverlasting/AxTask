@@ -155,7 +155,7 @@ function useRoutePersistence() {
 function useUnreadMessagePolling() {
   const { user } = useAuth();
   const [location] = useLocation();
-  const prevCountRef = useRef(0);
+  const prevCountRef = useRef<number | null>(null);
   const { toast } = useToast();
 
   const { data } = useQuery<{ count: number }>({
@@ -166,7 +166,12 @@ function useUnreadMessagePolling() {
 
   useEffect(() => {
     const count = data?.count ?? 0;
-    if (count > prevCountRef.current && prevCountRef.current >= 0 && !location.startsWith("/messages")) {
+    if (prevCountRef.current === null) {
+      // First fetch — set baseline without toasting
+      prevCountRef.current = count;
+      return;
+    }
+    if (count > prevCountRef.current && !location.startsWith("/messages")) {
       toast({
         title: "New message",
         description: `You have ${count} unread message${count !== 1 ? "s" : ""}`,
