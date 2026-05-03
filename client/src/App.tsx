@@ -37,6 +37,7 @@ import SettingsPage from "@/pages/settings";
 import ProfilePage from "@/pages/profile";
 import MessagesPage from "@/pages/messages";
 import NotificationsPage from "@/pages/notifications";
+import LeaderboardPage from "@/pages/leaderboard";
 import LoginPage from "@/pages/login";
 import PrivacyPolicy from "@/pages/privacy";
 import TermsOfService from "@/pages/terms";
@@ -59,6 +60,7 @@ function Router() {
       <Route path="/rewards" component={RewardsPage} />
       <Route path="/community" component={CommunityPage} />
       <Route path="/community/:id" component={CommunityPostPage} />
+      <Route path="/leaderboard" component={LeaderboardPage} />
       <Route path="/skill-tree" component={SkillTreePage} />
       <Route path="/profile/:userId" component={ProfilePage} />
       <Route path="/messages" component={MessagesPage} />
@@ -125,7 +127,7 @@ function MobileBottomNav() {
 
 
 const ROUTE_STORAGE_KEY = "axtask_last_route";
-const VALID_ROUTES = ["/", "/tasks", "/calendar", "/analytics", "/import-export", "/google-sheets", "/checklist", "/planner", "/admin", "/rewards", "/community", "/skill-tree", "/messages", "/backup", "/settings"];
+const VALID_ROUTES = ["/", "/tasks", "/calendar", "/analytics", "/import-export", "/google-sheets", "/checklist", "/planner", "/admin", "/rewards", "/community", "/leaderboard", "/skill-tree", "/messages", "/backup", "/settings"];
 
 function useRoutePersistence() {
   const [location, setLocation] = useLocation();

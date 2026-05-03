@@ -2920,6 +2920,220 @@ export async function getConversationParticipants(conversationId: string): Promi
     .where(eq(conversationParticipants.conversationId, conversationId));
 }
 
+// ─── Leaderboard ─────────────────────────────────────────────────────────────
+
+export interface LeaderboardEntry {
+  rank: number;
+  userId: string;
+  displayName: string | null;
+  profileImageUrl: string | null;
+  equippedTitle: string | null;
+  skillTier: number;
+  metricValue: number;
+}
+
+export interface LeaderboardResult {
+  top25: LeaderboardEntry[];
+  myEntry: LeaderboardEntry | null;
+}
+
+export async function getLeaderboard(
+  requestingUserId: string,
+  category: "coins" | "streak" | "contributions",
+  period: "all" | "week"
+): Promise<LeaderboardResult> {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  // ── Helper: get requesting user's exact metric value from the full population ──
+  async function getMyMetric(): Promise<number> {
+    if (category === "coins") {
+      if (period === "all") {
+        const [row] = await db.select({ v: wallets.lifetimeEarned }).from(wallets).where(eq(wallets.userId, requestingUserId));
+        return row?.v ?? 0;
+      } else {
+        const [row] = await db.select({
+          v: sql<number>`COALESCE(SUM(${coinTransactions.amount}), 0)::int`,
+        }).from(coinTransactions).where(
+          sql`${coinTransactions.userId} = ${requestingUserId} AND ${coinTransactions.createdAt} >= ${weekAgo} AND ${coinTransactions.amount} > 0`
+        );
+        return row?.v ?? 0;
+      }
+    } else if (category === "streak") {
+      const [row] = await db.select({ v: wallets.longestStreak }).from(wallets).where(eq(wallets.userId, requestingUserId));
+      return row?.v ?? 0;
+    } else {
+      const since = period === "week" ? weekAgo : new Date(0);
+      const [postRow] = await db.select({ v: sql<number>`COUNT(*)::int` }).from(forumPosts)
+        .where(sql`${forumPosts.userId} = ${requestingUserId} AND ${forumPosts.createdAt} >= ${since}`);
+      const [commentRow] = await db.select({ v: sql<number>`COUNT(*)::int` }).from(forumComments)
+        .where(sql`${forumComments.userId} = ${requestingUserId} AND ${forumComments.createdAt} >= ${since}`);
+      const [classRow] = await db.select({ v: sql<number>`COUNT(*)::int` }).from(classificationContributions)
+        .where(sql`${classificationContributions.userId} = ${requestingUserId} AND ${classificationContributions.createdAt} >= ${since}`);
+      return (postRow?.v ?? 0) + (commentRow?.v ?? 0) + (classRow?.v ?? 0);
+    }
+  }
+
+  // ── Helper: count how many users score strictly higher (= users ranked above) ──
+  async function countUsersAbove(myMetric: number): Promise<number> {
+    if (category === "coins") {
+      if (period === "all") {
+        const [r] = await db.select({ c: sql<number>`COUNT(*)::int` }).from(wallets)
+          .where(sql`${wallets.lifetimeEarned} > ${myMetric}`);
+        return r?.c ?? 0;
+      } else {
+        const result = await db.execute<{ c: number }>(
+          sql`SELECT COUNT(*)::int AS c FROM (
+            SELECT SUM(amount) AS total FROM ${coinTransactions}
+            WHERE created_at >= ${weekAgo} AND amount > 0
+            GROUP BY user_id
+          ) sub WHERE sub.total > ${myMetric}`
+        );
+        return Number((result.rows[0] as any)?.c ?? 0);
+      }
+    } else if (category === "streak") {
+      const [r] = await db.select({ c: sql<number>`COUNT(*)::int` }).from(wallets)
+        .where(sql`${wallets.longestStreak} > ${myMetric}`);
+      return r?.c ?? 0;
+    } else {
+      const since = period === "week" ? weekAgo : new Date(0);
+      const result = await db.execute<{ c: number }>(
+        sql`SELECT COUNT(*)::int AS c FROM (
+          SELECT user_id, COUNT(*) AS total FROM (
+            SELECT user_id FROM ${forumPosts} WHERE created_at >= ${since}
+            UNION ALL
+            SELECT user_id FROM ${forumComments} WHERE created_at >= ${since}
+            UNION ALL
+            SELECT user_id FROM ${classificationContributions} WHERE created_at >= ${since}
+          ) all_contrib GROUP BY user_id
+        ) sub WHERE sub.total > ${myMetric}`
+      );
+      return Number((result.rows[0] as any)?.c ?? 0);
+    }
+  }
+
+  // ── Fetch top 25 rows ─────────────────────────────────────────────────────
+  let top25Rows: { userId: string; metricValue: number }[];
+
+  if (category === "coins") {
+    if (period === "all") {
+      top25Rows = await db
+        .select({ userId: wallets.userId, metricValue: wallets.lifetimeEarned })
+        .from(wallets)
+        .orderBy(desc(wallets.lifetimeEarned))
+        .limit(25);
+    } else {
+      top25Rows = await db
+        .select({
+          userId: coinTransactions.userId,
+          metricValue: sql<number>`COALESCE(SUM(${coinTransactions.amount}), 0)::int`,
+        })
+        .from(coinTransactions)
+        .where(sql`${coinTransactions.createdAt} >= ${weekAgo} AND ${coinTransactions.amount} > 0`)
+        .groupBy(coinTransactions.userId)
+        .orderBy(desc(sql`SUM(${coinTransactions.amount})`))
+        .limit(25);
+    }
+  } else if (category === "streak") {
+    top25Rows = await db
+      .select({ userId: wallets.userId, metricValue: wallets.longestStreak })
+      .from(wallets)
+      .orderBy(desc(wallets.longestStreak))
+      .limit(25);
+  } else {
+    const since = period === "week" ? weekAgo : new Date(0);
+    const postCounts = db.select({ userId: forumPosts.userId, pcnt: sql<number>`COUNT(*)::int`.as("pcnt") })
+      .from(forumPosts).where(sql`${forumPosts.createdAt} >= ${since}`).groupBy(forumPosts.userId).as("pc");
+    const commentCounts = db.select({ userId: forumComments.userId, ccnt: sql<number>`COUNT(*)::int`.as("ccnt") })
+      .from(forumComments).where(sql`${forumComments.createdAt} >= ${since}`).groupBy(forumComments.userId).as("cc");
+    const classCounts = db.select({ userId: classificationContributions.userId, clcnt: sql<number>`COUNT(*)::int`.as("clcnt") })
+      .from(classificationContributions).where(sql`${classificationContributions.createdAt} >= ${since}`)
+      .groupBy(classificationContributions.userId).as("cl");
+
+    const result = await db
+      .select({
+        userId: users.id,
+        metricValue: sql<number>`COALESCE(${postCounts.pcnt}, 0) + COALESCE(${commentCounts.ccnt}, 0) + COALESCE(${classCounts.clcnt}, 0)`.as("total"),
+      })
+      .from(users)
+      .leftJoin(postCounts, eq(users.id, postCounts.userId))
+      .leftJoin(commentCounts, eq(users.id, commentCounts.userId))
+      .leftJoin(classCounts, eq(users.id, classCounts.userId))
+      .orderBy(desc(sql`COALESCE(${postCounts.pcnt}, 0) + COALESCE(${commentCounts.ccnt}, 0) + COALESCE(${classCounts.clcnt}, 0)`))
+      .limit(25);
+    top25Rows = result.map(r => ({ userId: r.userId, metricValue: Number(r.metricValue) }));
+  }
+
+  // ── Collect user IDs to decorate (top25 + requesting user) ───────────────
+  const allUserIds = [...new Set([...top25Rows.map(r => r.userId), requestingUserId])];
+
+  const [userRows, userRewardRows, skillUnlockRows] = await Promise.all([
+    allUserIds.length > 0
+      ? db.select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl })
+          .from(users).where(sql`${users.id} = ANY(ARRAY[${sql.join(allUserIds.map(id => sql`${id}`), sql`, `)}]::text[])`)
+      : [],
+    allUserIds.length > 0
+      ? db.select({ userId: userRewards.userId, rewardId: userRewards.rewardId })
+          .from(userRewards).where(sql`${userRewards.userId} = ANY(ARRAY[${sql.join(allUserIds.map(id => sql`${id}`), sql`, `)}]::text[]) AND ${userRewards.isActive} = true`)
+      : [],
+    allUserIds.length > 0
+      ? db.select({ userId: skillUnlocks.userId }).from(skillUnlocks)
+          .where(sql`${skillUnlocks.userId} = ANY(ARRAY[${sql.join(allUserIds.map(id => sql`${id}`), sql`, `)}]::text[])`)
+      : [],
+  ]);
+
+  const rewardIds = [...new Set(userRewardRows.map(r => r.rewardId))];
+  const catalogRows = rewardIds.length > 0
+    ? await db.select({ id: rewardsCatalog.id, data: rewardsCatalog.data, type: rewardsCatalog.type })
+        .from(rewardsCatalog).where(sql`${rewardsCatalog.id} = ANY(ARRAY[${sql.join(rewardIds.map(id => sql`${id}`), sql`, `)}]::text[])`)
+    : [];
+
+  const userMap = new Map(userRows.map(u => [u.id, u]));
+  const titleMap = new Map<string, string | null>();
+  const tierMap = new Map<string, number>();
+
+  for (const u of userRows) {
+    const myRewardIds = userRewardRows.filter(r => r.userId === u.id).map(r => r.rewardId);
+    const titleReward = catalogRows.find(c => myRewardIds.includes(c.id) && c.type === "title");
+    titleMap.set(u.id, titleReward?.data ?? null);
+    const unlockCount = skillUnlockRows.filter(s => s.userId === u.id).length;
+    tierMap.set(u.id, unlockCount >= 10 ? 2 : unlockCount >= 3 ? 1 : 0);
+  }
+
+  const makeEntry = (userId: string, metricValue: number, rank: number): LeaderboardEntry => {
+    const u = userMap.get(userId);
+    return {
+      rank,
+      userId,
+      displayName: u?.displayName ?? null,
+      profileImageUrl: u?.profileImageUrl ?? null,
+      equippedTitle: titleMap.get(userId) ?? null,
+      skillTier: tierMap.get(userId) ?? 0,
+      metricValue,
+    };
+  };
+
+  // Filter out users with zero metric for contributions (cleaner board)
+  const validTop25 = category === "contributions"
+    ? top25Rows.filter(r => r.metricValue > 0)
+    : top25Rows;
+
+  const top25 = validTop25.map((r, i) => makeEntry(r.userId, r.metricValue, i + 1));
+
+  // ── Compute requesting user's entry ──────────────────────────────────────
+  const myInTop25 = top25.find(e => e.userId === requestingUserId);
+  let myEntry: LeaderboardEntry;
+
+  if (myInTop25) {
+    myEntry = myInTop25;
+  } else {
+    // Exact metric and rank from the full population
+    const [myMetric, usersAbove] = await Promise.all([getMyMetric(), getMyMetric().then(m => countUsersAbove(m))]);
+    myEntry = makeEntry(requestingUserId, myMetric, usersAbove + 1);
+  }
+
+  return { top25, myEntry };
+}
+
 // ─── Skill Unlocks ────────────────────────────────────────────────────────────
 
 export async function getSkillUnlocks(userId: string): Promise<SkillUnlock[]> {

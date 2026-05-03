@@ -30,6 +30,7 @@ import {
   ShoppingBag,
   MessageSquare,
   Bell,
+  Trophy,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -56,6 +57,7 @@ const MORE_MENU_ITEMS = [
   { path: "/analytics", icon: BarChart3, label: "Analytics" },
   { path: "/calendar", icon: CalendarDays, label: "Calendar" },
   { path: "/community", icon: Users, label: "Community" },
+  { path: "/leaderboard", icon: Trophy, label: "Leaderboard" },
   { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
   { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
   { path: "/import-export", icon: Upload, label: "Import/Export" },
