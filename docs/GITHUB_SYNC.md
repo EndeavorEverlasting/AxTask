@@ -40,14 +40,28 @@ of task merges that you want to publish to GitHub.
 
 ### Method 2 — GitHub Actions (automated)
 
-A workflow lives at `.github/workflows/replit-sync.yml`. To use it:
+A workflow lives at `.github/workflows/replit-sync.yml`.
+
+**Important:** The workflow promotes an *existing GitHub branch* to `main`.
+Setting `source_branch` to `main` itself is a no-op — use this only when a
+staging branch (`replit/main` or a sprint branch) already exists on GitHub
+and contains the desired Replit history.
+
+Typical flow:
+
+```bash
+# 1. From the Replit Shell — push Replit's main to the staging branch
+git push origin HEAD:refs/heads/replit/main
+```
+
+The push to `replit/main` automatically triggers the workflow, which then
+force-promotes `replit/main → main`.
+
+Alternatively, trigger manually:
 
 1. In GitHub → **Actions** → **Replit → GitHub Sync** → **Run workflow**.
-2. Set `source_branch` to the branch you want to promote (default: `main`).
+2. Set `source_branch` to the staging branch (e.g. `replit/main`).
 3. Click **Run workflow**.
-
-Alternatively, push to the `replit/main` branch on GitHub; the workflow
-triggers automatically and promotes it to `main`.
 
 ### Method 3 — Direct git (for advanced use)
 
