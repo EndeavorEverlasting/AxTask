@@ -2329,16 +2329,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     fs.mkdirSync(FORUM_UPLOADS_DIR, { recursive: true });
   }
 
-  const forumUploadStorage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, FORUM_UPLOADS_DIR),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
-      cb(null, `${randomUUID()}${ext}`);
-    },
-  });
-
+  // Use memory storage — Sharp re-encodes to JPEG so the original extension is never trusted
   const forumUpload = multer({
-    storage: forumUploadStorage,
+    storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
       const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp"];
@@ -2350,8 +2343,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/forum/upload", requireAuth, forumUpload.single("image"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
-      const url = `/uploads/forum/${req.file.filename}`;
-      res.json({ url });
+      // Re-encode to JPEG via Sharp — validates image content, strips metadata, ignores original extension
+      const safeFilename = `${randomUUID()}.jpg`;
+      const safePath = path.join(FORUM_UPLOADS_DIR, safeFilename);
+      await sharp(req.file.buffer).jpeg({ quality: 85 }).toFile(safePath);
+      res.json({ url: `/uploads/forum/${safeFilename}` });
     } catch (error) {
       res.status(500).json({ message: "Upload failed" });
     }
