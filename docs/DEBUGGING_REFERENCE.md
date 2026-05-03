@@ -6,7 +6,7 @@ Canonical policy map: [docs/ACTIVE_LEGACY_INDEX.md](ACTIVE_LEGACY_INDEX.md) (act
 
 This document provides solutions to common bugs and debugging patterns encountered during AxTask development. Keep this updated as new issues are discovered and resolved.
 
-**Last Updated:** May 1, 2026
+**Last Updated:** May 3, 2026
 
 ---
 
@@ -43,6 +43,52 @@ Add unit tests when introducing:
 - new schema validation contracts
 - new persistence/state transition logic
 - new route handlers or behavior branches
+
+---
+
+## Drizzle-Kit TTY Warning on Render / CI
+
+### Symptom
+
+Render deploy logs show:
+
+```
+Error: Interactive prompts require a TTY terminal
+(process.stdin.isTTY or process.stdout.isTTY is false).
+This can happen when running in CI, piped input, or non-interactive shells.
+```
+
+The deploy still succeeds.
+
+### Root Cause
+
+`drizzle-kit push --force` auto-approves **data-loss** prompts, but the CLI still attempts to render interactive UI (spinners, constraint prompts, etc.) even in non-TTY environments. When it discovers there is no terminal, it emits the warning internally and falls back to a default. This is harmless but noisy.
+
+See upstream issues:
+- [drizzle-team/drizzle-orm#4921](https://github.com/drizzle-team/drizzle-orm/issues/4921)
+- [drizzle-team/drizzle-orm#4941](https://github.com/drizzle-team/drizzle-orm/issues/4941)
+
+### Fix
+
+`scripts/production-start.mjs` captures `drizzle-kit`'s stderr, strips the harmless TTY warning, and re-emits everything else. Real errors remain visible.
+
+```javascript
+const p = spawnSync(process.execPath, [drizzleBin, "push", "--force"], {
+  cwd: root,
+  stdio: ["ignore", "inherit", "pipe"],
+  env: { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
+});
+if (p.stderr) {
+  const stderrStr = p.stderr.toString("utf8");
+  const filtered = stderrStr
+    .split("\n")
+    .filter((line) => !line.includes("Interactive prompts require a TTY terminal"))
+    .join("\n");
+  if (filtered) process.stderr.write(filtered);
+}
+```
+
+**Do not** change this to `"inherit"` for stderr unless you also suppress the warning upstream — the noise will return on every Render deploy.
 
 ---
 

@@ -74,9 +74,19 @@ if (process.env.SKIP_DB_PUSH_ON_START === "true") {
   console.log("[production-start] Drizzle schema sync (drizzle-kit push --force)…");
   const p = spawnSync(process.execPath, [drizzleBin, "push", "--force"], {
     cwd: root,
-    stdio: ["ignore", "inherit", "inherit"],
+    stdio: ["ignore", "inherit", "pipe"],
     env: { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
   });
+  // Suppress harmless TTY warning from drizzle-kit spinners/prompts in non-interactive CI.
+  // See: https://github.com/drizzle-team/drizzle-orm/issues/4921
+  if (p.stderr) {
+    const stderrStr = p.stderr.toString("utf8");
+    const filtered = stderrStr
+      .split("\n")
+      .filter((line) => !line.includes("Interactive prompts require a TTY terminal"))
+      .join("\n");
+    if (filtered) process.stderr.write(filtered);
+  }
   if (p.status !== 0) process.exit(p.status ?? 1);
 }
 
