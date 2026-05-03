@@ -56,15 +56,22 @@ function decryptBackupPayload(payload, keyInput) {
 }
 
 const SKIP = process.argv.includes("--skip") || process.argv.includes("--skip-airlock");
-const VERIFY_FILE = process.argv.includes("--verify");
+const DATABASE_URL = process.env.DATABASE_URL || "";
+const host = DATABASE_URL ? new URL(DATABASE_URL).hostname : "";
+const isProdLike = process.env.NODE_ENV === "production" || process.env.RENDER === "true" || process.env.AXTASK_PRODUCTION === "true" || (host && host !== "localhost" && host !== "127.0.0.1");
+const VERIFY_FILE = process.argv.includes("--verify") || isProdLike;
 const RETENTION_HOURS = Number(process.env.BACKUP_AIRLOCK_RETENTION_HOURS) || 168; // 7 days default
 
 if (SKIP) {
+  if (isProdLike && !process.env.MIGRATION_AIRLOCK_SKIP_ACK) {
+    console.error("[migration-airlock] FAILED: --skip in production-like env requires MIGRATION_AIRLOCK_SKIP_ACK.");
+    process.exit(1);
+  }
   console.warn("[migration-airlock] WARNING: bypassed via --skip. No backup verification performed.");
   process.exit(2);
 }
 
-const url = process.env.DATABASE_URL;
+const url = DATABASE_URL;
 if (!url) {
   console.error("[migration-airlock] DATABASE_URL is not set. Cannot check backup ledger.");
   process.exit(1);
@@ -80,9 +87,11 @@ async function main() {
     `);
     const backupTableExists = tableRows[0]?.table_ref !== null;
     if (!backupTableExists) {
-      console.warn(
-        "[migration-airlock] backup_records table missing; allowing migrations because backup schema has not been created yet.",
-      );
+      if (isProdLike && process.env.AIRLOCK_BOOTSTRAP_ALLOWED !== "true") {
+        console.error("[migration-airlock] FAILED: backup_records missing in production-like env and AIRLOCK_BOOTSTRAP_ALLOWED is not true.");
+        process.exit(1);
+      }
+      console.warn("[migration-airlock] backup_records table missing; allowing migrations because backup schema has not been created yet.");
       return;
     }
 
@@ -118,6 +127,11 @@ async function main() {
       meta = JSON.parse(record.metadata_json || "{}");
     } catch {
       /* ignore parse errors */
+    }
+
+    if (meta.backupKind && meta.backupKind !== "db_dump") {
+      console.error("[migration-airlock] FAILED: most recent backup record is not a DB dump backupKind=db_dump.");
+      process.exit(1);
     }
 
     if (!meta.sha256) {
