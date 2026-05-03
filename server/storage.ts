@@ -2000,6 +2000,8 @@ export async function getForumPosts(opts: {
   return { posts, total };
 }
 
+interface TagRow { tag: unknown; count: unknown }
+
 export async function getForumTags(): Promise<{ tag: string; count: number }[]> {
   const rows = await db.execute(sql`
     SELECT tag, COUNT(*) AS count
@@ -2009,7 +2011,7 @@ export async function getForumTags(): Promise<{ tag: string; count: number }[]> 
     ORDER BY count DESC
     LIMIT 50
   `);
-  return (rows.rows as any[]).map((r) => ({ tag: String(r.tag), count: Number(r.count) }));
+  return (rows.rows as unknown as TagRow[]).map((r) => ({ tag: String(r.tag), count: Number(r.count) }));
 }
 
 export async function getForumPostById(id: string): Promise<ForumPost | undefined> {

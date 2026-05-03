@@ -180,8 +180,8 @@ function ImageUploader({ imageUrls, onChange }: { imageUrls: string[]; onChange:
         if (!resp.ok) throw new Error((await resp.json()).message || "Upload failed");
         const { url } = await resp.json();
         newUrls.push(url);
-      } catch (err: any) {
-        toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      } catch (err) {
+        toast({ title: "Upload failed", description: err instanceof Error ? err.message : "Upload failed", variant: "destructive" });
       }
     }
     setUploading(false);
