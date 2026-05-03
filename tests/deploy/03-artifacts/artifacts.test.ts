@@ -56,6 +56,7 @@ describe("[03-artifacts] checkArtifacts", () => {
       ...REQUIRED_BUILD_ARTIFACTS,
       "dist/public/assets/index-abc.js",
       "scripts/apply-migrations.mjs",
+      "scripts/migration-airlock.mjs",
       "scripts/production-start.mjs",
       "drizzle.config.ts",
       "migrations/0001_initial.sql",
@@ -69,6 +70,7 @@ describe("[03-artifacts] checkArtifacts", () => {
     scaffold(tmp, [
       ...REQUIRED_BUILD_ARTIFACTS,
       "scripts/apply-migrations.mjs",
+      "scripts/migration-airlock.mjs",
       "scripts/production-start.mjs",
       "drizzle.config.ts",
       "migrations/0001_initial.sql",

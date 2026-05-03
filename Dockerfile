@@ -23,6 +23,10 @@ COPY --from=build /app/package*.json ./
 COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=build /app/migrations ./migrations
 COPY --from=build /app/scripts/apply-migrations.mjs ./scripts/apply-migrations.mjs
+COPY --from=build /app/scripts/migration-airlock.mjs ./scripts/migration-airlock.mjs
+
+RUN test -f /app/scripts/apply-migrations.mjs \
+  && test -f /app/scripts/migration-airlock.mjs
 
 # Attachment storage directory (backed by volume in docker-compose).
 RUN mkdir -p /app/storage/attachments && chown -R axtask:axtask /app/storage

@@ -20,6 +20,7 @@ export const REQUIRED_BUILD_ARTIFACTS = [
 export const REQUIRED_RUNTIME_FILES = [
   "migrations",
   "scripts/apply-migrations.mjs",
+  "scripts/migration-airlock.mjs",
   "scripts/production-start.mjs",
   "drizzle.config.ts",
 ];

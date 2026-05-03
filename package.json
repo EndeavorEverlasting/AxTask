@@ -28,6 +28,7 @@
     "check": "tsc",
     "release:check": "node scripts/release-check.mjs",
     "ship": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/ship.ps1",
+    "env:secrets:generate": "node scripts/generate-env-secrets.mjs",
     "security:node-provenance-guard": "node tools/security/check_node_provenance.mjs",
     "security:node-provenance:approve-local": "node tools/security/approve_local_node_provenance.mjs",
     "security:node-runtime-guard": "node tools/security/check_node_runtime.mjs",

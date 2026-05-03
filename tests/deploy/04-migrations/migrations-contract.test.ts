@@ -141,3 +141,16 @@ describe("[04-migrations] production-start.mjs chain order", () => {
     expect(drizzleIdx).toBeLessThan(spawnIdx);
   });
 });
+
+describe("[04-migrations] Docker runtime migration scripts", () => {
+  const dockerfile = fs.readFileSync(path.join(repoRoot, "Dockerfile"), "utf8");
+
+  it("copies migration-airlock.mjs with apply-migrations.mjs into the runtime image", () => {
+    expect(dockerfile).toMatch(/scripts\/apply-migrations\.mjs/);
+    expect(dockerfile).toMatch(/scripts\/migration-airlock\.mjs/);
+  });
+
+  it("fails the Docker build early if the airlock script is missing", () => {
+    expect(dockerfile).toMatch(/test -f \/app\/scripts\/migration-airlock\.mjs/);
+  });
+});

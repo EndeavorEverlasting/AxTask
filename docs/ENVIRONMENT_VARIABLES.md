@@ -10,7 +10,7 @@ This document **groups and explains** the environment variables AxTask uses. It 
 - Client (Vite): `rg "import\\.meta\\.env\\.\\w+" client -g "*.{ts,tsx}"`
 - Scripts: `rg "process\\.env\\.\\w+" scripts -g "*.{mjs,js}"`
 
-**Security:** Never commit real secrets. Production and Render workflows are covered in [`.cursor/rules/render-env-automation.mdc`](../.cursor/rules/render-env-automation.mdc) and related tooling.
+**Security:** Never commit real secrets. Generate AxTask-owned secrets with `npm run env:secrets:generate`, then store them in your password manager and deployment host. The operator checklist is [`docs/ENV_SECRET_CHECKLIST.md`](ENV_SECRET_CHECKLIST.md). Production and Render workflows are covered in [`.cursor/rules/render-env-automation.mdc`](../.cursor/rules/render-env-automation.mdc) and related tooling.
 
 ## Env-file map
 
