@@ -42,8 +42,11 @@ import {
   createForumReport, getForumReports, updateForumReportStatus, toggleForumReaction,
   getUserById,
   getSkillUnlocks, unlockSkillNode,
+  getCompletedTaskCount,
 } from "./storage";
-import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, BADGE_DEFINITIONS } from "./coin-engine";
+import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, getActiveSkillBonuses, getActiveSkillIds, maybeGrantMonthlyShield, BADGE_DEFINITIONS } from "./coin-engine";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 import { computeContentHash, computeFileHash } from "./fingerprint";
 import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classification-engine";
 import { getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution } from "./storage";
@@ -812,7 +815,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         finalBalance = wallet.balance;
       }
 
-      res.json({ ...task, coinReward, classificationReward, bountyReward, cleanupReward, finalBalance });
+      let newlyUnlockedSkills: string[] = [];
+      if (task!.status === "completed" && previousStatus !== "completed") {
+        const completedCount = await getCompletedTaskCount(userId);
+        const prevCount = completedCount - 1;
+        newlyUnlockedSkills = Object.entries(SKILL_NODE_REQUIRED_TASKS)
+          .filter(([, required]) => required > prevCount && required <= completedCount)
+          .map(([skillId]) => skillId);
+        // Auto-create skill unlock records; only keep skills that are genuinely new
+        // (isNew: true) so repeat toast celebrations are suppressed for existing unlocks
+        const genuinelyNew: string[] = [];
+        for (const skillId of newlyUnlockedSkills) {
+          const result = await unlockSkillNode(userId, skillId);
+          if (result.isNew) genuinelyNew.push(skillId);
+        }
+        newlyUnlockedSkills = genuinelyNew;
+      }
+
+      res.json({ ...task, coinReward, classificationReward, bountyReward, cleanupReward, finalBalance, newlyUnlockedSkills });
     } catch (error) {
       if (error instanceof Error) {
         res.status(400).json({ message: error.message });
@@ -1482,13 +1502,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   await seedRewardsCatalog();
 
+  // Run schema migrations for new columns
+  try {
+    await db.execute(sql`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS last_shield_credit_month TEXT`);
+  } catch (e) {
+    console.warn("[migration] last_shield_credit_month column check:", e);
+  }
+
   storage.backfillContentHashes().then(count => {
     if (count > 0) console.log(`[startup] Backfilled ${count} task content hashes`);
   }).catch(() => {});
 
   app.get("/api/gamification/wallet", requireAuth, async (req, res) => {
     try {
-      const wallet = await getOrCreateWallet(req.user!.id);
+      const userId = req.user!.id;
+      await getOrCreateWallet(userId);
+
+      // Grant discipline-2 monthly shield BEFORE streak-break handling so the new
+      // shield is available to protect the streak if needed this same request.
+      const activeIds = await getActiveSkillIds(userId);
+      await maybeGrantMonthlyShield(userId, activeIds);
+
+      const wallet = await getOrCreateWallet(userId);
       if (wallet.currentStreak > 0 && wallet.lastCompletionDate) {
         const lastDate = new Date(wallet.lastCompletionDate);
         lastDate.setHours(0, 0, 0, 0);
@@ -1496,16 +1531,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         today.setHours(0, 0, 0, 0);
         const diffDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
         if (diffDays > 1) {
-          const shieldUsed = await useStreakShield(req.user!.id);
+          const shieldUsed = await useStreakShield(userId);
           if (shieldUsed) {
-            const refreshed = await getOrCreateWallet(req.user!.id);
+            const refreshed = await getOrCreateWallet(userId);
             return res.json({ ...refreshed, streakShieldUsed: true });
           }
           wallet.currentStreak = 0;
-          await resetStreak(req.user!.id);
+          await resetStreak(userId);
         }
       }
-      res.json(wallet);
+      const finalWallet = await getOrCreateWallet(userId);
+      res.json(finalWallet);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch wallet" });
     }
@@ -1726,6 +1762,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch cleanup stats" });
+    }
+  });
+
+  app.get("/api/gamification/active-bonuses", requireAuth, async (req, res) => {
+    try {
+      const bonuses = await getActiveSkillBonuses(req.user!.id);
+      res.json(bonuses);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch active bonuses" });
     }
   });
 
@@ -3046,6 +3091,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Avatar Card ──────────────────────────────────────────────────────────
+
+  app.get("/api/users/:userId/avatar-card", requireAuth, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const [user, userRewardsList, badgeList, wallet] = await Promise.all([
+        getUserById(userId),
+        getUserRewards(userId),
+        getUserBadges(userId),
+        getOrCreateWallet(userId),
+      ]);
+
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      let equippedTitle: string | null = null;
+      if (userRewardsList.length > 0) {
+        const catalog = await getRewardsCatalog();
+        // Prefer an actively-equipped title (isActive=true), fall back to most recently redeemed
+        const activeUserTitle = userRewardsList.find(ur => ur.isActive && catalog.find(r => r.id === ur.rewardId && r.type === "title"));
+        const fallbackUserTitle = [...userRewardsList].reverse().find(ur => catalog.find(r => r.id === ur.rewardId && r.type === "title"));
+        const chosenUserTitle = activeUserTitle ?? fallbackUserTitle;
+        if (chosenUserTitle) {
+          const catalogEntry = catalog.find(r => r.id === chosenUserTitle.rewardId);
+          equippedTitle = catalogEntry?.name ?? null;
+        }
+      }
+
+      // Derive skill tier from completed task count (same logic as getActiveSkillIds)
+      const activeSkillIds = await getActiveSkillIds(userId);
+      let skillTier: 0 | 1 | 2 = 0;
+      for (const nodeId of activeSkillIds) {
+        if (nodeId.endsWith("-2") && skillTier < 2) skillTier = 2;
+        else if (nodeId.endsWith("-1") && skillTier < 1) skillTier = 1;
+      }
+
+      res.json({
+        displayName: user.displayName,
+        profileImageUrl: user.profileImageUrl,
+        equippedTitle,
+        skillTier,
+        badgeCount: badgeList.length,
+        coinBalance: wallet.balance,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch avatar card" });
+    }
+  });
+
   // ── Skill Unlocks ──────────────────────────────────────────────────────────
 
   app.get("/api/skill-unlocks", requireAuth, async (req, res) => {
@@ -3068,8 +3161,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid nodeId" });
       }
 
-      const userTasks = await storage.getTasksByStatus(req.user!.id, "completed");
-      const completedCount = userTasks.length;
+      const completedCount = await getCompletedTaskCount(req.user!.id);
       const required = SKILL_NODE_REQUIRED_TASKS[nodeId];
 
       if (completedCount < required) {

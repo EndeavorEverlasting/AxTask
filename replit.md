@@ -35,7 +35,7 @@ Key features include:
 -   **Voice Input & Universal Voice Command System**: Web Speech API for dictation and global commands.
 -   **Immersive Mobile Voice Overlay**: Full-screen mobile voice experience with animations.
 -   **Task Review Engine**: Voice/text-driven bulk task management with natural language parsing.
--   **Gamification (AxCoins)**: Currency and rewards system for task-related actions.
+-   **Gamification (AxCoins)**: Currency and rewards system for task-related actions. Includes a Skill Tree with 8 nodes (Tier I/II) that deliver functional server-enforced bonuses (coin multipliers, cap raises, streak threshold changes, monthly shields, cleanup bonuses, classification rate boosts). Skill unlock triggers a celebration toast with benefit label. Rewards profile shows an "Active Skill Bonuses" panel. Community post author displays use an AvatarCard component enriched with skill tier badge and equipped title.
 -   **Data Migration Toolkit**: Full database export/import with referential integrity.
 -   **Task Recurrence**: Configurable recurrence schedules.
 -   **Proactive Field Glow Warnings**: Visual cues for empty required fields.

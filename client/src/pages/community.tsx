@@ -10,7 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, ThumbsUp, ThumbsDown, MessageSquare, Pin, Eye, EyeOff, Trash2, ArrowUpDown, Clock, Users } from "lucide-react";
+import { Loader2, Plus, ThumbsUp, ThumbsDown, MessageSquare, Pin, Eye, EyeOff, Trash2, ArrowUpDown, Clock } from "lucide-react";
+import { AvatarCard } from "@/components/avatar-card";
 import type { ForumPost } from "@shared/schema";
 
 const CATEGORIES = ["All", "Tips", "Questions", "Feedback", "Facts", "Productivity", "General"];
@@ -43,7 +44,8 @@ function PostCard({ post, authors, isAdmin, onNavigate }: {
   authors: Record<string, { displayName: string | null; profileImageUrl: string | null }>;
   isAdmin: boolean;
   onNavigate: (id: string) => void;
-}) {
+})
+ {
   const { toast } = useToast();
   const author = authors[post.userId];
   const snippet = post.body.length > 150 ? post.body.slice(0, 150) + "..." : post.body;
@@ -89,14 +91,12 @@ function PostCard({ post, authors, isAdmin, onNavigate }: {
           <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1 line-clamp-1">{post.title}</h3>
           <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">{snippet}</p>
           <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-            <span className="flex items-center gap-1">
-              {author?.profileImageUrl ? (
-                <img src={author.profileImageUrl} alt="" className="h-4 w-4 rounded-full" />
-              ) : (
-                <Users className="h-3.5 w-3.5" />
-              )}
-              {author?.displayName || "Anonymous"}
-            </span>
+            <AvatarCard
+              userId={post.userId}
+              displayName={author?.displayName}
+              profileImageUrl={author?.profileImageUrl}
+              size="sm"
+            />
             <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{timeAgo(post.createdAt!)}</span>
             <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" />{post.commentCount}</span>
             {(() => {

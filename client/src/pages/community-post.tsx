@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Loader2, ArrowLeft, ThumbsUp, ThumbsDown, MessageSquare, Flag, Pin, Eye, EyeOff, Trash2, Clock, Users, Send } from "lucide-react";
+import { AvatarCard } from "@/components/avatar-card";
 import type { ForumPost, ForumComment, ForumVote } from "@shared/schema";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -246,18 +247,9 @@ function CommentItem({ comment, authors, votes, isAdmin, postId, userId }: {
 
   return (
     <div className={`flex gap-3 py-3 ${comment.hidden ? "opacity-50" : ""}`}>
-      <div className="shrink-0">
-        {author?.profileImageUrl ? (
-          <img src={author.profileImageUrl} alt="" className="h-8 w-8 rounded-full" />
-        ) : (
-          <div className="h-8 w-8 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center">
-            <Users className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-          </div>
-        )}
-      </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{author?.displayName || "Anonymous"}</span>
+          <AvatarCard userId={comment.userId} displayName={author?.displayName} profileImageUrl={author?.profileImageUrl} size="sm" />
           <span className="text-xs text-gray-400"><Clock className="h-3 w-3 inline mr-0.5" />{timeAgo(comment.createdAt!)}</span>
           {comment.hidden && <Badge variant="outline" className="text-[10px] text-red-400 border-red-300">Hidden</Badge>}
         </div>
@@ -360,14 +352,12 @@ export default function CommunityPostPage() {
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-3">{post.title}</h1>
 
         <div className="flex items-center gap-3 mb-4 text-sm text-gray-500 dark:text-gray-400">
-          <span className="flex items-center gap-1.5">
-            {author?.profileImageUrl ? (
-              <img src={author.profileImageUrl} alt="" className="h-5 w-5 rounded-full" />
-            ) : (
-              <Users className="h-4 w-4" />
-            )}
-            {author?.displayName || "Anonymous"}
-          </span>
+          <AvatarCard
+            userId={post.userId}
+            displayName={author?.displayName}
+            profileImageUrl={author?.profileImageUrl}
+            size="md"
+          />
           <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{timeAgo(post.createdAt!)}</span>
         </div>
 

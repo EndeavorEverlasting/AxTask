@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { SKILL_BENEFITS } from "@/lib/skill-benefits";
+import { SKILL_NODE_DATA } from "@shared/skill-nodes";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth-context";
+import { AvatarCard } from "@/components/avatar-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp, Shield, Zap, Gift, Wrench } from "lucide-react";
+import { Coins, ShoppingBag, Award, Trophy, Flame, Clock, Sparkles, User, TrendingUp, ThumbsUp, Shield, Zap, Gift, Wrench, CheckCircle, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCountUp } from "@/hooks/use-count-up";
 
@@ -55,6 +59,7 @@ interface UserBadge {
 
 export default function RewardsPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("profile");
 
@@ -74,6 +79,9 @@ export default function RewardsPage() {
     totalCleanups: number;
     totalCleanupCoins: number;
   }>({ queryKey: ["/api/gamification/cleanup-stats"] });
+  const { data: activeBonuses = [] } = useQuery<{ skillId: string; active: boolean; requiredTasks: number }[]>({
+    queryKey: ["/api/gamification/active-bonuses"],
+  });
 
   const animatedBalance = useCountUp(wallet?.balance ?? 0);
 
@@ -216,6 +224,11 @@ export default function RewardsPage() {
               <CardDescription>Your achievements, active rewards, and stats at a glance</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {user && (
+                <div className="flex items-center gap-4 p-4 rounded-lg border bg-muted/30">
+                  <AvatarCard userId={user.id} displayName={user.displayName} profileImageUrl={user.profileImageUrl} size="md" />
+                </div>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="text-center p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20">
                   <p className="text-2xl font-bold text-amber-600">{wallet?.balance ?? 0}</p>
@@ -280,6 +293,49 @@ export default function RewardsPage() {
                             <p className="text-sm font-medium">{reward?.name}</p>
                             <p className="text-xs text-muted-foreground">Redeemed {new Date(mr.redeemedAt).toLocaleDateString()}</p>
                           </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-indigo-500" />
+                  Active Skill Bonuses
+                </h4>
+                {activeBonuses.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Unlock skills from the Skill Tree to activate bonuses.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {activeBonuses.map(({ skillId, active, requiredTasks }) => {
+                      const benefit = SKILL_BENEFITS[skillId];
+                      const node = SKILL_NODE_DATA.find(n => n.id === skillId);
+                      if (!benefit || !node) return null;
+                      return (
+                        <div
+                          key={skillId}
+                          className={`flex items-center gap-3 p-3 rounded-lg border ${
+                            active
+                              ? "border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20"
+                              : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 opacity-60"
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{node.title}</p>
+                            <p className="text-xs text-muted-foreground truncate">{benefit.label}</p>
+                            <p className="text-xs text-muted-foreground truncate">{benefit.description}</p>
+                          </div>
+                          {active ? (
+                            <span className="flex items-center gap-1 text-[10px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full shrink-0">
+                              <CheckCircle className="h-3 w-3" />Active
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600 px-2 py-0.5 rounded-full shrink-0">
+                              <Lock className="h-3 w-3" />{requiredTasks} tasks
+                            </span>
+                          )}
                         </div>
                       );
                     })}
@@ -462,9 +518,9 @@ export default function RewardsPage() {
                 <h4 className="font-semibold text-amber-800 dark:text-amber-300 mb-2">How Compound Interest Works</h4>
                 <div className="text-sm text-amber-700 dark:text-amber-400 space-y-1">
                   <p>1. Classify a task to earn base coins (5-15 depending on category)</p>
-                  <p>2. Each time someone confirms your classification, you earn compound interest at 8% per confirmation</p>
-                  <p>3. The formula: <code className="bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-xs">base × (1.08)^n</code> where n = number of confirmations</p>
-                  <p>4. Confirmers also earn 3 coins for each confirmation they give</p>
+                  <p>2. Each time someone confirms your classification, you earn compound interest (8% base rate, or 12% with Planning II active) per confirmation</p>
+                  <p>3. The formula: <code className="bg-white dark:bg-gray-800 px-1 py-0.5 rounded text-xs">base × (1 + rate)^n</code> where n = number of confirmations</p>
+                  <p>4. Confirmers also earn 3 coins for each confirmation they give (or 3+ with Systems II active)</p>
                 </div>
               </div>
             </CardContent>

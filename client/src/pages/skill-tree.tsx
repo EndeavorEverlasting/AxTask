@@ -2,11 +2,13 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task, type SkillUnlock } from "@shared/schema";
 import { SKILL_NODE_DATA, type SkillNodeData } from "@shared/skill-nodes";
-import { Lock, Unlock, X, Star, Target, Clock, Zap, Flame, BarChart2, Eye, Cpu } from "lucide-react";
+import { SKILL_BENEFITS } from "@/lib/skill-benefits";
+import { Lock, Unlock, X, Star, Target, Clock, Zap, Flame, BarChart2, Eye, Cpu, CheckCircle, Coins, TrendingUp, Award } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useLocation } from "wouter";
 
 const ICON_MAP: Record<string, React.ReactNode> = {
   Star: <Star className="h-6 w-6" />,
@@ -17,6 +19,13 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   BarChart2: <BarChart2 className="h-6 w-6" />,
   Eye: <Eye className="h-6 w-6" />,
   Cpu: <Cpu className="h-6 w-6" />,
+};
+
+const BENEFIT_TYPE_ICON: Record<string, React.ReactNode> = {
+  coin_multiplier: <Coins className="h-3.5 w-3.5" />,
+  cap_raise: <TrendingUp className="h-3.5 w-3.5" />,
+  feature_unlock: <Zap className="h-3.5 w-3.5" />,
+  passive_bonus: <Award className="h-3.5 w-3.5" />,
 };
 
 const COL_W = 160;
@@ -116,6 +125,7 @@ function NodeCard({
 
 export default function SkillTreePage() {
   const [selectedNode, setSelectedNode] = useState<SkillNodeData | null>(null);
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -152,14 +162,17 @@ export default function SkillTreePage() {
       inFlightRef.current.delete(nodeId);
       if (data.isNew) {
         const node = SKILL_NODE_DATA.find((n) => n.id === data.unlock.nodeId);
+        const benefit = node ? SKILL_BENEFITS[node.id] : null;
         toast({
-          title: "Skill Unlocked!",
+          title: "🎉 Skill Unlocked!",
           description: node
-            ? `You've unlocked "${node.title}". Keep completing tasks to progress further!`
+            ? `You've unlocked "${node.title}"${benefit ? ` — ${benefit.label}` : ""}. Keep completing tasks to progress further!`
             : "A new skill has been unlocked.",
+          duration: 6000,
         });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/skill-unlocks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/active-bonuses"] });
     },
     onError: (_err, nodeId) => {
       inFlightRef.current.delete(nodeId);
@@ -210,6 +223,7 @@ export default function SkillTreePage() {
   });
 
   const selectedColors = selectedNode ? TIER_COLORS[selectedNode.tier] : null;
+  const selectedBenefit = selectedNode ? SKILL_BENEFITS[selectedNode.id] : null;
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -313,6 +327,36 @@ export default function SkillTreePage() {
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 leading-relaxed">
                 {selectedNode.description}
               </p>
+
+              {selectedBenefit && (
+                <div className={`rounded-lg p-3 mb-4 border ${
+                  isUnlocked(selectedNode)
+                    ? "border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20"
+                    : "border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/40"
+                }`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      {BENEFIT_TYPE_ICON[selectedBenefit.type]}
+                      Benefit
+                    </div>
+                    {isUnlocked(selectedNode) ? (
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 rounded-full">
+                        <CheckCircle className="h-3 w-3" />Active
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-600 px-1.5 py-0.5 rounded-full">
+                        <Lock className="h-3 w-3" />Unlock to activate
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-0.5">
+                    {selectedBenefit.label}
+                  </p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                    {selectedBenefit.description}
+                  </p>
+                </div>
+              )}
 
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 space-y-2">
                 <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">

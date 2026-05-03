@@ -1,8 +1,12 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo, type TouchEvent as ReactTouchEvent } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task, type TaskAttachment } from "@shared/schema";
+import { SKILL_BENEFITS } from "@/lib/skill-benefits";
+import { SKILL_NODE_DATA } from "@shared/skill-nodes";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { useVoice } from "@/hooks/use-voice";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { consumePendingEditTask, subscribePendingEdit, getPendingVersion } from "@/lib/pending-edit";
@@ -696,6 +700,7 @@ function usePullToRefresh(onRefresh: () => Promise<void>, scrollRef: React.RefOb
 
 export function TaskList() {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const { user } = useAuth();
@@ -848,6 +853,27 @@ export function TaskList() {
           title: "Task updated",
           description: "Task status has been updated successfully.",
         });
+      }
+      // Skill unlock celebration toasts — fire one per newly unlocked skill
+      if (data?.newlyUnlockedSkills?.length > 0) {
+        for (const skillId of data.newlyUnlockedSkills) {
+          const node = SKILL_NODE_DATA.find((n) => n.id === skillId);
+          const benefit = SKILL_BENEFITS[skillId];
+          queryClient.invalidateQueries({ queryKey: ["/api/skill-unlocks"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/gamification/active-bonuses"] });
+          toast({
+            title: `🎉 Skill Unlocked: ${node?.title ?? skillId}!`,
+            description: benefit
+              ? `${benefit.label} — your new perk is now active.`
+              : "A new skill perk is now active.",
+            action: (
+              <ToastAction altText="View Skill Tree" onClick={() => navigate("/skill-tree")}>
+                View Skill Tree
+              </ToastAction>
+            ),
+            duration: 7000,
+          });
+        }
       }
     },
     onError: () => {

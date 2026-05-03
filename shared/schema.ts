@@ -240,6 +240,7 @@ export const wallets = pgTable("wallets", {
   longestStreak: integer("longest_streak").notNull().default(0),
   lastCompletionDate: text("last_completion_date"),
   streakShields: integer("streak_shields").notNull().default(0),
+  lastShieldCreditMonth: text("last_shield_credit_month"),
 });
 
 export type Wallet = typeof wallets.$inferSelect;
