@@ -70,7 +70,12 @@
     "migration:verify-schema": "node scripts/migration/verify-schema.mjs",
     "migration:smoke-api": "node scripts/migration/smoke-api.mjs",
     "migration:check": "node scripts/migration/run-migration-checks.mjs",
-    "migration:check:full": "cross-env RUN_TESTS=1 node scripts/migration/run-migration-checks.mjs"
+    "migration:check:full": "cross-env RUN_TESTS=1 node scripts/migration/run-migration-checks.mjs",
+    "db:backup": "node scripts/db/backup.mjs",
+    "db:backup:preflight": "node scripts/db/preflight-backup.mjs",
+    "db:restore:test": "node scripts/db/restore-test.mjs",
+    "db:migrate:safe": "node scripts/db/preflight-backup.mjs && node -r dotenv/config scripts/apply-migrations.mjs && node scripts/migration/verify-schema.mjs",
+    "db:push:safe": "node scripts/db/preflight-backup.mjs && node scripts/drizzle-push.mjs && node scripts/migration/verify-schema.mjs"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.7.0",
