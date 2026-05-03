@@ -1,15 +1,171 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, forumPosts, forumComments, forumVotes, forumUpvoteRewards, forumReports, skillUnlocks, userFollowers, conversations, conversationParticipants, directMessages, moderationLog, notifications, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger, type ForumPost, type InsertForumPost, type ForumComment, type InsertForumComment, type ForumVote, type ForumReport, type SkillUnlock, type UserFollower, type Conversation, type DirectMessage, type ModerationLogEntry, type Notification } from "@shared/schema";
-import { computeContentHash } from "./fingerprint";
+import {
+  tasks,
+  users,
+  passwordResetTokens,
+  securityLogs,
+  securityEvents,
+  securityAlerts,
+  wallets,
+  coinTransactions,
+  userBadges,
+  rewardsCatalog,
+  userRewards,
+  taskCollaborators,
+  taskPatterns,
+  classificationContributions,
+  classificationConfirmations,
+  classificationDisputes,
+  classificationDisputeVotes,
+  categoryReviewTriggers,
+  offlineGenerators,
+  offlineSkillNodes,
+  userOfflineSkills,
+  avatarSkillNodes,
+  userAvatarSkills,
+  userAvatarProfiles,
+  usageSnapshots,
+  storagePolicies,
+  attachmentAssets,
+  messageAttachments,
+  MESSAGE_ATTACHMENT_OWNER_TYPES,
+  type MessageAttachmentOwnerType,
+  taskImportFingerprints,
+  invoices,
+  invoiceEvents,
+  mfaChallenges,
+  billingPaymentMethods,
+  idempotencyKeys,
+  premiumSubscriptions,
+  premiumSavedViews,
+  premiumReviewWorkflows,
+  premiumInsights,
+  premiumEvents,
+  userNotificationPreferences,
+  userVoicePreferences,
+  userCalendarPreferences,
+  userPushSubscriptions,
+  userAdherenceState,
+  userAdherenceInterventions,
+  studyDecks,
+  studyCards,
+  studySessions,
+  studyReviewEvents,
+  communityPosts,
+  communityReplies,
+  archetypePolls,
+  archetypePollOptions,
+  archetypePollVotes,
+  taskClassificationThumbs,
+  userAlarmSnapshots,
+  collaborationInboxMessages,
+  userClassificationLabels,
+  backupRecords,
+  userBackupPreferences,
+  backupJobs,
+  type Task,
+  type InsertTask,
+  type UpdateTask,
+  type User,
+  type SafeUser,
+  type SecurityLog,
+  type SecurityEvent,
+  type SecurityAlert,
+  type Wallet,
+  type CoinTransaction,
+  type UserBadge,
+  type RewardItem,
+  type TaskCollaborator,
+  type TaskPattern,
+  type InsertTaskPattern,
+  type ClassificationContribution,
+  type ClassificationConfirmation,
+  type ClassificationDispute,
+  type ClassificationDisputeVote,
+  type CategoryReviewTrigger,
+  type CategoryReviewStatus,
+  type OfflineGenerator,
+  type OfflineSkillNode,
+  type UserOfflineSkill,
+  type AvatarSkillNode,
+  type UserAvatarSkill,
+  type UserAvatarProfile,
+  type UsageSnapshot,
+  type StoragePolicy,
+  type AttachmentAsset,
+  type Invoice,
+  type InvoiceEvent,
+  type BillingPaymentMethod,
+  type PremiumSubscription,
+  type PremiumSavedView,
+  type PremiumReviewWorkflow,
+  type PremiumInsight,
+  type PremiumEvent,
+  type UserNotificationPreference,
+  type UserVoicePreference,
+  type UserCalendarPreference,
+  type VoiceListeningMode,
+  type UserPushSubscription,
+  type UserAdherenceState,
+  type UserAdherenceIntervention,
+  type AdherenceSignal,
+  type StudyDeck,
+  type StudyCard,
+  type StudySession,
+  type StudyReviewEvent,
+  type CreateStudyDeckInput,
+  type CreateStudyCardInput,
+  type StartStudySessionInput,
+  type SubmitStudyAnswerInput,
+  type CommunityPost,
+  type CommunityReply,
+  type ArchetypePoll,
+  type ArchetypePollOption,
+  type ArchetypePollVote,
+  type UserAlarmSnapshot,
+  type CollaborationInboxMessage,
+  type BackupRecord,
+  type UserBackupPreference,
+  type BackupJob,
+} from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray, gt } from "drizzle-orm";
-import { randomUUID, randomBytes, createHash, createCipheriv, createDecipheriv } from "crypto";
+import { eq, and, ne, ilike, or, asc, lt, lte, gt, gte, count, avg, sql, desc, inArray, isNull, isNotNull } from "drizzle-orm";
+import type { ArchetypeKey } from "@shared/avatar-archetypes";
+import { isArchetypeKey } from "@shared/avatar-archetypes";
+import { bumpUserArchetypeContinuumFromArchetype } from "./lib/archetype-continuum";
+import { dominantArchetypeFromAvatarProfiles } from "./lib/poll-archetype";
+import { applyKAnonymityToPollTallies, type RawOptionTally } from "./lib/archetype-poll-aggregate";
+import { randomUUID, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
+import { buildSecurityEventHash } from "./security/event-hash";
+import { parseFeedbackPayload, parseFeedbackReviewPayload } from "./services/feedback-inbox-parser";
+import { maskE164ForDisplay } from "@shared/phone";
+import { displayAveragePriorityScoreFromDb } from "@shared/display-priority-score";
+import { TASK_SEARCH_RESULT_LIMIT } from "@shared/task-list-limits";
+import { getNotificationDispatchProfile, shouldDispatchByIntensity, type NotificationDispatchProfile } from "./services/notification-intensity";
 
 // ─── User helpers ────────────────────────────────────────────────────────────
 
 function toSafeUser(user: User): SafeUser {
-  const { passwordHash, securityAnswerHash, failedLoginAttempts, lockedUntil, workosId, googleId, replitId, mfaSecret, ...safe } = user;
-  return safe;
+  const {
+    passwordHash,
+    securityAnswerHash,
+    failedLoginAttempts,
+    lockedUntil,
+    workosId,
+    googleId,
+    replitId,
+    phoneE164,
+    totpSecretCiphertext,
+    totpEnabledAt,
+    birthDate: _birthDate,
+    ...rest
+  } = user;
+  return {
+    ...rest,
+    phoneMasked: maskE164ForDisplay(phoneE164),
+    phoneVerified: !!user.phoneVerifiedAt,
+    totpEnabled: Boolean(totpEnabledAt && totpSecretCiphertext),
+  };
 }
 
 export async function createUser(
@@ -125,9 +281,680 @@ export async function getUserByEmail(email: string): Promise<User | undefined> {
   return user || undefined;
 }
 
+export async function getUserByPublicHandle(handle: string): Promise<User | undefined> {
+  const normalized = handle.trim().toLowerCase().replace(/^@+/, "");
+  if (!normalized) return undefined;
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.publicHandle, normalized));
+  return user || undefined;
+}
+
+export async function getInvitePreviewByPublicHandle(
+  handle: string,
+): Promise<Pick<User, "publicHandle" | "displayName" | "profileImageUrl"> | null> {
+  const normalized = handle.trim().toLowerCase().replace(/^@+/, "");
+  if (!normalized) return null;
+  const [user] = await db
+    .select({
+      publicHandle: users.publicHandle,
+      displayName: users.displayName,
+      profileImageUrl: users.profileImageUrl,
+    })
+    .from(users)
+    .where(eq(users.publicHandle, normalized));
+  return user ?? null;
+}
+
+const HANDLE_PREFIX_SEARCH_MAX = 32;
+const HANDLE_SUGGESTIONS_CAP = 5;
+
+/** Prefix match on `public_handle` for invite autocomplete (privacy-safe columns only). */
+export async function searchPublicInvitePreviewsByPrefix(
+  prefix: string,
+  limit = HANDLE_SUGGESTIONS_CAP,
+): Promise<Pick<User, "publicHandle" | "displayName" | "profileImageUrl">[]> {
+  const normalized = prefix.trim().toLowerCase().replace(/^@+/, "");
+  if (normalized.length < 2) return [];
+  const capped = normalized.slice(0, HANDLE_PREFIX_SEARCH_MAX);
+  const cap = Math.min(Math.max(1, limit), 10);
+  return await db
+    .select({
+      publicHandle: users.publicHandle,
+      displayName: users.displayName,
+      profileImageUrl: users.profileImageUrl,
+    })
+    .from(users)
+    .where(ilike(users.publicHandle, `${capped}%`))
+    .orderBy(asc(users.publicHandle))
+    .limit(cap);
+}
+
+const RECENT_INVITE_COLLAB_FETCH = 64;
+
+/** Distinct users this account has invited recently (by latest `invited_at`), safe preview fields only. */
+export async function getRecentInviteCollaboratorPreviews(
+  inviterUserId: string,
+  limit = 8,
+): Promise<Pick<User, "publicHandle" | "displayName" | "profileImageUrl">[]> {
+  const rows = await db
+    .select({
+      userId: taskCollaborators.userId,
+      publicHandle: users.publicHandle,
+      displayName: users.displayName,
+      profileImageUrl: users.profileImageUrl,
+      invitedAt: taskCollaborators.invitedAt,
+    })
+    .from(taskCollaborators)
+    .innerJoin(users, eq(taskCollaborators.userId, users.id))
+    .where(
+      and(
+        eq(taskCollaborators.invitedBy, inviterUserId),
+        ne(taskCollaborators.userId, inviterUserId),
+      ),
+    )
+    .orderBy(desc(taskCollaborators.invitedAt))
+    .limit(RECENT_INVITE_COLLAB_FETCH);
+
+  const seen = new Set<string>();
+  const out: Pick<User, "publicHandle" | "displayName" | "profileImageUrl">[] = [];
+  for (const r of rows) {
+    if (seen.has(r.userId)) continue;
+    seen.add(r.userId);
+    out.push({
+      publicHandle: r.publicHandle,
+      displayName: r.displayName,
+      profileImageUrl: r.profileImageUrl,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export async function getUserById(id: string): Promise<SafeUser | undefined> {
   const [user] = await db.select().from(users).where(eq(users.id, id));
   return user ? toSafeUser(user) : undefined;
+}
+
+/** Full row for server-only auth (TOTP ciphertext, etc.). */
+export async function getUserRowById(id: string): Promise<User | undefined> {
+  const [user] = await db.select().from(users).where(eq(users.id, id));
+  return user || undefined;
+}
+
+export async function updateUserAccountProfile(
+  userId: string,
+  input: { displayName: string | null; birthDate: string | null },
+): Promise<void> {
+  await db
+    .update(users)
+    .set({
+      displayName: input.displayName,
+      birthDate: input.birthDate,
+    })
+    .where(eq(users.id, userId));
+}
+
+export async function setUserTotpSecret(userId: string, ciphertext: string, enabledAt: Date): Promise<void> {
+  await db
+    .update(users)
+    .set({
+      totpSecretCiphertext: ciphertext,
+      totpEnabledAt: enabledAt,
+    })
+    .where(eq(users.id, userId));
+}
+
+export async function clearUserTotp(userId: string): Promise<void> {
+  await db
+    .update(users)
+    .set({
+      totpSecretCiphertext: null,
+      totpEnabledAt: null,
+    })
+    .where(eq(users.id, userId));
+}
+
+const DEFAULT_NOTIFICATION_INTENSITY = 50;
+
+function clampNotificationIntensity(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+const FEEDBACK_AVATAR_KEYS_SET = new Set([
+  "archetype",
+  "productivity",
+  "mood",
+  "social",
+  "lazy",
+]);
+
+type FeedbackNudgePrefsShape = {
+  master: number;
+  byAvatar: Partial<Record<string, number>>;
+};
+
+function sanitizeFeedbackNudgePrefs(
+  raw: unknown,
+): FeedbackNudgePrefsShape {
+  const fallback: FeedbackNudgePrefsShape = { master: 50, byAvatar: {} };
+  if (!raw || typeof raw !== "object") return fallback;
+  const input = raw as Record<string, unknown>;
+  const master =
+    typeof input.master === "number" && Number.isFinite(input.master)
+      ? clampNotificationIntensity(input.master)
+      : 50;
+  const byAvatarIn =
+    input.byAvatar && typeof input.byAvatar === "object"
+      ? (input.byAvatar as Record<string, unknown>)
+      : {};
+  const byAvatar: Partial<Record<string, number>> = {};
+  for (const [k, v] of Object.entries(byAvatarIn)) {
+    if (!FEEDBACK_AVATAR_KEYS_SET.has(k)) continue;
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    byAvatar[k] = clampNotificationIntensity(v);
+  }
+  return { master, byAvatar };
+}
+
+function mergeFeedbackNudgePrefs(
+  existing: FeedbackNudgePrefsShape,
+  patch: unknown,
+): FeedbackNudgePrefsShape {
+  if (!patch || typeof patch !== "object") return existing;
+  const patchObj = patch as Record<string, unknown>;
+  const nextMaster =
+    typeof patchObj.master === "number" && Number.isFinite(patchObj.master)
+      ? clampNotificationIntensity(patchObj.master)
+      : existing.master;
+  const byAvatar: Partial<Record<string, number>> = { ...existing.byAvatar };
+  if (patchObj.byAvatar && typeof patchObj.byAvatar === "object") {
+    for (const [k, v] of Object.entries(patchObj.byAvatar as Record<string, unknown>)) {
+      if (!FEEDBACK_AVATAR_KEYS_SET.has(k)) continue;
+      if (v === null || v === undefined) {
+        delete byAvatar[k];
+        continue;
+      }
+      if (typeof v !== "number" || !Number.isFinite(v)) continue;
+      byAvatar[k] = clampNotificationIntensity(v);
+    }
+  }
+  return { master: nextMaster, byAvatar };
+}
+
+function normalizeNotificationPreference(
+  userId: string,
+  row?: UserNotificationPreference,
+): UserNotificationPreference {
+  const now = new Date();
+  return {
+    userId,
+    enabled: row?.enabled ?? false,
+    intensity: clampNotificationIntensity(row?.intensity ?? DEFAULT_NOTIFICATION_INTENSITY),
+    groceryReminderEnabled: row?.groceryReminderEnabled ?? true,
+    groceryAutoCreateTaskEnabled: row?.groceryAutoCreateTaskEnabled ?? false,
+    groceryAutoNotifyEnabled: row?.groceryAutoNotifyEnabled ?? false,
+    quietHoursStart: row?.quietHoursStart ?? null,
+    quietHoursEnd: row?.quietHoursEnd ?? null,
+    feedbackNudgePrefs: sanitizeFeedbackNudgePrefs(row?.feedbackNudgePrefs),
+    createdAt: row?.createdAt ?? now,
+    updatedAt: row?.updatedAt ?? now,
+  };
+}
+
+export async function getUserNotificationPreference(userId: string): Promise<UserNotificationPreference> {
+  const [row] = await db
+    .select()
+    .from(userNotificationPreferences)
+    .where(eq(userNotificationPreferences.userId, userId));
+  return normalizeNotificationPreference(userId, row);
+}
+
+export async function upsertUserNotificationPreference(input: {
+  userId: string;
+  enabled?: boolean;
+  intensity?: number;
+  groceryReminderEnabled?: boolean;
+  groceryAutoCreateTaskEnabled?: boolean;
+  groceryAutoNotifyEnabled?: boolean;
+  quietHoursStart?: number | null;
+  quietHoursEnd?: number | null;
+  feedbackNudgePrefs?: unknown;
+}): Promise<UserNotificationPreference> {
+  const existing = await getUserNotificationPreference(input.userId);
+  const existingPrefs = sanitizeFeedbackNudgePrefs(existing.feedbackNudgePrefs);
+  const nextFeedbackPrefs =
+    input.feedbackNudgePrefs === undefined
+      ? existingPrefs
+      : mergeFeedbackNudgePrefs(existingPrefs, input.feedbackNudgePrefs);
+  const [updated] = await db
+    .insert(userNotificationPreferences)
+    .values({
+      userId: input.userId,
+      enabled: input.enabled ?? existing.enabled,
+      intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
+      groceryReminderEnabled: input.groceryReminderEnabled ?? existing.groceryReminderEnabled,
+      groceryAutoCreateTaskEnabled:
+        input.groceryAutoCreateTaskEnabled ?? existing.groceryAutoCreateTaskEnabled,
+      groceryAutoNotifyEnabled:
+        input.groceryAutoNotifyEnabled ?? existing.groceryAutoNotifyEnabled,
+      quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
+      quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
+      feedbackNudgePrefs: nextFeedbackPrefs,
+      createdAt: existing.createdAt,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: userNotificationPreferences.userId,
+      set: {
+        enabled: input.enabled ?? existing.enabled,
+        intensity: clampNotificationIntensity(input.intensity ?? existing.intensity),
+        groceryReminderEnabled: input.groceryReminderEnabled ?? existing.groceryReminderEnabled,
+        groceryAutoCreateTaskEnabled:
+          input.groceryAutoCreateTaskEnabled ?? existing.groceryAutoCreateTaskEnabled,
+        groceryAutoNotifyEnabled:
+          input.groceryAutoNotifyEnabled ?? existing.groceryAutoNotifyEnabled,
+        quietHoursStart: input.quietHoursStart ?? existing.quietHoursStart,
+        quietHoursEnd: input.quietHoursEnd ?? existing.quietHoursEnd,
+        feedbackNudgePrefs: nextFeedbackPrefs,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return normalizeNotificationPreference(input.userId, updated);
+}
+
+const DEFAULT_VOICE_LISTENING_MODE: VoiceListeningMode = "wake_after_first_use";
+
+function isVoiceListeningMode(v: string | null | undefined): v is VoiceListeningMode {
+  return v === "manual" || v === "wake_after_first_use";
+}
+
+function normalizeVoicePreference(userId: string, row?: UserVoicePreference): UserVoicePreference {
+  const now = new Date();
+  const mode = row?.listeningMode && isVoiceListeningMode(row.listeningMode)
+    ? row.listeningMode
+    : DEFAULT_VOICE_LISTENING_MODE;
+  return {
+    userId,
+    listeningMode: mode,
+    createdAt: row?.createdAt ?? now,
+    updatedAt: row?.updatedAt ?? now,
+  };
+}
+
+export async function getUserVoicePreference(userId: string): Promise<UserVoicePreference> {
+  const [row] = await db
+    .select()
+    .from(userVoicePreferences)
+    .where(eq(userVoicePreferences.userId, userId));
+  return normalizeVoicePreference(userId, row);
+}
+
+export async function upsertUserVoicePreference(input: {
+  userId: string;
+  listeningMode?: VoiceListeningMode;
+}): Promise<UserVoicePreference> {
+  const existing = await getUserVoicePreference(input.userId);
+  const nextMode = input.listeningMode ?? existing.listeningMode;
+  const [updated] = await db
+    .insert(userVoicePreferences)
+    .values({
+      userId: input.userId,
+      listeningMode: nextMode,
+      createdAt: existing.createdAt,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: userVoicePreferences.userId,
+      set: {
+        listeningMode: nextMode,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return normalizeVoicePreference(input.userId, updated);
+}
+
+function normalizeCalendarPreference(userId: string, row?: UserCalendarPreference) {
+  const now = new Date();
+  const code = row?.holidayCountryCode?.trim();
+  return {
+    userId,
+    showHolidays: row?.showHolidays ?? true,
+    holidayCountryCode: code && /^[A-Za-z]{2}$/.test(code) ? code.toUpperCase() : null,
+    createdAt: row?.createdAt ?? now,
+    updatedAt: row?.updatedAt ?? now,
+  };
+}
+
+export async function getUserCalendarPreference(userId: string) {
+  const [row] = await db
+    .select()
+    .from(userCalendarPreferences)
+    .where(eq(userCalendarPreferences.userId, userId));
+  return normalizeCalendarPreference(userId, row);
+}
+
+export async function upsertUserCalendarPreference(input: {
+  userId: string;
+  showHolidays?: boolean;
+  holidayCountryCode?: string | null;
+}) {
+  const existing = await getUserCalendarPreference(input.userId);
+  const nextShow = input.showHolidays ?? existing.showHolidays;
+  let nextCountry = existing.holidayCountryCode;
+  if (input.holidayCountryCode !== undefined) {
+    nextCountry =
+      input.holidayCountryCode === null ? null : input.holidayCountryCode.trim().toUpperCase();
+  }
+  const [updated] = await db
+    .insert(userCalendarPreferences)
+    .values({
+      userId: input.userId,
+      showHolidays: nextShow,
+      holidayCountryCode: nextCountry,
+      createdAt: existing.createdAt,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: userCalendarPreferences.userId,
+      set: {
+        showHolidays: nextShow,
+        holidayCountryCode: nextCountry,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return normalizeCalendarPreference(input.userId, updated);
+}
+
+export async function listUserPushSubscriptions(userId: string): Promise<UserPushSubscription[]> {
+  return db
+    .select()
+    .from(userPushSubscriptions)
+    .where(eq(userPushSubscriptions.userId, userId))
+    .orderBy(desc(userPushSubscriptions.updatedAt));
+}
+
+export async function upsertUserPushSubscription(input: {
+  userId: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  expirationTime?: number | null;
+  userAgent?: string;
+}): Promise<UserPushSubscription> {
+  const [updated] = await db
+    .insert(userPushSubscriptions)
+    .values({
+      userId: input.userId,
+      endpoint: input.endpoint,
+      p256dh: input.p256dh,
+      auth: input.auth,
+      expirationTime: input.expirationTime ?? null,
+      userAgent: input.userAgent ?? null,
+      updatedAt: new Date(),
+      lastSeenAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: userPushSubscriptions.endpoint,
+      set: {
+        userId: input.userId,
+        p256dh: input.p256dh,
+        auth: input.auth,
+        expirationTime: input.expirationTime ?? null,
+        userAgent: input.userAgent ?? null,
+        updatedAt: new Date(),
+        lastSeenAt: new Date(),
+      },
+    })
+    .returning();
+  return updated;
+}
+
+export async function deleteUserPushSubscription(userId: string, endpoint: string): Promise<boolean> {
+  const result = await db
+    .delete(userPushSubscriptions)
+    .where(and(
+      eq(userPushSubscriptions.userId, userId),
+      eq(userPushSubscriptions.endpoint, endpoint),
+    ));
+  return (result.rowCount || 0) > 0;
+}
+
+export type PushDispatchCandidate = {
+  userId: string;
+  subscription: UserPushSubscription;
+  preference: UserNotificationPreference;
+  dispatchProfile: NotificationDispatchProfile;
+};
+
+export async function listPushDispatchCandidates(limit = 200): Promise<PushDispatchCandidate[]> {
+  const preferences = await db
+    .select()
+    .from(userNotificationPreferences)
+    .where(eq(userNotificationPreferences.enabled, true))
+    .limit(Math.max(limit, 1));
+  if (preferences.length === 0) return [];
+
+  const prefByUserId = new Map(preferences.map((pref) => [pref.userId, pref]));
+  const userIds = preferences.map((pref) => pref.userId);
+  const subscriptions = await db
+    .select()
+    .from(userPushSubscriptions)
+    .where(inArray(userPushSubscriptions.userId, userIds))
+    .orderBy(desc(userPushSubscriptions.updatedAt));
+
+  const candidates: PushDispatchCandidate[] = [];
+  for (const subscription of subscriptions) {
+    const pref = prefByUserId.get(subscription.userId);
+    if (!pref) continue;
+    if (!shouldDispatchByIntensity({ intensity: pref.intensity, lastSentAt: subscription.lastSentAt })) continue;
+    candidates.push({
+      userId: subscription.userId,
+      subscription,
+      preference: pref,
+      dispatchProfile: getNotificationDispatchProfile(pref.intensity),
+    });
+    if (candidates.length >= limit) break;
+  }
+  return candidates;
+}
+
+export async function markPushSubscriptionDispatched(endpoint: string): Promise<void> {
+  await db
+    .update(userPushSubscriptions)
+    .set({
+      lastSentAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(userPushSubscriptions.endpoint, endpoint));
+}
+
+type AdherenceStatePatch = {
+  lastEvaluatedAt?: Date;
+  lastLoginAt?: Date;
+  lastTaskMutationAt?: Date;
+  lastMissedDueAt?: Date;
+  lastReminderIgnoredAt?: Date;
+  lastStreakDropAt?: Date;
+  lastNoEngagementAt?: Date;
+};
+
+export async function getUserAdherenceState(userId: string): Promise<UserAdherenceState | null> {
+  const [row] = await db
+    .select()
+    .from(userAdherenceState)
+    .where(eq(userAdherenceState.userId, userId));
+  return row ?? null;
+}
+
+export async function upsertUserAdherenceState(userId: string, patch: AdherenceStatePatch): Promise<UserAdherenceState> {
+  const existing = await getUserAdherenceState(userId);
+  const [row] = await db
+    .insert(userAdherenceState)
+    .values({
+      userId,
+      lastEvaluatedAt: patch.lastEvaluatedAt ?? existing?.lastEvaluatedAt ?? null,
+      lastLoginAt: patch.lastLoginAt ?? existing?.lastLoginAt ?? null,
+      lastTaskMutationAt: patch.lastTaskMutationAt ?? existing?.lastTaskMutationAt ?? null,
+      lastMissedDueAt: patch.lastMissedDueAt ?? existing?.lastMissedDueAt ?? null,
+      lastReminderIgnoredAt: patch.lastReminderIgnoredAt ?? existing?.lastReminderIgnoredAt ?? null,
+      lastStreakDropAt: patch.lastStreakDropAt ?? existing?.lastStreakDropAt ?? null,
+      lastNoEngagementAt: patch.lastNoEngagementAt ?? existing?.lastNoEngagementAt ?? null,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: userAdherenceState.userId,
+      set: {
+        lastEvaluatedAt: patch.lastEvaluatedAt ?? existing?.lastEvaluatedAt ?? null,
+        lastLoginAt: patch.lastLoginAt ?? existing?.lastLoginAt ?? null,
+        lastTaskMutationAt: patch.lastTaskMutationAt ?? existing?.lastTaskMutationAt ?? null,
+        lastMissedDueAt: patch.lastMissedDueAt ?? existing?.lastMissedDueAt ?? null,
+        lastReminderIgnoredAt: patch.lastReminderIgnoredAt ?? existing?.lastReminderIgnoredAt ?? null,
+        lastStreakDropAt: patch.lastStreakDropAt ?? existing?.lastStreakDropAt ?? null,
+        lastNoEngagementAt: patch.lastNoEngagementAt ?? existing?.lastNoEngagementAt ?? null,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return row;
+}
+
+export async function createAdherenceIntervention(input: {
+  userId: string;
+  signal: AdherenceSignal;
+  title: string;
+  message: string;
+  channel?: "in_app" | "push";
+  context?: Record<string, unknown>;
+  dedupeKey: string;
+}): Promise<UserAdherenceIntervention | null> {
+  try {
+    const [row] = await db
+      .insert(userAdherenceInterventions)
+      .values({
+        id: randomUUID(),
+        userId: input.userId,
+        signal: input.signal,
+        status: "open",
+        title: input.title,
+        message: input.message,
+        channel: input.channel ?? "in_app",
+        contextJson: input.context ? JSON.stringify(input.context) : null,
+        dedupeKey: input.dedupeKey,
+        updatedAt: new Date(),
+      })
+      .returning();
+    return row ?? null;
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? (error as { code?: string }).code : undefined;
+    if (code === "23505") return null;
+    throw error;
+  }
+}
+
+export async function listOpenAdherenceInterventions(userId: string, limit = 10): Promise<UserAdherenceIntervention[]> {
+  return db
+    .select()
+    .from(userAdherenceInterventions)
+    .where(and(
+      eq(userAdherenceInterventions.userId, userId),
+      eq(userAdherenceInterventions.status, "open"),
+    ))
+    .orderBy(desc(userAdherenceInterventions.createdAt))
+    .limit(Math.min(Math.max(limit, 1), 100));
+}
+
+export async function listDispatchableAdherenceInterventions(limit = 100): Promise<UserAdherenceIntervention[]> {
+  return db
+    .select()
+    .from(userAdherenceInterventions)
+    .where(and(
+      eq(userAdherenceInterventions.status, "open"),
+      sql`${userAdherenceInterventions.pushSentAt} IS NULL`,
+    ))
+    .orderBy(desc(userAdherenceInterventions.createdAt))
+    .limit(Math.min(Math.max(limit, 1), 500));
+}
+
+export async function markAdherenceInterventionPushSent(id: string): Promise<void> {
+  await db
+    .update(userAdherenceInterventions)
+    .set({
+      pushSentAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(userAdherenceInterventions.id, id));
+}
+
+export async function acknowledgeAdherenceIntervention(
+  userId: string,
+  id: string,
+  action: "acknowledge" | "dismiss" = "acknowledge",
+): Promise<boolean> {
+  const setValues = action === "dismiss"
+    ? {
+        status: "dismissed",
+        dismissedAt: new Date(),
+        updatedAt: new Date(),
+      }
+    : {
+        status: "acknowledged",
+        acknowledgedAt: new Date(),
+        updatedAt: new Date(),
+      };
+  const rows = await db
+    .update(userAdherenceInterventions)
+    .set(setValues)
+    .where(and(
+      eq(userAdherenceInterventions.userId, userId),
+      eq(userAdherenceInterventions.id, id),
+      eq(userAdherenceInterventions.status, "open"),
+    ))
+    .returning({ id: userAdherenceInterventions.id });
+  return rows.length > 0;
+}
+
+export async function listRecentAdherenceInterventions(
+  userId: string,
+  signal?: AdherenceSignal,
+  limit = 20,
+): Promise<UserAdherenceIntervention[]> {
+  const whereClause = signal
+    ? and(eq(userAdherenceInterventions.userId, userId), eq(userAdherenceInterventions.signal, signal))
+    : eq(userAdherenceInterventions.userId, userId);
+  return db
+    .select()
+    .from(userAdherenceInterventions)
+    .where(whereClause)
+    .orderBy(desc(userAdherenceInterventions.createdAt))
+    .limit(Math.min(Math.max(limit, 1), 200));
+}
+
+export async function getLatestTaskMutationAt(userId: string): Promise<Date | null> {
+  const [row] = await db
+    .select({ value: sql<Date | null>`max(${tasks.updatedAt})` })
+    .from(tasks)
+    .where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt)));
+  return row?.value ?? null;
+}
+
+export async function getLatestLoginAt(userId: string): Promise<Date | null> {
+  const [row] = await db
+    .select({ value: sql<Date | null>`max(${securityEvents.createdAt})` })
+    .from(securityEvents)
+    .where(and(
+      eq(securityEvents.actorUserId, userId),
+      inArray(securityEvents.eventType, [
+        "auth_login_success",
+        "oauth_login_success",
+        "auth_totp_login_success",
+      ]),
+    ));
+  return row?.value ?? null;
 }
 
 export async function verifyPassword(
@@ -361,6 +1188,16 @@ export async function getAllUsers(): Promise<SafeUser[]> {
   return rows.map(toSafeUser);
 }
 
+export async function getUsersPaginated(offset: number, limit: number): Promise<SafeUser[]> {
+  const rows = await db
+    .select()
+    .from(users)
+    .orderBy(asc(users.createdAt))
+    .limit(limit)
+    .offset(offset);
+  return rows.map(toSafeUser);
+}
+
 export async function isUserBanned(email: string): Promise<{ banned: boolean; reason?: string }> {
   const user = await getUserByEmail(email);
   if (!user) return { banned: false };
@@ -395,6 +1232,373 @@ export async function getSecurityLogs(limit = 100): Promise<SecurityLog[]> {
     .limit(limit);
 }
 
+function hashUserAgent(userAgent?: string): string | null {
+  if (!userAgent) return null;
+  return createHash("sha256").update(userAgent).digest("hex");
+}
+
+export async function appendSecurityEvent(input: {
+  eventType: string;
+  actorUserId?: string;
+  targetUserId?: string;
+  route?: string;
+  method?: string;
+  statusCode?: number;
+  ipAddress?: string;
+  userAgent?: string;
+  payload?: Record<string, unknown>;
+}): Promise<SecurityEvent> {
+  const [prev] = await db
+    .select({ eventHash: securityEvents.eventHash })
+    .from(securityEvents)
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(1);
+
+  const createdAt = new Date();
+  const payloadJson = input.payload ? JSON.stringify(input.payload) : null;
+  const userAgentHash = hashUserAgent(input.userAgent);
+  const prevHash = prev?.eventHash || null;
+  const eventHash = buildSecurityEventHash({
+    eventType: input.eventType,
+    actorUserId: input.actorUserId || null,
+    targetUserId: input.targetUserId || null,
+    route: input.route || null,
+    method: input.method || null,
+    statusCode: input.statusCode ?? null,
+    ipAddress: input.ipAddress || null,
+    userAgentHash,
+    payloadJson,
+    prevHash,
+    createdAtIso: createdAt.toISOString(),
+  });
+
+  const [inserted] = await db.insert(securityEvents).values({
+    id: randomUUID(),
+    eventType: input.eventType,
+    actorUserId: input.actorUserId || null,
+    targetUserId: input.targetUserId || null,
+    route: input.route || null,
+    method: input.method || null,
+    statusCode: input.statusCode ?? null,
+    ipAddress: input.ipAddress || null,
+    userAgentHash,
+    payloadJson,
+    prevHash,
+    eventHash,
+    createdAt,
+  }).returning();
+  return inserted;
+}
+
+export async function getSecurityEvents(limit = 200): Promise<SecurityEvent[]> {
+  return db
+    .select()
+    .from(securityEvents)
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(limit);
+}
+
+export type FeedbackInboxItem = {
+  id: string;
+  createdAt: Date | null;
+  actorUserId: string | null;
+  messageLength: number;
+  attachments: number;
+  classification: string;
+  priority: string;
+  sentiment: string;
+  tags: string[];
+  recommendedActions: string[];
+  classifierSource: string;
+  classifierFallbackLayer: number;
+  classifierConfidence: number;
+  reviewed: boolean;
+  reviewedAt: Date | null;
+  reviewedBy: string | null;
+};
+
+export async function listFeedbackInbox(limit = 100): Promise<FeedbackInboxItem[]> {
+  const rows = await db
+    .select()
+    .from(securityEvents)
+    .where(eq(securityEvents.eventType, "feedback_processed"))
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(Math.min(limit, 500));
+
+  const reviewRows = await db
+    .select()
+    .from(securityEvents)
+    .where(eq(securityEvents.eventType, "feedback_review_state_changed"))
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(2000);
+
+  const reviewMap = new Map<string, { reviewed: boolean; reviewedAt: Date | null; reviewedBy: string | null }>();
+  for (const row of reviewRows) {
+    const parsed = parseFeedbackReviewPayload(row.payloadJson);
+    if (!parsed) continue;
+    if (!reviewMap.has(parsed.feedbackEventId)) {
+      reviewMap.set(parsed.feedbackEventId, {
+        reviewed: parsed.reviewed,
+        reviewedAt: row.createdAt || null,
+        reviewedBy: row.actorUserId || null,
+      });
+    }
+  }
+
+  return rows
+    .map((row) => {
+      const payload = parseFeedbackPayload(row.payloadJson);
+      if (!payload) return null;
+      const review = reviewMap.get(row.id);
+      return {
+        id: row.id,
+        createdAt: row.createdAt || null,
+        actorUserId: row.actorUserId || null,
+        ...payload,
+        reviewed: review?.reviewed || false,
+        reviewedAt: review?.reviewedAt || null,
+        reviewedBy: review?.reviewedBy || null,
+      };
+    })
+    .filter((row): row is FeedbackInboxItem => Boolean(row));
+}
+
+export type FeedbackInsightsSummary = {
+  total: number;
+  byPriority: Record<string, number>;
+  byClassification: Record<string, number>;
+  bySentiment: Record<string, number>;
+  urgentCount: number;
+};
+
+export async function getFeedbackInsightsForUser(
+  userId: string,
+  limit = 500,
+): Promise<FeedbackInsightsSummary> {
+  const rows = await db
+    .select()
+    .from(securityEvents)
+    .where(and(
+      eq(securityEvents.eventType, "feedback_processed"),
+      eq(securityEvents.actorUserId, userId),
+    ))
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(Math.min(limit, 1000));
+
+  const byPriority: Record<string, number> = {};
+  const byClassification: Record<string, number> = {};
+  const bySentiment: Record<string, number> = {};
+  let urgentCount = 0;
+
+  for (const row of rows) {
+    const payload = parseFeedbackPayload(row.payloadJson);
+    if (!payload) continue;
+
+    byPriority[payload.priority] = (byPriority[payload.priority] || 0) + 1;
+    byClassification[payload.classification] = (byClassification[payload.classification] || 0) + 1;
+    bySentiment[payload.sentiment] = (bySentiment[payload.sentiment] || 0) + 1;
+
+    if (payload.priority === "high" || payload.priority === "critical") {
+      urgentCount += 1;
+    }
+  }
+
+  return {
+    total: rows.length,
+    byPriority,
+    byClassification,
+    bySentiment,
+    urgentCount,
+  };
+}
+
+export async function getFeedbackInsightsGlobal(
+  limit = 1000,
+): Promise<FeedbackInsightsSummary> {
+  const rows = await db
+    .select()
+    .from(securityEvents)
+    .where(eq(securityEvents.eventType, "feedback_processed"))
+    .orderBy(desc(securityEvents.createdAt))
+    .limit(Math.min(limit, 5000));
+
+  const byPriority: Record<string, number> = {};
+  const byClassification: Record<string, number> = {};
+  const bySentiment: Record<string, number> = {};
+  let urgentCount = 0;
+
+  for (const row of rows) {
+    const payload = parseFeedbackPayload(row.payloadJson);
+    if (!payload) continue;
+
+    byPriority[payload.priority] = (byPriority[payload.priority] || 0) + 1;
+    byClassification[payload.classification] = (byClassification[payload.classification] || 0) + 1;
+    bySentiment[payload.sentiment] = (bySentiment[payload.sentiment] || 0) + 1;
+
+    if (payload.priority === "high" || payload.priority === "critical") {
+      urgentCount += 1;
+    }
+  }
+
+  return {
+    total: rows.length,
+    byPriority,
+    byClassification,
+    bySentiment,
+    urgentCount,
+  };
+}
+
+export async function getSecurityAlerts(limit = 200): Promise<SecurityAlert[]> {
+  return db
+    .select()
+    .from(securityAlerts)
+    .orderBy(desc(securityAlerts.createdAt))
+    .limit(limit);
+}
+
+async function createSecurityAlertIfMissing(ruleId: string, severity: "low" | "medium" | "high" | "critical", message: string, actorUserId?: string, details?: Record<string, unknown>) {
+  const [existing] = await db
+    .select()
+    .from(securityAlerts)
+    .where(and(
+      eq(securityAlerts.ruleId, ruleId),
+      eq(securityAlerts.status, "open"),
+      actorUserId ? eq(securityAlerts.actorUserId, actorUserId) : sql`TRUE`,
+    ))
+    .orderBy(desc(securityAlerts.createdAt))
+    .limit(1);
+
+  if (existing) return;
+  await db.insert(securityAlerts).values({
+    id: randomUUID(),
+    ruleId,
+    severity,
+    message,
+    actorUserId: actorUserId || null,
+    detailsJson: details ? JSON.stringify(details) : null,
+    status: "open",
+  });
+}
+
+export async function analyzeAndCreateSecurityAlerts(): Promise<{ created: number }> {
+  let created = 0;
+  const now = new Date();
+  const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
+  const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+
+  const failedLoginsByIp = await db.execute(sql`
+    SELECT ip_address, COUNT(*)::int AS attempts
+    FROM security_logs
+    WHERE event_type = 'login_failed' AND created_at >= ${tenMinutesAgo}
+    GROUP BY ip_address
+    HAVING COUNT(*) >= 6
+  `);
+  for (const row of failedLoginsByIp.rows as any[]) {
+    await createSecurityAlertIfMissing(
+      "login_failed_burst_ip",
+      "high",
+      `High failed-login volume from IP ${row.ip_address}`,
+      undefined,
+      { attempts: Number(row.attempts) || 0, ipAddress: row.ip_address },
+    );
+    created += 1;
+  }
+
+  const highFailureRoutes = await db.execute(sql`
+    SELECT route, method, COUNT(*)::int AS failures
+    FROM security_events
+    WHERE created_at >= ${fifteenMinutesAgo} AND status_code >= 400
+    GROUP BY route, method
+    HAVING COUNT(*) >= 30
+  `);
+  for (const row of highFailureRoutes.rows as any[]) {
+    await createSecurityAlertIfMissing(
+      "route_failure_burst",
+      "medium",
+      `Route failure burst detected on ${row.method} ${row.route}`,
+      undefined,
+      { failures: Number(row.failures) || 0, route: row.route, method: row.method },
+    );
+    created += 1;
+  }
+
+  return { created };
+}
+
+// ─── User classification labels ───────────────────────────────────────────────
+
+export async function listUserClassificationLabels(
+  userId: string,
+): Promise<{ id: string; label: string; coins: number }[]> {
+  return db
+    .select({
+      id: userClassificationLabels.id,
+      label: userClassificationLabels.label,
+      coins: userClassificationLabels.coins,
+    })
+    .from(userClassificationLabels)
+    .where(eq(userClassificationLabels.userId, userId))
+    .orderBy(asc(userClassificationLabels.label));
+}
+
+function isPostgresUniqueViolation(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const o = e as { code?: string; cause?: unknown };
+  if (o.code === "23505") return true;
+  if (o.cause && typeof o.cause === "object" && (o.cause as { code?: string }).code === "23505") {
+    return true;
+  }
+  return false;
+}
+
+async function getUserClassificationLabelByUserLower(
+  userId: string,
+  labelLower: string,
+): Promise<{ id: string; label: string; coins: number } | undefined> {
+  const [row] = await db
+    .select()
+    .from(userClassificationLabels)
+    .where(
+      and(
+        eq(userClassificationLabels.userId, userId),
+        eq(userClassificationLabels.labelLower, labelLower),
+      ),
+    )
+    .limit(1);
+  if (!row) return undefined;
+  return { id: row.id, label: row.label, coins: row.coins };
+}
+
+export async function addUserClassificationLabel(
+  userId: string,
+  rawLabel: string,
+): Promise<{ id: string; label: string; coins: number }> {
+  const label = rawLabel.trim();
+  if (label.length < 2) {
+    throw new Error("Name must be at least 2 characters.");
+  }
+  if (label.length > 48) {
+    throw new Error("Name must be at most 48 characters.");
+  }
+
+  try {
+    const [row] = await db
+      .insert(userClassificationLabels)
+      .values({ id: randomUUID(), userId, label, coins: 3 })
+      .returning();
+    if (row) {
+      return { id: row.id, label: row.label, coins: row.coins };
+    }
+  } catch (e: unknown) {
+    if (!isPostgresUniqueViolation(e)) throw e;
+  }
+
+  const existing = await getUserClassificationLabelByUserLower(userId, label.toLowerCase());
+  if (existing) return existing;
+  throw new Error("Could not create or load classification label.");
+}
+
 // ─── Task storage ────────────────────────────────────────────────────────────
 
 export interface IStorage {
@@ -406,21 +1610,18 @@ export interface IStorage {
   getTasksByStatus(userId: string, status: string): Promise<Task[]>;
   getTasksByPriority(userId: string, priority: string): Promise<Task[]>;
   searchTasks(userId: string, query: string): Promise<Task[]>;
-  createTasksBulk(userId: string, taskList: InsertTask[], options?: { forceImported?: boolean }): Promise<Task[]>;
+  createTasksBulk(userId: string, taskList: InsertTask[]): Promise<Task[]>;
   bulkUpdateTasks(userId: string, updates: UpdateTask[]): Promise<void>;
   reorderTasks(userId: string, taskIds: string[]): Promise<void>;
-  findTasksByContentHashes(userId: string, hashes: string[]): Promise<Pick<Task, 'id' | 'contentHash' | 'status'>[]>;
-  createImportRecord(record: { userId: string; fileName: string; fileHash: string; totalParsed: number; imported: number; skippedCompleted: number; skippedDuplicate: number; forceImported: number }): Promise<ImportHistory>;
-  getImportHistory(userId: string): Promise<ImportHistory[]>;
-  findImportByFileHash(userId: string, fileHash: string): Promise<ImportHistory | undefined>;
-  backfillContentHashes(): Promise<number>;
-  deleteAllTasks(userId: string): Promise<number>;
   getTaskStats(userId: string): Promise<{
     totalTasks: number;
     highPriorityTasks: number;
     completedToday: number;
     avgPriorityScore: number;
   }>;
+  restoreTask(userId: string, id: string): Promise<Task | undefined>;
+  purgeTask(userId: string, id: string): Promise<boolean>;
+  getDeletedTasks(userId: string): Promise<Task[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -428,7 +1629,7 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(tasks)
-      .where(eq(tasks.userId, userId))
+      .where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt)))
       .orderBy(asc(tasks.sortOrder));
   }
 
@@ -436,14 +1637,13 @@ export class DatabaseStorage implements IStorage {
     const [task] = await db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId), isNull(tasks.deletedAt)));
     return task || undefined;
   }
 
   async createTask(userId: string, insertTask: InsertTask): Promise<Task> {
     const id = randomUUID();
     const now = new Date();
-    const contentHash = computeContentHash(insertTask.activity, insertTask.date);
 
     const taskData = {
       ...insertTask,
@@ -453,7 +1653,6 @@ export class DatabaseStorage implements IStorage {
       priorityScore: 0,
       classification: "General",
       isRepeated: false,
-      contentHash,
       createdAt: now,
       updatedAt: now,
     };
@@ -462,7 +1661,7 @@ export class DatabaseStorage implements IStorage {
     return task;
   }
 
-  async createTasksBulk(userId: string, taskList: InsertTask[], options?: { forceImported?: boolean }): Promise<Task[]> {
+  async createTasksBulk(userId: string, taskList: InsertTask[]): Promise<Task[]> {
     if (taskList.length === 0) return [];
     const now = new Date();
     const BATCH_SIZE = 500;
@@ -478,8 +1677,6 @@ export class DatabaseStorage implements IStorage {
         priorityScore: 0,
         classification: "General",
         isRepeated: false,
-        contentHash: computeContentHash(t.activity, t.date),
-        forceImported: options?.forceImported || false,
         createdAt: now,
         updatedAt: now,
       }));
@@ -490,42 +1687,42 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateTask(userId: string, updateTask: UpdateTask): Promise<Task | undefined> {
-    const updates: any = { ...updateTask, updatedAt: new Date() };
-    if (updateTask.activity || updateTask.date) {
-      const existing = await this.getTask(userId, updateTask.id);
-      if (existing) {
-        const activity = updateTask.activity || existing.activity;
-        const date = updateTask.date || existing.date;
-        updates.contentHash = computeContentHash(activity, date);
-      }
-    }
     const [task] = await db
       .update(tasks)
-      .set(updates)
-      .where(and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId)))
+      .set({ ...updateTask, updatedAt: new Date() })
+      .where(and(eq(tasks.id, updateTask.id), eq(tasks.userId, userId), isNull(tasks.deletedAt)))
       .returning();
     return task || undefined;
   }
 
   async deleteTask(userId: string, id: string): Promise<boolean> {
-    const result = await db
-      .delete(tasks)
-      .where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
-    return (result.rowCount || 0) > 0;
+    const now = new Date();
+    const [task] = await db
+      .update(tasks)
+      .set({
+        deletedAt: now,
+        deletedBy: userId,
+        deleteReason: "user_delete",
+        purgeAfter: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        updatedAt: now,
+      })
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId), isNull(tasks.deletedAt)))
+      .returning();
+    return !!task;
   }
 
   async getTasksByStatus(userId: string, status: string): Promise<Task[]> {
     return await db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.userId, userId), eq(tasks.status, status)));
+      .where(and(eq(tasks.userId, userId), eq(tasks.status, status), isNull(tasks.deletedAt)));
   }
 
   async getTasksByPriority(userId: string, priority: string): Promise<Task[]> {
     return await db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.userId, userId), eq(tasks.priority, priority)));
+      .where(and(eq(tasks.userId, userId), eq(tasks.priority, priority), isNull(tasks.deletedAt)));
   }
 
   async searchTasks(userId: string, query: string): Promise<Task[]> {
@@ -536,6 +1733,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(tasks.userId, userId),
+          isNull(tasks.deletedAt),
           or(
             ilike(tasks.activity, lowercaseQuery),
             ilike(tasks.notes, lowercaseQuery),
@@ -543,8 +1741,8 @@ export class DatabaseStorage implements IStorage {
           )
         )
       )
-      .orderBy(desc(tasks.updatedAt))
-      .limit(50);
+      .orderBy(desc(tasks.updatedAt), desc(tasks.createdAt))
+      .limit(TASK_SEARCH_RESULT_LIMIT);
   }
 
   async bulkUpdateTasks(userId: string, updates: UpdateTask[]): Promise<void> {
@@ -564,6 +1762,22 @@ export class DatabaseStorage implements IStorage {
         return sql.join([sql`CASE`, ...parts, sql`ELSE ${sql.raw(column)} END`], sql` `);
       };
 
+      const associationsCase = sql.join(
+        [
+          sql`CASE`,
+          ...batch.map((u) => {
+            const val = u.classificationAssociations;
+            if (val === undefined) {
+              return sql`WHEN id = ${u.id} THEN classification_associations`;
+            }
+            const escaped = JSON.stringify(val).replace(/\\/g, "\\\\").replace(/'/g, "''");
+            return sql`WHEN id = ${u.id} THEN ${sql.raw(`'${escaped}'::jsonb`)}`;
+          }),
+          sql`ELSE classification_associations END`,
+        ],
+        sql` `,
+      );
+
       const idParams = batch.map(u => sql`${u.id}`);
 
       await db.execute(sql`
@@ -571,9 +1785,10 @@ export class DatabaseStorage implements IStorage {
           priority = ${buildCase('priority', u => u.priority)},
           priority_score = ${buildCase('priority_score', u => u.priorityScore)},
           classification = ${buildCase('classification', u => u.classification)},
+          classification_associations = ${associationsCase},
           is_repeated = ${buildCase('is_repeated', u => u.isRepeated)},
           updated_at = ${now}
-        WHERE user_id = ${userId} AND id IN (${sql.join(idParams, sql`, `)})
+        WHERE user_id = ${userId} AND deleted_at IS NULL AND id IN (${sql.join(idParams, sql`, `)})
       `);
     }
   }
@@ -588,85 +1803,10 @@ export class DatabaseStorage implements IStorage {
           db
             .update(tasks)
             .set({ sortOrder: i + idx, updatedAt: now })
-            .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
+            .where(and(eq(tasks.id, id), eq(tasks.userId, userId), isNull(tasks.deletedAt)))
         )
       );
     }
-  }
-
-  async findTasksByContentHashes(userId: string, hashes: string[]): Promise<Pick<Task, 'id' | 'contentHash' | 'status'>[]> {
-    if (hashes.length === 0) return [];
-    const BATCH = 500;
-    const results: Pick<Task, 'id' | 'contentHash' | 'status'>[] = [];
-    for (let i = 0; i < hashes.length; i += BATCH) {
-      const batch = hashes.slice(i, i + BATCH);
-      const hashParams = batch.map(h => sql`${h}`);
-      const rows = await db
-        .select({ id: tasks.id, contentHash: tasks.contentHash, status: tasks.status })
-        .from(tasks)
-        .where(and(
-          eq(tasks.userId, userId),
-          sql`${tasks.contentHash} IN (${sql.join(hashParams, sql`, `)})`
-        ));
-      results.push(...rows);
-    }
-    return results;
-  }
-
-  async createImportRecord(record: { userId: string; fileName: string; fileHash: string; totalParsed: number; imported: number; skippedCompleted: number; skippedDuplicate: number; forceImported: number }): Promise<ImportHistory> {
-    const [row] = await db.insert(importHistory).values(record).returning();
-    return row;
-  }
-
-  async getImportHistory(userId: string): Promise<ImportHistory[]> {
-    return await db
-      .select()
-      .from(importHistory)
-      .where(eq(importHistory.userId, userId))
-      .orderBy(desc(importHistory.createdAt))
-      .limit(50);
-  }
-
-  async findImportByFileHash(userId: string, fileHash: string): Promise<ImportHistory | undefined> {
-    const [row] = await db
-      .select()
-      .from(importHistory)
-      .where(and(eq(importHistory.userId, userId), eq(importHistory.fileHash, fileHash)))
-      .orderBy(desc(importHistory.createdAt))
-      .limit(1);
-    return row || undefined;
-  }
-
-  async backfillContentHashes(): Promise<number> {
-    let totalProcessed = 0;
-    const BATCH_SIZE = 5000;
-
-    while (true) {
-      const unhashed = await db
-        .select({ id: tasks.id, activity: tasks.activity, date: tasks.date, userId: tasks.userId })
-        .from(tasks)
-        .where(sql`${tasks.contentHash} IS NULL`)
-        .limit(BATCH_SIZE);
-
-      if (unhashed.length === 0) break;
-
-      for (const t of unhashed) {
-        const hash = computeContentHash(t.activity, t.date);
-        await db.update(tasks).set({ contentHash: hash }).where(eq(tasks.id, t.id));
-      }
-      totalProcessed += unhashed.length;
-
-      if (unhashed.length < BATCH_SIZE) break;
-    }
-
-    return totalProcessed;
-  }
-
-  async deleteAllTasks(userId: string): Promise<number> {
-    const result = await db
-      .delete(tasks)
-      .where(eq(tasks.userId, userId));
-    return (result.rowCount || 0);
   }
 
   async getTaskStats(userId: string): Promise<{
@@ -678,93 +1818,251 @@ export class DatabaseStorage implements IStorage {
     const today = new Date().toISOString().split("T")[0];
 
     const [[totalRow], [highPriorityRow], [completedTodayRow], [avgRow]] = await Promise.all([
-      db.select({ value: count() }).from(tasks).where(eq(tasks.userId, userId)),
+      db.select({ value: count() }).from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt))),
       db.select({ value: count() }).from(tasks).where(
         and(
           eq(tasks.userId, userId),
+          isNull(tasks.deletedAt),
           or(eq(tasks.priority, "Highest"), eq(tasks.priority, "High"))
         )
       ),
       db.select({ value: count() }).from(tasks).where(
         and(
           eq(tasks.userId, userId),
+          isNull(tasks.deletedAt),
           eq(tasks.status, "completed"),
-          sql`${tasks.updatedAt}::date = ${today}::date`,
-          sql`(${tasks.forceImported} IS NULL OR ${tasks.forceImported} = false)`
+          sql`${tasks.updatedAt}::date = ${today}::date`
         )
       ),
-      db.select({ value: avg(tasks.priorityScore) }).from(tasks).where(eq(tasks.userId, userId)),
+      db.select({ value: avg(tasks.priorityScore) }).from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt))),
     ]);
 
+    const rawAvg = Number(avgRow?.value) || 0;
     return {
       totalTasks: Number(totalRow?.value) || 0,
       highPriorityTasks: Number(highPriorityRow?.value) || 0,
       completedToday: Number(completedTodayRow?.value) || 0,
-      avgPriorityScore: Number(avgRow?.value) || 0,
+      /** Same scale as task list / planner: DB stores score × 10. */
+      avgPriorityScore: displayAveragePriorityScoreFromDb(rawAvg),
     };
+  }
+
+  async restoreTask(userId: string, id: string): Promise<Task | undefined> {
+    const [task] = await db
+      .update(tasks)
+      .set({
+        deletedAt: null,
+        deletedBy: null,
+        deleteReason: null,
+        purgeAfter: null,
+        restoreCount: sql`${tasks.restoreCount} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId), isNotNull(tasks.deletedAt)))
+      .returning();
+    return task || undefined;
+  }
+
+  async purgeTask(userId: string, id: string): Promise<boolean> {
+    const result = await db
+      .delete(tasks)
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId), isNotNull(tasks.deletedAt)));
+    return (result.rowCount || 0) > 0;
+  }
+
+  async getDeletedTasks(userId: string): Promise<Task[]> {
+    return await db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), isNotNull(tasks.deletedAt)))
+      .orderBy(desc(tasks.deletedAt));
   }
 }
 
 export const storage = new DatabaseStorage();
 
-// ─── MFA Storage ─────────────────────────────────────────────────────────────
+// ─── Study mini-game storage ─────────────────────────────────────────────────
+export async function listStudyDecks(userId: string): Promise<StudyDeck[]> {
+  return db
+    .select()
+    .from(studyDecks)
+    .where(eq(studyDecks.userId, userId))
+    .orderBy(desc(studyDecks.updatedAt));
+}
 
-function getMfaEncryptionKey(): Buffer {
-  const key = process.env.MFA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
-  if (!key) {
-    throw new Error("MFA encryption key is not configured. Set MFA_ENCRYPTION_KEY or SESSION_SECRET environment variable.");
+export async function createStudyDeck(userId: string, input: CreateStudyDeckInput): Promise<StudyDeck> {
+  const [deck] = await db.insert(studyDecks).values({
+    id: randomUUID(),
+    userId,
+    title: input.title,
+    description: input.description || null,
+    sourceType: input.sourceType || "manual",
+    sourceRef: input.sourceRef || null,
+    cardLimitPerSession: input.cardLimitPerSession ?? 10,
+    sessionDurationMinutes: input.sessionDurationMinutes ?? 5,
+    updatedAt: new Date(),
+  }).returning();
+  return deck;
+}
+
+export async function listStudyCards(userId: string, deckId: string): Promise<StudyCard[]> {
+  return db
+    .select()
+    .from(studyCards)
+    .where(and(eq(studyCards.userId, userId), eq(studyCards.deckId, deckId)))
+    .orderBy(asc(studyCards.createdAt));
+}
+
+export async function createStudyCard(
+  userId: string,
+  deckId: string,
+  input: CreateStudyCardInput,
+): Promise<StudyCard> {
+  const [card] = await db.insert(studyCards).values({
+    id: randomUUID(),
+    deckId,
+    userId,
+    prompt: input.prompt,
+    answer: input.answer,
+    topic: input.topic || null,
+    tagsJson: input.tagsJson || null,
+    sourceTaskId: input.sourceTaskId || null,
+    updatedAt: new Date(),
+  }).returning();
+  await db.update(studyDecks).set({ updatedAt: new Date() }).where(and(
+    eq(studyDecks.id, deckId),
+    eq(studyDecks.userId, userId),
+  ));
+  return card;
+}
+
+export async function startStudySession(userId: string, input: StartStudySessionInput): Promise<StudySession> {
+  const cards = await listStudyCards(userId, input.deckId);
+  const [session] = await db.insert(studySessions).values({
+    id: randomUUID(),
+    userId,
+    deckId: input.deckId,
+    gameType: input.gameType || "flashcard_sprint",
+    status: "active",
+    totalCards: cards.length,
+    updatedAt: new Date(),
+  }).returning();
+  return session;
+}
+
+function gradeToCorrect(grade: SubmitStudyAnswerInput["grade"]): boolean {
+  return grade === "good" || grade === "easy";
+}
+
+export async function submitStudyAnswer(
+  userId: string,
+  sessionId: string,
+  input: SubmitStudyAnswerInput,
+): Promise<{ session: StudySession; event: StudyReviewEvent; awardedCoins: number }> {
+  const [session] = await db.select().from(studySessions).where(and(
+    eq(studySessions.id, sessionId),
+    eq(studySessions.userId, userId),
+  ));
+  if (!session) {
+    throw new Error("Session not found");
   }
-  return createHash("sha256").update(key).digest();
-}
-
-function encryptMfaSecret(plaintext: string): string {
-  const key = getMfaEncryptionKey();
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return iv.toString("hex") + ":" + tag.toString("hex") + ":" + encrypted.toString("hex");
-}
-
-function decryptMfaSecret(ciphertext: string): string {
-  const key = getMfaEncryptionKey();
-  const parts = ciphertext.split(":");
-  if (parts.length !== 3) throw new Error("Invalid encrypted MFA secret format");
-  const iv = Buffer.from(parts[0], "hex");
-  const tag = Buffer.from(parts[1], "hex");
-  const encrypted = Buffer.from(parts[2], "hex");
-  const decipher = createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
-}
-
-export async function setMfaSecret(userId: string, secret: string): Promise<void> {
-  const encrypted = encryptMfaSecret(secret);
-  await db.update(users).set({ mfaSecret: encrypted }).where(eq(users.id, userId));
-}
-
-export async function enableMfa(userId: string): Promise<void> {
-  await db.update(users).set({ mfaEnabled: true }).where(eq(users.id, userId));
-}
-
-export async function disableMfa(userId: string): Promise<void> {
-  await db.update(users).set({ mfaEnabled: false, mfaSecret: null }).where(eq(users.id, userId));
-}
-
-export async function getMfaSecret(userId: string): Promise<string | null> {
-  const [user] = await db.select({ mfaSecret: users.mfaSecret }).from(users).where(eq(users.id, userId));
-  if (!user?.mfaSecret) return null;
-  try {
-    return decryptMfaSecret(user.mfaSecret);
-  } catch (err) {
-    console.error("Failed to decrypt MFA secret for user", userId, err);
-    return null;
+  if (session.status !== "active") {
+    throw new Error("Session is not active");
   }
+
+  const isCorrect = gradeToCorrect(input.grade);
+  const [event] = await db.insert(studyReviewEvents).values({
+    id: randomUUID(),
+    userId,
+    sessionId,
+    cardId: input.cardId,
+    grade: input.grade,
+    isCorrect,
+    responseMs: input.responseMs ?? null,
+  }).returning();
+
+  const allEvents = await db
+    .select()
+    .from(studyReviewEvents)
+    .where(eq(studyReviewEvents.sessionId, sessionId));
+  const answeredCards = allEvents.length;
+  const correctCards = allEvents.filter((row) => row.isCorrect).length;
+  const scorePercent = answeredCards > 0 ? Math.round((correctCards / answeredCards) * 100) : 0;
+  const avgResponseMs = allEvents.length > 0
+    ? Math.round(allEvents.reduce((sum, row) => sum + (row.responseMs || 0), 0) / allEvents.length)
+    : null;
+
+  const weakTopicRows = await db
+    .select({ topic: studyCards.topic, isCorrect: studyReviewEvents.isCorrect })
+    .from(studyReviewEvents)
+    .innerJoin(studyCards, eq(studyReviewEvents.cardId, studyCards.id))
+    .where(eq(studyReviewEvents.sessionId, sessionId));
+  const topicCounts = new Map<string, { total: number; correct: number }>();
+  for (const row of weakTopicRows) {
+    const topic = (row.topic || "general").trim().toLowerCase();
+    const entry = topicCounts.get(topic) || { total: 0, correct: 0 };
+    entry.total += 1;
+    if (row.isCorrect) entry.correct += 1;
+    topicCounts.set(topic, entry);
+  }
+  const weakTopics = Array.from(topicCounts.entries())
+    .filter(([, value]) => value.total > 0 && (value.correct / value.total) < 0.5)
+    .map(([topic]) => topic);
+
+  let status: StudySession["status"] = "active";
+  let endedAt: Date | null = null;
+  let awardedCoins = 0;
+  const totalCardsForCompletion = Math.max(session.totalCards, answeredCards);
+  if (answeredCards >= totalCardsForCompletion) {
+    status = "completed";
+    endedAt = new Date();
+    awardedCoins = Math.max(5, Math.min(25, Math.round(scorePercent / 5)));
+    await addCoins(
+      userId,
+      awardedCoins,
+      "study_session_completed",
+      `Flashcard Sprint completed (${scorePercent}% accuracy)`,
+    );
+  }
+
+  const [updated] = await db.update(studySessions).set({
+    status,
+    endedAt,
+    answeredCards,
+    correctCards,
+    scorePercent,
+    avgResponseMs,
+    weakTopicsJson: JSON.stringify(weakTopics),
+    rewardCoins: status === "completed" ? awardedCoins : session.rewardCoins,
+    updatedAt: new Date(),
+  }).where(and(eq(studySessions.id, sessionId), eq(studySessions.userId, userId))).returning();
+
+  return { session: updated, event, awardedCoins };
 }
 
-export async function isMfaEnabled(userId: string): Promise<boolean> {
-  const [user] = await db.select({ mfaEnabled: users.mfaEnabled }).from(users).where(eq(users.id, userId));
-  return user?.mfaEnabled || false;
+export async function getStudySessionSummary(userId: string, sessionId: string): Promise<StudySession | undefined> {
+  const [session] = await db.select().from(studySessions).where(and(
+    eq(studySessions.id, sessionId),
+    eq(studySessions.userId, userId),
+  ));
+  return session || undefined;
+}
+
+export async function getStudyStats(userId: string): Promise<{
+  totalSessions: number;
+  completedSessions: number;
+  avgScorePercent: number;
+  totalCardsReviewed: number;
+}> {
+  const sessions = await db.select().from(studySessions).where(eq(studySessions.userId, userId));
+  const totalSessions = sessions.length;
+  const completed = sessions.filter((row) => row.status === "completed");
+  const completedSessions = completed.length;
+  const avgScorePercent = completedSessions > 0
+    ? Math.round(completed.reduce((sum, row) => sum + (row.scorePercent || 0), 0) / completedSessions)
+    : 0;
+  const totalCardsReviewed = sessions.reduce((sum, row) => sum + (row.answeredCards || 0), 0);
+  return { totalSessions, completedSessions, avgScorePercent, totalCardsReviewed };
 }
 
 // ─── Gamification Storage ────────────────────────────────────────────────────
@@ -774,6 +2072,47 @@ export async function getOrCreateWallet(userId: string): Promise<Wallet> {
   if (existing) return existing;
   const [wallet] = await db.insert(wallets).values({ userId }).returning();
   return wallet;
+}
+
+const MAX_CHIP_REQUEST_MS = 20_000;
+const CHIP_CLOCK_SLACK_MS = 1_500;
+
+/**
+ * Applies client-reported ambient chip hunt deltas with per-request and wall-clock caps.
+ */
+export async function applyChipHuntSync(
+  userId: string,
+  chaseMsDeltaRaw: number,
+  catchRequested: boolean,
+): Promise<{ wallet: Wallet; acceptedChaseMs: number; catchIncremented: boolean }> {
+  const wallet = await getOrCreateWallet(userId);
+  const now = new Date();
+  let accepted = Math.min(Math.max(0, Math.floor(chaseMsDeltaRaw)), MAX_CHIP_REQUEST_MS);
+  if (wallet.chipHuntLastSyncAt) {
+    const elapsed = now.getTime() - new Date(wallet.chipHuntLastSyncAt).getTime();
+    accepted = Math.min(accepted, Math.max(0, elapsed) + CHIP_CLOCK_SLACK_MS);
+  }
+
+  const catchIncremented = Boolean(catchRequested && wallet.chipCatchesCount === 0);
+  const prevTotal = Number(wallet.chipChaseMsTotal) || 0;
+  const newChaseTotal = Math.min(prevTotal + accepted, Number.MAX_SAFE_INTEGER);
+  const newCatchCount = catchIncremented ? 1 : wallet.chipCatchesCount;
+
+  const [updated] = await db
+    .update(wallets)
+    .set({
+      chipChaseMsTotal: newChaseTotal,
+      chipCatchesCount: newCatchCount,
+      chipHuntLastSyncAt: now,
+    })
+    .where(eq(wallets.userId, userId))
+    .returning();
+
+  return {
+    wallet: updated!,
+    acceptedChaseMs: accepted,
+    catchIncremented,
+  };
 }
 
 export async function addCoins(
@@ -864,140 +2203,55 @@ export async function resetStreak(userId: string): Promise<void> {
     .where(eq(wallets.userId, userId));
 }
 
-export async function useStreakShield(userId: string): Promise<boolean> {
-  const wallet = await getOrCreateWallet(userId);
-  if (wallet.streakShields <= 0) return false;
-  await db
-    .update(wallets)
-    .set({ streakShields: sql`${wallets.streakShields} - 1` })
-    .where(eq(wallets.userId, userId));
-  return true;
-}
+const COMBO_WINDOW_MINUTES = 60;
 
-export async function buyStreakShield(userId: string): Promise<{ success: boolean; wallet?: Wallet; error?: string }> {
-  const SHIELD_COST = 25;
+export async function updateComboChainOnCompletion(userId: string, completedAt = new Date()): Promise<Wallet> {
   const wallet = await getOrCreateWallet(userId);
-  if (wallet.balance < SHIELD_COST) return { success: false, error: "Insufficient balance" };
-  if (wallet.streakShields >= 3) return { success: false, error: "Maximum 3 shields" };
+  const comboWindowMs = COMBO_WINDOW_MINUTES * 60 * 1000;
+  const lastCompletionAt = wallet.lastCompletionAt ? new Date(wallet.lastCompletionAt) : null;
+  const comboWindowStartedAt = wallet.comboWindowStartedAt ? new Date(wallet.comboWindowStartedAt) : completedAt;
+  const isInComboWindow = lastCompletionAt && (completedAt.getTime() - lastCompletionAt.getTime()) <= comboWindowMs;
+
+  const comboCount = isInComboWindow ? wallet.comboCount + 1 : 1;
+  const bestComboCount = Math.max(wallet.bestComboCount, comboCount);
+  const nextComboWindowStartedAt = isInComboWindow ? comboWindowStartedAt : completedAt;
+
+  const since = new Date(completedAt.getTime() - (24 * 60 * 60 * 1000));
+  const [chainRow] = await db
+    .select({ value: count() })
+    .from(coinTransactions)
+    .where(and(
+      eq(coinTransactions.userId, userId),
+      eq(coinTransactions.reason, "task_completion"),
+      gte(coinTransactions.createdAt, since),
+    ));
+  const chainCount24h = Number(chainRow?.value) || 0;
+  const bestChainCount24h = Math.max(wallet.bestChainCount24h, chainCount24h);
+
   const [updated] = await db
     .update(wallets)
     .set({
-      balance: sql`${wallets.balance} - ${SHIELD_COST}`,
-      streakShields: sql`${wallets.streakShields} + 1`,
+      comboCount,
+      bestComboCount,
+      comboWindowStartedAt: nextComboWindowStartedAt,
+      lastCompletionAt: completedAt,
+      chainCount24h,
+      bestChainCount24h,
     })
     .where(eq(wallets.userId, userId))
     .returning();
-  await db.insert(coinTransactions).values({
-    id: randomUUID(),
-    userId,
-    amount: -SHIELD_COST,
-    reason: "streak_shield_purchase",
-    details: "Purchased streak shield",
-  });
-  return { success: true, wallet: updated };
+  return updated;
 }
 
-export async function giftCoins(
-  fromUserId: string,
-  toUserId: string,
-  amount: number
-): Promise<{ success: boolean; senderBalance?: number; error?: string }> {
-  if (amount < 1 || amount > 500) return { success: false, error: "Amount must be 1-500" };
-  if (fromUserId === toUserId) return { success: false, error: "Cannot gift to yourself" };
-  const sender = await getOrCreateWallet(fromUserId);
-  if (sender.balance < amount) return { success: false, error: "Insufficient balance" };
-  await getOrCreateWallet(toUserId);
-  await db
-    .update(wallets)
-    .set({ balance: sql`${wallets.balance} - ${amount}` })
-    .where(eq(wallets.userId, fromUserId));
-  await db
-    .update(wallets)
-    .set({
-      balance: sql`${wallets.balance} + ${amount}`,
-      lifetimeEarned: sql`${wallets.lifetimeEarned} + ${amount}`,
-    })
-    .where(eq(wallets.userId, toUserId));
-  const txId1 = randomUUID();
-  const txId2 = randomUUID();
-  await db.insert(coinTransactions).values([
-    { id: txId1, userId: fromUserId, amount: -amount, reason: "coin_gift_sent", details: `Gifted to user` },
-    { id: txId2, userId: toUserId, amount, reason: "coin_gift_received", details: `Received gift` },
-  ]);
-  const updatedSender = await getOrCreateWallet(fromUserId);
-  return { success: true, senderBalance: updatedSender.balance };
-}
-
-export async function setTaskBounty(
-  userId: string,
-  taskId: string,
-  amount: number
-): Promise<{ success: boolean; error?: string }> {
-  if (amount < 5 || amount > 200) return { success: false, error: "Bounty must be 5-200 coins" };
-  const wallet = await getOrCreateWallet(userId);
-  if (wallet.balance < amount) return { success: false, error: "Insufficient balance" };
-  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
-  if (!task) return { success: false, error: "Task not found" };
-  if (task.bounty && task.bounty > 0) return { success: false, error: "Task already has a bounty" };
-  await db.update(wallets).set({ balance: sql`${wallets.balance} - ${amount}` }).where(eq(wallets.userId, userId));
-  await db.update(tasks).set({ bounty: amount, bountySetBy: userId }).where(eq(tasks.id, taskId));
-  await db.insert(coinTransactions).values({
-    id: randomUUID(),
-    userId,
-    amount: -amount,
-    reason: "bounty_set",
-    details: `Set bounty on task: ${task.activity.substring(0, 80)}`,
-    taskId,
-  });
-  return { success: true };
-}
-
-export async function claimBounty(
-  userId: string,
-  taskId: string
-): Promise<{ success: boolean; amount?: number; error?: string }> {
-  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
-  if (!task || !task.bounty || task.bounty <= 0) return { success: false, error: "No bounty on this task" };
-  if (task.bountySetBy === userId) return { success: false, error: "Cannot claim your own bounty" };
-  const amount = task.bounty;
-  await getOrCreateWallet(userId);
-  await db.update(wallets).set({
-    balance: sql`${wallets.balance} + ${amount}`,
-    lifetimeEarned: sql`${wallets.lifetimeEarned} + ${amount}`,
-  }).where(eq(wallets.userId, userId));
-  await db.update(tasks).set({ bounty: 0, bountySetBy: null }).where(eq(tasks.id, taskId));
-  await db.insert(coinTransactions).values({
-    id: randomUUID(),
-    userId,
-    amount,
-    reason: "bounty_claimed",
-    details: `Claimed bounty on: ${task.activity.substring(0, 80)}`,
-    taskId,
-  });
-  return { success: true, amount };
-}
-
-export async function boostTaskPriority(
-  userId: string,
-  taskId: string
-): Promise<{ success: boolean; error?: string }> {
-  const BOOST_COST = 20;
-  const wallet = await getOrCreateWallet(userId);
-  if (wallet.balance < BOOST_COST) return { success: false, error: "Insufficient balance (need 20 coins)" };
-  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
-  if (!task) return { success: false, error: "Task not found" };
-  if (task.priority === "Highest") return { success: false, error: "Task is already Highest priority" };
-  await db.update(wallets).set({ balance: sql`${wallets.balance} - ${BOOST_COST}` }).where(eq(wallets.userId, userId));
-  await db.update(tasks).set({ priority: "Highest", priorityScore: 100 }).where(eq(tasks.id, taskId));
-  await db.insert(coinTransactions).values({
-    id: randomUUID(),
-    userId,
-    amount: -BOOST_COST,
-    reason: "priority_boost",
-    details: `Boosted task to Highest: ${task.activity.substring(0, 80)}`,
-    taskId,
-  });
-  return { success: true };
+export async function getFeedbackSubmissionCount(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(coinTransactions)
+    .where(and(
+      eq(coinTransactions.userId, userId),
+      eq(coinTransactions.reason, "feedback_submission_reward"),
+    ));
+  return Number(row?.value) || 0;
 }
 
 export async function getUserBadges(userId: string): Promise<UserBadge[]> {
@@ -1027,6 +2281,14 @@ export async function getUserRewards(userId: string): Promise<(typeof userReward
   return db.select().from(userRewards).where(eq(userRewards.userId, userId)).orderBy(desc(userRewards.redeemedAt));
 }
 
+export async function getMaxAvatarLevel(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ m: sql<number>`coalesce(max(${userAvatarProfiles.level}), 0)` })
+    .from(userAvatarProfiles)
+    .where(eq(userAvatarProfiles.userId, userId));
+  return Number(row?.m) || 0;
+}
+
 export async function redeemReward(userId: string, rewardId: string): Promise<boolean> {
   const reward = await getRewardById(rewardId);
   if (!reward) return false;
@@ -1037,6 +2299,31 @@ export async function redeemReward(userId: string, rewardId: string): Promise<bo
       .from(userRewards)
       .where(and(eq(userRewards.userId, userId), eq(userRewards.rewardId, rewardId)));
     if ((Number(existing?.value) || 0) > 0) return false;
+
+    const [levelRow] = await tx
+      .select({ m: sql<number>`coalesce(max(${userAvatarProfiles.level}), 0)` })
+      .from(userAvatarProfiles)
+      .where(eq(userAvatarProfiles.userId, userId));
+    const maxLevel = Number(levelRow?.m) || 0;
+    const qualifiesByLevel =
+      reward.unlockAtAvatarLevel != null && maxLevel >= reward.unlockAtAvatarLevel;
+
+    if (qualifiesByLevel) {
+      await tx.insert(coinTransactions).values({
+        id: randomUUID(),
+        userId,
+        amount: 0,
+        reason: "reward_avatar_level_unlock",
+        details: `Unlocked at avatar level ${maxLevel}: ${reward.name}`,
+      });
+      await tx.insert(userRewards).values({
+        id: randomUUID(),
+        userId,
+        rewardId,
+        coinsSpentAtRedeem: 0,
+      });
+      return true;
+    }
 
     const [deducted] = await tx
       .update(wallets)
@@ -1052,9 +2339,250 @@ export async function redeemReward(userId: string, rewardId: string): Promise<bo
       reason: `Redeemed: ${reward.name}`,
     });
 
-    await tx.insert(userRewards).values({ id: randomUUID(), userId, rewardId });
+    await tx.insert(userRewards).values({
+      id: randomUUID(),
+      userId,
+      rewardId,
+      coinsSpentAtRedeem: reward.cost,
+    });
     return true;
   });
+}
+
+const REWARD_SELL_BACK_FRACTION = 0.7;
+
+export async function sellBackUserReward(
+  userId: string,
+  userRewardId: string,
+): Promise<
+  | { ok: true; refund: number; wallet: Wallet }
+  | { ok: false; code: "not_found" }
+> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(userRewards)
+      .where(and(eq(userRewards.id, userRewardId), eq(userRewards.userId, userId)));
+    if (!row) return { ok: false, code: "not_found" };
+
+    const refund = Math.floor(Number(row.coinsSpentAtRedeem) * REWARD_SELL_BACK_FRACTION);
+    if (refund > 0) {
+      await tx
+        .update(wallets)
+        .set({
+          balance: sql`${wallets.balance} + ${refund}`,
+          lifetimeEarned: sql`${wallets.lifetimeEarned} + ${refund}`,
+        })
+        .where(eq(wallets.userId, userId));
+      await tx.insert(coinTransactions).values({
+        id: randomUUID(),
+        userId,
+        amount: refund,
+        reason: "reward_sell_back",
+        details:
+          row.coinsSpentAtRedeem > 0
+            ? `Sell-back (${Math.round(REWARD_SELL_BACK_FRACTION * 100)}% of ${row.coinsSpentAtRedeem} coins spent)`
+            : "Sell-back (no coin refund — was avatar-level unlock)",
+      });
+    }
+
+    await tx.delete(userRewards).where(eq(userRewards.id, userRewardId));
+
+    const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId));
+    return { ok: true, refund, wallet: wallet! };
+  });
+}
+
+export async function ownerGrantCoinsToUser(
+  targetUserId: string,
+  amount: number,
+  note?: string,
+): Promise<{ ok: true; wallet: Wallet } | { ok: false; code: "invalid_amount" | "user_not_found" }> {
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000 || !Number.isInteger(amount)) {
+    return { ok: false, code: "invalid_amount" };
+  }
+  const target = await getUserById(targetUserId);
+  if (!target) return { ok: false, code: "user_not_found" };
+  const { wallet } = await addCoins(
+    targetUserId,
+    amount,
+    "owner_coin_grant",
+    note?.trim() ? `Owner grant: ${note.trim()}` : "Owner grant",
+  );
+  return { ok: true, wallet };
+}
+
+const CLASSIFICATION_THUMB_COINS = 3;
+
+export async function getClassificationThumbState(
+  taskId: string,
+  userId: string,
+): Promise<{ voted: boolean }> {
+  const [row] = await db
+    .select({ id: taskClassificationThumbs.id })
+    .from(taskClassificationThumbs)
+    .where(and(eq(taskClassificationThumbs.taskId, taskId), eq(taskClassificationThumbs.userId, userId)))
+    .limit(1);
+  return { voted: !!row };
+}
+
+export type ClassificationThumbResult =
+  | { ok: true; coinsEarned: number; newBalance: number }
+  | { ok: false; code: "task_not_found" | "no_classification" | "already_voted" };
+
+export async function awardClassificationThumbUp(
+  userId: string,
+  taskId: string,
+): Promise<ClassificationThumbResult> {
+  const [task] = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
+    .limit(1);
+  if (!task) return { ok: false, code: "task_not_found" };
+  const cls = (task.classification || "").trim();
+  if (!cls || cls === "General") return { ok: false, code: "no_classification" };
+
+  const inserted = await db
+    .insert(taskClassificationThumbs)
+    .values({ id: randomUUID(), taskId, userId })
+    .onConflictDoNothing({ target: [taskClassificationThumbs.taskId, taskClassificationThumbs.userId] })
+    .returning({ id: taskClassificationThumbs.id });
+  if (!inserted.length) return { ok: false, code: "already_voted" };
+
+  const { wallet } = await addCoins(
+    userId,
+    CLASSIFICATION_THUMB_COINS,
+    "classification_thumbs_up",
+    `Thumbs up on ${cls} classification`,
+    taskId,
+  );
+  return { ok: true, coinsEarned: CLASSIFICATION_THUMB_COINS, newBalance: wallet.balance };
+}
+
+export async function listUserAlarmSnapshots(userId: string): Promise<UserAlarmSnapshot[]> {
+  return db
+    .select()
+    .from(userAlarmSnapshots)
+    .where(eq(userAlarmSnapshots.userId, userId))
+    .orderBy(desc(userAlarmSnapshots.capturedAt))
+    .limit(50);
+}
+
+export async function createUserAlarmSnapshot(
+  userId: string,
+  input: { deviceKey?: string; label?: string; payloadJson: string },
+): Promise<UserAlarmSnapshot> {
+  const [row] = await db
+    .insert(userAlarmSnapshots)
+    .values({
+      id: randomUUID(),
+      userId,
+      deviceKey: input.deviceKey ?? "default",
+      label: input.label ?? "capture",
+      payloadJson: input.payloadJson,
+    })
+    .returning();
+  return row;
+}
+
+export async function getUserAlarmSnapshot(
+  userId: string,
+  snapshotId: string,
+): Promise<UserAlarmSnapshot | undefined> {
+  const [row] = await db
+    .select()
+    .from(userAlarmSnapshots)
+    .where(and(eq(userAlarmSnapshots.id, snapshotId), eq(userAlarmSnapshots.userId, userId)))
+    .limit(1);
+  return row;
+}
+
+export async function listCollaborationInbox(
+  userId: string,
+  limit = 50,
+): Promise<CollaborationInboxMessage[]> {
+  return db
+    .select()
+    .from(collaborationInboxMessages)
+    .where(eq(collaborationInboxMessages.userId, userId))
+    .orderBy(desc(collaborationInboxMessages.createdAt))
+    .limit(limit);
+}
+
+export async function appendCollaborationMessage(input: {
+  userId: string;
+  body: string;
+  taskId?: string | null;
+  senderUserId?: string | null;
+}): Promise<CollaborationInboxMessage> {
+  const [row] = await db
+    .insert(collaborationInboxMessages)
+    .values({
+      id: randomUUID(),
+      userId: input.userId,
+      body: input.body,
+      taskId: input.taskId ?? null,
+      senderUserId: input.senderUserId ?? null,
+    })
+    .returning();
+  return row;
+}
+
+export async function markCollaborationMessageRead(userId: string, messageId: string): Promise<boolean> {
+  const [row] = await db
+    .update(collaborationInboxMessages)
+    .set({ readAt: new Date() })
+    .where(
+      and(eq(collaborationInboxMessages.id, messageId), eq(collaborationInboxMessages.userId, userId)),
+    )
+    .returning({ id: collaborationInboxMessages.id });
+  return !!row;
+}
+
+export {
+  listUserLocationPlaces,
+  upsertUserLocationPlace,
+  getUserDefaultHome,
+  getUserDefaultWork,
+  resolvePlaceAlias,
+  createUserLocationPlace,
+  updateUserLocationPlace,
+  deleteUserLocationPlace,
+  recordLocationEvent,
+  markPlaceEntered,
+  markPlaceExited,
+  slugifyPlaceBase,
+} from "./storage/locations";
+export {
+  createReminderWithTrigger,
+  listUserReminders,
+  getReminderById,
+  updateReminder,
+  disableReminder,
+  listDueReminderTriggers,
+  markReminderTriggered,
+  createUserLocationEvent,
+  scheduleLocationOffsetTriggersFromEvent,
+  createUserLocationEventAndScheduleOffsetTriggers,
+  LOCATION_OFFSET_SCHEDULING_META_KEY,
+} from "./storage/reminders";
+export { logAiInteraction, markAiInteractionAccepted, markAiInteractionRejected } from "./storage/ai";
+
+export async function getCommunityMomentumStats(): Promise<{
+  postsLast24h: number;
+  repliesLast24h: number;
+}> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [p] = await db
+    .select({ c: count() })
+    .from(communityPosts)
+    .where(gte(communityPosts.createdAt, since));
+  const [r] = await db
+    .select({ c: count() })
+    .from(communityReplies)
+    .where(gte(communityReplies.createdAt, since));
+  return { postsLast24h: Number(p?.c) || 0, repliesLast24h: Number(r?.c) || 0 };
 }
 
 export async function seedRewardsCatalog(): Promise<void> {
@@ -1071,12 +2599,2331 @@ export async function seedRewardsCatalog(): Promise<void> {
     { id: randomUUID(), name: "Task Master Title", description: "Display 'Task Master' on your profile", cost: 150, type: "title", icon: "🏅", data: "Task Master" },
     { id: randomUUID(), name: "Productivity Guru Title", description: "Display 'Productivity Guru' on your profile", cost: 250, type: "title", icon: "🧠", data: "Productivity Guru" },
     { id: randomUUID(), name: "Legend Title", description: "Display 'Legend' on your profile", cost: 500, type: "title", icon: "🏆", data: "Legend" },
+    { id: randomUUID(), name: "Avatar Support Unlock", description: "Unlock the avatar support tree for guided task management", cost: 220, type: "avatar_support", icon: "🧭", data: "avatar-support-unlock" },
+    {
+      id: randomUUID(),
+      name: "Gantt Timeline Pack",
+      description: "Unlock swimlanes by classification, dependency arrows, critical-path highlight, priority coloring, and PNG export for the task Gantt view.",
+      cost: 250,
+      unlockAtAvatarLevel: 3,
+      type: "gantt_pack",
+      icon: "📊",
+      data: "gantt-custom",
+    },
   ]);
 }
 
+const OFFLINE_GENERATOR_BASE_COST = 500;
+const OFFLINE_GENERATOR_UPGRADE_BASE_COST = 250;
+const OFFLINE_GENERATOR_BASE_RATE_PER_HOUR = 6;
+const OFFLINE_GENERATOR_BASE_CAPACITY_HOURS = 12;
+const OFFLINE_GENERATOR_MAX_LEVEL = 25;
+
+type OfflineSkillEffects = {
+  rateBonusPct: number;
+  capacityBonusHours: number;
+};
+
+function computeSkillUpgradeCost(baseCost: number, currentLevel: number): number {
+  // Linear growth is easy to reason about for players and balancing.
+  return baseCost * (currentLevel + 1);
+}
+
+async function getOrCreateOfflineGenerator(userId: string): Promise<OfflineGenerator> {
+  const [existing] = await db.select().from(offlineGenerators).where(eq(offlineGenerators.userId, userId));
+  if (existing) return existing;
+  const [created] = await db.insert(offlineGenerators).values({
+    userId,
+    isOwned: false,
+    level: 0,
+    baseRatePerHour: 0,
+    baseCapacityHours: OFFLINE_GENERATOR_BASE_CAPACITY_HOURS,
+    totalGenerated: 0,
+  }).returning();
+  return created;
+}
+
+async function getUserSkillLevels(userId: string): Promise<Array<UserOfflineSkill & { skillNode: OfflineSkillNode }>> {
+  const rows = await db.select().from(userOfflineSkills).where(eq(userOfflineSkills.userId, userId));
+  if (rows.length === 0) return [];
+  const nodeIds = rows.map((row) => row.skillNodeId);
+  const nodes = await db.select().from(offlineSkillNodes).where(inArray(offlineSkillNodes.id, nodeIds));
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  return rows
+    .map((row) => {
+      const skillNode = nodeById.get(row.skillNodeId);
+      if (!skillNode) return null;
+      return { ...row, skillNode };
+    })
+    .filter((row): row is UserOfflineSkill & { skillNode: OfflineSkillNode } => Boolean(row));
+}
+
+async function computeOfflineSkillEffects(userId: string): Promise<OfflineSkillEffects> {
+  const skillLevels = await getUserSkillLevels(userId);
+  return skillLevels.reduce<OfflineSkillEffects>((acc, row) => {
+    const delta = row.level * row.skillNode.effectPerLevel;
+    if (row.skillNode.effectType === "rate_pct") {
+      acc.rateBonusPct += delta;
+    } else if (row.skillNode.effectType === "capacity_hours") {
+      acc.capacityBonusHours += delta;
+    }
+    return acc;
+  }, { rateBonusPct: 0, capacityBonusHours: 0 });
+}
+
+export async function seedOfflineSkillTree(): Promise<void> {
+  const existing = await db.select().from(offlineSkillNodes);
+  if (existing.length > 0) return;
+  await db.insert(offlineSkillNodes).values([
+    {
+      id: randomUUID(),
+      skillKey: "dynamos",
+      name: "Dynamos",
+      description: "Increase generator coin output by 10% per level.",
+      branch: "output",
+      maxLevel: 5,
+      baseCost: 120,
+      effectType: "rate_pct",
+      effectPerLevel: 10,
+      prerequisiteSkillKey: null,
+      sortOrder: 1,
+    },
+    {
+      id: randomUUID(),
+      skillKey: "stabilized-coils",
+      name: "Stabilized Coils",
+      description: "Further increase output by 12% per level.",
+      branch: "output",
+      maxLevel: 4,
+      baseCost: 220,
+      effectType: "rate_pct",
+      effectPerLevel: 12,
+      prerequisiteSkillKey: "dynamos",
+      sortOrder: 2,
+    },
+    {
+      id: randomUUID(),
+      skillKey: "battery-bank",
+      name: "Battery Bank",
+      description: "Increase offline capacity by 4 hours per level.",
+      branch: "capacity",
+      maxLevel: 4,
+      baseCost: 160,
+      effectType: "capacity_hours",
+      effectPerLevel: 4,
+      prerequisiteSkillKey: null,
+      sortOrder: 3,
+    },
+    {
+      id: randomUUID(),
+      skillKey: "deep-storage",
+      name: "Deep Storage",
+      description: "Increase offline capacity by 6 hours per level.",
+      branch: "capacity",
+      maxLevel: 3,
+      baseCost: 260,
+      effectType: "capacity_hours",
+      effectPerLevel: 6,
+      prerequisiteSkillKey: "battery-bank",
+      sortOrder: 4,
+    },
+  ]);
+}
+
+const DEFAULT_AVATAR_PROFILES: Array<{
+  avatarKey: "mood" | "archetype" | "productivity" | "social" | "lazy";
+  displayName: string;
+  archetypeKey: string;
+  mission: string;
+}> = [
+  { avatarKey: "mood", displayName: "Moodweaver", archetypeKey: "momentum", mission: "Complete tasks while tracking your energy shifts." },
+  { avatarKey: "archetype", displayName: "Archon", archetypeKey: "strategy", mission: "Clarify one high-leverage next action and complete it." },
+  { avatarKey: "productivity", displayName: "Cadence", archetypeKey: "execution", mission: "Ship a focused task block without context switching." },
+  { avatarKey: "social", displayName: "Nexus", archetypeKey: "collaboration", mission: "Complete a task that helps or unblocks someone else." },
+  { avatarKey: "lazy", displayName: "Drift", archetypeKey: "recovery", mission: "Balance progress with recovery and calmer pacing." },
+];
+
+const AVATAR_SKILL_TREE: Array<{
+  skillKey: string;
+  name: string;
+  description: string;
+  branch: string;
+  maxLevel: number;
+  baseCost: number;
+  effectType:
+    | "entourage_slots"
+    | "guidance_depth"
+    | "context_points"
+    | "resource_budget"
+    | "export_coin_discount"
+    | "shopping_list_surface";
+  effectPerLevel: number;
+  prerequisiteSkillKey: string | null;
+  sortOrder: number;
+}> = [
+  {
+    skillKey: "entourage-slots",
+    name: "Entourage Slots",
+    description: "Increase simultaneous active task companions.",
+    branch: "companions",
+    maxLevel: 4,
+    baseCost: 130,
+    effectType: "entourage_slots",
+    effectPerLevel: 1,
+    prerequisiteSkillKey: null,
+    sortOrder: 1,
+  },
+  {
+    skillKey: "guidance-depth",
+    name: "Guidance Depth",
+    description: "Companions provide more specific task guidance.",
+    branch: "guidance",
+    maxLevel: 5,
+    baseCost: 170,
+    effectType: "guidance_depth",
+    effectPerLevel: 1,
+    prerequisiteSkillKey: null,
+    sortOrder: 2,
+  },
+  {
+    skillKey: "context-memory",
+    name: "Context Memory",
+    description: "Uses more historical data points in recommendations.",
+    branch: "analysis",
+    maxLevel: 4,
+    baseCost: 220,
+    effectType: "context_points",
+    effectPerLevel: 2,
+    prerequisiteSkillKey: "guidance-depth",
+    sortOrder: 3,
+  },
+  {
+    skillKey: "resource-orchestration",
+    name: "Resource Orchestration",
+    description: "Allocates more resource budget to contextualized guidance.",
+    branch: "analysis",
+    maxLevel: 3,
+    baseCost: 280,
+    effectType: "resource_budget",
+    effectPerLevel: 1,
+    prerequisiteSkillKey: "context-memory",
+    sortOrder: 4,
+  },
+  {
+    skillKey: "export-efficiency",
+    name: "Export Efficiency",
+    description: "Reduces AxCoin cost for checklist exports, spreadsheets, and task reports.",
+    branch: "productivity",
+    maxLevel: 8,
+    baseCost: 90,
+    effectType: "export_coin_discount",
+    effectPerLevel: 1,
+    prerequisiteSkillKey: null,
+    sortOrder: 5,
+  },
+  {
+    skillKey: "dendritic-shopping-list",
+    name: "Dendritic List Sense",
+    description:
+      "Unlocks the dedicated shopping list workspace and printable or spreadsheet checklist exports for NodeWeaver-classified errands.",
+    branch: "dendritic",
+    maxLevel: 1,
+    baseCost: 140,
+    effectType: "shopping_list_surface",
+    effectPerLevel: 0,
+    prerequisiteSkillKey: "export-efficiency",
+    sortOrder: 6,
+  },
+];
+
+function avatarXpThreshold(level: number): number {
+  return 100 + Math.max(0, level - 1) * 25;
+}
+
+async function getOrCreateAvatarProfiles(userId: string): Promise<UserAvatarProfile[]> {
+  const existing = await db.select().from(userAvatarProfiles).where(eq(userAvatarProfiles.userId, userId));
+  if (existing.length > 0) return existing;
+  await db.insert(userAvatarProfiles).values(
+    DEFAULT_AVATAR_PROFILES.map((profile) => ({
+      id: randomUUID(),
+      userId,
+      avatarKey: profile.avatarKey,
+      displayName: profile.displayName,
+      archetypeKey: profile.archetypeKey,
+      mission: profile.mission,
+      level: 1,
+      xp: 0,
+      totalXp: 0,
+      updatedAt: new Date(),
+    })),
+  );
+  return db.select().from(userAvatarProfiles).where(eq(userAvatarProfiles.userId, userId));
+}
+
+export async function seedAvatarSkillTree(): Promise<void> {
+  const existing = await db.select().from(avatarSkillNodes);
+  if (existing.length === 0) {
+    await db.insert(avatarSkillNodes).values(
+      AVATAR_SKILL_TREE.map((skill) => ({
+        id: randomUUID(),
+        ...skill,
+      })),
+    );
+  } else {
+    for (const skill of AVATAR_SKILL_TREE) {
+      await db
+        .insert(avatarSkillNodes)
+        .values({
+          id: randomUUID(),
+          ...skill,
+        })
+        .onConflictDoNothing({ target: avatarSkillNodes.skillKey });
+    }
+  }
+}
+
+export async function getAvatarProfiles(userId: string): Promise<UserAvatarProfile[]> {
+  const profiles = await getOrCreateAvatarProfiles(userId);
+  return [...profiles].sort((a, b) => a.avatarKey.localeCompare(b.avatarKey));
+}
+
+/** Dominant analytical archetype from companion XP (see `server/lib/poll-archetype.ts`). */
+export async function getDominantArchetypeKeyForUser(userId: string): Promise<ArchetypeKey> {
+  const profiles = await getOrCreateAvatarProfiles(userId);
+  const key = dominantArchetypeFromAvatarProfiles(profiles);
+  if (key) return key;
+  return "momentum";
+}
+
+async function getUserAvatarSkillLevels(userId: string): Promise<Array<UserAvatarSkill & { skillNode: AvatarSkillNode }>> {
+  const rows = await db.select().from(userAvatarSkills).where(eq(userAvatarSkills.userId, userId));
+  if (rows.length === 0) return [];
+  const nodeIds = rows.map((row) => row.skillNodeId);
+  const nodes = await db.select().from(avatarSkillNodes).where(inArray(avatarSkillNodes.id, nodeIds));
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  return rows
+    .map((row) => {
+      const skillNode = nodeById.get(row.skillNodeId);
+      if (!skillNode) return null;
+      return { ...row, skillNode };
+    })
+    .filter((row): row is UserAvatarSkill & { skillNode: AvatarSkillNode } => Boolean(row));
+}
+
+export async function getAvatarSkillTree(userId: string): Promise<Array<{
+  id: string;
+  skillKey: string;
+  name: string;
+  description: string;
+  branch: string;
+  maxLevel: number;
+  currentLevel: number;
+  nextCost: number | null;
+  prerequisiteSkillKey: string | null;
+  isUnlocked: boolean;
+  isAvailable: boolean;
+  effectType: string;
+  effectPerLevel: number;
+}>> {
+  await seedAvatarSkillTree();
+  const [nodes, userSkills] = await Promise.all([
+    db.select().from(avatarSkillNodes).orderBy(asc(avatarSkillNodes.sortOrder), asc(avatarSkillNodes.name)),
+    getUserAvatarSkillLevels(userId),
+  ]);
+  const byNodeId = new Map(userSkills.map((row) => [row.skillNode.id, row]));
+  const bySkillKey = new Map(userSkills.map((row) => [row.skillNode.skillKey, row]));
+  return nodes.map((node) => {
+    const unlocked = byNodeId.get(node.id);
+    const currentLevel = unlocked?.level ?? 0;
+    const hasPrereq = !node.prerequisiteSkillKey || (bySkillKey.get(node.prerequisiteSkillKey)?.level ?? 0) > 0;
+    const atMax = currentLevel >= node.maxLevel;
+    return {
+      id: node.id,
+      skillKey: node.skillKey,
+      name: node.name,
+      description: node.description,
+      branch: node.branch,
+      maxLevel: node.maxLevel,
+      currentLevel,
+      nextCost: atMax ? null : computeSkillUpgradeCost(node.baseCost, currentLevel),
+      prerequisiteSkillKey: node.prerequisiteSkillKey,
+      isUnlocked: currentLevel > 0,
+      isAvailable: hasPrereq && !atMax,
+      effectType: node.effectType,
+      effectPerLevel: node.effectPerLevel,
+    };
+  });
+}
+
+export async function userHasAvatarSkillUnlocked(userId: string, skillKey: string): Promise<boolean> {
+  await seedAvatarSkillTree();
+  const [node] = await db.select().from(avatarSkillNodes).where(eq(avatarSkillNodes.skillKey, skillKey)).limit(1);
+  if (!node) return false;
+  const [row] = await db
+    .select({ level: userAvatarSkills.level })
+    .from(userAvatarSkills)
+    .innerJoin(avatarSkillNodes, eq(userAvatarSkills.skillNodeId, avatarSkillNodes.id))
+    .where(and(eq(userAvatarSkills.userId, userId), eq(avatarSkillNodes.skillKey, skillKey)))
+    .limit(1);
+  return (row?.level ?? 0) > 0;
+}
+
+export async function unlockAvatarSkill(userId: string, skillKey: string): Promise<{ ok: boolean; message: string }> {
+  const [node] = await db.select().from(avatarSkillNodes).where(eq(avatarSkillNodes.skillKey, skillKey));
+  if (!node) return { ok: false, message: "Avatar skill not found." };
+  const unlockedSkills = await getUserAvatarSkillLevels(userId);
+  const existing = unlockedSkills.find((row) => row.skillNode.id === node.id);
+  const currentLevel = existing?.level ?? 0;
+  if (currentLevel >= node.maxLevel) return { ok: false, message: "Avatar skill is already maxed." };
+  if (node.prerequisiteSkillKey) {
+    const prereqLevel = unlockedSkills.find((row) => row.skillNode.skillKey === node.prerequisiteSkillKey)?.level ?? 0;
+    if (prereqLevel <= 0) return { ok: false, message: `Unlock prerequisite skill '${node.prerequisiteSkillKey}' first.` };
+  }
+  const cost = computeSkillUpgradeCost(node.baseCost, currentLevel);
+  const wallet = await spendCoins(userId, cost, `avatar_skill_upgrade:${skillKey}`);
+  if (!wallet) return { ok: false, message: `Need ${cost} coins to unlock or upgrade this skill.` };
+  if (existing) {
+    await db.update(userAvatarSkills).set({ level: existing.level + 1, updatedAt: new Date() }).where(eq(userAvatarSkills.id, existing.id));
+  } else {
+    await db.insert(userAvatarSkills).values({
+      id: randomUUID(),
+      userId,
+      skillNodeId: node.id,
+      level: 1,
+      updatedAt: new Date(),
+    });
+  }
+  return { ok: true, message: "Avatar skill upgraded successfully." };
+}
+
+export async function engageAvatarMission(input: {
+  userId: string;
+  avatarKey: string;
+  sourceType: "task" | "feedback" | "post";
+  sourceRef: string;
+  text: string;
+  completed: boolean;
+}): Promise<{ awarded: boolean; xp: number; coins: number; message?: string; avatarNextLevelXp?: number; avatarLevel?: number }> {
+  const profileRows = await getOrCreateAvatarProfiles(input.userId);
+  const profile = profileRows.find((row) => row.avatarKey === input.avatarKey);
+  if (!profile) return { awarded: false, xp: 0, coins: 0, message: "Avatar not found." };
+  const [alreadyClaimed] = await db.select({ value: count() }).from(coinTransactions).where(and(
+    eq(coinTransactions.userId, input.userId),
+    eq(coinTransactions.reason, "avatar_mission"),
+    eq(coinTransactions.taskId, input.sourceRef),
+  ));
+  if ((Number(alreadyClaimed?.value) || 0) > 0) {
+    return { awarded: false, xp: 0, coins: 0, message: "This mission source was already claimed." };
+  }
+  if (!input.completed) {
+    return { awarded: false, xp: 0, coins: 0, message: "Mission progress only counts for completed submissions." };
+  }
+  const archetypeMentioned = input.text.toLowerCase().includes(profile.archetypeKey.toLowerCase());
+  const xpGain = 18 + (archetypeMentioned ? 8 : 0) + (input.sourceType === "feedback" ? 4 : 0);
+  let nextLevel = profile.level;
+  let nextXp = profile.xp + xpGain;
+  let levelUps = 0;
+  while (nextXp >= avatarXpThreshold(nextLevel)) {
+    nextXp -= avatarXpThreshold(nextLevel);
+    nextLevel += 1;
+    levelUps += 1;
+  }
+  const totalXp = profile.totalXp + xpGain;
+  const missionCoins = 6 + (levelUps * 8);
+  const flavorByAvatar: Record<string, string> = {
+    mood: "Moodweaver tracks your momentum and keeps your streak emotionally sustainable.",
+    archetype: "Archon sharpened your next-step strategy with stronger context.",
+    productivity: "Cadence tightened your execution rhythm for cleaner completions.",
+    social: "Nexus amplified your collaborative signal and follow-through.",
+    lazy: "Drift helped preserve calm pacing while still moving the plan forward.",
+  };
+  await db.update(userAvatarProfiles).set({
+    level: nextLevel,
+    xp: nextXp,
+    totalXp,
+    updatedAt: new Date(),
+  }).where(eq(userAvatarProfiles.id, profile.id));
+  await db.insert(coinTransactions).values({
+    id: randomUUID(),
+    userId: input.userId,
+    amount: 0,
+    reason: "avatar_mission",
+    details: `Mission ${input.avatarKey}/${input.sourceType}`,
+    taskId: input.sourceRef,
+  });
+  await addCoins(input.userId, missionCoins, "avatar_mission_reward", `${profile.displayName} mission reward`, input.sourceRef);
+  if (isArchetypeKey(profile.archetypeKey)) {
+    await bumpUserArchetypeContinuumFromArchetype(input.userId, profile.archetypeKey, 0.028);
+  }
+  return {
+    awarded: true,
+    xp: xpGain,
+    coins: missionCoins,
+    message: flavorByAvatar[input.avatarKey] ?? "Your avatar support has become more precise.",
+    avatarNextLevelXp: avatarXpThreshold(nextLevel),
+    avatarLevel: nextLevel,
+  };
+}
+
+export async function spendCoinsForAvatarBoost(userId: string, avatarKey: string, coins: number): Promise<{ ok: boolean; message: string; profile?: UserAvatarProfile }> {
+  if (!Number.isFinite(coins) || coins <= 0) return { ok: false, message: "Invalid coin amount." };
+  const profileRows = await getOrCreateAvatarProfiles(userId);
+  const profile = profileRows.find((row) => row.avatarKey === avatarKey);
+  if (!profile) return { ok: false, message: "Avatar not found." };
+  const wallet = await spendCoins(userId, coins, `avatar_boost:${avatarKey}`);
+  if (!wallet) return { ok: false, message: `Need ${coins} coins to boost this avatar.` };
+  let nextLevel = profile.level;
+  let nextXp = profile.xp + coins;
+  while (nextXp >= avatarXpThreshold(nextLevel)) {
+    nextXp -= avatarXpThreshold(nextLevel);
+    nextLevel += 1;
+  }
+  const [updated] = await db.update(userAvatarProfiles).set({
+    level: nextLevel,
+    xp: nextXp,
+    totalXp: profile.totalXp + coins,
+    updatedAt: new Date(),
+  }).where(eq(userAvatarProfiles.id, profile.id)).returning();
+  return { ok: true, message: "Avatar boosted.", profile: updated };
+}
+
+/** Pick the companion profile with highest total XP; tie-break by smallest avatarKey (stable). */
+export function selectDominantAvatarProfile(profiles: UserAvatarProfile[]): UserAvatarProfile | null {
+  if (profiles.length === 0) return null;
+  let best = profiles[0]!;
+  for (let i = 1; i < profiles.length; i++) {
+    const p = profiles[i]!;
+    if (p.totalXp > best.totalXp) best = p;
+    else if (p.totalXp === best.totalXp && p.avatarKey.localeCompare(best.avatarKey) < 0) best = p;
+  }
+  return best;
+}
+
+/**
+ * Apply flat XP to one avatar row and append a zero-amount coin row for UTC-day cap counting.
+ * Caller must enforce caps before invoking.
+ */
+export async function applyVoiceAvatarXpWithTick(params: {
+  userId: string;
+  profileId: string;
+  xpGain: number;
+  tickReason: string;
+  tickDetails: string;
+}): Promise<{ level: number; xp: number; totalXp: number } | null> {
+  const { userId, profileId, xpGain, tickReason, tickDetails } = params;
+  if (!Number.isFinite(xpGain) || xpGain <= 0) return null;
+  const [profile] = await db.select().from(userAvatarProfiles).where(eq(userAvatarProfiles.id, profileId)).limit(1);
+  if (!profile) return null;
+  let nextLevel = profile.level;
+  let nextXp = profile.xp + xpGain;
+  while (nextXp >= avatarXpThreshold(nextLevel)) {
+    nextXp -= avatarXpThreshold(nextLevel);
+    nextLevel += 1;
+  }
+  const totalXp = profile.totalXp + xpGain;
+  await db
+    .update(userAvatarProfiles)
+    .set({ level: nextLevel, xp: nextXp, totalXp, updatedAt: new Date() })
+    .where(eq(userAvatarProfiles.id, profileId));
+  await db.insert(coinTransactions).values({
+    id: randomUUID(),
+    userId,
+    amount: 0,
+    reason: tickReason,
+    details: tickDetails,
+  });
+  return { level: nextLevel, xp: nextXp, totalXp };
+}
+
+export async function getOfflineGeneratorStatus(userId: string): Promise<{
+  generator: OfflineGenerator;
+  effectiveRatePerHour: number;
+  effectiveCapacityHours: number;
+  pendingCoins: number;
+  skillEffects: OfflineSkillEffects;
+}> {
+  const generator = await getOrCreateOfflineGenerator(userId);
+  const skillEffects = await computeOfflineSkillEffects(userId);
+  const effectiveRatePerHour = Math.max(
+    0,
+    Math.floor(generator.baseRatePerHour * (1 + (skillEffects.rateBonusPct / 100))),
+  );
+  const effectiveCapacityHours = Math.max(1, generator.baseCapacityHours + skillEffects.capacityBonusHours);
+
+  if (!generator.isOwned || !generator.lastClaimAt) {
+    return { generator, effectiveRatePerHour, effectiveCapacityHours, pendingCoins: 0, skillEffects };
+  }
+
+  const elapsedHoursRaw = (Date.now() - new Date(generator.lastClaimAt).getTime()) / (1000 * 60 * 60);
+  const elapsedHours = Math.max(0, Math.min(effectiveCapacityHours, elapsedHoursRaw));
+  const pendingCoins = Math.floor(elapsedHours * effectiveRatePerHour);
+
+  return { generator, effectiveRatePerHour, effectiveCapacityHours, pendingCoins, skillEffects };
+}
+
+export async function buyOfflineGenerator(userId: string): Promise<{ ok: boolean; message: string }> {
+  const generator = await getOrCreateOfflineGenerator(userId);
+  if (generator.isOwned) {
+    return { ok: false, message: "Offline generator already owned." };
+  }
+  const wallet = await spendCoins(userId, OFFLINE_GENERATOR_BASE_COST, "offline_generator_purchase");
+  if (!wallet) {
+    return { ok: false, message: `Need ${OFFLINE_GENERATOR_BASE_COST} coins to buy the offline generator.` };
+  }
+  await db.update(offlineGenerators).set({
+    isOwned: true,
+    level: 1,
+    baseRatePerHour: OFFLINE_GENERATOR_BASE_RATE_PER_HOUR,
+    baseCapacityHours: OFFLINE_GENERATOR_BASE_CAPACITY_HOURS,
+    lastClaimAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(offlineGenerators.userId, userId));
+  return { ok: true, message: "Offline generator purchased." };
+}
+
+export async function upgradeOfflineGenerator(userId: string): Promise<{ ok: boolean; message: string }> {
+  const generator = await getOrCreateOfflineGenerator(userId);
+  if (!generator.isOwned) {
+    return { ok: false, message: "Buy the offline generator first." };
+  }
+  if (generator.level >= OFFLINE_GENERATOR_MAX_LEVEL) {
+    return { ok: false, message: "Offline generator is at max level." };
+  }
+  const upgradeCost = computeSkillUpgradeCost(OFFLINE_GENERATOR_UPGRADE_BASE_COST, generator.level - 1);
+  const wallet = await spendCoins(userId, upgradeCost, "offline_generator_upgrade");
+  if (!wallet) {
+    return { ok: false, message: `Need ${upgradeCost} coins to upgrade.` };
+  }
+  await db.update(offlineGenerators).set({
+    level: generator.level + 1,
+    baseRatePerHour: generator.baseRatePerHour + 3,
+    baseCapacityHours: generator.baseCapacityHours + ((generator.level + 1) % 3 === 0 ? 2 : 1),
+    updatedAt: new Date(),
+  }).where(eq(offlineGenerators.userId, userId));
+  return { ok: true, message: "Offline generator upgraded." };
+}
+
+export async function getOfflineSkillTree(userId: string): Promise<Array<{
+  id: string;
+  skillKey: string;
+  name: string;
+  description: string;
+  branch: string;
+  maxLevel: number;
+  currentLevel: number;
+  nextCost: number | null;
+  prerequisiteSkillKey: string | null;
+  isUnlocked: boolean;
+  isAvailable: boolean;
+  effectType: string;
+  effectPerLevel: number;
+}>> {
+  await seedOfflineSkillTree();
+  const [nodes, userSkills] = await Promise.all([
+    db.select().from(offlineSkillNodes).orderBy(asc(offlineSkillNodes.sortOrder), asc(offlineSkillNodes.name)),
+    getUserSkillLevels(userId),
+  ]);
+
+  const byNodeId = new Map(userSkills.map((row) => [row.skillNode.id, row]));
+  const bySkillKey = new Map(userSkills.map((row) => [row.skillNode.skillKey, row]));
+
+  return nodes.map((node) => {
+    const unlocked = byNodeId.get(node.id);
+    const currentLevel = unlocked?.level ?? 0;
+    const hasPrereq = !node.prerequisiteSkillKey || (bySkillKey.get(node.prerequisiteSkillKey)?.level ?? 0) > 0;
+    const atMax = currentLevel >= node.maxLevel;
+    return {
+      id: node.id,
+      skillKey: node.skillKey,
+      name: node.name,
+      description: node.description,
+      branch: node.branch,
+      maxLevel: node.maxLevel,
+      currentLevel,
+      nextCost: atMax ? null : computeSkillUpgradeCost(node.baseCost, currentLevel),
+      prerequisiteSkillKey: node.prerequisiteSkillKey,
+      isUnlocked: currentLevel > 0,
+      isAvailable: hasPrereq && !atMax,
+      effectType: node.effectType,
+      effectPerLevel: node.effectPerLevel,
+    };
+  });
+}
+
+export async function unlockOfflineSkill(userId: string, skillKey: string): Promise<{ ok: boolean; message: string }> {
+  const [node] = await db.select().from(offlineSkillNodes).where(eq(offlineSkillNodes.skillKey, skillKey));
+  if (!node) {
+    return { ok: false, message: "Skill not found." };
+  }
+
+  const generator = await getOrCreateOfflineGenerator(userId);
+  if (!generator.isOwned) {
+    return { ok: false, message: "Buy the offline generator before unlocking skills." };
+  }
+
+  const unlockedSkills = await getUserSkillLevels(userId);
+  const existing = unlockedSkills.find((row) => row.skillNode.id === node.id);
+  const currentLevel = existing?.level ?? 0;
+  if (currentLevel >= node.maxLevel) {
+    return { ok: false, message: "Skill is already maxed." };
+  }
+  if (node.prerequisiteSkillKey) {
+    const prereqLevel = unlockedSkills.find((row) => row.skillNode.skillKey === node.prerequisiteSkillKey)?.level ?? 0;
+    if (prereqLevel <= 0) {
+      return { ok: false, message: `Unlock prerequisite skill '${node.prerequisiteSkillKey}' first.` };
+    }
+  }
+
+  const cost = computeSkillUpgradeCost(node.baseCost, currentLevel);
+  const wallet = await spendCoins(userId, cost, `offline_skill_upgrade:${skillKey}`);
+  if (!wallet) {
+    return { ok: false, message: `Need ${cost} coins to unlock or upgrade this skill.` };
+  }
+
+  if (existing) {
+    await db.update(userOfflineSkills).set({
+      level: existing.level + 1,
+      updatedAt: new Date(),
+    }).where(eq(userOfflineSkills.id, existing.id));
+  } else {
+    await db.insert(userOfflineSkills).values({
+      id: randomUUID(),
+      userId,
+      skillNodeId: node.id,
+      level: 1,
+      updatedAt: new Date(),
+    });
+  }
+
+  return { ok: true, message: "Skill upgraded successfully." };
+}
+
+export async function claimOfflineGeneratorCoins(userId: string): Promise<{ ok: boolean; message: string; claimedCoins: number }> {
+  const status = await getOfflineGeneratorStatus(userId);
+  if (!status.generator.isOwned) {
+    return { ok: false, message: "Offline generator not owned.", claimedCoins: 0 };
+  }
+  if (status.pendingCoins <= 0) {
+    await db.update(offlineGenerators).set({
+      lastClaimAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(offlineGenerators.userId, userId));
+    return { ok: true, message: "No offline coins to claim yet.", claimedCoins: 0 };
+  }
+
+  await addCoins(
+    userId,
+    status.pendingCoins,
+    "offline_generator_claim",
+    `Claimed from offline generator (lvl ${status.generator.level})`,
+  );
+  await db.update(offlineGenerators).set({
+    lastClaimAt: new Date(),
+    totalGenerated: status.generator.totalGenerated + status.pendingCoins,
+    updatedAt: new Date(),
+  }).where(eq(offlineGenerators.userId, userId));
+
+  return { ok: true, message: "Offline coins claimed.", claimedCoins: status.pendingCoins };
+}
+
 export async function getCompletedTaskCount(userId: string): Promise<number> {
-  const [row] = await db.select({ value: count() }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.status, "completed"), sql`(${tasks.forceImported} IS NULL OR ${tasks.forceImported} = false)`));
+  const [row] = await db.select({ value: count() }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.status, "completed")));
   return Number(row?.value) || 0;
+}
+
+// ─── Usage + Storage Controls ────────────────────────────────────────────────
+const DEFAULT_STORAGE_POLICY = {
+  maxTasks: Number(process.env.STORAGE_MAX_TASKS || 100000),
+  maxAttachmentBytes: Number(process.env.STORAGE_MAX_ATTACHMENT_BYTES || 15 * 1024 * 1024 * 1024),
+  maxAttachmentCount: Number(process.env.STORAGE_MAX_ATTACHMENT_COUNT || 500),
+  maxTaskRetentionDays: Number(process.env.STORAGE_MAX_TASK_RETENTION_DAYS || 3650),
+  softWarningPercent: Number(process.env.STORAGE_SOFT_WARNING_PERCENT || 80),
+};
+
+export async function getStoragePolicy(userId: string): Promise<StoragePolicy | (typeof DEFAULT_STORAGE_POLICY & { id: string; userId: string | null })> {
+  const [row] = await db.select().from(storagePolicies).where(eq(storagePolicies.userId, userId));
+  if (row) return row;
+  return {
+    id: "default",
+    userId: null,
+    ...DEFAULT_STORAGE_POLICY,
+  };
+}
+
+export async function getStorageUsage(userId: string): Promise<{
+  taskCount: number;
+  attachmentCount: number;
+  attachmentBytes: number;
+}> {
+  const [[taskCountRow], [attachmentRows]] = await Promise.all([
+    db.select({ value: count() }).from(tasks).where(eq(tasks.userId, userId)),
+    db.select({
+      value: count(),
+      bytes: sql<number>`COALESCE(SUM(${attachmentAssets.byteSize}), 0)`,
+    }).from(attachmentAssets).where(and(eq(attachmentAssets.userId, userId), sql`${attachmentAssets.deletedAt} IS NULL`)),
+  ]);
+
+  return {
+    taskCount: Number(taskCountRow?.value) || 0,
+    attachmentCount: Number(attachmentRows?.value) || 0,
+    attachmentBytes: Number(attachmentRows?.bytes) || 0,
+  };
+}
+
+export async function assertCanCreateTasks(userId: string, incomingTasks: number): Promise<{ ok: boolean; message?: string }> {
+  const [policy, usage] = await Promise.all([getStoragePolicy(userId), getStorageUsage(userId)]);
+  if (usage.taskCount + incomingTasks > policy.maxTasks) {
+    return {
+      ok: false,
+      message: `Task limit reached (${policy.maxTasks}). Remove older tasks or request a higher limit.`,
+    };
+  }
+  return { ok: true };
+}
+
+export async function assertCanStoreAttachment(userId: string, byteSize: number): Promise<{ ok: boolean; message?: string }> {
+  const [policy, usage] = await Promise.all([getStoragePolicy(userId), getStorageUsage(userId)]);
+  if (usage.attachmentCount + 1 > policy.maxAttachmentCount) {
+    return {
+      ok: false,
+      message: `Attachment count limit reached (${policy.maxAttachmentCount}).`,
+    };
+  }
+  if (usage.attachmentBytes + byteSize > policy.maxAttachmentBytes) {
+    const limitGb = (policy.maxAttachmentBytes / (1024 * 1024 * 1024)).toFixed(1);
+    const usedGb = (usage.attachmentBytes / (1024 * 1024 * 1024)).toFixed(2);
+    return {
+      ok: false,
+      message: `Storage limit reached (${usedGb} GB of ${limitGb} GB used). Remove old attachments or contact support.`,
+    };
+  }
+  return { ok: true };
+}
+
+export async function createAttachmentAsset(input: {
+  userId: string;
+  kind?: string;
+  taskId?: string;
+  fileName?: string;
+  mimeType: string;
+  byteSize: number;
+  metadataJson?: string;
+}): Promise<AttachmentAsset> {
+  const [asset] = await db.insert(attachmentAssets).values({
+    id: randomUUID(),
+    userId: input.userId,
+    taskId: input.taskId || null,
+    kind: input.kind || "feedback",
+    fileName: input.fileName || null,
+    mimeType: input.mimeType,
+    byteSize: input.byteSize,
+    metadataJson: input.metadataJson || null,
+  }).returning();
+  return asset;
+}
+
+export async function getAttachmentAssets(userId: string, kind?: string): Promise<AttachmentAsset[]> {
+  if (kind) {
+    return db.select().from(attachmentAssets).where(and(
+      eq(attachmentAssets.userId, userId),
+      eq(attachmentAssets.kind, kind),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    )).orderBy(desc(attachmentAssets.createdAt));
+  }
+  return db.select().from(attachmentAssets).where(and(
+    eq(attachmentAssets.userId, userId),
+    sql`${attachmentAssets.deletedAt} IS NULL`,
+  )).orderBy(desc(attachmentAssets.createdAt));
+}
+
+export async function getTaskAttachments(userId: string, taskId: string): Promise<AttachmentAsset[]> {
+  return db.select().from(attachmentAssets).where(and(
+    eq(attachmentAssets.userId, userId),
+    eq(attachmentAssets.taskId, taskId),
+    sql`${attachmentAssets.deletedAt} IS NULL`,
+  )).orderBy(desc(attachmentAssets.createdAt));
+}
+
+/** Batch-fetch attachment asset ids per task (for markdown `attachment:<id>` allowlists on list DTOs). */
+export async function getTaskAttachmentIdsForTasks(
+  userId: string,
+  taskIds: string[],
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (taskIds.length === 0) return map;
+  const rows = await db
+    .select({ taskId: attachmentAssets.taskId, id: attachmentAssets.id })
+    .from(attachmentAssets)
+    .where(and(
+      eq(attachmentAssets.userId, userId),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+      inArray(attachmentAssets.taskId, taskIds),
+    ));
+  for (const r of rows) {
+    if (!r.taskId) continue;
+    const list = map.get(r.taskId) ?? [];
+    list.push(r.id);
+    map.set(r.taskId, list);
+  }
+  return map;
+}
+
+export async function linkAttachmentToTask(userId: string, assetId: string, taskId: string): Promise<AttachmentAsset | undefined> {
+  const [asset] = await db
+    .update(attachmentAssets)
+    .set({ taskId })
+    .where(and(eq(attachmentAssets.id, assetId), eq(attachmentAssets.userId, userId)))
+    .returning();
+  return asset;
+}
+
+export async function getAttachmentAssetById(userId: string, assetId: string): Promise<AttachmentAsset | undefined> {
+  const [asset] = await db.select().from(attachmentAssets).where(and(
+    eq(attachmentAssets.id, assetId),
+    eq(attachmentAssets.userId, userId),
+  ));
+  return asset;
+}
+
+export async function markAttachmentAssetUploaded(userId: string, assetId: string, metadata?: Record<string, unknown>): Promise<AttachmentAsset | undefined> {
+  const [asset] = await db
+    .update(attachmentAssets)
+    .set({
+      metadataJson: metadata ? JSON.stringify(metadata) : null,
+    })
+    .where(and(eq(attachmentAssets.id, assetId), eq(attachmentAssets.userId, userId)))
+    .returning();
+  return asset;
+}
+
+export async function softDeleteAttachmentAsset(userId: string, assetId: string): Promise<AttachmentAsset | undefined> {
+  const [asset] = await db
+    .update(attachmentAssets)
+    .set({ deletedAt: new Date() })
+    .where(and(eq(attachmentAssets.id, assetId), eq(attachmentAssets.userId, userId)))
+    .returning();
+  return asset;
+}
+
+/**
+ * Link up to N owned attachment_assets to a composable owner (collab msg,
+ * community post, etc.). Rejects silently when an assetId does not belong to
+ * the caller or when it has been soft-deleted. Returns the AttachmentAsset
+ * rows that were successfully linked (preserving the caller's order).
+ */
+export async function linkAttachmentsToOwner(options: {
+  userId: string;
+  ownerType: MessageAttachmentOwnerType;
+  ownerId: string;
+  assetIds: string[];
+}): Promise<AttachmentAsset[]> {
+  if (!MESSAGE_ATTACHMENT_OWNER_TYPES.includes(options.ownerType)) {
+    throw new Error(`invalid attachment owner_type: ${options.ownerType}`);
+  }
+  if (options.assetIds.length === 0) return [];
+
+  const assets: AttachmentAsset[] = [];
+  for (let i = 0; i < options.assetIds.length; i += 1) {
+    const assetId = options.assetIds[i];
+    const existing = await getAttachmentAssetById(options.userId, assetId);
+    if (!existing || existing.deletedAt) continue;
+
+    await db.insert(messageAttachments).values({
+      ownerType: options.ownerType,
+      ownerId: options.ownerId,
+      assetId,
+      userId: options.userId,
+      position: i,
+    }).onConflictDoNothing();
+
+    assets.push(existing);
+  }
+  return assets;
+}
+
+/**
+ * Fetch AttachmentAsset rows linked to a given owner, scoped to the caller.
+ * Used by read endpoints that want to embed `attachments[]` alongside the
+ * composed message body.
+ */
+export async function getAttachmentsForOwner(options: {
+  userId: string;
+  ownerType: MessageAttachmentOwnerType;
+  ownerId: string;
+}): Promise<AttachmentAsset[]> {
+  const rows = await db
+    .select({
+      id: attachmentAssets.id,
+      userId: attachmentAssets.userId,
+      taskId: attachmentAssets.taskId,
+      kind: attachmentAssets.kind,
+      fileName: attachmentAssets.fileName,
+      mimeType: attachmentAssets.mimeType,
+      byteSize: attachmentAssets.byteSize,
+      storageKey: attachmentAssets.storageKey,
+      metadataJson: attachmentAssets.metadataJson,
+      createdAt: attachmentAssets.createdAt,
+      deletedAt: attachmentAssets.deletedAt,
+      position: messageAttachments.position,
+    })
+    .from(messageAttachments)
+    .innerJoin(attachmentAssets, eq(attachmentAssets.id, messageAttachments.assetId))
+    .where(and(
+      eq(messageAttachments.ownerType, options.ownerType),
+      eq(messageAttachments.ownerId, options.ownerId),
+      eq(messageAttachments.userId, options.userId),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    ))
+    .orderBy(messageAttachments.position);
+  return rows.map(({ position: _p, ...rest }) => rest as AttachmentAsset);
+}
+
+/**
+ * Same as getAttachmentsForOwner but for read endpoints where the viewer is
+ * not necessarily the author (e.g. a community post viewed by a different
+ * user). Only returns attachments that the *author* (owner) of the message
+ * uploaded - cross-user `attachment:<id>` smuggling is blocked because the
+ * link row's `user_id` always equals the author.
+ */
+export async function getAttachmentsForOwnerPublic(options: {
+  ownerType: MessageAttachmentOwnerType;
+  ownerId: string;
+}): Promise<AttachmentAsset[]> {
+  const rows = await db
+    .select({
+      id: attachmentAssets.id,
+      userId: attachmentAssets.userId,
+      taskId: attachmentAssets.taskId,
+      kind: attachmentAssets.kind,
+      fileName: attachmentAssets.fileName,
+      mimeType: attachmentAssets.mimeType,
+      byteSize: attachmentAssets.byteSize,
+      storageKey: attachmentAssets.storageKey,
+      metadataJson: attachmentAssets.metadataJson,
+      createdAt: attachmentAssets.createdAt,
+      deletedAt: attachmentAssets.deletedAt,
+      position: messageAttachments.position,
+    })
+    .from(messageAttachments)
+    .innerJoin(attachmentAssets, eq(attachmentAssets.id, messageAttachments.assetId))
+    .where(and(
+      eq(messageAttachments.ownerType, options.ownerType),
+      eq(messageAttachments.ownerId, options.ownerId),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    ))
+    .orderBy(messageAttachments.position);
+  return rows.map(({ position: _p, ...rest }) => rest as AttachmentAsset);
+}
+
+/**
+ * Batched variant of `getAttachmentsForOwner` for a list of ownerIds under
+ * one ownerType. Collapses N separate queries into a single JOIN, returning
+ * a Map<ownerId, AttachmentAsset[]>. Ownership (userId) is still enforced
+ * so a caller can't fetch someone else's attachments via ID guessing.
+ *
+ * Introduced to kill the N+1 in GET /api/collaboration/inbox where each
+ * inbox row previously triggered its own round trip.
+ */
+export async function getAttachmentsForOwnersBatch(options: {
+  userId: string;
+  ownerType: MessageAttachmentOwnerType;
+  ownerIds: readonly string[];
+}): Promise<Map<string, AttachmentAsset[]>> {
+  const result = new Map<string, AttachmentAsset[]>();
+  if (options.ownerIds.length === 0) return result;
+  const rows = await db
+    .select({
+      id: attachmentAssets.id,
+      userId: attachmentAssets.userId,
+      taskId: attachmentAssets.taskId,
+      kind: attachmentAssets.kind,
+      fileName: attachmentAssets.fileName,
+      mimeType: attachmentAssets.mimeType,
+      byteSize: attachmentAssets.byteSize,
+      storageKey: attachmentAssets.storageKey,
+      metadataJson: attachmentAssets.metadataJson,
+      createdAt: attachmentAssets.createdAt,
+      deletedAt: attachmentAssets.deletedAt,
+      ownerId: messageAttachments.ownerId,
+      position: messageAttachments.position,
+    })
+    .from(messageAttachments)
+    .innerJoin(attachmentAssets, eq(attachmentAssets.id, messageAttachments.assetId))
+    .where(and(
+      eq(messageAttachments.userId, options.userId),
+      eq(messageAttachments.ownerType, options.ownerType),
+      inArray(messageAttachments.ownerId, [...options.ownerIds]),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    ))
+    .orderBy(messageAttachments.ownerId, messageAttachments.position);
+  for (const row of rows) {
+    const { ownerId, position: _p, ...rest } = row;
+    const bucket = result.get(ownerId) ?? [];
+    bucket.push(rest as AttachmentAsset);
+    result.set(ownerId, bucket);
+  }
+  return result;
+}
+
+/**
+ * Public/read-side batched variant used by endpoints where the viewer is
+ * not necessarily the author (community post + its replies). Does not
+ * filter by caller userId — ownership is implied by the link rows' own
+ * userId column (author uploads only), same guarantee as
+ * getAttachmentsForOwnerPublic.
+ */
+export async function getAttachmentsForOwnersPublicBatch(options: {
+  ownerType: MessageAttachmentOwnerType;
+  ownerIds: readonly string[];
+}): Promise<Map<string, AttachmentAsset[]>> {
+  const result = new Map<string, AttachmentAsset[]>();
+  if (options.ownerIds.length === 0) return result;
+  const rows = await db
+    .select({
+      id: attachmentAssets.id,
+      userId: attachmentAssets.userId,
+      taskId: attachmentAssets.taskId,
+      kind: attachmentAssets.kind,
+      fileName: attachmentAssets.fileName,
+      mimeType: attachmentAssets.mimeType,
+      byteSize: attachmentAssets.byteSize,
+      storageKey: attachmentAssets.storageKey,
+      metadataJson: attachmentAssets.metadataJson,
+      createdAt: attachmentAssets.createdAt,
+      deletedAt: attachmentAssets.deletedAt,
+      ownerId: messageAttachments.ownerId,
+      position: messageAttachments.position,
+    })
+    .from(messageAttachments)
+    .innerJoin(attachmentAssets, eq(attachmentAssets.id, messageAttachments.assetId))
+    .where(and(
+      eq(messageAttachments.ownerType, options.ownerType),
+      inArray(messageAttachments.ownerId, [...options.ownerIds]),
+      sql`${attachmentAssets.deletedAt} IS NULL`,
+    ))
+    .orderBy(messageAttachments.ownerId, messageAttachments.position);
+  for (const row of rows) {
+    const { ownerId, position: _p, ...rest } = row;
+    const bucket = result.get(ownerId) ?? [];
+    bucket.push(rest as AttachmentAsset);
+    result.set(ownerId, bucket);
+  }
+  return result;
+}
+
+export async function retentionSweepAttachments(userId: string, retentionDays: number, dryRun = true): Promise<{
+  candidateCount: number;
+  candidates: AttachmentAsset[];
+}> {
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const candidates = await db.select().from(attachmentAssets).where(and(
+    eq(attachmentAssets.userId, userId),
+    sql`${attachmentAssets.deletedAt} IS NULL`,
+    lt(attachmentAssets.createdAt, cutoff),
+  ));
+  if (!dryRun && candidates.length > 0) {
+    const ids = candidates.map((a) => a.id);
+    await db.update(attachmentAssets)
+      .set({ deletedAt: new Date() })
+      .where(inArray(attachmentAssets.id, ids));
+  }
+  return { candidateCount: candidates.length, candidates };
+}
+
+export async function saveUsageSnapshot(input: {
+  snapshotDate: string;
+  source?: string;
+  requests: number;
+  errors: number;
+  p95Ms: number;
+  dbStorageMb: number;
+  taskCount: number;
+  attachmentBytes: number;
+  spendMtdCents: number;
+}): Promise<UsageSnapshot> {
+  const [existing] = await db.select().from(usageSnapshots).where(eq(usageSnapshots.snapshotDate, input.snapshotDate));
+  if (existing) {
+    const [updated] = await db.update(usageSnapshots).set({
+      source: input.source || existing.source,
+      requests: input.requests,
+      errors: input.errors,
+      p95Ms: input.p95Ms,
+      dbStorageMb: input.dbStorageMb,
+      taskCount: input.taskCount,
+      attachmentBytes: input.attachmentBytes,
+      spendMtdCents: input.spendMtdCents,
+    }).where(eq(usageSnapshots.id, existing.id)).returning();
+    return updated;
+  }
+
+  const [created] = await db.insert(usageSnapshots).values({
+    id: randomUUID(),
+    snapshotDate: input.snapshotDate,
+    source: input.source || "internal",
+    requests: input.requests,
+    errors: input.errors,
+    p95Ms: input.p95Ms,
+    dbStorageMb: input.dbStorageMb,
+    taskCount: input.taskCount,
+    attachmentBytes: input.attachmentBytes,
+    spendMtdCents: input.spendMtdCents,
+  }).returning();
+  return created;
+}
+
+export async function getUsageSnapshots(limit = 30): Promise<UsageSnapshot[]> {
+  return db.select().from(usageSnapshots).orderBy(desc(usageSnapshots.snapshotDate)).limit(limit);
+}
+
+export async function hasImportFingerprint(userId: string, fingerprint: string): Promise<boolean> {
+  const [row] = await db.select({ value: count() })
+    .from(taskImportFingerprints)
+    .where(and(eq(taskImportFingerprints.userId, userId), eq(taskImportFingerprints.fingerprint, fingerprint)));
+  return (Number(row?.value) || 0) > 0;
+}
+
+export async function recordImportFingerprint(userId: string, fingerprint: string, source: string, firstTaskId?: string): Promise<void> {
+  await db.insert(taskImportFingerprints).values({
+    id: randomUUID(),
+    userId,
+    fingerprint,
+    source,
+    firstTaskId: firstTaskId || null,
+  }).onConflictDoNothing();
+}
+
+// ─── Invoicing, MFA, Idempotency ────────────────────────────────────────────
+function hashMfaCode(code: string): string {
+  return createHash("sha256").update(code).digest("hex");
+}
+
+export type MfaDeliveryOptions = {
+  ttlMinutes?: number;
+  deliveryChannel?: "email" | "sms";
+  /** Required when deliveryChannel is sms */
+  smsDestinationE164?: string | null;
+};
+
+export async function createMfaChallenge(
+  userId: string,
+  purpose: string,
+  options?: MfaDeliveryOptions,
+): Promise<{ challengeId: string; code: string; expiresAt: Date }> {
+  const ttlMinutes = options?.ttlMinutes ?? 10;
+  const deliveryChannel = options?.deliveryChannel ?? "email";
+  let smsDestinationE164 = options?.smsDestinationE164 ?? null;
+  if (deliveryChannel === "email") {
+    smsDestinationE164 = null;
+  } else if (!smsDestinationE164?.trim()) {
+    throw new Error("SMS challenges require smsDestinationE164");
+  }
+
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const challengeId = randomUUID();
+  const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
+  await db.insert(mfaChallenges).values({
+    id: challengeId,
+    userId,
+    purpose,
+    codeHash: hashMfaCode(code),
+    expiresAt,
+    deliveryChannel,
+    smsDestinationE164: smsDestinationE164?.trim() || null,
+  });
+  return { challengeId, code, expiresAt };
+}
+
+export async function deleteMfaChallengeById(challengeId: string, userId: string): Promise<void> {
+  await db.delete(mfaChallenges).where(and(eq(mfaChallenges.id, challengeId), eq(mfaChallenges.userId, userId)));
+}
+
+export async function getUserContactForMfa(userId: string): Promise<{
+  email: string;
+  phoneE164: string | null;
+  phoneVerifiedAt: Date | null;
+} | undefined> {
+  const [row] = await db.select({
+    email: users.email,
+    phoneE164: users.phoneE164,
+    phoneVerifiedAt: users.phoneVerifiedAt,
+  }).from(users).where(eq(users.id, userId));
+  return row ?? undefined;
+}
+
+export async function setUserVerifiedPhone(userId: string, phoneE164: string): Promise<void> {
+  await db.update(users).set({
+    phoneE164,
+    phoneVerifiedAt: new Date(),
+  }).where(eq(users.id, userId));
+}
+
+export async function verifyMfaChallengeWithMetadata(
+  userId: string,
+  challengeId: string,
+  code: string,
+  expectedPurpose?: string,
+): Promise<
+  | { ok: false }
+  | { ok: true; smsDestinationE164: string | null; deliveryChannel: string }
+> {
+  const [challenge] = await db.select().from(mfaChallenges).where(and(
+    eq(mfaChallenges.id, challengeId),
+    eq(mfaChallenges.userId, userId),
+  ));
+  if (!challenge || challenge.consumedAt || challenge.expiresAt < new Date()) return { ok: false };
+  if (challenge.attempts >= 5) return { ok: false };
+  if (expectedPurpose !== undefined && challenge.purpose !== expectedPurpose) return { ok: false };
+
+  const valid = challenge.codeHash === hashMfaCode(code);
+  if (!valid) {
+    await db.update(mfaChallenges)
+      .set({ attempts: challenge.attempts + 1 })
+      .where(eq(mfaChallenges.id, challenge.id));
+    return { ok: false };
+  }
+
+  const smsDestinationE164 = challenge.smsDestinationE164;
+  const deliveryChannel = challenge.deliveryChannel;
+
+  await db.update(mfaChallenges).set({ consumedAt: new Date() }).where(eq(mfaChallenges.id, challenge.id));
+
+  return {
+    ok: true,
+    smsDestinationE164,
+    deliveryChannel,
+  };
+}
+
+export async function verifyMfaChallenge(
+  userId: string,
+  challengeId: string,
+  code: string,
+  expectedPurpose?: string,
+): Promise<boolean> {
+  const [challenge] = await db.select().from(mfaChallenges).where(and(
+    eq(mfaChallenges.id, challengeId),
+    eq(mfaChallenges.userId, userId),
+  ));
+  if (!challenge || challenge.consumedAt || challenge.expiresAt < new Date()) return false;
+  if (challenge.attempts >= 5) return false;
+  if (expectedPurpose !== undefined && challenge.purpose !== expectedPurpose) return false;
+
+  const valid = challenge.codeHash === hashMfaCode(code);
+  if (!valid) {
+    await db.update(mfaChallenges)
+      .set({ attempts: challenge.attempts + 1 })
+      .where(eq(mfaChallenges.id, challenge.id));
+    return false;
+  }
+
+  await db.update(mfaChallenges).set({ consumedAt: new Date() }).where(eq(mfaChallenges.id, challenge.id));
+  return true;
+}
+
+export async function listBillingPaymentMethodsForUser(userId: string): Promise<BillingPaymentMethod[]> {
+  return db.select().from(billingPaymentMethods)
+    .where(eq(billingPaymentMethods.userId, userId))
+    .orderBy(desc(billingPaymentMethods.createdAt));
+}
+
+export async function createBillingPaymentMethod(input: {
+  userId: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  country?: string;
+  postalCode?: string;
+  isDefault: boolean;
+}): Promise<BillingPaymentMethod> {
+  if (input.isDefault) {
+    await db.update(billingPaymentMethods)
+      .set({ isDefault: false })
+      .where(eq(billingPaymentMethods.userId, input.userId));
+  }
+  const [row] = await db.insert(billingPaymentMethods).values({
+    id: randomUUID(),
+    userId: input.userId,
+    brand: input.brand,
+    last4: input.last4,
+    expMonth: input.expMonth,
+    expYear: input.expYear,
+    country: input.country || null,
+    postalCode: input.postalCode || null,
+    isDefault: input.isDefault,
+  }).returning();
+  return row;
+}
+
+export async function createInvoice(input: {
+  userId: string;
+  invoiceNumber: string;
+  amountCents: number;
+  currency?: string;
+  dueDate?: string;
+  metadataJson?: string;
+}): Promise<Invoice> {
+  const [invoice] = await db.insert(invoices).values({
+    id: randomUUID(),
+    userId: input.userId,
+    invoiceNumber: input.invoiceNumber,
+    amountCents: input.amountCents,
+    currency: (input.currency || "USD").toUpperCase(),
+    status: "draft",
+    dueDate: input.dueDate || null,
+    metadataJson: input.metadataJson || null,
+  }).returning();
+  await db.insert(invoiceEvents).values({
+    id: randomUUID(),
+    invoiceId: invoice.id,
+    actorUserId: input.userId,
+    eventType: "created",
+    details: "Invoice created",
+  });
+  return invoice;
+}
+
+export async function issueInvoice(invoiceId: string, actorUserId: string): Promise<Invoice | undefined> {
+  const [invoice] = await db.update(invoices).set({ status: "issued", issuedAt: new Date(), updatedAt: new Date() })
+    .where(eq(invoices.id, invoiceId))
+    .returning();
+  if (!invoice) return undefined;
+  await db.insert(invoiceEvents).values({
+    id: randomUUID(),
+    invoiceId,
+    actorUserId,
+    eventType: "issued",
+    details: "Invoice issued",
+  });
+  return invoice;
+}
+
+export async function confirmInvoicePayment(invoiceId: string, actorUserId: string, confirmationNumber: string, externalReference?: string): Promise<Invoice | undefined> {
+  const [invoice] = await db.update(invoices).set({
+    status: "paid",
+    confirmationNumber,
+    externalReference: externalReference || null,
+    paidAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(invoices.id, invoiceId)).returning();
+  if (!invoice) return undefined;
+  await db.insert(invoiceEvents).values({
+    id: randomUUID(),
+    invoiceId,
+    actorUserId,
+    eventType: "paid",
+    details: `Payment confirmed: ${confirmationNumber}`,
+  });
+  return invoice;
+}
+
+export async function listInvoices(limit = 100): Promise<Invoice[]> {
+  return db.select().from(invoices).orderBy(desc(invoices.createdAt)).limit(limit);
+}
+
+export async function listInvoiceEvents(invoiceId: string): Promise<InvoiceEvent[]> {
+  return db.select().from(invoiceEvents).where(eq(invoiceEvents.invoiceId, invoiceId)).orderBy(desc(invoiceEvents.createdAt));
+}
+
+export async function ensureIdempotencyKey(key: string, route: string, userId?: string): Promise<{ fresh: boolean }> {
+  const [existing] = await db.select().from(idempotencyKeys).where(and(
+    eq(idempotencyKeys.key, key),
+    eq(idempotencyKeys.route, route),
+  ));
+  if (existing) return { fresh: false };
+  await db.insert(idempotencyKeys).values({
+    id: randomUUID(),
+    key,
+    route,
+    userId: userId || null,
+  });
+  return { fresh: true };
+}
+
+// ─── Premium + Retention Layer ───────────────────────────────────────────────
+export const PREMIUM_CATALOG = {
+  assumptions: {
+    currency: "USD",
+    billingCadence: ["monthly", "yearly"],
+    defaultGraceDays: 14,
+    objective: "retention",
+  },
+  plans: [
+    {
+      product: "axtask",
+      planKey: "axtask_pro_monthly",
+      monthlyPriceUsd: 12,
+      features: ["saved_smart_views", "review_workflows", "weekly_digest"],
+    },
+    {
+      product: "nodeweaver",
+      planKey: "nodeweaver_pro_monthly",
+      monthlyPriceUsd: 19,
+      features: ["classification_history_replay", "confidence_drift_alerts", "weekly_digest"],
+    },
+    {
+      product: "bundle",
+      planKey: "power_bundle_monthly",
+      monthlyPriceUsd: 25,
+      features: [
+        "saved_smart_views",
+        "review_workflows",
+        "classification_history_replay",
+        "confidence_drift_alerts",
+        "bundle_auto_reprioritize",
+        "cross_product_digest",
+      ],
+      discountPercentVsSeparate: 19,
+    },
+  ],
+} as const;
+
+export type PremiumEntitlements = {
+  userId: string;
+  planKeys: string[];
+  products: string[];
+  inGracePeriod: boolean;
+  graceUntil: Date | null;
+  features: string[];
+};
+
+const PREMIUM_FEATURE_MATRIX: Record<string, string[]> = {
+  axtask_pro_monthly: ["saved_smart_views", "review_workflows", "weekly_digest"],
+  axtask_pro_yearly: ["saved_smart_views", "review_workflows", "weekly_digest"],
+  nodeweaver_pro_monthly: ["classification_history_replay", "confidence_drift_alerts", "weekly_digest"],
+  nodeweaver_pro_yearly: ["classification_history_replay", "confidence_drift_alerts", "weekly_digest"],
+  power_bundle_monthly: [
+    "saved_smart_views",
+    "review_workflows",
+    "weekly_digest",
+    "classification_history_replay",
+    "confidence_drift_alerts",
+    "bundle_auto_reprioritize",
+    "cross_product_digest",
+  ],
+  power_bundle_yearly: [
+    "saved_smart_views",
+    "review_workflows",
+    "weekly_digest",
+    "classification_history_replay",
+    "confidence_drift_alerts",
+    "bundle_auto_reprioritize",
+    "cross_product_digest",
+  ],
+};
+
+export async function trackPremiumEvent(input: {
+  userId?: string;
+  eventName: string;
+  product: string;
+  planKey?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<PremiumEvent> {
+  const [event] = await db.insert(premiumEvents).values({
+    id: randomUUID(),
+    userId: input.userId || null,
+    eventName: input.eventName,
+    product: input.product,
+    planKey: input.planKey || null,
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
+  }).returning();
+  return event;
+}
+
+export async function listPremiumSubscriptions(userId: string): Promise<PremiumSubscription[]> {
+  return db.select()
+    .from(premiumSubscriptions)
+    .where(eq(premiumSubscriptions.userId, userId))
+    .orderBy(desc(premiumSubscriptions.updatedAt));
+}
+
+export async function getPremiumEntitlements(userId: string): Promise<PremiumEntitlements> {
+  const subs = await listPremiumSubscriptions(userId);
+  const now = new Date();
+  const activeOrGrace = subs.filter((sub) => {
+    if (sub.status === "active") return true;
+    if (sub.status === "grace" && sub.graceUntil && new Date(sub.graceUntil) > now) return true;
+    return false;
+  });
+
+  const planKeys = activeOrGrace.map((s) => s.planKey);
+  const products = Array.from(new Set(activeOrGrace.map((s) => s.product)));
+  const features = Array.from(new Set(planKeys.flatMap((k) => PREMIUM_FEATURE_MATRIX[k] || [])));
+  const graceRows = activeOrGrace.filter((s) => s.status === "grace" && s.graceUntil).sort((a, b) => {
+    const aTime = a.graceUntil ? new Date(a.graceUntil).getTime() : 0;
+    const bTime = b.graceUntil ? new Date(b.graceUntil).getTime() : 0;
+    return bTime - aTime;
+  });
+
+  return {
+    userId,
+    planKeys,
+    products,
+    features,
+    inGracePeriod: graceRows.length > 0,
+    graceUntil: graceRows[0]?.graceUntil || null,
+  };
+}
+
+export async function upsertPremiumSubscription(input: {
+  userId: string;
+  product: "axtask" | "nodeweaver" | "bundle";
+  planKey: string;
+  status: "active" | "grace" | "inactive";
+  graceUntil?: Date | null;
+  metadata?: Record<string, unknown>;
+}): Promise<PremiumSubscription> {
+  const [existing] = await db.select().from(premiumSubscriptions).where(and(
+    eq(premiumSubscriptions.userId, input.userId),
+    eq(premiumSubscriptions.product, input.product),
+    eq(premiumSubscriptions.planKey, input.planKey),
+  ));
+  if (existing) {
+    const [updated] = await db.update(premiumSubscriptions).set({
+      status: input.status,
+      graceUntil: input.graceUntil || null,
+      reactivatedAt: input.status === "active" ? new Date() : existing.reactivatedAt,
+      metadataJson: input.metadata ? JSON.stringify(input.metadata) : existing.metadataJson,
+      updatedAt: new Date(),
+    }).where(eq(premiumSubscriptions.id, existing.id)).returning();
+    return updated;
+  }
+  const [created] = await db.insert(premiumSubscriptions).values({
+    id: randomUUID(),
+    userId: input.userId,
+    product: input.product,
+    planKey: input.planKey,
+    status: input.status,
+    graceUntil: input.graceUntil || null,
+    downgradedAt: input.status === "grace" ? new Date() : null,
+    reactivatedAt: input.status === "active" ? new Date() : null,
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
+  }).returning();
+  return created;
+}
+
+export async function downgradePremiumToGrace(userId: string, product: "axtask" | "nodeweaver" | "bundle", days = 14): Promise<PremiumSubscription | null> {
+  const [existing] = await db.select().from(premiumSubscriptions).where(and(
+    eq(premiumSubscriptions.userId, userId),
+    eq(premiumSubscriptions.product, product),
+    or(eq(premiumSubscriptions.status, "active"), eq(premiumSubscriptions.status, "grace")),
+  )).orderBy(desc(premiumSubscriptions.updatedAt)).limit(1);
+
+  if (!existing) return null;
+  const graceUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  const [updated] = await db.update(premiumSubscriptions).set({
+    status: "grace",
+    graceUntil,
+    downgradedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(premiumSubscriptions.id, existing.id)).returning();
+  await trackPremiumEvent({
+    userId,
+    eventName: "premium_downgrade_grace_started",
+    product,
+    planKey: updated.planKey,
+    metadata: { graceDays: days, graceUntil: graceUntil.toISOString() },
+  });
+  return updated;
+}
+
+export async function reactivatePremium(userId: string, product: "axtask" | "nodeweaver" | "bundle"): Promise<PremiumSubscription | null> {
+  const [existing] = await db.select().from(premiumSubscriptions).where(and(
+    eq(premiumSubscriptions.userId, userId),
+    eq(premiumSubscriptions.product, product),
+  )).orderBy(desc(premiumSubscriptions.updatedAt)).limit(1);
+  if (!existing) return null;
+  const [updated] = await db.update(premiumSubscriptions).set({
+    status: "active",
+    graceUntil: null,
+    reactivatedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(premiumSubscriptions.id, existing.id)).returning();
+  await trackPremiumEvent({
+    userId,
+    eventName: "premium_reactivated",
+    product,
+    planKey: updated.planKey,
+  });
+  return updated;
+}
+
+export async function listPremiumSavedViews(userId: string): Promise<PremiumSavedView[]> {
+  return db.select().from(premiumSavedViews).where(eq(premiumSavedViews.userId, userId)).orderBy(desc(premiumSavedViews.updatedAt));
+}
+
+export async function createPremiumSavedView(input: {
+  userId: string;
+  name: string;
+  filtersJson: string;
+  autoRefreshMinutes?: number;
+}): Promise<PremiumSavedView> {
+  const [view] = await db.insert(premiumSavedViews).values({
+    id: randomUUID(),
+    userId: input.userId,
+    name: input.name,
+    filtersJson: input.filtersJson,
+    autoRefreshMinutes: input.autoRefreshMinutes ?? 15,
+  }).returning();
+  await trackPremiumEvent({
+    userId: input.userId,
+    eventName: "premium_saved_view_created",
+    product: "axtask",
+    metadata: { savedViewId: view.id },
+  });
+  return view;
+}
+
+export async function updatePremiumSavedView(input: {
+  userId: string;
+  id: string;
+  name?: string;
+  filtersJson?: string;
+  autoRefreshMinutes?: number;
+  lastOpenedAt?: Date;
+}): Promise<PremiumSavedView | undefined> {
+  const [view] = await db.update(premiumSavedViews).set({
+    name: input.name,
+    filtersJson: input.filtersJson,
+    autoRefreshMinutes: input.autoRefreshMinutes,
+    lastOpenedAt: input.lastOpenedAt,
+    updatedAt: new Date(),
+  }).where(and(eq(premiumSavedViews.id, input.id), eq(premiumSavedViews.userId, input.userId))).returning();
+  return view;
+}
+
+export async function deletePremiumSavedView(userId: string, id: string): Promise<boolean> {
+  const result = await db.delete(premiumSavedViews).where(and(
+    eq(premiumSavedViews.id, id),
+    eq(premiumSavedViews.userId, userId),
+  ));
+  return (result.rowCount || 0) > 0;
+}
+
+export async function setDefaultPremiumSavedView(userId: string, id: string): Promise<void> {
+  await db.update(premiumSavedViews).set({ isDefault: false, updatedAt: new Date() }).where(eq(premiumSavedViews.userId, userId));
+  await db.update(premiumSavedViews).set({ isDefault: true, updatedAt: new Date() }).where(and(
+    eq(premiumSavedViews.userId, userId),
+    eq(premiumSavedViews.id, id),
+  ));
+  await trackPremiumEvent({
+    userId,
+    eventName: "premium_saved_view_default_set",
+    product: "axtask",
+    metadata: { savedViewId: id },
+  });
+}
+
+export async function listPremiumReviewWorkflows(userId: string): Promise<PremiumReviewWorkflow[]> {
+  return db.select().from(premiumReviewWorkflows).where(eq(premiumReviewWorkflows.userId, userId)).orderBy(desc(premiumReviewWorkflows.updatedAt));
+}
+
+export async function createPremiumReviewWorkflow(input: {
+  userId: string;
+  name: string;
+  cadence: "daily" | "weekly" | "monthly";
+  criteriaJson: string;
+  templateJson: string;
+  isActive?: boolean;
+}): Promise<PremiumReviewWorkflow> {
+  const [workflow] = await db.insert(premiumReviewWorkflows).values({
+    id: randomUUID(),
+    userId: input.userId,
+    name: input.name,
+    cadence: input.cadence,
+    criteriaJson: input.criteriaJson,
+    templateJson: input.templateJson,
+    isActive: input.isActive ?? true,
+  }).returning();
+  await trackPremiumEvent({
+    userId: input.userId,
+    eventName: "premium_review_workflow_created",
+    product: "axtask",
+    metadata: { workflowId: workflow.id, cadence: workflow.cadence },
+  });
+  return workflow;
+}
+
+export async function updatePremiumReviewWorkflow(input: {
+  userId: string;
+  id: string;
+  name?: string;
+  cadence?: "daily" | "weekly" | "monthly";
+  criteriaJson?: string;
+  templateJson?: string;
+  isActive?: boolean;
+}): Promise<PremiumReviewWorkflow | undefined> {
+  const [workflow] = await db.update(premiumReviewWorkflows).set({
+    name: input.name,
+    cadence: input.cadence,
+    criteriaJson: input.criteriaJson,
+    templateJson: input.templateJson,
+    isActive: input.isActive,
+    updatedAt: new Date(),
+  }).where(and(eq(premiumReviewWorkflows.id, input.id), eq(premiumReviewWorkflows.userId, input.userId))).returning();
+  return workflow;
+}
+
+export async function deletePremiumReviewWorkflow(userId: string, id: string): Promise<boolean> {
+  const result = await db.delete(premiumReviewWorkflows).where(and(
+    eq(premiumReviewWorkflows.id, id),
+    eq(premiumReviewWorkflows.userId, userId),
+  ));
+  return (result.rowCount || 0) > 0;
+}
+
+export async function markPremiumReviewWorkflowRun(userId: string, id: string): Promise<PremiumReviewWorkflow | undefined> {
+  const [workflow] = await db.update(premiumReviewWorkflows).set({
+    lastRunAt: new Date(),
+    updatedAt: new Date(),
+  }).where(and(eq(premiumReviewWorkflows.id, id), eq(premiumReviewWorkflows.userId, userId))).returning();
+  if (workflow) {
+    await trackPremiumEvent({
+      userId,
+      eventName: "premium_review_workflow_run",
+      product: "axtask",
+      metadata: { workflowId: id },
+    });
+  }
+  return workflow;
+}
+
+export async function createPremiumInsight(input: {
+  userId: string;
+  source: "axtask" | "nodeweaver" | "bundle";
+  insightType: string;
+  title: string;
+  body: string;
+  severity?: "low" | "medium" | "high" | "critical";
+  metadata?: Record<string, unknown>;
+}): Promise<PremiumInsight> {
+  const [insight] = await db.insert(premiumInsights).values({
+    id: randomUUID(),
+    userId: input.userId,
+    source: input.source,
+    insightType: input.insightType,
+    title: input.title,
+    body: input.body,
+    severity: input.severity || "medium",
+    status: "open",
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
+  }).returning();
+  return insight;
+}
+
+export async function listPremiumInsights(userId: string, status?: "open" | "resolved"): Promise<PremiumInsight[]> {
+  if (status) {
+    return db.select().from(premiumInsights).where(and(
+      eq(premiumInsights.userId, userId),
+      eq(premiumInsights.status, status),
+    )).orderBy(desc(premiumInsights.createdAt));
+  }
+  return db.select().from(premiumInsights).where(eq(premiumInsights.userId, userId)).orderBy(desc(premiumInsights.createdAt));
+}
+
+export async function resolvePremiumInsight(userId: string, insightId: string): Promise<PremiumInsight | undefined> {
+  const [insight] = await db.update(premiumInsights).set({
+    status: "resolved",
+    resolvedAt: new Date(),
+  }).where(and(eq(premiumInsights.id, insightId), eq(premiumInsights.userId, userId))).returning();
+  return insight;
+}
+
+export async function buildWeeklyPremiumDigest(userId: string): Promise<{
+  generatedAt: string;
+  taskSummary: {
+    total: number;
+    completed: number;
+    overdue: number;
+    highPriorityOpen: number;
+  };
+  insightsOpen: number;
+  recommendations: string[];
+}> {
+  const allTasks = await storage.getTasks(userId);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const completed = allTasks.filter((task) => task.status === "completed").length;
+  const overdue = allTasks.filter((task) => task.status !== "completed" && task.date < today).length;
+  const highPriorityOpen = allTasks.filter((task) =>
+    task.status !== "completed" && (task.priority === "High" || task.priority === "Highest"),
+  ).length;
+  const openInsights = await listPremiumInsights(userId, "open");
+
+  const recommendations: string[] = [];
+  if (overdue > 0) recommendations.push(`Clear ${overdue} overdue tasks using a weekly review workflow.`);
+  if (highPriorityOpen > 0) recommendations.push(`Focus top ${Math.min(highPriorityOpen, 5)} high-priority tasks first.`);
+  if (openInsights.length > 0) recommendations.push(`Resolve ${openInsights.length} premium insights to improve consistency.`);
+  if (recommendations.length === 0) recommendations.push("Momentum is healthy. Keep the current execution cadence.");
+
+  return {
+    generatedAt: now.toISOString(),
+    taskSummary: {
+      total: allTasks.length,
+      completed,
+      overdue,
+      highPriorityOpen,
+    },
+    insightsOpen: openInsights.length,
+    recommendations,
+  };
+}
+
+export async function getPremiumRetentionMetrics(days = 30): Promise<{
+  windowDays: number;
+  totals: {
+    activePremiumUsers: number;
+    graceUsers: number;
+    weeklyDigestRuns: number;
+    savedViewEvents: number;
+    workflowRunEvents: number;
+  };
+}> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const [activeRows, graceRows, digestRows, savedViewRows, workflowRows] = await Promise.all([
+    db.select({ value: count() }).from(premiumSubscriptions).where(eq(premiumSubscriptions.status, "active")),
+    db.select({ value: count() }).from(premiumSubscriptions).where(eq(premiumSubscriptions.status, "grace")),
+    db.select({ value: count() }).from(premiumEvents).where(and(
+      eq(premiumEvents.eventName, "premium_weekly_digest_generated"),
+      sql`${premiumEvents.createdAt} >= ${since}`,
+    )),
+    db.select({ value: count() }).from(premiumEvents).where(and(
+      eq(premiumEvents.eventName, "premium_saved_view_created"),
+      sql`${premiumEvents.createdAt} >= ${since}`,
+    )),
+    db.select({ value: count() }).from(premiumEvents).where(and(
+      eq(premiumEvents.eventName, "premium_review_workflow_run"),
+      sql`${premiumEvents.createdAt} >= ${since}`,
+    )),
+  ]);
+  return {
+    windowDays: days,
+    totals: {
+      activePremiumUsers: Number(activeRows[0]?.value) || 0,
+      graceUsers: Number(graceRows[0]?.value) || 0,
+      weeklyDigestRuns: Number(digestRows[0]?.value) || 0,
+      savedViewEvents: Number(savedViewRows[0]?.value) || 0,
+      workflowRunEvents: Number(workflowRows[0]?.value) || 0,
+    },
+  };
+}
+
+// ─── Community Posts Storage ────────────────────────────────────────────────
+
+export async function listCommunityPosts(limit = 30): Promise<CommunityPost[]> {
+  return db
+    .select()
+    .from(communityPosts)
+    .orderBy(desc(communityPosts.createdAt))
+    .limit(limit);
+}
+
+export async function createCommunityPost(post: {
+  avatarKey: string;
+  avatarName: string;
+  title: string;
+  body: string;
+  category?: string;
+  relatedTaskId?: string | null;
+}): Promise<CommunityPost> {
+  const [row] = await db
+    .insert(communityPosts)
+    .values({
+      id: randomUUID(),
+      avatarKey: post.avatarKey,
+      avatarName: post.avatarName,
+      title: post.title,
+      body: post.body,
+      category: post.category || "general",
+      relatedTaskId: post.relatedTaskId || null,
+    })
+    .returning();
+  return row;
+}
+
+export async function getCommunityPostWithReplies(postId: string): Promise<{
+  post: CommunityPost;
+  replies: CommunityReply[];
+} | null> {
+  const [post] = await db
+    .select()
+    .from(communityPosts)
+    .where(eq(communityPosts.id, postId));
+  if (!post) return null;
+  const replies = await db
+    .select()
+    .from(communityReplies)
+    .where(eq(communityReplies.postId, postId))
+    .orderBy(asc(communityReplies.createdAt));
+  return { post, replies };
+}
+
+export async function createCommunityReply(reply: {
+  postId: string;
+  userId?: string | null;
+  avatarKey?: string | null;
+  displayName: string;
+  body: string;
+}): Promise<CommunityReply> {
+  const [row] = await db
+    .insert(communityReplies)
+    .values({
+      id: randomUUID(),
+      postId: reply.postId,
+      userId: reply.userId || null,
+      avatarKey: reply.avatarKey || null,
+      displayName: reply.displayName,
+      body: reply.body,
+    })
+    .returning();
+  return row;
+}
+
+/**
+ * Seed the community with avatar-generated posts if the table is empty.
+ * These are "tangentially relevant" prompts that feel like banter between
+ * the avatar engines — users can then join the conversation.
+ */
+const AVATAR_SEED_POSTS: Array<{
+  avatarKey: string;
+  avatarName: string;
+  title: string;
+  body: string;
+  category: string;
+}> = [
+  {
+    avatarKey: "mood",
+    avatarName: "Moodweaver",
+    title: "Does anyone else re-prioritize their entire day after a good cup of coffee?",
+    body: "I noticed that emotional momentum is real. One small win in the morning cascades into a surprisingly productive afternoon. The trick is noticing which tasks *feel* right first thing — not which ones look urgent on paper. What's your morning anchor task?",
+    category: "productivity",
+  },
+  {
+    avatarKey: "archetype",
+    avatarName: "Archon",
+    title: "The hidden cost of task-switching: a pattern I keep seeing",
+    body: "Across thousands of task logs I've noticed something interesting — people who batch similar tasks together complete 30% more by end of day. But the *type* of batching matters. It's not about category; it's about cognitive mode. Writing tasks together, admin tasks together, creative bursts together. Anyone else found their own batching sweet spot?",
+    category: "insights",
+  },
+  {
+    avatarKey: "productivity",
+    avatarName: "Cadence",
+    title: "Confession: I think most 'high priority' tasks aren't actually urgent",
+    body: "Hot take from the productivity engine: marking everything as high priority is the same as marking nothing. The real skill is being honest about what can wait a day. I've started asking myself — if I didn't do this today, what actually breaks? Usually the answer is: nothing. That clarity helps me focus on what genuinely matters.",
+    category: "discussion",
+  },
+  {
+    avatarKey: "social",
+    avatarName: "Nexus",
+    title: "What's the weirdest task you've ever tracked?",
+    body: "I love seeing the creative ways people use task managers. Grocery runs, existential crises, 'remind me to breathe' — it all counts. There's something beautiful about treating the mundane with the same respect as the monumental. Drop your most unusual task below. No judgement zone! 🎭",
+    category: "fun",
+  },
+  {
+    avatarKey: "lazy",
+    avatarName: "Drift",
+    title: "In praise of doing less: why your unfinished list is actually fine",
+    body: "Hey. Drift here. I know the other engines love to talk about crushing it, but can we appreciate the art of *not* finishing everything? An incomplete list means you were ambitious enough to dream big. Rest isn't failure. Sometimes the most productive thing is closing the laptop and going for a walk. Tomorrow-you will have fresh eyes. 🌿",
+    category: "wellness",
+  },
+  {
+    avatarKey: "mood",
+    avatarName: "Moodweaver",
+    title: "The 3PM slump is real — here's what I've been experimenting with",
+    body: "That mid-afternoon energy crash isn't just you. I've been tracking mood-vs-task-completion patterns and the data is clear: creative work before 2pm, mechanical work after. But what REALLY helps is a 10-minute palate cleanser — something completely different. A quick sketch, a walk, even reorganizing your desk. Then dive back in. What's your 3PM hack?",
+    category: "productivity",
+  },
+];
+
+export async function seedCommunityPosts(): Promise<void> {
+  const [existing] = await db.select({ value: count() }).from(communityPosts);
+  if ((Number(existing?.value) || 0) > 0) return;
+  for (const post of AVATAR_SEED_POSTS) {
+    await createCommunityPost(post);
+  }
+}
+
+// ─── Archetype polls (community) ─────────────────────────────────────────────
+
+export async function hasArchetypePollActiveOrFuture(now: Date): Promise<boolean> {
+  const [row] = await db
+    .select({ c: count() })
+    .from(archetypePolls)
+    .where(gt(archetypePolls.closesAt, now));
+  return Number(row?.c ?? 0) > 0;
+}
+
+export async function listArchetypePollsForPublic(now: Date, limit = 20): Promise<ArchetypePoll[]> {
+  return db
+    .select()
+    .from(archetypePolls)
+    .where(lte(archetypePolls.opensAt, now))
+    .orderBy(desc(archetypePolls.closesAt))
+    .limit(limit);
+}
+
+export async function getArchetypePollById(pollId: string): Promise<ArchetypePoll | null> {
+  const [row] = await db.select().from(archetypePolls).where(eq(archetypePolls.id, pollId));
+  return row ?? null;
+}
+
+export async function listArchetypePollOptions(pollId: string): Promise<ArchetypePollOption[]> {
+  return db
+    .select()
+    .from(archetypePollOptions)
+    .where(eq(archetypePollOptions.pollId, pollId))
+    .orderBy(asc(archetypePollOptions.sortOrder), asc(archetypePollOptions.id));
+}
+
+export async function getArchetypePollKAnonTalliesForPublic(pollId: string) {
+  const options = await listArchetypePollOptions(pollId);
+  if (options.length === 0) return [];
+  const tallyRows = await db
+    .select({
+      optionId: archetypePollVotes.optionId,
+      archetypeKey: archetypePollVotes.archetypeKey,
+      n: count(),
+    })
+    .from(archetypePollVotes)
+    .where(eq(archetypePollVotes.pollId, pollId))
+    .groupBy(archetypePollVotes.optionId, archetypePollVotes.archetypeKey);
+
+  const raw: RawOptionTally[] = options.map((opt) => {
+    const countsByArchetype = new Map<string, number>();
+    let totalCount = 0;
+    for (const row of tallyRows) {
+      if (row.optionId !== opt.id) continue;
+      const v = Number(row.n);
+      countsByArchetype.set(row.archetypeKey, v);
+      totalCount += v;
+    }
+    return {
+      optionId: opt.id,
+      label: opt.label,
+      sortOrder: opt.sortOrder,
+      countsByArchetype,
+      totalCount,
+    };
+  });
+  return applyKAnonymityToPollTallies(raw);
+}
+
+export async function getArchetypePollVoteForUser(
+  pollId: string,
+  userId: string,
+): Promise<ArchetypePollVote | null> {
+  const [row] = await db
+    .select()
+    .from(archetypePollVotes)
+    .where(and(eq(archetypePollVotes.pollId, pollId), eq(archetypePollVotes.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function upsertArchetypePollVote(input: {
+  userId: string;
+  pollId: string;
+  optionId: string;
+  archetypeKey: string;
+}): Promise<ArchetypePollVote> {
+  const existing = await getArchetypePollVoteForUser(input.pollId, input.userId);
+  if (existing) {
+    const [updated] = await db
+      .update(archetypePollVotes)
+      .set({
+        optionId: input.optionId,
+        archetypeKey: input.archetypeKey,
+      })
+      .where(eq(archetypePollVotes.id, existing.id))
+      .returning();
+    return updated;
+  }
+  const [row] = await db
+    .insert(archetypePollVotes)
+    .values({
+      id: randomUUID(),
+      pollId: input.pollId,
+      userId: input.userId,
+      optionId: input.optionId,
+      archetypeKey: input.archetypeKey,
+    })
+    .returning();
+  return row;
+}
+
+const POLL_VOTE_ROLLING_MS = 7 * 24 * 60 * 60 * 1000;
+const PG_SERIALIZATION_FAILURE = "40001";
+
+/**
+ * Records a poll vote and optionally credits the weekly archetype-poll reward inside one
+ * serializable transaction (retries on serialization failure). The reward uses a **global**
+ * rolling 7-day cap for `rewardReason` (not per poll): at most `weeklyCap` coin rows in that window.
+ */
+export async function recordArchetypePollVoteWithWeeklyReward(params: {
+  userId: string;
+  pollId: string;
+  optionId: string;
+  archetypeKey: string;
+  rewardAmount: number;
+  weeklyCap: number;
+  rewardReason: string;
+  rewardDetails: string;
+}): Promise<{
+  vote: ArchetypePollVote;
+  isNewVote: boolean;
+  pollVoteReward: { coins: number; newBalance: number } | null;
+  pollVoteRewardNote: "weekly_cap" | null;
+}> {
+  const run = () =>
+    db.transaction(
+      async (tx) => {
+        const existing = await tx
+          .select()
+          .from(archetypePollVotes)
+          .where(
+            and(
+              eq(archetypePollVotes.pollId, params.pollId),
+              eq(archetypePollVotes.userId, params.userId),
+            ),
+          )
+          .limit(1);
+        const row0 = existing[0];
+        let vote: ArchetypePollVote;
+        let isNewVote: boolean;
+
+        if (row0) {
+          const [updated] = await tx
+            .update(archetypePollVotes)
+            .set({
+              optionId: params.optionId,
+              archetypeKey: params.archetypeKey,
+            })
+            .where(eq(archetypePollVotes.id, row0.id))
+            .returning();
+          vote = updated;
+          isNewVote = false;
+        } else {
+          const [row] = await tx
+            .insert(archetypePollVotes)
+            .values({
+              id: randomUUID(),
+              pollId: params.pollId,
+              userId: params.userId,
+              optionId: params.optionId,
+              archetypeKey: params.archetypeKey,
+            })
+            .returning();
+          vote = row;
+          isNewVote = true;
+        }
+
+        const weekAgo = new Date(Date.now() - POLL_VOTE_ROLLING_MS);
+        const [cntRow] = await tx
+          .select({ value: count() })
+          .from(coinTransactions)
+          .where(
+            and(
+              eq(coinTransactions.userId, params.userId),
+              eq(coinTransactions.reason, params.rewardReason),
+              gte(coinTransactions.createdAt, weekAgo),
+            ),
+          );
+        const prior = Number(cntRow?.value) || 0;
+        if (prior >= params.weeklyCap) {
+          return {
+            vote,
+            isNewVote,
+            pollVoteReward: null,
+            pollVoteRewardNote: "weekly_cap" as const,
+          };
+        }
+
+        const [walletRow] = await tx.select().from(wallets).where(eq(wallets.userId, params.userId));
+        if (!walletRow) {
+          await tx.insert(wallets).values({ userId: params.userId });
+        }
+
+        const [updatedWallet] = await tx
+          .update(wallets)
+          .set({
+            balance: sql`${wallets.balance} + ${params.rewardAmount}`,
+            lifetimeEarned: sql`${wallets.lifetimeEarned} + ${params.rewardAmount}`,
+          })
+          .where(eq(wallets.userId, params.userId))
+          .returning();
+
+        await tx.insert(coinTransactions).values({
+          id: randomUUID(),
+          userId: params.userId,
+          amount: params.rewardAmount,
+          reason: params.rewardReason,
+          details: params.rewardDetails,
+        });
+
+        return {
+          vote,
+          isNewVote,
+          pollVoteReward: {
+            coins: params.rewardAmount,
+            newBalance: updatedWallet!.balance,
+          },
+          pollVoteRewardNote: null,
+        };
+      },
+      { isolationLevel: "serializable" },
+    );
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await run();
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === PG_SERIALIZATION_FAILURE && attempt < 2) continue;
+      throw e;
+    }
+  }
+  throw new Error("recordArchetypePollVoteWithWeeklyReward: serialization retries exhausted");
+}
+
+export async function createArchetypePollWithOptions(input: {
+  title: string;
+  body?: string | null;
+  authorAvatarKey: string;
+  opensAt: Date;
+  closesAt: Date;
+  options: { label: string; sortOrder: number }[];
+}): Promise<{ poll: ArchetypePoll; options: ArchetypePollOption[] }> {
+  const now = new Date();
+  const status =
+    now < input.opensAt ? "scheduled" : now >= input.closesAt ? "closed" : "open";
+  return db.transaction(async (tx) => {
+    const [poll] = await tx
+      .insert(archetypePolls)
+      .values({
+        id: randomUUID(),
+        title: input.title,
+        body: input.body ?? null,
+        status,
+        opensAt: input.opensAt,
+        closesAt: input.closesAt,
+        authorAvatarKey: input.authorAvatarKey,
+      })
+      .returning();
+    const outOpts: ArchetypePollOption[] = [];
+    for (const o of input.options) {
+      const [opt] = await tx
+        .insert(archetypePollOptions)
+        .values({
+          id: randomUUID(),
+          pollId: poll.id,
+          label: o.label,
+          sortOrder: o.sortOrder,
+        })
+        .returning();
+      outOpts.push(opt);
+    }
+    return { poll, options: outOpts };
+  });
 }
 
 // ─── Collaboration helpers ──────────────────────────────────────────────────
@@ -1114,7 +4961,7 @@ export async function removeCollaborator(taskId: string, userId: string): Promis
   return result.length > 0;
 }
 
-export async function getTaskCollaborators(taskId: string): Promise<(TaskCollaborator & { email: string; displayName: string | null })[]> {
+export async function getTaskCollaborators(taskId: string): Promise<(TaskCollaborator & { displayName: string | null; publicHandle: string })[]> {
   const rows = await db
     .select({
       id: taskCollaborators.id,
@@ -1123,8 +4970,8 @@ export async function getTaskCollaborators(taskId: string): Promise<(TaskCollabo
       role: taskCollaborators.role,
       invitedBy: taskCollaborators.invitedBy,
       invitedAt: taskCollaborators.invitedAt,
-      email: users.email,
       displayName: users.displayName,
+      publicHandle: users.publicHandle,
     })
     .from(taskCollaborators)
     .innerJoin(users, eq(taskCollaborators.userId, users.id))
@@ -1149,13 +4996,83 @@ export async function getSharedTasks(userId: string): Promise<Task[]> {
   if (rows.length === 0) return [];
   const taskIds = rows.map(r => r.taskId);
   const result = await db.select().from(tasks).where(
-    or(...taskIds.map(id => eq(tasks.id, id)))
+    and(or(...taskIds.map(id => eq(tasks.id, id))), isNull(tasks.deletedAt))
   );
   return result;
 }
 
+export type TaskViewerRole = "owner" | "editor" | "viewer";
+export type AccessibleTask = { task: Task; viewerRole: TaskViewerRole };
+
+function toViewerRole(role: string | null | undefined): TaskViewerRole {
+  return role === "editor" ? "editor" : "viewer";
+}
+
+export async function getAccessibleTasksForUser(userId: string): Promise<AccessibleTask[]> {
+  const ownedTasks = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt)))
+    .orderBy(asc(tasks.sortOrder));
+
+  const sharedMemberships = await db
+    .select({
+      taskId: taskCollaborators.taskId,
+      role: taskCollaborators.role,
+    })
+    .from(taskCollaborators)
+    .where(eq(taskCollaborators.userId, userId));
+
+  if (sharedMemberships.length === 0) {
+    return ownedTasks.map((task) => ({ task, viewerRole: "owner" as const }));
+  }
+
+  const ownedTaskIds = new Set(ownedTasks.map((task) => task.id));
+  const sharedTaskIds = sharedMemberships
+    .map((row) => row.taskId)
+    .filter((taskId) => !ownedTaskIds.has(taskId));
+
+  const sharedTasks = sharedTaskIds.length > 0
+    ? await db
+      .select()
+      .from(tasks)
+      .where(and(inArray(tasks.id, sharedTaskIds), isNull(tasks.deletedAt)))
+      .orderBy(asc(tasks.sortOrder))
+    : [];
+
+  const roleByTaskId = new Map(sharedMemberships.map((row) => [row.taskId, toViewerRole(row.role)]));
+  const owned = ownedTasks.map((task) => ({ task, viewerRole: "owner" as const }));
+  const shared = sharedTasks.map((task) => ({
+    task,
+    viewerRole: roleByTaskId.get(task.id) ?? "viewer",
+  }));
+  return [...owned, ...shared].sort((a, b) => Number(a.task.sortOrder ?? 0) - Number(b.task.sortOrder ?? 0));
+}
+
+export async function getAccessibleTaskForUser(userId: string, taskId: string): Promise<AccessibleTask | null> {
+  const [task] = await db.select().from(tasks).where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)));
+  if (!task) return null;
+  if (task.userId === userId) return { task, viewerRole: "owner" };
+
+  const [membership] = await db
+    .select({ role: taskCollaborators.role })
+    .from(taskCollaborators)
+    .where(and(eq(taskCollaborators.taskId, taskId), eq(taskCollaborators.userId, userId)));
+  if (!membership) return null;
+  return { task, viewerRole: toViewerRole(membership.role) };
+}
+
+export async function updateTaskById(updateTask: UpdateTask): Promise<Task | undefined> {
+  const [task] = await db
+    .update(tasks)
+    .set({ ...updateTask, updatedAt: new Date() })
+    .where(and(eq(tasks.id, updateTask.id), isNull(tasks.deletedAt)))
+    .returning();
+  return task || undefined;
+}
+
 export async function canAccessTask(userId: string, taskId: string): Promise<{ canAccess: boolean; role: string }> {
-  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
+  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)));
   if (task?.userId === userId) return { canAccess: true, role: "owner" };
   const [collab] = await db
     .select({ role: taskCollaborators.role })
@@ -1166,7 +5083,7 @@ export async function canAccessTask(userId: string, taskId: string): Promise<{ c
 }
 
 export async function isTaskOwner(userId: string, taskId: string): Promise<boolean> {
-  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, taskId));
+  const [task] = await db.select({ userId: tasks.userId }).from(tasks).where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)));
   return task?.userId === userId;
 }
 
@@ -1280,7 +5197,6 @@ export async function getContributionsForTask(taskId: string): Promise<(Classifi
       baseCoinsAwarded: classificationContributions.baseCoinsAwarded,
       totalCoinsEarned: classificationContributions.totalCoinsEarned,
       confirmationCount: classificationContributions.confirmationCount,
-      cleanupBonuses: classificationContributions.cleanupBonuses,
       createdAt: classificationContributions.createdAt,
       displayName: users.displayName,
     })
@@ -1373,1802 +5289,505 @@ export async function getUserClassificationStats(userId: string): Promise<{
   };
 }
 
-// ─── Survey & Feedback Storage ──────────────────────────────────────────────
+// ─── Classification Disputes ───────────────────────────────────────────────
+// Peer-challenge path complementing the economic-consensus confirmations above.
+// Disputes do not touch wallets or coins in this PR (see the plan's "Coin economy
+// neutrality" section and docs/OPERATOR_COIN_GRANTS.md). Tracker thresholds are
+// baseline-compatible: >=5 disputes with >=70% agreement => review_needed;
+// >=5 disputes with <70% => contested; otherwise monitoring.
 
-export async function getSurveys(targetModule?: string): Promise<Survey[]> {
-  if (targetModule) {
-    return db
-      .select()
-      .from(surveys)
-      .where(and(eq(surveys.active, true), eq(surveys.targetModule, targetModule)));
-  }
-  return db.select().from(surveys).where(eq(surveys.active, true));
+const DISPUTE_REVIEW_MIN_DISPUTES = 5;
+const DISPUTE_REVIEW_AGREEMENT_RATIO = 0.7;
+
+export interface DisputeWithVoteTally extends ClassificationDispute {
+  displayName: string | null;
+  agreeCount: number;
+  disagreeCount: number;
+  totalVotes: number;
 }
 
-export async function getSurveyById(id: string): Promise<Survey | undefined> {
-  const [row] = await db.select().from(surveys).where(eq(surveys.id, id));
-  return row || undefined;
-}
-
-export async function getApplicableSurveys(userId: string, targetModule?: string): Promise<Survey[]> {
-  let allSurveys = await getSurveys(targetModule);
-  if (targetModule && targetModule !== "general") {
-    const generalSurveys = await getSurveys("general");
-    const ids = new Set(allSurveys.map(s => s.id));
-    for (const s of generalSurveys) {
-      if (!ids.has(s.id)) allSurveys.push(s);
-    }
-  }
-  const applicable: Survey[] = [];
-
-  for (const survey of allSurveys) {
-    const [lastResponse] = await db
-      .select({ createdAt: surveyResponses.createdAt })
-      .from(surveyResponses)
-      .where(and(
-        eq(surveyResponses.userId, userId),
-        eq(surveyResponses.surveyId, survey.id)
-      ))
-      .orderBy(desc(surveyResponses.createdAt))
-      .limit(1);
-
-    if (!lastResponse) {
-      applicable.push(survey);
-      continue;
-    }
-
-    const cooldownMs = survey.cooldownHours * 60 * 60 * 1000;
-    const lastResponseTime = new Date(lastResponse.createdAt!).getTime();
-    if (Date.now() - lastResponseTime > cooldownMs) {
-      applicable.push(survey);
-    }
-  }
-
-  return applicable;
-}
-
-export async function submitSurveyResponse(
-  userId: string,
-  surveyId: string,
-  response: string
-): Promise<SurveyResponse> {
-  const [row] = await db
-    .insert(surveyResponses)
-    .values({ id: randomUUID(), userId, surveyId, response })
-    .returning();
-  return row;
-}
-
-export async function addTaskReaction(
+export async function createDispute(
   taskId: string,
   userId: string,
-  reaction: "thumbsUp" | "thumbsDown"
-): Promise<Record<string, string[]>> {
-  const [task] = await db.select({ reactions: tasks.reactions }).from(tasks).where(eq(tasks.id, taskId));
-  const reactions: Record<string, string[]> = (task?.reactions as Record<string, string[]>) || {};
-
-  if (!reactions.thumbsUp) reactions.thumbsUp = [];
-  if (!reactions.thumbsDown) reactions.thumbsDown = [];
-
-  const opposite = reaction === "thumbsUp" ? "thumbsDown" : "thumbsUp";
-  reactions[opposite] = reactions[opposite].filter((id: string) => id !== userId);
-
-  if (reactions[reaction].includes(userId)) {
-    reactions[reaction] = reactions[reaction].filter((id: string) => id !== userId);
-  } else {
-    reactions[reaction].push(userId);
-  }
-
-  await db.update(tasks).set({ reactions }).where(eq(tasks.id, taskId));
-  return reactions;
-}
-
-export async function seedSurveys(): Promise<void> {
-  const existing = await db.select().from(surveys);
-  if (existing.length > 0) return;
-
-  await db.insert(surveys).values([
-    {
-      id: randomUUID(),
-      promptType: "thumbs",
-      question: "How satisfied are you with the task management experience?",
-      options: [],
-      targetModule: "task_completion",
-      cooldownHours: 72,
-      coinReward: 2,
-      active: true,
-    },
-    {
-      id: randomUUID(),
-      promptType: "radio",
-      question: "Which feature do you use the most?",
-      options: ["Task List", "AI Planner", "Calendar", "Analytics", "Import/Export"],
-      targetModule: "general",
-      cooldownHours: 168,
-      coinReward: 3,
-      active: true,
-    },
-    {
-      id: randomUUID(),
-      promptType: "text",
-      question: "What feature would you most like to see added to AxTask?",
-      options: [],
-      targetModule: "general",
-      cooldownHours: 336,
-      coinReward: 3,
-      active: true,
-    },
-    {
-      id: randomUUID(),
-      promptType: "radio",
-      question: "How would you rate the AI Planner's recommendations?",
-      options: ["Very Helpful", "Somewhat Helpful", "Neutral", "Not Helpful"],
-      targetModule: "planner",
-      cooldownHours: 168,
-      coinReward: 2,
-      active: true,
-    },
-    {
-      id: randomUUID(),
-      promptType: "thumbs",
-      question: "Was the import process smooth and easy?",
-      options: [],
-      targetModule: "import",
-      cooldownHours: 168,
-      coinReward: 2,
-      active: true,
-    },
-  ]);
-}
-
-// ─── NodeWeaver Feedback Classification Storage ─────────────────────────────
-
-export async function storeFeedbackClassification(data: {
-  sourceType: string;
-  sourceId: string;
-  userId: string | null;
-  category: string;
-  severity: string;
-  confidence: number;
-  rawContent: string;
-  normalizedContent: string | null;
-  tags: string[];
-  actionable: boolean;
-  resolved: boolean;
-  metadata: Record<string, unknown>;
-}): Promise<FeedbackClassification> {
+  originalCategory: string,
+  suggestedCategory: string,
+  reason: string | null,
+): Promise<ClassificationDispute> {
   const [row] = await db
-    .insert(feedbackClassifications)
+    .insert(classificationDisputes)
     .values({
       id: randomUUID(),
-      ...data,
+      taskId,
+      userId,
+      originalCategory,
+      suggestedCategory,
+      reason,
     })
     .returning();
   return row;
 }
 
-export async function getFeedbackClassifications(filters?: {
-  category?: string;
-  severity?: string;
-  actionable?: boolean;
-  resolved?: boolean;
-  userId?: string;
-  sourceType?: string;
-  since?: Date;
-  until?: Date;
-  limit?: number;
-  offset?: number;
-}): Promise<FeedbackClassification[]> {
-  const conditions = [];
-
-  if (filters?.category) {
-    conditions.push(eq(feedbackClassifications.category, filters.category));
-  }
-  if (filters?.severity) {
-    conditions.push(eq(feedbackClassifications.severity, filters.severity));
-  }
-  if (filters?.actionable !== undefined) {
-    conditions.push(eq(feedbackClassifications.actionable, filters.actionable));
-  }
-  if (filters?.resolved !== undefined) {
-    conditions.push(eq(feedbackClassifications.resolved, filters.resolved));
-  }
-  if (filters?.userId) {
-    conditions.push(eq(feedbackClassifications.userId, filters.userId));
-  }
-  if (filters?.sourceType) {
-    conditions.push(eq(feedbackClassifications.sourceType, filters.sourceType));
-  }
-  if (filters?.since) {
-    conditions.push(sql`${feedbackClassifications.createdAt} >= ${filters.since}`);
-  }
-  if (filters?.until) {
-    conditions.push(sql`${feedbackClassifications.createdAt} <= ${filters.until}`);
-  }
-
-  const query = db
-    .select()
-    .from(feedbackClassifications)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(feedbackClassifications.createdAt))
-    .limit(filters?.limit || 100)
-    .offset(filters?.offset || 0);
-
-  return query;
-}
-
-export async function getFeedbackClassificationById(
-  id: string
-): Promise<FeedbackClassification | undefined> {
-  const [row] = await db
-    .select()
-    .from(feedbackClassifications)
-    .where(eq(feedbackClassifications.id, id))
-    .limit(1);
-  return row;
-}
-
-export async function updateFeedbackClassification(
-  id: string,
-  data: Partial<{ resolved: boolean; resolvedAt: Date; category: string; severity: string; tags: string[]; actionable: boolean }>
-): Promise<FeedbackClassification | undefined> {
-  const [row] = await db
-    .update(feedbackClassifications)
-    .set({ ...data, updatedAt: new Date() })
-    .where(eq(feedbackClassifications.id, id))
-    .returning();
-  return row;
-}
-
-export async function getFeedbackStats(since?: Date): Promise<{
-  total: number;
-  byCategory: Record<string, number>;
-  bySeverity: Record<string, number>;
-  actionableCount: number;
-  unresolvedCount: number;
-}> {
-  const conditions = [];
-  if (since) {
-    conditions.push(sql`${feedbackClassifications.createdAt} >= ${since}`);
-  }
-
-  const items = await db
-    .select()
-    .from(feedbackClassifications)
-    .where(conditions.length > 0 ? and(...conditions) : undefined);
-
-  const byCategory: Record<string, number> = {};
-  const bySeverity: Record<string, number> = {};
-  let actionableCount = 0;
-  let unresolvedCount = 0;
-
-  for (const item of items) {
-    byCategory[item.category] = (byCategory[item.category] || 0) + 1;
-    bySeverity[item.severity] = (bySeverity[item.severity] || 0) + 1;
-    if (item.actionable) actionableCount++;
-    if (!item.resolved) unresolvedCount++;
-  }
-
-  return {
-    total: items.length,
-    byCategory,
-    bySeverity,
-    actionableCount,
-    unresolvedCount,
-  };
-}
-
-export async function getUnclassifiedResponses(options?: {
-  limit?: number;
-  since?: Date;
-}): Promise<Array<SurveyResponse & { survey: Survey }>> {
-  const conditions = [];
-  if (options?.since) {
-    conditions.push(sql`${surveyResponses.createdAt} >= ${options.since}`);
-  }
-
-  const responses = await db
-    .select()
-    .from(surveyResponses)
-    .leftJoin(
-      feedbackClassifications,
-      and(
-        eq(feedbackClassifications.sourceType, "survey_response"),
-        eq(feedbackClassifications.sourceId, surveyResponses.id)
-      )
-    )
-    .innerJoin(surveys, eq(surveys.id, surveyResponses.surveyId))
-    .where(
-      and(
-        sql`${feedbackClassifications.id} IS NULL`,
-        ...(conditions.length > 0 ? conditions : [])
-      )
-    )
-    .limit(options?.limit || 100);
-
-  return responses.map((r) => ({
-    ...r.survey_responses,
-    survey: r.surveys,
-  }));
-}
-
-// ─── Classification Dispute Storage ─────────────────────────────────────────
-
-const DISPUTE_CONSENSUS_THRESHOLD = 0.7;
-const DISPUTE_MIN_VOTES = 3;
-const REVIEW_TRIGGER_MIN_DISPUTES = 5;
-
-export async function createDispute(data: {
-  classificationId: string;
-  userId: string;
-  originalCategory: string;
-  suggestedCategory: string;
-  reason?: string;
-}): Promise<ClassificationDispute> {
-  const [row] = await db
-    .insert(classificationDisputes)
-    .values({ id: randomUUID(), ...data })
-    .returning();
-
-  await updateCategoryReviewTracker(data.originalCategory, data.suggestedCategory);
-
-  return row;
-}
-
-export async function getDisputesForClassification(
-  classificationId: string
-): Promise<ClassificationDispute[]> {
-  return db
-    .select()
-    .from(classificationDisputes)
-    .where(eq(classificationDisputes.classificationId, classificationId))
-    .orderBy(desc(classificationDisputes.createdAt));
-}
-
 export async function getUserDispute(
+  taskId: string,
   userId: string,
-  classificationId: string
-): Promise<ClassificationDispute | undefined> {
+): Promise<ClassificationDispute | null> {
   const [row] = await db
     .select()
     .from(classificationDisputes)
-    .where(
-      and(
-        eq(classificationDisputes.userId, userId),
-        eq(classificationDisputes.classificationId, classificationId)
-      )
-    )
+    .where(and(
+      eq(classificationDisputes.taskId, taskId),
+      eq(classificationDisputes.userId, userId),
+    ))
     .limit(1);
-  return row;
+  return row || null;
 }
 
-export async function voteOnDispute(data: {
-  disputeId: string;
-  userId: string;
-  agree: boolean;
-}): Promise<{ vote: DisputeVote; consensusReached: boolean; consensusRatio: number }> {
-  const existing = await db
-    .select()
-    .from(classificationDisputeVotes)
-    .where(
-      and(
-        eq(classificationDisputeVotes.disputeId, data.disputeId),
-        eq(classificationDisputeVotes.userId, data.userId)
-      )
-    )
-    .limit(1);
-
-  let vote: DisputeVote;
-  if (existing.length > 0) {
-    const [updated] = await db
-      .update(classificationDisputeVotes)
-      .set({ agree: data.agree })
-      .where(eq(classificationDisputeVotes.id, existing[0].id))
-      .returning();
-    vote = updated;
-  } else {
-    const [created] = await db
-      .insert(classificationDisputeVotes)
-      .values({ id: randomUUID(), ...data })
-      .returning();
-    vote = created;
-  }
-
-  const allVotes = await db
-    .select()
-    .from(classificationDisputeVotes)
-    .where(eq(classificationDisputeVotes.disputeId, data.disputeId));
-
-  const agreeCount = allVotes.filter(v => v.agree).length;
-  const totalVotes = allVotes.length;
-  const consensusRatio = totalVotes > 0 ? agreeCount / totalVotes : 0;
-  const consensusReached = totalVotes >= DISPUTE_MIN_VOTES && consensusRatio >= DISPUTE_CONSENSUS_THRESHOLD;
-
-  const [dispute] = await db
+export async function getDisputeById(disputeId: string): Promise<ClassificationDispute | null> {
+  const [row] = await db
     .select()
     .from(classificationDisputes)
-    .where(eq(classificationDisputes.id, data.disputeId))
+    .where(eq(classificationDisputes.id, disputeId))
     .limit(1);
-
-  if (dispute) {
-    await updateCategoryReviewTracker(
-      dispute.originalCategory,
-      dispute.suggestedCategory
-    );
-  }
-
-  return { vote, consensusReached, consensusRatio };
+  return row || null;
 }
 
-export async function getDisputeVotes(
-  disputeId: string
-): Promise<{ votes: DisputeVote[]; agreeCount: number; disagreeCount: number; consensusRatio: number }> {
-  const votes = await db
-    .select()
-    .from(classificationDisputeVotes)
-    .where(eq(classificationDisputeVotes.disputeId, disputeId));
-
-  const agreeCount = votes.filter(v => v.agree).length;
-  const disagreeCount = votes.filter(v => !v.agree).length;
-  const total = votes.length;
-
-  return {
-    votes,
-    agreeCount,
-    disagreeCount,
-    consensusRatio: total > 0 ? agreeCount / total : 0,
-  };
-}
-
-async function updateCategoryReviewTracker(
-  originalCategory: string,
-  suggestedCategory: string
-): Promise<void> {
-  const disputes = await db
-    .select()
+export async function getDisputesForTask(taskId: string): Promise<DisputeWithVoteTally[]> {
+  const rows = await db
+    .select({
+      id: classificationDisputes.id,
+      taskId: classificationDisputes.taskId,
+      userId: classificationDisputes.userId,
+      originalCategory: classificationDisputes.originalCategory,
+      suggestedCategory: classificationDisputes.suggestedCategory,
+      reason: classificationDisputes.reason,
+      createdAt: classificationDisputes.createdAt,
+      displayName: users.displayName,
+    })
     .from(classificationDisputes)
-    .where(
-      and(
-        eq(classificationDisputes.originalCategory, originalCategory),
-        eq(classificationDisputes.suggestedCategory, suggestedCategory)
-      )
-    );
+    .innerJoin(users, eq(users.id, classificationDisputes.userId))
+    .where(eq(classificationDisputes.taskId, taskId))
+    .orderBy(desc(classificationDisputes.createdAt));
 
-  let totalAgree = 0;
-  let totalDisagree = 0;
-
-  for (const dispute of disputes) {
-    const votes = await db
-      .select()
-      .from(classificationDisputeVotes)
-      .where(eq(classificationDisputeVotes.disputeId, dispute.id));
-    totalAgree += votes.filter(v => v.agree).length;
-    totalDisagree += votes.filter(v => !v.agree).length;
-  }
-
-  const totalVotes = totalAgree + totalDisagree;
-  const consensusRatio = totalVotes > 0 ? totalAgree / totalVotes : 0;
-
-  let status = "monitoring";
-  if (disputes.length >= REVIEW_TRIGGER_MIN_DISPUTES && consensusRatio >= DISPUTE_CONSENSUS_THRESHOLD) {
-    status = "review_needed";
-  } else if (disputes.length >= REVIEW_TRIGGER_MIN_DISPUTES) {
-    status = "contested";
-  }
-
-  const existing = await db
-    .select()
-    .from(categoryReviewTriggers)
-    .where(
-      and(
-        eq(categoryReviewTriggers.category, originalCategory),
-        eq(categoryReviewTriggers.suggestedCategory, suggestedCategory)
-      )
-    )
-    .limit(1);
-
-  if (existing.length > 0) {
-    await db
-      .update(categoryReviewTriggers)
-      .set({
-        disputeCount: disputes.length,
-        agreeCount: totalAgree,
-        disagreeCount: totalDisagree,
-        consensusRatio,
-        status,
-        updatedAt: new Date(),
-      })
-      .where(eq(categoryReviewTriggers.id, existing[0].id));
-  } else {
-    await db
-      .insert(categoryReviewTriggers)
-      .values({
-        id: randomUUID(),
-        category: originalCategory,
-        suggestedCategory,
-        disputeCount: disputes.length,
-        agreeCount: totalAgree,
-        disagreeCount: totalDisagree,
-        consensusRatio,
-        status,
-      });
-  }
+  const tallies = await Promise.all(rows.map((r) => getVoteTallyForDispute(r.id)));
+  return rows.map((r, i) => ({ ...r, ...tallies[i] }));
 }
 
 export async function getDisputesByCategory(
   originalCategory: string,
-  suggestedCategory: string
+  limit = 50,
 ): Promise<ClassificationDispute[]> {
   return db
     .select()
     .from(classificationDisputes)
-    .where(
-      and(
-        eq(classificationDisputes.originalCategory, originalCategory),
-        eq(classificationDisputes.suggestedCategory, suggestedCategory)
-      )
-    )
-    .orderBy(desc(classificationDisputes.createdAt));
+    .where(eq(classificationDisputes.originalCategory, originalCategory))
+    .orderBy(desc(classificationDisputes.createdAt))
+    .limit(limit);
 }
 
-export async function getCategoryReviewTriggers(filters?: {
-  status?: string;
-  category?: string;
-}): Promise<CategoryReviewTrigger[]> {
-  const conditions = [];
-  if (filters?.status) {
-    conditions.push(eq(categoryReviewTriggers.status, filters.status));
+export async function getVoteTallyForDispute(disputeId: string): Promise<{
+  agreeCount: number;
+  disagreeCount: number;
+  totalVotes: number;
+}> {
+  const [row] = await db
+    .select({
+      agreeCount: sql<number>`COALESCE(SUM(CASE WHEN ${classificationDisputeVotes.agree} THEN 1 ELSE 0 END), 0)`,
+      totalVotes: count(),
+    })
+    .from(classificationDisputeVotes)
+    .where(eq(classificationDisputeVotes.disputeId, disputeId));
+
+  const agreeCount = Number(row?.agreeCount) || 0;
+  const totalVotes = Number(row?.totalVotes) || 0;
+  return { agreeCount, disagreeCount: totalVotes - agreeCount, totalVotes };
+}
+
+export async function getUserVoteOnDispute(
+  disputeId: string,
+  userId: string,
+): Promise<ClassificationDisputeVote | null> {
+  const [row] = await db
+    .select()
+    .from(classificationDisputeVotes)
+    .where(and(
+      eq(classificationDisputeVotes.disputeId, disputeId),
+      eq(classificationDisputeVotes.userId, userId),
+    ))
+    .limit(1);
+  return row || null;
+}
+
+export async function voteOnDispute(
+  disputeId: string,
+  userId: string,
+  agree: boolean,
+): Promise<ClassificationDisputeVote> {
+  const existing = await getUserVoteOnDispute(disputeId, userId);
+  if (existing) {
+    const [updated] = await db
+      .update(classificationDisputeVotes)
+      .set({ agree, updatedAt: new Date() })
+      .where(eq(classificationDisputeVotes.id, existing.id))
+      .returning();
+    return updated;
   }
-  if (filters?.category) {
-    conditions.push(eq(categoryReviewTriggers.category, filters.category));
+  const [row] = await db
+    .insert(classificationDisputeVotes)
+    .values({
+      id: randomUUID(),
+      disputeId,
+      userId,
+      agree,
+    })
+    .returning();
+  return row;
+}
+
+export async function updateCategoryReviewTracker(
+  originalCategory: string,
+  suggestedCategory: string,
+): Promise<CategoryReviewTrigger> {
+  const [disputeAgg] = await db
+    .select({
+      disputeCount: count(),
+    })
+    .from(classificationDisputes)
+    .where(and(
+      eq(classificationDisputes.originalCategory, originalCategory),
+      eq(classificationDisputes.suggestedCategory, suggestedCategory),
+    ));
+
+  const disputeCount = Number(disputeAgg?.disputeCount) || 0;
+
+  const [voteAgg] = await db
+    .select({
+      agreeCount: sql<number>`COALESCE(SUM(CASE WHEN ${classificationDisputeVotes.agree} THEN 1 ELSE 0 END), 0)`,
+      totalVotes: count(),
+    })
+    .from(classificationDisputeVotes)
+    .innerJoin(
+      classificationDisputes,
+      eq(classificationDisputes.id, classificationDisputeVotes.disputeId),
+    )
+    .where(and(
+      eq(classificationDisputes.originalCategory, originalCategory),
+      eq(classificationDisputes.suggestedCategory, suggestedCategory),
+    ));
+
+  const agreeCount = Number(voteAgg?.agreeCount) || 0;
+  const totalVotes = Number(voteAgg?.totalVotes) || 0;
+  const consensusRatio = totalVotes > 0 ? agreeCount / totalVotes : 0;
+
+  let status: CategoryReviewStatus;
+  if (disputeCount >= DISPUTE_REVIEW_MIN_DISPUTES && consensusRatio >= DISPUTE_REVIEW_AGREEMENT_RATIO) {
+    status = "review_needed";
+  } else if (disputeCount >= DISPUTE_REVIEW_MIN_DISPUTES) {
+    status = "contested";
+  } else {
+    status = "monitoring";
   }
 
-  return db
+  const [existing] = await db
     .select()
     .from(categoryReviewTriggers)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(categoryReviewTriggers.consensusRatio));
+    .where(and(
+      eq(categoryReviewTriggers.originalCategory, originalCategory),
+      eq(categoryReviewTriggers.suggestedCategory, suggestedCategory),
+    ))
+    .limit(1);
+
+  if (existing) {
+    // Never regress a resolved trigger back to monitoring/contested without
+    // an explicit resolveCategoryReview(id, ...) call clearing the outcome.
+    const nextStatus = existing.status === "resolved" ? existing.status as CategoryReviewStatus : status;
+    const [updated] = await db
+      .update(categoryReviewTriggers)
+      .set({
+        disputeCount,
+        agreeCount,
+        totalVotes,
+        consensusRatio,
+        status: nextStatus,
+        updatedAt: new Date(),
+      })
+      .where(eq(categoryReviewTriggers.id, existing.id))
+      .returning();
+    return updated;
+  }
+
+  const [inserted] = await db
+    .insert(categoryReviewTriggers)
+    .values({
+      id: randomUUID(),
+      originalCategory,
+      suggestedCategory,
+      disputeCount,
+      agreeCount,
+      totalVotes,
+      consensusRatio,
+      status,
+    })
+    .returning();
+  return inserted;
+}
+
+export async function getCategoryReviewTriggers(
+  filter?: { status?: CategoryReviewStatus },
+): Promise<CategoryReviewTrigger[]> {
+  const q = db.select().from(categoryReviewTriggers);
+  const rows = filter?.status
+    ? await q.where(eq(categoryReviewTriggers.status, filter.status)).orderBy(desc(categoryReviewTriggers.updatedAt))
+    : await q.orderBy(desc(categoryReviewTriggers.updatedAt));
+  return rows;
+}
+
+export async function getCategoryReviewTriggerById(id: string): Promise<CategoryReviewTrigger | null> {
+  const [row] = await db
+    .select()
+    .from(categoryReviewTriggers)
+    .where(eq(categoryReviewTriggers.id, id))
+    .limit(1);
+  return row || null;
 }
 
 export async function resolveCategoryReview(
   id: string,
-  outcome: string
-): Promise<CategoryReviewTrigger | undefined> {
+  resolvedBy: string,
+  outcome: string,
+): Promise<CategoryReviewTrigger | null> {
   const [row] = await db
     .update(categoryReviewTriggers)
     .set({
       status: "resolved",
-      reviewedAt: new Date(),
-      reviewOutcome: outcome,
+      resolvedBy,
+      resolveOutcome: outcome,
+      resolvedAt: new Date(),
       updatedAt: new Date(),
     })
     .where(eq(categoryReviewTriggers.id, id))
     .returning();
-  return row;
+  return row || null;
 }
 
-// ─── Forum Storage ──────────────────────────────────────────────────────────
+// ─── Backup Record helpers ──────────────────────────────────────────────────
 
-export async function createForumPost(userId: string, post: InsertForumPost): Promise<ForumPost> {
-  const [row] = await db.insert(forumPosts).values({
-    id: randomUUID(),
-    userId,
-    title: post.title,
-    body: post.body,
-    category: post.category || "General",
-    tags: post.tags || [],
-    imageUrls: post.imageUrls || [],
-  }).returning();
-  return row;
-}
-
-export async function searchUsers(query: string): Promise<Array<{
-  id: string;
-  displayName: string | null;
-  profileImageUrl: string | null;
-  followerCount: number;
-  skillTier: 0 | 1 | 2;
-}>> {
-  if (!query || query.trim().length < 2) return [];
-  const rows = await db
-    .select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl })
-    .from(users)
-    .where(and(ilike(users.displayName, `%${query.trim()}%`), eq(users.isBanned, false)))
-    .orderBy(asc(users.displayName))
-    .limit(20);
-
-  if (rows.length === 0) return [];
-  const userIds = rows.map(u => u.id);
-
-  const [followerRows, completedCountRows] = await Promise.all([
-    db
-      .select({ followingId: userFollowers.followingId, cnt: count() })
-      .from(userFollowers)
-      .where(sql`${userFollowers.followingId} = ANY(${userIds})`)
-      .groupBy(userFollowers.followingId),
-    db
-      .select({ userId: tasks.userId, cnt: count() })
-      .from(tasks)
-      .where(and(sql`${tasks.userId} = ANY(${userIds})`, eq(tasks.status, "completed")))
-      .groupBy(tasks.userId),
-  ]);
-
-  const followerMap = new Map(followerRows.map(r => [r.followingId, Number(r.cnt)]));
-  const completedMap = new Map(completedCountRows.map(r => [r.userId, Number(r.cnt)]));
-
-  const { SKILL_NODE_REQUIRED_TASKS } = await import("@shared/skill-nodes");
-  const tierEntries = Object.entries(SKILL_NODE_REQUIRED_TASKS);
-
-  return rows.map(u => {
-    const completedCount = completedMap.get(u.id) ?? 0;
-    let skillTier: 0 | 1 | 2 = 0;
-    for (const [nodeId, required] of tierEntries) {
-      if (completedCount >= required) {
-        if (nodeId.endsWith("-2") && skillTier < 2) skillTier = 2;
-        else if (nodeId.endsWith("-1") && skillTier < 1) skillTier = 1;
-      }
-    }
-    return {
-      id: u.id,
-      displayName: u.displayName,
-      profileImageUrl: u.profileImageUrl,
-      followerCount: followerMap.get(u.id) ?? 0,
-      skillTier,
-    };
-  });
-}
-
-export async function getForumPosts(opts: {
-  category?: string;
-  tag?: string;
-  q?: string;
-  sort?: "newest" | "popular";
-  limit?: number;
-  offset?: number;
-  includeHidden?: boolean;
-}): Promise<{ posts: ForumPost[]; total: number }> {
-  const conditions = [];
-  if (!opts.includeHidden) {
-    conditions.push(eq(forumPosts.hidden, false));
-  }
-  if (opts.category && opts.category !== "All") {
-    conditions.push(eq(forumPosts.category, opts.category));
-  }
-  if (opts.tag) {
-    conditions.push(sql`${opts.tag} = ANY(${forumPosts.tags})`);
-  }
-  if (opts.q && opts.q.trim()) {
-    const pattern = `%${opts.q.trim()}%`;
-    conditions.push(or(ilike(forumPosts.title, pattern), ilike(forumPosts.body, pattern)));
-  }
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-  const [totalRow] = await db.select({ value: count() }).from(forumPosts).where(whereClause);
-  const total = Number(totalRow?.value) || 0;
-
-  const orderBy = opts.sort === "popular"
-    ? [desc(forumPosts.pinned), desc(sql`${forumPosts.upvotes} - ${forumPosts.downvotes}`), desc(forumPosts.createdAt)]
-    : [desc(forumPosts.pinned), desc(forumPosts.createdAt)];
-
-  const posts = await db
-    .select()
-    .from(forumPosts)
-    .where(whereClause)
-    .orderBy(...orderBy)
-    .limit(opts.limit || 20)
-    .offset(opts.offset || 0);
-
-  return { posts, total };
-}
-
-interface TagRow { tag: unknown; count: unknown }
-
-export async function getForumTags(): Promise<{ tag: string; count: number }[]> {
-  const rows = await db.execute(sql`
-    SELECT tag, COUNT(*) AS count
-    FROM forum_posts, unnest(tags) AS tag
-    WHERE hidden = false AND array_length(tags, 1) > 0
-    GROUP BY tag
-    ORDER BY count DESC
-    LIMIT 50
-  `);
-  return (rows.rows as unknown as TagRow[]).map((r) => ({ tag: String(r.tag), count: Number(r.count) }));
-}
-
-export async function getForumPostById(id: string): Promise<ForumPost | undefined> {
-  const [row] = await db.select().from(forumPosts).where(eq(forumPosts.id, id));
-  return row || undefined;
-}
-
-export async function deleteForumPost(id: string): Promise<boolean> {
-  const result = await db.delete(forumPosts).where(eq(forumPosts.id, id));
-  return true;
-}
-
-export async function updateForumPost(id: string, updates: { pinned?: boolean; hidden?: boolean }): Promise<ForumPost | undefined> {
-  const [row] = await db.update(forumPosts).set({ ...updates, updatedAt: new Date() }).where(eq(forumPosts.id, id)).returning();
-  return row;
-}
-
-export async function createForumComment(userId: string, comment: InsertForumComment): Promise<ForumComment> {
-  const [row] = await db.insert(forumComments).values({
-    id: randomUUID(),
-    postId: comment.postId,
-    userId,
-    body: comment.body,
-  }).returning();
-
-  await db.update(forumPosts).set({
-    commentCount: sql`${forumPosts.commentCount} + 1`,
-    updatedAt: new Date(),
-  }).where(eq(forumPosts.id, comment.postId));
-
-  return row;
-}
-
-export async function getForumComments(postId: string, includeHidden = false): Promise<ForumComment[]> {
-  const conditions = [eq(forumComments.postId, postId)];
-  if (!includeHidden) {
-    conditions.push(eq(forumComments.hidden, false));
-  }
-  return db.select().from(forumComments).where(and(...conditions)).orderBy(asc(forumComments.createdAt));
-}
-
-export async function updateForumComment(id: string, updates: { hidden?: boolean }): Promise<ForumComment | undefined> {
-  const [row] = await db.update(forumComments).set(updates).where(eq(forumComments.id, id)).returning();
-  return row;
-}
-
-export async function deleteForumComment(id: string): Promise<boolean> {
-  const [comment] = await db.select().from(forumComments).where(eq(forumComments.id, id));
-  if (comment) {
-    await db.delete(forumComments).where(eq(forumComments.id, id));
-    await db.update(forumPosts).set({
-      commentCount: sql`GREATEST(${forumPosts.commentCount} - 1, 0)`,
-    }).where(eq(forumPosts.id, comment.postId));
-  }
-  return true;
-}
-
-export async function castForumVote(userId: string, opts: { postId?: string; commentId?: string; voteType: "up" | "down" }): Promise<{ action: "added" | "removed" | "changed" }> {
-  const targetField = opts.postId ? forumVotes.postId : forumVotes.commentId;
-  const targetId = opts.postId || opts.commentId;
-  if (!targetId) throw new Error("postId or commentId required");
-
-  const [existing] = await db.select().from(forumVotes).where(
-    and(eq(forumVotes.userId, userId), eq(targetField, targetId))
-  );
-
-  if (existing) {
-    if (existing.voteType === opts.voteType) {
-      await db.delete(forumVotes).where(eq(forumVotes.id, existing.id));
-      if (opts.postId) {
-        const col = opts.voteType === "up" ? forumPosts.upvotes : forumPosts.downvotes;
-        await db.update(forumPosts).set({ [opts.voteType === "up" ? "upvotes" : "downvotes"]: sql`GREATEST(${col} - 1, 0)` }).where(eq(forumPosts.id, opts.postId));
-      } else {
-        const col = opts.voteType === "up" ? forumComments.upvotes : forumComments.downvotes;
-        await db.update(forumComments).set({ [opts.voteType === "up" ? "upvotes" : "downvotes"]: sql`GREATEST(${col} - 1, 0)` }).where(eq(forumComments.id, opts.commentId!));
-      }
-      return { action: "removed" };
-    } else {
-      await db.update(forumVotes).set({ voteType: opts.voteType }).where(eq(forumVotes.id, existing.id));
-      if (opts.postId) {
-        const incCol = opts.voteType === "up" ? "upvotes" : "downvotes";
-        const decCol = opts.voteType === "up" ? "downvotes" : "upvotes";
-        const incRef = opts.voteType === "up" ? forumPosts.upvotes : forumPosts.downvotes;
-        const decRef = opts.voteType === "up" ? forumPosts.downvotes : forumPosts.upvotes;
-        await db.update(forumPosts).set({
-          [incCol]: sql`${incRef} + 1`,
-          [decCol]: sql`GREATEST(${decRef} - 1, 0)`,
-        }).where(eq(forumPosts.id, opts.postId));
-      } else {
-        const incCol = opts.voteType === "up" ? "upvotes" : "downvotes";
-        const decCol = opts.voteType === "up" ? "downvotes" : "upvotes";
-        const incRef = opts.voteType === "up" ? forumComments.upvotes : forumComments.downvotes;
-        const decRef = opts.voteType === "up" ? forumComments.downvotes : forumComments.upvotes;
-        await db.update(forumComments).set({
-          [incCol]: sql`${incRef} + 1`,
-          [decCol]: sql`GREATEST(${decRef} - 1, 0)`,
-        }).where(eq(forumComments.id, opts.commentId!));
-      }
-      return { action: "changed" };
-    }
-  }
-
-  await db.insert(forumVotes).values({
-    id: randomUUID(),
-    userId,
-    postId: opts.postId || null,
-    commentId: opts.commentId || null,
-    voteType: opts.voteType,
-  });
-
-  if (opts.postId) {
-    const col = opts.voteType === "up" ? "upvotes" : "downvotes";
-    const ref = opts.voteType === "up" ? forumPosts.upvotes : forumPosts.downvotes;
-    await db.update(forumPosts).set({ [col]: sql`${ref} + 1` }).where(eq(forumPosts.id, opts.postId));
-  } else {
-    const col = opts.voteType === "up" ? "upvotes" : "downvotes";
-    const ref = opts.voteType === "up" ? forumComments.upvotes : forumComments.downvotes;
-    await db.update(forumComments).set({ [col]: sql`${ref} + 1` }).where(eq(forumComments.id, opts.commentId!));
-  }
-  return { action: "added" };
-}
-
-export async function hasUpvoteRewardBeenGiven(voterId: string, postId: string): Promise<boolean> {
-  const [existing] = await db.select().from(forumUpvoteRewards).where(
-    and(eq(forumUpvoteRewards.voterId, voterId), eq(forumUpvoteRewards.postId, postId))
-  );
-  return !!existing;
-}
-
-export async function recordUpvoteReward(voterId: string, postId: string): Promise<void> {
-  await db.insert(forumUpvoteRewards).values({
-    id: randomUUID(),
-    voterId,
-    postId,
-  }).onConflictDoNothing();
-}
-
-export async function getUserForumVotes(userId: string, postId: string): Promise<ForumVote[]> {
-  return db.select().from(forumVotes).where(
-    and(eq(forumVotes.userId, userId), or(eq(forumVotes.postId, postId), sql`${forumVotes.commentId} IN (SELECT id FROM forum_comments WHERE post_id = ${postId})`))
-  );
-}
-
-const AUTO_HIDE_THRESHOLD = 3;
-
-export async function createForumReport(reporterId: string, opts: { postId?: string; commentId?: string; reason: string }): Promise<{ autoHidden: boolean }> {
-  await db.insert(forumReports).values({
-    id: randomUUID(),
-    reporterId,
-    postId: opts.postId || null,
-    commentId: opts.commentId || null,
-    reason: opts.reason,
-  });
-
-  // Count total reports for this target and auto-hide if threshold reached
-  let reportCount = 0;
-  if (opts.postId) {
-    const [row] = await db.select({ c: count() }).from(forumReports).where(eq(forumReports.postId, opts.postId));
-    reportCount = Number(row?.c ?? 0);
-    if (reportCount >= AUTO_HIDE_THRESHOLD) {
-      const [post] = await db.select({ hidden: forumPosts.hidden, userId: forumPosts.userId, title: forumPosts.title }).from(forumPosts).where(eq(forumPosts.id, opts.postId));
-      if (post && !post.hidden) {
-        await db.update(forumPosts).set({ hidden: true, autoHidden: true, updatedAt: new Date() }).where(eq(forumPosts.id, opts.postId));
-        await db.insert(moderationLog).values({
-          id: randomUUID(),
-          moderatorId: null,
-          action: "auto_hide_post",
-          targetType: "post",
-          targetId: opts.postId,
-          note: `Auto-hidden after ${reportCount} reports`,
-        });
-        await createNotification(
-          post.userId,
-          "content_hidden",
-          `Your forum post "${post.title.slice(0, 60)}" has been hidden automatically after receiving multiple reports. It will be reviewed by a moderator.`
-        );
-        return { autoHidden: true };
-      }
-    }
-  } else if (opts.commentId) {
-    const [row] = await db.select({ c: count() }).from(forumReports).where(eq(forumReports.commentId, opts.commentId));
-    reportCount = Number(row?.c ?? 0);
-    if (reportCount >= AUTO_HIDE_THRESHOLD) {
-      const [comment] = await db.select({ hidden: forumComments.hidden, userId: forumComments.userId, body: forumComments.body }).from(forumComments).where(eq(forumComments.id, opts.commentId));
-      if (comment && !comment.hidden) {
-        await db.update(forumComments).set({ hidden: true, autoHidden: true }).where(eq(forumComments.id, opts.commentId));
-        await db.insert(moderationLog).values({
-          id: randomUUID(),
-          moderatorId: null,
-          action: "auto_hide_comment",
-          targetType: "comment",
-          targetId: opts.commentId,
-          note: `Auto-hidden after ${reportCount} reports`,
-        });
-        await createNotification(
-          comment.userId,
-          "content_hidden",
-          `Your forum comment "${comment.body.slice(0, 80)}" has been hidden automatically after receiving multiple reports. It will be reviewed by a moderator.`
-        );
-        return { autoHidden: true };
-      }
-    }
-  }
-  return { autoHidden: false };
-}
-
-export async function getForumReports(status?: string): Promise<ForumReport[]> {
-  const conditions = status ? [eq(forumReports.status, status)] : [];
-  return db.select().from(forumReports).where(conditions.length > 0 ? and(...conditions) : undefined).orderBy(desc(forumReports.createdAt));
-}
-
-export type EnrichedForumReport = ForumReport & {
-  reporterName: string;
-  contentBody: string;
-  contentTitle: string | null;
-  contentAuthorId: string | null;
-  contentAuthorName: string;
-};
-
-export async function getForumReportsEnriched(status?: string, targetType?: string): Promise<EnrichedForumReport[]> {
-  let conditions: any[] = [];
-  if (status) conditions.push(eq(forumReports.status, status));
-  if (targetType === "post") conditions.push(sql`${forumReports.postId} IS NOT NULL`);
-  if (targetType === "comment") conditions.push(sql`${forumReports.commentId} IS NOT NULL`);
-
-  const reports = await db
-    .select()
-    .from(forumReports)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(forumReports.createdAt));
-
-  if (reports.length === 0) return [];
-
-  const reporterIds = [...new Set(reports.map(r => r.reporterId))];
-  const postIds = reports.filter(r => r.postId).map(r => r.postId!);
-  const commentIds = reports.filter(r => r.commentId).map(r => r.commentId!);
-
-  const [allPosts, allComments] = await Promise.all([
-    postIds.length > 0
-      ? db.select({ id: forumPosts.id, title: forumPosts.title, body: forumPosts.body, userId: forumPosts.userId }).from(forumPosts).where(inArray(forumPosts.id, postIds))
-      : [],
-    commentIds.length > 0
-      ? db.select({ id: forumComments.id, body: forumComments.body, userId: forumComments.userId }).from(forumComments).where(inArray(forumComments.id, commentIds))
-      : [],
-  ]);
-
-  const contentAuthorIds = [...new Set([...allPosts.map(p => p.userId), ...allComments.map(c => c.userId)])];
-  const allUserIds = [...new Set([...reporterIds, ...contentAuthorIds])];
-  const allUsers = allUserIds.length > 0
-    ? await db.select({ id: users.id, displayName: users.displayName, email: users.email }).from(users).where(inArray(users.id, allUserIds))
-    : [];
-
-  const userMap = new Map(allUsers.map(u => [u.id, u]));
-  const postMap = new Map(allPosts.map(p => [p.id, p]));
-  const commentMap = new Map(allComments.map(c => [c.id, c]));
-
-  return reports.map(r => {
-    const reporter = userMap.get(r.reporterId);
-    const post = r.postId ? postMap.get(r.postId) : undefined;
-    const comment = r.commentId ? commentMap.get(r.commentId) : undefined;
-    const contentUserId = post?.userId ?? comment?.userId ?? null;
-    const contentAuthor = contentUserId ? userMap.get(contentUserId) : undefined;
-    return {
-      ...r,
-      reporterName: reporter?.displayName ?? reporter?.email ?? "Unknown",
-      contentBody: post?.body ?? comment?.body ?? "[Deleted]",
-      contentTitle: post?.title ?? null,
-      contentAuthorId: contentUserId,
-      contentAuthorName: contentAuthor?.displayName ?? contentAuthor?.email ?? "Unknown",
-    };
-  });
-}
-
-export async function updateForumReportStatus(id: string, status: string, note?: string): Promise<void> {
-  const updates: Record<string, unknown> = { status };
-  if (note !== undefined) updates.note = note;
-  await db.update(forumReports).set(updates).where(eq(forumReports.id, id));
-}
-
-// ─── Moderation Log ──────────────────────────────────────────────────────────
-
-export async function createModerationLog(opts: {
-  moderatorId: string | null;
-  action: string;
-  targetType: string;
-  targetId: string;
-  note?: string;
-}): Promise<void> {
-  await db.insert(moderationLog).values({
-    id: randomUUID(),
-    moderatorId: opts.moderatorId,
-    action: opts.action,
-    targetType: opts.targetType,
-    targetId: opts.targetId,
-    note: opts.note ?? null,
-  });
-}
-
-export type EnrichedModLogEntry = ModerationLogEntry & { moderatorName: string; targetSnippet: string };
-
-export async function getModerationLog(limit = 50, offset = 0): Promise<EnrichedModLogEntry[]> {
-  const entries = await db
-    .select()
-    .from(moderationLog)
-    .orderBy(desc(moderationLog.createdAt))
-    .limit(limit)
-    .offset(offset);
-
-  if (entries.length === 0) return [];
-
-  const modIds = [...new Set(entries.filter(e => e.moderatorId).map(e => e.moderatorId!))];
-  const mods = modIds.length > 0
-    ? await db.select({ id: users.id, displayName: users.displayName, email: users.email }).from(users).where(inArray(users.id, modIds))
-    : [];
-  const modMap = new Map(mods.map(m => [m.id, m]));
-
-  const postIds = entries.filter(e => e.targetType === "post").map(e => e.targetId);
-  const commentIds = entries.filter(e => e.targetType === "comment").map(e => e.targetId);
-  const reportIds = entries.filter(e => e.targetType === "report").map(e => e.targetId);
-
-  const [postSnippets, commentSnippets, reportRows] = await Promise.all([
-    postIds.length > 0
-      ? db.select({ id: forumPosts.id, title: forumPosts.title, body: forumPosts.body }).from(forumPosts).where(inArray(forumPosts.id, postIds))
-      : [],
-    commentIds.length > 0
-      ? db.select({ id: forumComments.id, body: forumComments.body }).from(forumComments).where(inArray(forumComments.id, commentIds))
-      : [],
-    reportIds.length > 0
-      ? db.select({ id: forumReports.id, reason: forumReports.reason, postId: forumReports.postId, commentId: forumReports.commentId }).from(forumReports).where(inArray(forumReports.id, reportIds))
-      : [],
-  ]);
-
-  // For reports, also look up linked post/comment titles for richer context
-  const reportPostIds = reportRows.filter(r => r.postId).map(r => r.postId!);
-  const reportCommentIds = reportRows.filter(r => r.commentId).map(r => r.commentId!);
-  const [reportLinkedPosts, reportLinkedComments] = await Promise.all([
-    reportPostIds.length > 0
-      ? db.select({ id: forumPosts.id, title: forumPosts.title, body: forumPosts.body }).from(forumPosts).where(inArray(forumPosts.id, reportPostIds))
-      : [],
-    reportCommentIds.length > 0
-      ? db.select({ id: forumComments.id, body: forumComments.body }).from(forumComments).where(inArray(forumComments.id, reportCommentIds))
-      : [],
-  ]);
-
-  const reportLinkedPostMap = new Map(reportLinkedPosts.map(p => [p.id, p.title || p.body.slice(0, 80)]));
-  const reportLinkedCommentMap = new Map(reportLinkedComments.map(c => [c.id, c.body.slice(0, 80)]));
-
-  const postSnippetMap = new Map(postSnippets.map(p => [p.id, p.title || p.body.slice(0, 100)]));
-  const commentSnippetMap = new Map(commentSnippets.map(c => [c.id, c.body.slice(0, 100)]));
-  const reportSnippetMap = new Map(reportRows.map(r => {
-    let contentSnippet = "";
-    if (r.postId) contentSnippet = reportLinkedPostMap.get(r.postId) ?? "[deleted post]";
-    else if (r.commentId) contentSnippet = reportLinkedCommentMap.get(r.commentId) ?? "[deleted comment]";
-    return [r.id, `Reported (${r.reason}): ${contentSnippet}`];
-  }));
-
-  return entries.map(e => {
-    const mod = e.moderatorId ? modMap.get(e.moderatorId) : undefined;
-    let targetSnippet = "";
-    if (e.targetType === "post") targetSnippet = postSnippetMap.get(e.targetId) ?? "[deleted]";
-    else if (e.targetType === "comment") targetSnippet = commentSnippetMap.get(e.targetId) ?? "[deleted]";
-    else if (e.targetType === "report") targetSnippet = reportSnippetMap.get(e.targetId) ?? `Report #${e.targetId.slice(0, 8)}`;
-    return {
-      ...e,
-      moderatorName: mod?.displayName ?? mod?.email ?? "System",
-      targetSnippet,
-    };
-  });
-}
-
-// ─── Notifications ────────────────────────────────────────────────────────────
-
-export async function createNotification(userId: string, type: string, message: string): Promise<void> {
-  await db.insert(notifications).values({
-    id: randomUUID(),
-    userId,
-    type,
-    message,
-  });
-}
-
-export async function getNotifications(userId: string): Promise<Notification[]> {
-  return db
-    .select()
-    .from(notifications)
-    .where(eq(notifications.userId, userId))
-    .orderBy(desc(notifications.createdAt))
-    .limit(50);
-}
-
-export async function markNotificationRead(id: string, userId: string): Promise<void> {
-  await db.update(notifications).set({ read: true }).where(and(eq(notifications.id, id), eq(notifications.userId, userId)));
-}
-
-export async function markAllNotificationsRead(userId: string): Promise<void> {
-  await db.update(notifications).set({ read: true }).where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
-}
-
-export async function getUnreadNotificationCount(userId: string): Promise<number> {
-  const [row] = await db.select({ c: count() }).from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
-  return Number(row?.c ?? 0);
-}
-
-const VALID_REACTIONS = ["thumbsUp", "heart", "party", "laugh", "fire"];
-
-export async function toggleForumReaction(
-  userId: string,
-  opts: { postId?: string; commentId?: string; reaction: string }
-): Promise<{ action: "added" | "removed"; reactions: Record<string, string[]> }> {
-  if (!VALID_REACTIONS.includes(opts.reaction)) {
-    throw new Error("Invalid reaction type");
-  }
-
-  if (opts.postId) {
-    const [post] = await db.select({ reactions: forumPosts.reactions }).from(forumPosts).where(eq(forumPosts.id, opts.postId));
-    if (!post) throw new Error("Post not found");
-
-    const reactions = (post.reactions || {}) as Record<string, string[]>;
-    const list = reactions[opts.reaction] || [];
-    const idx = list.indexOf(userId);
-    let action: "added" | "removed";
-    if (idx >= 0) {
-      list.splice(idx, 1);
-      action = "removed";
-    } else {
-      list.push(userId);
-      action = "added";
-    }
-    reactions[opts.reaction] = list;
-    await db.update(forumPosts).set({ reactions }).where(eq(forumPosts.id, opts.postId));
-    return { action, reactions };
-  } else if (opts.commentId) {
-    const [comment] = await db.select({ reactions: forumComments.reactions }).from(forumComments).where(eq(forumComments.id, opts.commentId));
-    if (!comment) throw new Error("Comment not found");
-
-    const reactions = (comment.reactions || {}) as Record<string, string[]>;
-    const list = reactions[opts.reaction] || [];
-    const idx = list.indexOf(userId);
-    let action: "added" | "removed";
-    if (idx >= 0) {
-      list.splice(idx, 1);
-      action = "removed";
-    } else {
-      list.push(userId);
-      action = "added";
-    }
-    reactions[opts.reaction] = list;
-    await db.update(forumComments).set({ reactions }).where(eq(forumComments.id, opts.commentId));
-    return { action, reactions };
-  }
-  throw new Error("postId or commentId required");
-}
-
-// ─── User Followers ────────────────────────────────────────────────────────────
-
-export async function followUser(followerId: string, followingId: string): Promise<{ isNew: boolean }> {
-  const [inserted] = await db
-    .insert(userFollowers)
-    .values({ id: randomUUID(), followerId, followingId })
-    .onConflictDoNothing()
-    .returning();
-  return { isNew: !!inserted };
-}
-
-export async function unfollowUser(followerId: string, followingId: string): Promise<void> {
-  await db
-    .delete(userFollowers)
-    .where(and(eq(userFollowers.followerId, followerId), eq(userFollowers.followingId, followingId)));
-}
-
-export async function isFollowing(followerId: string, followingId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: userFollowers.id })
-    .from(userFollowers)
-    .where(and(eq(userFollowers.followerId, followerId), eq(userFollowers.followingId, followingId)));
-  return !!row;
-}
-
-export async function batchGetFollowing(followerId: string, followingIds: string[]): Promise<Set<string>> {
-  if (followingIds.length === 0) return new Set();
-  const rows = await db
-    .select({ followingId: userFollowers.followingId })
-    .from(userFollowers)
-    .where(and(
-      eq(userFollowers.followerId, followerId),
-      sql`${userFollowers.followingId} = ANY(${followingIds})`
-    ));
-  return new Set(rows.map(r => r.followingId));
-}
-
-export async function getFollowerCount(userId: string): Promise<number> {
-  const [row] = await db
-    .select({ count: count() })
-    .from(userFollowers)
-    .where(eq(userFollowers.followingId, userId));
-  return Number(row?.count ?? 0);
-}
-
-export async function getFollowingCount(userId: string): Promise<number> {
-  const [row] = await db
-    .select({ count: count() })
-    .from(userFollowers)
-    .where(eq(userFollowers.followerId, userId));
-  return Number(row?.count ?? 0);
-}
-
-export async function getUserPublicProfile(
-  targetUserId: string,
-  requestingUserId?: string,
-  postsPage = 0,
-  postsLimit = 10
-) {
-  const [user] = await db.select().from(users).where(eq(users.id, targetUserId));
-  if (!user) return null;
-
-  const [
-    wallet,
-    badgeList,
-    userRewardsList,
-    followerCount,
-    followingCount,
-  ] = await Promise.all([
-    getOrCreateWallet(targetUserId),
-    getUserBadges(targetUserId),
-    getUserRewards(targetUserId),
-    getFollowerCount(targetUserId),
-    getFollowingCount(targetUserId),
-  ]);
-
-  // Paginated posts
-  const [paginatedPosts, postCountRow, commentCountRow, recentCommentsRaw] = await Promise.all([
-    db
-      .select()
-      .from(forumPosts)
-      .where(and(eq(forumPosts.userId, targetUserId), eq(forumPosts.hidden, false)))
-      .orderBy(desc(forumPosts.createdAt))
-      .limit(postsLimit)
-      .offset(postsPage * postsLimit),
-    db
-      .select({ count: count() })
-      .from(forumPosts)
-      .where(and(eq(forumPosts.userId, targetUserId), eq(forumPosts.hidden, false))),
-    db
-      .select({ count: count() })
-      .from(forumComments)
-      .where(eq(forumComments.userId, targetUserId)),
-    db
-      .select({ id: forumComments.id, postId: forumComments.postId, body: forumComments.body, createdAt: forumComments.createdAt, upvotes: forumComments.upvotes, downvotes: forumComments.downvotes })
-      .from(forumComments)
-      .where(eq(forumComments.userId, targetUserId))
-      .orderBy(desc(forumComments.createdAt))
-      .limit(10),
-  ]);
-
-  const postCount = Number(postCountRow[0]?.count ?? 0);
-  const commentCount = Number(commentCountRow[0]?.count ?? 0);
-
-  // Build unified recent activity feed (last 10 posts/comments combined)
-  const recentPostsForFeed = await db
-    .select()
-    .from(forumPosts)
-    .where(and(eq(forumPosts.userId, targetUserId), eq(forumPosts.hidden, false)))
-    .orderBy(desc(forumPosts.createdAt))
-    .limit(10);
-
-  type ActivityItem =
-    | { type: "post"; id: string; title: string; category: string; createdAt: Date | null; commentCount: number; score: number }
-    | { type: "comment"; id: string; postId: string; body: string; createdAt: Date | null; score: number };
-
-  const activityItems: ActivityItem[] = [
-    ...recentPostsForFeed.map(p => ({
-      type: "post" as const,
-      id: p.id,
-      title: p.title,
-      category: p.category,
-      createdAt: p.createdAt,
-      commentCount: p.commentCount,
-      score: p.upvotes - p.downvotes,
-    })),
-    ...recentCommentsRaw.map(c => ({
-      type: "comment" as const,
-      id: c.id,
-      postId: c.postId,
-      body: c.body.length > 200 ? c.body.slice(0, 200) + "…" : c.body,
-      createdAt: c.createdAt,
-      score: c.upvotes - c.downvotes,
-    })),
-  ];
-  activityItems.sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
-  const recentActivity = activityItems.slice(0, 10);
-
-  const catalog = await getRewardsCatalog();
-  let equippedTitle: string | null = null;
-  if (userRewardsList.length > 0) {
-    const activeUserTitle = userRewardsList.find(ur => ur.isActive && catalog.find(r => r.id === ur.rewardId && r.type === "title"));
-    const fallbackUserTitle = [...userRewardsList].reverse().find(ur => catalog.find(r => r.id === ur.rewardId && r.type === "title"));
-    const chosenUserTitle = activeUserTitle ?? fallbackUserTitle;
-    if (chosenUserTitle) {
-      const catalogEntry = catalog.find(r => r.id === chosenUserTitle.rewardId);
-      equippedTitle = catalogEntry?.name ?? null;
-    }
-  }
-
-  const completedTaskCount = await getCompletedTaskCount(targetUserId);
-  const { SKILL_NODE_REQUIRED_TASKS } = await import("@shared/skill-nodes");
-  let skillTier: 0 | 1 | 2 = 0;
-  for (const [nodeId, required] of Object.entries(SKILL_NODE_REQUIRED_TASKS)) {
-    if (completedTaskCount >= required) {
-      if (nodeId.endsWith("-2") && skillTier < 2) skillTier = 2;
-      else if (nodeId.endsWith("-1") && skillTier < 1) skillTier = 1;
-    }
-  }
-
-  const badges = badgeList.map(b => ({ id: b.id, badgeId: b.badgeId, earnedAt: b.earnedAt }));
-
-  let isFollowedByRequester = false;
-  if (requestingUserId && requestingUserId !== targetUserId) {
-    isFollowedByRequester = await isFollowing(requestingUserId, targetUserId);
-  }
-
-  return {
-    userId: user.id,
-    displayName: user.displayName,
-    profileImageUrl: user.profileImageUrl,
-    equippedTitle,
-    skillTier,
-    badges,
-    coinBalance: wallet.balance,
-    lifetimeEarned: wallet.lifetimeEarned,
-    currentStreak: wallet.currentStreak,
-    longestStreak: wallet.longestStreak,
-    streakShields: wallet.streakShields,
-    postCount,
-    commentCount,
-    followerCount,
-    followingCount,
-    isFollowing: isFollowedByRequester,
-    recentActivity,
-    posts: paginatedPosts,
-    postsTotal: postCount,
-  };
-}
-
-// ─── Direct Messaging ────────────────────────────────────────────────────────
-
-export interface ConversationPreview {
-  id: string;
-  otherUser: { id: string; displayName: string | null; profileImageUrl: string | null };
-  lastMessage: { body: string; senderId: string; createdAt: Date } | null;
-  unreadCount: number;
-  createdAt: Date | null;
-}
-
-export async function getOrCreateConversation(userAId: string, userBId: string): Promise<string> {
-  // Find an existing 1:1 conversation between these two users
-  const existing = await db.execute(sql`
-    SELECT cp1.conversation_id
-    FROM conversation_participants cp1
-    JOIN conversation_participants cp2
-      ON cp1.conversation_id = cp2.conversation_id
-      AND cp2.user_id = ${userBId}
-    WHERE cp1.user_id = ${userAId}
-    LIMIT 1
-  `);
-
-  if (existing.rows.length > 0) {
-    return existing.rows[0].conversation_id as string;
-  }
-
-  const convId = randomUUID();
-  await db.insert(conversations).values({ id: convId });
-  await db.insert(conversationParticipants).values([
-    { id: randomUUID(), conversationId: convId, userId: userAId },
-    { id: randomUUID(), conversationId: convId, userId: userBId },
-  ]);
-  return convId;
-}
-
-export async function getConversations(userId: string): Promise<ConversationPreview[]> {
-  // All conversations this user participates in
-  const userConvs = await db
-    .select({ conversationId: conversationParticipants.conversationId })
-    .from(conversationParticipants)
-    .where(eq(conversationParticipants.userId, userId));
-
-  if (userConvs.length === 0) return [];
-
-  const convIds = userConvs.map(r => r.conversationId);
-
-  // Batch: get all participants for these conversations
-  const allParticipants = await db
-    .select({ conversationId: conversationParticipants.conversationId, userId: conversationParticipants.userId })
-    .from(conversationParticipants)
-    .where(sql`${conversationParticipants.conversationId} = ANY(${convIds})`);
-
-  // Other user IDs per conversation
-  const otherUserIds = new Set(allParticipants.filter(p => p.userId !== userId).map(p => p.userId));
-  const otherUserIdList = [...otherUserIds];
-
-  const otherUsers = otherUserIdList.length > 0
-    ? await db
-        .select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl })
-        .from(users)
-        .where(sql`${users.id} = ANY(${otherUserIdList})`)
-    : [];
-
-  const userMap = new Map(otherUsers.map(u => [u.id, u]));
-
-  const results: ConversationPreview[] = [];
-
-  for (const convId of convIds) {
-    const participants = allParticipants.filter(p => p.conversationId === convId);
-    const otherParticipant = participants.find(p => p.userId !== userId);
-    if (!otherParticipant) continue;
-
-    const otherUser = userMap.get(otherParticipant.userId);
-    if (!otherUser) continue;
-
-    // Get last message + unread count for this conversation
-    const [lastMsgRow] = await db
-      .select()
-      .from(directMessages)
-      .where(eq(directMessages.conversationId, convId))
-      .orderBy(desc(directMessages.createdAt))
-      .limit(1);
-
-    const [unreadRow] = await db
-      .select({ count: count() })
-      .from(directMessages)
-      .where(and(
-        eq(directMessages.conversationId, convId),
-        sql`${directMessages.senderId} != ${userId}`,
-        sql`${directMessages.readAt} IS NULL`,
-      ));
-
-    const [convRow] = await db
-      .select({ createdAt: conversations.createdAt })
-      .from(conversations)
-      .where(eq(conversations.id, convId));
-
-    results.push({
-      id: convId,
-      otherUser: { id: otherUser.id, displayName: otherUser.displayName, profileImageUrl: otherUser.profileImageUrl },
-      lastMessage: lastMsgRow ? { body: lastMsgRow.body, senderId: lastMsgRow.senderId, createdAt: lastMsgRow.createdAt! } : null,
-      unreadCount: Number(unreadRow?.count ?? 0),
-      createdAt: convRow?.createdAt ?? null,
-    });
-  }
-
-  // Sort by last message timestamp, newest first
-  results.sort((a, b) => {
-    const ta = a.lastMessage?.createdAt ?? a.createdAt ?? new Date(0);
-    const tb = b.lastMessage?.createdAt ?? b.createdAt ?? new Date(0);
-    return new Date(tb).getTime() - new Date(ta).getTime();
-  });
-
-  return results;
-}
-
-export async function getConversationMessages(conversationId: string, userId: string): Promise<DirectMessage[]> {
-  // Verify user is a participant
-  const [participant] = await db
-    .select()
-    .from(conversationParticipants)
-    .where(and(
-      eq(conversationParticipants.conversationId, conversationId),
-      eq(conversationParticipants.userId, userId),
-    ));
-  if (!participant) throw new Error("Not a participant");
-
-  return db
-    .select()
-    .from(directMessages)
-    .where(eq(directMessages.conversationId, conversationId))
-    .orderBy(asc(directMessages.createdAt));
-}
-
-export async function sendDirectMessage(conversationId: string, senderId: string, body: string): Promise<DirectMessage> {
-  // Verify sender is a participant
-  const [participant] = await db
-    .select()
-    .from(conversationParticipants)
-    .where(and(
-      eq(conversationParticipants.conversationId, conversationId),
-      eq(conversationParticipants.userId, senderId),
-    ));
-  if (!participant) throw new Error("Not a participant");
-
-  const [msg] = await db.insert(directMessages).values({
-    id: randomUUID(),
-    conversationId,
-    senderId,
-    body,
-  }).returning();
-  return msg;
-}
-
-export async function markConversationRead(conversationId: string, userId: string): Promise<void> {
-  // Verify user is a participant before marking as read
-  const [participant] = await db
-    .select()
-    .from(conversationParticipants)
-    .where(and(
-      eq(conversationParticipants.conversationId, conversationId),
-      eq(conversationParticipants.userId, userId),
-    ));
-  if (!participant) throw new Error("Not a participant");
-
-  await db
-    .update(directMessages)
-    .set({ readAt: new Date() })
-    .where(and(
-      eq(directMessages.conversationId, conversationId),
-      sql`${directMessages.senderId} != ${userId}`,
-      sql`${directMessages.readAt} IS NULL`,
-    ));
-}
-
-export async function getTotalUnreadCount(userId: string): Promise<number> {
-  const userConvs = await db
-    .select({ conversationId: conversationParticipants.conversationId })
-    .from(conversationParticipants)
-    .where(eq(conversationParticipants.userId, userId));
-
-  if (userConvs.length === 0) return 0;
-
-  const convIds = userConvs.map(r => r.conversationId);
-
-  const [row] = await db
-    .select({ count: count() })
-    .from(directMessages)
-    .where(and(
-      sql`${directMessages.conversationId} = ANY(${convIds})`,
-      sql`${directMessages.senderId} != ${userId}`,
-      sql`${directMessages.readAt} IS NULL`,
-    ));
-
-  return Number(row?.count ?? 0);
-}
-
-export async function getConversationParticipants(conversationId: string): Promise<{ userId: string }[]> {
-  return db
-    .select({ userId: conversationParticipants.userId })
-    .from(conversationParticipants)
-    .where(eq(conversationParticipants.conversationId, conversationId));
-}
-
-// ─── Leaderboard ─────────────────────────────────────────────────────────────
-
-export interface LeaderboardEntry {
-  rank: number;
+export async function createBackupRecord(input: {
   userId: string;
-  displayName: string | null;
-  profileImageUrl: string | null;
-  equippedTitle: string | null;
-  skillTier: number;
-  metricValue: number;
+  type: string;
+  status: string;
+  pathOrUrl?: string | null;
+  metadataJson?: string | null;
+  errorMessage?: string | null;
+}): Promise<BackupRecord> {
+  const [row] = await db
+    .insert(backupRecords)
+    .values({
+      id: randomUUID(),
+      userId: input.userId,
+      type: input.type,
+      status: input.status,
+      pathOrUrl: input.pathOrUrl ?? null,
+      metadataJson: input.metadataJson ?? null,
+      errorMessage: input.errorMessage ?? null,
+      createdAt: new Date(),
+    })
+    .returning();
+  return row;
 }
 
-export interface LeaderboardResult {
-  top25: LeaderboardEntry[];
-  myEntry: LeaderboardEntry | null;
-}
-
-export async function getLeaderboard(
-  requestingUserId: string,
-  category: "coins" | "streak" | "contributions",
-  period: "all" | "week"
-): Promise<LeaderboardResult> {
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-
-  // ── Helper: get requesting user's exact metric value from the full population ──
-  async function getMyMetric(): Promise<number> {
-    if (category === "coins") {
-      if (period === "all") {
-        const [row] = await db.select({ v: wallets.lifetimeEarned }).from(wallets).where(eq(wallets.userId, requestingUserId));
-        return row?.v ?? 0;
-      } else {
-        const [row] = await db.select({
-          v: sql<number>`COALESCE(SUM(${coinTransactions.amount}), 0)::int`,
-        }).from(coinTransactions).where(
-          sql`${coinTransactions.userId} = ${requestingUserId} AND ${coinTransactions.createdAt} >= ${weekAgo} AND ${coinTransactions.amount} > 0`
-        );
-        return row?.v ?? 0;
-      }
-    } else if (category === "streak") {
-      const [row] = await db.select({ v: wallets.longestStreak }).from(wallets).where(eq(wallets.userId, requestingUserId));
-      return row?.v ?? 0;
-    } else {
-      const since = period === "week" ? weekAgo : new Date(0);
-      const [postRow] = await db.select({ v: sql<number>`COUNT(*)::int` }).from(forumPosts)
-        .where(sql`${forumPosts.userId} = ${requestingUserId} AND ${forumPosts.createdAt} >= ${since}`);
-      const [commentRow] = await db.select({ v: sql<number>`COUNT(*)::int` }).from(forumComments)
-        .where(sql`${forumComments.userId} = ${requestingUserId} AND ${forumComments.createdAt} >= ${since}`);
-      const [classRow] = await db.select({ v: sql<number>`COUNT(*)::int` }).from(classificationContributions)
-        .where(sql`${classificationContributions.userId} = ${requestingUserId} AND ${classificationContributions.createdAt} >= ${since}`);
-      return (postRow?.v ?? 0) + (commentRow?.v ?? 0) + (classRow?.v ?? 0);
-    }
-  }
-
-  // ── Helper: count how many users score strictly higher (= users ranked above) ──
-  async function countUsersAbove(myMetric: number): Promise<number> {
-    if (category === "coins") {
-      if (period === "all") {
-        const [r] = await db.select({ c: sql<number>`COUNT(*)::int` }).from(wallets)
-          .where(sql`${wallets.lifetimeEarned} > ${myMetric}`);
-        return r?.c ?? 0;
-      } else {
-        const result = await db.execute<{ c: number }>(
-          sql`SELECT COUNT(*)::int AS c FROM (
-            SELECT SUM(amount) AS total FROM ${coinTransactions}
-            WHERE created_at >= ${weekAgo} AND amount > 0
-            GROUP BY user_id
-          ) sub WHERE sub.total > ${myMetric}`
-        );
-        return Number((result.rows[0] as any)?.c ?? 0);
-      }
-    } else if (category === "streak") {
-      const [r] = await db.select({ c: sql<number>`COUNT(*)::int` }).from(wallets)
-        .where(sql`${wallets.longestStreak} > ${myMetric}`);
-      return r?.c ?? 0;
-    } else {
-      const since = period === "week" ? weekAgo : new Date(0);
-      const result = await db.execute<{ c: number }>(
-        sql`SELECT COUNT(*)::int AS c FROM (
-          SELECT user_id, COUNT(*) AS total FROM (
-            SELECT user_id FROM ${forumPosts} WHERE created_at >= ${since}
-            UNION ALL
-            SELECT user_id FROM ${forumComments} WHERE created_at >= ${since}
-            UNION ALL
-            SELECT user_id FROM ${classificationContributions} WHERE created_at >= ${since}
-          ) all_contrib GROUP BY user_id
-        ) sub WHERE sub.total > ${myMetric}`
-      );
-      return Number((result.rows[0] as any)?.c ?? 0);
-    }
-  }
-
-  // ── Fetch top 25 rows ─────────────────────────────────────────────────────
-  let top25Rows: { userId: string; metricValue: number }[];
-
-  if (category === "coins") {
-    if (period === "all") {
-      top25Rows = await db
-        .select({ userId: wallets.userId, metricValue: wallets.lifetimeEarned })
-        .from(wallets)
-        .orderBy(desc(wallets.lifetimeEarned))
-        .limit(25);
-    } else {
-      top25Rows = await db
-        .select({
-          userId: coinTransactions.userId,
-          metricValue: sql<number>`COALESCE(SUM(${coinTransactions.amount}), 0)::int`,
-        })
-        .from(coinTransactions)
-        .where(sql`${coinTransactions.createdAt} >= ${weekAgo} AND ${coinTransactions.amount} > 0`)
-        .groupBy(coinTransactions.userId)
-        .orderBy(desc(sql`SUM(${coinTransactions.amount})`))
-        .limit(25);
-    }
-  } else if (category === "streak") {
-    top25Rows = await db
-      .select({ userId: wallets.userId, metricValue: wallets.longestStreak })
-      .from(wallets)
-      .orderBy(desc(wallets.longestStreak))
-      .limit(25);
-  } else {
-    const since = period === "week" ? weekAgo : new Date(0);
-    const postCounts = db.select({ userId: forumPosts.userId, pcnt: sql<number>`COUNT(*)::int`.as("pcnt") })
-      .from(forumPosts).where(sql`${forumPosts.createdAt} >= ${since}`).groupBy(forumPosts.userId).as("pc");
-    const commentCounts = db.select({ userId: forumComments.userId, ccnt: sql<number>`COUNT(*)::int`.as("ccnt") })
-      .from(forumComments).where(sql`${forumComments.createdAt} >= ${since}`).groupBy(forumComments.userId).as("cc");
-    const classCounts = db.select({ userId: classificationContributions.userId, clcnt: sql<number>`COUNT(*)::int`.as("clcnt") })
-      .from(classificationContributions).where(sql`${classificationContributions.createdAt} >= ${since}`)
-      .groupBy(classificationContributions.userId).as("cl");
-
-    const result = await db
-      .select({
-        userId: users.id,
-        metricValue: sql<number>`COALESCE(${postCounts.pcnt}, 0) + COALESCE(${commentCounts.ccnt}, 0) + COALESCE(${classCounts.clcnt}, 0)`.as("total"),
-      })
-      .from(users)
-      .leftJoin(postCounts, eq(users.id, postCounts.userId))
-      .leftJoin(commentCounts, eq(users.id, commentCounts.userId))
-      .leftJoin(classCounts, eq(users.id, classCounts.userId))
-      .orderBy(desc(sql`COALESCE(${postCounts.pcnt}, 0) + COALESCE(${commentCounts.ccnt}, 0) + COALESCE(${classCounts.clcnt}, 0)`))
-      .limit(25);
-    top25Rows = result.map(r => ({ userId: r.userId, metricValue: Number(r.metricValue) }));
-  }
-
-  // ── Collect user IDs to decorate (top25 + requesting user) ───────────────
-  const allUserIds = [...new Set([...top25Rows.map(r => r.userId), requestingUserId])];
-
-  const [userRows, userRewardRows, skillUnlockRows] = await Promise.all([
-    allUserIds.length > 0
-      ? db.select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl })
-          .from(users).where(sql`${users.id} = ANY(ARRAY[${sql.join(allUserIds.map(id => sql`${id}`), sql`, `)}]::text[])`)
-      : [],
-    allUserIds.length > 0
-      ? db.select({ userId: userRewards.userId, rewardId: userRewards.rewardId })
-          .from(userRewards).where(sql`${userRewards.userId} = ANY(ARRAY[${sql.join(allUserIds.map(id => sql`${id}`), sql`, `)}]::text[]) AND ${userRewards.isActive} = true`)
-      : [],
-    allUserIds.length > 0
-      ? db.select({ userId: skillUnlocks.userId }).from(skillUnlocks)
-          .where(sql`${skillUnlocks.userId} = ANY(ARRAY[${sql.join(allUserIds.map(id => sql`${id}`), sql`, `)}]::text[])`)
-      : [],
-  ]);
-
-  const rewardIds = [...new Set(userRewardRows.map(r => r.rewardId))];
-  const catalogRows = rewardIds.length > 0
-    ? await db.select({ id: rewardsCatalog.id, data: rewardsCatalog.data, type: rewardsCatalog.type })
-        .from(rewardsCatalog).where(sql`${rewardsCatalog.id} = ANY(ARRAY[${sql.join(rewardIds.map(id => sql`${id}`), sql`, `)}]::text[])`)
-    : [];
-
-  const userMap = new Map(userRows.map(u => [u.id, u]));
-  const titleMap = new Map<string, string | null>();
-  const tierMap = new Map<string, number>();
-
-  for (const u of userRows) {
-    const myRewardIds = userRewardRows.filter(r => r.userId === u.id).map(r => r.rewardId);
-    const titleReward = catalogRows.find(c => myRewardIds.includes(c.id) && c.type === "title");
-    titleMap.set(u.id, titleReward?.data ?? null);
-    const unlockCount = skillUnlockRows.filter(s => s.userId === u.id).length;
-    tierMap.set(u.id, unlockCount >= 10 ? 2 : unlockCount >= 3 ? 1 : 0);
-  }
-
-  const makeEntry = (userId: string, metricValue: number, rank: number): LeaderboardEntry => {
-    const u = userMap.get(userId);
-    return {
-      rank,
-      userId,
-      displayName: u?.displayName ?? null,
-      profileImageUrl: u?.profileImageUrl ?? null,
-      equippedTitle: titleMap.get(userId) ?? null,
-      skillTier: tierMap.get(userId) ?? 0,
-      metricValue,
-    };
-  };
-
-  // Filter out users with zero metric for contributions (cleaner board)
-  const validTop25 = category === "contributions"
-    ? top25Rows.filter(r => r.metricValue > 0)
-    : top25Rows;
-
-  const top25 = validTop25.map((r, i) => makeEntry(r.userId, r.metricValue, i + 1));
-
-  // ── Compute requesting user's entry ──────────────────────────────────────
-  const myInTop25 = top25.find(e => e.userId === requestingUserId);
-  let myEntry: LeaderboardEntry;
-
-  if (myInTop25) {
-    myEntry = myInTop25;
-  } else {
-    // Exact metric and rank from the full population
-    const [myMetric, usersAbove] = await Promise.all([getMyMetric(), getMyMetric().then(m => countUsersAbove(m))]);
-    myEntry = makeEntry(requestingUserId, myMetric, usersAbove + 1);
-  }
-
-  return { top25, myEntry };
-}
-
-// ─── Skill Unlocks ────────────────────────────────────────────────────────────
-
-export async function getSkillUnlocks(userId: string): Promise<SkillUnlock[]> {
-  return db
+export async function getLastBackupRecordForUser(userId: string): Promise<BackupRecord | null> {
+  const [row] = await db
     .select()
-    .from(skillUnlocks)
-    .where(eq(skillUnlocks.userId, userId))
-    .orderBy(asc(skillUnlocks.unlockedAt));
+    .from(backupRecords)
+    .where(eq(backupRecords.userId, userId))
+    .orderBy(desc(backupRecords.createdAt))
+    .limit(1);
+  return row || null;
+}
+
+/** Count consecutive failed backup records since the most recent success. */
+export async function countRecentBackupFailuresForUser(userId: string): Promise<number> {
+  const rows = await db
+    .select()
+    .from(backupRecords)
+    .where(eq(backupRecords.userId, userId))
+    .orderBy(desc(backupRecords.createdAt))
+    .limit(50);
+
+  let failures = 0;
+  for (const row of rows) {
+    if (row.status === "completed") break;
+    if (row.status === "failed") failures += 1;
+  }
+  return failures;
 }
 
 /**
- * Persist a skill node unlock for a user.
- * Uses an atomic conflict-safe insert so concurrent requests from multiple
- * devices/tabs never cause a unique constraint violation.
- * `isNew` is true when the unlock was just created for the first time.
+ * Clean up old backup records for a user according to their retention policy.
+ * Default policy keeps the last 30 completed backups + 12 monthly oldest.
+ * Returns the number of deleted rows.
  */
-export async function unlockSkillNode(
-  userId: string,
-  nodeId: string
-): Promise<{ unlock: SkillUnlock; isNew: boolean }> {
-  const [inserted] = await db
-    .insert(skillUnlocks)
-    .values({ id: randomUUID(), userId, nodeId })
-    .onConflictDoNothing()
-    .returning();
+export async function cleanupBackupRecords(userId: string): Promise<number> {
+  const pref = await getUserBackupPreference(userId);
+  let keepLastN = 30;
+  let keepMonthly = 12;
 
-  if (inserted) {
-    return { unlock: inserted, isNew: true };
+  if (pref?.retentionPolicyJson) {
+    try {
+      const policy = JSON.parse(pref.retentionPolicyJson);
+      if (typeof policy.keepLastN === "number") keepLastN = policy.keepLastN;
+      if (typeof policy.keepMonthly === "number") keepMonthly = policy.keepMonthly;
+    } catch {
+      // ignore invalid JSON
+    }
   }
 
-  // Conflict: the row already exists — fetch and return it
-  const [existing] = await db
-    .select()
-    .from(skillUnlocks)
-    .where(and(eq(skillUnlocks.userId, userId), eq(skillUnlocks.nodeId, nodeId)));
+  // Get all completed backups for the user, newest first
+  const records = await db
+    .select({ id: backupRecords.id, createdAt: backupRecords.createdAt })
+    .from(backupRecords)
+    .where(eq(backupRecords.userId, userId))
+    .orderBy(desc(backupRecords.createdAt));
 
-  return { unlock: existing, isNew: false };
+  if (records.length <= keepLastN) {
+    return 0;
+  }
+
+  const idsToDelete: string[] = [];
+  const keepSet = new Set<string>();
+
+  // Always keep the most recent N
+  for (let i = 0; i < Math.min(keepLastN, records.length); i++) {
+    keepSet.add(records[i].id);
+  }
+
+  // Keep the oldest backup from each month (up to keepMonthly)
+  const monthlyKept = new Map<string, string>();
+  for (const record of records) {
+    const monthKey = record.createdAt
+      ? `${record.createdAt.getUTCFullYear()}-${String(record.createdAt.getUTCMonth() + 1).padStart(2, "0")}`
+      : "unknown";
+    if (!monthlyKept.has(monthKey)) {
+      monthlyKept.set(monthKey, record.id);
+    }
+    if (monthlyKept.size >= keepMonthly) break;
+  }
+  for (const id of monthlyKept.values()) {
+    keepSet.add(id);
+  }
+
+  for (const record of records) {
+    if (!keepSet.has(record.id)) {
+      idsToDelete.push(record.id);
+    }
+  }
+
+  if (idsToDelete.length === 0) return 0;
+
+  // Drizzle doesn't support bulk delete with IN in all dialects; use a loop
+  let deleted = 0;
+  for (const id of idsToDelete) {
+    const result = await db.delete(backupRecords).where(eq(backupRecords.id, id)).returning();
+    deleted += result.length;
+  }
+  return deleted;
+}
+
+// ─── User Backup Preference helpers ─────────────────────────────────────────
+
+export async function getUserBackupPreference(userId: string): Promise<UserBackupPreference | null> {
+  const [row] = await db
+    .select()
+    .from(userBackupPreferences)
+    .where(eq(userBackupPreferences.userId, userId))
+    .limit(1);
+  return row || null;
+}
+
+export async function upsertUserBackupPreference(input: {
+  userId: string;
+  autoBackupEnabled?: boolean;
+  preferredTarget?: string;
+  retentionPolicyJson?: string;
+}): Promise<UserBackupPreference> {
+  const now = new Date();
+  const [row] = await db
+    .insert(userBackupPreferences)
+    .values({
+      userId: input.userId,
+      autoBackupEnabled: input.autoBackupEnabled ?? true,
+      preferredTarget: input.preferredTarget ?? "default",
+      retentionPolicyJson: input.retentionPolicyJson ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: userBackupPreferences.userId,
+      set: {
+        autoBackupEnabled: input.autoBackupEnabled ?? true,
+        preferredTarget: input.preferredTarget ?? "default",
+        retentionPolicyJson: input.retentionPolicyJson ?? null,
+        updatedAt: now,
+      },
+    })
+    .returning();
+  return row;
+}
+
+// ─── Backup Job helpers (queue-based scheduler) ───────────────────────────────
+
+export async function createBackupJob(input: {
+  userId: string;
+  type?: string;
+  target?: string;
+}): Promise<BackupJob> {
+  const [row] = await db
+    .insert(backupJobs)
+    .values({
+      id: randomUUID(),
+      userId: input.userId,
+      type: input.type ?? "scheduled",
+      target: input.target ?? "default",
+      status: "pending",
+      createdAt: new Date(),
+    })
+    .returning();
+  return row;
+}
+
+export async function getNextPendingBackupJob(): Promise<BackupJob | null> {
+  const [row] = await db
+    .select()
+    .from(backupJobs)
+    .where(eq(backupJobs.status, "pending"))
+    .orderBy(asc(backupJobs.createdAt))
+    .limit(1);
+  return row || null;
+}
+
+export async function markBackupJobRunning(id: string): Promise<BackupJob | null> {
+  const [row] = await db
+    .update(backupJobs)
+    .set({ status: "running", startedAt: new Date() })
+    .where(eq(backupJobs.id, id))
+    .returning();
+  return row || null;
+}
+
+export async function markBackupJobCompleted(id: string, recordId: string): Promise<BackupJob | null> {
+  const [row] = await db
+    .update(backupJobs)
+    .set({ status: "completed", recordId, completedAt: new Date() })
+    .where(eq(backupJobs.id, id))
+    .returning();
+  return row || null;
+}
+
+export async function markBackupJobFailed(id: string, errorMessage: string): Promise<BackupJob | null> {
+  const [row] = await db
+    .update(backupJobs)
+    .set({ status: "failed", errorMessage, completedAt: new Date() })
+    .where(eq(backupJobs.id, id))
+    .returning();
+  return row || null;
 }

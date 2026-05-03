@@ -1,0 +1,110 @@
+import { useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useLocationPlaces } from "@/hooks/use-locations";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { MapPin } from "lucide-react";
+import { readGeofenceNudgesEnabled, writeGeofenceNudgesEnabled } from "@/hooks/use-geofence-suggestion-nudge";
+
+export function LocationPlacesSettingsCard() {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [lat, setLat] = useState("");
+  const [lng, setLng] = useState("");
+  const [geofenceNudges, setGeofenceNudges] = useState(false);
+
+  useEffect(() => {
+    setGeofenceNudges(readGeofenceNudgesEnabled());
+  }, []);
+
+  const { data } = useLocationPlaces();
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const payload: Record<string, unknown> = {
+        name: name.trim(),
+        radiusMeters: 200,
+      };
+      const la = parseFloat(lat);
+      const ln = parseFloat(lng);
+      if (Number.isFinite(la) && Number.isFinite(ln)) {
+        payload.lat = la;
+        payload.lng = ln;
+      }
+      const r = await apiRequest("POST", "/api/location-places", payload);
+      return r.json();
+    },
+    onSuccess: () => {
+      setName("");
+      setLat("");
+      setLng("");
+      qc.invalidateQueries({ queryKey: ["/api/location-places"] });
+    },
+  });
+
+  const places = data?.places ?? [];
+
+  return (
+    <Card className="glass-panel">
+      <CardHeader>
+        <CardTitle className="text-lg flex items-center gap-2">
+          <MapPin className="h-5 w-5" />
+          Location reminders (saved places)
+        </CardTitle>
+        <CardDescription>
+          Store named places for future reminder hooks. Coordinates are optional; radius defaults to 200m.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-muted/30 p-3">
+          <div className="space-y-1 min-w-0">
+            <Label htmlFor="geofence-nudges" className="text-sm font-medium">
+              Arrival suggestions (this device)
+            </Label>
+            <p className="text-xs text-muted-foreground leading-snug">
+              Periodically checks your position while AxTask is open and may toast when you enter a saved place.
+              Patterns stay on-device; grant location and (optionally) browser notifications for alerts.
+              Uses extra battery only while enabled.
+            </p>
+          </div>
+          <Switch
+            id="geofence-nudges"
+            checked={geofenceNudges}
+            onCheckedChange={(v) => {
+              writeGeofenceNudgesEnabled(v);
+              setGeofenceNudges(v);
+              window.dispatchEvent(new CustomEvent("axtask-geofence-nudges-changed"));
+            }}
+            className="shrink-0"
+          />
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Input placeholder="Label (e.g. Office)" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input placeholder="Latitude" value={lat} onChange={(e) => setLat(e.target.value)} />
+          <Input placeholder="Longitude" value={lng} onChange={(e) => setLng(e.target.value)} />
+        </div>
+        <Button
+          type="button"
+          disabled={name.trim().length === 0 || saveMutation.isPending}
+          onClick={() => saveMutation.mutate()}
+        >
+          Save place
+        </Button>
+        {places.length > 0 && (
+          <ul className="text-sm space-y-1 text-muted-foreground">
+            {places.map((p) => (
+              <li key={p.id}>
+                <span className="font-medium text-foreground">{p.name}</span>
+                {p.lat != null && p.lng != null ? ` · ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}` : " · no coordinates"}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

@@ -1,19 +1,37 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { insertTaskSchema, type InsertTask, type Task } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { ATTACHMENT_IMAGE_MAX_BYTES } from "@shared/attachment-image-limits";
+import {
+  insertTaskSchema,
+  type ConversionArtifactType,
+  type InsertTask,
+  type Task,
+} from "@shared/schema";
+import { apiFetch, apiRequest, getCsrfToken } from "@/lib/queryClient";
+import { AXTASK_CSRF_HEADER } from "@shared/http-auth";
+import {
+  syncCreateTask,
+  syncUpdateTask,
+  TaskSyncAbortedError,
+} from "@/lib/task-sync-api";
 import { PriorityEngine } from "@/lib/priority-engine";
 import { useToast } from "@/hooks/use-toast";
+import { requestFeedbackNudge } from "@/lib/feedback-nudge";
+import { setWalletBalanceCache } from "@/lib/wallet-cache";
+import { useImmersiveSounds } from "@/hooks/use-immersive-sounds";
 import { useAuth } from "@/lib/auth-context";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
+import { matchTaskFormSubmitHotkey } from "@/lib/hotkey-actions";
+import { matchTaskFormVoiceSubmit } from "@/lib/voice-shortcuts";
 import { parseVoiceCommands, stripCommandText } from "@/lib/voice-commands";
 import { useVoice } from "@/hooks/use-voice";
 import { useCollaboration } from "@/hooks/use-collaboration";
 import { MicButton } from "@/components/mic-button";
 import { ShareDialog } from "@/components/share-dialog";
+import { TaskReportDownload } from "@/components/task-report-download";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,19 +43,59 @@ import { Calendar } from "@/components/ui/calendar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PriorityBadge } from "./priority-badge";
 import { ClockTimePicker } from "@/components/ui/clock-time-picker";
-import { Plus, CalendarIcon, Lightbulb, Save, Paperclip } from "lucide-react";
-import { AttachmentUpload, AttachmentList } from "@/components/task-attachments";
-import { MarkdownEditor } from "@/components/markdown-editor";
-import type { TaskAttachment } from "@shared/schema";
+import {
+  Plus,
+  CheckCircle2,
+  AlertCircle,
+  Info,
+  CalendarIcon,
+  Lightbulb,
+  Save,
+  Sparkles,
+  ImagePlus,
+  Camera,
+  X,
+  Loader2,
+  ShoppingCart,
+  Wand2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SafeMarkdown } from "@/lib/safe-markdown";
 import { format, parse } from "date-fns";
+import { useLocation, Link } from "wouter";
 import { useFieldFlow } from "@/hooks/use-field-flow";
+import { useTaskFocusFlow } from "@/hooks/use-task-focus-flow";
+import { useFieldResize } from "@/hooks/use-field-resize";
+import { useLiveClassificationStream } from "@/hooks/use-live-classification-stream";
+import { detectShoppingListContent, detectStructuredPrompt } from "@shared/shopping-tasks";
+import { ConversionArtifactPreview } from "@/components/conversion-artifact-preview";
+import { TaskDependencyPicker } from "@/components/task-dependency-picker";
+import { __internal as pasteUploadInternal } from "@/lib/use-paste-upload";
 
 interface TaskFormProps {
   task?: Task;
   defaultDate?: string;
   onSuccess?: () => void;
-  onClearedChange?: (cleared: boolean) => void;
+}
+
+export function resolveShoppingConversionSuggestion(activity: string, notes: string) {
+  const detection = detectShoppingListContent(activity, notes);
+  if (!detection.detected || detection.items.length === 0) return null;
+  return detection;
+}
+
+const SHOPPING_PRETEXT_QUIPS = [
+  "Pretext whispers: this isn’t prose — it’s aisle choreography. Tap below before the muse melts.",
+  "The orb spotted groceries hiding in plain text. Give them checkboxes and a little retail drama.",
+  "Your list wants to live in the dense shopping fold — convert, then wander the cart constellation.",
+  "NodeWeaver nods: multi-line loot detected. Summon the interactive aisle; the shell loves a good errand.",
+] as const;
+
+export function pickShoppingPretextQuip(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i += 1) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  const idx = Math.abs(h) % SHOPPING_PRETEXT_QUIPS.length;
+  return SHOPPING_PRETEXT_QUIPS[idx] ?? SHOPPING_PRETEXT_QUIPS[0];
 }
 
 const DRAFT_KEY_PREFIX = "axtask_draft";
@@ -78,14 +136,18 @@ function clearDraft(key: string) {
   try { localStorage.removeItem(key); } catch {}
 }
 
-export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: TaskFormProps) {
+export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { toast } = useToast();
+  const { playIfEligible } = useImmersiveSounds();
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const [previewPriority, setPreviewPriority] = useState({ score: 0, priority: "Low" });
   const { onFieldBlur, isHinted } = useFieldFlow();
   const [warningFields, setWarningFields] = useState<Set<string>>(new Set());
+  const { registerField, focusFirst, cycleNext, fieldRefs } = useTaskFocusFlow();
+  const { height: notesHeight, updateHeight: setNotesHeight } = useFieldResize("notes", 120);
   const warningTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [voiceTarget, setVoiceTarget] = useState<"activity" | "notes" | "prerequisites">("activity");
   const [debouncedActivity, setDebouncedActivity] = useState("");
@@ -95,10 +157,55 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
     confidence: number;
   } | null>(null);
   const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+  const liveClassificationPushRef = useRef<(activity: string, notes: string) => void>(() => {});
+
+  // ── Image attachments ──────────────────────────────────────────────────────
+  type TaskAttachment = { assetId: string; fileName: string; mimeType: string; uploading?: boolean };
+  const [taskAttachments, setTaskAttachments] = useState<TaskAttachment[]>([]);
+  const [attachmentFeedback, setAttachmentFeedback] = useState<{
+    tone: "info" | "success" | "error";
+    message: string;
+  } | null>(null);
+  const [highlightNotesPreview, setHighlightNotesPreview] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageCameraInputRef = useRef<HTMLInputElement>(null);
+  const previewHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const removeAttachment = useCallback(async (assetId: string) => {
+    try {
+      await apiRequest("DELETE", `/api/attachments/${assetId}`);
+    } catch { /* ignore */ }
+    setTaskAttachments((prev) => prev.filter((a) => a.assetId !== assetId));
+  }, []);
+
+  // Load existing attachments for edit mode
+  useEffect(() => {
+    if (!task?.id) return;
+    fetch(`/api/tasks/${task.id}/attachments`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : [])
+      .then((assets: Array<{ id: string; fileName: string; mimeType: string }>) => {
+        setTaskAttachments(assets.map((a) => ({ assetId: a.id, fileName: a.fileName || "image", mimeType: a.mimeType })));
+      })
+      .catch(() => {});
+  }, [task?.id]);
 
   const collab = useCollaboration(task?.id ?? null);
   const isEditing = !!task;
-  const isOwner = !task || task.userId === user?.id;
+  /*
+   * Ownership heuristic.
+   *
+   * With the slim /api/tasks DTO we no longer ship `userId` back to the
+   * client for the owner's own tasks — the endpoint is scoped to the
+   * authenticated user by contract, so `userId` on the response would
+   * be redundant with `user.id`. When the field is absent we default to
+   * owner-true (the caller is looking at their own list). The explicit
+   * compare is still kept so the form works correctly for shared
+   * /api/tasks/shared payloads that carry `userId` for provenance.
+   */
+  const viewerRole = (task as (Task & { viewerRole?: "owner" | "editor" | "viewer" }) | null)?.viewerRole;
+  const isOwner = viewerRole
+    ? viewerRole === "owner"
+    : (!task || task.userId == null || task.userId === user?.id);
 
   const getCollabFieldStyle = useCallback((fieldName: string): string => {
     if (!collab.connected || !task) return "";
@@ -116,36 +223,61 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
   const getCollabFieldUser = useCallback((fieldName: string): string | undefined => {
     if (!collab.connected || !task) return undefined;
     const editing = collab.users.find(u => u.focusedField === fieldName && u.userId !== user?.id);
-    return editing ? (editing.displayName || editing.email) : undefined;
+    return editing ? (editing.displayName || editing.userId) : undefined;
   }, [collab.users, collab.connected, task, user?.id]);
 
   const draftContext = task ? `edit_${task.id}` : defaultDate ? `date_${defaultDate}` : "new";
   const draftKey = getDraftKey(user?.id, draftContext);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSubmitWithWarningsRef = useRef<() => void>(() => {});
 
-  const freshDefaults: InsertTask = task ? {
-    date: task.date,
-    time: task.time || "",
-    activity: task.activity,
-    notes: task.notes || "",
-    urgency: task.urgency || undefined,
-    impact: task.impact || undefined,
-    effort: task.effort || undefined,
-    prerequisites: task.prerequisites || "",
-    recurrence: (task.recurrence as "none" | "daily" | "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly") || "none",
-    status: task.status as "pending" | "in-progress" | "completed",
-  } : {
-    date: defaultDate || new Date().toISOString().split('T')[0],
-    time: "",
-    activity: "",
-    notes: "",
-    urgency: undefined,
-    impact: undefined,
-    effort: undefined,
-    prerequisites: "",
-    recurrence: "none" as const,
-    status: "pending",
-  };
+  const freshDefaults: InsertTask = task
+    ? {
+        date: task.date,
+        time: task.time || "",
+        activity: task.activity,
+        notes: task.notes || "",
+        urgency: task.urgency || undefined,
+        impact: task.impact || undefined,
+        effort: task.effort || undefined,
+        prerequisites: task.prerequisites || "",
+        recurrence:
+          (task.recurrence as
+            | "none"
+            | "daily"
+            | "weekly"
+            | "biweekly"
+            | "monthly"
+            | "quarterly"
+            | "yearly") || "none",
+        status: task.status as "pending" | "in-progress" | "completed",
+        visibility: (task.visibility as "private" | "public") ?? "private",
+        communityShowNotes: Boolean(task.communityShowNotes),
+        startDate: task.startDate ?? undefined,
+        endDate: task.endDate ?? undefined,
+        durationMinutes: task.durationMinutes ?? undefined,
+        dependsOn: task.dependsOn ?? undefined,
+        deadlineType: task.deadlineType ?? undefined,
+      }
+    : {
+        date: defaultDate || new Date().toISOString().split("T")[0],
+        time: "",
+        activity: "",
+        notes: "",
+        urgency: undefined,
+        impact: undefined,
+        effort: undefined,
+        prerequisites: "",
+        recurrence: "none" as const,
+        status: "pending",
+        visibility: "private",
+        communityShowNotes: false,
+        startDate: undefined,
+        endDate: undefined,
+        durationMinutes: undefined,
+        dependsOn: undefined,
+        deadlineType: undefined,
+      };
 
   const draft = !task ? loadDraft(draftKey) : null;
   const mergedDefaults = draft ? { ...freshDefaults, ...draft } : freshDefaults;
@@ -155,8 +287,102 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
     defaultValues: mergedDefaults,
   });
 
-  const formClearedRef = useRef(false);
-  const ignoreWatchUntilRef = useRef(0);
+  const notesWatch = useWatch({ control: form.control, name: "notes" });
+  const activityWatch = useWatch({ control: form.control, name: "activity" });
+  const structuredPrompt = useMemo(
+    () => detectStructuredPrompt(activityWatch || "", notesWatch || ""),
+    [activityWatch, notesWatch],
+  );
+  const shoppingPretextLine = useMemo(
+    () => pickShoppingPretextQuip(`${activityWatch || ""}\n${notesWatch || ""}`),
+    [activityWatch, notesWatch],
+  );
+
+  const [conversionPreviewOpen, setConversionPreviewOpen] = useState(false);
+
+  const { data: bundlePartOf } = useQuery({
+    queryKey: ["/api/conversion-artifacts", "by-task", task?.id ?? ""],
+    enabled: Boolean(task?.id),
+    queryFn: async () => {
+      const res = await apiFetch("GET", `/api/conversion-artifacts?taskId=${encodeURIComponent(task!.id)}`);
+      if (res.status === 404) return null;
+      if (!res.ok) return null;
+      return (await res.json()) as { artifactId: string; title: string };
+    },
+  });
+
+  const handleImageUpload = useCallback(async (file: File, source: "paste" | "picker" | "camera" = "picker") => {
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: "Only image files are supported (e.g. PNG, JPEG, GIF, WebP)",
+        variant: "destructive",
+      });
+      setAttachmentFeedback({
+        tone: "error",
+        message: "That paste did not include a supported image format.",
+      });
+      return;
+    }
+    if (file.size > ATTACHMENT_IMAGE_MAX_BYTES) {
+      toast({
+        title: `Image must be under ${Math.round(ATTACHMENT_IMAGE_MAX_BYTES / (1024 * 1024))} MB`,
+        variant: "destructive",
+      });
+      setAttachmentFeedback({
+        tone: "error",
+        message: `Image is too large. Maximum size is ${Math.round(ATTACHMENT_IMAGE_MAX_BYTES / (1024 * 1024))} MB.`,
+      });
+      return;
+    }
+    setAttachmentFeedback({
+      tone: "info",
+      message: source === "paste" ? "Pasted image detected. Uploading..." : "Uploading image...",
+    });
+    const placeholder: TaskAttachment = { assetId: "uploading", fileName: file.name, mimeType: file.type, uploading: true };
+    setTaskAttachments((prev) => [...prev, placeholder]);
+    try {
+      const uploadUrlRes = await apiRequest("POST", "/api/attachments/upload-url", {
+        fileName: file.name,
+        mimeType: file.type,
+        byteSize: file.size,
+        kind: "task",
+        taskId: task?.id,
+      });
+      const { assetId, uploadUrl } = await uploadUrlRes.json() as { assetId: string; uploadUrl: string };
+      const headers: Record<string, string> = { "Content-Type": file.type };
+      const csrf = getCsrfToken();
+      if (csrf) headers[AXTASK_CSRF_HEADER] = csrf;
+      const putRes = await fetch(uploadUrl, { method: "PUT", headers, body: file, credentials: "include" });
+      if (!putRes.ok) throw new Error("Upload failed");
+      setTaskAttachments((prev) => prev.map((a) => a === placeholder ? { assetId, fileName: file.name, mimeType: file.type } : a));
+      const cur = form.getValues("notes") || "";
+      const snippet = `![](attachment:${assetId})`;
+      form.setValue("notes", cur.trim() ? `${cur.trimEnd()}\n\n${snippet}\n` : `${snippet}\n`);
+      setAttachmentFeedback({
+        tone: "success",
+        message:
+          source === "paste"
+            ? "Image pasted and attached. Preview updated below."
+            : "Image attached. Preview updated below.",
+      });
+      if (previewHighlightTimerRef.current) clearTimeout(previewHighlightTimerRef.current);
+      setHighlightNotesPreview(true);
+      previewHighlightTimerRef.current = setTimeout(() => setHighlightNotesPreview(false), 2400);
+      if (source === "paste") {
+        toast({
+          title: "Image pasted",
+          description: "Attached to Notes and inserted into markdown.",
+        });
+      }
+    } catch {
+      setTaskAttachments((prev) => prev.filter((a) => a !== placeholder));
+      toast({ title: "Failed to upload image", variant: "destructive" });
+      setAttachmentFeedback({
+        tone: "error",
+        message: "Upload failed. Try pasting again or use Add image.",
+      });
+    }
+  }, [form, task?.id, toast]);
 
   const addWarning = useCallback((fieldName: string, autoExpire = false) => {
     const existing = warningTimers.current.get(fieldName);
@@ -191,6 +417,10 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
   const isWarned = useCallback((fieldName: string) => warningFields.has(fieldName), [warningFields]);
 
   const handleVoiceResult = useCallback((transcript: string) => {
+    if (matchTaskFormVoiceSubmit(transcript)) {
+      handleSubmitWithWarningsRef.current();
+      return;
+    }
     const commands = parseVoiceCommands(transcript);
     const cleanText = commands.length > 0 ? stripCommandText(transcript) : transcript;
 
@@ -198,7 +428,9 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
       if (cmd.type === "urgency" && typeof cmd.value === "number") {
         form.setValue("urgency", cmd.value);
       } else if (cmd.type === "status" && typeof cmd.value === "string") {
-        form.setValue("status", cmd.value as "pending" | "in-progress" | "completed");
+        if (cmd.value === "pending" || cmd.value === "in-progress" || cmd.value === "completed") {
+          form.setValue("status", cmd.value);
+        }
       } else if (cmd.type === "date" && typeof cmd.value === "string") {
         form.setValue("date", cmd.value);
       } else if (cmd.type === "tag" && typeof cmd.value === "string") {
@@ -218,7 +450,33 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
   const speech = useSpeechRecognition({
     continuous: true,
     onResult: handleVoiceResult,
+    onLiveText: (combined) => {
+      const target = voiceTarget;
+      const activityVal = form.getValues("activity") || "";
+      const notesVal = form.getValues("notes") || "";
+      const prereqVal = form.getValues("prerequisites") || "";
+      if (target === "activity") {
+        liveClassificationPushRef.current(combined, notesVal);
+      } else if (target === "notes") {
+        liveClassificationPushRef.current(activityVal, combined);
+      } else {
+        const notesSide = [notesVal, prereqVal, combined].filter(Boolean).join("\n");
+        liveClassificationPushRef.current(activityVal, notesSide);
+      }
+    },
   });
+
+  const {
+    suggestions: liveTopicSuggestions,
+    loading: liveTopicLoading,
+    pushLiveText,
+  } = useLiveClassificationStream({
+    enabled: speech.status === "listening",
+  });
+
+  useEffect(() => {
+    liveClassificationPushRef.current = (activity, notes) => pushLiveText(activity, notes);
+  }, [pushLiveText]);
 
   useEffect(() => {
     if (speech.error) {
@@ -238,54 +496,216 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
     );
   }, [isHinted, isWarned]);
 
+  useEffect(() => {
+    // Focus first field on mount
+    const timer = setTimeout(() => {
+      focusFirst();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [focusFirst]);
+
+  useEffect(() => {
+    const handleAltN = () => {
+      cycleNext();
+      // Ensure the task form is visible in scroll
+      document.getElementById("tutorial-task-form")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    };
+    window.addEventListener("axtask-open-new-task", handleAltN);
+    return () => window.removeEventListener("axtask-open-new-task", handleAltN);
+  }, [cycleNext]);
+
   const createTaskMutation = useMutation({
     mutationFn: async (taskData: InsertTask) => {
       if (task) {
-        const response = await apiRequest("PUT", `/api/tasks/${task.id}`, taskData);
-        return response.json();
-      } else {
-        const response = await apiRequest("POST", "/api/tasks", taskData);
-        return response.json();
+        return syncUpdateTask(task.id, taskData as Record<string, unknown>, task, queryClient);
       }
+      return syncCreateTask(taskData, queryClient, user?.id ?? "");
+    },
+    onSuccess: async (data: unknown) => {
+      const d = data as {
+        id?: string;
+        offlineQueued?: boolean;
+        classificationReward?: unknown;
+        coinReward?: unknown;
+        uniqueTaskReward?: { coins: number; newBalance: number } | null;
+      };
+      if (d?.offlineQueued) {
+        toast({
+          title: "Saved offline",
+          description: "Will sync when you're back online.",
+        });
+        if (!task) {
+          form.reset({
+            date: defaultDate || new Date().toISOString().split("T")[0],
+            time: "",
+            activity: "",
+            notes: "",
+            urgency: undefined,
+            impact: undefined,
+            effort: undefined,
+            prerequisites: "",
+            recurrence: "none",
+            status: "pending",
+          });
+          clearDraft(draftKey);
+          setTaskAttachments([]);
+        }
+        onSuccess?.();
+        return;
+      }
+
+      // Link any unlinked attachments to the newly created task
+      const createdTaskId = d?.id || task?.id;
+      if (createdTaskId && taskAttachments.length > 0) {
+        for (const att of taskAttachments) {
+          if (att.assetId && att.assetId !== "uploading") {
+            try {
+              await apiRequest("POST", `/api/tasks/${createdTaskId}/attachments/link`, { assetId: att.assetId });
+            } catch { /* best-effort */ }
+          }
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+
+      if (d?.coinReward || d?.classificationReward || d?.uniqueTaskReward) {
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
+      }
+
+      if (d?.classificationReward) {
+        const cr = d.classificationReward as { coinsEarned: number; classification: string; newBalance: number };
+        setWalletBalanceCache(queryClient, cr.newBalance);
+        toast({
+          title: `${task ? "Task updated" : "Task created"} — +${cr.coinsEarned} AxCoins!`,
+          description: `Classified as ${cr.classification}. New balance: ${cr.newBalance}`,
+        });
+        playIfEligible(1);
+      } else {
+        let desc = task ? "Your task has been updated successfully." : "Your task has been added successfully.";
+        if (!task && d?.uniqueTaskReward && d.uniqueTaskReward.coins > 0) {
+          setWalletBalanceCache(queryClient, d.uniqueTaskReward.newBalance);
+          desc = `${desc} +${d.uniqueTaskReward.coins} AxCoins new-task bonus (balance ${d.uniqueTaskReward.newBalance}).`;
+        }
+        toast({
+          title: task ? "Task updated" : "Task created",
+          description: desc,
+        });
+        if (d?.coinReward || (!task && d?.uniqueTaskReward && d.uniqueTaskReward.coins > 0)) playIfEligible(1);
+        else playIfEligible(3);
+      }
+
+      if (!task && !d?.offlineQueued) {
+        requestFeedbackNudge("task_create");
+      }
+
+      if (!task) {
+        form.reset({
+          date: defaultDate || new Date().toISOString().split("T")[0],
+          time: "",
+          activity: "",
+          notes: "",
+          urgency: undefined,
+          impact: undefined,
+          effort: undefined,
+          prerequisites: "",
+          recurrence: "none",
+          status: "pending",
+          visibility: "private",
+          communityShowNotes: false,
+          startDate: undefined,
+          endDate: undefined,
+          durationMinutes: undefined,
+          dependsOn: undefined,
+          deadlineType: undefined,
+        });
+        clearDraft(draftKey);
+        setTaskAttachments([]);
+      }
+      onSuccess?.();
+    },
+    onError: (error: unknown) => {
+      if (error instanceof TaskSyncAbortedError) return;
+      const message = error instanceof Error ? error.message : "Failed to save task";
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const convertBundleMutation = useMutation({
+    mutationFn: async (payload: {
+      conversionType: ConversionArtifactType;
+      title: string;
+      items: string[];
+    }) => {
+      const base = form.getValues();
+      const res = await apiFetch("POST", "/api/conversion-artifacts", {
+        conversionType: payload.conversionType,
+        title: payload.title,
+        originalActivity: base.activity ?? "",
+        originalNotes: base.notes ?? "",
+        items: payload.items.map((activity) => ({ activity })),
+        taskDefaults: {
+          date: base.date || defaultDate || new Date().toISOString().split("T")[0],
+          time: base.time || "",
+          urgency: base.urgency,
+          impact: base.impact,
+          effort: base.effort,
+          visibility: base.visibility ?? "private",
+          communityShowNotes: base.communityShowNotes ?? false,
+        },
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => res.statusText);
+        throw new Error(t || "Conversion failed");
+      }
+      return (await res.json()) as { artifact: { id: string } };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gamification/cleanup-stats"] });
-
-      const bonusParts: string[] = [];
-      if (data?.classificationReward) {
-        bonusParts.push(`+${data.classificationReward.coinsEarned} classification`);
-      }
-      if (data?.cleanupReward) {
-        bonusParts.push(`+${data.cleanupReward.coinsEarned} cleanup bonus`);
-      }
-
-      if (bonusParts.length > 0) {
-        toast({
-          title: `${task ? "Task updated" : "Task created"} — ${bonusParts.join(", ")} AxCoins!`,
-          description: data?.classificationReward
-            ? `Classified as ${data.classificationReward.classification}.`
-            : "You earned coins for maintaining an old task.",
-        });
-      } else {
-        toast({
-          title: task ? "Task updated" : "Task created",
-          description: task ? "Your task has been updated successfully." : "Your task has been added successfully.",
-        });
-      }
-
-      if (!task) {
-        form.reset();
-        clearDraft(draftKey);
-      }
-      onSuccess?.();
-    },
-    onError: (error: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/conversion-artifacts"] });
+      const id = data.artifact?.id;
+      if (!id) return;
+      form.reset({
+        date: defaultDate || new Date().toISOString().split("T")[0],
+        time: "",
+        activity: "",
+        notes: "",
+        urgency: undefined,
+        impact: undefined,
+        effort: undefined,
+        prerequisites: "",
+        recurrence: "none",
+        status: "pending",
+        visibility: "private",
+        communityShowNotes: false,
+        startDate: undefined,
+        endDate: undefined,
+        durationMinutes: undefined,
+        dependsOn: undefined,
+        deadlineType: undefined,
+      });
+      clearWarning("activity");
+      clearWarning("notes");
+      setConversionPreviewOpen(false);
       toast({
-        title: "Error",
-        description: error.message || "Failed to create task",
+        title: "Task bundle created",
+        description: "Opening your bundle…",
+      });
+      setLocation(`/bundles/${id}`);
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : "Failed to create bundle";
+      toast({
+        title: "Conversion failed",
+        description: message,
         variant: "destructive",
       });
     },
@@ -293,7 +713,7 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
 
   useEffect(() => {
     const subscription = form.watch((values) => {
-      if (values.activity || values.notes || values.urgency || values.impact) {
+      if (values.activity || values.notes) {
         const result = PriorityEngine.calculatePreviewPriority(
           values.activity || "",
           values.notes || "",
@@ -338,25 +758,58 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
   useEffect(() => {
     if (!debouncedActivity || debouncedActivity.length < 3 || task) return;
     let cancelled = false;
+    const ac = new AbortController();
 
-    apiRequest("POST", "/api/patterns/suggest-deadline", { activity: debouncedActivity })
-      .then(res => res.json())
-      .then(data => {
-        if (!cancelled && data.suggestion) {
-          setDeadlineSuggestion(data.suggestion);
+    apiFetch("POST", "/api/patterns/suggest-deadline", { activity: debouncedActivity }, undefined, ac.signal)
+      .then(async (res) => {
+        if (ac.signal.aborted) return;
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          console.warn("[task-form] suggest-deadline failed:", res.status, t || res.statusText);
+          if (!cancelled && !ac.signal.aborted) setDeadlineSuggestion(null);
+          return;
+        }
+        return res.json() as Promise<{ suggestion?: unknown }>;
+      })
+      .then((data) => {
+        if (!data || cancelled || ac.signal.aborted) return;
+        const s = data.suggestion;
+        if (
+          s &&
+          typeof s === "object" &&
+          typeof (s as { suggestedDate?: unknown }).suggestedDate === "string" &&
+          typeof (s as { reason?: unknown }).reason === "string" &&
+          typeof (s as { confidence?: unknown }).confidence === "number"
+        ) {
+          const suggestedDate = (s as { suggestedDate: string }).suggestedDate.trim();
+          const ymd = /^\d{4}-\d{2}-\d{2}$/;
+          const parsed = ymd.test(suggestedDate) ? Date.parse(`${suggestedDate}T12:00:00.000Z`) : Date.parse(suggestedDate);
+          if (!Number.isFinite(parsed)) {
+            setDeadlineSuggestion(null);
+            return;
+          }
+          setDeadlineSuggestion(s as { suggestedDate: string; reason: string; confidence: number });
           setSuggestionDismissed(false);
-        } else if (!cancelled) {
+        } else {
           setDeadlineSuggestion(null);
         }
       })
-      .catch(() => {});
+      .catch((e: unknown) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        console.warn("[task-form] suggest-deadline error:", e);
+        if (!cancelled && !ac.signal.aborted) setDeadlineSuggestion(null);
+      });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
   }, [debouncedActivity, task]);
 
   useEffect(() => {
     return () => {
       warningTimers.current.forEach(t => clearTimeout(t));
+      if (previewHighlightTimerRef.current) clearTimeout(previewHighlightTimerRef.current);
     };
   }, []);
 
@@ -413,6 +866,10 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
     form.handleSubmit(onSubmit)();
   }, [form, addWarning, clearWarning, toast, onSubmit]);
 
+  useEffect(() => {
+    handleSubmitWithWarningsRef.current = handleSubmitWithWarnings;
+  }, [handleSubmitWithWarnings]);
+
   const { consumeTaskPrefill } = useVoice();
 
   useEffect(() => {
@@ -424,6 +881,8 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
     }
   }, [consumeTaskPrefill, form, task]);
 
+  // Intentionally mount-only: one-time yellow hints for a fresh composer, not re-run when task/form changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
   useEffect(() => {
     if (task) return;
     const values = form.getValues();
@@ -436,17 +895,16 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-        e.preventDefault();
-        handleSubmitWithWarnings();
-      }
+      if (!matchTaskFormSubmitHotkey(e)) return;
+      e.preventDefault();
+      handleSubmitWithWarnings();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [handleSubmitWithWarnings]);
 
   return (
-    <Card>
+    <Card id="tutorial-task-form">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
@@ -454,8 +912,20 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
             <CardDescription>
               {task ? "Update this task's details" : "Add a new task with automatic priority calculation"}
             </CardDescription>
+            {task && bundlePartOf ? (
+              <p className="text-sm mt-2 text-muted-foreground">
+                Part of:{" "}
+                <Link
+                  href={`/bundles/${bundlePartOf.artifactId}`}
+                  className="text-primary font-medium underline-offset-4 hover:underline"
+                >
+                  {bundlePartOf.title}
+                </Link>
+              </p>
+            ) : null}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex items-center gap-2">
             {speech.status === "listening" && (
               <div className="flex items-center gap-2 text-sm text-red-500 font-medium animate-pulse">
                 <span className="relative flex h-2.5 w-2.5">
@@ -466,7 +936,43 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
               </div>
             )}
             {isEditing && (
-              <ShareDialog taskId={task!.id} isOwner={isOwner} />
+              <div className="flex flex-wrap items-center gap-2 justify-end">
+                <TaskReportDownload taskId={task!.id} activityPreview={task!.activity || "task"} />
+                <ShareDialog
+                  taskId={task!.id}
+                  isOwner={isOwner}
+                  visibility={task!.visibility}
+                  communityShowNotes={task!.communityShowNotes}
+                />
+              </div>
+            )}
+            </div>
+            {speech.status === "listening" && (liveTopicLoading || liveTopicSuggestions.length > 0) && (
+              <div className="flex flex-wrap items-end justify-end gap-1.5 max-w-[min(100%,20rem)]">
+                <span className="text-[11px] font-medium text-amber-700/90 dark:text-amber-400/90 flex items-center gap-1 shrink-0">
+                  <Sparkles className="h-3 w-3" />
+                  Topic
+                </span>
+                {liveTopicLoading && (
+                  <span className="text-[11px] text-muted-foreground">Analyzing…</span>
+                )}
+                {liveTopicSuggestions.map((s) => (
+                  <span
+                    key={`${s.label}-${s.source}`}
+                    className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100/90 text-amber-900 dark:bg-amber-900/35 dark:text-amber-200 tabular-nums"
+                    title={
+                      s.source === "nodeweaver"
+                        ? "NodeWeaver"
+                        : s.source === "catalog"
+                          ? "Your categories"
+                          : "AxTask classifier"
+                    }
+                  >
+                    {s.label}
+                    <span className="opacity-70 ml-1">{Math.round(s.confidence * 100)}%</span>
+                  </span>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -484,11 +990,11 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                           className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold border-2 border-white dark:border-gray-900 cursor-default"
                           style={{ backgroundColor: u.color }}
                         >
-                          {(u.displayName || u.email).charAt(0).toUpperCase()}
+                          {(u.displayName || u.userId).charAt(0).toUpperCase()}
                         </div>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>{u.displayName || u.email}</p>
+                        <p>{u.displayName || u.userId}</p>
                         {u.focusedField && <p className="text-xs opacity-70">Editing: {u.focusedField}</p>}
                       </TooltipContent>
                     </Tooltip>
@@ -501,7 +1007,11 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={(e) => { e.preventDefault(); handleSubmitWithWarnings(); }} onChangeCapture={() => { if (formClearedRef.current && Date.now() > ignoreWatchUntilRef.current) { formClearedRef.current = false; if (onClearedChange) onClearedChange(false); } }} className="space-y-6">
+          <form
+            data-feedback-guard="true"
+            onSubmit={(e) => { e.preventDefault(); handleSubmitWithWarnings(); }}
+            className="space-y-6"
+          >
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
@@ -587,7 +1097,7 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                       setDeadlineSuggestion(null);
                     }}
                   >
-                    Use {new Date(deadlineSuggestion.suggestedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    Use {(() => { const d = new Date(deadlineSuggestion.suggestedDate + "T12:00:00"); return isNaN(d.getTime()) ? (deadlineSuggestion.suggestedDate || "No date") : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); })()}
                   </Button>
                   <button
                     type="button"
@@ -620,7 +1130,14 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                           className={cn("min-h-[44px]", getFieldClass("time"))}
                         />
                       ) : (
-                        <div onBlur={() => onFieldBlur("time", field.value)}>
+                        <div
+                          className={cn(
+                            "rounded-md",
+                            isHinted("time") && "field-glow-hint",
+                            isWarned("time") && "field-glow-warning"
+                          )}
+                          onBlur={() => onFieldBlur("time", field.value)}
+                        >
                           <ClockTimePicker
                             value={field.value || undefined}
                             onChange={(t) => {
@@ -630,10 +1147,6 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                                 clearWarning("time");
                               }
                             }}
-                            className={cn(
-                              isHinted("time") && "field-glow-hint",
-                              isWarned("time") && "field-glow-warning"
-                            )}
                           />
                         </div>
                       )}
@@ -684,6 +1197,7 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                             <Input
                               placeholder="Enter task activity or use the mic..."
                               {...field}
+                              ref={(e) => { field.ref(e); registerField("activity", e); }}
                               className={cn("min-h-[44px]", getFieldClass("activity"), getCollabFieldStyle("activity"), "w-full")}
                               style={getCollabFieldColor("activity") ? { "--tw-ring-color": getCollabFieldColor("activity") } as React.CSSProperties : undefined}
                               onFocus={() => { setVoiceTarget("activity"); collab.focusField("activity"); }}
@@ -727,22 +1241,126 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                 />
               </div>
 
+              {!task &&
+                structuredPrompt.items.length > 0 &&
+                (structuredPrompt.detected || structuredPrompt.conversionCandidates.length > 0) && (
+                <div
+                  className={cn(
+                    "lg:col-span-2 relative overflow-hidden rounded-xl border border-emerald-400/45",
+                    "bg-gradient-to-br from-emerald-500/12 via-teal-500/10 to-cyan-500/14",
+                    "dark:from-emerald-950/50 dark:via-teal-950/40 dark:to-cyan-950/35",
+                    "shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_8px_28px_rgba(16,185,129,0.12)]",
+                    "ring-1 ring-emerald-500/20 dark:ring-emerald-400/15",
+                  )}
+                  data-testid="shopping-list-pretext-cta"
+                >
+                  <div
+                    className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-emerald-400/20 blur-2xl motion-safe:animate-pulse"
+                    aria-hidden
+                  />
+                  <div
+                    className="pointer-events-none absolute -left-6 bottom-0 h-24 w-24 rounded-full bg-cyan-400/15 blur-2xl"
+                    aria-hidden
+                  />
+                  <div className="relative p-4 space-y-3">
+                    <div className="flex flex-wrap items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-400/35 bg-emerald-500/15 text-emerald-800 dark:text-emerald-100">
+                        <ShoppingCart className="h-5 w-5 motion-safe:animate-pulse" aria-hidden />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700/90 dark:text-emerald-300/90 flex items-center gap-1.5">
+                          <Sparkles className="h-3.5 w-3.5 shrink-0 text-amber-500 motion-safe:animate-pulse" aria-hidden />
+                          Pretext · shopping runway
+                        </p>
+                        <p className="text-sm font-semibold text-emerald-950 dark:text-emerald-50">
+                          {structuredPrompt.items.length} line{structuredPrompt.items.length === 1 ? "" : "s"} detected
+                          <span className="text-emerald-700/80 dark:text-emerald-300/80 font-normal">
+                            {" "}
+                            ({structuredPrompt.format.replace(/_/g, " ")})
+                          </span>
+                        </p>
+                        <p className="text-xs leading-relaxed text-emerald-900/85 dark:text-emerald-100/80 italic">
+                          {shoppingPretextLine}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {structuredPrompt.items.slice(0, 6).map((item) => (
+                        <span
+                          key={item}
+                          className="inline-flex max-w-[10rem] truncate rounded-full border border-emerald-500/25 bg-background/55 px-2.5 py-0.5 text-[11px] font-medium text-emerald-900 dark:text-emerald-100"
+                          title={item}
+                        >
+                          {item}
+                        </span>
+                      ))}
+                      {structuredPrompt.items.length > 6 ? (
+                        <span className="text-[11px] text-muted-foreground self-center px-1">
+                          +{structuredPrompt.items.length - 6} more
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-0.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className={cn(
+                          "gap-1.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600",
+                          "hover:from-emerald-500 hover:via-teal-500 hover:to-cyan-500 text-white",
+                          "shadow-lg shadow-teal-600/25 ring-1 ring-teal-400/35 min-h-[40px]",
+                        )}
+                        disabled={convertBundleMutation.isPending}
+                        onClick={() => setConversionPreviewOpen(true)}
+                      >
+                        <Wand2 className="h-4 w-4 shrink-0" aria-hidden />
+                        {convertBundleMutation.isPending ? "Conjuring rows…" : "Convert — task bundle"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="min-h-[40px] border-emerald-500/40 bg-background/60 hover:bg-emerald-500/10"
+                        onClick={() => setLocation("/shopping")}
+                      >
+                        <Sparkles className="h-3.5 w-3.5 mr-1.5 text-amber-500 shrink-0" aria-hidden />
+                        Open shopping fold
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="lg:col-span-2">
                 <FormField
                   control={form.control}
                   name="notes"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Notes</FormLabel>
+                      <FormLabel>Notes <span className="text-xs text-muted-foreground font-normal ml-1">Supports **bold**, *italic*, `code`, - lists, and image paste (Ctrl+V)</span></FormLabel>
                       <FormControl>
                         <div className="flex gap-2 items-start">
                           <div className="relative flex-1">
                             <Textarea
                               rows={3}
-                              placeholder="Add detailed notes, tags (@urgent, #blocker), or dictate with mic..."
+                              placeholder="Add detailed notes with **markdown**, tags (@urgent, #blocker), or dictate with mic..."
                               {...field}
-                              className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full")}
-                              style={getCollabFieldColor("notes") ? { "--tw-ring-color": getCollabFieldColor("notes") } as React.CSSProperties : undefined}
+                              ref={(e) => { field.ref(e); registerField("notes", e); }}
+                              className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full font-mono text-sm resize-y")}
+                              style={{
+                                ...(getCollabFieldColor("notes") ? { "--tw-ring-color": getCollabFieldColor("notes") } as React.CSSProperties : {}),
+                                height: notesHeight,
+                              }}
+                              onMouseUp={(e) => {
+                                if (e.currentTarget.clientHeight !== notesHeight) {
+                                  setNotesHeight(e.currentTarget.clientHeight);
+                                }
+                              }}
+                              onPaste={(e) => {
+                                const img = pasteUploadInternal.extractImageFilesFromClipboardData(e.clipboardData)[0];
+                                if (!img) return;
+                                e.preventDefault();
+                                void handleImageUpload(img, "paste");
+                              }}
                               onFocus={() => { setVoiceTarget("notes"); collab.focusField("notes"); }}
                               onBlur={(e) => { field.onBlur(); onFieldBlur("notes", e.target.value); collab.blurField(); }}
                               onChange={(e) => {
@@ -757,23 +1375,143 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                               </span>
                             )}
                           </div>
-                          <MicButton
-                            status={voiceTarget === "notes" ? speech.status : "idle"}
-                            isSupported={speech.isSupported}
-                            onClick={() => {
-                              setVoiceTarget("notes");
-                              speech.toggle();
-                            }}
-                            error={speech.error}
-                            className="mt-1"
-                          />
+                          <div className="flex flex-col gap-1">
+                            <MicButton
+                              status={voiceTarget === "notes" ? speech.status : "idle"}
+                              isSupported={speech.isSupported}
+                              onClick={() => {
+                                setVoiceTarget("notes");
+                                speech.toggle();
+                              }}
+                              error={speech.error}
+                              className="mt-1"
+                            />
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-9 w-9"
+                                    onClick={() => imageInputRef.current?.click()}
+                                  >
+                                    <ImagePlus className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Attach image</TooltipContent>
+                              </Tooltip>
+                              {isMobile ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-9 w-9"
+                                      onClick={() => imageCameraInputRef.current?.click()}
+                                    >
+                                      <Camera className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Take photo</TooltipContent>
+                                </Tooltip>
+                              ) : null}
+                            </TooltipProvider>
+                            <input
+                              ref={imageInputRef}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageUpload(file, "picker");
+                                e.target.value = "";
+                              }}
+                            />
+                            <input
+                              ref={imageCameraInputRef}
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageUpload(file, "camera");
+                                e.target.value = "";
+                              }}
+                            />
+                          </div>
                         </div>
                       </FormControl>
+                      {attachmentFeedback ? (
+                        <div
+                          className={cn(
+                            "mt-2 flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs",
+                            attachmentFeedback.tone === "success" && "border-emerald-300/70 bg-emerald-50/70 text-emerald-800 dark:border-emerald-700/70 dark:bg-emerald-950/30 dark:text-emerald-200",
+                            attachmentFeedback.tone === "info" && "border-blue-300/70 bg-blue-50/70 text-blue-800 dark:border-blue-700/70 dark:bg-blue-950/30 dark:text-blue-200",
+                            attachmentFeedback.tone === "error" && "border-red-300/70 bg-red-50/70 text-red-800 dark:border-red-700/70 dark:bg-red-950/30 dark:text-red-200",
+                          )}
+                        >
+                          {attachmentFeedback.tone === "success" ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          ) : attachmentFeedback.tone === "error" ? (
+                            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          ) : (
+                            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          )}
+                          <span>{attachmentFeedback.message}</span>
+                        </div>
+                      ) : null}
+                      {/* Attachment thumbnails */}
+                      {taskAttachments.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {taskAttachments.map((att, idx) => (
+                            <div key={att.assetId + idx} className="relative group w-16 h-16 rounded-md overflow-hidden border bg-muted">
+                              {att.uploading ? (
+                                <div className="flex items-center justify-center w-full h-full">
+                                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                                </div>
+                              ) : (
+                                <img
+                                  src={`/api/attachments/${att.assetId}/download`}
+                                  alt={att.fileName}
+                                  className="w-full h-full object-cover"
+                                />
+                              )}
+                              {!att.uploading && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeAttachment(att.assetId)}
+                                  className="absolute top-0 right-0 bg-black/60 text-white rounded-bl p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {voiceTarget === "notes" && speech.interimTranscript && (
                         <p className="text-xs text-muted-foreground italic mt-1 animate-pulse">
                           {speech.interimTranscript}
                         </p>
                       )}
+                      {notesWatch?.trim() ? (
+                        <div
+                          className={cn(
+                            "mt-2 rounded-md border border-border bg-muted/30 p-3 space-y-1 transition-shadow",
+                            highlightNotesPreview && "ring-2 ring-emerald-400/80 shadow-[0_0_0_2px_rgba(52,211,153,0.35)]",
+                          )}
+                        >
+                          <p className="text-xs font-medium text-muted-foreground">Preview</p>
+                          <SafeMarkdown
+                            source={notesWatch}
+                            allowedAttachmentIds={taskAttachments.filter((a) => !a.uploading && a.assetId !== "uploading").map((a) => a.assetId)}
+                            className="text-sm max-h-48 overflow-y-auto [&_p]:m-0 [&_p+p]:mt-2 [&_img]:max-h-32 [&_img]:rounded-md"
+                          />
+                        </div>
+                      ) : null}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -888,152 +1626,31 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
               <FormField
                 control={form.control}
                 name="recurrence"
-                render={({ field }) => {
-                  const isCustom = field.value?.startsWith("custom:");
-                  const selectValue = isCustom ? "custom" : (field.value || "none");
-                  const customType = field.value?.startsWith("custom:days:") ? "days" : field.value?.startsWith("custom:dates:") ? "dates" : "days";
-                  const selectedDays = field.value?.startsWith("custom:days:")
-                    ? field.value.replace("custom:days:", "").split(",")
-                    : [];
-                  const selectedDates = field.value?.startsWith("custom:dates:")
-                    ? field.value.replace("custom:dates:", "").split(",")
-                    : [];
-
-                  const DAY_LABELS = [
-                    { key: "mon", label: "Mon" },
-                    { key: "tue", label: "Tue" },
-                    { key: "wed", label: "Wed" },
-                    { key: "thu", label: "Thu" },
-                    { key: "fri", label: "Fri" },
-                    { key: "sat", label: "Sat" },
-                    { key: "sun", label: "Sun" },
-                  ];
-
-                  return (
-                    <FormItem>
-                      <FormLabel>Recurrence</FormLabel>
-                      <Select
-                        onValueChange={(v) => {
-                          if (v === "custom") {
-                            field.onChange("custom:days:mon");
-                          } else {
-                            field.onChange(v);
-                          }
-                        }}
-                        value={selectValue}
-                      >
-                        <FormControl>
-                          <SelectTrigger className={cn("min-h-[44px]", getFieldClass("recurrence"))}>
-                            <SelectValue placeholder="No recurrence" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="none">No recurrence</SelectItem>
-                          <SelectItem value="daily">Daily</SelectItem>
-                          <SelectItem value="weekly">Weekly</SelectItem>
-                          <SelectItem value="biweekly">Biweekly</SelectItem>
-                          <SelectItem value="monthly">Monthly</SelectItem>
-                          <SelectItem value="quarterly">Quarterly</SelectItem>
-                          <SelectItem value="yearly">Yearly</SelectItem>
-                          <SelectItem value="custom">Custom...</SelectItem>
-                        </SelectContent>
-                      </Select>
-
-                      {isCustom && (
-                        <div className="mt-2 p-3 rounded-lg border bg-gray-50 dark:bg-gray-800/50 space-y-3">
-                          <div className="flex gap-2">
-                            <Button
-                              type="button"
-                              variant={customType === "days" ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => field.onChange("custom:days:mon")}
-                            >
-                              Days of week
-                            </Button>
-                            <Button
-                              type="button"
-                              variant={customType === "dates" ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => field.onChange("custom:dates:1")}
-                            >
-                              Dates in month
-                            </Button>
-                          </div>
-
-                          {customType === "days" && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {DAY_LABELS.map(({ key, label }) => {
-                                const active = selectedDays.includes(key);
-                                return (
-                                  <button
-                                    key={key}
-                                    type="button"
-                                    className={cn(
-                                      "px-3 py-1.5 rounded-md text-xs font-medium transition-colors border",
-                                      active
-                                        ? "bg-primary text-primary-foreground border-primary"
-                                        : "bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-primary/50"
-                                    )}
-                                    onClick={() => {
-                                      let newDays: string[];
-                                      if (active) {
-                                        newDays = selectedDays.filter(d => d !== key);
-                                      } else {
-                                        newDays = [...selectedDays, key];
-                                      }
-                                      const ordered = DAY_LABELS.map(d => d.key).filter(d => newDays.includes(d));
-                                      if (ordered.length === 0) ordered.push(key);
-                                      field.onChange(`custom:days:${ordered.join(",")}`);
-                                    }}
-                                  >
-                                    {label}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {customType === "dates" && (
-                            <div className="space-y-2">
-                              <div className="flex flex-wrap gap-1">
-                                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
-                                  const active = selectedDates.includes(String(d));
-                                  return (
-                                    <button
-                                      key={d}
-                                      type="button"
-                                      className={cn(
-                                        "w-8 h-8 rounded text-xs font-medium transition-colors border",
-                                        active
-                                          ? "bg-primary text-primary-foreground border-primary"
-                                          : "bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-primary/50"
-                                      )}
-                                      onClick={() => {
-                                        let newDates: string[];
-                                        if (active) {
-                                          newDates = selectedDates.filter(x => x !== String(d));
-                                        } else {
-                                          newDates = [...selectedDates, String(d)];
-                                        }
-                                        const sorted = newDates.map(Number).sort((a, b) => a - b).map(String);
-                                        if (sorted.length === 0) sorted.push(String(d));
-                                        field.onChange(`custom:dates:${sorted.join(",")}`);
-                                      }}
-                                    >
-                                      {d}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              <p className="text-[10px] text-muted-foreground">Select dates each month this task repeats</p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      <FormMessage />
-                    </FormItem>
-                  );
-                }}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Recurrence</FormLabel>
+                    <Select
+                      onValueChange={(v) => field.onChange(v)}
+                      value={field.value || "none"}
+                    >
+                      <FormControl>
+                        <SelectTrigger className={cn("min-h-[44px]", getFieldClass("recurrence"))}>
+                          <SelectValue placeholder="No recurrence" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">No recurrence</SelectItem>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="biweekly">Biweekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="quarterly">Quarterly</SelectItem>
+                        <SelectItem value="yearly">Yearly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
 
               <FormField
@@ -1048,7 +1665,9 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                           <Input
                             placeholder="Dependencies or prerequisites..."
                             {...field}
-                            className={cn("min-h-[44px]", getFieldClass("prerequisites"), "w-full")}
+                            ref={(e) => { field.ref(e); registerField("prerequisites", e); }}
+                            className={cn("min-h-[44px]", getFieldClass("prerequisites"), getCollabFieldStyle("prerequisites"), "w-full")}
+                            style={getCollabFieldColor("prerequisites") ? { "--tw-ring-color": getCollabFieldColor("prerequisites") } as React.CSSProperties : undefined}
                             onFocus={() => { setVoiceTarget("prerequisites"); collab.focusField("prerequisites"); }}
                             onBlur={(e) => {
                               field.onBlur();
@@ -1059,8 +1678,14 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                             onChange={(e) => {
                               field.onChange(e);
                               if (e.target.value.trim()) clearWarning("prerequisites");
+                              collab.sendFieldEdit("prerequisites", e.target.value);
                             }}
                           />
+                          {getCollabFieldUser("prerequisites") && (
+                            <span className="absolute -top-5 right-0 text-xs px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCollabFieldColor("prerequisites") }}>
+                              {getCollabFieldUser("prerequisites")}
+                            </span>
+                          )}
                         </div>
                         <MicButton
                           status={voiceTarget === "prerequisites" ? speech.status : "idle"}
@@ -1079,33 +1704,135 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
               />
             </div>
 
-            {task && (
-              <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Paperclip className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Attachments</span>
-                  </div>
-                  <AttachmentList
-                    attachments={(task.attachments as TaskAttachment[] || [])}
-                    taskId={task.id}
-                    editable={true}
-                  />
-                  <AttachmentUpload
-                    taskId={task.id}
-                    attachments={(task.attachments as TaskAttachment[] || [])}
-                  />
-                </div>
-                <MarkdownEditor
-                  value={task.markdownContent || ""}
-                  onChange={(val) => {
-                    apiRequest("PUT", `/api/tasks/${task.id}`, { markdownContent: val })
-                      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/tasks"] }));
-                  }}
-                  placeholder="Add rich markdown content to this task..."
+            <Card className="border-dashed border-primary/20 bg-muted/10">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Timeline planning</CardTitle>
+                <CardDescription>
+                  Start, end, duration, predecessors, and deadline temperament (shown on the planner Gantt).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="startDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Planned start</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="date"
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(e.target.value || undefined)}
+                          className="min-h-[44px]"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </div>
-            )}
+                <FormField
+                  control={form.control}
+                  name="endDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Planned end</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="date"
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(e.target.value || undefined)}
+                          className="min-h-[44px]"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="durationMinutes"
+                  render={({ field }) => (
+                    <FormItem className="lg:col-span-2">
+                      <FormLabel>Duration</FormLabel>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        {[15, 30, 60, 120, 240].map((m) => (
+                          <Button
+                            key={m}
+                            type="button"
+                            size="sm"
+                            variant={field.value === m ? "default" : "outline"}
+                            onClick={() => field.onChange(m)}
+                          >
+                            {m >= 60 ? `${m / 60}h` : `${m}m`}
+                          </Button>
+                        ))}
+                        <Input
+                          type="number"
+                          min={1}
+                          max={525600}
+                          placeholder="Custom minutes"
+                          className="w-36 min-h-[36px]"
+                          value={field.value != null && ![15, 30, 60, 120, 240].includes(field.value) ? field.value : ""}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            field.onChange(Number.isFinite(v) ? v : undefined);
+                          }}
+                        />
+                        <Button type="button" size="sm" variant="ghost" onClick={() => field.onChange(undefined)}>
+                          Clear
+                        </Button>
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="deadlineType"
+                  render={({ field }) => (
+                    <FormItem className="lg:col-span-2">
+                      <FormLabel>Deadline type</FormLabel>
+                      <Select
+                        onValueChange={(v) => field.onChange(v === "none" ? undefined : v)}
+                        value={field.value ?? "none"}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="min-h-[44px]">
+                            <SelectValue placeholder="Flexible" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="none">Flexible (default)</SelectItem>
+                          <SelectItem value="flexible">Flexible</SelectItem>
+                          <SelectItem value="hard">Hard</SelectItem>
+                          <SelectItem value="audit-risk">Audit risk</SelectItem>
+                          <SelectItem value="external">External</SelectItem>
+                          <SelectItem value="exam">Exam</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="dependsOn"
+                  render={({ field }) => (
+                    <FormItem className="lg:col-span-2">
+                      <FormLabel>Depends on</FormLabel>
+                      <FormControl>
+                        <TaskDependencyPicker
+                          value={field.value ?? []}
+                          onChange={field.onChange}
+                          excludeTaskId={task?.id}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
 
             <div className="flex items-center justify-between pt-6 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center space-x-4">
@@ -1114,41 +1841,28 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
                 </div>
               </div>
               <div className="flex space-x-3">
-                <Button 
-                  type="button" 
+                <Button
+                  type="button"
                   variant="outline"
                   className="min-h-[44px]"
-                  onClick={() => {
-                    if (task) {
-                      form.reset({
-                        date: defaultDate || new Date().toISOString().split('T')[0],
-                        time: "", activity: "", notes: "",
-                        urgency: undefined, impact: undefined, effort: undefined,
-                        prerequisites: "", recurrence: "none" as const, status: "pending",
-                      });
-                      if (onClearedChange) { ignoreWatchUntilRef.current = Date.now() + 200; formClearedRef.current = true; onClearedChange(true); }
-                    } else {
-                      form.reset(freshDefaults);
-                    }
-                    clearDraft(draftKey);
-                  }}
+                  onClick={() => { form.reset(freshDefaults); clearDraft(draftKey); }}
                 >
                   Clear
                 </Button>
-                <Button 
-                  type="submit" 
-                  disabled={createTaskMutation.isPending} 
-                  title="Submit (Ctrl+Enter)" 
+                <Button
+                  type="submit"
+                  disabled={createTaskMutation.isPending}
+                  title="Submit (Ctrl+Enter / Cmd+Enter — focus in the page)"
                   className={cn(
                     "min-h-[44px]",
-                    task 
-                      ? "bg-blue-600 hover:bg-blue-700 text-white" 
+                    task
+                      ? "bg-blue-600 hover:bg-blue-700 text-white"
                       : "bg-green-600 hover:bg-green-700 text-white field-glow-success"
                   )}
                 >
                   {task ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
-                  {createTaskMutation.isPending 
-                    ? (task ? "Updating..." : "Adding...") 
+                  {createTaskMutation.isPending
+                    ? (task ? "Updating..." : "Adding...")
                     : (task ? "Update Task" : "+ Add Task")
                   }
                   <kbd className="ml-2 hidden sm:inline-flex items-center gap-0.5 rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-mono opacity-70">⌃↵</kbd>
@@ -1157,6 +1871,16 @@ export function TaskForm({ task, defaultDate, onSuccess, onClearedChange }: Task
             </div>
           </form>
         </Form>
+        {!task ? (
+          <ConversionArtifactPreview
+            open={conversionPreviewOpen}
+            detection={structuredPrompt}
+            originalActivity={activityWatch || ""}
+            originalNotes={notesWatch || ""}
+            onCancel={() => setConversionPreviewOpen(false)}
+            onConfirm={(payload) => convertBundleMutation.mutate(payload)}
+          />
+        ) : null}
       </CardContent>
     </Card>
   );

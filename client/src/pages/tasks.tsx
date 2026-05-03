@@ -1,17 +1,127 @@
-import { TaskList } from "@/components/task-list";
-import { SurveyPrompt } from "@/components/survey-prompt";
+import { TaskListHost } from "@/components/task-list-host";
+import { Card, CardContent } from "@/components/ui/card";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { usePretextSurface } from "@/hooks/use-pretext-surface";
+import { Sparkles, Loader2, ShoppingCart } from "lucide-react";
+import { lazy, Suspense, useState, useEffect } from "react";
+
+const TaskForm = lazy(() =>
+  import("@/components/task-form").then((m) => ({ default: m.TaskForm })),
+);
+import { Link, useLocation } from "wouter";
+import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import type { Task } from "@shared/schema";
+import { KBD } from "@/lib/keyboard-shortcuts";
+
+function readTaskIdFromLocation(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get("task");
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function Tasks() {
+  const [showForm, setShowForm] = useState(false);
+  const [, setLocation] = useLocation();
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(() => readTaskIdFromLocation());
+
+  /* Task list is a heavy grid — dim the ambient orb layer while this page
+   * is in view so the data remains the focal point. */
+  usePretextSurface("dense");
+
+  useEffect(() => {
+    const onOpen = () => setShowForm(true);
+    window.addEventListener("axtask-open-new-task", onOpen);
+    return () => window.removeEventListener("axtask-open-new-task", onOpen);
+  }, []);
+
+  const { data: pendingTask } = useQuery<Task>({
+    queryKey: ["/api/tasks", pendingTaskId],
+    enabled: !!pendingTaskId,
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/tasks/${pendingTaskId}`);
+      return (await res.json()) as Task;
+    },
+    retry: false,
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    if (!pendingTaskId || !pendingTask) return;
+    window.dispatchEvent(
+      new CustomEvent("axtask-open-task-edit", { detail: { task: pendingTask } }),
+    );
+    /* Strip the ?task= param so reloads and back navigation don't re-open the
+       dialog after the user has dismissed it. */
+    setPendingTaskId(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("task");
+    setLocation(url.pathname + (url.search || ""));
+  }, [pendingTask, pendingTaskId, setLocation]);
+
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      <div>
-        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">All Tasks</h2>
-        <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">View and manage all your tasks</p>
-      </div>
+    <div className="p-4 md:p-6 space-y-6 md:space-y-8">
+      <PretextPageHeader
+        eyebrow="Tasks"
+        title="All Tasks"
+        subtitle="View and manage all your tasks"
+        actions={
+          <Link href="/shopping">
+            <Button
+              type="button"
+              size="sm"
+              className="gap-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white shadow-md shadow-teal-600/20 ring-1 ring-teal-400/35 hover:from-emerald-500 hover:via-teal-500 hover:to-cyan-500"
+              title="Jump to the Pretext shopping fold — your cart constellation awaits"
+            >
+              <ShoppingCart className="h-4 w-4 shrink-0" aria-hidden />
+              Shopping fold
+              <Sparkles className="h-3.5 w-3.5 text-amber-200/90 shrink-0 motion-safe:animate-pulse" aria-hidden />
+            </Button>
+          </Link>
+        }
+      />
 
-      <SurveyPrompt targetModule="tasks" trigger="page_visit" />
+      <Card id="tutorial-tasks-alarms" className="glass-panel-glossy border border-primary/20">
+        <CardContent className="pt-6 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="font-semibold flex items-center gap-2 text-foreground">
+              <Sparkles className="h-4 w-4 text-primary shrink-0" />
+              Add Task is front and center
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Use <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">Alt+N</kbd> to add a task,{" "}
+              <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">Alt+F</kbd> to find tasks,{" "}
+              <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">Alt+T</kbd> for the dashboard, and{" "}
+              <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">{KBD.alarmPanel}</kbd> /{" "}
+              <kbd className="rounded-md border border-border bg-muted/80 px-1.5 py-0.5 text-xs font-mono">{KBD.alarmPanelMac}</kbd> for task alarms.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
-      <TaskList />
+      {showForm && (
+        <Suspense
+          fallback={
+            <Card className="glass-panel-glossy border border-border/60">
+              <CardContent className="py-10 flex items-center justify-center gap-2 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin shrink-0" aria-hidden />
+                <span className="text-sm">Loading task form…</span>
+              </CardContent>
+            </Card>
+          }
+        >
+          <TaskForm />
+        </Suspense>
+      )}
+      <TaskListHost />
     </div>
   );
 }

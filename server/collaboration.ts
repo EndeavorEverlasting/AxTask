@@ -59,7 +59,7 @@ function getSessionStore(): SessionStoreWithGet | undefined {
   return (global as { __sessionStore?: SessionStoreWithGet }).__sessionStore;
 }
 
-async function authenticateWs(req: IncomingMessage): Promise<{ userId: string; email: string; displayName: string | null } | null> {
+export async function authenticateWs(req: IncomingMessage): Promise<{ userId: string; email: string; displayName: string | null } | null> {
   const cookieHeader = req.headers.cookie;
   if (!cookieHeader) return null;
 

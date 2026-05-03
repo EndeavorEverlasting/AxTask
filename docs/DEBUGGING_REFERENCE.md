@@ -1,10 +1,181 @@
 # AxTask Debugging Reference
 
+Canonical policy map: [docs/ACTIVE_LEGACY_INDEX.md](ACTIVE_LEGACY_INDEX.md) (active vs transitional vs legacy, dirty-file curation for deployment branches).
+
 ## Overview
 
 This document provides solutions to common bugs and debugging patterns encountered during AxTask development. Keep this updated as new issues are discovered and resolved.
 
-**Last Updated:** August 3, 2025
+**Last Updated:** May 3, 2026
+
+---
+
+## Scroll, hue flash, and blank panels (calm-mode)
+
+If scrolling makes panels **blank**, **glass hue-shift**, **Pretext chips read through** cards, or **Gantt axis text stretches**, you are usually in **`body[data-axtask-calm]`** + glass/Pretext compositor territory—not a stale API response. Watch **`data-axtask-calm`** in DevTools while scrolling main and sidebar; confirm nav uses **`.axtask-nav-chrome`**. Do **not** conflate with browser refresh / service worker / persisted query issues.
+
+**Symptom quick map:**
+
+| What you see | Where to look |
+|--------------|----------------|
+| **Blank white flash** on route or session load | Branded `RouteFallback` vs plain spinner — [docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md](AUTH_CONFIRMATION_SURFACE_STABILITY.md) |
+| **Hue pulse** when scroll starts or settles | `CALM_RELEASE_HYSTERESIS_MS`, glass `transition-property` list — [docs/SCROLL_REFRESH_VISUAL_STABILITY.md](SCROLL_REFRESH_VISUAL_STABILITY.md) |
+| **Glass cards blanking** mid-scroll | Reader mask, `notifyScrollBudget()` on inner scroll roots — SCROLL doc |
+| **Chips bleeding through** panels | `.axtask-calm-blur-fallback` / `.glass-panel*` reader fill — SCROLL + AUTH_CONFIRMATION |
+| **Sidebar / nav flicker** over Pretext | `.axtask-nav-chrome` (opaque), not glossy glass on full-height nav — SCROLL doc |
+| **Gantt / timeline text stretching** | TaskGantt SVG scaling — SCROLL doc |
+
+**Canonical playbook:** [docs/SCROLL_REFRESH_VISUAL_STABILITY.md](SCROLL_REFRESH_VISUAL_STABILITY.md). **Auth routes + loading shell:** [docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md](AUTH_CONFIRMATION_SURFACE_STABILITY.md).
+
+---
+
+## Deployment-Impact Test Sweep Checklist
+
+When changes can affect deployment/runtime behavior (routes, storage/schema, auth, CI, Docker, startup scripts), run this checklist before merge:
+
+1. `npm run check` and confirm no newly introduced type errors in touched areas
+2. targeted `npm test -- <path>` for each modified domain
+3. migration sanity check for SQL/shared schema updates
+4. smoke-check changed API routes with representative payloads
+
+Add unit tests when introducing:
+
+- new schema validation contracts
+- new persistence/state transition logic
+- new route handlers or behavior branches
+
+---
+
+## Drizzle-Kit TTY Warning on Render / CI
+
+### Symptom
+
+Render deploy logs show:
+
+```
+Error: Interactive prompts require a TTY terminal
+(process.stdin.isTTY or process.stdout.isTTY is false).
+This can happen when running in CI, piped input, or non-interactive shells.
+```
+
+The deploy still succeeds.
+
+### Root Cause
+
+`drizzle-kit push --force` auto-approves **data-loss** prompts, but the CLI still attempts to render interactive UI (spinners, constraint prompts, etc.) even in non-TTY environments. When it discovers there is no terminal, it emits the warning internally and falls back to a default. This is harmless but noisy.
+
+See upstream issues:
+- [drizzle-team/drizzle-orm#4921](https://github.com/drizzle-team/drizzle-orm/issues/4921)
+- [drizzle-team/drizzle-orm#4941](https://github.com/drizzle-team/drizzle-orm/issues/4941)
+
+### Fix
+
+`scripts/production-start.mjs` captures `drizzle-kit`'s stderr, strips the harmless TTY warning, and re-emits everything else. Real errors remain visible.
+
+```javascript
+const p = spawnSync(process.execPath, [drizzleBin, "push", "--force"], {
+  cwd: root,
+  stdio: ["ignore", "inherit", "pipe"],
+  env: { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
+});
+if (p.stderr) {
+  const stderrStr = p.stderr.toString("utf8");
+  const filtered = stderrStr
+    .split("\n")
+    .filter((line) => !line.includes("Interactive prompts require a TTY terminal"))
+    .join("\n");
+  if (filtered) process.stderr.write(filtered);
+}
+```
+
+**Do not** change this to `"inherit"` for stderr unless you also suppress the warning upstream — the noise will return on every Render deploy.
+
+---
+
+## Wouter Routing Pitfalls & Cross-Component Communication
+
+### ⚠️ CRITICAL: Wouter `useLocation()` NEVER returns query strings
+
+**Problem (caused five+ failed attempts to fix Alt+N hotkey):**
+```typescript
+// ❌ BROKEN — wouter's useLocation() returns ONLY the pathname, NEVER the query string
+const [location] = useLocation();
+const showForm = location.includes("new=1"); // ALWAYS false
+
+// ❌ BROKEN — setLocation with query params is a no-op if already on the same path
+setLocation("/tasks?new=1"); // Does nothing when already on /tasks
+```
+
+**Root Cause:**
+Wouter is a lightweight router. Unlike React Router, `useLocation()` returns only the pathname (`/tasks`), stripping `?query=params` entirely. `setLocation("/tasks?new=1")` when already on `/tasks` is treated as a same-path navigation and ignored.
+
+**Correct Solution — Custom Window Events:**
+```typescript
+// In App.tsx (global keydown handler):
+setLocation("/tasks");
+setTimeout(() => window.dispatchEvent(new Event("axtask-open-new-task")), 50);
+
+// In tasks.tsx (receiving component):
+useEffect(() => {
+  const onOpen = () => setShowForm(true);
+  window.addEventListener("axtask-open-new-task", onOpen);
+  return () => window.removeEventListener("axtask-open-new-task", onOpen);
+}, []);
+```
+
+**Why `setTimeout` is needed:** The navigation via `setLocation` needs one tick to mount the target page component before it can receive the event.
+
+**If you MUST read query params**, use wouter's `useSearch()` hook:
+```typescript
+import { useSearch } from "wouter";
+const search = useSearch(); // returns "?new=1" or ""
+```
+
+### Custom Event Contracts (canonical list)
+
+| Event Name | Dispatched By | Listened By | Purpose |
+|---|---|---|---|
+| `axtask-open-new-task` | App.tsx (Alt+N), sidebar button | tasks.tsx | Show task composer form |
+| `axtask-focus-task-search` | App.tsx (Alt+F), sidebar button, use-voice.tsx (`prepare_task_search` after navigate) | task-list-host.tsx | Focus the search input; voice uses the same event as keyboard (legacy `task-list.tsx` removed) |
+| `axtask-close-voice-bar` | App.tsx (Escape when voice bar open) | use-voice.tsx | Close voice command bar |
+| `axtask-open-hotkey-help` | PretextShortcutsBeacon, settings (and similar) | App.tsx | Open keyboard shortcuts dialog |
+| `axtask-toggle-hotkey-help` | use-voice.tsx (voice shortcut), keyboard chord | App.tsx | Toggle keyboard shortcuts dialog |
+| `axtask-open-global-search` | use-voice.tsx (`open_global_search` voice shortcut) | App.tsx | Open global search overlay (lazy chunk) |
+| `axtask-toggle-sidebar` | use-voice.tsx (voice shortcut) | sidebar.tsx | Toggle sidebar / mobile drawer |
+| `axtask-toggle-login-help` | use-voice.tsx (voice shortcut) | login.tsx | Toggle login help overlay |
+
+**Rules for adding new cross-component signals:**
+1. Always use `window.dispatchEvent(new Event("axtask-<action>"))` — never query strings
+2. Add the event name to this table and to `hotkey-actions.test.ts` (or `keyboard-shortcuts.test.ts` for `KBD` constants)
+3. The receiving component must clean up its listener in the `useEffect` return
+4. Use `setTimeout(..., 50)` when dispatching after a `setLocation` navigation
+
+### Hotkey Implementation Rules
+
+All keyboard shortcut labels are defined in `client/src/lib/keyboard-shortcuts.ts` (the `KBD` object). Chord matching lives in `client/src/lib/hotkey-actions.ts`; `App.tsx`, `sidebar.tsx`, `use-voice.tsx`, and `login-help-overlay.tsx` apply the resulting actions. The sidebar buttons must fire the same events as the hotkeys.
+
+**Canonical hotkey map (keep in sync with KBD):**
+| Hotkey | Action | Mechanism |
+|---|---|---|
+| Alt+T | Dashboard (all tasks) | `setLocation("/")` |
+| Alt+C | Calendar | `setLocation("/calendar")` (voice: `calendar`) |
+| Alt+F | Find tasks | `setLocation("/tasks")` + `axtask-focus-task-search` event |
+| Alt+N | New task (composer) | `setLocation("/tasks")` + `axtask-open-new-task` event |
+| Ctrl+F | Global search overlay | App.tsx (`toggleGlobalSearchLazy` / keyboard; voice dispatches `axtask-open-global-search`) |
+| Ctrl+Shift+\\ | Toggle sidebar (physical Backslash) | `sidebar.tsx` (`matchSidebarChord`) |
+| Ctrl+Enter | Submit task form | Handled in task-form.tsx |
+| Ctrl+M | Voice commands | Handled in use-voice.tsx |
+| Ctrl+Shift+Y | Toggle tutorial | Handled in App.tsx |
+| Ctrl+Shift+/ | Hotkey help dialog | Handled in App.tsx |
+
+**Never use `<Link href="/path?param=value">` to trigger component behavior.** Wouter will navigate but the target component won't see the query param.
+
+**Test guardrails:** `client/src/lib/keyboard-shortcuts.test.ts` has 16 tests covering:
+- Every KBD constant mapping
+- No collisions between hotkeys
+- Custom event fire/receive contracts
+- Simulated Alt-key dispatch logic
+- Non-Alt keypress rejection
 
 ---
 

@@ -1,0 +1,19 @@
+{
+  "excludePatterns": [
+    ".env.render",
+    ".env.render.*",
+    "*EnvFromRender.env",
+    "NodeWeaver._pre_submodule_backup/**",
+    "**/__pycache__/**",
+    "**/*.pyc"
+  ],
+  "bucketRules": [
+    { "bucket": "tests", "prefixes": [], "globSuffixes": [".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".test.js", ".spec.js"] },
+    { "bucket": "schema", "prefixes": ["shared/", "migrations/"], "globSuffixes": [] },
+    { "bucket": "api", "prefixes": ["server/"], "globSuffixes": [] },
+    { "bucket": "ui", "prefixes": ["client/"], "globSuffixes": [] },
+    { "bucket": "docs", "prefixes": ["docs/"], "globSuffixes": ["README.md", ".md"] },
+    { "bucket": "infra", "prefixes": [".github/", "tools/", "scripts/"], "globSuffixes": [".yml", ".yaml", ".json"] }
+  ],
+  "priorityOrder": ["schema", "api", "ui", "infra", "docs", "tests", "unknown"]
+}

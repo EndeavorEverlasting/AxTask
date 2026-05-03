@@ -1,14 +1,26 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, lazy, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { apiRequest } from "@/lib/queryClient";
 import { PriorityBadge } from "./priority-badge";
-import { TaskForm } from "./task-form";
+const TaskForm = lazy(() =>
+  import("./task-form").then((m) => ({ default: m.TaskForm })),
+);
 import {
   ChevronLeft,
   ChevronRight,
@@ -32,8 +44,34 @@ import {
 } from "@dnd-kit/core";
 import { TaskAIEngine, type CalendarInsight } from "@/lib/ai-modules";
 import { cn } from "@/lib/utils";
+import { SafeMarkdownHtml } from "@/components/safe-markdown-html";
+import type { PublicTaskListItem } from "@shared/public-client-dtos";
 
 type CalendarView = "month" | "week" | "day";
+
+const HOLIDAY_COUNTRY_CHOICES = ["US", "GB", "CA", "DE", "FR", "AU", "IE", "NZ", "JP"] as const;
+
+type CalendarPrefsResponse = {
+  userId: string;
+  showHolidays: boolean;
+  holidayCountryCode: string | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+};
+
+type PublicHolidaysResponse = {
+  holidays: Array<{ date: string; name: string }>;
+  meta: { hadUpstreamData: boolean };
+};
+
+function inferHolidayCountryFromNavigator(): string {
+  if (typeof navigator === "undefined") return "US";
+  const lang = navigator.language || "en-US";
+  const parts = lang.split("-");
+  const region = parts.length >= 2 ? parts[parts.length - 1]! : "";
+  if (/^[A-Za-z]{2}$/.test(region)) return region.toUpperCase();
+  return "US";
+}
 
 // ── Draggable task pill ────────────────────────────────────────
 function DraggableTaskPill({ task, onClick }: { task: Task; onClick: () => void }) {
@@ -81,6 +119,7 @@ function CalendarCell({
   isCurrentMonth,
   tasks,
   insight,
+  holidayLines,
   onClickDate,
   onClickTask,
 }: {
@@ -89,6 +128,7 @@ function CalendarCell({
   isCurrentMonth: boolean;
   tasks: Task[];
   insight?: CalendarInsight;
+  holidayLines?: string[];
   onClickDate: (date: Date) => void;
   onClickTask: (task: Task) => void;
 }) {
@@ -115,12 +155,21 @@ function CalendarCell({
           {date.getDate()}
         </span>
         {insight && insight.severity === "critical" && (
-          <AlertTriangle className="h-3 w-3 text-red-500" aria-label={insight.message} />
+          <AlertTriangle className="h-3 w-3 text-red-500" />
         )}
         {tasks.length > 0 && (
           <span className="text-[10px] text-gray-400">{tasks.length}</span>
         )}
       </div>
+      {holidayLines && holidayLines.length > 0 && (
+        <div
+          className="text-[9px] text-amber-800/90 dark:text-amber-200/90 truncate leading-tight mb-0.5"
+          title={holidayLines.join(" · ")}
+        >
+          {holidayLines[0]}
+          {holidayLines.length > 1 ? ` +${holidayLines.length - 1}` : ""}
+        </div>
+      )}
       <div className="space-y-0.5 overflow-hidden max-h-[72px]">
         {tasks.slice(0, 3).map((task) => (
           <DraggableTaskPill key={task.id} task={task} onClick={() => onClickTask(task)} />
@@ -153,15 +202,20 @@ export function TaskCalendar() {
 
   // Reschedule mutation
   const rescheduleMutation = useMutation({
-    mutationFn: async ({ id, date }: { id: string; date: string }) => {
-      const response = await apiRequest("PUT", `/api/tasks/${id}`, { date });
-      return response.json();
+    mutationFn: async ({ id, date, base }: { id: string; date: string; base?: Task }) => {
+      return syncUpdateTask(id, { date }, base, queryClient);
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      const d = data as { offlineQueued?: boolean } | undefined;
+      if (d?.offlineQueued) {
+        toast({ title: "Saved offline", description: "Reschedule will sync when you're online." });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       toast({ title: "Task rescheduled", description: "Task moved to the new date." });
     },
-    onError: () => {
+    onError: (e: unknown) => {
+      if (e instanceof TaskSyncAbortedError) return;
       toast({ title: "Error", description: "Failed to reschedule task", variant: "destructive" });
     },
   });
@@ -225,7 +279,7 @@ export function TaskCalendar() {
       });
     }
 
-    rescheduleMutation.mutate({ id: taskId, date: targetDate });
+    rescheduleMutation.mutate({ id: taskId, date: targetDate, base: task });
   };
 
   const handleDragStart = (event: any) => {
@@ -241,25 +295,114 @@ export function TaskCalendar() {
   }, [isDragging]);
 
   // AI auto-schedule
-  const handleAISchedule = () => {
+  const handleAISchedule = async () => {
     const suggestions = TaskAIEngine.suggestSchedule(tasks);
     if (suggestions.length === 0) {
       toast({ title: "AI Scheduler", description: "No scheduling suggestions at this time." });
       return;
     }
-    // Apply first few suggestions
+    let applied = 0;
+    let queued = 0;
     for (const s of suggestions.slice(0, 5)) {
-      rescheduleMutation.mutate({ id: s.taskId, date: s.suggestedDate });
+      const base = tasks.find((t) => t.id === s.taskId);
+      if (!base) continue;
+      try {
+        const result = await rescheduleMutation.mutateAsync({ id: s.taskId, date: s.suggestedDate, base });
+        const r = result as { offlineQueued?: boolean } | undefined;
+        if (r?.offlineQueued) {
+          queued += 1;
+        } else {
+          applied += 1;
+        }
+      } catch (e) {
+        if (e instanceof TaskSyncAbortedError) continue;
+        console.error("[TaskCalendar] AI schedule reschedule failed:", e);
+        toast({
+          title: "AI Scheduler",
+          description: e instanceof Error ? e.message : "Failed to reschedule a task.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    const parts: string[] = [];
+    if (applied > 0) parts.push(`Rescheduled ${applied} task${applied === 1 ? "" : "s"} online.`);
+    if (queued > 0) parts.push(`${queued} update${queued === 1 ? "" : "s"} queued for when you're online.`);
+    if (parts.length === 0) {
+      toast({ title: "AI Scheduler", description: "No changes applied." });
+      return;
     }
     toast({
       title: "AI Scheduler Applied",
-      description: `Rescheduled ${Math.min(suggestions.length, 5)} tasks to optimal dates.`,
+      description: parts.join(" "),
     });
   };
 
   // Generate days for month view
   const monthDays = useMemo(() => getMonthDays(currentDate), [currentDate]);
   const weekDays = useMemo(() => getWeekDays(currentDate), [currentDate]);
+
+  const yearsVisibleInView = useMemo(() => {
+    const dates: Date[] =
+      view === "month" ? monthDays : view === "week" ? weekDays : [new Date(currentDate)];
+    const ys = new Set<number>();
+    for (const d of dates) ys.add(d.getFullYear());
+    return [...ys].sort((a, b) => a - b);
+  }, [view, monthDays, weekDays, currentDate]);
+
+  const { data: calendarPrefs } = useQuery<CalendarPrefsResponse>({
+    queryKey: ["/api/calendar/preferences"],
+  });
+
+  const showHolidays = calendarPrefs?.showHolidays ?? true;
+  const effectiveCountry =
+    calendarPrefs?.holidayCountryCode ?? inferHolidayCountryFromNavigator();
+
+  const patchCalendarPrefs = useMutation({
+    mutationFn: async (body: { showHolidays?: boolean; holidayCountryCode?: string | null }) => {
+      const res = await apiRequest("PATCH", "/api/calendar/preferences", body);
+      return (await res.json()) as CalendarPrefsResponse;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/calendar/preferences"] });
+    },
+    onError: (e: Error) => {
+      toast({
+        title: "Could not save calendar settings",
+        description: e.message || "Try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const yearsParam = yearsVisibleInView.join(",");
+  const { data: holidaysPayload } = useQuery<PublicHolidaysResponse>({
+    queryKey: ["/api/calendar/public-holidays", effectiveCountry, yearsParam],
+    queryFn: async ({ queryKey, signal }) => {
+      const country = queryKey[1] as string;
+      const years = queryKey[2] as string;
+      const url = `/api/calendar/public-holidays?country=${encodeURIComponent(country)}&years=${encodeURIComponent(years)}`;
+      const res = await fetch(url, { credentials: "include", signal });
+      if (!res.ok) {
+        const text = (await res.text()) || res.statusText;
+        throw new Error(`${res.status}: ${text}`);
+      }
+      return (await res.json()) as PublicHolidaysResponse;
+    },
+    enabled: showHolidays && Boolean(effectiveCountry) && yearsVisibleInView.length > 0,
+    staleTime: 7 * 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
+
+  const holidaysByDate = useMemo(() => {
+    const m: Record<string, string[]> = {};
+    if (!showHolidays || !holidaysPayload?.holidays) return m;
+    for (const h of holidaysPayload.holidays) {
+      if (!m[h.date]) m[h.date] = [];
+      m[h.date]!.push(h.name);
+    }
+    return m;
+  }, [holidaysPayload, showHolidays]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -299,6 +442,41 @@ export function TaskCalendar() {
             <Button variant="outline" size="sm" onClick={handleAISchedule}>
               <Sparkles className="h-4 w-4 mr-1" /> AI Schedule
             </Button>
+            <div className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-2 py-1">
+              <Switch
+                id="task-cal-show-holidays"
+                checked={showHolidays}
+                disabled={patchCalendarPrefs.isPending}
+                onCheckedChange={(v) => patchCalendarPrefs.mutate({ showHolidays: v })}
+              />
+              <Label htmlFor="task-cal-show-holidays" className="text-xs cursor-pointer whitespace-nowrap">
+                Holidays
+              </Label>
+              {showHolidays && (
+                <Select
+                  disabled={patchCalendarPrefs.isPending}
+                  value={calendarPrefs?.holidayCountryCode ?? "auto"}
+                  onValueChange={(v) => {
+                    if (v === "auto") patchCalendarPrefs.mutate({ holidayCountryCode: null });
+                    else patchCalendarPrefs.mutate({ holidayCountryCode: v });
+                  }}
+                >
+                  <SelectTrigger className="h-7 w-[130px] text-xs" aria-label="Holiday region">
+                    <SelectValue placeholder="Region" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">
+                      Auto ({inferHolidayCountryFromNavigator()})
+                    </SelectItem>
+                    {HOLIDAY_COUNTRY_CHOICES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
             <Button variant="outline" size="sm" onClick={() => setCurrentDate(new Date())}>
               Today
             </Button>
@@ -347,6 +525,7 @@ export function TaskCalendar() {
                       isCurrentMonth={date.getMonth() === currentDate.getMonth()}
                       tasks={tasksByDate[key] || []}
                       insight={insightsByDate[key]}
+                      holidayLines={showHolidays ? holidaysByDate[key] : undefined}
                       onClickDate={handleCellClick}
                       onClickTask={setEditingTask}
                     />
@@ -371,6 +550,7 @@ export function TaskCalendar() {
                       isCurrentMonth={true}
                       tasks={tasksByDate[key] || []}
                       insight={insightsByDate[key]}
+                      holidayLines={showHolidays ? holidaysByDate[key] : undefined}
                       onClickDate={handleCellClick}
                       onClickTask={setEditingTask}
                     />
@@ -384,38 +564,57 @@ export function TaskCalendar() {
             <div className="space-y-2">
               {(() => {
                 const key = formatDate(currentDate);
+                const dayHolidayLines = showHolidays ? holidaysByDate[key] : undefined;
                 const dayTasks = tasksByDate[key] || [];
-                return dayTasks.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">
-                    No tasks for this day.{" "}
-                    <button
-                      className="text-blue-500 underline"
-                      onClick={() => setCreatingForDate(key)}
-                    >
-                      Create one
-                    </button>
-                  </div>
-                ) : (
-                  dayTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      onClick={() => setEditingTask(task)}
-                      className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
-                    >
-                      <PriorityBadge priority={task.priority} />
-                      <div className="flex-1 min-w-0">
-                        <div className={cn("font-medium truncate", task.status === "completed" && "line-through opacity-60")}>
-                          {task.activity}
-                        </div>
-                        {task.notes && (
-                          <div className="text-xs text-gray-500 truncate">{task.notes}</div>
-                        )}
-                      </div>
-                      <Badge variant="outline" className="text-xs">
-                        {task.status}
-                      </Badge>
+                const holidayBanner =
+                  dayHolidayLines && dayHolidayLines.length > 0 ? (
+                    <div className="text-sm rounded-lg border border-amber-200/80 dark:border-amber-800/60 bg-amber-50/80 dark:bg-amber-950/40 px-3 py-2 text-amber-950 dark:text-amber-100">
+                      <span className="font-medium">Holidays: </span>
+                      {dayHolidayLines.join(" · ")}
                     </div>
-                  ))
+                  ) : null;
+                return dayTasks.length === 0 ? (
+                  <>
+                    {holidayBanner}
+                    <div className="text-center py-12 text-gray-500">
+                      No tasks for this day.{" "}
+                      <button
+                        className="text-blue-500 underline"
+                        onClick={() => setCreatingForDate(key)}
+                      >
+                        Create one
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {holidayBanner}
+                    {dayTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        onClick={() => setEditingTask(task)}
+                        className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                      >
+                        <PriorityBadge priority={task.priority} />
+                        <div className="flex-1 min-w-0">
+                          <div className={cn("font-medium truncate", task.status === "completed" && "line-through opacity-60")}>
+                            {task.activity}
+                          </div>
+                          {task.notes && (
+                            <div className="text-xs text-gray-500 line-clamp-2 [&_.axtask-md-paragraph]:m-0 [&_.axtask-md-image]:max-h-8 [&_.axtask-md-image]:inline">
+                              <SafeMarkdownHtml
+                                source={task.notes}
+                                allowedAttachmentIds={(task as Partial<PublicTaskListItem>).noteAttachmentIds ?? []}
+                              />
+                            </div>
+                          )}
+                        </div>
+                        <Badge variant="outline" className="text-xs">
+                          {task.status}
+                        </Badge>
+                      </div>
+                    ))}
+                  </>
                 );
               })()}
             </div>
@@ -439,13 +638,15 @@ export function TaskCalendar() {
             <DialogTitle>Edit Task</DialogTitle>
           </DialogHeader>
           {editingTask && (
-            <TaskForm
-              task={editingTask}
-              onSuccess={() => {
-                setEditingTask(null);
-                queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-              }}
-            />
+            <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading…</div>}>
+              <TaskForm
+                task={editingTask}
+                onSuccess={() => {
+                  setEditingTask(null);
+                  queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+                }}
+              />
+            </Suspense>
           )}
         </DialogContent>
       </Dialog>
@@ -459,13 +660,15 @@ export function TaskCalendar() {
               New Task for {creatingForDate}
             </DialogTitle>
           </DialogHeader>
-          <TaskForm
-            defaultDate={creatingForDate || undefined}
-            onSuccess={() => {
-              setCreatingForDate(null);
-              queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-            }}
-          />
+          <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading…</div>}>
+            <TaskForm
+              defaultDate={creatingForDate || undefined}
+              onSuccess={() => {
+                setCreatingForDate(null);
+                queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+              }}
+            />
+          </Suspense>
         </DialogContent>
       </Dialog>
     </Card>

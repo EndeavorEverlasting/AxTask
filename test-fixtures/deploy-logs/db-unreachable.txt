@@ -1,0 +1,10 @@
+[migrate] applying: 0042_archetype_rollup.sql …
+Error: connect ECONNREFUSED 10.0.0.5:5432
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1300:16) {
+  errno: -111,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '10.0.0.5',
+  port: 5432
+}
+[migrate] fatal: Error: connect ECONNREFUSED 10.0.0.5:5432

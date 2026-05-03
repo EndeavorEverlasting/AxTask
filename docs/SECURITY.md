@@ -1,270 +1,558 @@
 
-# AxTask — Security Architecture
+# Security Architecture & Best Practices
 
-**Version:** 2.0.0
-**Last Updated:** May 2026
-**Status:** Production
-
----
+**Version:** 1.0.0  
+**Last Updated:** January 30, 2025  
+**Status:** Production Guidelines
 
 ## Overview
 
-This document describes the current security posture of AxTask as deployed in production at `axtask.app` and `axtask.dev`. It covers authentication, session management, cryptographic controls, network-level protections, rate limiting, audit logging, and operational security. All controls described here are **implemented and active** unless explicitly noted as scaffolded or planned.
+This document outlines security considerations, vulnerabilities, and best practices for the Priority Engine Task Management System. It serves as a guide for developers, security auditors, and system administrators.
 
----
+## Current Security Architecture
 
-## Authentication Architecture
+### Authentication & Authorization
 
-### Four-Tier Provider Cascade
+#### OAuth 2.0 Implementation
+- **Google OAuth Flow**: User-specific authentication with limited scopes
+- **Token Management**: Refresh tokens stored securely for offline access
+- **Scope Limitations**: 
+  - `https://www.googleapis.com/auth/spreadsheets` (read/write sheets)
+  - `https://www.googleapis.com/auth/drive.metadata.readonly` (file metadata only)
 
-AxTask supports four authentication providers in a priority cascade. The active provider is determined at startup by `AUTH_PROVIDER`, falling back to automatic detection from available credentials:
+#### Session Management
+- **Storage**: PostgreSQL-backed sessions (not in-memory)
+- **Lifecycle**: Automatic expiration and cleanup
+- **Security**: Session tokens not exposed to client-side JavaScript
 
-| Tier | Provider | Mechanism | Env Vars Required |
-|------|----------|-----------|-------------------|
-| 1 | **WorkOS AuthKit** | Enterprise SSO (SAML/OIDC via WorkOS) | `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` |
-| 2 | **Google OAuth 2.0** | Authorization Code flow | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
-| 3 | **Replit OIDC** | PKCE Authorization Code (Google/GitHub/Apple via Replit) | `REPL_ID` |
-| 4 | **Local Passport.js** | Email + bcrypt password | Always available |
+#### Step-up MFA (OTP)
+- **Channels**: Email (Resend) and SMS (Twilio) for production; console logging in development.
+- **Purposes**: Billing, invoicing, and phone verification use scoped challenge purposes; see [`docs/OTP_DELIVERY.md`](./OTP_DELIVERY.md).
 
-All available providers register routes at startup. The cascade allows multiple providers to coexist and users to be matched by email across providers.
+### API Security
 
-### OAuth / OIDC Security Controls
+#### Input Validation
+```typescript
+// Double validation pattern (client + server)
+const TaskSchema = z.object({
+  activity: z.string().min(1).max(500),
+  urgency: z.number().min(1).max(5),
+  impact: z.number().min(1).max(5),
+  effort: z.number().min(1).max(5)
+});
+```
 
-Security controls vary by provider:
+#### Rate Limiting
+- **Google Sheets API**: 100 requests per 15 minutes per IP
+- **Authentication**: 5 attempts per 15 minutes per IP
+- **General API**: Standard rate limiting applied
 
-| Control | WorkOS | Google OAuth 2.0 | Replit OIDC |
-|---------|--------|-----------------|-------------|
-| State token generated | Yes | Yes | Yes |
-| State token **validated** in callback | No | No | Yes (via `authorizationCodeGrant`) |
-| PKCE (S256) | No | No | Yes |
-| Redirect URI binding | Session-stored | Session-stored + fallback reconstruction | Implicit in OIDC flow |
+#### SQL Injection Prevention
+- **ORM Protection**: Drizzle ORM with parameterized queries
+- **No Raw SQL**: All database interactions through type-safe ORM
+- **Input Sanitization**: Zod schema validation before database operations
 
-- **Replit OIDC** is the most hardened provider — it uses PKCE (S256) and validates state via the `openid-client` library's `authorizationCodeGrant`, which verifies state, nonce, and code exchange in a single call.
-- **WorkOS and Google** generate a random state value and store it in session, but the current callbacks do not explicitly check `req.query.state` against the stored value. This is a known gap — state validation for these providers should be added in a security hardening task.
-- **Redirect URI binding** (Google/WorkOS): the redirect URI is stored in session at login and retrieved at callback, ensuring the same URI is used for both legs of the flow.
-- **Ban check** runs on every successful OAuth callback before session creation.
-- **Security audit log entry** on every login (success and failure).
+## Security Vulnerabilities & Mitigations
 
-### Local Authentication
+### Dependency Supply Chain Policy (Axios Prohibition)
 
-- Passwords hashed with **bcrypt** (cost factor 12)
-- **Account lockout** — automatic lockout after repeated failed login attempts
-- **Strong password policy** — enforced at registration and password change
-- **Security questions** — available as an account recovery option
-- **Hashed password reset tokens** — reset links use cryptographically random, single-use, time-limited tokens; token stored as SHA-256 hash in the database (raw token sent once via email/response, never stored)
+#### Risk Level: HIGH
+**Policy**: `axios` is prohibited in this codebase and must not be introduced or invoked.
 
-### Multi-Factor Authentication (MFA / TOTP)
+**Required Action**:
+- Use native `fetch` (Node.js/Browser) for outbound HTTP requests.
+- Reject pull requests that add `axios` to dependencies or callsites.
+- Treat any attempted `axios` introduction as a security review trigger.
 
-- TOTP-based two-factor authentication via `otpauth` (RFC 6238)
-- Compatible with Google Authenticator, Authy, and any standard TOTP app
-- **MFA secrets encrypted at rest** with AES-256-GCM before database storage
-- QR code enrolment flow via `qrcode`
-- MFA **required** for destructive Danger Zone operations (e.g., clearing all tasks)
-- Backup codes generated at enrolment and stored as bcrypt-hashed values
+**Verification**:
+```bash
+# Must return no results in app source files
+rg -n "axios|from 'axios'|from \"axios\"" client server shared
+```
 
----
+### Environment Variable Exposure
 
-## Session Management
+#### Risk Level: MEDIUM
+**Description**: API keys and secrets stored in environment variables could be accessible through various attack vectors.
 
-| Property | Value |
-|----------|-------|
-| Storage | PostgreSQL via `connect-pg-simple` (not in-memory) |
-| Cookie flags | `httpOnly: true`, `sameSite: "lax"` |
-| Secure flag | `secure: true` in production (HTTPS only) |
-| Session secret | Random, stored in `SESSION_SECRET` env var (Replit Secret) |
-| Expiry | Automatic session expiration and cleanup |
-| Session fixation | New session created per login via Passport's `req.login()` |
+**Current Mitigation**:
+- Environment variables separate from codebase
+- No hardcoded secrets in source code
+- `.env` files in `.gitignore`
+- Replit Secrets management for production
 
-Session tokens are never exposed to client-side JavaScript (`httpOnly`). All session data stored server-side in PostgreSQL.
+**Additional Recommendations**:
+```bash
+# Use Replit Secrets for sensitive data
+GOOGLE_CLIENT_ID=<use-replit-secrets>
+GOOGLE_CLIENT_SECRET=<use-replit-secrets>
+DATABASE_URL=<use-replit-secrets>
 
----
+# Non-sensitive config can remain in .replit
+PORT=5000
+NODE_ENV=production
+```
 
-## Account Security
+**Enhanced Security**:
+- Implement secret rotation schedules
+- Use different API keys for development vs production
+- Monitor secret access patterns
 
-### User Banning
-- Administrators can ban accounts via the Security Admin UI
-- Ban check runs on **every** OAuth callback and local login attempt
-- Banned users receive a 403 with the message "This account has been suspended"
-- Ban events are logged to the security audit log
+### Cross-Site Scripting (XSS)
 
-### Account Lockout
-- Automatic lockout after repeated failed login attempts (brute-force protection)
-- Lockout status stored in the database, not in memory (survives server restarts)
-- Lockout events logged to the security audit log
+#### Risk Level: LOW-MEDIUM
+**Description**: User input displayed without proper sanitization could lead to script injection.
 
-### Security Admin UI
-- Accessible only to admin-role users
-- Functions: view all users, ban/unban accounts, reset lockouts, view the full security audit log
-- All admin actions generate audit log entries
+**Current Mitigation**:
+- React's built-in XSS protection (JSX escaping)
+- Input validation through Zod schemas
+- No `dangerouslySetInnerHTML` usage
 
----
+**Vulnerable Areas**:
+- Task activity names and notes
+- CSV import data processing
+- Search result display
 
-## Network-Level Security
+**Additional Protection**:
+```typescript
+// Content Security Policy headers
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', 
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+  );
+  next();
+});
+```
 
-### Security Headers (helmet)
+### Cross-Site Request Forgery (CSRF)
 
-All responses in production include:
+#### Risk Level: MEDIUM
+**Description**: Unauthorized requests could be made on behalf of authenticated users.
 
-| Header | Value |
-|--------|-------|
-| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` |
-| `Content-Security-Policy` | Restrictive CSP — `default-src 'self'`, with specific allowlists for scripts, styles, and media |
-| `X-Frame-Options` | `DENY` |
-| `X-Content-Type-Options` | `nosniff` |
-| `X-XSS-Protection` | `1; mode=block` |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+**Current Mitigation**:
+- CORS configuration restricts origins
+- Session-based authentication
+- No state-changing GET requests
 
-HSTS is enforced in production, ensuring all traffic to `axtask.app` and `axtask.dev` is served over HTTPS.
+**Recommended Enhancement**:
+```typescript
+// CSRF token implementation
+import csrf from 'csurf';
 
-### Rate Limiting (express-rate-limit)
+const csrfProtection = csrf({
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict'
+  }
+});
 
-| Endpoint Group | Limit |
-|----------------|-------|
-| Authentication routes (`/api/auth/login`, forgot-password, etc.) | 10 attempts per 15 minutes per IP |
-| MFA / sensitive routes | 3 attempts per 60 minutes per IP |
-| General API reads | 120 requests per 60 seconds per IP |
-| General API writes | 30 requests per 60 seconds per IP |
-| File upload endpoints | Restricted by file size and rate |
+app.use(csrfProtection);
+```
 
-Rate limit responses use standard `429 Too Many Requests` with `Retry-After` headers.
+### Data Exposure Through Import/Export
 
-### CORS and Origin Enforcement
+#### Risk Level: MEDIUM-HIGH
+**Description**: Sensitive data could be exposed through CSV exports or malicious imports.
 
-In production, state-mutating API requests (`POST`, `PUT`, `PATCH`, `DELETE`) to `/api/*` are validated against an allowed-origin list in `server/index.ts`. Requests whose `Origin` or `Referer` header does not match the list receive `403 Forbidden`.
+**Current Mitigation**:
+- Client-side file processing (no server storage)
+- Input validation on all imported data
+- User authentication required for all operations
 
-**Current code state**: The allowed origin is set to `https://axtask.replit.app` via `const productionDomain = "axtask.replit.app"` at line 17 of `server/index.ts`. The same value is used for HTTPS-redirect enforcement. This is a **stale reference** — the canonical production domains are `axtask.app` and `axtask.dev`. A separate code task should update `productionDomain` (and the host-redirect middleware) to reflect the live custom domains.
+**Enhanced Security Measures**:
+```typescript
+// File upload restrictions
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB (image attachments; see @shared/attachment-image-limits)
+const ALLOWED_MIME_TYPES = ['text/csv', 'application/vnd.ms-excel'];
 
-Development bypasses origin enforcement entirely (`isDev === true`).
+// Content scanning for suspicious patterns
+function scanFileContent(content: string): boolean {
+  const suspiciousPatterns = [
+    /<script/i,
+    /javascript:/i,
+    /data:text\/html/i,
+    /vbscript:/i
+  ];
+  
+  return !suspiciousPatterns.some(pattern => pattern.test(content));
+}
+```
 
-### Request Size Limits
+### Database Security
 
-Express body parser is configured with request size limits to prevent denial-of-service via large payloads. File uploads via `multer` are restricted to 5 MB per file, 3 files per task.
+#### Risk Level: LOW
+**Description**: Database compromise could expose all user data.
 
----
+**Current Mitigation**:
+- Parameterized queries via Drizzle ORM
+- No raw SQL execution
+- Connection pooling with proper cleanup
+- Input validation before database operations
 
-## Data Protection
+**Database Hardening Recommendations**:
+```sql
+-- Row-level security (future enhancement)
+ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
 
-### Input Validation
+CREATE POLICY user_tasks_policy ON tasks
+  FOR ALL TO application_user
+  USING (user_id = current_user_id());
 
-All API endpoints validate input using Zod schemas defined in `shared/schema.ts`. Validation runs on both client (React Hook Form) and server (Express middleware). Invalid requests are rejected with `400 Bad Request` before reaching the database layer.
+-- Audit logging
+CREATE TABLE audit_log (
+  id SERIAL PRIMARY KEY,
+  table_name VARCHAR(50),
+  operation VARCHAR(10),
+  old_values JSONB,
+  new_values JSONB,
+  user_id VARCHAR,
+  timestamp TIMESTAMP DEFAULT NOW()
+);
+```
 
-### SQL Injection Prevention
+## API Security Implementation
 
-All database operations use **Drizzle ORM** with parameterized queries. No raw SQL string concatenation. Zod validation runs before any database operation.
+### Google Sheets API Security
 
-### XSS Prevention
+#### API Key Restrictions
+```javascript
+// Recommended API key restrictions in Google Cloud Console:
+// 1. API restrictions: Only Google Sheets API + Google Drive API
+// 2. Application restrictions: HTTP referrers (websites)
+//    - https://your-domain.com/*
+//    - https://*.replit.app/* (for development)
+// 3. IP restrictions (if applicable): Your server IPs only
+```
 
-- React's JSX escaping prevents reflected XSS in rendered content
-- Markdown content is sanitised before rendering
-- No `dangerouslySetInnerHTML` usage in the application
-- CSP headers provide defence-in-depth
+#### OAuth Security Flow
+```typescript
+// Secure OAuth configuration
+const oauth2Client = new OAuth2Client({
+  clientId: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  redirectUri: `${process.env.BASE_URL}/api/auth/google/callback`
+});
+
+// State parameter for CSRF protection
+const authUrl = oauth2Client.generateAuthUrl({
+  access_type: 'offline',
+  scope: REQUIRED_SCOPES,
+  state: generateSecureRandomString(), // Anti-CSRF
+  prompt: 'consent' // Force consent screen
+});
+```
+
+### Rate Limiting Implementation
+
+#### Production-Ready Rate Limiting
+```typescript
+// Enhanced rate limiting with Redis (future)
+import rateLimit from 'express-rate-limit';
+import RedisStore from 'rate-limit-redis';
+
+export const createRateLimit = (options: {
+  windowMs: number;
+  max: number;
+  message: string;
+}) => rateLimit({
+  store: new RedisStore({
+    client: redisClient,
+    prefix: 'rl:'
+  }),
+  ...options,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for health checks
+    return req.path === '/health';
+  }
+});
+```
+
+## Security Headers & Middleware
+
+### Essential Security Headers
+```typescript
+// Security headers middleware
+app.use((req, res, next) => {
+  // Prevent clickjacking
+  res.setHeader('X-Frame-Options', 'DENY');
+  
+  // Prevent MIME type sniffing
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  
+  // XSS protection
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  
+  // HTTPS enforcement
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 
+      'max-age=31536000; includeSubDomains; preload'
+    );
+  }
+  
+  // Referrer policy
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  
+  next();
+});
+```
+
+### CORS Configuration
+```typescript
+// Secure CORS setup
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://your-domain.com']
+    : ['http://localhost:3000', 'https://*.replit.app'],
+  credentials: true,
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token']
+};
+
+app.use(cors(corsOptions));
+```
+
+## Data Protection & Privacy
+
+### Community Automation and Avatar Privacy Contract
+
+Automated avatar/community systems must preserve strict user privacy:
+
+- Avatar-generated posts and replies must never expose private task data.
+- Public community surfaces may only include fields explicitly marked as public.
+- Optional note content must remain hidden unless sharing controls allow it.
+- Automated narrative content should use aggregate or anonymized patterns, not identifiable personal data.
+- Moderation and safety controls apply equally to human and automated community content.
+
+### Voice Personalization Retrieval Security (RAG)
+
+RAG-based speech personalization must follow strict guardrails:
+
+- Personalization memory uses hashed user identifiers (`user_id_hash`) only.
+- Index writes require PII scrubbing before embedding generation.
+- Private task notes, hidden metadata, and secrets are excluded from correction-memory payloads.
+- User controls must support opt-in/opt-out and delete/export for personalization memory.
+- TTL expiration (`expires_at`) is mandatory for all personalization records.
+- Retrieval fallback is constrained: user memory -> cohort aggregate memory -> baseline pipeline.
+- Global kill switch must disable retrieval injection paths for ASR/NLU if incidents occur.
+
+Minimum telemetry and audit fields for personalization events:
+
+- retrieval tier used (`user`, `cohort`, `none`)
+- memory provenance ids
+- safety check result (`pass`/`bypass`)
+- latency overhead contribution
+
+Security monitoring alerts should include:
+
+- unusual retrieval miss spikes by locale/cohort
+- elevated false-correction rates after rollout
+- cohort-level quality regressions beyond release thresholds
 
 ### Sensitive Data Handling
 
-| Data Type | Protection |
-|-----------|-----------|
-| Passwords | bcrypt (cost 12) — never stored in plaintext |
-| MFA secrets | AES-256-GCM encryption at rest |
-| Password reset tokens | SHA-256 hashed — raw token sent once via email/response, hash stored in DB |
-| Session tokens | httpOnly cookies — not accessible to JavaScript |
-| API keys / secrets | Replit Secrets (environment-encrypted) — never in source code |
-| Database URL | Replit Secret — never hardcoded |
+#### Data Classification
+- **Public**: Task activity names (if user chooses to share)
+- **Internal**: Task metadata, priorities, classifications
+- **Confidential**: User authentication tokens, session data
+- **Restricted**: API keys, database credentials
 
-### Encryption in Transit
+#### Data Retention Policy
+```typescript
+// Automatic data cleanup (recommended)
+const cleanupOldData = async () => {
+  // Delete tasks older than 2 years
+  await db.delete(tasks)
+    .where(lt(tasks.createdAt, new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000)));
+  
+  // Clean expired sessions
+  await db.delete(sessions)
+    .where(lt(sessions.expires, new Date()));
+};
 
-All production traffic is served over HTTPS. HSTS with preload ensures browsers enforce HTTPS for all future visits to `axtask.app` and `axtask.dev`. Replit Autoscale (Cloud Run) terminates TLS at the load balancer.
+// Run daily cleanup
+schedule.scheduleJob('0 2 * * *', cleanupOldData);
+```
+
+### Encryption in Transit and at Rest
+
+#### HTTPS Enforcement
+- All production traffic over HTTPS
+- HTTP Strict Transport Security (HSTS) headers
+- Secure cookie flags for session management
+
+#### Database Encryption
+```sql
+-- PostgreSQL encryption recommendations
+-- 1. Enable SSL connections
+-- 2. Use encrypted storage volumes
+-- 3. Consider column-level encryption for sensitive fields
+
+-- Example: Encrypted notes field
+ALTER TABLE tasks ADD COLUMN notes_encrypted BYTEA;
+
+-- Application-level encryption for sensitive data
+```
+
+## Incident Response & Monitoring
+
+### Security Monitoring
+
+#### Logging Requirements
+```typescript
+// Security event logging
+const securityLogger = winston.createLogger({
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'security.log' })
+  ]
+});
+
+// Log security events
+function logSecurityEvent(event: string, details: any, req: Request) {
+  securityLogger.info({
+    event,
+    details,
+    ip: req.ip,
+    userAgent: req.get('User-Agent'),
+    timestamp: new Date().toISOString()
+  });
+}
+```
+
+#### Security Alerts
+- Failed authentication attempts (>5 in 15 minutes)
+- Unusual API usage patterns
+- Large file uploads or exports
+- Database connection failures
+- Repeated 4xx/5xx errors from same IP
+
+### Incident Response Plan
+
+#### Security Breach Response
+1. **Immediate Actions**:
+   - Identify and contain the breach
+   - Preserve evidence and logs
+   - Notify relevant stakeholders
+
+2. **Assessment**:
+   - Determine scope and impact
+   - Identify compromised data/systems
+   - Document timeline and actions
+
+3. **Recovery**:
+   - Implement fixes and patches
+   - Reset compromised credentials
+   - Monitor for continued threats
+
+4. **Post-Incident**:
+   - Conduct security review
+   - Update security procedures
+   - Implement preventive measures
+
+## Security Testing & Auditing
+
+### Regular Security Assessments
+
+#### Automated Security Scanning
+```json
+{
+  "scripts": {
+    "security:audit": "npm audit --audit-level moderate",
+    "security:deps": "snyk test",
+    "security:code": "semgrep --config=auto ."
+  }
+}
+```
+
+#### Manual Security Testing
+- Input validation testing
+- Authentication bypass attempts
+- SQL injection testing
+- XSS vulnerability assessment
+- File upload security testing
+
+### Compliance Considerations
+
+#### Data Protection Requirements
+- **GDPR**: Right to deletion, data portability, consent management
+- **CCPA**: Data disclosure, opt-out mechanisms
+- **SOC 2**: Security controls and monitoring
+
+#### Audit Trail Requirements
+```typescript
+// Comprehensive audit logging
+interface AuditEvent {
+  action: string;
+  resource: string;
+  userId?: string;
+  ip: string;
+  timestamp: Date;
+  success: boolean;
+  details?: any;
+}
+
+function auditLog(event: AuditEvent) {
+  // Log to secure, tamper-evident storage
+  // Include cryptographic integrity verification
+}
+```
+
+## Deployment Security
+
+### Production Security Checklist
+
+#### Environment Security
+- [ ] All secrets in Replit Secrets (not environment variables)
+- [ ] Different API keys for production vs development
+- [ ] Database credentials rotated and secured
+- [ ] HTTPS enforced with valid certificates
+- [ ] Security headers implemented
+- [ ] Rate limiting configured
+- [ ] CORS properly configured
+- [ ] Error handling doesn't expose sensitive information
+
+#### Application Security
+- [ ] Input validation on all endpoints
+- [ ] SQL injection protection verified
+- [ ] XSS protection implemented
+- [ ] CSRF protection enabled
+- [ ] File upload restrictions in place
+- [ ] Proper session management
+- [ ] Security logging configured
+
+#### Infrastructure Security
+- [ ] Database access restricted to application only
+- [ ] Backup encryption enabled
+- [ ] Network security properly configured
+- [ ] Monitoring and alerting in place
+- [ ] Regular security updates scheduled
+
+## Future Security Enhancements
+
+### Planned Improvements
+1. **Multi-Factor Authentication (MFA)**: Add 2FA for enhanced security
+2. **API Versioning**: Implement API versioning for secure updates
+3. **Advanced Threat Detection**: ML-based anomaly detection
+4. **Zero-Trust Architecture**: Implement principle of least privilege
+5. **End-to-End Encryption**: Client-side encryption for sensitive data
+
+### Security Roadmap
+- **Q1 2025**: Implement CSRF protection and enhanced rate limiting
+- **Q2 2025**: Add comprehensive audit logging and monitoring
+- **Q3 2025**: Implement advanced authentication and authorization
+- **Q4 2025**: Complete security compliance assessment
 
 ---
 
-## Security Audit Logging
+**Last Security Review**: January 30, 2025  
+**Next Scheduled Review**: April 30, 2025  
+**Security Contact**: [Your Security Team Email]
 
-All significant security events are written to the `security_audit_log` database table and are viewable in the Security Admin UI.
-
-### Logged Events
-
-| Event | Details Captured |
-|-------|-----------------|
-| `login_success` | user ID, IP, provider |
-| `login_failed` | email attempted, IP |
-| `login_banned_attempt` | email, IP, provider |
-| `oauth_login_success` | user ID, IP, provider |
-| `logout` | user ID, IP |
-| `password_change` | user ID, IP |
-| `mfa_enabled` | user ID, IP |
-| `mfa_disabled` | user ID, IP |
-| `account_locked` | user ID, IP, attempt count |
-| `admin_action` | admin user ID, target user ID, action |
-| `password_reset_requested` | email, IP |
-| `password_reset_completed` | user ID, IP |
-
-Log entries include timestamp, IP address, user agent, and relevant identifiers. The audit log is append-only from the application layer — no delete API exists.
-
----
-
-## File Upload Security
-
-- Accepted MIME types: `image/jpeg`, `image/png`, `image/gif`, `image/webp`
-- Maximum file size: 5 MB per file
-- Maximum files per task: 3
-- Files processed by `sharp` for thumbnail generation — strips EXIF data
-- No persistent disk storage — files are streamed/processed immediately
-- Upload endpoints require authentication (`requireAuth` middleware)
-
----
-
-## Production Security Checklist
-
-### Currently Implemented
-- [x] All secrets in Replit Secrets (not hardcoded)
-- [x] HTTPS enforced with HSTS and preload
-- [x] CSP headers configured via helmet
-- [x] Rate limiting on auth and API routes
-- [x] bcrypt password hashing
-- [x] MFA (TOTP) with AES-256-GCM secret encryption
-- [x] Account lockout after failed logins
-- [x] User banning with admin UI
-- [x] PostgreSQL-backed sessions (httpOnly, secure)
-- [x] Security audit logging
-- [x] Input validation (Zod) on all endpoints
-- [x] SQL injection prevention (Drizzle ORM parameterized queries)
-- [x] XSS protection (React JSX escaping + CSP)
-- [x] File upload restrictions (type, size, count)
-- [x] Request size limits
-- [x] Four-tier auth cascade with PKCE and CSRF state tokens
-- [x] Ban check on every OAuth callback
-
-### Production Domains
-The canonical production domains are:
-- `https://axtask.app` (primary)
-- `https://axtask.dev` (secondary)
-
-These domains are managed externally. The domain-enforcement constant in `server/index.ts` (`productionDomain`) currently reads `"axtask.replit.app"` — a stale value that needs updating to the live custom domains in a separate code task. See `AGENT_GUARDRAILS.md` for the full domain policy.
-
----
-
-## Compliance Considerations
-
-- **GDPR**: Users can request data deletion. Task export provides data portability.
-- **Password security**: Compliant with NIST SP 800-63B (bcrypt, no composition rules, lockout)
-- **Transport security**: TLS 1.2+ enforced by Cloud Run / Replit Autoscale
-
----
-
-## Incident Response
-
-### On a Suspected Security Breach
-
-1. **Contain**: Use the Security Admin UI to ban affected accounts immediately.
-2. **Preserve**: Download the security audit log before any changes.
-3. **Assess**: Review audit log for the breach timeline and scope.
-4. **Remediate**: Rotate affected secrets via Replit Secrets panel.
-5. **Monitor**: Watch audit log for continued anomalous activity.
-6. **Recover**: Reset affected user passwords and sessions.
-
-### On a 403 During OAuth Login
-
-A 403 during OAuth is almost always a redirect URI mismatch, not a code bug. See the `## Authentication Troubleshooting — 403 Errors & OAuth Redirect URI Mismatches` section in `replit.md` for the full diagnostic checklist.
-
----
-
-*This document should be reviewed whenever authentication, session, or cryptographic controls are modified.*
+This document should be reviewed quarterly and updated with any security changes or newly identified vulnerabilities.

@@ -1,5 +1,7 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
+import { formatAxTaskCsvAttribution } from "@shared/attribution";
+import { buildTasksCsvExport } from "@shared/task-spreadsheet-export";
 
 function excelDateToString(serial: number): string {
   if (!serial || typeof serial !== 'number' || serial < 1) return '';
@@ -29,42 +31,71 @@ interface ParsedSheetResult {
   rowCount: number;
 }
 
-export function parseTasksFromExcel(file: File): Promise<any[]> {
+export interface WorkbookParseOptions {
+  mode?: 'include-all' | 'year-filter';
+  allowedYears?: number[];
+}
+
+function taskYear(task: any): number | null {
+  const d = typeof task?.date === 'string' ? task.date : '';
+  const m = d.match(/^(\d{4})-/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  return Number.isFinite(y) ? y : null;
+}
+
+function applyWorkbookFilters(tasks: any[], options?: WorkbookParseOptions): any[] {
+  if (!options || options.mode !== 'year-filter') return tasks;
+  const allowed = new Set((options.allowedYears || []).filter((y) => Number.isFinite(y)));
+  if (allowed.size === 0) return tasks;
+  return tasks.filter((t) => {
+    const y = taskYear(t);
+    return y !== null && allowed.has(y);
+  });
+}
+
+export function parseTasksFromWorkbook(
+  workbook: XLSX.WorkBook,
+  options?: WorkbookParseOptions,
+): any[] {
+  const allTasks: any[] = [];
+  const importSheets = [
+    'Daily Planner 2026',
+    'Archive 2025',
+    'Archive 2024',
+    'Vault',
+  ];
+
+  for (const sheetName of importSheets) {
+    if (!workbook.SheetNames.includes(sheetName)) continue;
+    const sheet = workbook.Sheets[sheetName];
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    if (rows.length < 2) continue;
+
+    const headers = (rows[0] || []).map((h: any) =>
+      String(h || '').trim().toLowerCase()
+    );
+
+    if (sheetName === 'Vault') {
+      const parsed = parseVaultRows(rows, headers);
+      allTasks.push(...parsed);
+    } else {
+      const parsed = parsePlannerRows(rows, headers, sheetName);
+      allTasks.push(...parsed);
+    }
+  }
+
+  return applyWorkbookFilters(allTasks, options);
+}
+
+export function parseTasksFromExcel(file: File, options?: WorkbookParseOptions): Promise<any[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        const allTasks: any[] = [];
-
-        const importSheets = [
-          'Daily Planner 2026',
-          'Archive 2025',
-          'Archive 2024',
-          'Vault',
-        ];
-
-        for (const sheetName of importSheets) {
-          if (!workbook.SheetNames.includes(sheetName)) continue;
-          const sheet = workbook.Sheets[sheetName];
-          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-          if (rows.length < 2) continue;
-
-          const headers = (rows[0] || []).map((h: any) =>
-            String(h || '').trim().toLowerCase()
-          );
-
-          if (sheetName === 'Vault') {
-            const parsed = parseVaultRows(rows, headers);
-            allTasks.push(...parsed);
-          } else {
-            const parsed = parsePlannerRows(rows, headers, sheetName);
-            allTasks.push(...parsed);
-          }
-        }
-
-        resolve(allTasks);
+        resolve(parseTasksFromWorkbook(workbook, options));
       } catch (error) {
         console.error('Excel parse error:', error);
         reject(error);
@@ -245,9 +276,19 @@ function parseVaultRows(rows: any[][], headers: string[]): any[] {
   return tasks;
 }
 
+/** Removes leading # comment lines (before the header row) so CSV re-import after export stays clean. */
+export function stripCsvAttributionLines(csvText: string): string {
+  const lines = csvText.split("\n");
+  let i = 0;
+  while (i < lines.length && /^\s*#/.test(lines[i] ?? "")) {
+    i += 1;
+  }
+  return lines.slice(i).join("\n");
+}
+
 export function parseTasksFromCSV(csvText: string): any[] {
   try {
-    const result = Papa.parse(csvText, {
+    const result = Papa.parse(stripCsvAttributionLines(csvText), {
       header: true,
       skipEmptyLines: true,
       transformHeader: (header: string) => header.trim().toLowerCase()
@@ -321,46 +362,8 @@ export function parseTasksFromCSV(csvText: string): any[] {
 }
 
 export function tasksToCSV(tasks: any[]): string {
-  if (tasks.length === 0) return '';
-
-  const headers = [
-    'Date',
-    'Priority',
-    'Result',
-    'Activity',
-    'Notes',
-    'Urgency',
-    'Impact',
-    'Effort',
-    'Pre-Reqs',
-    'Sub-Priority',
-    'Impact',
-    'Time Start',
-    'Time End',
-    'Subtypes'
-  ];
-
-  const rows = tasks.map(task => [
-    task.date || '',
-    task.priority || '',
-    task.status === 'completed' ? 'TRUE' : 'FALSE',
-    task.activity || '',
-    task.notes || '',
-    task.urgency ? '★'.repeat(task.urgency) + '☆'.repeat(5 - task.urgency) : '☆☆☆☆☆',
-    task.impact ? '★'.repeat(task.impact) + '☆'.repeat(5 - task.impact) : '☆☆☆☆☆',
-    task.effort ? '★'.repeat(task.effort) + '☆'.repeat(5 - task.effort) : '☆☆☆☆☆',
-    task.prerequisites || '',
-    '',
-    '',
-    '',
-    '',
-    ''
-  ]);
-
-  return Papa.unparse({
-    fields: headers,
-    data: rows
-  });
+  if (tasks.length === 0) return "";
+  return `${formatAxTaskCsvAttribution()}\n${buildTasksCsvExport(tasks)}`;
 }
 
 export function downloadCSV(csvContent: string, filename: string) {

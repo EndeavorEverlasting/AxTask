@@ -12,7 +12,8 @@
 import { WorkOS } from "@workos-inc/node";
 import * as oidcClient from "openid-client";
 import type { Express, Request, Response } from "express";
-import { findOrCreateOAuthUser, isUserBanned, logSecurityEvent } from "./storage";
+import { appendSecurityEvent, findOrCreateOAuthUser, isUserBanned, logSecurityEvent } from "./storage";
+import { loginOrPendingTotp } from "./auth-totp-login";
 import { randomBytes } from "crypto";
 import memoize from "memoizee";
 
@@ -130,14 +131,25 @@ export function registerOAuthRoutes(app: Express) {
         return res.redirect("/?error=account_suspended");
       }
 
-      req.login(user, async (err) => {
-        if (err) {
-          console.error("[auth] Session creation error:", err);
-          return res.redirect("/?error=session_failed");
-        }
-        await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "WorkOS OAuth login");
-        res.redirect("/");
-      });
+      try {
+        await loginOrPendingTotp(req, res, user, async () => {
+          await appendSecurityEvent({
+            eventType: "oauth_login_success",
+            actorUserId: user.id,
+            route: req.path,
+            method: "GET",
+            statusCode: 302,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+            payload: { provider: "workos" },
+          });
+          await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "WorkOS OAuth login");
+          res.redirect("/");
+        });
+      } catch (sessionErr: any) {
+        console.error("[auth] WorkOS session error:", sessionErr?.message ?? sessionErr);
+        return res.redirect("/?error=session_failed");
+      }
     } catch (err: any) {
       console.error("[auth] WorkOS callback error:", err.message);
       res.redirect("/?error=auth_failed");
@@ -153,14 +165,11 @@ export function registerOAuthRoutes(app: Express) {
     if (!clientId || !clientSecret) {
       return res.redirect("/?error=google_not_configured");
     }
-    const forwardedHost = req.get("x-forwarded-host") || req.get("host");
-    const forwardedProto = req.get("x-forwarded-proto") || req.protocol;
-    const origin = `${forwardedProto}://${forwardedHost}`;
-    const redirectUri = `${origin}/api/auth/google/callback`;
-    console.log(`[auth] Google OAuth redirect_uri: ${redirectUri}`);
+    const origin = `${req.protocol}://${req.get("host")}`;
+    // Must match an Authorized redirect URI in Google Cloud Console exactly (scheme/host/path), e.g. https://axtask.app/api/auth/google/callback
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${origin}/api/auth/google/callback`;
     const state = randomBytes(24).toString("base64url");
     ((req as any).session as any).oauthState = state;
-    ((req as any).session as any).oauthRedirectUri = redirectUri;
 
     const params = new URLSearchParams({
       client_id: clientId,
@@ -178,16 +187,21 @@ export function registerOAuthRoutes(app: Express) {
     const code = req.query.code as string | undefined;
     if (!code) return res.redirect("/?error=missing_code");
 
+    const qState = typeof req.query.state === "string" ? req.query.state : undefined;
+    const sessionState = (req.session as { oauthState?: string } | undefined)?.oauthState;
+    if (!qState || !sessionState || qState !== sessionState) {
+      console.error("[auth] Google OAuth state mismatch or missing session");
+      return res.redirect("/?error=auth_failed");
+    }
+    delete (req.session as { oauthState?: string }).oauthState;
+
     try {
       const clientId = process.env.GOOGLE_CLIENT_ID!;
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
-      const savedRedirectUri = ((req as any).session as any)?.oauthRedirectUri;
-      const forwardedHost = req.get("x-forwarded-host") || req.get("host");
-      const forwardedProto = req.get("x-forwarded-proto") || req.protocol;
-      const origin = `${forwardedProto}://${forwardedHost}`;
-      const redirectUri = savedRedirectUri || `${origin}/api/auth/google/callback`;
+      const origin = `${req.protocol}://${req.get("host")}`;
+      const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${origin}/api/auth/google/callback`;
 
-      // Exchange code for tokens
+      // Exchange code for tokens (redirect_uri here must match the one used in /api/auth/google/login)
       const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -227,11 +241,25 @@ export function registerOAuthRoutes(app: Express) {
         return res.redirect("/?error=account_suspended");
       }
 
-      req.login(user, async (err) => {
-        if (err) return res.redirect("/?error=session_failed");
-        await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "Google OAuth login");
-        res.redirect("/");
-      });
+      try {
+        await loginOrPendingTotp(req, res, user, async () => {
+          await appendSecurityEvent({
+            eventType: "oauth_login_success",
+            actorUserId: user.id,
+            route: req.path,
+            method: "GET",
+            statusCode: 302,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+            payload: { provider: "google" },
+          });
+          await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "Google OAuth login");
+          res.redirect("/");
+        });
+      } catch (sessionErr: any) {
+        console.error("[auth] Google session error:", sessionErr?.message ?? sessionErr);
+        return res.redirect("/?error=session_failed");
+      }
     } catch (err: any) {
       console.error("[auth] Google callback error:", err.message);
       res.redirect("/?error=auth_failed");
@@ -321,14 +349,25 @@ export function registerOAuthRoutes(app: Express) {
         return res.redirect("/?error=account_suspended");
       }
 
-      req.login(user, async (err) => {
-        if (err) {
-          console.error("[auth] Replit session error:", err);
-          return res.redirect("/?error=session_failed");
-        }
-        await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "Replit OAuth login");
-        res.redirect("/");
-      });
+      try {
+        await loginOrPendingTotp(req, res, user, async () => {
+          await appendSecurityEvent({
+            eventType: "oauth_login_success",
+            actorUserId: user.id,
+            route: req.path,
+            method: "GET",
+            statusCode: 302,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+            payload: { provider: "replit" },
+          });
+          await logSecurityEvent("oauth_login_success", user.id, undefined, req.ip, "Replit OAuth login");
+          res.redirect("/");
+        });
+      } catch (sessionErr: any) {
+        console.error("[auth] Replit session error:", sessionErr?.message ?? sessionErr);
+        return res.redirect("/?error=session_failed");
+      }
     } catch (err: any) {
       console.error("[auth] Replit OIDC callback error:", err.message);
       res.redirect("/?error=auth_failed");

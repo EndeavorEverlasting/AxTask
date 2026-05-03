@@ -1,36 +1,52 @@
+import { matchSidebarChord } from "@/lib/hotkey-actions";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { useState, useEffect, useRef } from "react";
+import { useBriefingBadge } from "@/hooks/use-briefing";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { motion } from "framer-motion";
+import { useScrollDirection } from "@/hooks/use-scroll-direction";
 import {
   LayoutDashboard,
   List,
+  BarChart3,
+  Upload,
   Moon,
   Sun,
-  CheckSquare,
+  FileSpreadsheet,
+  CalendarDays,
   LogOut,
   User,
   ZoomIn,
   ZoomOut,
+  ClipboardList,
   GraduationCap,
   Brain,
   Shield,
   Coins,
-  Menu,
-  Network,
-  DatabaseBackup,
-  Settings,
-  ChevronDown,
-  ChevronRight,
-  BarChart3,
-  Upload,
-  FileSpreadsheet,
-  CalendarDays,
-  ClipboardList,
-  Users,
   ShoppingBag,
+  ShoppingCart,
+  Lock,
   MessageSquare,
-  Bell,
-  Trophy,
+  PlusCircle,
+  Crown,
+  CreditCard,
+  UserRoundCog,
+  CircleUser,
+  Menu,
+  CheckSquare,
+  Mail,
+  Globe2,
+  Gamepad2,
+  Network,
+  ClipboardCheck,
+  Search,
+  Sparkles,
+  SlidersHorizontal,
+  MessagesSquare,
+  Video,
+  MessageCircle,
+  Database,
+  Trash2,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -38,65 +54,93 @@ import { useZoom } from "@/hooks/use-zoom";
 import { useTutorial } from "@/hooks/use-tutorial";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useCountUp } from "@/hooks/use-count-up";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { NotificationIntensityPanel } from "@/components/settings/notification-intensity-panel";
 import { VoiceBarTrigger } from "@/components/voice-command-bar";
+import { InstallShortcutButton } from "@/components/install-shortcut-button";
+import { KBD, tutorialToggleTitle } from "@/lib/keyboard-shortcuts";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { useImmersiveShell } from "@/hooks/use-immersive-shell";
+import { PretextPeekStrip } from "@/components/layout/pretext-peek-strip";
+import { PretextShortcutsBeacon } from "@/components/pretext/pretext-shortcuts-beacon";
+import { ShellSplitter } from "@/components/layout/shell-splitter";
+import { cn } from "@/lib/utils";
+import { notifyScrollBudget } from "@/lib/animation-budget";
+import { useToast } from "@/hooks/use-toast";
+import type { PublicSessionUser } from "@shared/public-client-dtos";
+import { computeShoppingListUnlocked } from "@shared/shopping-list-feature";
+import type { SkillNodeDto } from "@/components/skill-tree/skill-tree-view";
 
-const CORE_MENU_ITEMS = [
-  { path: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { path: "/tasks", icon: List, label: "Tasks" },
-  { path: "/planner", icon: Brain, label: "AI Planner", hasBadge: true },
-  { path: "/messages", icon: MessageSquare, label: "Messages", hasUnreadBadge: true },
-  { path: "/notifications", icon: Bell, label: "Notifications", hasNotifBadge: true },
-  { path: "/skill-tree", icon: Network, label: "Skill Tree" },
-  { path: "/backup", icon: DatabaseBackup, label: "Backup" },
-  { path: "/settings", icon: Settings, label: "Settings" },
-];
+function userInitials(u: Pick<PublicSessionUser, "displayName" | "email">): string {
+  const base = (u.displayName || u.email || "").trim();
+  return base
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0] || "")
+    .filter(Boolean)
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
 
-const MORE_MENU_ITEMS = [
-  { path: "/analytics", icon: BarChart3, label: "Analytics" },
-  { path: "/calendar", icon: CalendarDays, label: "Calendar" },
-  { path: "/community", icon: Users, label: "Community" },
-  { path: "/leaderboard", icon: Trophy, label: "Leaderboard" },
-  { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
-  { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
-  { path: "/import-export", icon: Upload, label: "Import/Export" },
-  { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
-];
+function AccountUserAvatar({
+  user,
+  className,
+}: {
+  user: Pick<PublicSessionUser, "displayName" | "email" | "profileImageUrl">;
+  className?: string;
+}) {
+  const initials = userInitials(user);
+  const wrap = cn("rounded-full shrink-0 object-cover", className);
+  if (user.profileImageUrl) {
+    const alt =
+      (user.displayName || "").trim() ||
+      (user.email || "").trim() ||
+      (initials ? `User avatar (${initials})` : "User avatar");
+    return <img src={user.profileImageUrl} alt={alt} className={wrap} />;
+  }
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-center rounded-full bg-primary/15 text-primary font-semibold shrink-0",
+        className,
+      )}
+    >
+      {initials ? <span className="leading-none">{initials}</span> : <User className="h-4 w-4" />}
+    </div>
+  );
+}
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  const [location] = useLocation();
+function SidebarContent({ onNavigate, onScroll }: { onNavigate?: () => void; onScroll?: () => void }) {
+  const [location, setLocation] = useLocation();
   const { theme, toggleTheme } = useTheme();
+  const { toast } = useToast();
   const { user, logout } = useAuth();
   const { zoom, zoomIn, zoomOut, resetZoom, ZOOM_MIN, ZOOM_MAX } = useZoom();
   const { isActive: tutorialActive, startTutorial, stopTutorial, hasCompleted } = useTutorial();
+
+  const goHomeAndStartTutorial = () => {
+    setLocation("/");
+    queueMicrotask(() => startTutorial());
+  };
   const isMobile = useIsMobile();
-  const [moreOpen, setMoreOpen] = useState(false);
 
-  const { data: unreadMessages } = useQuery<{ count: number }>({
-    queryKey: ["/api/messages/unread-count"],
-    refetchInterval: 30000,
-    enabled: !!user,
-  });
-  const unreadMessageCount = unreadMessages?.count ?? 0;
-
-  const { data: unreadNotifications } = useQuery<{ count: number }>({
-    queryKey: ["/api/notifications/unread-count"],
-    refetchInterval: 60000,
-    enabled: !!user,
-  });
-  const unreadNotifCount = unreadNotifications?.count ?? 0;
-
-  const { data: briefing } = useQuery<{ overdue: { count: number }; dueWithinHour: { count: number } }>({
-    queryKey: ["/api/planner/briefing"],
-    refetchInterval: 60000,
-  });
-  const overdueCount = (briefing?.overdue?.count || 0) + (briefing?.dueWithinHour?.count || 0);
+  /* Shared subscription — see client/src/hooks/use-briefing.ts. The
+   * `select`-based badge variant re-renders this surface only when the
+   * attention count changes, not on every briefing payload delta. */
+  const { data: briefingBadge } = useBriefingBadge();
+  const overdueCount = briefingBadge?.attentionCount ?? 0;
 
   const { data: wallet } = useQuery<{ balance: number; currentStreak: number }>({
     queryKey: ["/api/gamification/wallet"],
     refetchInterval: 30000,
   });
+  const { data: avatarSkills = [] } = useQuery<SkillNodeDto[]>({
+    queryKey: ["/api/gamification/avatar-skills"],
+    enabled: Boolean(user),
+  });
+  const shoppingUnlocked = computeShoppingListUnlocked(avatarSkills);
   const animatedBalance = useCountUp(wallet?.balance ?? 0);
   const [sparkle, setSparkle] = useState(false);
   const prevBalanceRef = useRef(0);
@@ -110,15 +154,52 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     prevBalanceRef.current = bal;
   }, [wallet?.balance]);
 
-  const isMoreActive = MORE_MENU_ITEMS.some((item) => {
-    if (item.path === "/" && location === "/") return true;
-    if (item.path !== "/" && location.startsWith(item.path)) return true;
-    return false;
-  });
+  type NavItem = {
+    path: string;
+    icon: typeof LayoutDashboard;
+    label: string;
+    badge?: number;
+    /** Shopping list skill gate — link still opens /shopping (unlock CTA there). */
+    skillLocked?: boolean;
+  };
 
-  useEffect(() => {
-    if (isMoreActive) setMoreOpen(true);
-  }, [isMoreActive]);
+  const menuItems = useMemo<NavItem[]>(
+    () => [
+      { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+      { path: "/planner", icon: Brain, label: "AI Planner", badge: overdueCount },
+      { path: "/tasks", icon: List, label: "All Tasks" },
+      { path: "/trash", icon: Trash2, label: "Trash" },
+      {
+        path: "/shopping",
+        icon: ShoppingCart,
+        label: "Shopping list",
+        skillLocked: !shoppingUnlocked,
+      },
+      { path: "/calendar", icon: CalendarDays, label: "Calendar" },
+      { path: "/analytics", icon: BarChart3, label: "Analytics" },
+      { path: "/community", icon: Globe2, label: "Community" },
+      { path: "/collab", icon: MessagesSquare, label: "Collab inbox" },
+      { path: "/messages", icon: MessageCircle, label: "Messages (E2EE)" },
+      { path: "/huddle", icon: Video, label: "Video huddle" },
+      { path: "/mini-games", icon: Gamepad2, label: "Mini-Games" },
+      { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
+      { path: "/skill-tree", icon: Network, label: "Skill Tree" },
+      { path: "/premium", icon: Crown, label: "Premium" },
+      { path: "/billing", icon: CreditCard, label: "Billing" },
+      { path: "/settings", icon: SlidersHorizontal, label: "Settings" },
+      { path: "/profile", icon: CircleUser, label: "Profile" },
+      { path: "/account", icon: UserRoundCog, label: "Account" },
+      { path: "/feedback", icon: MessageSquare, label: "Feedback" },
+      { path: "/contact", icon: Mail, label: "Contact" },
+      { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
+      { path: "/import-export", icon: Upload, label: "Import/Export" },
+      { path: "/backup", icon: Database, label: "Backup Center" },
+      { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
+      { path: "/billing-bridge", icon: ClipboardCheck, label: "Billing Bridge" },
+      ...(user?.role === "admin" ? [{ path: "/admin", icon: Shield, label: "Security Admin" }] : []),
+    ],
+    [user?.role, overdueCount, shoppingUnlocked],
+  );
 
   const isActiveRoute = (path: string) => {
     if (path === "/" && location === "/") return true;
@@ -130,144 +211,185 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     onNavigate?.();
   };
 
-  const adminItem = user?.role === "admin" ? { path: "/admin", icon: Shield, label: "Security Admin" } : null;
-
   return (
-    <div className="flex flex-col h-full outline-none" tabIndex={-1}>
-      <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+    <div className="flex flex-col h-full min-h-0 outline-none overflow-y-auto overscroll-contain" tabIndex={-1} onScroll={onScroll}>
+      <div className="p-6 border-b border-border shrink-0">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-primary flex items-center">
-            <CheckSquare className="mr-2 h-6 w-6" />
+          <button
+            type="button"
+            onClick={goHomeAndStartTutorial}
+            className="text-xl font-bold text-primary flex items-center rounded-md text-left hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label="AxTask — open dashboard and start guided tour"
+          >
+            <img
+              src="/branding/axtask-logo.png"
+              alt=""
+              className="mr-2 h-6 w-6 rounded-sm object-cover"
+            />
             AxTask
-          </h1>
+          </button>
           {!isMobile && <VoiceBarTrigger />}
         </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Intelligent Task Management</p>
+        <p className="text-sm text-muted-foreground mt-1">Intelligent Task Management</p>
       </div>
 
-      <nav className="flex-1 p-4 overflow-y-auto">
+      <nav className="p-4">
         <ul className="space-y-1">
-          {CORE_MENU_ITEMS.map(({ path, icon: Icon, label, hasBadge, hasUnreadBadge, hasNotifBadge }: { path: string; icon: typeof LayoutDashboard; label: string; hasBadge?: boolean; hasUnreadBadge?: boolean; hasNotifBadge?: boolean }) => {
-            const badge = hasBadge ? overdueCount : hasUnreadBadge ? unreadMessageCount : hasNotifBadge ? unreadNotifCount : 0;
-            const badgeColor = hasUnreadBadge ? "bg-blue-500" : hasNotifBadge ? "bg-orange-500" : "bg-red-500";
-            return (
-              <li key={path}>
-                <Link href={path}>
-                  <div
-                    id={`sidebar-link-${path}`}
-                    className={`flex items-center p-3 rounded-lg font-medium transition-colors cursor-pointer min-h-[44px] ${
-                      isActiveRoute(path)
-                        ? "text-primary bg-blue-50 dark:bg-blue-900/30"
-                        : "text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
-                    }`}
-                    onClick={handleNavClick}
-                  >
-                    <Icon className="mr-3 h-5 w-5 shrink-0" />
-                    {label}
-                    {typeof badge === "number" && badge > 0 && (
-                      <span className={`ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full ${badgeColor} px-1.5 text-[10px] font-bold text-white`}>
-                        {badge > 99 ? "99+" : badge}
-                      </span>
-                    )}
-                  </div>
-                </Link>
-              </li>
-            );
-          })}
-
-          {adminItem && (
-            <li>
-              <Link href={adminItem.path}>
+          {menuItems.map(({ path, icon: Icon, label, badge, skillLocked }) => (
+            <li key={path}>
+              <Link href={path}>
                 <div
-                  className={`flex items-center p-3 rounded-lg font-medium transition-colors cursor-pointer min-h-[44px] ${
-                    isActiveRoute(adminItem.path)
-                      ? "text-primary bg-blue-50 dark:bg-blue-900/30"
-                      : "text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
-                  }`}
+                  id={`sidebar-link-${path}`}
+                  title={skillLocked ? "Opens shopping — unlock Dendritic List Sense in-app if needed" : undefined}
+                  className={`flex items-center p-3 rounded-lg font-medium transition-colors duration-150 cursor-pointer min-h-[44px] ${
+                  isActiveRoute(path)
+                    ? "text-primary bg-primary/12 dark:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/80"
+                }`}
                   onClick={handleNavClick}
                 >
-                  <adminItem.icon className="mr-3 h-5 w-5 shrink-0" />
-                  {adminItem.label}
+                  <Icon className="mr-3 h-5 w-5 shrink-0" />
+                  <span className="truncate">{label}</span>
+                  {skillLocked ? (
+                    <Lock
+                      className="ml-1.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400 opacity-90"
+                      aria-hidden
+                    />
+                  ) : null}
+                  {typeof badge === "number" && badge > 0 && (
+                    <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+                      {badge > 99 ? "99+" : badge}
+                    </span>
+                  )}
                 </div>
               </Link>
             </li>
-          )}
-
-          <li>
-            <button
-              onClick={() => setMoreOpen((v) => !v)}
-              className={`w-full flex items-center p-3 rounded-lg font-medium transition-colors cursor-pointer min-h-[44px] ${
-                isMoreActive
-                  ? "text-primary bg-blue-50 dark:bg-blue-900/30"
-                  : "text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
-              }`}
-            >
-              {moreOpen ? (
-                <ChevronDown className="mr-3 h-5 w-5 shrink-0" />
-              ) : (
-                <ChevronRight className="mr-3 h-5 w-5 shrink-0" />
-              )}
-              More
-            </button>
-            {moreOpen && (
-              <ul className="mt-1 ml-4 space-y-1 border-l-2 border-gray-100 dark:border-gray-700 pl-2">
-                {MORE_MENU_ITEMS.map(({ path, icon: Icon, label }) => (
-                  <li key={path}>
-                    <Link href={path}>
-                      <div
-                        className={`flex items-center p-2.5 rounded-lg font-medium transition-colors cursor-pointer text-sm min-h-[40px] ${
-                          isActiveRoute(path)
-                            ? "text-primary bg-blue-50 dark:bg-blue-900/30"
-                            : "text-gray-500 dark:text-gray-500 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
-                        }`}
-                        onClick={handleNavClick}
-                      >
-                        <Icon className="mr-2.5 h-4 w-4 shrink-0" />
-                        {label}
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </li>
+          ))}
         </ul>
       </nav>
 
-      <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
-        {wallet && (
-          <Link href="/rewards">
-            <div
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 cursor-pointer hover:shadow-md transition-all duration-300 ${sparkle ? "ring-2 ring-yellow-400 shadow-lg shadow-yellow-400/30 scale-105" : ""}`}
-              onClick={handleNavClick}
-            >
-              <Coins className={`h-4 w-4 text-amber-500 transition-transform ${sparkle ? "animate-spin" : ""}`} />
-              <span className="text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300">{animatedBalance}</span>
-              <span className="text-xs text-amber-600 dark:text-amber-400">AxCoins</span>
-              {sparkle && <span className="text-xs animate-bounce">✨</span>}
-              {(wallet.currentStreak ?? 0) > 0 && (
-                <span className="ml-auto text-xs text-orange-500 font-medium">🔥{wallet.currentStreak}</span>
-              )}
-            </div>
-          </Link>
-        )}
+      <div className="p-4 space-y-2">
+        <Link href="/">
+          <Button
+            size="sm"
+            className="w-full justify-between bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:via-teal-500 hover:to-cyan-500 text-white shadow-lg shadow-teal-500/25 ring-1 ring-teal-400/30"
+            title={`Dashboard — view all tasks (${KBD.dashboard})`}
+            onClick={handleNavClick}
+          >
+            <span className="flex items-center gap-2">
+              <LayoutDashboard className="h-4 w-4" />
+              All Tasks
+            </span>
+            <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">Alt+T</kbd>
+          </Button>
+        </Link>
+
+        {/* Find Tasks — navigate to /tasks and focus search input */}
+        <Link href="/tasks">
+          <Button
+            size="sm"
+            className="w-full justify-between bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 hover:from-violet-500 hover:via-fuchsia-500 hover:to-pink-500 text-white shadow-lg shadow-fuchsia-500/25 ring-1 ring-fuchsia-400/30"
+            title={`Find tasks — search & filter (${KBD.findTasks})`}
+            onClick={() => {
+              handleNavClick();
+              setTimeout(() => window.dispatchEvent(new Event("axtask-focus-task-search")), 100);
+            }}
+          >
+          <span className="flex items-center gap-2">
+            <span className="relative flex h-5 w-5 items-center justify-center">
+              {/* Classification orbs — representing searchable task categories */}
+              <span className="absolute h-2 w-2 rounded-full bg-red-400 opacity-90 -top-0.5 -left-0.5 animate-pulse" />
+              <span className="absolute h-2 w-2 rounded-full bg-blue-400 opacity-90 top-0 right-0" />
+              <span className="absolute h-2 w-2 rounded-full bg-purple-400 opacity-90 bottom-0 left-0.5" />
+              <span className="absolute h-1.5 w-1.5 rounded-full bg-green-400 opacity-80 bottom-0 right-0.5" />
+              <Search className="h-4 w-4 relative z-10 drop-shadow-sm" />
+            </span>
+            Find Tasks
+          </span>
+          <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">Alt+F</kbd>
+        </Button>
+        </Link>
+
+        <Link href="/shopping">
+          <Button
+            size="sm"
+            className="w-full justify-between bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:via-teal-500 hover:to-cyan-500 text-white shadow-lg shadow-teal-600/25 ring-1 ring-teal-400/30"
+            title={
+              shoppingUnlocked
+                ? "Pretext shopping fold — check items off as you go"
+                : "Shopping list — unlock Dendritic List Sense from here if the gate is closed"
+            }
+            onClick={handleNavClick}
+          >
+            <span className="flex items-center gap-2">
+              <span className="relative flex h-5 w-5 items-center justify-center">
+                <ShoppingCart className="h-4 w-4 relative z-10 drop-shadow-sm" />
+                {!shoppingUnlocked ? (
+                  <Lock className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 text-amber-200 drop-shadow" aria-hidden />
+                ) : null}
+              </span>
+              Shopping list
+            </span>
+            <Sparkles className="h-3.5 w-3.5 text-amber-200/90 shrink-0 motion-safe:animate-pulse" aria-hidden />
+          </Button>
+        </Link>
+
+        <Link href="/tasks">
+          <Button
+            size="sm"
+            className="w-full justify-between bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg"
+            title={`Create task (${KBD.newTask})`}
+            onClick={() => {
+              handleNavClick();
+              setTimeout(() => window.dispatchEvent(new Event("axtask-open-new-task")), 50);
+            }}
+          >
+            <span className="flex items-center">
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add Task
+            </span>
+            <kbd className="ml-2 text-[10px] font-mono opacity-70 bg-black/20 px-1 py-0.5 rounded">Alt+N</kbd>
+          </Button>
+        </Link>
+
+        <Link href="/rewards">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-between border-amber-300/60 text-amber-900 dark:border-amber-700/50 dark:text-amber-200"
+            onClick={handleNavClick}
+            title="Full rewards page — your live balance is always at the top of the main panel"
+          >
+            <span className="flex items-center gap-2">
+              <Coins className={`h-4 w-4 text-amber-600 dark:text-amber-400 ${sparkle ? "motion-safe:animate-pulse" : ""}`} />
+              <span className="text-xs font-medium">Rewards &amp; shop</span>
+            </span>
+            {wallet ? (
+              <span className="text-[11px] tabular-nums text-muted-foreground">{animatedBalance} ⓘ</span>
+            ) : null}
+          </Button>
+        </Link>
 
         <Button
           variant={tutorialActive ? "default" : "outline"}
           size="sm"
           onClick={tutorialActive ? stopTutorial : startTutorial}
-          title="Toggle tutorial (Ctrl+Shift+T)"
-          className={`w-full justify-between min-h-[44px] ${tutorialActive ? "bg-yellow-600 hover:bg-yellow-700 text-white" : ""}`}
+          title={`Toggle tutorial (${tutorialToggleTitle()})`}
+          className={`w-full justify-between min-h-[44px] ring-1 ring-purple-400/40 ${
+            tutorialActive ? "bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-500/30" : "bg-purple-50/60 dark:bg-purple-900/20"
+          }`}
         >
           <span className="flex items-center">
             <GraduationCap className="mr-2 h-4 w-4" />
             {tutorialActive ? "Exit Tutorial" : hasCompleted ? "Restart Tutorial" : "Start Tutorial"}
           </span>
-          <kbd className="ml-2 text-[10px] font-mono opacity-60 bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">⌃T</kbd>
+          <kbd className="ml-2 text-[10px] font-mono opacity-60 bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded">⌃⇧Y</kbd>
         </Button>
 
+        <NotificationIntensityPanel />
+
         {!isMobile && (
-          <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700/50">
+          <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-muted/60 border border-border/60">
             <Button
               variant="ghost"
               size="icon"
@@ -280,7 +402,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             </Button>
             <button
               onClick={resetZoom}
-              className="text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-primary transition-colors min-w-[3rem] text-center"
+              className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors min-w-[3rem] text-center"
               title="Reset zoom"
             >
               {zoom}%
@@ -299,14 +421,22 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         )}
 
         {user && (
-          <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 truncate">
-            {user.profileImageUrl ? (
-              <img src={user.profileImageUrl} alt="" className="h-5 w-5 rounded-full shrink-0" />
-            ) : (
-              <User className="h-4 w-4 shrink-0" />
-            )}
-            <span className="truncate">{user.displayName || user.email}</span>
-          </div>
+          <Link href="/account">
+            <div
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 min-h-[44px] rounded-lg text-sm truncate transition-colors cursor-pointer",
+                "text-muted-foreground hover:bg-accent/80 hover:text-foreground",
+                isActiveRoute("/account") && "bg-accent text-primary",
+              )}
+              onClick={handleNavClick}
+              role="link"
+              title="Account — email and profile"
+              aria-label={`Open account for ${user.displayName || user.email}`}
+            >
+              <AccountUserAvatar user={user} className="h-8 w-8 text-xs" />
+              <span className="truncate min-w-0">{user.displayName || user.email}</span>
+            </div>
+          </Link>
         )}
         <Button
           variant="ghost"
@@ -326,10 +456,20 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             </>
           )}
         </Button>
+        <InstallShortcutButton />
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => { logout(); handleNavClick(); }}
+          onClick={async () => {
+            try {
+              await logout();
+              handleNavClick();
+            } catch (err) {
+              console.error("[sidebar] logout failed", err);
+              const message = err instanceof Error ? err.message : "Could not sign out";
+              toast({ title: "Sign out failed", description: message, variant: "destructive" });
+            }
+          }}
           className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 min-h-[44px]"
         >
           <LogOut className="mr-2 h-4 w-4" />
@@ -341,109 +481,159 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function MobileTopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const { startTutorial } = useTutorial();
+  const scrollDirection = useScrollDirection();
+
+  const goHomeAndStartTutorial = () => {
+    setLocation("/");
+    queueMicrotask(() => startTutorial());
+  };
   return (
-    <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shrink-0">
-      <Button variant="ghost" size="icon" className="h-10 w-10" onClick={onMenuOpen}>
-        <Menu className="h-5 w-5" />
+    <motion.div
+      initial={{ marginTop: 0 }}
+      animate={{ marginTop: scrollDirection === "down" ? "-72px" : 0 }}
+      transition={{ duration: 0.3, ease: "easeInOut" }}
+      className="md:hidden flex items-center justify-between px-4 py-3 glass-panel-glossy rounded-none border-x-0 border-t-0 shrink-0 relative z-50"
+    >
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-12 w-12 min-h-[48px] min-w-[48px]"
+        onClick={onMenuOpen}
+        aria-label="Open menu"
+      >
+        <Menu className="h-6 w-6" />
       </Button>
-      <h1 className="text-lg font-bold text-primary flex items-center">
+      <button
+        type="button"
+        onClick={goHomeAndStartTutorial}
+        className="text-lg font-bold text-primary flex items-center rounded-md px-1 py-0.5 hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label="AxTask — open dashboard and start guided tour"
+      >
         <CheckSquare className="mr-2 h-5 w-5" />
         AxTask
-      </h1>
-      <div className="w-10" />
-    </div>
+      </button>
+      <div className="flex items-center gap-0.5 shrink-0">
+        {user ? <VoiceBarTrigger variant="touch" /> : null}
+        {user ? (
+          <Link
+            href="/account"
+            className={cn(
+              "inline-flex h-12 w-12 min-h-[48px] min-w-[48px] items-center justify-center rounded-full overflow-hidden shrink-0",
+              "text-sm font-medium hover:bg-accent hover:text-accent-foreground",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            )}
+            aria-label={`Account — ${user.displayName || user.email}`}
+            title="Account"
+          >
+            <Avatar className="h-full w-full">
+              <AvatarFallback className="bg-primary text-primary-foreground text-base">
+                {(user.email || "?").charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+          </Link>
+        ) : (
+          <div className="h-12 w-12" />
+        )}
+      </div>
+    </motion.div>
   );
 }
 
 export function Sidebar() {
   const isMobile = useIsMobile();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const [showHotkeys, setShowHotkeys] = useState(false);
+  const { sidebarWidthPx, isNavFocus, toggleSidebarHidden } = useImmersiveShell();
+  const scrollBudgetRaf = useRef<number | null>(null);
+  // Sidebar is its own overflow root — must feed notifyScrollBudget like App main.
+  // Nav uses .axtask-nav-chrome (opaque) to reduce Pretext/hue flicker; see
+  // docs/SCROLL_REFRESH_VISUAL_STABILITY.md, docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md
+  const onSidebarScroll = useCallback(() => {
+    if (scrollBudgetRaf.current != null) return;
+    scrollBudgetRaf.current = requestAnimationFrame(() => {
+      scrollBudgetRaf.current = null;
+      notifyScrollBudget();
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      if (scrollBudgetRaf.current != null) {
+        cancelAnimationFrame(scrollBudgetRaf.current);
+        scrollBudgetRaf.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
+    /** Ctrl/Cmd+Shift+Backslash toggles the rail (see KBD.sidebar); avoids browser bookmark conflicts on B. */
     function handleKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "B") {
-        e.preventDefault();
-        if (isMobile) {
-          setMobileOpen((v) => !v);
-        } else {
-          setCollapsed((v) => !v);
-        }
-      }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "/") {
-        e.preventDefault();
-        setShowHotkeys((v) => !v);
+      if (!matchSidebarChord(e)) return;
+      e.preventDefault();
+      if (isMobile) {
+        setMobileOpen((v) => !v);
+      } else {
+        toggleSidebarHidden();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobile, toggleSidebarHidden]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const closeNav = () => setMobileOpen(false);
+    window.addEventListener("axtask-close-mobile-nav", closeNav);
+    return () => window.removeEventListener("axtask-close-mobile-nav", closeNav);
   }, [isMobile]);
 
-  if (isMobile) {
-    return (
-      <>
+  useEffect(() => {
+    const onToggle = () => {
+      if (isMobile) {
+        setMobileOpen((v) => !v);
+      } else {
+        toggleSidebarHidden();
+      }
+    };
+    window.addEventListener("axtask-toggle-sidebar", onToggle);
+    return () => window.removeEventListener("axtask-toggle-sidebar", onToggle);
+  }, [isMobile, toggleSidebarHidden]);
+
+  /* Keep mobile + desktop shells in one tree so `useIsMobile` flips do not
+   * unmount/remount the entire nav surface (reduces blank flashes). Visibility
+   * is CSS-gated at the `md` breakpoint. */
+  return (
+    <>
+      <div className="md:hidden">
         <MobileTopBar onMenuOpen={() => setMobileOpen(true)} />
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-[280px] p-0 bg-white dark:bg-gray-800">
+          <SheetContent side="left" className="w-[280px] p-0 axtask-nav-chrome rounded-none border-y-0 border-l-0 flex flex-col min-h-0">
             <SheetHeader className="sr-only">
               <SheetTitle>Navigation</SheetTitle>
               <SheetDescription>App navigation menu</SheetDescription>
             </SheetHeader>
-            <SidebarContent onNavigate={() => setMobileOpen(false)} />
+            <PretextShortcutsBeacon layout="sheetStrip" />
+            <div className="min-h-0 flex-1 overflow-y-auto" onScroll={onSidebarScroll}>
+              <SidebarContent onNavigate={() => setMobileOpen(false)} onScroll={onSidebarScroll} />
+            </div>
           </SheetContent>
         </Sheet>
-        <HotkeyDialog open={showHotkeys} onOpenChange={setShowHotkeys} />
-      </>
-    );
-  }
-
-  return (
-    <>
-      <aside
-        className={`bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 flex-col shrink-0 hidden md:flex transition-all duration-200 overflow-hidden outline-none ${
-          collapsed ? "w-0 border-r-0" : "w-64"
-        }`}
-      >
-        {!collapsed && <SidebarContent />}
-      </aside>
-      <HotkeyDialog open={showHotkeys} onOpenChange={setShowHotkeys} />
-    </>
-  );
-}
-
-function HotkeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  if (!open) return null;
-
-  const hotkeys = [
-    { keys: "Ctrl + Shift + B", action: "Toggle sidebar" },
-    { keys: "Ctrl + Shift + /", action: "Show keyboard shortcuts" },
-    { keys: "Ctrl + Enter", action: "Submit task form" },
-    { keys: "Ctrl + M", action: "Voice commands" },
-    { keys: "Ctrl + Shift + T", action: "Toggle tutorial" },
-  ];
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => onOpenChange(false)}>
-      <div
-        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 w-[400px] max-w-[90vw] border border-gray-200 dark:border-gray-700"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-bold mb-4 text-gray-900 dark:text-gray-100">Keyboard Shortcuts</h2>
-        <div className="space-y-3">
-          {hotkeys.map(({ keys, action }) => (
-            <div key={keys} className="flex items-center justify-between">
-              <span className="text-sm text-gray-600 dark:text-gray-400">{action}</span>
-              <kbd className="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">
-                {keys}
-              </kbd>
-            </div>
-          ))}
-        </div>
-        <div className="mt-5 text-right">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Close</Button>
-        </div>
       </div>
-    </div>
+
+      <aside
+        className={cn(
+          "axtask-nav-chrome rounded-none border-y-0 border-l-0 shadow-lg flex-col shrink-0 hidden md:flex transition-[width,box-shadow] duration-200 overflow-hidden min-h-0 outline-none",
+          sidebarWidthPx === 0 && "border-r-0 shadow-none",
+          isNavFocus && "ring-2 ring-primary/35 shadow-2xl z-10",
+        )}
+        style={{ width: sidebarWidthPx }}
+      >
+        {sidebarWidthPx > 0 ? <SidebarContent onScroll={onSidebarScroll} /> : null}
+      </aside>
+      {sidebarWidthPx === 0 ? <PretextPeekStrip /> : null}
+      {sidebarWidthPx > 0 ? <ShellSplitter /> : null}
+    </>
   );
 }

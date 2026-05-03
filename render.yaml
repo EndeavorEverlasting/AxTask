@@ -1,0 +1,92 @@
+services:
+  - type: web
+    name: axtask-prod
+    env: node
+    plan: starter
+    rootDir: .
+    buildCommand: npm ci && npm run build
+    # npm run start runs scripts/production-start.mjs: migrations → drizzle push → dist/index.js
+    startCommand: npm run start
+    healthCheckPath: /ready
+    # autoDeploy: every push to main ships. Safety is delegated to:
+    #   1. the Phase J capacity gate (scripts/deploy/check-db-capacity.mjs)
+    #      which runs before apply-migrations.mjs and blocks the Neon
+    #      512 MB class of failure that killed the prior manual deploy;
+    #   2. scripts/deploy/check-env.mjs which fails-closed on missing
+    #      DATABASE_URL / SESSION_SECRET before the server starts;
+    #   3. healthCheckPath=/ready so Render rolls back if the new image
+    #      cannot reach the DB.
+    # If you need a deploy window (e.g. schema migration freeze), flip
+    # this back to false temporarily and update the contract test at
+    # tests/deploy/06-health/health-contract.test.ts to match.
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: FORCE_HTTPS
+        value: "true"
+      # Set CANONICAL_HOST to your primary domain (for unknown host redirects).
+      # Keep REPLIT_FALLBACK_HOST set so rollback is instant.
+      - key: CANONICAL_HOST
+        sync: false
+      - key: REPLIT_FALLBACK_HOST
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_SHEETS_API_KEY
+        sync: false
+      - key: WORKOS_API_KEY
+        sync: false
+      - key: WORKOS_CLIENT_ID
+        sync: false
+      - key: WORKOS_REDIRECT_URI
+        sync: false
+      - key: AUTH_PROVIDER
+        sync: false
+      - key: REGISTRATION_MODE
+        sync: false
+      - key: INVITE_CODE
+        sync: false
+      - key: AUTH_AUDIT_PEPPER
+        sync: false
+      - key: ARCHETYPE_ANALYTICS_SALT
+        sync: false
+      - key: TOTP_ENCRYPTION_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VITE_VAPID_PUBLIC_KEY
+        sync: false
+      # Admin Foundry controls: allow production access to /api/admin/foundry/*
+      # while keeping admin role + step-up protection in place.
+      - key: ENABLE_FOUNDRY
+        value: "true"
+      # Neon Launch tier includes 10 GiB storage. Keep the gate's budget
+      # aligned with the plan so scripts/deploy/check-db-capacity.mjs
+      # reflects reality instead of the default 512 MB free-tier ceiling.
+      - key: AXTASK_DB_SIZE_BUDGET_BYTES
+        value: "10737418240"
+
+  # Nightly retention sweep for append-only tables (including foundry_run_logs).
+  - type: cron
+    name: axtask-db-retention
+    env: node
+    plan: starter
+    schedule: "15 4 * * *"  # 04:15 UTC daily
+    buildCommand: npm ci
+    startCommand: node scripts/db-retention.mjs
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false

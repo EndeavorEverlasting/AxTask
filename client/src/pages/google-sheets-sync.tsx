@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -153,12 +154,11 @@ export default function GoogleSheetsSyncPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Google Sheets Sync</h2>
-        <p className="text-gray-600 dark:text-gray-400">
-          Seamless integration with your Google Sheets workflow - no API keys required
-        </p>
-      </div>
+      <PretextPageHeader
+        eyebrow="Integrations"
+        title="Google Sheets Sync"
+        subtitle="Seamless integration with your Google Sheets workflow — no API keys required."
+      />
 
       {/* Status Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -1,12 +1,71 @@
 # AxTask - Intelligent Task Management System
 
-**Version:** 1.0.0  
-**Last Updated:** July 30, 2025  
-**Status:** Production Ready
+**Version:** 1.2.0
+**Last Updated:** May 2, 2026
+**Status:** Production-oriented foundation under active hardening
 
 ## Overview
 
 AxTask is a full-stack intelligent task management application that automatically calculates task priorities using an advanced scoring engine. Originally designed to upgrade Google Sheets-based workflows, AxTask provides comprehensive task management with seamless import/export capabilities and real-time Google Sheets integration.
+
+## Axiomatic Completion Philosophy (Canonical)
+
+This document is the canonical philosophy source for AxTask.
+
+AxTask is built to help users **complete** meaningful work, not only track tasks. Every engine, agent, and interface flow should prioritize:
+
+- **Completion-first outcomes** over passive status display.
+- **Clarify-before-generate behavior** whenever intent, audience, scope, or evidence is ambiguous.
+- **Retrieval-grounded outputs** for reports and recommendations using RAG + classification contracts.
+- **Privacy-preserving assistance** where automation never leaks private user data to public surfaces.
+- **Coherent avatar experience** where orb/avatar behavior stays consistent across UI, dialogue, and automation.
+
+### Canonical Doctrine Contracts
+
+- [REPORT_ENGINE_AGENT_CONTRACTS.md](./REPORT_ENGINE_AGENT_CONTRACTS.md)
+- [CLARIFICATION_PROTOCOL.md](./CLARIFICATION_PROTOCOL.md)
+- [RAG_CLASSIFICATION_BLUEPRINT.md](./RAG_CLASSIFICATION_BLUEPRINT.md)
+- [ORB_AVATAR_EXPERIENCE_CONTRACT.md](./ORB_AVATAR_EXPERIENCE_CONTRACT.md)
+- [SCROLL_REFRESH_VISUAL_STABILITY.md](./SCROLL_REFRESH_VISUAL_STABILITY.md) — scroll + calm-mode visual stability (glass, Pretext chips, Gantt SVG, `notifyScrollBudget`, hysteresis)
+- [COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md](./COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)
+- [CLIENT_VISIBLE_PRIVACY.md](./CLIENT_VISIBLE_PRIVACY.md) — browser Network/Console exposure, API serializers, and logging discipline
+
+### Report Generation Definition Of Done
+
+A report workflow is complete only when:
+
+1. the agent selected the correct report mode (draft-only or guided),
+2. ambiguity checks ran and clarifying questions were asked when required,
+3. retrieval/classification evidence supported major claims,
+4. privacy constraints were enforced for any shared/public outputs.
+
+### Voice Personalization Doctrine (RAG)
+
+Speech personalization is treated as a retrieval contract, not blind model retraining:
+
+- Use correction-memory retrieval to adapt to user phrasing, accents, and dialect signals.
+- Keep personalization additive and feature-flagged with baseline fallback.
+- Require explicit user control (opt-in/opt-out, export, deletion).
+- Apply fairness and regression checks before broad rollout.
+- Enforce privacy and security constraints in:
+  - [RAG_CLASSIFICATION_BLUEPRINT.md](./RAG_CLASSIFICATION_BLUEPRINT.md)
+  - [COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md](./COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)
+  - [SECURITY.md](./SECURITY.md)
+
+### Orb + Avatar Doctrine
+
+- Floating orbs are a deliberate UX metaphor for fleeting tasks; movement should remain ambient and non-obstructive.
+- Cursor-elusion should be expressive but subtle enough to preserve usability.
+- Avatar identities are engine-driven personas, not user identities.
+- Mood-to-color mappings must stay stable across UI and community dialogue surfaces.
+- Shopping list voice and delegation behavior for `/shopping` are specified in [ORB_AVATAR_EXPERIENCE_CONTRACT.md](./ORB_AVATAR_EXPERIENCE_CONTRACT.md) (Voice: shopping list and delegation).
+
+### Rollout Phases
+
+1. **Doctrine Foundation**: publish and cross-link all canonical contracts.
+2. **Architecture Alignment**: align engine boundaries and fallback behavior language in architecture docs.
+3. **Operational Adoption**: ensure feature specs and implementation docs reference canonical contracts.
+4. **Verification**: maintain unit tests that guard canonical references and doctrine anchors.
 
 ## Architecture
 
@@ -73,7 +132,7 @@ Automatic categorization based on content analysis:
 5. Database storage with full metadata
 
 #### Export Process
-1. Click "Export to CSV" 
+1. Click "Export to CSV"
 2. Download file in Google Sheets format
 3. Import to Google Sheets via File → Import
 4. Maintains star ratings (☆☆☆☆☆) and TRUE/FALSE status
@@ -94,7 +153,7 @@ CREATE TABLE tasks (
   activity TEXT NOT NULL,
   notes TEXT,
   urgency INTEGER CHECK (urgency >= 1 AND urgency <= 5),
-  impact INTEGER CHECK (impact >= 1 AND impact <= 5), 
+  impact INTEGER CHECK (impact >= 1 AND impact <= 5),
   effort INTEGER CHECK (effort >= 1 AND effort <= 5),
   prerequisites TEXT,
   status VARCHAR DEFAULT 'pending',
@@ -126,6 +185,7 @@ All inputs validated using Zod schemas:
 ### Analytics & Search
 - `GET /api/tasks/stats` - Task statistics and metrics
 - `GET /api/tasks/search/:query` - Full-text search
+- **Tasks page search:** When the browser is online and the search box has **at least two** non-space characters, the main task list loads matches from this endpoint (so results match server search and capped **task search** AxCoin awards can apply). Shorter queries or offline mode use the cached `GET /api/tasks` list with client-side substring filtering only.
 - `GET /api/tasks/status/:status` - Filter by status
 - `GET /api/tasks/priority/:priority` - Filter by priority level
 
@@ -153,7 +213,7 @@ Example: 100 tasks × 150ms = 15 seconds = $0.0001
 
 ### Task Management Features
 - **Create/Edit:** Rich form with validation
-- **Priority Badges:** Color-coded priority levels  
+- **Priority Badges:** Color-coded priority levels
 - **Classification Tags:** Automatic task categorization
 - **Status Tracking:** Pending, in-progress, completed
 - **Search & Filter:** Multiple filter options
@@ -164,27 +224,41 @@ Example: 100 tasks × 150ms = 15 seconds = $0.0001
 ### Common Issues
 
 #### Import Failures
-**Symptom:** Tasks fail during CSV import  
-**Cause:** Invalid data format or missing required fields  
-**Solution:** 
+**Symptom:** Tasks fail during CSV import
+**Cause:** Invalid data format or missing required fields
+**Solution:**
 1. Check CSV format requirements
 2. Ensure Date and Activity columns exist
 3. Use Download Template for proper format
 
 #### Priority Calculation Errors
-**Symptom:** Priorities not calculating correctly  
-**Cause:** Missing or invalid urgency/impact/effort values  
+**Symptom:** Priorities not calculating correctly
+**Cause:** Missing or invalid urgency/impact/effort values
 **Solution:**
 1. Verify urgency, impact, effort are numbers 1-5
 2. Check for null or undefined values
 3. Review priority engine logs
 
 #### Database Connection Issues
-**Symptom:** 404 errors on API calls  
+**Symptom:** 404 errors on API calls
 **Solution:**
 1. Check DATABASE_URL environment variable
 2. Verify PostgreSQL connection
 3. Run `npm run db:push` to sync schema
+
+#### Local Setup / `db:push` Failures
+**Symptom:** `npm error Missing script: "db:push"`
+**Cause:** Command was run outside the AxTask project directory.
+**Solution:**
+1. `cd` into the AxTask folder first
+2. Run `npm run db:push` again
+
+**Symptom:** `DATABASE_URL, ensure the database is provisioned`
+**Cause:** `DATABASE_URL` is not set for local tooling.
+**Solution:**
+1. Create `.env` from `.env.example`
+2. Set `DATABASE_URL` to a reachable PostgreSQL instance
+3. Re-run `npm run db:push`
 
 ### Performance Optimization
 
@@ -201,12 +275,91 @@ Example: 100 tasks × 150ms = 15 seconds = $0.0001
 
 ## Development Workflow
 
+**Pre-push objective-to-code checklist (rewards, classification, feedback, coins, p-score):** [OBJECTIVE_CODE_PUSH_CHECKLIST.md](./OBJECTIVE_CODE_PUSH_CHECKLIST.md)
+
+**Owner-only AxCoin grants (operator policy, `OWNER_COIN_GRANT_USER_IDS`, audit trail):** [OPERATOR_COIN_GRANTS.md](./OPERATOR_COIN_GRANTS.md)
+
+**Database and schema command order (local vs Docker vs production), flowcharts, and flags:** [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md)
+
 ### Local Development
 ```bash
 npm install           # Install dependencies
-npm run db:push      # Sync database schema
-npm run dev          # Start development server
+npm run db:push       # Sync Drizzle schema (run when shared/schema or DB is out of date)
+npm run dev           # Start development server only (no migrations, no push)
 ```
+
+For versioned SQL under `migrations/*.sql`, run `node scripts/apply-migrations.mjs` before or with your usual sync; full ordering is in [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md).
+
+### One-Click Startup (Recommended for non-technical users)
+- Windows users: double-click `start-offline.cmd`
+- CLI users: run `npm run offline:start`
+- Optional setup for Windows users: `npm run offline:shortcut` (creates a Desktop icon)
+- In-app option: click `Install App Shortcut` in the sidebar to add AxTask to desktop/mobile home screen
+- First-login users also get a top install CTA banner with dismiss + "don't show again"
+- Auto-steps performed by `npm run offline:start` / `dev:smart` ([`tools/local/offline-start.mjs`](../tools/local/offline-start.mjs)):
+  - Install dependencies if missing
+  - Create `.env` via `local:env-init` when needed
+  - Validate `DATABASE_URL`
+  - **`node scripts/apply-migrations.mjs`** (every run)
+  - Sync dependencies if lockfile / `package.json` fingerprint changed
+  - **`npm run db:push`** only when the schema fingerprint changed (`shared/schema.ts`, `drizzle.config.ts`, `migrations/*.sql`)
+  - Start dev server with `npx tsx server/index.ts`
+
+### Offline Development (Commit Later)
+- Use a local PostgreSQL instance so the app can run without internet
+- Keep `.env` with local values (`DATABASE_URL`, `SESSION_SECRET`, `NODE_ENV=development`)
+- Make app/code changes offline
+- Commit locally, then push when you are back online
+
+### Monorepo and NodeWeaver
+
+AxTask does **not** use git submodules for NodeWeaver. See [`NODEWEAVER.md`](NODEWEAVER.md).
+
+- NodeWeaver is a standalone classifier product; in this repo it is **vendored** at `services/nodeweaver/upstream`.
+- It runs in hybrid mode: internal-first vendored path, or optional external service URL for deployment profiles that require separation.
+- Classification ownership is shared across NodeWeaver engine core and AxTask fallback/orchestration.
+- The old `NodeWeaver._pre_submodule_backup` gitlink has been removed from the repository; do not restore it as a submodule.
+
+### PR Segmentation for Review Tools
+
+To keep automated review quality high (including CodeRabbit), prefer smaller PR slices.
+
+- Hard CI limit: 300 changed files
+- Recommended target: 200 files or less
+- Split large branches by concern: schema/migrations, server API/storage, client UX, docs/tests
+- Use:
+
+```bash
+node tools/local/split-pr-helper.mjs --base origin/main --max-files 200
+```
+
+Suggested mini-games PR sequence:
+
+1. Shared schema + SQL migration + schema tests
+2. Server storage/routes + server tests
+3. Client mini-games page/hooks/nav + UI tests
+4. Documentation/process and CI workflow updates
+
+### Document Authority Map
+
+- Discretionary AxCoin credits (owner allowlist, not generic admin): [OPERATOR_COIN_GRANTS.md](./OPERATOR_COIN_GRANTS.md)
+- Local / Docker / production database and schema sync: [DEV_DATABASE_AND_SCHEMA.md](./DEV_DATABASE_AND_SCHEMA.md)
+- Canonical index: `docs/ACTIVE_LEGACY_INDEX.md`
+- Canonical architecture contract: `docs/ARCHITECTURE.md`
+- Deployment-impact test sweep and debugging patterns: `docs/DEBUGGING_REFERENCE.md`
+- Canonical PR/deployment slicing policy: `docs/PR_SEGMENTATION.md`
+- Migration/cutover runbooks are transitional and should not override canonical architecture policy.
+
+### Engine APIs
+- `POST /api/feedback/process` — process message text through feedback engines (classification, sentiment, priority, tags, actions)
+- `POST /api/classification/classify` — universal classifier API with external + local fallback layers
+
+### Admin Feedback Inbox Triage
+- Supports advanced filtering (priority/review state/reviewer/tags)
+- Supports sort modes (newest/oldest/critical-first)
+- Includes bulk review-state updates for filtered rows
+- Exports filtered results to CSV for external workflow/reporting
+- Allows saving/loading local filter presets
 
 ### Environment Variables
 ```bash
@@ -245,17 +398,25 @@ npm start           # Start production server
 
 ### Environment Setup
 - **Database:** PostgreSQL 12+ required
-- **Node.js:** Version 18+ required  
+- **Node.js:** Version 18+ required
 - **Memory:** 512MB minimum recommended
 - **Storage:** Minimal requirements for task data
 
 ### Monitoring
-- **Server Logs:** Express request/response logging
-- **Error Tracking:** Console error logging
-- **Performance:** Built-in timing for imports
-- **Cost Tracking:** Real-time cost estimation
+- **Security Intelligence:** Tamper-evident `security_events` ledger with anomaly alert rules
+- **Usage & Storage Observability:** Daily `usage_snapshots` and `db_size_snapshots` with admin dashboards
+- **Error Tracking:** Structured server logging; client errors surfaced via toast notifications
+- **Performance:** Import timing, CI bundle budgets (`npm run perf:bundle`), and API latency heuristics (`npm run perf:api-replay`)
+- **Cost Tracking:** Real-time cost estimation for imports
 
 ## Version History
+
+### v1.2.0 (current)
+- Focus glow accessibility system, task deletion workflow, auto-refresh sync
+- Security event ledger, admin usage/storage observability, attachment upload controls
+- Feedback engine, premium retention layer, notification push + intensity controls
+- Voice companion rewards, archetype analytics, Foundry run logs
+- See [`VERSION.md`](../VERSION.md) for full release notes
 
 ### v1.0.0 (July 30, 2025)
 - Initial production release
@@ -270,10 +431,10 @@ npm start           # Start production server
 ## Maintenance
 
 ### Regular Tasks
-- **Database Backups:** Implement regular PostgreSQL backups
+- **Database Backups:** Manual JSON export and `pg_dump` are available today; scheduled automated backups are not yet wired. See [`BACKUP_AND_RESTORE.md`](./BACKUP_AND_RESTORE.md).
 - **Dependency Updates:** Monitor for security updates
-- **Performance Monitoring:** Track import/export performance
-- **Error Log Review:** Check for recurring issues
+- **Performance Monitoring:** Track import/export performance and CI bundle budgets (`npm run perf:bundle`)
+- **Error Log Review:** Check for recurring issues in `security_events` and server logs
 
 ### Future Enhancements
 - **Batch Import API:** Server-side batch processing
@@ -281,6 +442,15 @@ npm start           # Start production server
 - **Team Collaboration:** Multi-user support
 - **Mobile App:** Native mobile application
 - **API Integration:** Third-party service connections
+
+## Reliability Roadmap
+
+1. **Backup Center** — Unified UI for manual export, dry-run restore, and restore history.
+2. **Restore Drill Tests** — Automated validation that exported bundles round-trip correctly.
+3. **Route Modularization** — Splitting `server/routes.ts` into per-domain route files to reduce monolith risk.
+4. **Skill Graph Contract** — Persisted `additionalEdges` in the schema so synergy/continuum edges survive restarts.
+5. **Scheduled Backup Foundation** — Cron, Task Scheduler, or Docker volume hooks for automated JSON export.
+
 
 ## Support
 

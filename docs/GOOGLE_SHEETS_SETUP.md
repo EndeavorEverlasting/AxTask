@@ -93,8 +93,8 @@ Team lead sets up shared project, distributes credentials securely:
    - Under "Application restrictions":
      - Select "HTTP referrers (web sites)"
      - Add your domain(s):
-       - `https://axtask.app/*`
-       - `https://axtask.dev/*`
+       - `https://your-app-domain.com/*`
+       - `https://*.replit.app/*` (for Replit deployment)
        - `http://localhost:*` (for development only)
    - **Additional Security Measures**:
      - Set quota limits (recommended: 100 requests/minute)
@@ -133,28 +133,25 @@ Team lead sets up shared project, distributes credentials securely:
    3. Two sections will appear with "**ADD URI**" buttons:
 
       **Authorized JavaScript origins** → click **ADD URI** and enter:
-      - `https://axtask.app`
-      - `https://axtask.dev`
+      - `https://<your-repl-subdomain>.replit.dev`
       - *(optional local)* `http://localhost:5000` (for development)
 
-      **Authorized redirect URIs** → click **ADD URI** and enter all of the following:
-
-      *User login callbacks (handled by `server/auth-providers.ts`):*
-      - `https://axtask.app/api/auth/google/callback`
-      - `https://axtask.dev/api/auth/google/callback`
-      - *(optional local)* `http://localhost:5000/api/auth/google/callback`
-
-      *Google Sheets data-access callbacks (`server/google-sheets-api.ts` builds the redirect URI from `BASE_URL`; `server/routes.ts` handles the exchange at `/api/google-sheets/auth-callback`):*
-      - `https://axtask.app/auth/callback`
-      - `https://axtask.dev/auth/callback`
-      - *(optional local)* `http://localhost:5000/auth/callback`
-
-      > **Why two sets?** AxTask uses the same OAuth client for two purposes: user sign-in (scopes: `openid email profile`) and Sheets data access (scopes: `spreadsheets`, `drive.metadata.readonly`). Both redirect URI paths must be registered.
+      **Authorized redirect URIs** → click **ADD URI** and enter:
+      - `https://<your-repl-subdomain>.replit.dev/auth/callback`
+      - *(optional local)* `http://localhost:5000/auth/callback` (for development)
 
    4. Click **Create** → copy the **Client ID** and **Client Secret**
 
+   **🔍 How to Find Your Replit Subdomain:**
+   - Open your Replit workspace
+   - Click the "Run" button or open the preview
+   - Look at the URL in the preview window: `https://your-project-name--username.replit.dev`
+   - Your subdomain is: `your-project-name--username`
+   - Use this in the OAuth configuration above
+
    **💡 Troubleshooting:**
    - If you don't see the "ADD URI" areas after choosing **Web application**, try scrolling down - on some displays they appear below the fold
+   - Share your exact Replit preview URL for a copy-paste block filled in with your real domain
 
 3. **Copy Credentials**
    - **Client ID**: `123456789-abc...` (copy for GOOGLE_CLIENT_ID)
@@ -167,18 +164,14 @@ Team lead sets up shared project, distributes credentials securely:
 Create a `.env` file in your project root:
 
 ```env
-# Google OAuth credentials (used for both user login AND Sheets data access)
+# Google Sheets API Configuration
+GOOGLE_SHEETS_API_KEY=AIza...your-api-key...
 GOOGLE_CLIENT_ID=123456789-abc...your-client-id...
 GOOGLE_CLIENT_SECRET=GOCSPX-...your-client-secret...
 
-# API key for Google Sheets read operations (must start with AIza)
-GOOGLE_SHEETS_API_KEY=AIza...your-api-key...
-
-# Base URL used to build the Sheets OAuth redirect URI
-BASE_URL=http://localhost:5000
-
-# Session secret
-SESSION_SECRET=...random string...
+# Optional: Default spreadsheet settings
+GOOGLE_SHEETS_DEFAULT_FOLDER_ID=your-folder-id
+GOOGLE_SHEETS_TEMPLATE_ID=your-template-spreadsheet-id
 ```
 
 ### Production Deployment
@@ -193,15 +186,16 @@ For Replit deployment:
 ```
 GOOGLE_CLIENT_ID=...from console...
 GOOGLE_CLIENT_SECRET=...from console...
-GOOGLE_SHEETS_API_KEY=AIza...from console...
-BASE_URL=https://axtask.app
+GOOGLE_REDIRECT_URI=https://<your-repl-subdomain>.replit.dev/auth/callback
+GOOGLE_SCOPES=https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file
 SESSION_SECRET=...random string...
 ```
 
-> **Notes:**
-> - `GOOGLE_REDIRECT_URI` is **not** used. The user-login callback URI (`/api/auth/google/callback`) is derived automatically from request headers; the Sheets-data callback URI (`/auth/callback`) is built from `BASE_URL`.
-> - `GOOGLE_SCOPES` is **not** used. Scopes are hardcoded: `openid email profile` for user login, and `spreadsheets` + `drive.metadata.readonly` for Sheets data access.
-> - Set `BASE_URL` to your canonical production domain so the Sheets OAuth redirect URI resolves correctly.
+**Example with actual Replit domain:**
+If your preview URL is `https://axtask--johndoe.replit.dev`, then use:
+```
+GOOGLE_REDIRECT_URI=https://axtask--johndoe.replit.dev/auth/callback
+```
 
 **Additional Security Configuration:**
 - Rate limiting is automatically applied (100 requests/15 minutes for Sheets API)
@@ -245,7 +239,7 @@ SESSION_SECRET=...random string...
 
 ### "Insufficient permissions" Error
 - **Sheet sharing**: Ensure spreadsheet is shared with edit permissions
-- **OAuth scopes**: The Sheets data-access flow requests `spreadsheets` and `drive.metadata.readonly` — make sure these scopes are not blocked in your Google Cloud OAuth consent screen configuration
+- **OAuth scopes**: May need to add specific scopes in consent screen
 - **API quotas**: Check if you've exceeded usage limits
 
 ### Rate Limiting
@@ -280,16 +274,14 @@ SESSION_SECRET=...random string...
 
 ## Advanced Configuration
 
-### OAuth Scopes
+### Custom OAuth Scopes
+For enhanced functionality, add these scopes in OAuth consent screen:
 
-AxTask uses the same Google OAuth client for two distinct flows, each with different hardcoded scopes:
-
-| Flow | Server file | Scopes | Redirect path |
-|------|-------------|--------|---------------|
-| User sign-in | `server/auth-providers.ts` | `openid email profile` | `/api/auth/google/callback` |
-| Sheets data access | `server/google-sheets-api.ts` | `https://www.googleapis.com/auth/spreadsheets` `https://www.googleapis.com/auth/drive.metadata.readonly` | `/auth/callback` (built from `BASE_URL`) |
-
-Because both flows share `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, **both redirect URIs must be registered** in the Google Cloud OAuth client (see Step 4). You do not need to configure scopes in your environment — they are fixed in source code.
+```
+https://www.googleapis.com/auth/spreadsheets
+https://www.googleapis.com/auth/drive.file
+https://www.googleapis.com/auth/drive.metadata.readonly
+```
 
 ### Webhook Integration
 For real-time updates from Google Sheets to your app:
@@ -350,7 +342,7 @@ For Google API issues:
 
 ---
 
-**Last Updated**: May 3, 2026
-**Version**: 1.1.0
+**Last Updated**: July 30, 2025
+**Version**: 1.0.0
 
 This setup enables secure, real-time synchronization between your Priority Engine and Google Sheets while maintaining proper security practices for multi-user environments.

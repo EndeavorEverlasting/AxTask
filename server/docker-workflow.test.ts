@@ -1,0 +1,104 @@
+// @vitest-environment node
+import fs from "fs";
+import path from "path";
+import { describe, expect, it } from "vitest";
+
+const projectRoot = path.resolve(__dirname, "..");
+
+describe("docker workflow assets", () => {
+  it("keeps CI docker-build verification aligned with runtime image layout", () => {
+    const workflowPath = path.join(
+      projectRoot,
+      ".github",
+      "workflows",
+      "test-and-attest.yml",
+    );
+    const workflow = fs.readFileSync(workflowPath, "utf8");
+    expect(workflow).toContain("Verify runtime image has bundled app assets");
+    expect(workflow).toContain("dist/index.js");
+    expect(workflow).toContain("dist/public/index.html");
+    expect(workflow).toContain("package.json");
+    expect(workflow).toContain("drizzle.config.ts");
+
+    const dockerfile = fs.readFileSync(
+      path.join(projectRoot, "Dockerfile"),
+      "utf8",
+    );
+    expect(dockerfile).toContain("COPY --from=build /app/dist ./dist");
+    // Production CMD must run SQL migrations, then drizzle-kit push, then server
+    expect(dockerfile).toContain("node scripts/apply-migrations.mjs");
+    expect(dockerfile).toContain("drizzle-kit push --force");
+    expect(dockerfile).toContain("node dist/index.js");
+    // Ensure migrations → push → node (order matters)
+    const migrateIdx = dockerfile.indexOf("node scripts/apply-migrations.mjs");
+    const pushIdx = dockerfile.indexOf("drizzle-kit push --force");
+    const nodeIdx = dockerfile.indexOf("node dist/index.js");
+    expect(migrateIdx).toBeLessThan(pushIdx);
+    expect(pushIdx).toBeLessThan(nodeIdx);
+    // Ensure migration files and runner are copied into the image
+    expect(dockerfile).toContain("COPY --from=build /app/migrations ./migrations");
+    expect(dockerfile).toContain("COPY --from=build /app/scripts/apply-migrations.mjs");
+  });
+
+  it("keeps docker npm scripts wired to .env.docker", () => {
+    const packageJsonPath = path.join(projectRoot, "package.json");
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+
+    expect(packageJson.scripts["docker:start"]).toContain(
+      "docker compose --env-file .env.docker up -d --build",
+    );
+    expect(packageJson.scripts["docker:stop"]).toContain(
+      "docker compose --env-file .env.docker down",
+    );
+    expect(packageJson.scripts["docker:status"]).toContain(
+      "docker compose --env-file .env.docker ps",
+    );
+    expect(packageJson.scripts["docker:logs"]).toContain(
+      "docker compose --env-file .env.docker logs",
+    );
+  });
+
+  it("contains compose health gates for database, migration, and app", () => {
+    const composePath = path.join(projectRoot, "docker-compose.yml");
+    const compose = fs.readFileSync(composePath, "utf8");
+
+    expect(compose).toContain("database:");
+    expect(compose).toContain("migrate:");
+    expect(compose).toContain("app:");
+    expect(compose).toContain("condition: service_healthy");
+    expect(compose).toContain("condition: service_completed_successfully");
+    expect(compose).toContain('test: ["CMD-SHELL", "pg_isready');
+    expect(compose).toContain("/ready");
+    expect(compose).toContain('"5000:5000"');
+  });
+
+  it("ships one-click docker helpers with daemon and placeholder guards", () => {
+    const windowsStart = fs.readFileSync(
+      path.join(projectRoot, "start-docker.cmd"),
+      "utf8",
+    );
+    const unixStart = fs.readFileSync(
+      path.join(projectRoot, "start-docker.sh"),
+      "utf8",
+    );
+    const windowsStatus = fs.readFileSync(
+      path.join(projectRoot, "status-docker.cmd"),
+      "utf8",
+    );
+    const windowsStop = fs.readFileSync(
+      path.join(projectRoot, "stop-docker.cmd"),
+      "utf8",
+    );
+
+    expect(windowsStart).toContain("docker info >nul 2>&1");
+    expect(windowsStart).toContain(
+      "replace-with-32-plus-char-secret",
+    );
+    expect(windowsStart).toContain("docker compose --env-file .env.docker up -d --build");
+    expect(unixStart).toContain("docker info >/dev/null 2>&1");
+    expect(unixStart).toContain("replace-with-32-plus-char-secret|replace-me");
+    expect(unixStart).toContain("docker compose --env-file .env.docker up -d --build");
+    expect(windowsStatus).toContain("docker compose --env-file .env.docker ps");
+    expect(windowsStop).toContain("docker compose --env-file .env.docker down");
+  });
+});

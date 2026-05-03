@@ -1,62 +1,52 @@
 # AxTask — Priority Engine Task Management System
 
 ## Overview
-AxTask is a full-stack intelligent task management application that automates task prioritization using an advanced scoring engine. It analyzes task content, keywords, tags, and other factors to assign priorities, reducing manual effort and enhancing task organization. The project aims to deliver a professional, secure, and highly functional task management solution with a clean user experience, with a vision to enhance productivity for individuals and teams, tapping into the growing demand for smart, efficient workflow tools.
+
+AxTask is a full-stack intelligent task management application designed to automate task prioritization. It uses an advanced scoring engine that analyzes task content, keywords, tags, and other factors to assign priorities, thereby reducing manual effort and enhancing task organization. The project aims to provide a clean, secure, and highly functional task management solution, avoiding browser security false positives and offering a professional user experience with clean URLs.
 
 ## User Preferences
+
 Preferred communication style: Simple, everyday language.
-Do not make changes to the `.replit` file.
-Do not make changes to the `vite.config.ts` file.
-Do not make changes to the `server/vite.ts` file.
-Do not make changes to the `drizzle.config.ts` file.
-Do not make changes to the `package.json` scripts.
-Do not reorgnise, remove, or rename any tier of the authentication system.
-Do not change the deployment target, build command, start command, or port configuration.
-Do not run `DROP TABLE`, `TRUNCATE`, or destructive `ALTER TABLE` without explicit written user confirmation.
-Do not delete or reset `DATABASE_URL`. Always prefer additive migrations.
-Do not change the `productionDomain` constant in `server/index.ts` without explicit user instruction as part of a separate task.
 
 ## System Architecture
 
 ### UI/UX Decisions
-The application uses React 18 with TypeScript, `shadcn/ui` (Radix UI), and Tailwind CSS for a mobile-responsive design. It features dynamic focus glow, auto-focus, enhanced button labels, full keyboard navigation, and UI scale control. `framer-motion` handles animations, respecting `prefers-reduced-motion`.
+The application uses React 18 with TypeScript, `shadcn/ui` built on Radix UI, and Tailwind CSS for styling. It features a fully mobile-responsive design: on mobile (<768px) the sidebar becomes a Sheet drawer triggered by a hamburger top bar, a fixed bottom navigation bar provides quick access to Dashboard/Tasks/Calendar/Planner, task lists render as touch-friendly cards instead of tables, a floating voice FAB sits above the bottom nav, zoom scaling is disabled, all pages use reduced padding and smaller typography, and the edit dialog is nearly full-width. Desktop layout is unchanged. Advanced accessibility features include a dynamic focus glow system, auto-focus for quick entry, improved button labels, full keyboard navigation, and UI scale control for zoom accessibility.
 
 ### Technical Implementations
-The frontend uses TanStack Query for state management, Wouter for routing, and React Hook Form with Zod for form handling. The backend is Node.js and Express.js (TypeScript, ES modules). PostgreSQL with Drizzle ORM is used for the database, and the API is RESTful with JSON. Both client and server-side validation use Zod schemas. Session management uses PostgreSQL-backed storage.
+The frontend utilizes TanStack Query for state management, Wouter for routing, and React Hook Form with Zod for form handling. The build system employs Vite for the frontend and esbuild for the backend. The backend runs on Node.js with Express.js (TypeScript, ES modules). PostgreSQL with Drizzle ORM is used for the database, and the API is RESTful with JSON responses. Session management is handled by PostgreSQL-backed storage using `connect-pg-simple`. Both client and server-side validation are enforced with Zod schemas.
 
 Key features include:
--   **Priority Engine**: Algorithm for task prioritization based on multiple factors.
--   **Calendar Views**: Interactive task rescheduling via drag-and-drop.
--   **Import/Export System**: Bulk Excel/CSV import and export with server-side processing.
--   **Print Checklist & OCR**: Generates printable PDF checklists and supports OCR for status updates.
--   **AI Planner Agent**: Provides daily briefings, task recommendations, mini-calendars, and a conversational Q&A.
--   **Analytics Dashboard**: Visual insights into task metrics.
+-   **Priority Engine**: An intelligent algorithm factoring in urgency, impact, effort, keywords, tags, deadlines, and crisis detection.
+-   **Calendar Views**: Interactive task management with drag-and-drop rescheduling across multiple time-based views.
+-   **Import/Export System**: Bulk Excel/CSV import and export with server-side batch processing.
+-   **Print Checklist & OCR**: Generates printable PDF checklists and allows OCR scanning of completed checklists for automated task status updates.
+-   **AI Planner Agent**: An intelligent planning panel offering daily briefings, recommended tasks with priority reasoning, weekly mini-calendars, and a conversational Q&A interface.
+-   **Analytics Dashboard**: Provides visual insights into task metrics.
 -   **Real-time Updates**: Achieved through optimistic updates and cache invalidation.
--   **Voice Input & Universal Voice Command System**: Web Speech API for dictation and global commands.
--   **Immersive Mobile Voice Overlay**: Full-screen mobile voice experience with animations.
--   **Task Review Engine**: Voice/text-driven bulk task management with natural language parsing.
--   **Gamification (AxCoins)**: Currency and rewards system for task-related actions. Includes a Skill Tree with 8 nodes (Tier I/II) that deliver functional server-enforced bonuses (coin multipliers, cap raises, streak threshold changes, monthly shields, cleanup bonuses, classification rate boosts). Skill unlock triggers a celebration toast with benefit label. Rewards profile shows an "Active Skill Bonuses" panel. Community post author displays use an AvatarCard component enriched with skill tier badge and equipped title.
--   **Data Migration Toolkit**: Full database export/import with referential integrity.
--   **Task Recurrence**: Configurable recurrence schedules.
--   **Proactive Field Glow Warnings**: Visual cues for empty required fields.
--   **Universal Glow System**: CSS glow classes for UI feedback and tutorials.
--   **Interactive Tutorial**: Guided walkthrough using the universal glow system.
--   **Real-time Collaboration**: Google Drive-style collaborative task editing via WebSocket.
--   **Coin Economy (Spend & Scarcity)**: Consumable coin sinks like Streak Shields, Priority Boost, Task Bounties, and Coin Gifting.
--   **Pattern Learning Engine**: RAG-style intelligence learning from user task history.
--   **Task Attachments**: Image uploads (JPEG/PNG/GIF/WebP, 5MB, 3 max) with drag-drop, thumbnails, lightbox, and markdown editor.
--   **Interactive Feedback System**: Contextual micro-surveys and reactions integrated with AxCoin economy.
--   **NodeWeaver Integration (Scaffolded)**: Feedback classification pipeline for bugs, feature requests, praise, etc., with a classification dispute system.
--   **Community Forum**: Social feed with posts, comments, upvotes/downvotes, emoji reactions, pagination, and gamification integration.
+-   **Task Reordering**: Persistent drag-and-drop task reordering.
+-   **Task Search**: Full-text search with debounce.
+-   **Performance Optimizations**: Includes `React.memo`, debouncing, SQL aggregate queries, bulk updates, and database indexing.
+-   **Animations**: Uses `framer-motion` for various UI animations, respecting `prefers-reduced-motion`.
+-   **Voice Input**: Browser-native Web Speech API for dictating task activity and notes, including voice commands for task attributes.
+-   **Universal Voice Command System**: A global voice command bar (Ctrl+M) with a sophisticated server-side dispatching system that classifies intent (task creation, planner query, calendar command, navigation, search, task review) and processes commands through dedicated engines (Calendar Engine, Planner Engine, Review Engine).
+-   **Task Review Engine**: Voice/text-driven bulk task management. Users tell the AI which recommended tasks they've completed, need rescheduling, or priority changes. Natural language parsing with fuzzy matching against task names. Produces structured proposals shown in a Bulk Action Approval Dialog before committing. Engine: `server/engines/review-engine.ts`. UI: Quick Review card in `client/src/pages/planner.tsx`, approval dialog in `client/src/components/bulk-action-dialog.tsx`. Routes: `POST /api/tasks/review`, `POST /api/tasks/review/apply`.
+-   **Gamification (AxCoins)**: A currency and rewards system with coin earning (priority-based amounts + on-time bonuses + streak multipliers), achievement badges (completion/streak milestones), a Rewards Shop (themes/badges/titles), animated sidebar coin balance display, and transaction history. Schema tables: wallets, coinTransactions, userBadges, rewardsCatalog, userRewards. Engine: `server/coin-engine.ts`. UI: `client/src/pages/rewards.tsx`.
+-   **Classification Rewards & Compound Interest**: Users earn AxCoins (5-15 based on category) when classifying tasks. Other users can confirm a classification, earning 3 coins themselves. Each confirmation triggers compound interest (8% per confirmation) paid back to the original classifier using the formula `base × (1.08)^n`. Schema tables: `classification_contributions`, `classification_confirmations`. Engine: `server/classification-engine.ts`. Storage: `server/storage.ts` (classification contribution CRUD). Routes: `GET /api/tasks/:id/classifications`, `POST /api/tasks/:id/confirm-classification`, `POST /api/tasks/:id/reclassify`, `GET /api/gamification/classification-stats`. UI: `client/src/components/classification-confirm.tsx` (lazy-loaded thumbs-up widget on task cards), `client/src/components/classification-badge.tsx` (interactive badge with dropdown for manual reclassification — users tap the badge to pick a category and earn coins), "Investments" tab in `client/src/pages/rewards.tsx` with stats dashboard.
+-   **Data Migration Toolkit**: Full database export/import with referential integrity validation. Admin UI under Security Admin > Data Migration tab for full-database or per-user exports, file upload import with dry-run validation (DB-aware conflict checking), import mode selector (preserve IDs or remap with new UUIDs), and detailed result reports. User self-service export (`GET /api/account/export`) and import (`POST /api/account/import`) for GDPR data portability — self-service import is scoped to user-owned tables only (tasks, wallets, badges, etc.) and excludes global/admin tables (users, rewardsCatalog, securityLogs). CLI script at `scripts/migrate.ts` with `--mode preserve|remap` flag. Export format is database-agnostic JSON with metadata header, chunked pagination (1000 rows), and FK-ordered table data. Import engine validates all FK references, supports preserve (skip existing) and remap (generate new UUIDs, rewrite FKs) modes. Engine: `server/migration/export.ts`, `server/migration/import.ts`. Routes: `POST /api/admin/export`, `GET /api/admin/export/:userId`, `POST /api/admin/import`, `POST /api/admin/import/validate`, `GET /api/account/export`, `POST /api/account/import`.
+-   **Task Recurrence**: Tasks can have a recurrence schedule (none, daily, weekly, biweekly, monthly, quarterly, yearly). Schema field: `tasks.recurrence` (text, default "none"). Displayed as a violet badge with repeat icon on both desktop table rows and mobile cards. Recurrence selector is in the task form between Effort and Prerequisites.
+-   **Proactive Field Glow Warnings**: When creating a new task, empty required fields (Activity, Time, Notes) automatically glow yellow using the `field-glow-warning` CSS animation. The glow clears when the field gets a value. On submit, any still-empty fields re-glow with a toast notification.
+-   **Universal Glow System**: Five CSS glow classes available for any element: `field-glow-hint` (blue — focus guidance), `field-glow-warning` (yellow — missing fields), `field-glow-success` (green — completed actions), `field-glow-tutorial` (yellow — tutorial targeting), `field-glow-tutorial-success` (green — tutorial action targets). All support dark mode and `prefers-reduced-motion`.
+-   **Interactive Tutorial**: A 16-step guided walkthrough (Ctrl+Shift+Y / Cmd+Shift+Y to start) covering Dashboard, AI Planner, Task Form, Voice Commands, Classification & Compound Interest, Calendar, Analytics, Community, Rewards Shop, Skill Tree (with an inline mini skill-tree rendered inside the tutorial bubble), Print Checklist, Import/Export, Google Sheets, and Keyboard Shortcuts. Uses yellow/green glows on sidebar links with an overlay tooltip. Engine: `client/src/hooks/use-tutorial.tsx`. UI: `client/src/components/tutorial-overlay.tsx`. Inline widgets: `client/src/components/tutorial-widgets.tsx`.
+-   **Real-time Collaboration**: Google Drive-style collaborative task editing via WebSocket (`/ws/collab`). Features include task sharing with role-based permissions (owner/editor/viewer), live presence indicators showing who's editing which field (colored rings and user avatars), real-time field edit broadcasting, and a share dialog for inviting collaborators by email. Schema: `taskCollaborators` table. Server: `server/collaboration.ts`. Client: `client/src/hooks/use-collaboration.ts`, `client/src/components/share-dialog.tsx`.
 
 ### Authentication & Security
-Supports Google OAuth, Replit OIDC, WorkOS AuthKit, and local email/password (bcrypt). Security features include account lockout, banning, robust password policies, input validation, security questions, hashed password reset tokens, Security Admin UI, rate limiting, audit logging, request size limits, httpOnly session cookies, and enforced HTTPS with HSTS and CSP. Passport.js handles authentication middleware. TOTP-based MFA is available for critical actions, with secrets encrypted at rest.
+The system features multi-tier authentication supporting Google OAuth, Replit OIDC, WorkOS AuthKit (enterprise SSO), and a hardened local email/password strategy using bcrypt. Registration can be open, invite-only, or closed. Security measures include account lockout, admin-controlled user banning, robust password policies, input validation, optional security questions, SHA-256 hashed password reset tokens, and a dedicated Security Admin UI. Rate limiting is applied to various endpoints, and comprehensive security audit logging tracks critical events. Request size limits are enforced, session security uses httpOnly cookies and secure flags, and production environments enforce HTTPS with HSTS and strict Content Security Policies. `Helmet.js` provides additional security headers.
 
-### GitHub Sync
-The GitHub repo (`EndeavorEverlasting/AxTask`) mirrors Replit's `main` branch. Because Replit creates automated checkpoint commits that GitHub does not receive, the two histories can diverge. To re-sync, run `bash scripts/sync-github.sh` from the Replit Shell — it force-pushes Replit's `main` to GitHub's `main`. A GitHub Actions workflow at `.github/workflows/replit-sync.yml` provides an alternative trigger (manual dispatch or push to `replit/main` branch). Full details in `docs/GITHUB_SYNC.md`.
+### Database Schema
+Key tables include `users` (id, email, passwordHash, role, authProvider details, security info, ban status), `password_reset_tokens` (id, userId, tokenHash, expiry), `security_logs` (id, eventType, userId, targetUserId, ipAddress, details), `tasks` (id, userId, date, time, activity, notes, urgency, impact, effort, priority, status, sortOrder, etc.), `task_collaborators` (id, taskId, userId, role, invitedBy, invitedAt), `task_patterns` (id, userId, patternType, patternKey, data JSON, confidence, occurrences, lastSeen — unique on userId+patternType+patternKey), `classification_contributions` (id, taskId, userId, classification, baseCoinsAwarded, totalCoinsEarned, confirmationCount — unique on taskId+userId), and `classification_confirmations` (id, contributionId, taskId, userId, coinsAwarded — unique on taskId+userId). Sessions are managed by `connect-pg-simple`.
 
-### System Design Choices
-Designed for Replit Autoscale (Google Cloud Run), necessitating a stateless architecture. All persistent state resides in PostgreSQL. File uploads are streamed without persistent disk storage. Deployment involves `npm run build` to create `dist/index.js` (backend) and `dist/public/` (frontend). Autoscale constraints include a single exposed port, Cloud Run controlling `PORT`, no persistent server memory/filesystem, and fast startup times. API routes and health checks must register before static file serving. Canonical production endpoints are `https://axtask.app` and `https://axtask.dev`.
+-   **Pattern Learning Engine**: RAG-style pattern intelligence that learns from user task history. Detects topics, recurring tasks, deadline rhythms, and similarity clusters. Suggests deadlines based on learned cadence (daily/weekly/biweekly/monthly). Engine: `server/engines/pattern-engine.ts`. Storage: `task_patterns` table with atomic upsert. UI: "Patterns & Insights" card in `client/src/pages/planner.tsx`, deadline suggestion banner in `client/src/components/task-form.tsx`. Routes: `GET /api/patterns/insights`, `POST /api/patterns/learn`, `POST /api/patterns/suggest-deadline`. Learns incrementally on each task creation via `learnFromTask()` and supports full re-analysis via Analyze button. Caps analysis at 500 most recent tasks for performance.
 
 ## External Dependencies
 
@@ -80,22 +70,18 @@ Designed for Replit Autoscale (Google Cloud Run), necessitating a stateless arch
 -   **Lucide React**: Icons.
 -   **Recharts**: Data visualization.
 -   **date-fns**: Date manipulation.
--   **framer-motion**: Animation library.
-
-### MFA / TOTP
--   **otpauth**: TOTP code generation and verification.
--   **qrcode**: QR code generation for MFA setup.
 
 ### File Processing
 -   **Papa Parse**: CSV processing.
 -   **xlsx**: Excel file processing.
 -   **pdfkit**: PDF generation.
 -   **multer**: File uploads.
--   **sharp**: Image thumbnail generation.
 -   **Tesseract.js**: OCR engine.
 
-### Development Utilities
+### Development
 -   **Vite**: Frontend build tool.
 -   **esbuild**: Backend bundling.
 -   **TypeScript**: Language.
 -   **Tailwind CSS**: Styling framework.
+-   **Vitest**: Testing framework.
+-   **cross-env**: Cross-platform environment variables.

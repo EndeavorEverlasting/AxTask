@@ -1,16 +1,62 @@
-import { useState, useRef } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { ClientPerfPanel } from "@/components/admin/client-perf-panel";
+import { SurfaceResourceTable } from "@/components/admin/surface-resource-table";
+
+// Admin > Storage is a heavy sub-tree (5 cards, chart rendering). Lazy
+// loaded so the default admin chunk stays lean. See
+// docs/MODULE_LAYOUT.md for the bundle-budget rationale.
+const StorageTab = lazy(() =>
+  import("@/components/admin/storage/storage-tab").then((m) => ({ default: m.StorageTab })),
+);
+import { usePretextSurface } from "@/hooks/use-pretext-surface";
+import { useCountUp } from "@/hooks/use-count-up";
 import type { SafeUser, SecurityLog } from "@shared/schema";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MFA_PURPOSES } from "@shared/mfa-purposes";
+
+type LifetimePremiumGrant = { userId: string; product: string; planKey: string };
+type AdminUserRow = SafeUser & { lifetimePremiumGrants: LifetimePremiumGrant[] };
+
+type AdminAppealRow = {
+  id: string;
+  appellantUserId: string;
+  subjectType: string;
+  subjectRef: string;
+  title: string;
+  body: string;
+  status: string;
+  resolution: string | null;
+  adminCountAtOpen: number | null;
+  resolvedAt: string | null;
+  resolvedByUserId: string | null;
+  createdAt: string | null;
+  grantVotes: number;
+  denyVotes: number;
+  threshold: { adminCount: number; grantNeeded: number; denyNeeded: number; ruleLabel: string };
+};
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Checkbox } from "@/components/ui/checkbox";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
 import {
   Dialog,
   DialogContent,
@@ -20,171 +66,588 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Shield, ShieldOff, Users, ScrollText, AlertTriangle, Search,
-  Download, Upload, Database, CheckCircle, XCircle, Loader2,
-  Flag, Eye, Trash2, EyeOff, FileText, Filter, ClipboardList,
+  Activity,
+  AlertTriangle,
+  Radio,
+  Search,
+  ScrollText,
+  Shield,
+  ShieldOff,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+  Users,
+  Wallet,
+  X,
+  Download,
+  Upload,
+  Database,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  Gavel,
+  Gauge,
 } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import {
+  applyFeedbackFilters,
+  buildFeedbackCsv,
+  type FeedbackInboxItem,
+  feedbackChannelLabel,
+  type FeedbackPriorityFilter,
+  type FeedbackReviewedFilter,
+  type FeedbackReviewerFilter,
+  type FeedbackSort,
+} from "@/lib/feedback-inbox-utils";
 
-type EnrichedReport = {
+type UsageOverview = {
+  latest: {
+    requests: number;
+    errors: number;
+    errorRate: number;
+    p95Ms: number;
+    dbStorageMb: number;
+    taskCount: number;
+    attachmentBytes: number;
+    spendMtdCents: number;
+  };
+  series: Array<{ snapshotDate: string }>;
+};
+
+type ApiPerfHeuristicsPayload = {
+  windowHours: number;
+  sampledEvents: number;
+  actorUserId: string | null;
+  generatedAt: string;
+  routes: Array<{
+    module: string;
+    method: string;
+    normalizedRoute: string;
+    count: number;
+    serverErrorCount: number;
+    errorRate: number;
+    avgMs: number;
+    p50Ms: number;
+    p95Ms: number;
+    p99Ms: number;
+  }>;
+  signals: Array<{
+    severity: "info" | "warning" | "critical";
+    code: string;
+    title: string;
+    detail: string;
+  }>;
+};
+
+type OrganizationAptitudeTrends = {
+  totals: {
+    samples: number;
+    points: number;
+    coins: number;
+  };
+  byArchetype: Array<{
+    archetypeKey: string;
+    samples: number;
+    points: number;
+    coins: number;
+  }>;
+  bySource: Array<{
+    source: string;
+    samples: number;
+    points: number;
+    coins: number;
+  }>;
+  hoursWindow: number;
+};
+
+type StorageOverview = {
+  policy: {
+    maxTasks: number;
+    maxAttachmentCount: number;
+    maxAttachmentBytes: number;
+  };
+  usage: {
+    taskCount: number;
+    attachmentCount: number;
+    attachmentBytes: number;
+  };
+  warnings: {
+    task: number;
+    attachmentCount: number;
+    attachmentBytes: number;
+  };
+};
+
+type Invoice = {
   id: string;
-  reporterId: string;
-  postId: string | null;
-  commentId: string | null;
-  reason: string;
+  invoiceNumber: string;
+  amountCents: number;
+  currency: string;
   status: string;
-  note: string | null;
-  createdAt: string | null;
-  reporterName: string;
-  contentBody: string;
-  contentTitle: string | null;
-  contentAuthorId: string | null;
-  contentAuthorName: string;
+  confirmationNumber?: string | null;
+  createdAt?: string | null;
 };
 
-type ModLogEntry = {
+type SecurityEventRow = {
   id: string;
-  moderatorId: string | null;
-  moderatorName: string;
-  action: string;
-  targetType: string;
-  targetId: string;
-  targetSnippet: string;
-  note: string | null;
-  createdAt: string | null;
+  eventType: string;
+  actorUserId?: string | null;
+  route?: string | null;
+  method?: string | null;
+  statusCode?: number | null;
+  ipAddress?: string | null;
+  createdAt?: string | null;
+  payloadJson?: string | null;
 };
 
-const ACTION_LABELS: Record<string, string> = {
-  hide_post: "Hidden post",
-  hide_comment: "Hidden comment",
-  delete_post: "Deleted post",
-  delete_comment: "Deleted comment",
-  resolve_report: "Resolved report",
-  dismiss_report: "Dismissed report",
-  auto_hide_post: "Auto-hidden post",
-  auto_hide_comment: "Auto-hidden comment",
+type SecurityAlertRow = {
+  id: string;
+  ruleId: string;
+  severity: string;
+  message: string;
+  status: string;
+  createdAt?: string | null;
 };
+
+type AdminAnalyticsOverview = {
+  generatedAt: string;
+  totals: {
+    users: number;
+    tasks: number;
+    completedTasks: number;
+    completionRate: number;
+    feedbackProcessed: number;
+    urgentFeedback: number;
+  };
+  activeUsers24h: number;
+  isSingleActiveUser: boolean;
+  activeWindowHours: number;
+  completionTrend: Array<{ date: string; completed: number }>;
+  pulseByHour: Array<{ hour: string; requests: number }>;
+  aiCostTrend: Array<{ date: string; estimatedCostCents: number; requests: number; disabledCount: number }>;
+  feedbackPriorityDistribution: Array<{ priority: string; count: number }>;
+  topClassifications: Array<{ classification: string; count: number }>;
+  aiCosts: {
+    estimatedCost7dCents: number;
+    estimatedCost14dCents: number;
+    requests14d: number;
+  };
+  aiRuntime: {
+    externalClassifierEnabled: boolean;
+  };
+  signals: Array<{
+    key: string;
+    label: string;
+    value: number;
+    unit: string;
+    tone: "positive" | "warning" | "neutral";
+  }>;
+  pretext: string[];
+};
+
+function formatCurrency(cents: number, currency = "USD") {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+  }).format((cents || 0) / 100);
+}
 
 export default function AdminPage() {
+  /* Operator console — densest surface in the app, dim ambient orbs. */
+  usePretextSurface("dense");
   const { user } = useAuth();
   const { toast } = useToast();
   const [banTarget, setBanTarget] = useState<SafeUser | null>(null);
   const [banReason, setBanReason] = useState("");
+  const [lifetimeGrantUser, setLifetimeGrantUser] = useState<AdminUserRow | null>(null);
+  const [grantProduct, setGrantProduct] = useState<"axtask" | "nodeweaver" | "bundle">("axtask");
+  const [grantType, setGrantType] = useState<"beta_tester" | "patron" | "manual">("beta_tester");
+  const [grantReason, setGrantReason] = useState("");
+  const [lifetimeRevokeUser, setLifetimeRevokeUser] = useState<AdminUserRow | null>(null);
+  const [revokeProduct, setRevokeProduct] = useState<"axtask" | "nodeweaver" | "bundle">("axtask");
+  const [revokeReason, setRevokeReason] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [invoiceAmount, setInvoiceAmount] = useState("0");
+  const [feedbackPriorityFilter, setFeedbackPriorityFilter] =
+    useState<FeedbackPriorityFilter>("all");
+  const [feedbackTagFilter, setFeedbackTagFilter] = useState("");
+  const [feedbackReviewedFilter, setFeedbackReviewedFilter] =
+    useState<FeedbackReviewedFilter>("all");
+  const [feedbackSort, setFeedbackSort] = useState<FeedbackSort>("newest");
+  const [feedbackReviewerFilter, setFeedbackReviewerFilter] =
+    useState<FeedbackReviewerFilter>("all");
+  const [feedbackPresetName, setFeedbackPresetName] = useState("");
+  const [commandCenterMode, setCommandCenterMode] = useState(false);
+  const [incidentTickerIndex, setIncidentTickerIndex] = useState(0);
+
+  const FEEDBACK_PRESETS_KEY = "axtask.feedbackInbox.presets";
+  const APTITUDE_WINDOW_KEY = "axtask.admin.aptitudeWindowHours";
+  const PERF_WINDOW_KEY = "axtask.admin.perfWindowHours";
+
   const [importResult, setImportResult] = useState<any>(null);
   const [importBundle, setImportBundle] = useState<any>(null);
   const [importFileName, setImportFileName] = useState("");
   const [importMode, setImportMode] = useState<"preserve" | "remap">("preserve");
+  const [importConfirmOpen, setImportConfirmOpen] = useState(false);
+  const [selectedExportUserId, setSelectedExportUserId] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Reports tab state
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [selectedReports, setSelectedReports] = useState<Set<string>>(new Set());
-  const [actionDialog, setActionDialog] = useState<{ type: "resolve" | "dismiss"; ids: string[] } | null>(null);
-  const [actionNote, setActionNote] = useState("");
+  const [adminStepCode, setAdminStepCode] = useState("");
+  const [adminStepChallengeId, setAdminStepChallengeId] = useState<string | null>(null);
+  const [adminStepMasked, setAdminStepMasked] = useState<string | null>(null);
 
-  // Mod log
-  const [modLogOffset, setModLogOffset] = useState(0);
-  const MOD_LOG_LIMIT = 20;
-
-  const { data: users = [], isLoading: usersLoading } = useQuery<SafeUser[]>({
-    queryKey: ["/api/admin/users"],
+  const stepUpQuery = useQuery<{
+    stepUpRequired: boolean;
+    stepUpSatisfied: boolean;
+    expiresAt: number | null;
+  }>({
+    queryKey: ["/api/admin/step-up-status"],
     enabled: user?.role === "admin",
+  });
+  const { data: stepUpStatus, isPending: stepUpPending, isSuccess: stepUpSuccess, isError: stepUpError } =
+    stepUpQuery;
+
+  const stepUpResolved = user?.role !== "admin" || (!stepUpPending && (stepUpSuccess || stepUpError));
+
+  const adminApiEnabled =
+    user?.role === "admin" &&
+    stepUpResolved &&
+    !stepUpError &&
+    !!stepUpStatus &&
+    (!stepUpStatus.stepUpRequired || stepUpStatus.stepUpSatisfied);
+
+  const { data: users = [], isLoading: usersLoading } = useQuery<AdminUserRow[]>({
+    queryKey: ["/api/admin/users"],
+    enabled: adminApiEnabled,
   });
 
   const { data: logs = [], isLoading: logsLoading } = useQuery<SecurityLog[]>({
     queryKey: ["/api/admin/security-logs"],
-    enabled: user?.role === "admin",
+    enabled: adminApiEnabled,
   });
 
-  const reportsQuery = useQuery<EnrichedReport[]>({
-    queryKey: ["/api/forum/reports", statusFilter, typeFilter],
+  const { data: usage } = useQuery<UsageOverview>({
+    queryKey: ["/api/admin/usage"],
+    enabled: adminApiEnabled,
+  });
+
+  const { data: storage } = useQuery<StorageOverview>({
+    queryKey: ["/api/admin/storage"],
+    enabled: adminApiEnabled,
+  });
+
+  const { data: invoices = [] } = useQuery<Invoice[]>({
+    queryKey: ["/api/invoices"],
+    enabled: adminApiEnabled,
+  });
+
+  const { data: securityEvents = [] } = useQuery<SecurityEventRow[]>({
+    queryKey: ["/api/admin/security-events"],
+    enabled: adminApiEnabled,
+    refetchInterval: 15000,
+  });
+
+  const { data: securityAlerts = [] } = useQuery<SecurityAlertRow[]>({
+    queryKey: ["/api/admin/security-alerts"],
+    enabled: adminApiEnabled,
+  });
+
+  const { data: feedbackInbox = [] } = useQuery<FeedbackInboxItem[]>({
+    queryKey: ["/api/admin/feedback-inbox"],
+    enabled: adminApiEnabled,
+  });
+
+  const { data: adminAppeals = [], isLoading: appealsLoading } = useQuery<AdminAppealRow[]>({
+    queryKey: ["/api/admin/appeals"],
+    enabled: adminApiEnabled,
+  });
+
+  const [perfWindowHours, setPerfWindowHours] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(PERF_WINDOW_KEY);
+      const n = Number(raw);
+      if (Number.isFinite(n)) return Math.min(168, Math.max(1, Math.floor(n)));
+    } catch {
+      // SSR / private-mode safe fallback.
+    }
+    return 24;
+  });
+  const [aptitudeWindowHours, setAptitudeWindowHours] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(APTITUDE_WINDOW_KEY);
+      const n = Number(raw);
+      if ([24, 168, 336, 720].includes(n)) return n;
+    } catch {
+      // SSR / private-mode safe fallback.
+    }
+    return 24 * 14;
+  });
+  const { data: perfHeuristics } = useQuery<ApiPerfHeuristicsPayload>({
+    queryKey: [`/api/admin/performance/heuristics?hours=${perfWindowHours}`],
+    enabled: adminApiEnabled,
+  });
+
+  const { data: liveAnalytics } = useQuery<AdminAnalyticsOverview>({
+    queryKey: ["/api/admin/analytics/overview"],
+    enabled: adminApiEnabled,
+    refetchInterval: 15000,
+  });
+  const { data: organizationAptitude } = useQuery<OrganizationAptitudeTrends>({
+    queryKey: [`/api/admin/organization-aptitude-trends?hours=${aptitudeWindowHours}`],
+    enabled: adminApiEnabled,
+    refetchInterval: 30000,
+  });
+
+  const { data: repoInventory } = useQuery({
+    queryKey: ["/api/admin/repo-inventory"],
+    enabled: adminApiEnabled,
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (statusFilter !== "all") params.set("status", statusFilter);
-      if (typeFilter !== "all") params.set("targetType", typeFilter);
-      const res = await apiRequest("GET", `/api/forum/reports?${params.toString()}`);
-      return res.json();
+      const r = await apiRequest("GET", "/api/admin/repo-inventory");
+      return r.json() as Promise<{ branches: string; recentCommits: string }>;
     },
-    enabled: user?.role === "admin",
   });
-  const reports = reportsQuery.data ?? [];
 
-  const modLogQuery = useQuery<ModLogEntry[]>({
-    queryKey: ["/api/admin/mod-log", modLogOffset],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/admin/mod-log?limit=${MOD_LOG_LIMIT}&offset=${modLogOffset}`);
-      return res.json();
-    },
-    enabled: user?.role === "admin",
-  });
-  const modLog = modLogQuery.data ?? [];
-
-  const resolveReportMutation = useMutation({
-    mutationFn: async ({ ids, status, note }: { ids: string[]; status: string; note?: string }) => {
-      if (ids.length === 1) {
-        await apiRequest("PATCH", `/api/forum/admin/reports/${ids[0]}`, { status, note });
-      } else {
-        await apiRequest("POST", "/api/forum/admin/reports/bulk", { ids, action: status === "dismissed" ? "dismiss" : "resolve", note });
+  type FoundryGitStatus =
+    | {
+        branch: string;
+        commitSha: string;
+        upstream: string | null;
+        ahead: number;
+        behind: number;
+        statusShort: string;
+        porcelainLines: string[];
+        porcelainTruncated: boolean;
       }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/mod-log"] });
-      toast({ title: "Reports updated" });
-      setSelectedReports(new Set());
-      setActionDialog(null);
-      setActionNote("");
-    },
-    onError: (err: Error) => {
-      toast({ title: "Failed to update reports", description: err.message, variant: "destructive" });
+    | { error: string };
+
+  const { data: foundryStatus, isError: foundryStatusQueryError, refetch: refetchFoundryStatus } =
+    useQuery<FoundryGitStatus>({
+      queryKey: ["/api/admin/foundry/status"],
+      enabled: adminApiEnabled,
+      queryFn: async () => {
+        const r = await apiRequest("GET", "/api/admin/foundry/status");
+        return r.json() as Promise<FoundryGitStatus>;
+      },
+    });
+
+  const { data: foundryRuns } = useQuery<{
+    runs: Array<{ id: string; userId: string; createdAt: string | null; payload: unknown }>;
+  }>({
+    queryKey: ["/api/admin/foundry/runs", 30],
+    enabled: adminApiEnabled,
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/foundry/runs?limit=30");
+      return r.json();
     },
   });
 
-  const hideContentMutation = useMutation({
-    mutationFn: async ({ type, id, note }: { type: "posts" | "comments"; id: string; note?: string }) =>
-      apiRequest("PATCH", `/api/forum/admin/${type}/${id}`, { hidden: true, note }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/mod-log"] });
-      toast({ title: "Content hidden" });
+  const [foundryNote, setFoundryNote] = useState("");
+  const appendFoundryRunMutation = useMutation({
+    mutationFn: async (body: Record<string, unknown>) => {
+      const r = await apiRequest("POST", "/api/admin/foundry/runs", body);
+      return r.json() as Promise<{ id: string }>;
     },
-    onError: (err: Error) => {
-      toast({ title: "Failed to hide content", description: err.message, variant: "destructive" });
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/foundry/runs"] });
     },
   });
 
-  const deletePostMutation = useMutation({
-    mutationFn: (postId: string) => apiRequest("DELETE", `/api/forum/admin/posts/${postId}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/forum/posts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/mod-log"] });
-      toast({ title: "Post deleted" });
-    },
+  const previousTotalsRef = useRef<AdminAnalyticsOverview["totals"] | null>(null);
+  const [liveDelta, setLiveDelta] = useState({
+    tasks: 0,
+    completionRate: 0,
+    urgentFeedback: 0,
+    feedbackProcessed: 0,
   });
 
-  const deleteCommentMutation = useMutation({
-    mutationFn: (commentId: string) => apiRequest("DELETE", `/api/forum/admin/comments/${commentId}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/mod-log"] });
-      toast({ title: "Comment deleted" });
+  useEffect(() => {
+    if (!liveAnalytics?.totals) return;
+    const prev = previousTotalsRef.current;
+    if (prev) {
+      setLiveDelta({
+        tasks: liveAnalytics.totals.tasks - prev.tasks,
+        completionRate: liveAnalytics.totals.completionRate - prev.completionRate,
+        urgentFeedback: liveAnalytics.totals.urgentFeedback - prev.urgentFeedback,
+        feedbackProcessed: liveAnalytics.totals.feedbackProcessed - prev.feedbackProcessed,
+      });
+    }
+    previousTotalsRef.current = liveAnalytics.totals;
+  }, [liveAnalytics]);
+
+  const requestPulseDelta = useMemo(() => {
+    if (!liveAnalytics || liveAnalytics.pulseByHour.length < 2) return 0;
+    const points = liveAnalytics.pulseByHour;
+    return points[points.length - 1].requests - points[points.length - 2].requests;
+  }, [liveAnalytics]);
+
+  const liveRequestNow = useMemo(() => {
+    if (!liveAnalytics || liveAnalytics.pulseByHour.length === 0) return 0;
+    return liveAnalytics.pulseByHour[liveAnalytics.pulseByHour.length - 1].requests;
+  }, [liveAnalytics]);
+
+  const incidentTickerItems = useMemo(() => {
+    return securityEvents
+      .filter((event) =>
+        event.eventType.includes("failed") ||
+        event.eventType.includes("alert") ||
+        event.eventType.includes("security") ||
+        (event.statusCode || 0) >= 400,
+      )
+      .slice(0, 50)
+      .map((event) => {
+        const at = event.createdAt ? new Date(event.createdAt).toLocaleTimeString() : "n/a";
+        const where = `${event.method || "N/A"} ${event.route || "-"}`;
+        return `${at} · ${event.eventType} · ${where} · status ${event.statusCode ?? "n/a"}`;
+      });
+  }, [securityEvents]);
+
+  useEffect(() => {
+    if (incidentTickerItems.length === 0) return;
+    const timer = setInterval(() => {
+      setIncidentTickerIndex((idx) => (idx + 1) % incidentTickerItems.length);
+    }, 2800);
+    return () => clearInterval(timer);
+  }, [incidentTickerItems]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(APTITUDE_WINDOW_KEY, String(aptitudeWindowHours));
+    } catch {
+      // non-blocking preference persistence
+    }
+  }, [aptitudeWindowHours]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PERF_WINDOW_KEY, String(perfWindowHours));
+    } catch {
+      // non-blocking preference persistence
+    }
+  }, [perfWindowHours]);
+
+  useEffect(() => {
+    if (!commandCenterMode) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCommandCenterMode(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [commandCenterMode]);
+
+  const animatedTasks = useCountUp(liveAnalytics?.totals.tasks ?? 0, 700);
+  const animatedCompletionRate = useCountUp(liveAnalytics?.totals.completionRate ?? 0, 700);
+  const animatedUrgentFeedback = useCountUp(liveAnalytics?.totals.urgentFeedback ?? 0, 700);
+  const animatedActiveUsers24h = useCountUp(liveAnalytics?.activeUsers24h ?? 0, 700);
+  const animatedLiveRequests = useCountUp(liveRequestNow, 700);
+
+  const feedbackReviewMutation = useMutation({
+    mutationFn: async ({ feedbackEventId, reviewed }: { feedbackEventId: string; reviewed: boolean }) => {
+      await apiRequest("POST", `/api/admin/feedback-inbox/${feedbackEventId}/review`, { reviewed });
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/feedback-inbox"] });
+      toast({ title: "Feedback updated", description: "Review state has been saved." });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Update failed", description: err.message, variant: "destructive" }),
   });
 
-  const bulkHideMutation = useMutation({
-    mutationFn: (reportIds: string[]) =>
-      apiRequest("POST", "/api/forum/admin/bulk-hide", { reportIds }),
+  const appealVoteMutation = useMutation({
+    mutationFn: async (payload: { appealId: string; decision: "grant" | "deny" }) => {
+      const res = await apiRequest("POST", `/api/admin/appeals/${payload.appealId}/vote`, {
+        decision: payload.decision,
+      });
+      return res.json() as Promise<{
+        status: string;
+        outcome?: string;
+        autoUnbanned?: boolean;
+      }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/appeals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      const desc =
+        data.outcome && data.outcome !== "pending"
+          ? `Appeal ${data.outcome}${data.autoUnbanned ? " · account unbanned" : ""}`
+          : "Awaiting further admin votes.";
+      toast({ title: "Vote recorded", description: desc });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Vote failed", description: err.message, variant: "destructive" }),
+  });
+
+  const feedbackBulkReviewMutation = useMutation({
+    mutationFn: async ({ feedbackEventIds, reviewed }: { feedbackEventIds: string[]; reviewed: boolean }) => {
+      await apiRequest("POST", "/api/admin/feedback-inbox/review-bulk", {
+        feedbackEventIds,
+        reviewed,
+      });
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/mod-log"] });
-      toast({ title: "Selected items hidden" });
-      setSelectedReports(new Set());
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/feedback-inbox"] });
+      toast({ title: "Feedback updated", description: "Bulk review state has been saved." });
     },
-    onError: (err: Error) => {
-      toast({ title: "Bulk hide failed", description: err.message, variant: "destructive" });
+    onError: (err: Error) =>
+      toast({ title: "Bulk update failed", description: err.message, variant: "destructive" }),
+  });
+
+  const analyzeAlertsMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/admin/security-alerts/analyze", {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/security-alerts"] });
+      toast({ title: "Security analysis complete", description: "Latest anomaly rules were evaluated." });
     },
+    onError: (err: Error) => toast({ title: "Analysis failed", description: err.message, variant: "destructive" }),
+  });
+
+  const captureMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/admin/usage/capture", {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/usage"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/storage"] });
+      toast({ title: "Usage captured", description: "A fresh usage snapshot has been stored." });
+    },
+    onError: (err: Error) => toast({ title: "Capture failed", description: err.message, variant: "destructive" }),
+  });
+
+  const updateAiRuntimeMutation = useMutation({
+    mutationFn: async (payload: { externalClassifierEnabled: boolean }) => {
+      const res = await apiRequest("POST", "/api/admin/ai/runtime-controls", payload);
+      return res.json() as Promise<{ ok: boolean; externalClassifierEnabled: boolean }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/analytics/overview"] });
+      toast({
+        title: "AI runtime updated",
+        description: data.externalClassifierEnabled
+          ? "External classifier path enabled."
+          : "External classifier path disabled.",
+      });
+    },
+    onError: (err: Error) => toast({ title: "Update failed", description: err.message, variant: "destructive" }),
+  });
+
+  const createInvoiceMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest(
+        "POST",
+        "/api/invoices",
+        {
+          invoiceNumber,
+          amountCents: Number(invoiceAmount),
+          currency: "USD",
+        },
+        { "x-idempotency-key": `${invoiceNumber}-${Date.now()}` },
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      toast({ title: "Invoice created", description: "Invoice draft created successfully." });
+      setInvoiceNumber("");
+      setInvoiceAmount("0");
+    },
+    onError: (err: Error) => toast({ title: "Create failed", description: err.message, variant: "destructive" }),
   });
 
   const banMutation = useMutation({
@@ -214,6 +677,56 @@ export default function AdminPage() {
     },
     onError: (err: Error) => {
       toast({ title: "Unban failed", description: err.message || "Could not unban user", variant: "destructive" });
+    },
+  });
+
+  const lifetimeGrantMutation = useMutation({
+    mutationFn: async (payload: {
+      userId: string;
+      product: "axtask" | "nodeweaver" | "bundle";
+      grantType: "beta_tester" | "patron" | "manual";
+      reason: string;
+    }) => {
+      const res = await apiRequest("POST", `/api/admin/users/${payload.userId}/premium/lifetime-grant`, {
+        product: payload.product,
+        grantType: payload.grantType,
+        reason: payload.reason,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/security-logs"] });
+      setLifetimeGrantUser(null);
+      setGrantReason("");
+      toast({ title: "Lifetime access granted", description: "Logged to premium_events and security log." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Grant failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const lifetimeRevokeMutation = useMutation({
+    mutationFn: async (payload: {
+      userId: string;
+      product: "axtask" | "nodeweaver" | "bundle";
+      reason: string;
+    }) => {
+      const res = await apiRequest("POST", `/api/admin/users/${payload.userId}/premium/lifetime-revoke`, {
+        product: payload.product,
+        reason: payload.reason,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/security-logs"] });
+      setLifetimeRevokeUser(null);
+      setRevokeReason("");
+      toast({ title: "Lifetime access revoked", description: "Logged to premium_events and security log." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Revoke failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -256,6 +769,53 @@ export default function AdminPage() {
     },
   });
 
+  const adminStepUpSendMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/mfa/challenge", {
+        purpose: MFA_PURPOSES.ADMIN_STEP_UP,
+        channel: "email",
+      });
+      return res.json() as Promise<{
+        challengeId: string;
+        maskedDestination?: string;
+        devCode?: string;
+      }>;
+    },
+    onSuccess: (data) => {
+      setAdminStepChallengeId(data.challengeId);
+      setAdminStepMasked(data.maskedDestination ?? null);
+      setAdminStepCode("");
+      toast({
+        title: "Code sent",
+        description: data.devCode
+          ? `Dev code: ${data.devCode}`
+          : `Check ${data.maskedDestination ?? "your email"} for a 6-digit code.`,
+      });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Could not send code", description: err.message, variant: "destructive" }),
+  });
+
+  const adminStepUpVerifyMutation = useMutation({
+    mutationFn: async () => {
+      if (!adminStepChallengeId) throw new Error("Request a code first");
+      const res = await apiRequest("POST", "/api/admin/step-up", {
+        challengeId: adminStepChallengeId,
+        code: adminStepCode.trim(),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/step-up-status"] });
+      setAdminStepChallengeId(null);
+      setAdminStepCode("");
+      setAdminStepMasked(null);
+      toast({ title: "Verified", description: "Admin session is active for one hour." });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Verification failed", description: err.message, variant: "destructive" }),
+  });
+
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -263,6 +823,15 @@ export default function AdminPage() {
     setImportResult(null);
 
     const reader = new FileReader();
+    reader.onerror = () => {
+      console.error("[admin] import file read failed", reader.error);
+      setImportBundle(null);
+      toast({
+        title: "Could not read file",
+        description: reader.error?.message || "The file could not be read (permission, missing file, or disk error).",
+        variant: "destructive",
+      });
+    };
     reader.onload = (evt) => {
       try {
         const parsed = JSON.parse(evt.target?.result as string);
@@ -281,6 +850,141 @@ export default function AdminPage() {
     reader.readAsText(file);
   }
 
+  useEffect(() => {
+    if (!lifetimeRevokeUser) return;
+    const g = lifetimeRevokeUser.lifetimePremiumGrants?.[0];
+    if (g && (g.product === "axtask" || g.product === "nodeweaver" || g.product === "bundle")) {
+      setRevokeProduct(g.product);
+    }
+    setRevokeReason("");
+  }, [lifetimeRevokeUser]);
+
+  useEffect(() => {
+    if (lifetimeGrantUser) {
+      setGrantReason("");
+    }
+  }, [lifetimeGrantUser]);
+
+  const filteredUsers = users.filter(
+    (u) =>
+      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (u.displayName || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  const bannedCount = users.filter((u) => u.isBanned).length;
+  const sortedFeedback = applyFeedbackFilters(
+    feedbackInbox,
+    {
+      priority: feedbackPriorityFilter,
+      reviewed: feedbackReviewedFilter,
+      reviewer: feedbackReviewerFilter,
+      tagQuery: feedbackTagFilter,
+      sort: feedbackSort,
+    },
+    user?.id,
+  );
+
+  const exportFilteredFeedbackCsv = () => {
+    const csv = buildFeedbackCsv(sortedFeedback);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `feedback-inbox-${Date.now()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportOrganizationAptitude = async (format: "json" | "csv") => {
+    try {
+      const response = await fetch(
+        `/api/admin/organization-aptitude-trends/export?format=${encodeURIComponent(format)}&hours=${aptitudeWindowHours}`,
+        { credentials: "include" },
+      );
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        throw new Error(err?.message || "Export failed");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `organization-aptitude-trends-${new Date().toISOString().slice(0, 10)}.${format}`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Aptitude trends exported",
+        description: `Downloaded ${format.toUpperCase()} snapshot.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: error instanceof Error ? error.message : "Could not export aptitude trends.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const getFeedbackPresets = (): Array<{ name: string; filters: {
+    priority: FeedbackPriorityFilter;
+    reviewed: FeedbackReviewedFilter;
+    reviewer: FeedbackReviewerFilter;
+    tagQuery: string;
+    sort: FeedbackSort;
+  } }> => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(FEEDBACK_PRESETS_KEY) || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const [feedbackPresets, setFeedbackPresets] = useState(getFeedbackPresets);
+
+  const saveFeedbackPreset = () => {
+    const trimmed = feedbackPresetName.trim();
+    if (!trimmed) return;
+    const next = [
+      {
+        name: trimmed,
+        filters: {
+          priority: feedbackPriorityFilter,
+          reviewed: feedbackReviewedFilter,
+          reviewer: feedbackReviewerFilter,
+          tagQuery: feedbackTagFilter,
+          sort: feedbackSort,
+        },
+      },
+      ...feedbackPresets.filter((preset) => preset.name !== trimmed),
+    ].slice(0, 10);
+    localStorage.setItem(FEEDBACK_PRESETS_KEY, JSON.stringify(next));
+    setFeedbackPresets(next);
+    setFeedbackPresetName("");
+    toast({ title: "Preset saved", description: `Saved "${trimmed}" filter preset.` });
+  };
+
+  const applyFeedbackPreset = (name: string) => {
+    const preset = feedbackPresets.find((p) => p.name === name);
+    if (!preset) return;
+    setFeedbackPriorityFilter(preset.filters.priority);
+    setFeedbackReviewedFilter(preset.filters.reviewed);
+    setFeedbackReviewerFilter(preset.filters.reviewer);
+    setFeedbackTagFilter(preset.filters.tagQuery);
+    setFeedbackSort(preset.filters.sort);
+  };
+
+  const renderDeltaBadge = (delta: number, inverse = false) => {
+    if (delta === 0) {
+      return <Badge variant="outline">stable</Badge>;
+    }
+    const improved = inverse ? delta < 0 : delta > 0;
+    return (
+      <Badge variant={improved ? "secondary" : "destructive"}>
+        {improved ? "+" : ""}{delta}
+      </Badge>
+    );
+  };
+
   if (user?.role !== "admin") {
     return (
       <div className="p-6 flex items-center justify-center min-h-[60vh]">
@@ -295,49 +999,126 @@ export default function AdminPage() {
     );
   }
 
-  const filteredUsers = users.filter(
-    (u) =>
-      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (u.displayName || "").toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const bannedCount = users.filter((u) => u.isBanned).length;
-  const pendingCount = reports.filter((r) => r.status === "pending").length;
-  const selectedArr = Array.from(selectedReports);
-
-  function toggleSelect(id: string) {
-    setSelectedReports(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+  if (stepUpPending) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center min-h-[50vh] gap-3">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Checking admin session…</p>
+      </div>
+    );
   }
 
-  function selectAll() {
-    const pending = reports.filter(r => r.status === "pending").map(r => r.id);
-    setSelectedReports(new Set(pending));
+  if (stepUpError) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md w-full border-destructive/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-destructive" />
+              Admin session check failed
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              We could not load step-up status for this admin session. Refresh the page or sign out and sign back in, then open /admin again.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Button type="button" variant="secondary" className="w-full" onClick={() => window.location.reload()}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
-  function clearSelection() {
-    setSelectedReports(new Set());
+  if (stepUpStatus?.stepUpRequired && !stepUpStatus.stepUpSatisfied) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md w-full border-primary/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Confirm admin access
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Production requires a one-time email code before admin tools load. This expires after one hour.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Button
+              type="button"
+              className="w-full"
+              variant="secondary"
+              disabled={adminStepUpSendMutation.isPending}
+              onClick={() => adminStepUpSendMutation.mutate()}
+            >
+              {adminStepUpSendMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                "Email me a code"
+              )}
+            </Button>
+            {adminStepMasked ? (
+              <p className="text-xs text-muted-foreground text-center">Sent to {adminStepMasked}</p>
+            ) : null}
+            <div>
+              <Label htmlFor="admin-step-code">6-digit code</Label>
+              <Input
+                id="admin-step-code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={adminStepCode}
+                onChange={(e) => setAdminStepCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="mt-1 font-mono tracking-widest"
+                placeholder="000000"
+              />
+            </div>
+            <Button
+              type="button"
+              className="w-full"
+              disabled={
+                adminStepUpVerifyMutation.isPending || adminStepCode.length !== 6 || !adminStepChallengeId
+              }
+              onClick={() => adminStepUpVerifyMutation.mutate()}
+            >
+              {adminStepUpVerifyMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Verifying…
+                </>
+              ) : (
+                "Verify and continue"
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
-      <div className="flex items-center gap-3">
-        <Shield className="h-7 w-7 text-primary" />
-        <h1 className="text-2xl font-bold dark:text-white">Security Admin</h1>
-      </div>
+      <PretextPageHeader
+        eyebrow="Operator"
+        title={
+          <span className="inline-flex items-center gap-3">
+            <Shield className="h-7 w-7 text-primary" />
+            Security &amp; Operations Admin
+          </span>
+        }
+        subtitle="Administer suspensions, feedback inbox, security events, and operator grants. This surface is gated by owner-allowlisted permissions."
+      />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <Users className="h-5 w-5 text-blue-500" />
-              <div>
-                <p className="text-2xl font-bold dark:text-white">{users.length}</p>
-                <p className="text-sm text-muted-foreground">Total Users</p>
-              </div>
+              <div><p className="text-2xl font-bold dark:text-white">{users.length}</p><p className="text-sm text-muted-foreground">Total Users</p></div>
             </div>
           </CardContent>
         </Card>
@@ -345,44 +1126,878 @@ export default function AdminPage() {
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <ShieldOff className="h-5 w-5 text-red-500" />
-              <div>
-                <p className="text-2xl font-bold dark:text-white">{bannedCount}</p>
-                <p className="text-sm text-muted-foreground">Banned Users</p>
-              </div>
+              <div><p className="text-2xl font-bold dark:text-white">{bannedCount}</p><p className="text-sm text-muted-foreground">Banned Users</p></div>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
-              <Flag className="h-5 w-5 text-orange-500" />
-              <div>
-                <p className="text-2xl font-bold dark:text-white">{pendingCount}</p>
-                <p className="text-sm text-muted-foreground">Pending Reports</p>
-              </div>
+              <ScrollText className="h-5 w-5 text-green-500" />
+              <div><p className="text-2xl font-bold dark:text-white">{logs.length}</p><p className="text-sm text-muted-foreground">Security Events</p></div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Wallet className="h-5 w-5 text-purple-500" />
+              <div><p className="text-2xl font-bold dark:text-white">{invoices.length}</p><p className="text-sm text-muted-foreground">Invoices</p></div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Tabs defaultValue="users">
-        <TabsList className="flex-wrap h-auto">
+      <Tabs defaultValue="live">
+        <TabsList className="flex flex-wrap">
+          <TabsTrigger value="live">Live Analytics</TabsTrigger>
+          <TabsTrigger value="usage">Usage & Storage</TabsTrigger>
+          <TabsTrigger value="storage">Storage</TabsTrigger>
+          <TabsTrigger value="performance">API Performance</TabsTrigger>
+          <TabsTrigger value="intel">Security Intelligence</TabsTrigger>
+          <TabsTrigger value="feedback">Feedback Inbox</TabsTrigger>
+          <TabsTrigger value="appeals">Appeals</TabsTrigger>
+          <TabsTrigger value="invoices">Invoicing</TabsTrigger>
           <TabsTrigger value="users">User Management</TabsTrigger>
           <TabsTrigger value="logs">Security Logs</TabsTrigger>
-          <TabsTrigger value="reports">
-            Forum Reports
-            {pendingCount > 0 && (
-              <span className="ml-1.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-                {pendingCount}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="modlog">Mod Log</TabsTrigger>
           <TabsTrigger value="migration">Data Migration</TabsTrigger>
+          <TabsTrigger value="engineering">Engineering</TabsTrigger>
         </TabsList>
 
-        {/* ── Users Tab ─────────────────────────────────────────────── */}
+        <TabsContent value="live" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Radio className="h-4 w-4 text-emerald-500 animate-pulse" />
+              Live mode refreshes every 15 seconds
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline">
+                {liveAnalytics?.generatedAt ? `Updated ${new Date(liveAnalytics.generatedAt).toLocaleTimeString()}` : "Waiting for data"}
+              </Badge>
+              <Button size="sm" onClick={() => setCommandCenterMode(true)} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+                Command Center Mode
+              </Button>
+            </div>
+          </div>
+
+          <Card className="border-blue-300/50 bg-gradient-to-r from-blue-50/70 to-purple-50/50 dark:from-blue-950/20 dark:to-purple-950/20">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Incident Timeline Ticker</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border bg-background/70 px-3 py-2 font-mono text-xs transition-all duration-500">
+                {incidentTickerItems.length > 0 ? incidentTickerItems[incidentTickerIndex] : "No active incident timeline events."}
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <Card className="ring-1 ring-blue-400/20 shadow-md shadow-blue-400/10">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <Activity className="h-5 w-5 text-blue-500" />
+                  <div>
+                    <p className="text-2xl font-bold">{animatedTasks}</p>
+                    <p className="text-sm text-muted-foreground">Total tasks (global)</p>
+                    <div className="mt-1">{renderDeltaBadge(liveDelta.tasks)}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="ring-1 ring-emerald-400/20 shadow-md shadow-emerald-400/10">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <Sparkles className="h-5 w-5 text-green-500" />
+                  <div>
+                    <p className="text-2xl font-bold">{animatedCompletionRate}%</p>
+                    <p className="text-sm text-muted-foreground">Completion rate</p>
+                    <div className="mt-1">{renderDeltaBadge(liveDelta.completionRate)}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="ring-1 ring-rose-400/20 shadow-md shadow-rose-400/10">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="h-5 w-5 text-red-500" />
+                  <div>
+                    <p className="text-2xl font-bold">{animatedUrgentFeedback}</p>
+                    <p className="text-sm text-muted-foreground">Urgent feedback items</p>
+                    <div className="mt-1">{renderDeltaBadge(liveDelta.urgentFeedback, true)}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="ring-1 ring-amber-400/20 shadow-md shadow-amber-400/10">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  {requestPulseDelta >= 0 ? (
+                    <TrendingUp className="h-5 w-5 text-amber-500" />
+                  ) : (
+                    <TrendingDown className="h-5 w-5 text-emerald-500" />
+                  )}
+                  <div>
+                    <p className="text-2xl font-bold">{animatedLiveRequests}</p>
+                    <p className="text-sm text-muted-foreground">Requests this hour</p>
+                    <div className="mt-1">{renderDeltaBadge(requestPulseDelta)}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="ring-1 ring-cyan-400/20 shadow-md shadow-cyan-400/10">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <Users className="h-5 w-5 text-cyan-500" />
+                  <div>
+                    <p className="text-2xl font-bold">{animatedActiveUsers24h}</p>
+                    <p className="text-sm text-muted-foreground">Active users (24h)</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {liveAnalytics?.isSingleActiveUser && (
+            <Card className="border-cyan-300/50 bg-cyan-50/60 dark:bg-cyan-950/20">
+              <CardContent className="py-3 text-sm">
+                You are currently the only active user ({liveAnalytics.activeWindowHours}h window).
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Pretext Live Briefing</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {(liveAnalytics?.pretext ?? []).map((line) => (
+                <div key={line} className="rounded border bg-muted/30 px-3 py-2 text-sm">
+                  {line}
+                </div>
+              ))}
+              {!liveAnalytics && <p className="text-sm text-muted-foreground">Building live briefing...</p>}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Organization Aptitude Signals (Internal)</CardTitle>
+              <CardDescription>
+                Behavioral trend only. No private task/body content is analyzed or stored in this stream.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor="aptitude-window" className="text-xs text-muted-foreground">
+                  Window
+                </Label>
+                <Select
+                  value={String(aptitudeWindowHours)}
+                  onValueChange={(v) => setAptitudeWindowHours(Number(v))}
+                >
+                  <SelectTrigger id="aptitude-window" className="w-[180px] h-8" data-testid="aptitude-window-select">
+                    <SelectValue placeholder="Choose window" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="24">Last 24 hours</SelectItem>
+                    <SelectItem value="168">Last 7 days</SelectItem>
+                    <SelectItem value="336">Last 14 days</SelectItem>
+                    <SelectItem value="720">Last 30 days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="rounded border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Samples</p>
+                  <p className="text-xl font-semibold">{organizationAptitude?.totals.samples ?? 0}</p>
+                </div>
+                <div className="rounded border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Signal points</p>
+                  <p className="text-xl font-semibold">{organizationAptitude?.totals.points ?? 0}</p>
+                </div>
+                <div className="rounded border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Coins awarded</p>
+                  <p className="text-xl font-semibold">{organizationAptitude?.totals.coins ?? 0}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                <div className="rounded border p-3 space-y-2">
+                  <p className="text-sm font-medium">Top archetype signals</p>
+                  {(organizationAptitude?.byArchetype ?? []).slice(0, 6).map((row) => (
+                    <div key={row.archetypeKey} className="flex items-center justify-between text-sm">
+                      <span>{row.archetypeKey}</span>
+                      <span className="text-muted-foreground">{row.points} pts · {row.samples} samples</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded border p-3 space-y-2">
+                  <p className="text-sm font-medium">Top interaction sources</p>
+                  {(organizationAptitude?.bySource ?? []).slice(0, 6).map((row) => (
+                    <div key={row.source} className="flex items-center justify-between text-sm">
+                      <span>{row.source}</span>
+                      <span className="text-muted-foreground">{row.points} pts · {row.coins} coins</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void exportOrganizationAptitude("json")}
+                >
+                  Export trends JSON
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void exportOrganizationAptitude("csv")}
+                >
+                  Export trends CSV
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Window: last {organizationAptitude?.hoursWindow ?? aptitudeWindowHours} hours.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Operational Signals</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              {(liveAnalytics?.signals ?? []).map((signal) => (
+                <div key={signal.key} className="rounded border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">{signal.label}</p>
+                  <p className="text-xl font-semibold mt-1">
+                    {signal.value}
+                    <span className="text-xs font-normal ml-1 text-muted-foreground">{signal.unit}</span>
+                  </p>
+                  <Badge
+                    variant={
+                      signal.tone === "positive"
+                        ? "secondary"
+                        : signal.tone === "warning"
+                        ? "destructive"
+                        : "outline"
+                    }
+                    className="mt-2"
+                  >
+                    {signal.tone}
+                  </Badge>
+                </div>
+              ))}
+              {!liveAnalytics && <p className="text-sm text-muted-foreground">Calculating signals...</p>}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>AI Runtime Controls</CardTitle>
+              <CardDescription>
+                Disable unstable external classifier traffic when costs or failures spike.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm text-muted-foreground">
+                External classifier:{" "}
+                <Badge variant={liveAnalytics?.aiRuntime.externalClassifierEnabled ? "secondary" : "destructive"}>
+                  {liveAnalytics?.aiRuntime.externalClassifierEnabled ? "enabled" : "disabled"}
+                </Badge>
+              </div>
+              <Button
+                variant={liveAnalytics?.aiRuntime.externalClassifierEnabled ? "destructive" : "outline"}
+                disabled={!liveAnalytics || updateAiRuntimeMutation.isPending}
+                onClick={() =>
+                  updateAiRuntimeMutation.mutate({
+                    externalClassifierEnabled: !(liveAnalytics?.aiRuntime.externalClassifierEnabled ?? true),
+                  })
+                }
+              >
+                {updateAiRuntimeMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                {liveAnalytics?.aiRuntime.externalClassifierEnabled ? "Disable external classifier" : "Enable external classifier"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader><CardTitle>Completed Tasks Trend</CardTitle></CardHeader>
+              <CardContent>
+                <ChartContainer
+                  className="h-[260px] w-full"
+                  config={{ completed: { label: "Completed", color: "#22c55e" } }}
+                >
+                  <LineChart data={liveAnalytics?.completionTrend ?? []}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} />
+                    <YAxis allowDecimals={false} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Line type="monotone" dataKey="completed" stroke="var(--color-completed)" strokeWidth={2} />
+                  </LineChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>API Request Pulse (24h)</CardTitle></CardHeader>
+              <CardContent>
+                <ChartContainer
+                  className="h-[260px] w-full"
+                  config={{ requests: { label: "Requests", color: "#3b82f6" } }}
+                >
+                  <BarChart data={liveAnalytics?.pulseByHour ?? []}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="hour" tickFormatter={(v) => String(v).slice(11, 16)} />
+                    <YAxis allowDecimals={false} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="requests" fill="var(--color-requests)" radius={4} />
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Feedback Priority Mix</CardTitle></CardHeader>
+              <CardContent>
+                <ChartContainer
+                  className="h-[260px] w-full"
+                  config={{ count: { label: "Feedback", color: "#f97316" } }}
+                >
+                  <BarChart data={liveAnalytics?.feedbackPriorityDistribution ?? []}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="priority" />
+                    <YAxis allowDecimals={false} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="count" fill="var(--color-count)" radius={4} />
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>AI Cost Trend (14d)</CardTitle></CardHeader>
+              <CardContent>
+                <ChartContainer
+                  className="h-[260px] w-full"
+                  config={{
+                    estimatedCostUsd: { label: "Cost (USD)", color: "#a855f7" },
+                  }}
+                >
+                  <LineChart data={liveAnalytics?.aiCostTrend?.map((row) => ({
+                    ...row,
+                    estimatedCostUsd: Number((row.estimatedCostCents / 100).toFixed(4)),
+                  })) ?? []}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} />
+                    <YAxis allowDecimals />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Line type="monotone" dataKey="estimatedCostUsd" stroke="var(--color-estimatedCostUsd)" strokeWidth={2} />
+                  </LineChart>
+                </ChartContainer>
+                <div className="mt-2 text-xs text-muted-foreground">
+                  7d estimated AI cost: {formatCurrency(liveAnalytics?.aiCosts.estimatedCost7dCents ?? 0)} · 14d estimated AI cost:{" "}
+                  {formatCurrency(liveAnalytics?.aiCosts.estimatedCost14dCents ?? 0)}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Top Task Classifications</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                {(liveAnalytics?.topClassifications ?? []).map((item) => (
+                  <div key={item.classification} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+                    <span>{item.classification}</span>
+                    <Badge variant="secondary">{item.count}</Badge>
+                  </div>
+                ))}
+                {!liveAnalytics && <p className="text-sm text-muted-foreground">Loading classifications...</p>}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="usage" className="space-y-4">
+          <div className="flex justify-end">
+            <Button onClick={() => captureMutation.mutate()} disabled={captureMutation.isPending}>Capture Snapshot</Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Requests</p><p className="text-2xl font-bold">{usage?.latest.requests ?? 0}</p></CardContent></Card>
+            <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Error Rate</p><p className="text-2xl font-bold">{usage?.latest.errorRate ?? 0}%</p></CardContent></Card>
+            <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">p95 latency</p><p className="text-2xl font-bold">{usage?.latest.p95Ms ?? 0}ms</p></CardContent></Card>
+            <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">DB Storage</p><p className="text-2xl font-bold">{usage?.latest.dbStorageMb ?? 0} MB</p></CardContent></Card>
+            <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Task Count</p><p className="text-2xl font-bold">{usage?.latest.taskCount ?? 0}</p></CardContent></Card>
+            <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Attachment MB</p><p className="text-2xl font-bold">{((usage?.latest.attachmentBytes ?? 0) / 1024 / 1024).toFixed(2)}</p></CardContent></Card>
+          </div>
+          <Card>
+            <CardHeader><CardTitle>Storage policy</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <p>Tasks: {storage?.usage.taskCount ?? 0} / {storage?.policy.maxTasks ?? 0} ({storage?.warnings.task ?? 0}%)</p>
+              <p>Attachments: {storage?.usage.attachmentCount ?? 0} / {storage?.policy.maxAttachmentCount ?? 0} ({storage?.warnings.attachmentCount ?? 0}%)</p>
+              <p>Attachment bytes: {storage?.usage.attachmentBytes ?? 0} / {storage?.policy.maxAttachmentBytes ?? 0} ({storage?.warnings.attachmentBytes ?? 0}%)</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="storage" className="space-y-4">
+          <Suspense fallback={<p className="text-sm text-muted-foreground">Loading storage console…</p>}>
+            <StorageTab />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="performance" className="space-y-4">
+          <ClientPerfPanel />
+          <SurfaceResourceTable />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Gauge className="h-4 w-4 text-primary" />
+              Rollups from <code className="rounded bg-muted px-1 py-0.5 text-xs">security_events</code> (
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">api_request</code>, capped sample)
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="perf-hours" className="text-xs text-muted-foreground whitespace-nowrap">
+                Window (hours)
+              </Label>
+              <Input
+                id="perf-hours"
+                type="number"
+                min={1}
+                max={168}
+                className="h-9 w-20"
+                value={perfWindowHours}
+                onChange={(e) => setPerfWindowHours(Math.min(168, Math.max(1, Number(e.target.value) || 24)))}
+              />
+            </div>
+          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Heuristic signals</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {(perfHeuristics?.signals ?? []).length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No automated signals in this window (or insufficient traffic). Routes table below still shows slow
+                  handlers when sampled.
+                </p>
+              )}
+              {(perfHeuristics?.signals ?? []).map((s) => (
+                <div
+                  key={`${s.code}-${s.title}`}
+                  className="rounded-md border px-3 py-2 text-sm"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{s.title}</span>
+                    <Badge variant={s.severity === "critical" ? "destructive" : s.severity === "warning" ? "secondary" : "outline"}>
+                      {s.severity}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{s.detail}</p>
+                </div>
+              ))}
+              {perfHeuristics?.generatedAt && (
+                <p className="text-xs text-muted-foreground pt-1">
+                  Generated {new Date(perfHeuristics.generatedAt).toLocaleString()} · sampled{" "}
+                  {perfHeuristics.sampledEvents} events with duration · window {perfHeuristics.windowHours}h
+                </p>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Routes by normalized path</CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="border-b">
+                    <th className="py-2 pr-3 font-medium">Module</th>
+                    <th className="py-2 pr-3 font-medium">Method</th>
+                    <th className="py-2 pr-3 font-medium">Route</th>
+                    <th className="py-2 pr-3 font-medium text-right">n</th>
+                    <th className="py-2 pr-3 font-medium text-right">p50</th>
+                    <th className="py-2 pr-3 font-medium text-right">p95</th>
+                    <th className="py-2 pr-3 font-medium text-right">p99</th>
+                    <th className="py-2 pr-3 font-medium text-right">5xx%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(perfHeuristics?.routes ?? []).slice(0, 80).map((r) => (
+                    <tr key={`${r.method}-${r.normalizedRoute}`} className="border-b border-muted/50">
+                      <td className="py-1.5 pr-3 whitespace-nowrap">{r.module}</td>
+                      <td className="py-1.5 pr-3">{r.method}</td>
+                      <td className="py-1.5 pr-3 font-mono text-[11px] max-w-[280px] truncate" title={r.normalizedRoute}>
+                        {r.normalizedRoute}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r.count}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r.p50Ms}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r.p95Ms}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r.p99Ms}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{(r.errorRate * 100).toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {(perfHeuristics?.routes ?? []).length === 0 && (
+                <p className="text-sm text-muted-foreground py-4">No API request samples in this window.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="invoices" className="space-y-4">
+          <Card>
+            <CardHeader><CardTitle>Create invoice</CardTitle></CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Input placeholder="Invoice number" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+              <Input placeholder="Amount (cents)" value={invoiceAmount} onChange={(e) => setInvoiceAmount(e.target.value)} />
+              <Button onClick={() => createInvoiceMutation.mutate()} disabled={createInvoiceMutation.isPending || !invoiceNumber.trim()}>
+                {createInvoiceMutation.isPending ? "Creating..." : "Create Draft"}
+              </Button>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Invoices</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              {invoices.map((inv) => (
+                <div key={inv.id} className="flex items-center justify-between rounded border px-3 py-2">
+                  <div>
+                    <p className="font-medium">{inv.invoiceNumber}</p>
+                    <p className="text-xs text-muted-foreground">{inv.status} · {inv.createdAt ? new Date(inv.createdAt).toLocaleString() : "n/a"}</p>
+                  </div>
+                  <Badge variant="secondary">{formatCurrency(inv.amountCents, inv.currency)}</Badge>
+                </div>
+              ))}
+              {invoices.length === 0 && <p className="text-sm text-muted-foreground">No invoices yet.</p>}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="intel" className="space-y-4">
+          <div className="flex justify-end">
+            <Button onClick={() => analyzeAlertsMutation.mutate()} disabled={analyzeAlertsMutation.isPending}>
+              {analyzeAlertsMutation.isPending ? "Analyzing..." : "Run anomaly analysis"}
+            </Button>
+          </div>
+          <Card>
+            <CardHeader><CardTitle>Open security alerts</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              {securityAlerts.map((alert) => (
+                <div key={alert.id} className="rounded border px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{alert.message}</span>
+                    <Badge variant={alert.severity === "high" || alert.severity === "critical" ? "destructive" : "secondary"}>
+                      {alert.severity}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{alert.ruleId} · {alert.status} · {alert.createdAt ? new Date(alert.createdAt).toLocaleString() : "n/a"}</p>
+                </div>
+              ))}
+              {securityAlerts.length === 0 && <p className="text-sm text-muted-foreground">No active alerts.</p>}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Security event stream</CardTitle></CardHeader>
+            <CardContent className="space-y-2 max-h-[360px] overflow-auto">
+              {securityEvents.slice(0, 120).map((event) => (
+                <div key={event.id} className="rounded border px-3 py-2 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{event.eventType}</span>
+                    <Badge variant="outline">{event.statusCode ?? "n/a"}</Badge>
+                  </div>
+                  <p className="text-muted-foreground mt-1">
+                    {(event.method || "N/A")} {event.route || "-"} · {event.ipAddress || "unknown ip"} · {event.createdAt ? new Date(event.createdAt).toLocaleString() : "n/a"}
+                  </p>
+                </div>
+              ))}
+              {securityEvents.length === 0 && <p className="text-sm text-muted-foreground">No events yet.</p>}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="feedback" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Filters</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value={feedbackPriorityFilter}
+                onChange={(e) =>
+                  setFeedbackPriorityFilter(e.target.value as FeedbackPriorityFilter)
+                }
+              >
+                <option value="all">All priorities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value={feedbackReviewedFilter}
+                onChange={(e) =>
+                  setFeedbackReviewedFilter(e.target.value as FeedbackReviewedFilter)
+                }
+              >
+                <option value="all">All review states</option>
+                <option value="reviewed">Reviewed</option>
+                <option value="unreviewed">Unreviewed</option>
+              </select>
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value={feedbackReviewerFilter}
+                onChange={(e) =>
+                  setFeedbackReviewerFilter(e.target.value as FeedbackReviewerFilter)
+                }
+              >
+                <option value="all">All reviewers</option>
+                <option value="me">Reviewed by me</option>
+                <option value="others">Reviewed by others</option>
+              </select>
+              <Input
+                placeholder="Filter by tag (e.g. bug)"
+                value={feedbackTagFilter}
+                onChange={(e) => setFeedbackTagFilter(e.target.value)}
+              />
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value={feedbackSort}
+                onChange={(e) => setFeedbackSort(e.target.value as FeedbackSort)}
+              >
+                <option value="newest">Sort: Newest</option>
+                <option value="oldest">Sort: Oldest</option>
+                <option value="critical-first">Sort: Critical First</option>
+              </select>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Preset name"
+                  value={feedbackPresetName}
+                  onChange={(e) => setFeedbackPresetName(e.target.value)}
+                />
+                <Button size="sm" variant="outline" onClick={saveFeedbackPreset}>
+                  Save Preset
+                </Button>
+              </div>
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value=""
+                onChange={(e) => applyFeedbackPreset(e.target.value)}
+              >
+                <option value="" disabled>Load preset...</option>
+                {feedbackPresets.map((preset) => (
+                  <option key={preset.name} value={preset.name}>{preset.name}</option>
+                ))}
+              </select>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Processed feedback triage inbox ({sortedFeedback.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 max-h-[560px] overflow-auto">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={sortedFeedback.length === 0 || feedbackBulkReviewMutation.isPending}
+                  onClick={() =>
+                    feedbackBulkReviewMutation.mutate({
+                      feedbackEventIds: sortedFeedback.map((item) => item.id),
+                      reviewed: true,
+                    })
+                  }
+                >
+                  Mark All Filtered Reviewed
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={sortedFeedback.length === 0 || feedbackBulkReviewMutation.isPending}
+                  onClick={() =>
+                    feedbackBulkReviewMutation.mutate({
+                      feedbackEventIds: sortedFeedback.map((item) => item.id),
+                      reviewed: false,
+                    })
+                  }
+                >
+                  Mark All Filtered Unreviewed
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={sortedFeedback.length === 0}
+                  onClick={exportFilteredFeedbackCsv}
+                >
+                  Export Filtered CSV
+                </Button>
+              </div>
+              {sortedFeedback.map((item) => (
+                <div key={item.id} className="rounded border px-3 py-3 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={item.priority === "critical" || item.priority === "high" ? "destructive" : "secondary"}>
+                      {item.priority}
+                    </Badge>
+                    <Badge variant="outline">{item.classification}</Badge>
+                    <Badge variant="outline">{item.sentiment}</Badge>
+                    {item.channel ? (
+                      <Badge variant="outline" className="font-normal">
+                        {feedbackChannelLabel(item.channel)}
+                      </Badge>
+                    ) : null}
+                    <span className="text-xs text-muted-foreground">
+                      {item.createdAt ? new Date(item.createdAt).toLocaleString() : "n/a"}
+                    </span>
+                    {item.reviewed ? (
+                      <Badge variant="secondary">Reviewed</Badge>
+                    ) : (
+                      <Badge variant="outline">Unreviewed</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    user: {item.actorUserId || (item.channel === "public_contact" ? "anonymous" : "unknown")} · message
+                    chars: {item.messageLength} · attachments: {item.attachments}
+                    {item.reporterEmail ? (
+                      <>
+                        {" "}
+                        · reply-to: <span className="font-mono">{item.reporterEmail}</span>
+                      </>
+                    ) : null}
+                    {item.reporterName ? (
+                      <>
+                        {" "}
+                        · name: {item.reporterName}
+                      </>
+                    ) : null}
+                  </p>
+                  {item.message ? (
+                    <p className="text-sm whitespace-pre-wrap rounded-md border bg-muted/30 p-3">{item.message}</p>
+                  ) : null}
+                  {item.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {item.tags.map((tag) => (
+                        <Badge key={`${item.id}-${tag}`} variant="secondary" className="text-xs">{tag}</Badge>
+                      ))}
+                    </div>
+                  )}
+                  {item.recommendedActions.length > 0 && (
+                    <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
+                      {item.recommendedActions.map((action) => (
+                        <li key={`${item.id}-${action}`}>{action}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    classifier: {item.classifierSource} · fallback layer {item.classifierFallbackLayer} · confidence {(item.classifierConfidence * 100).toFixed(0)}%
+                  </p>
+                  {item.reviewed && (
+                    <p className="text-xs text-muted-foreground">
+                      reviewed by: {item.reviewedBy || "unknown"} · {item.reviewedAt ? new Date(item.reviewedAt).toLocaleString() : "n/a"}
+                    </p>
+                  )}
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      variant={item.reviewed ? "outline" : "default"}
+                      disabled={feedbackReviewMutation.isPending}
+                      onClick={() =>
+                        feedbackReviewMutation.mutate({
+                          feedbackEventId: item.id,
+                          reviewed: !item.reviewed,
+                        })
+                      }
+                    >
+                      {item.reviewed ? "Mark Unreviewed" : "Mark Reviewed"}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {sortedFeedback.length === 0 && (
+                <p className="text-sm text-muted-foreground">No processed feedback events yet.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="appeals" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Gavel className="h-5 w-5" />
+                Appeals queue
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Voting rules: one admin decides alone; two admins must agree (unanimous); three or more require a
+                two-thirds supermajority to grant or deny. Granting a ban appeal lifts the suspension automatically.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {appealsLoading ? (
+                <p className="text-sm text-muted-foreground">Loading appeals…</p>
+              ) : adminAppeals.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No appeals yet.</p>
+              ) : (
+                adminAppeals.map((a) => (
+                  <div key={a.id} className="rounded-lg border p-4 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{a.title}</span>
+                      <Badge variant="outline">{a.subjectType}</Badge>
+                      <Badge variant={a.status === "open" ? "default" : "secondary"}>{a.status}</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono">{a.id}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Appellant: <span className="font-mono">{a.appellantUserId}</span> · ref:{" "}
+                      <span className="font-mono break-all">{a.subjectRef}</span>
+                    </p>
+                    <p className="text-sm whitespace-pre-wrap">{a.body}</p>
+                    <p className="text-xs text-muted-foreground">{a.threshold.ruleLabel}</p>
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      <Badge variant="secondary">Grant votes: {a.grantVotes} / {a.threshold.grantNeeded}</Badge>
+                      <Badge variant="secondary">Deny votes: {a.denyVotes} / {a.threshold.denyNeeded}</Badge>
+                    </div>
+                    {a.status === "open" ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          disabled={appealVoteMutation.isPending}
+                          onClick={() => appealVoteMutation.mutate({ appealId: a.id, decision: "grant" })}
+                        >
+                          Vote grant
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={appealVoteMutation.isPending}
+                          onClick={() => appealVoteMutation.mutate({ appealId: a.id, decision: "deny" })}
+                        >
+                          Vote deny
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{a.resolution || "Resolved."}</p>
+                    )}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="users" className="space-y-4">
+          <Card>
+            <CardContent className="py-3 text-sm flex flex-wrap items-center gap-2">
+              <Badge variant="outline">
+                Active users ({liveAnalytics?.activeWindowHours ?? 24}h): {liveAnalytics?.activeUsers24h ?? 0}
+              </Badge>
+              {liveAnalytics?.isSingleActiveUser && (
+                <span className="text-muted-foreground">Only one user is active in this window.</span>
+              )}
+            </CardContent>
+          </Card>
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -399,64 +2014,62 @@ export default function AdminPage() {
             <div className="space-y-2">
               {filteredUsers.map((u) => (
                 <Card key={u.id} className={u.isBanned ? "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/20" : ""}>
-                  <CardContent className="py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium truncate dark:text-white">
-                            {u.displayName || u.email}
-                          </p>
-                          <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-xs">
-                            {u.role}
-                          </Badge>
-                          {u.isBanned && (
-                            <Badge variant="destructive" className="text-xs">Banned</Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground truncate">{u.email}</p>
-                        {u.isBanned && (
-                          <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                            {u.banReason && <>Reason: {u.banReason}</>}
-                            {u.bannedAt && <> · Banned {new Date(u.bannedAt).toLocaleDateString()}</>}
-                          </p>
-                        )}
+                  <CardContent className="py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium truncate dark:text-white">{u.displayName || u.email}</p>
+                        <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-xs">{u.role}</Badge>
+                        {u.isBanned && <Badge variant="destructive" className="text-xs">Banned</Badge>}
                       </div>
+                      <p className="text-sm text-muted-foreground truncate">{u.email}</p>
+                      {(u.lifetimePremiumGrants ?? []).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {(u.lifetimePremiumGrants ?? []).map((g) => (
+                            <Badge key={`${u.id}-${g.planKey}`} variant="outline" className="text-xs border-amber-500/50 text-amber-800 dark:text-amber-200">
+                              {g.product} · lifetime
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex gap-2 shrink-0 ml-4">
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setGrantProduct("axtask");
+                          setGrantType("beta_tester");
+                          setLifetimeGrantUser(u);
+                        }}
+                        disabled={lifetimeGrantMutation.isPending}
+                      >
+                        Grant lifetime…
+                      </Button>
+                      {(u.lifetimePremiumGrants ?? []).length > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setLifetimeRevokeUser(u)}
+                          disabled={lifetimeRevokeMutation.isPending}
+                        >
+                          Revoke lifetime…
+                        </Button>
+                      )}
                       {u.role !== "admin" && u.id !== user?.id && (
                         u.isBanned ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => unbanMutation.mutate(u.id)}
-                            disabled={unbanMutation.isPending}
-                          >
-                            <ShieldOff className="h-4 w-4 mr-1" />
-                            Unban
-                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => unbanMutation.mutate(u.id)} disabled={unbanMutation.isPending}>Unban</Button>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => { setBanTarget(u); setBanReason(""); }}
-                          >
-                            <Shield className="h-4 w-4 mr-1" />
-                            Ban
-                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => { setBanTarget(u); setBanReason(""); }}>Ban</Button>
                         )
                       )}
                     </div>
                   </CardContent>
                 </Card>
               ))}
-              {filteredUsers.length === 0 && (
-                <p className="text-center text-muted-foreground py-8">No users found</p>
-              )}
             </div>
           )}
         </TabsContent>
 
-        {/* ── Security Logs Tab ─────────────────────────────────────── */}
         <TabsContent value="logs" className="space-y-4">
           {logsLoading ? (
             <p className="text-muted-foreground">Loading security logs...</p>
@@ -465,26 +2078,12 @@ export default function AdminPage() {
           ) : (
             <div className="space-y-1">
               {logs.map((log) => (
-                <div
-                  key={log.id}
-                  className="flex items-start gap-3 py-2 px-3 rounded-md hover:bg-muted/50 text-sm"
-                >
-                  <Badge
-                    variant={
-                      log.eventType.includes("banned") || log.eventType.includes("failed")
-                        ? "destructive"
-                        : log.eventType.includes("success") || log.eventType.includes("unbanned")
-                        ? "default"
-                        : "secondary"
-                    }
-                    className="text-xs shrink-0 mt-0.5"
-                  >
-                    {log.eventType}
-                  </Badge>
+                <div key={log.id} className="flex items-start gap-3 py-2 px-3 rounded-md hover:bg-muted/50 text-sm">
+                  <Badge variant={log.eventType.includes("failed") ? "destructive" : "secondary"} className="text-xs shrink-0 mt-0.5">{log.eventType}</Badge>
                   <div className="min-w-0 flex-1">
                     {log.details && <p className="text-muted-foreground truncate">{log.details}</p>}
                     <p className="text-xs text-muted-foreground">
-                      {log.createdAt ? new Date(log.createdAt).toLocaleString() : "---"}
+                      {log.createdAt ? new Date(log.createdAt).toLocaleString() : "—"}
                       {log.ipAddress && ` · ${log.ipAddress}`}
                     </p>
                   </div>
@@ -494,287 +2093,6 @@ export default function AdminPage() {
           )}
         </TabsContent>
 
-        {/* ── Forum Reports Tab ─────────────────────────────────────── */}
-        <TabsContent value="reports" className="space-y-4">
-          {/* Filters */}
-          <div className="flex flex-wrap items-center gap-2">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium dark:text-white">Status:</span>
-            {["all", "pending", "resolved", "dismissed"].map(s => (
-              <Button
-                key={s}
-                size="sm"
-                variant={statusFilter === s ? "default" : "outline"}
-                className="h-7 text-xs capitalize"
-                onClick={() => { setStatusFilter(s); setSelectedReports(new Set()); }}
-              >
-                {s}
-              </Button>
-            ))}
-            <span className="text-sm font-medium dark:text-white ml-2">Type:</span>
-            {[["all", "All"], ["post", "Posts"], ["comment", "Comments"]].map(([val, label]) => (
-              <Button
-                key={val}
-                size="sm"
-                variant={typeFilter === val ? "default" : "outline"}
-                className="h-7 text-xs"
-                onClick={() => { setTypeFilter(val); setSelectedReports(new Set()); }}
-              >
-                {label}
-              </Button>
-            ))}
-            {reports.some(r => r.status === "pending") && (
-              <Button size="sm" variant="ghost" className="h-7 text-xs ml-auto" onClick={selectAll}>
-                Select all pending
-              </Button>
-            )}
-          </div>
-
-          {/* Bulk action bar */}
-          {selectedArr.length > 0 && (
-            <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <span className="text-sm font-medium dark:text-blue-200">{selectedArr.length} selected</span>
-              <Button
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => setActionDialog({ type: "dismiss", ids: selectedArr })}
-              >
-                Dismiss selected
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                onClick={() => bulkHideMutation.mutate(selectedArr)}
-                disabled={bulkHideMutation.isPending}
-              >
-                {bulkHideMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <EyeOff className="h-3 w-3 mr-1" />}
-                Hide all content
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 text-xs ml-auto" onClick={clearSelection}>
-                Clear
-              </Button>
-            </div>
-          )}
-
-          {reportsQuery.isLoading ? (
-            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
-          ) : reports.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">No reports found.</p>
-          ) : (
-            <div className="space-y-3">
-              {reports.map((report) => (
-                <div
-                  key={report.id}
-                  className={`p-4 border rounded-lg transition-colors ${
-                    selectedReports.has(report.id)
-                      ? "border-blue-400 bg-blue-50 dark:bg-blue-950/20"
-                      : "bg-card border-border"
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    {report.status === "pending" && (
-                      <Checkbox
-                        checked={selectedReports.has(report.id)}
-                        onCheckedChange={() => toggleSelect(report.id)}
-                        className="mt-0.5 shrink-0"
-                      />
-                    )}
-                    <div className="flex-1 min-w-0 space-y-2">
-                      {/* Header row */}
-                      <div className="flex items-center flex-wrap gap-2">
-                        <Badge variant={report.status === "pending" ? "destructive" : report.status === "resolved" ? "default" : "secondary"}>
-                          {report.status}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          {report.postId ? "Post" : "Comment"}
-                        </Badge>
-                        {report.contentTitle && (
-                          <span className="text-sm font-medium dark:text-white truncate max-w-xs">
-                            "{report.contentTitle}"
-                          </span>
-                        )}
-                        <span className="text-xs text-muted-foreground ml-auto">
-                          {report.createdAt ? new Date(report.createdAt).toLocaleString() : ""}
-                        </span>
-                      </div>
-
-                      {/* Content preview */}
-                      <div className="bg-muted/50 dark:bg-gray-800/60 rounded-md p-2.5 text-sm">
-                        <p className="text-muted-foreground line-clamp-3">{report.contentBody}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Author: <span className="font-medium dark:text-gray-300">{report.contentAuthorName}</span>
-                        </p>
-                      </div>
-
-                      {/* Report info */}
-                      <div className="flex items-start gap-1 text-sm">
-                        <Flag className="h-3.5 w-3.5 text-orange-500 mt-0.5 shrink-0" />
-                        <span className="text-muted-foreground">
-                          <span className="font-medium dark:text-gray-300">{report.reporterName}</span> reported:{" "}
-                          <span className="italic">{report.reason}</span>
-                        </span>
-                      </div>
-
-                      {report.note && (
-                        <div className="flex items-start gap-1 text-xs text-muted-foreground bg-muted/30 rounded px-2 py-1">
-                          <ClipboardList className="h-3 w-3 mt-0.5 shrink-0" />
-                          Mod note: {report.note}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Action buttons */}
-                  {report.status === "pending" && (
-                    <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-border">
-                      {report.postId && (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs gap-1"
-                            disabled={hideContentMutation.isPending}
-                            onClick={() => hideContentMutation.mutate({ type: "posts", id: report.postId! })}
-                          >
-                            <EyeOff className="h-3 w-3" /> Hide post
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            className="h-7 text-xs gap-1"
-                            disabled={deletePostMutation.isPending}
-                            onClick={() => {
-                              if (confirm("Delete this post permanently?")) {
-                                deletePostMutation.mutate(report.postId!);
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3" /> Delete post
-                          </Button>
-                        </>
-                      )}
-                      {report.commentId && (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs gap-1"
-                            disabled={hideContentMutation.isPending}
-                            onClick={() => hideContentMutation.mutate({ type: "comments", id: report.commentId! })}
-                          >
-                            <EyeOff className="h-3 w-3" /> Hide comment
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            className="h-7 text-xs gap-1"
-                            disabled={deleteCommentMutation.isPending}
-                            onClick={() => {
-                              if (confirm("Delete this comment permanently?")) {
-                                deleteCommentMutation.mutate(report.commentId!);
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3" /> Delete comment
-                          </Button>
-                        </>
-                      )}
-                      <Button
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => setActionDialog({ type: "resolve", ids: [report.id] })}
-                      >
-                        <CheckCircle className="h-3 w-3 mr-1" /> Resolve
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => setActionDialog({ type: "dismiss", ids: [report.id] })}
-                      >
-                        <XCircle className="h-3 w-3 mr-1" /> Dismiss
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* ── Mod Log Tab ───────────────────────────────────────────── */}
-        <TabsContent value="modlog" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-primary" />
-              <h2 className="text-lg font-semibold dark:text-white">Moderation Audit Log</h2>
-            </div>
-          </div>
-
-          {modLogQuery.isLoading ? (
-            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
-          ) : modLog.length === 0 && modLogOffset === 0 ? (
-            <p className="text-center text-muted-foreground py-8">No moderation actions recorded yet.</p>
-          ) : (
-            <>
-              <div className="space-y-1">
-                {modLog.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="flex items-start gap-3 py-2.5 px-3 rounded-md hover:bg-muted/40 text-sm border-b border-border/40 last:border-0"
-                  >
-                    <Badge
-                      variant={
-                        entry.action.includes("delete") ? "destructive" :
-                        entry.action.includes("hide") ? "secondary" :
-                        "default"
-                      }
-                      className="text-xs shrink-0 mt-0.5"
-                    >
-                      {ACTION_LABELS[entry.action] ?? entry.action}
-                    </Badge>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-muted-foreground text-xs">
-                        By <span className="font-medium dark:text-gray-300">{entry.moderatorName}</span>
-                        {" · "}{entry.targetType}
-                        {entry.targetSnippet && (
-                          <span className="ml-1 italic text-muted-foreground">"{entry.targetSnippet.slice(0, 80)}{entry.targetSnippet.length > 80 ? "…" : ""}"</span>
-                        )}
-                      </p>
-                      {entry.note && (
-                        <p className="text-xs text-muted-foreground mt-0.5 italic">Note: {entry.note}</p>
-                      )}
-                    </div>
-                    <span className="text-xs text-muted-foreground shrink-0">
-                      {entry.createdAt ? new Date(entry.createdAt).toLocaleString() : ""}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-2 justify-center pt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={modLogOffset === 0}
-                  onClick={() => setModLogOffset(Math.max(0, modLogOffset - MOD_LOG_LIMIT))}
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={modLog.length < MOD_LOG_LIMIT}
-                  onClick={() => setModLogOffset(modLogOffset + MOD_LOG_LIMIT)}
-                >
-                  Next
-                </Button>
-              </div>
-            </>
-          )}
-        </TabsContent>
-
-        {/* ── Data Migration Tab ────────────────────────────────────── */}
         <TabsContent value="migration" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card>
@@ -808,10 +2126,12 @@ export default function AdminPage() {
                   <div className="flex gap-2">
                     <select
                       className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
-                      id="export-user-select"
-                      defaultValue=""
+                      value={selectedExportUserId}
+                      onChange={(e) => setSelectedExportUserId(e.target.value)}
                     >
-                      <option value="" disabled>Select a user...</option>
+                      <option value="" disabled>
+                        Select a user...
+                      </option>
                       {users.map((u) => (
                         <option key={u.id} value={u.id}>
                           {u.displayName || u.email} ({u.email})
@@ -820,10 +2140,9 @@ export default function AdminPage() {
                     </select>
                     <Button
                       variant="outline"
-                      disabled={exportMutation.isPending}
+                      disabled={exportMutation.isPending || !selectedExportUserId}
                       onClick={() => {
-                        const sel = document.getElementById("export-user-select") as HTMLSelectElement;
-                        if (sel?.value) exportMutation.mutate(sel.value);
+                        if (selectedExportUserId) exportMutation.mutate(selectedExportUserId);
                       }}
                     >
                       <Download className="h-4 w-4" />
@@ -920,11 +2239,7 @@ export default function AdminPage() {
                       <Button
                         className="flex-1"
                         disabled={importMutation.isPending}
-                        onClick={() => {
-                          if (confirm("This will import data into the database. Records with existing IDs will be skipped. Continue?")) {
-                            importMutation.mutate({ bundle: importBundle, dryRun: false, mode: importMode });
-                          }
-                        }}
+                        onClick={() => setImportConfirmOpen(true)}
                       >
                         {importMutation.isPending ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1004,64 +2319,410 @@ export default function AdminPage() {
             </Card>
           </div>
         </TabsContent>
+
+        <TabsContent value="engineering" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Repository inventory</CardTitle>
+              <CardDescription>
+                Read-only branch and recent-commit snapshot for recovery planning (requires admin step-up in production).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Branches</p>
+                  <pre className="text-xs max-h-64 overflow-auto rounded border bg-muted/40 p-2 whitespace-pre-wrap">
+                    {repoInventory?.branches ?? (adminApiEnabled ? "Loading…" : "—")}
+                  </pre>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Recent commits</p>
+                  <pre className="text-xs max-h-64 overflow-auto rounded border bg-muted/40 p-2 whitespace-pre-wrap">
+                    {repoInventory?.recentCommits ?? (adminApiEnabled ? "Loading…" : "—")}
+                  </pre>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Foundry</CardTitle>
+              <CardDescription>
+                Live git snapshot and append-only handoff log. In production, set{" "}
+                <code className="text-xs">ENABLE_FOUNDRY=true</code> or use a non-production deploy; requires admin
+                step-up like repo inventory.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2 items-center">
+                <Button type="button" variant="outline" size="sm" onClick={() => void refetchFoundryStatus()}>
+                  Refresh git status
+                </Button>
+                {foundryStatusQueryError && (
+                  <span className="text-xs text-muted-foreground">
+                    Foundry API unavailable (404 if disabled in production).
+                  </span>
+                )}
+              </div>
+              {"error" in (foundryStatus ?? {}) ? (
+                <p className="text-sm text-destructive">{(foundryStatus as { error: string }).error}</p>
+              ) : foundryStatus && !("error" in foundryStatus) ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-1 text-sm">
+                    <p>
+                      <span className="text-muted-foreground">Branch:</span>{" "}
+                      <span className="font-mono">{foundryStatus.branch}</span>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">HEAD:</span>{" "}
+                      <span className="font-mono text-xs break-all">{foundryStatus.commitSha}</span>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Upstream:</span>{" "}
+                      <span className="font-mono text-xs">{foundryStatus.upstream ?? "—"}</span>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Ahead / behind:</span>{" "}
+                      {foundryStatus.ahead} / {foundryStatus.behind}
+                    </p>
+                    <p className="text-xs text-muted-foreground break-all">{foundryStatus.statusShort}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Porcelain (capped)</p>
+                    <pre className="text-xs max-h-48 overflow-auto rounded border bg-muted/40 p-2 whitespace-pre-wrap">
+                      {foundryStatus.porcelainLines.length > 0
+                        ? foundryStatus.porcelainLines.join("\n")
+                        : "(clean)"}
+                      {foundryStatus.porcelainTruncated ? "\n…" : ""}
+                    </pre>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">{adminApiEnabled ? "Loading…" : "—"}</p>
+              )}
+
+              <div className="border-t pt-4 space-y-2">
+                <Label htmlFor="foundry-note">Handoff note (optional)</Label>
+                <Textarea
+                  id="foundry-note"
+                  value={foundryNote}
+                  onChange={(e) => setFoundryNote(e.target.value)}
+                  placeholder="What shipped, what to verify next…"
+                  rows={3}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={appendFoundryRunMutation.isPending || !adminApiEnabled}
+                  onClick={() => {
+                    const status = foundryStatus && !("error" in foundryStatus) ? foundryStatus : null;
+                    appendFoundryRunMutation.mutate({
+                      branch: status?.branch,
+                      commitSha: status?.commitSha,
+                      dirtySummary:
+                        status && status.porcelainLines.length > 0
+                          ? `${status.porcelainLines.length} paths dirty`
+                          : undefined,
+                      note: foundryNote.trim() || undefined,
+                    });
+                  }}
+                >
+                  {appendFoundryRunMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Logging…
+                    </>
+                  ) : (
+                    "Append run log"
+                  )}
+                </Button>
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Recent run logs</p>
+                <div className="max-h-56 overflow-y-auto space-y-2 rounded border bg-muted/30 p-2">
+                  {(foundryRuns?.runs ?? []).length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No entries yet.</p>
+                  ) : (
+                    (foundryRuns?.runs ?? []).map((run) => (
+                      <div key={run.id} className="text-xs border-b border-border/60 pb-2 last:border-0">
+                        <p className="font-mono text-[10px] text-muted-foreground">
+                          {run.createdAt ? new Date(run.createdAt).toLocaleString() : run.id}
+                        </p>
+                        <pre className="mt-1 whitespace-pre-wrap break-all font-mono">
+                          {JSON.stringify(run.payload, null, 2)}
+                        </pre>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
-      {/* Ban dialog */}
+      {commandCenterMode && (
+        <div className="fixed inset-0 z-[80] bg-background/95 backdrop-blur-sm">
+          <div className="h-full w-full overflow-auto p-6">
+            <div className="mx-auto max-w-[1700px] space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold">Command Center</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Full-screen live operations view with continuous telemetry.
+                  </p>
+                </div>
+                <Button variant="outline" onClick={() => setCommandCenterMode(false)}>
+                  <X className="h-4 w-4 mr-1" />
+                  Exit (Esc)
+                </Button>
+              </div>
+
+              <Card className="border-blue-300/50 bg-gradient-to-r from-blue-50/70 to-purple-50/50 dark:from-blue-950/20 dark:to-purple-950/20">
+                <CardContent className="py-3 font-mono text-sm">
+                  {incidentTickerItems.length > 0 ? incidentTickerItems[incidentTickerIndex] : "No active incident timeline events."}
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Card className="ring-1 ring-blue-400/20 shadow-md shadow-blue-400/10">
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-muted-foreground">Total tasks (global)</p>
+                    <p className="text-3xl font-bold">{animatedTasks}</p>
+                  </CardContent>
+                </Card>
+                <Card className="ring-1 ring-emerald-400/20 shadow-md shadow-emerald-400/10">
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-muted-foreground">Completion rate</p>
+                    <p className="text-3xl font-bold">{animatedCompletionRate}%</p>
+                  </CardContent>
+                </Card>
+                <Card className="ring-1 ring-rose-400/20 shadow-md shadow-rose-400/10">
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-muted-foreground">Urgent feedback</p>
+                    <p className="text-3xl font-bold">{animatedUrgentFeedback}</p>
+                  </CardContent>
+                </Card>
+                <Card className="ring-1 ring-amber-400/20 shadow-md shadow-amber-400/10">
+                  <CardContent className="pt-6">
+                    <p className="text-sm text-muted-foreground">Requests this hour</p>
+                    <p className="text-3xl font-bold">{animatedLiveRequests}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader><CardTitle>Completed Tasks Trend</CardTitle></CardHeader>
+                  <CardContent>
+                    <ChartContainer
+                      className="h-[320px] w-full"
+                      config={{ completed: { label: "Completed", color: "#22c55e" } }}
+                    >
+                      <LineChart data={liveAnalytics?.completionTrend ?? []}>
+                        <CartesianGrid vertical={false} />
+                        <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} />
+                        <YAxis allowDecimals={false} />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Line type="monotone" dataKey="completed" stroke="var(--color-completed)" strokeWidth={2} />
+                      </LineChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle>API Request Pulse (24h)</CardTitle></CardHeader>
+                  <CardContent>
+                    <ChartContainer
+                      className="h-[320px] w-full"
+                      config={{ requests: { label: "Requests", color: "#3b82f6" } }}
+                    >
+                      <BarChart data={liveAnalytics?.pulseByHour ?? []}>
+                        <CartesianGrid vertical={false} />
+                        <XAxis dataKey="hour" tickFormatter={(v) => String(v).slice(11, 16)} />
+                        <YAxis allowDecimals={false} />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Bar dataKey="requests" fill="var(--color-requests)" radius={4} />
+                      </BarChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Dialog open={!!banTarget} onOpenChange={(open) => !open && setBanTarget(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Ban User</DialogTitle>
-            <DialogDescription>
-              Ban <strong>{banTarget?.displayName || banTarget?.email}</strong>? They will not be able to log in until unbanned.
-            </DialogDescription>
+            <DialogDescription>Ban <strong>{banTarget?.displayName || banTarget?.email}</strong>? They will not be able to log in until unbanned.</DialogDescription>
           </DialogHeader>
-          <Input
-            placeholder="Reason for ban (required)"
-            value={banReason}
-            onChange={(e) => setBanReason(e.target.value)}
-          />
+          <Input placeholder="Reason for ban (required)" value={banReason} onChange={(e) => setBanReason(e.target.value)} />
           <DialogFooter>
             <Button variant="outline" onClick={() => setBanTarget(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={banReason.trim().length < 3 || banMutation.isPending} onClick={() => banTarget && banMutation.mutate({ userId: banTarget.id, reason: banReason })}>Confirm Ban</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!lifetimeGrantUser} onOpenChange={(open) => !open && setLifetimeGrantUser(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Grant lifetime premium</DialogTitle>
+            <DialogDescription>
+              Creates an active complimentary subscription (no end date). Logged in <code className="text-xs">premium_events</code> as{" "}
+              <code className="text-xs">admin_lifetime_granted</code> and in the security log.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm font-medium dark:text-white">
+              {lifetimeGrantUser?.displayName || lifetimeGrantUser?.email}
+            </p>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="grant-product">Product</label>
+              <select
+                id="grant-product"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                value={grantProduct}
+                onChange={(e) => setGrantProduct(e.target.value as "axtask" | "nodeweaver" | "bundle")}
+              >
+                <option value="axtask">AxTask</option>
+                <option value="nodeweaver">NodeWeaver</option>
+                <option value="bundle">Power Bundle</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="grant-type">Grant type</label>
+              <select
+                id="grant-type"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                value={grantType}
+                onChange={(e) => setGrantType(e.target.value as "beta_tester" | "patron" | "manual")}
+              >
+                <option value="beta_tester">Beta tester</option>
+                <option value="patron">Patron / supporter</option>
+                <option value="manual">Manual / other</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="grant-reason">Reason (audit trail)</label>
+              <Textarea
+                id="grant-reason"
+                placeholder="e.g. Early Docker beta feedback, referral from X, comp for outage…"
+                value={grantReason}
+                onChange={(e) => setGrantReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLifetimeGrantUser(null)}>Cancel</Button>
             <Button
-              variant="destructive"
-              disabled={banReason.trim().length < 3 || banMutation.isPending}
-              onClick={() => banTarget && banMutation.mutate({ userId: banTarget.id, reason: banReason })}
+              disabled={grantReason.trim().length < 3 || !lifetimeGrantUser || lifetimeGrantMutation.isPending}
+              onClick={() =>
+                lifetimeGrantUser &&
+                lifetimeGrantMutation.mutate({
+                  userId: lifetimeGrantUser.id,
+                  product: grantProduct,
+                  grantType,
+                  reason: grantReason.trim(),
+                })
+              }
             >
-              Confirm Ban
+              Grant access
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Resolve / Dismiss dialog */}
-      <Dialog open={!!actionDialog} onOpenChange={(open) => { if (!open) { setActionDialog(null); setActionNote(""); } }}>
-        <DialogContent>
+      <Dialog open={!!lifetimeRevokeUser} onOpenChange={(open) => !open && setLifetimeRevokeUser(null)}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="capitalize">{actionDialog?.type} {actionDialog?.ids.length === 1 ? "Report" : `${actionDialog?.ids.length} Reports`}</DialogTitle>
+            <DialogTitle>Revoke lifetime premium</DialogTitle>
             <DialogDescription>
-              Optionally add an internal note explaining the decision.
+              Marks the lifetime plan inactive. Logged as <code className="text-xs">admin_lifetime_revoked</code>.
             </DialogDescription>
           </DialogHeader>
-          <Textarea
-            placeholder="Internal note (optional)"
-            value={actionNote}
-            onChange={(e) => setActionNote(e.target.value)}
-            className="min-h-[80px]"
-          />
+          <div className="space-y-3">
+            <p className="text-sm font-medium dark:text-white">
+              {lifetimeRevokeUser?.displayName || lifetimeRevokeUser?.email}
+            </p>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="revoke-product">Product</label>
+              <select
+                id="revoke-product"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm dark:bg-gray-800 dark:text-white dark:border-gray-600"
+                value={revokeProduct}
+                onChange={(e) => setRevokeProduct(e.target.value as "axtask" | "nodeweaver" | "bundle")}
+              >
+                {(lifetimeRevokeUser?.lifetimePremiumGrants ?? []).map((g) => (
+                  <option key={g.planKey} value={g.product}>
+                    {g.product} ({g.planKey})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="revoke-reason">Reason (required)</label>
+              <Textarea
+                id="revoke-reason"
+                placeholder="Why access is being removed…"
+                value={revokeReason}
+                onChange={(e) => setRevokeReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setActionDialog(null); setActionNote(""); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => setLifetimeRevokeUser(null)}>Cancel</Button>
             <Button
-              disabled={resolveReportMutation.isPending}
+              variant="destructive"
+              disabled={revokeReason.trim().length < 3 || !lifetimeRevokeUser || lifetimeRevokeMutation.isPending}
+              onClick={() =>
+                lifetimeRevokeUser &&
+                lifetimeRevokeMutation.mutate({
+                  userId: lifetimeRevokeUser.id,
+                  product: revokeProduct,
+                  reason: revokeReason.trim(),
+                })
+              }
+            >
+              Revoke access
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={importConfirmOpen} onOpenChange={setImportConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Run database import?</DialogTitle>
+            <DialogDescription>
+              This writes to the database. Rows whose IDs already exist will be skipped. Use &quot;Dry Run&quot; first if
+              you are unsure.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setImportConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!importBundle || importMutation.isPending}
               onClick={() => {
-                if (!actionDialog) return;
-                resolveReportMutation.mutate({
-                  ids: actionDialog.ids,
-                  status: actionDialog.type === "resolve" ? "resolved" : "dismissed",
-                  note: actionNote || undefined,
-                });
+                setImportConfirmOpen(false);
+                if (importBundle) {
+                  importMutation.mutate({ bundle: importBundle, dryRun: false, mode: importMode });
+                }
               }}
             >
-              {resolveReportMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm"}
+              Import now
             </Button>
           </DialogFooter>
         </DialogContent>

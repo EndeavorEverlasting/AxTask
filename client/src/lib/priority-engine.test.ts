@@ -47,8 +47,11 @@ describe("PriorityEngine", () => {
       expect(PriorityEngine.classifyTask("submit report", "")).toBe("Administrative");
       expect(PriorityEngine.classifyTask("approve request", "sign document")).toBe("Administrative");
     });
+    it("classifies shopping", () => {
+      expect(PriorityEngine.classifyTask("buy groceries", "")).toBe("Shopping");
+    });
     it("returns General for unclassified tasks", () => {
-      expect(PriorityEngine.classifyTask("buy groceries", "")).toBe("General");
+      expect(PriorityEngine.classifyTask("read a book", "")).toBe("General");
     });
   });
 
@@ -82,38 +85,26 @@ describe("PriorityEngine", () => {
 
     it("uses manual urgency * impact when provided", () => {
       const result = PriorityEngine.calculatePreviewPriority("simple task", "", 5, 5);
+      // manual = (5*5)/2 = 12.5, so score = max(keywordScore, 12.5)
       expect(result.score).toBeGreaterThanOrEqual(12);
     });
 
-    it("scores non-zero with urgency only (no impact)", () => {
-      const result = PriorityEngine.calculatePreviewPriority("", "", 5, null);
+    it("scores non-zero with urgency only (single-slider fix)", () => {
+      const result = PriorityEngine.calculatePreviewPriority("simple task", "", 5, null);
       expect(result.score).toBe(4);
       expect(result.priority).toBe("Medium-High");
     });
 
-    it("scores non-zero with impact only (no urgency)", () => {
-      const result = PriorityEngine.calculatePreviewPriority("", "", null, 5);
+    it("scores non-zero with impact only (single-slider fix)", () => {
+      const result = PriorityEngine.calculatePreviewPriority("simple task", "", null, 5);
       expect(result.score).toBe(4);
       expect(result.priority).toBe("Medium-High");
     });
 
-    it("prefers urgency*impact over single urgency when both set", () => {
-      const both = PriorityEngine.calculatePreviewPriority("", "", 5, 5);
-      const single = PriorityEngine.calculatePreviewPriority("", "", 5, null);
-      expect(both.score).toBeGreaterThan(single.score);
-    });
-
-    it("scores everyday keywords: upgrade", () => {
-      const result = PriorityEngine.calculatePreviewPriority("upgrade SSD", "");
-      expect(result.score).toBeGreaterThanOrEqual(2);
-      expect(result.priority).not.toBe("Low");
-    });
-
-    it("scores everyday keywords: order, schedule", () => {
-      const r1 = PriorityEngine.calculatePreviewPriority("order supplies", "");
-      expect(r1.score).toBeGreaterThanOrEqual(2);
-      const r2 = PriorityEngine.calculatePreviewPriority("schedule dentist", "");
-      expect(r2.score).toBeGreaterThanOrEqual(2);
+    it("scores everyday keywords: upgrade, order, schedule", () => {
+      expect(PriorityEngine.calculatePreviewPriority("upgrade SSD", "").score).toBeGreaterThanOrEqual(2);
+      expect(PriorityEngine.calculatePreviewPriority("order supplies", "").score).toBeGreaterThanOrEqual(2);
+      expect(PriorityEngine.calculatePreviewPriority("schedule dentist", "").score).toBeGreaterThanOrEqual(2);
     });
 
     it("scores everyday keywords: buy, pay, renew", () => {
@@ -137,13 +128,13 @@ describe("PriorityEngine", () => {
       expect(result).toHaveProperty("isRepeated");
     });
 
-    it("scores non-zero with urgency only", async () => {
+    it("scores non-zero with urgency only (single-slider fix)", async () => {
       const result = await PriorityEngine.calculatePriority("", "", 5, null);
       expect(result.score).toBe(4);
       expect(result.priority).toBe("Medium-High");
     });
 
-    it("scores non-zero with impact only", async () => {
+    it("scores non-zero with impact only (single-slider fix)", async () => {
       const result = await PriorityEngine.calculatePriority("", "", null, 5);
       expect(result.score).toBe(4);
       expect(result.priority).toBe("Medium-High");

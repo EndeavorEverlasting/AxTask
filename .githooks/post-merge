@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+set -eu
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$REPO_ROOT"
+
+CHANGED_FILES=""
+if git rev-parse --verify ORIG_HEAD >/dev/null 2>&1; then
+  CHANGED_FILES="$(git diff --name-only ORIG_HEAD HEAD || true)"
+fi
+
+case "$CHANGED_FILES" in
+  *package.json*|*package-lock.json*|*npm-shrinkwrap.json*)
+    SHOULD_SYNC=1
+    ;;
+  *)
+    SHOULD_SYNC=0
+    ;;
+esac
+
+if [ "$SHOULD_SYNC" -eq 0 ]; then
+  exit 0
+fi
+
+if command -v node >/dev/null 2>&1; then
+  node tools/local/sync-deps.mjs || true
+else
+  echo "[deps-sync] Node.js was not found. Run dependency sync manually." >&2
+fi

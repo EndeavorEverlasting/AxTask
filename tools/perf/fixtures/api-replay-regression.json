@@ -1,0 +1,15 @@
+[
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 2800 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 2900 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 3100 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 3200 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 2950 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 3050 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 3300 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 3400 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 3150 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 3250 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 3000 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 3600 },
+  { "route": "/api/tasks", "method": "GET", "statusCode": 200, "durationMs": 3500 }
+]

@@ -1,0 +1,11 @@
+{
+  "delivery_keywords": [
+    "logistics",
+    "inventory / staging / cleanup"
+  ],
+  "delivery_bucket": "Delivery / Transport / Disposal",
+  "default_bucket": "Neurons",
+  "manager_project": "Northwell - Neurons",
+  "manager_assignment_default": "Neuron Installation",
+  "manager_assignment_delivery": "Delivery / Transport / Disposal"
+}

@@ -1,4 +1,10 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { AXTASK_CLIENT_INSTANCE_HEADER, AXTASK_CSRF_COOKIE, AXTASK_CSRF_HEADER } from "@shared/http-auth";
+import { getClientInstanceId } from "./client-instance-id";
+
+const csrfCookiePattern = new RegExp(
+  `(?:^|;\\s*)${AXTASK_CSRF_COOKIE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^;]*)`,
+);
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -8,27 +14,40 @@ async function throwIfResNotOk(res: Response) {
 }
 
 export function getCsrfToken(): string | null {
-  const match = document.cookie.match(/(?:^|;\s*)axtask\.csrf=([^;]*)/);
+  const match = document.cookie.match(csrfCookiePattern);
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+/** Same as {@link apiRequest} but does not throw on non-OK status (for conflict handling). */
+export async function apiFetch(
+  method: string,
+  url: string,
+  data?: unknown | undefined,
+  extraHeaders?: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const headers: Record<string, string> = { ...(extraHeaders || {}) };
+  if (data !== undefined && data !== null) headers["Content-Type"] = "application/json";
+  const csrfToken = getCsrfToken();
+  if (csrfToken && method !== "GET") headers[AXTASK_CSRF_HEADER] = csrfToken;
+  headers[AXTASK_CLIENT_INSTANCE_HEADER] = getClientInstanceId();
+
+  return fetch(url, {
+    method,
+    headers,
+    body: data !== undefined && data !== null ? JSON.stringify(data) : undefined,
+    credentials: "include",
+    signal,
+  });
 }
 
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
+  extraHeaders?: Record<string, string>,
 ): Promise<Response> {
-  const headers: Record<string, string> = {};
-  if (data) headers["Content-Type"] = "application/json";
-  const csrfToken = getCsrfToken();
-  if (csrfToken && method !== "GET") headers["x-csrf-token"] = csrfToken;
-
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
-
+  const res = await apiFetch(method, url, data, extraHeaders);
   await throwIfResNotOk(res);
   return res;
 }
@@ -41,6 +60,9 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
+      headers: {
+        [AXTASK_CLIENT_INSTANCE_HEADER]: getClientInstanceId(),
+      },
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
@@ -51,13 +73,36 @@ export const getQueryFn: <T>(options: {
     return await res.json();
   };
 
+/** Default stale window before background refetch (Phase A: readable “stale” state). */
+export const DEFAULT_QUERY_STALE_TIME_MS = 5 * 60 * 1000;
+
+/**
+ * Global react-query defaults.
+ *
+ * `refetchOnWindowFocus` is **false** by default. Tab-focus refetch was
+ * causing visible jank (scroll interruptions, reshuffled DOM, re-parse of
+ * markdown + avatars) every time the user Alt-Tabbed back into AxTask, and
+ * the perceived data value was low because most AxTask surfaces already
+ * poll or invalidate on mutation. Surfaces that genuinely need
+ * focus-refresh must opt in explicitly — see the query-defaults audit in
+ * `docs/PERF_PERFORMANCE_BUDGETS.md` for the list of callers that opt in.
+ *
+ * `refetchInterval` is `false` by default for the same reason. Admin
+ * surfaces that want live data (security events, analytics overview,
+ * db-size card, storage rollups) opt in at the `useQuery` site with a
+ * deliberate interval, scoped to their `enabled: adminApiEnabled` gate so
+ * the polling only fires while an admin is looking at the panel.
+ */
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      refetchOnReconnect: true,
+      staleTime: DEFAULT_QUERY_STALE_TIME_MS,
+      gcTime: 24 * 60 * 60 * 1000,
+      networkMode: "offlineFirst",
       retry: false,
     },
     mutations: {

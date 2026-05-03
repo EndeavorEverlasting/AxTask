@@ -1,0 +1,54 @@
+/**
+ * Known in-app paths (no host, no hash). Keep in sync with `<Router>` in App.tsx.
+ * Used for last-route persistence and post-login `?next=` validation.
+ */
+export const VALID_APP_PATHS = [
+  "/",
+  "/tasks",
+  "/calendar",
+  "/analytics",
+  "/import-export",
+  "/google-sheets",
+  "/checklist",
+  "/shopping",
+  "/bundles",
+  "/bundles/new",
+  "/planner",
+  "/planner/timeline",
+  "/mini-games",
+  "/feedback",
+  "/community",
+  "/collab",
+  "/huddle",
+  "/messages",
+  "/admin",
+  "/admin/ai-reminder-lab",
+  "/rewards",
+  "/skill-tree",
+  "/premium",
+  "/billing",
+  "/account",
+  "/profile",
+  "/settings",
+  "/appeals",
+  "/contact",
+  "/privacy",
+  "/terms",
+  "/billing-bridge",
+  "/backup",
+  "/trash",
+] as const;
+
+export type ValidAppPath =
+  | (typeof VALID_APP_PATHS)[number]
+  | `/shopping/shared/${string}`
+  | `/bundles/${string}`;
+
+export function isValidAppPath(path: string): path is ValidAppPath {
+  if ((VALID_APP_PATHS as readonly string[]).includes(path)) return true;
+  if (/^\/shopping\/shared\/[^/?#]+$/.test(path)) return true;
+  if (/^\/bundles\/[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$/i.test(path)) {
+    return true;
+  }
+  return false;
+}

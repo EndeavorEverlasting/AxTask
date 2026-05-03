@@ -1,0 +1,19 @@
+---
+description: PostgreSQL schema, SQL migrations, and Drizzle sync (AxTask)
+globs:
+  - shared/schema.ts
+  - drizzle.config.ts
+  - migrations/**/*.sql
+  - scripts/apply-migrations.mjs
+  - server/storage.ts
+  - Dockerfile
+  - docker-compose.yml
+---
+
+# Database schema and migrations
+
+- **Source of truth:** [`shared/schema.ts`](shared/schema.ts) and [`drizzle.config.ts`](drizzle.config.ts). After edits, run **`npm run db:push`** (or `db:push:ci` in CI-style flows) when the DB must match Drizzle.
+- **Versioned SQL:** Add a new numbered file under [`migrations/`](migrations/) when you need ordered DDL (new tables/columns/indexes, backfills) across environments. Applied by [`scripts/apply-migrations.mjs`](scripts/apply-migrations.mjs), which records filenames in **`applied_sql_migrations`**.
+- **Local order:** Prefer the smart start path in [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md): SQL migrations first, then conditional `db:push`.
+- **Deploy:** The [`Dockerfile`](Dockerfile) `CMD` and Compose **`migrate`** service already run **`apply-migrations.mjs`** then **`drizzle-kit push`** before the app. Do not tell users to SSH in for that default path—ensure `DATABASE_URL` is set on the host.
+- **Full narrative:** [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md). Do not have the runtime app or an LLM execute arbitrary DDL; agents **author** SQL + schema changes in the repo; deploy pipelines **apply** them.

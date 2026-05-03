@@ -9,7 +9,6 @@ import {
   updateContributionEarnings,
   incrementContributionConfirmCount,
 } from "./storage";
-import { getActiveSkillIds } from "./coin-engine";
 
 const CLASSIFICATION_BASE_COINS: Record<string, number> = {
   Crisis: 15,
@@ -18,11 +17,11 @@ const CLASSIFICATION_BASE_COINS: Record<string, number> = {
   Research: 12,
   Maintenance: 8,
   Administrative: 6,
+  Shopping: 6,
   General: 5,
 };
 
-const COMPOUND_RATE_BASE = 0.08;
-const COMPOUND_RATE_PLANNING2 = 0.12;
+const COMPOUND_RATE = 0.08;
 const CONFIRMER_BASE_REWARD = 3;
 const MAX_COMPOUND_PERIODS = 50;
 
@@ -44,26 +43,23 @@ export async function awardCoinsForClassification(
   task: Task
 ): Promise<ClassificationAwardResult | null> {
   if (!task.classification || task.classification === "General") return null;
-  if (task.forceImported) return null;
 
   await getOrCreateWallet(userId);
 
-  const activeIds = await getActiveSkillIds(userId);
-  const baseAmount = CLASSIFICATION_BASE_COINS[task.classification] || 5;
-  const coins = activeIds.has("systems-2") ? Math.round(baseAmount * 1.15) : baseAmount;
+  const base = CLASSIFICATION_BASE_COINS[task.classification] || 5;
 
-  await createClassificationContribution(task.id, userId, task.classification, coins);
+  await createClassificationContribution(task.id, userId, task.classification, base);
 
   const { wallet } = await addCoins(
     userId,
-    coins,
+    base,
     "classification",
     `Classified "${task.activity.substring(0, 80)}" as ${task.classification}`,
     task.id
   );
 
   return {
-    coinsEarned: coins,
+    coinsEarned: base,
     newBalance: wallet.balance,
     classification: task.classification,
   };
@@ -84,17 +80,12 @@ export async function awardCoinsForConfirmation(
 
   await getOrCreateWallet(confirmingUserId);
 
-  const confirmerActiveIds = await getActiveSkillIds(confirmingUserId);
-  const effectiveConfirmerReward = confirmerActiveIds.has("systems-2")
-    ? Math.round(CONFIRMER_BASE_REWARD * 1.15)
-    : CONFIRMER_BASE_REWARD;
-
   const primaryContribution = contributions[0];
-  await recordConfirmation(primaryContribution.id, taskId, confirmingUserId, effectiveConfirmerReward);
+  await recordConfirmation(primaryContribution.id, taskId, confirmingUserId, CONFIRMER_BASE_REWARD);
 
   const { wallet: confirmerWallet } = await addCoins(
     confirmingUserId,
-    effectiveConfirmerReward,
+    CONFIRMER_BASE_REWARD,
     "classification_confirm",
     `Confirmed classification on task`,
     taskId
@@ -105,17 +96,9 @@ export async function awardCoinsForConfirmation(
   for (const contrib of contributions) {
     const n = Math.min(contrib.confirmationCount + 1, MAX_COMPOUND_PERIODS);
 
-    const contributorActiveIds = await getActiveSkillIds(contrib.userId);
-    const rate = contributorActiveIds.has("planning-2") ? COMPOUND_RATE_PLANNING2 : COMPOUND_RATE_BASE;
-
-    const compoundedValue = contrib.baseCoinsAwarded * Math.pow(1 + rate, n);
-    const previousValue = contrib.baseCoinsAwarded * Math.pow(1 + rate, Math.max(n - 1, 0));
-    let bonus = Math.round(compoundedValue - previousValue);
-
-    // Apply systems-2 global multiplier to the compound interest bonus
-    if (contributorActiveIds.has("systems-2")) {
-      bonus = Math.round(bonus * 1.15);
-    }
+    const compoundedValue = contrib.baseCoinsAwarded * Math.pow(1 + COMPOUND_RATE, n);
+    const previousValue = contrib.baseCoinsAwarded * Math.pow(1 + COMPOUND_RATE, Math.max(n - 1, 0));
+    const bonus = Math.round(compoundedValue - previousValue);
 
     if (bonus > 0) {
       await incrementContributionConfirmCount(contrib.id);
@@ -140,18 +123,17 @@ export async function awardCoinsForConfirmation(
   const totalConfirmations = updatedContributions.reduce((sum, c) => sum + c.confirmationCount, 0);
 
   return {
-    confirmerCoins: effectiveConfirmerReward,
+    confirmerCoins: CONFIRMER_BASE_REWARD,
     contributorBonuses,
     totalConfirmations,
     newBalance: confirmerWallet.balance,
   };
 }
 
-export function getCompoundProjection(baseCoins: number, confirmations: number, useHighRate = false): number[] {
-  const rate = useHighRate ? COMPOUND_RATE_PLANNING2 : COMPOUND_RATE_BASE;
+export function getCompoundProjection(baseCoins: number, confirmations: number): number[] {
   const projections: number[] = [];
   for (let i = 0; i <= Math.min(confirmations, MAX_COMPOUND_PERIODS); i++) {
-    projections.push(Math.round(baseCoins * Math.pow(1 + rate, i)));
+    projections.push(Math.round(baseCoins * Math.pow(1 + COMPOUND_RATE, i)));
   }
   return projections;
 }

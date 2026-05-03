@@ -77,12 +77,12 @@ export function useGlowEngine(): GlowContextValue {
     if (type) {
       setActiveGlows(prev => {
         const next = new Map(prev);
-        for (const [id, t] of next) {
+        next.forEach((t, id) => {
           if (t === type) {
             clearTimer(id);
             next.delete(id);
           }
-        }
+        });
         return next;
       });
     } else {

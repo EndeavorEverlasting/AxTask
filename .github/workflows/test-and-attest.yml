@@ -1,0 +1,176 @@
+# Runs tests on main/master and updates docs/TEST_ATTESTATION.md when green.
+name: test-and-attest
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: test-and-attest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-attest:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: axtask
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d axtask"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/axtask
+      # Playwright `webServer` runs `npm run start:app` (NODE_ENV=production); server requires this.
+      SESSION_SECRET: ci-playwright-session-secret-must-be-at-least-32-chars
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Release contract guardrail
+        run: npm run release:check
+
+      # Playwright `webServer` (see playwright.config.ts) runs `npm run start:app`, which
+      # requires `dist/index.js` from the production bundle. Build must precede UI tests.
+      - name: Production build
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Planner scroll visibility regression (Playwright)
+        run: npm run test:ui:planner-scroll
+
+      - name: Client bundle size budget
+        # AXTASK_STRICT_CHUNKS promotes the per-vendor-chunk soft ceilings
+        # from warnings to CI failures. We ratcheted the ceilings in
+        # perf/pass-3-sprint to ~20% over measured sizes, so an accidental
+        # static import of a heavy vendor into the main chunk will fail
+        # fast here instead of silently inflating the user's first paint.
+        env:
+          AXTASK_STRICT_CHUNKS: "1"
+        run: npm run perf:bundle
+
+      - name: API latency heuristics replay
+        # Fails if the canned security_events fixture emits any critical
+        # signal. Safe to run on every PR because the fixture is
+        # deterministic. See docs/PERF_PERFORMANCE_BUDGETS.md.
+        run: npm run perf:api-replay
+
+      - name: Bootstrap Drizzle schema, apply SQL migrations, verify idempotent push
+        # Greenfield CI DBs have no tables yet, so migrations/0001_youtube_probe_tables.sql
+        # (which FK-references users) cannot run until drizzle-kit push has materialized
+        # the baseline. Production DBs have had `users` since long before 0001 was
+        # authored, so their start scripts legitimately run apply-migrations.mjs first.
+        # Ordering invariant is guarded by server/ci-migration-order.contract.test.ts.
+        run: |
+          npm run db:push:ci </dev/null
+          node scripts/apply-migrations.mjs
+          npm run db:push:ci </dev/null
+
+      - name: Verify users TOTP columns exist in DB
+        run: npm run test:pg-schema
+
+      - name: Update test attestation
+        if: success() && github.event_name == 'push'
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: node scripts/ci/update-test-attestation.mjs
+
+      - name: Commit attestation
+        if: success() && github.event_name == 'push'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(ci): update TEST_ATTESTATION.md [skip ci]"
+          file_pattern: docs/TEST_ATTESTATION.md
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Docker build (root Dockerfile)
+        run: docker build -t axtask-ci:check .
+      - name: Verify runtime image has bundled app assets
+        run: docker run --rm axtask-ci:check sh -c 'test -f dist/index.js && test -f dist/public/index.html && test -f package.json && test -f drizzle.config.ts'
+
+  check-nodeweaver-file:
+    runs-on: ubuntu-latest
+    outputs:
+      file_present: ${{ steps.check.outputs.file_present }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - id: check
+        run: |
+          if [ -f services/nodeweaver/upstream/pyproject.toml ]; then
+            echo "file_present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "file_present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  nodeweaver-pytest:
+    needs: [check-nodeweaver-file]
+    runs-on: ubuntu-latest
+    if: needs.check-nodeweaver-file.outputs.file_present == 'true'
+    defaults:
+      run:
+        working-directory: services/nodeweaver/upstream
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps (align with NodeWeaver Dockerfile)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ libasound2-dev portaudio19-dev libsndfile1-dev ffmpeg
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "services/nodeweaver/upstream/uv.lock"
+
+      - name: Sync Python env and run pytest
+        run: |
+          uv sync --frozen --extra dev
+          uv run python -m pytest

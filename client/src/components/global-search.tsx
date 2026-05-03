@@ -1,43 +1,73 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect, useRef, useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Task } from "@shared/schema";
+import type { PublicTaskListItem } from "@shared/public-client-dtos";
+import { SafeMarkdownHtml } from "@/components/safe-markdown-html";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { apiFetch } from "@/lib/queryClient";
+import { applyWalletRewardHybrid } from "@/lib/wallet-cache";
 import { Search, X, Calendar, Tag, Clock } from "lucide-react";
+
+/**
+ * GlobalSearch — full-screen overlay that searches tasks by activity, notes, or
+ * classification. Ported from `baseline/published` commit 163b69x with these
+ * adaptations for main:
+ *
+ * - Hits the existing `GET /api/tasks/search/:query` route (not baseline's
+ *   query-string variant) so searches participate in `tryCappedCoinAward`
+ *   engagement rewards already wired in `server/routes.ts`.
+ * - Query-key shape matches `client/src/components/task-list.tsx` so cached
+ *   results are shared: `["/api/tasks/search", trimmedQuery]`.
+ * - Keyboard: Esc closes; ArrowUp/ArrowDown move selection; Enter opens the
+ *   highlighted row. Consumer dispatches `axtask-open-task-edit` (main's
+ *   existing handshake) after navigation, so no `pending-edit.ts` helper is
+ *   needed.
+ * - No `cmdk` / Command dependency — kept decoupled from `ui/command.tsx`.
+ */
+
+interface GlobalSearchProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelectTask: (task: Task) => void;
+}
 
 function highlightMatch(text: string, query: string): JSX.Element {
   if (!query || query.length < 2) return <>{text}</>;
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp(`(${escaped})`, 'gi');
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
   const parts = text.split(regex);
   return (
     <>
       {parts.map((part, i) =>
         i % 2 === 1 ? (
-          <mark key={i} className="bg-amber-300/40 dark:bg-amber-500/30 text-inherit rounded-sm px-0.5 ring-1 ring-amber-400/50 dark:ring-amber-500/40">{part}</mark>
+          <mark
+            key={i}
+            className="bg-amber-300/40 dark:bg-amber-500/30 text-inherit rounded-sm px-0.5 ring-1 ring-amber-400/50 dark:ring-amber-500/40"
+          >
+            {part}
+          </mark>
         ) : (
           <span key={i}>{part}</span>
-        )
+        ),
       )}
     </>
   );
 }
 
-interface GlobalSearchProps {
-  open: boolean;
-  onClose: () => void;
-  onSelectTask: (task: Task) => void;
-}
-
-export function GlobalSearch({ open, onClose, onSelectTask }: GlobalSearchProps) {
+export function GlobalSearch({ open, onOpenChange, onSelectTask }: GlobalSearchProps) {
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) {
       setQuery("");
       setDebouncedQuery("");
+      setSelectedIndex(0);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
@@ -47,122 +77,230 @@ export function GlobalSearch({ open, onClose, onSelectTask }: GlobalSearchProps)
     return () => clearTimeout(timer);
   }, [query]);
 
+  const trimmed = debouncedQuery.trim();
+  const canQuery = open && trimmed.length >= 2;
+
   const { data: results = [], isLoading } = useQuery<Task[]>({
-    queryKey: ["/api/tasks/search", { q: debouncedQuery }],
-    queryFn: async () => {
-      if (!debouncedQuery || debouncedQuery.length < 2) return [];
-      const res = await fetch(`/api/tasks/search?q=${encodeURIComponent(debouncedQuery)}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+    queryKey: ["/api/tasks/search", trimmed],
+    queryFn: async ({ queryKey, signal }) => {
+      const q = queryKey[1] as string;
+      const res = await apiFetch(
+        "GET",
+        `/api/tasks/search/${encodeURIComponent(q)}`,
+        undefined,
+        undefined,
+        signal,
+      );
+      if (!res.ok) {
+        const text = (await res.text()) || res.statusText;
+        throw new Error(`${res.status}: ${text}`);
+      }
+      const headerBal = res.headers.get("x-axtask-wallet-balance");
+      if (headerBal != null) {
+        const n = Number(headerBal);
+        if (Number.isFinite(n)) {
+          applyWalletRewardHybrid(queryClient, { balance: n });
+        }
+      }
+      return (await res.json()) as Task[];
     },
-    enabled: open && debouncedQuery.length >= 2,
+    enabled: canQuery,
+    staleTime: 15_000,
   });
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      onClose();
-    }
-  }, [onClose]);
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [trimmed, results.length]);
+
+  const close = useCallback(() => {
+    onOpenChange(false);
+  }, [onOpenChange]);
+
+  const pick = useCallback(
+    (task: Task) => {
+      onSelectTask(task);
+      close();
+    },
+    [onSelectTask, close],
+  );
+
+  const handleKeyDown = useCallback(
+    (e: ReactKeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+        return;
+      }
+      if (results.length === 0) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const task = results[selectedIndex];
+        if (task) pick(task);
+      }
+    },
+    [close, results, selectedIndex, pick],
+  );
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[10vh]" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[100] flex items-start justify-center pt-[10vh]"
+      onClick={close}
+      data-testid="global-search-overlay"
+    >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <div
-        className="relative w-[95vw] max-w-2xl bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+        className="relative w-[95vw] max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-border/40 glass-panel-glossy"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Global task search"
       >
-        <div className="flex items-center px-4 border-b border-gray-200 dark:border-gray-700">
-          <Search className="h-5 w-5 text-gray-400 shrink-0" />
-          <Input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search all tasks by activity, notes, or classification..."
-            className="border-0 focus-visible:ring-0 text-base h-14"
-          />
-          <button onClick={onClose} className="shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded">
-            <X className="h-5 w-5 text-gray-400" />
+        <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-2xl" aria-hidden>
+          <div className="absolute -top-1/4 left-1/3 h-[45%] w-[70%] rotate-6 rounded-full bg-gradient-to-r from-emerald-600/10 via-cyan-500/8 to-transparent blur-[72px]" />
+          <div className="absolute -bottom-1/4 right-1/4 h-[40%] w-[55%] -rotate-12 rounded-full bg-gradient-to-l from-violet-600/8 via-indigo-500/6 to-transparent blur-[64px]" />
+        </div>
+
+        <div className="relative z-[1] flex items-center gap-2 border-b border-border/40 px-3 py-2.5">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Search all tasks by activity, notes, or classification..."
+              className="h-10 border-0 bg-transparent pl-9 pr-2 text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 md:text-sm"
+              data-testid="global-search-input"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={close}
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent"
+            aria-label="Close search"
+            data-testid="global-search-close"
+          >
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto">
-          {debouncedQuery.length < 2 && (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400 text-sm">
+        <div className="relative z-[1] max-h-[60vh] overflow-y-auto" ref={listRef}>
+          {trimmed.length < 2 && (
+            <div className="p-8 text-center text-sm text-muted-foreground">
               Type at least 2 characters to search across all your tasks
             </div>
           )}
 
-          {isLoading && debouncedQuery.length >= 2 && (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400 text-sm">
-              Searching...
-            </div>
+          {isLoading && canQuery && (
+            <div className="p-8 text-center text-sm text-muted-foreground">Searching...</div>
           )}
 
-          {!isLoading && debouncedQuery.length >= 2 && results.length === 0 && (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400 text-sm">
-              No tasks found matching "{debouncedQuery}"
+          {!isLoading && canQuery && results.length === 0 && (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              No tasks found matching &ldquo;{trimmed}&rdquo;
             </div>
           )}
 
           {results.length > 0 && (
-            <div className="py-2">
-              <div className="px-4 py-1 text-xs text-gray-500 dark:text-gray-400">
+            <div className="py-2" data-testid="global-search-results">
+              <div className="px-4 py-1 text-xs text-muted-foreground">
                 {results.length} result{results.length !== 1 ? "s" : ""}
               </div>
-              {results.map((task) => (
-                <button
-                  key={task.id}
-                  className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0"
-                  onClick={() => { onSelectTask(task); onClose(); }}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                        {highlightMatch(task.activity, debouncedQuery)}
-                      </div>
-                      {task.notes && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
-                          {highlightMatch(task.notes, debouncedQuery)}
+              {results.map((task, idx) => {
+                const isActive = idx === selectedIndex;
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    className={`w-full border-b border-border/30 px-4 py-3 text-left transition-colors last:border-0 ${
+                      isActive
+                        ? "bg-amber-50 dark:bg-amber-900/10"
+                        : "hover:bg-muted/40"
+                    }`}
+                    onMouseEnter={() => setSelectedIndex(idx)}
+                    onClick={() => pick(task)}
+                    data-testid={`global-search-result-${task.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-foreground">
+                          {highlightMatch(task.activity ?? "", trimmed)}
                         </div>
-                      )}
-                      <div className="flex items-center gap-3 mt-1.5">
-                        <span className="flex items-center gap-1 text-xs text-gray-400">
-                          <Calendar className="h-3 w-3" />
-                          {task.date}
-                        </span>
-                        <span className="flex items-center gap-1 text-xs text-gray-400">
-                          <Tag className="h-3 w-3" />
-                          {highlightMatch(task.classification, debouncedQuery)}
-                        </span>
-                        {task.updatedAt && (
-                          <span className="flex items-center gap-1 text-xs text-gray-400">
-                            <Clock className="h-3 w-3" />
-                            {new Date(task.updatedAt).toLocaleDateString()}
-                          </span>
+                        {task.notes && (
+                          <div className="mt-1 line-clamp-2 text-xs text-muted-foreground [&_.axtask-md-paragraph]:m-0 [&_.axtask-md-image]:max-h-10 [&_.axtask-md-image]:rounded">
+                            <SafeMarkdownHtml
+                              source={task.notes}
+                              allowedAttachmentIds={(task as Partial<PublicTaskListItem>).noteAttachmentIds ?? []}
+                            />
+                          </div>
+                        )}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-3">
+                          {task.date && (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Calendar className="h-3 w-3" />
+                              {task.date}
+                            </span>
+                          )}
+                          {task.classification && (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Tag className="h-3 w-3" />
+                              {highlightMatch(task.classification, trimmed)}
+                            </span>
+                          )}
+                          {task.updatedAt && (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Clock className="h-3 w-3" />
+                              {new Date(task.updatedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {task.status && (
+                          <Badge
+                            variant={
+                              task.status === "completed"
+                                ? "secondary"
+                                : task.status === "in-progress"
+                                  ? "default"
+                                  : "outline"
+                            }
+                            className="text-xs"
+                          >
+                            {task.status}
+                          </Badge>
+                        )}
+                        {task.priority && (
+                          <Badge variant="outline" className="text-xs">
+                            {task.priority}
+                          </Badge>
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant={task.status === "completed" ? "secondary" : task.status === "in-progress" ? "default" : "outline"} className="text-xs">
-                        {task.status}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {task.priority}
-                      </Badge>
-                    </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
 
-        <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-400">
-          <span>Press <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-[10px] font-mono">Esc</kbd> to close</span>
-          <span>Ctrl+F to open</span>
+        <div className="relative z-[1] flex items-center justify-between border-t border-border/40 px-4 py-2 text-xs text-muted-foreground">
+          <span>
+            <kbd className="rounded px-1.5 py-0.5 font-mono text-[10px] bg-muted/50">Esc</kbd> to close &middot;{" "}
+            <kbd className="rounded px-1.5 py-0.5 font-mono text-[10px] bg-muted/50">&uarr;&darr;</kbd> to navigate
+            &middot; <kbd className="rounded px-1.5 py-0.5 font-mono text-[10px] bg-muted/50">Enter</kbd> to open
+          </span>
+          <span>Ctrl/Cmd+F to toggle</span>
         </div>
       </div>
     </div>

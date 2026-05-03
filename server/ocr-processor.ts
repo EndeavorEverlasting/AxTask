@@ -29,11 +29,11 @@ function similarity(a: string, b: string): number {
 
   const wordsA = new Set(na.split(" "));
   const wordsB = new Set(nb.split(" "));
-  const intersection = new Set([...wordsA].filter(w => wordsB.has(w)));
+  const intersection = new Set(Array.from(wordsA).filter(w => wordsB.has(w)));
 
   if (intersection.size === 0) return 0;
 
-  const union = new Set([...wordsA, ...wordsB]);
+  const union = new Set([...Array.from(wordsA), ...Array.from(wordsB)]);
   return intersection.size / union.size;
 }
 

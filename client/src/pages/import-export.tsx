@@ -1,19 +1,22 @@
+/**
+ * Import/Export UI: **spreadsheet (CSV/Excel) and JSON backup are both required product surfaces.**
+ * Server-side dedupe and anti–double-task rules live in `server/import-task-dedupe.ts` (see `.cursor/rules/axtask-import-dedupe.mdc`).
+ */
 import { useState, useRef } from "react";
-import { SurveyPrompt } from "@/components/survey-prompt";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type Task, type ImportHistory } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
-import { tasksToCSV, parseTasksFromCSV, downloadCSV, parseExcelSheetInfo } from "@/lib/csv-utils";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type Task } from "@shared/schema";
+import { MFA_PURPOSES } from "@shared/mfa-purposes";
+import { apiFetch, apiRequest } from "@/lib/queryClient";
+import { useMfaChallenge } from "@/hooks/use-mfa-challenge";
+import { MfaVerificationPanel } from "@/components/mfa/mfa-verification-panel";
+import { formatAxTaskCsvAttribution } from "@shared/attribution";
+import { parseTasksFromCSV, downloadCSV, parseExcelSheetInfo } from "@/lib/csv-utils";
+import { postPaidDownload, triggerBlobDownload, type ProductivityExportPrices } from "@/lib/productivity-export-download";
 import { useToast } from "@/hooks/use-toast";
+import { PretextPageHeader } from "@/components/pretext/pretext-page-header";
+import { usePretextSurface } from "@/hooks/use-pretext-surface";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
-import { Upload, Download, FileText, AlertCircle, AlertTriangle, CheckCircle2, Loader2, History, ShieldAlert, SkipForward, DatabaseBackup, PackageOpen, Shield, Trash2, Lock, Unlock, QrCode } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +25,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
+import { Upload, Download, FileText, AlertCircle, CheckCircle2, Loader2, FileCode, Coins, Sheet } from "lucide-react";
 
 interface SheetInfo {
   sheetName: string;
@@ -30,63 +40,402 @@ interface SheetInfo {
   selected: boolean;
 }
 
-interface ImportResult {
-  imported: number;
-  forceImported: number;
-  skippedCompleted: number;
-  skippedDuplicate: number;
-  failed: number;
-  total: number;
-  fileWarning: string | null;
+type UserExportBundle = {
+  metadata: { exportMode?: string; exportedAt?: string; tableCounts?: Record<string, number> };
+  data: Record<string, unknown[]>;
+};
+
+function isUserExportBundle(parsed: unknown): parsed is UserExportBundle {
+  if (!parsed || typeof parsed !== "object") return false;
+  const p = parsed as Record<string, unknown>;
+  const m = p.metadata;
+  const d = p.data;
+  if (!m || typeof m !== "object") return false;
+  if (!d || typeof d !== "object") return false;
+  return (m as Record<string, unknown>).exportMode === "user";
+}
+
+interface AccountImportApiResult {
+  success: boolean;
+  dryRun: boolean;
+  inserted: Record<string, number>;
+  skipped: Record<string, number>;
+  conflicts: Record<string, number>;
+  errors?: { table: string; field: string; message: string }[];
+  warnings?: { table: string; field: string; message: string }[];
+}
+
+type ImportOwnershipAnswerPayload = { questionId: string; selectedIndex: number };
+
+interface AccountImportChallengeResponse {
+  ownershipQuizRequired: boolean;
+  tasksFingerprint: string;
+  questionCount: number;
+  questions: { id: string; prompt: string; choices: string[] }[];
+  message?: string;
 }
 
 export default function ImportExport() {
+  /* Dense operator data surface — dim ambient orb motion while mounted. */
+  usePretextSurface("dense");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { requestChallenge: requestDataExportChallenge, isRequesting: dataExportCodeSending } = useMfaChallenge();
+  const [dataExportMfaOpen, setDataExportMfaOpen] = useState(false);
+  const [dataExportChallenge, setDataExportChallenge] = useState<{
+    challengeId: string;
+    expiresAt: string;
+    devCode?: string;
+    maskedDestination?: string;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [importMessage, setImportMessage] = useState("");
   const [sheets, setSheets] = useState<SheetInfo[]>([]);
-  const [forceImport, setForceImport] = useState(false);
-  const [fileContent, setFileContent] = useState<string>("");
-  const [fileName, setFileName] = useState<string>("");
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
-
-  const [isExportingAccount, setIsExportingAccount] = useState(false);
-  const [isImportingAccount, setIsImportingAccount] = useState(false);
-  const [accountImportResult, setAccountImportResult] = useState<{
-    success: boolean;
-    inserted: Record<string, number>;
-    skipped: Record<string, number>;
-    errors: any[];
-    warnings: any[];
+  const [importResult, setImportResult] = useState<{
+    imported: number;
+    failed: number;
+    skippedAsDuplicate?: number;
+    total: number;
   } | null>(null);
-  const accountFileRef = useRef<HTMLInputElement>(null);
 
-  const [mfaSetupData, setMfaSetupData] = useState<{ secret: string; qrCode: string } | null>(null);
-  const [mfaCode, setMfaCode] = useState("");
-  const [isMfaSetupLoading, setIsMfaSetupLoading] = useState(false);
-  const [showClearAllDialog, setShowClearAllDialog] = useState(false);
-  const [clearAllMfaCode, setClearAllMfaCode] = useState("");
-  const [isClearingAll, setIsClearingAll] = useState(false);
-  const [mfaDisableCode, setMfaDisableCode] = useState("");
-  const [isDisablingMfa, setIsDisablingMfa] = useState(false);
+  const jsonInputRef = useRef<HTMLInputElement>(null);
+  const [jsonBundle, setJsonBundle] = useState<UserExportBundle | null>(null);
+  const [jsonFileName, setJsonFileName] = useState("");
+  const [jsonExportBusy, setJsonExportBusy] = useState(false);
+  const [jsonAccountResult, setJsonAccountResult] = useState<AccountImportApiResult | null>(null);
+  const [importOwnershipQuizOpen, setImportOwnershipQuizOpen] = useState(false);
+  const [importOwnershipQuizQuestions, setImportOwnershipQuizQuestions] = useState<
+    AccountImportChallengeResponse["questions"]
+  >([]);
+  const [importOwnershipQuizAnswers, setImportOwnershipQuizAnswers] = useState<Record<string, number>>({});
+  const [importOwnershipQuizPendingDryRun, setImportOwnershipQuizPendingDryRun] = useState(true);
+  const [importChallengeBusy, setImportChallengeBusy] = useState(false);
+  const [spreadsheetExportBusy, setSpreadsheetExportBusy] = useState<"csv" | "xlsx" | null>(null);
 
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
   });
 
-  const { data: importHistoryData = [] } = useQuery<ImportHistory[]>({
-    queryKey: ["/api/import-history"],
+  const { data: backupStatus } = useQuery({
+    queryKey: ["/api/account/backup/status"],
+    queryFn: async () => {
+      const res = await fetch("/api/account/backup/status", { credentials: "include" });
+      if (!res.ok) throw new Error("Could not load backup status");
+      return res.json() as Promise<{
+        manualExportAvailable: boolean;
+        automaticBackupsConfigured: boolean;
+        userAutoBackupEnabled: boolean;
+        userPreferredTarget: string;
+        lastServerBackupAt: string | null;
+        consecutiveFailures: number;
+        restoreDryRunAvailable: boolean;
+      }>;
+    },
+    staleTime: 30_000,
   });
 
-  const { data: mfaStatus, refetch: refetchMfa } = useQuery<{ mfaEnabled: boolean }>({
-    queryKey: ["/api/mfa/status"],
+  const updateBackupPrefMutation = useMutation({
+    mutationFn: async (payload: { autoBackupEnabled?: boolean; preferredTarget?: string }) => {
+      const res = await apiRequest("PATCH", "/api/account/backup/preferences", payload);
+      if (!res.ok) throw new Error("Failed to update preferences");
+      return res.json();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/account/backup/status"] });
+      toast({ title: "Backup preferences updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
   });
 
-  const handleExport = () => {
+  const { data: exportPrices } = useQuery<ProductivityExportPrices>({
+    queryKey: ["/api/gamification/productivity-export-prices"],
+  });
+
+  const { data: dataExportStepUp } = useQuery({
+    queryKey: ["/api/account/data-export-step-up-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/account/data-export-step-up-status", { credentials: "include" });
+      if (!res.ok) throw new Error("Could not load verification status");
+      return res.json() as Promise<{
+        stepUpRequired: boolean;
+        stepUpSatisfied: boolean;
+        expiresAt: number | null;
+      }>;
+    },
+    staleTime: 15_000,
+  });
+
+  const accountDataStepUpBlocks =
+    Boolean(dataExportStepUp?.stepUpRequired) && !dataExportStepUp?.stepUpSatisfied;
+
+  const verifyDataExportStepUpMutation = useMutation({
+    mutationFn: async (payload: { challengeId: string; code: string }) => {
+      const res = await apiRequest("POST", "/api/account/data-export-step-up", payload);
+      return res.json() as Promise<{ ok?: boolean }>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/account/data-export-step-up-status"] });
+      setDataExportMfaOpen(false);
+      setDataExportChallenge(null);
+      toast({
+        title: "Verified",
+        description: "You can download or import your JSON account backup for the next hour.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Verification failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const startDataExportVerification = async () => {
+    try {
+      const c = await requestDataExportChallenge(MFA_PURPOSES.ACCOUNT_DATA_EXPORT);
+      setDataExportChallenge({
+        challengeId: c.challengeId,
+        expiresAt: c.expiresAt,
+        devCode: c.devCode,
+        maskedDestination: c.maskedDestination,
+      });
+      setDataExportMfaOpen(true);
+      toast({ title: "Code sent", description: "Check your email for the verification code." });
+    } catch (e) {
+      toast({
+        title: "Could not send code",
+        description: e instanceof Error ? e.message : "Try again later.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  function invalidateAfterAccountImport() {
+    void queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/classification/categories"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/account/profile"] });
+  }
+
+  const accountJsonMutation = useMutation({
+    mutationFn: async (opts: { dryRun: boolean; importOwnershipAnswers?: ImportOwnershipAnswerPayload[] }) => {
+      if (!jsonBundle) throw new Error("No backup loaded");
+      if (accountDataStepUpBlocks) {
+        throw new Error("Verify your identity first (email code) before importing a JSON backup.");
+      }
+      const body: Record<string, unknown> = { bundle: jsonBundle, dryRun: opts.dryRun };
+      if (opts.importOwnershipAnswers && opts.importOwnershipAnswers.length > 0) {
+        body.importOwnershipAnswers = opts.importOwnershipAnswers;
+      }
+      const res = await apiRequest("POST", "/api/account/import", body);
+      return (await res.json()) as AccountImportApiResult;
+    },
+    onSuccess: (data, opts) => {
+      setJsonAccountResult(data);
+      if (!opts.dryRun && data.success) {
+        invalidateAfterAccountImport();
+        setJsonBundle(null);
+        setJsonFileName("");
+        if (jsonInputRef.current) jsonInputRef.current.value = "";
+        toast({
+          title: "Backup import finished",
+          description: "Your account data from the JSON file has been merged.",
+        });
+      } else if (!opts.dryRun && !data.success) {
+        toast({
+          title: "Backup import failed",
+          description: data.errors?.[0]?.message ?? "See details below.",
+          variant: "destructive",
+        });
+      } else if (opts.dryRun) {
+        toast({
+          title: data.success ? "Dry run OK" : "Dry run reported issues",
+          description: data.success
+            ? "Review counts below, then run a real import if it looks right."
+            : (data.errors?.[0]?.message ?? "Check errors below."),
+          variant: data.success ? "default" : "destructive",
+        });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "JSON import failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const beginJsonAccountImport = async (dryRun: boolean) => {
+    if (!jsonBundle) return;
+    if (accountDataStepUpBlocks) {
+      toast({
+        title: "Verification required",
+        description: "Request a code and confirm your email before importing a JSON backup.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setJsonAccountResult(null);
+    setImportChallengeBusy(true);
+    try {
+      const chRes = await apiFetch("POST", "/api/account/import/challenge", { bundle: jsonBundle });
+      let ch: AccountImportChallengeResponse;
+      try {
+        ch = (await chRes.json()) as AccountImportChallengeResponse;
+      } catch {
+        throw new Error(`Challenge failed (${chRes.status})`);
+      }
+      if (!chRes.ok) {
+        throw new Error(ch.message || `Challenge failed (${chRes.status})`);
+      }
+      if (ch.ownershipQuizRequired && ch.questions.length > 0) {
+        setImportOwnershipQuizQuestions(ch.questions);
+        setImportOwnershipQuizAnswers({});
+        setImportOwnershipQuizPendingDryRun(dryRun);
+        setImportOwnershipQuizOpen(true);
+        return;
+      }
+      accountJsonMutation.mutate({ dryRun });
+    } catch (e) {
+      toast({
+        title: "Could not start import",
+        description: e instanceof Error ? e.message : "Try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setImportChallengeBusy(false);
+    }
+  };
+
+  const submitImportOwnershipQuiz = () => {
+    const answers: ImportOwnershipAnswerPayload[] = importOwnershipQuizQuestions.map((q) => ({
+      questionId: q.id,
+      selectedIndex: importOwnershipQuizAnswers[q.id] ?? -1,
+    }));
+    if (answers.some((a) => a.selectedIndex < 0)) {
+      toast({
+        title: "Answer every question",
+        description: "Pick one option for each task detail before continuing.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setImportOwnershipQuizOpen(false);
+    accountJsonMutation.mutate({
+      dryRun: importOwnershipQuizPendingDryRun,
+      importOwnershipAnswers: answers,
+    });
+  };
+
+  const handleExportJsonBundle = async () => {
+    if (accountDataStepUpBlocks) {
+      toast({
+        title: "Verification required",
+        description: "Request a code and confirm your email before downloading your JSON backup.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setJsonExportBusy(true);
+    try {
+      const res = await apiRequest("GET", "/api/account/export");
+      if (!res.ok) {
+        let detail = "";
+        try {
+          detail = await res.text();
+        } catch {
+          detail = "";
+        }
+        const message = detail || `Export failed (${res.status})`;
+        throw new Error(message);
+      }
+      const bundle = await res.json();
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+      let url: string | undefined;
+      try {
+        url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `my-axtask-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        toast({
+          title: "JSON backup downloaded",
+          description: "Includes tasks, wallet, badges, and related data for restore or portability.",
+        });
+      } finally {
+        if (url) URL.revokeObjectURL(url);
+      }
+    } catch (e) {
+      toast({
+        title: "Export failed",
+        description: e instanceof Error ? e.message : "Could not download backup.",
+        variant: "destructive",
+      });
+    } finally {
+      setJsonExportBusy(false);
+    }
+  };
+
+  const handleJsonFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setJsonAccountResult(null);
+    const reader = new FileReader();
+    reader.onerror = () => {
+      const detail = reader.error?.message?.trim() || "Could not read this file.";
+      toast({
+        title: "Could not read file",
+        description: detail,
+        variant: "destructive",
+      });
+      setJsonBundle(null);
+      setJsonFileName("");
+    };
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || ""));
+        if (!isUserExportBundle(parsed)) {
+          toast({
+            title: "Not a user backup",
+            description: "Use an AxTask JSON export with exportMode \"user\" (Download JSON backup).",
+            variant: "destructive",
+          });
+          setJsonBundle(null);
+          setJsonFileName("");
+          return;
+        }
+        setJsonBundle(parsed);
+        setJsonFileName(file.name);
+        setImportOwnershipQuizOpen(false);
+        setImportOwnershipQuizQuestions([]);
+        setImportOwnershipQuizAnswers({});
+        const tc = parsed.metadata.tableCounts?.tasks;
+        toast({
+          title: "Backup loaded",
+          description:
+            typeof tc === "number"
+              ? `${file.name} — ${tc.toLocaleString()} tasks in file. Run a dry run before importing.`
+              : `${file.name} ready. Run a dry run before importing.`,
+        });
+      } catch (e) {
+        const detail = e instanceof Error && e.message ? e.message : "Could not parse this file.";
+        toast({
+          title: "Invalid JSON",
+          description: detail,
+          variant: "destructive",
+        });
+        setJsonBundle(null);
+        setJsonFileName("");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleSpreadsheetExport = async (format: "csv" | "xlsx") => {
     if (tasks.length === 0) {
       toast({
         title: "No tasks to export",
@@ -95,21 +444,44 @@ export default function ImportExport() {
       });
       return;
     }
-
+    setSpreadsheetExportBusy(format);
     try {
-      const csvContent = tasksToCSV(tasks);
-      const filename = `tasks-export-${new Date().toISOString().split('T')[0]}.csv`;
-      downloadCSV(csvContent, filename);
+      const result = await postPaidDownload("/api/tasks/export/spreadsheet", { format });
+      if (!result.ok) {
+        if (result.insufficientCoins) {
+          toast({
+            title: "Not enough AxCoins",
+            description:
+              result.insufficientCoins.message
+              ?? `Need ${result.insufficientCoins.required} coins (balance ${result.insufficientCoins.balance}).`,
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Export failed",
+            description: result.message || "Could not export tasks.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+      const day = new Date().toISOString().split("T")[0];
+      const fallback = format === "csv" ? `axtask-tasks-${day}.csv` : `axtask-tasks-${day}.xlsx`;
+      triggerBlobDownload(result.blob, fallback, result.filename);
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
       toast({
         title: "Export successful",
-        description: `Downloaded ${tasks.length} tasks to ${filename}`,
+        description: `Downloaded ${tasks.length} tasks (${format.toUpperCase()}).`,
       });
-    } catch (error) {
+    } catch {
       toast({
         title: "Export failed",
         description: "Failed to export tasks. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setSpreadsheetExportBusy(null);
     }
   };
 
@@ -119,141 +491,21 @@ export default function ImportExport() {
 
     const isCSV = file.name.endsWith('.csv');
     const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
-    const isJSON = file.name.endsWith('.json');
-
-    if (!isCSV && !isExcel && !isJSON) {
+    
+    if (!isCSV && !isExcel) {
       toast({
         title: "Invalid file type",
-        description: "Please select a CSV, Excel, or JSON file.",
+        description: "Please select a CSV or Excel file.",
         variant: "destructive",
       });
       return;
     }
 
-    if (isJSON) {
-      try {
-        const text = await file.text();
-        const parsed = JSON.parse(text);
-
-        if (parsed.metadata && parsed.data) {
-          setIsImportingAccount(true);
-          setAccountImportResult(null);
-          try {
-            const dryRunResponse = await apiRequest("POST", "/api/account/import", { bundle: parsed, dryRun: true });
-            const dryResult = await dryRunResponse.json();
-
-            if (dryResult.errors && dryResult.errors.length > 0) {
-              const errorMsgs = dryResult.errors.slice(0, 5).map((e: any) => `${e.table}: ${e.message}`).join("; ");
-              throw new Error(`Validation issues: ${errorMsgs}`);
-            }
-
-            const response = await apiRequest("POST", "/api/account/import", { bundle: parsed, dryRun: false });
-            const result = await response.json();
-            setAccountImportResult(result);
-
-            if (!result.success || (result.errors && result.errors.length > 0)) {
-              toast({
-                title: "Account restore had issues",
-                description: `Import completed with ${result.errors?.length || 0} error(s).`,
-                variant: "destructive",
-              });
-            } else {
-              const totalInserted = Object.values(result.inserted as Record<string, number>).reduce((a, b) => a + b, 0);
-              queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/gamification/rewards"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/gamification/cleanup-stats"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/patterns/insights"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/import-history"] });
-              toast({
-                title: "Backup restored successfully",
-                description: `${totalInserted} records imported from JSON backup file.`,
-              });
-            }
-          } catch (err: any) {
-            toast({
-              title: "Backup restore failed",
-              description: err.message || "Could not restore from backup file.",
-              variant: "destructive",
-            });
-          } finally {
-            setIsImportingAccount(false);
-            if (fileInputRef.current) fileInputRef.current.value = "";
-          }
-          return;
-        }
-
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const taskArray = parsed.map((item: any) => ({
-            date: item.date || new Date().toISOString().split('T')[0],
-            activity: item.activity || item.title || item.name || '',
-            notes: item.notes || item.description || '',
-            status: item.status || 'pending',
-            urgency: typeof item.urgency === 'number' ? item.urgency : undefined,
-            impact: typeof item.impact === 'number' ? item.impact : undefined,
-            effort: typeof item.effort === 'number' ? item.effort : undefined,
-            prerequisites: item.prerequisites || '',
-          })).filter((t: any) => t.activity && t.activity.trim());
-
-          if (taskArray.length > 0) {
-            setFileName(file.name);
-            setFileContent(text);
-            setSheets([{ sheetName: file.name, tasks: taskArray, rowCount: taskArray.length, selected: true }]);
-            toast({
-              title: "JSON file analyzed",
-              description: `Found ${taskArray.length} tasks in JSON array.`,
-            });
-          } else {
-            toast({
-              title: "No valid tasks found",
-              description: "The JSON array doesn't contain any valid task objects.",
-              variant: "destructive",
-            });
-          }
-          if (fileInputRef.current) fileInputRef.current.value = "";
-          return;
-        }
-
-        toast({
-          title: "Unrecognized JSON format",
-          description: "Expected either an AxTask backup bundle or an array of task objects.",
-          variant: "destructive",
-        });
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        return;
-      } catch (err: any) {
-        if (err.message?.includes("JSON")) {
-          toast({
-            title: "Invalid JSON file",
-            description: "The file could not be parsed as valid JSON.",
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            title: "Failed to process JSON file",
-            description: err.message || "An error occurred while processing the file.",
-            variant: "destructive",
-          });
-        }
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        return;
-      }
-    }
-
     setIsParsing(true);
     setImportResult(null);
     setSheets([]);
-    setFileName(file.name);
 
     try {
-      const rawContent = await file.text();
-      setFileContent(rawContent);
-
       if (isExcel) {
         const sheetResults = await parseExcelSheetInfo(file);
         const sheetInfos: SheetInfo[] = sheetResults.map(s => ({
@@ -261,14 +513,15 @@ export default function ImportExport() {
           selected: true,
         }));
         setSheets(sheetInfos);
-
+        
         const totalTasks = sheetInfos.reduce((sum, s) => sum + s.rowCount, 0);
         toast({
           title: "File analyzed",
           description: `Found ${totalTasks} tasks across ${sheetInfos.length} sheets. Select which sheets to import.`,
         });
       } else {
-        const parsed = parseTasksFromCSV(rawContent);
+        const content = await file.text();
+        const parsed = parseTasksFromCSV(content);
         if (parsed.length > 0) {
           setSheets([{ sheetName: file.name, tasks: parsed, rowCount: parsed.length, selected: true }]);
         } else {
@@ -311,93 +564,38 @@ export default function ImportExport() {
     setImportResult(null);
 
     try {
-      const CHUNK_SIZE = 500;
+      const CHUNK_SIZE = 2000;
       let totalImported = 0;
-      let totalForceImported = 0;
-      let totalSkippedCompleted = 0;
-      let totalSkippedDuplicate = 0;
       let totalFailed = 0;
-      let lastFileWarning: string | null = null;
-      let retriesUsed = 0;
-
-      const totalChunks = Math.ceil(allTasks.length / CHUNK_SIZE);
+      let totalSkipped = 0;
 
       for (let i = 0; i < allTasks.length; i += CHUNK_SIZE) {
         const chunk = allTasks.slice(i, i + CHUNK_SIZE);
         const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
+        const totalChunks = Math.ceil(allTasks.length / CHUNK_SIZE);
 
         setImportMessage(`Sending batch ${chunkNum} of ${totalChunks} (${chunk.length} tasks)...`);
 
-        let attempt = 0;
-        let result: any = null;
-        while (attempt < 3) {
-          try {
-            const response = await apiRequest("POST", "/api/tasks/import", {
-              tasks: chunk,
-              forceImport,
-              fileName,
-              skipHistory: true,
-            });
-            result = await response.json();
-            break;
-          } catch (err: any) {
-            attempt++;
-            retriesUsed++;
-            if (attempt >= 3) {
-              throw new Error(`Batch ${chunkNum} failed after 3 attempts: ${err?.message || "Unknown error"}`);
-            }
-            setImportMessage(`Batch ${chunkNum} failed (attempt ${attempt}/3), retrying...`);
-            await new Promise(r => setTimeout(r, 1000 * attempt));
-          }
-        }
+        const response = await apiRequest("POST", "/api/tasks/import", { tasks: chunk });
+        const result = await response.json();
 
-        totalImported += result.imported || 0;
-        totalForceImported += result.forceImported || 0;
-        totalSkippedCompleted += result.skippedCompleted || 0;
-        totalSkippedDuplicate += result.skippedDuplicate || 0;
-        totalFailed += result.failed || 0;
-        if (result.fileWarning) lastFileWarning = result.fileWarning;
+        totalImported += result.imported;
+        totalFailed += result.failed;
+        totalSkipped += result.skippedAsDuplicate || 0;
 
         const progress = Math.round(((i + chunk.length) / allTasks.length) * 100);
         setImportProgress(progress);
       }
 
-      if (fileContent && fileName) {
-        await apiRequest("POST", "/api/tasks/import", {
-          tasks: [],
-          forceImport,
-          fileName,
-          fileContent: fileContent.length > 5_000_000 ? fileContent.slice(0, 5_000_000) : fileContent,
-          summaryTotals: {
-            total: allTasks.length,
-            imported: totalImported,
-            skippedCompleted: totalSkippedCompleted,
-            skippedDuplicate: totalSkippedDuplicate,
-            forceImported: totalForceImported,
-          },
-        }).catch(() => {});
-      }
-
-      const res: ImportResult = {
-        imported: totalImported,
-        forceImported: totalForceImported,
-        skippedCompleted: totalSkippedCompleted,
-        skippedDuplicate: totalSkippedDuplicate,
-        failed: totalFailed,
-        total: allTasks.length,
-        fileWarning: lastFileWarning,
-      };
-      setImportResult(res);
-      setImportMessage(`Done! ${totalImported} new tasks imported.`);
+      setImportResult({ imported: totalImported, failed: totalFailed, skippedAsDuplicate: totalSkipped, total: allTasks.length });
+      setImportMessage(`Done! ${totalImported} tasks imported successfully.`);
 
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/import-history"] });
 
-      const skipped = totalSkippedCompleted + totalSkippedDuplicate;
       toast({
         title: "Import complete",
-        description: `${totalImported} imported${skipped > 0 ? `, ${skipped} duplicates skipped` : ''}${totalFailed > 0 ? `, ${totalFailed} failed` : ''}.`,
+        description: `${totalImported} imported${totalSkipped > 0 ? `, ${totalSkipped} skipped as duplicates` : ""}${totalFailed > 0 ? `, ${totalFailed} failed` : ''}.`,
       });
     } catch (error) {
       console.error("Import error:", error);
@@ -416,7 +614,8 @@ export default function ImportExport() {
 
   const totalSelected = sheets.filter(s => s.selected).reduce((sum, s) => sum + s.rowCount, 0);
 
-  const csvTemplate = `Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
+  const csvTemplate = `${formatAxTaskCsvAttribution()}
+Date,Activity,Notes,Urgency,Impact,Effort,Prerequisites,Status
 2025-07-30,"Deploy new version","@urgent deployment needed",4,5,3,"Testing completed",pending
 2025-07-30,"Team meeting","Weekly standup #meeting",,,,,"pending"
 2025-07-29,"Fix bug in authentication","Error in login flow #blocker",5,4,2,"Bug report received",in-progress`;
@@ -429,381 +628,123 @@ export default function ImportExport() {
     });
   };
 
-  const parse429Message = (error: any): string | null => {
-    const msg = error?.message || "";
-    if (!msg.startsWith("429:")) return null;
-    try {
-      const body = JSON.parse(msg.slice(5));
-      if (body.retryAfterSeconds) {
-        const minutes = Math.ceil(body.retryAfterSeconds / 60);
-        return `Too many MFA attempts. Please wait ${minutes} minute${minutes !== 1 ? "s" : ""} before trying again.`;
-      }
-      return body.message || "Too many requests. Please wait before trying again.";
-    } catch {
-      return "Too many requests. Please wait before trying again.";
-    }
-  };
-
-  const handleMfaSetup = async () => {
-    setIsMfaSetupLoading(true);
-    try {
-      const response = await apiRequest("POST", "/api/mfa/setup", {});
-      const data = await response.json();
-      setMfaSetupData({ secret: data.secret, qrCode: data.qrCode });
-      setMfaCode("");
-    } catch (error: any) {
-      const rateLimitMsg = parse429Message(error);
-      toast({
-        title: rateLimitMsg ? "Too many requests" : "MFA setup failed",
-        description: rateLimitMsg || error.message || "Could not initiate MFA setup.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsMfaSetupLoading(false);
-    }
-  };
-
-  const handleMfaVerify = async () => {
-    if (!mfaCode.trim()) return;
-    try {
-      const response = await apiRequest("POST", "/api/mfa/verify", { code: mfaCode.trim() });
-      const data = await response.json();
-      if (data.success) {
-        toast({ title: "MFA enabled", description: "Two-factor authentication is now active on your account." });
-        setMfaSetupData(null);
-        setMfaCode("");
-        refetchMfa();
-      }
-    } catch (error: any) {
-      const rateLimitMsg = parse429Message(error);
-      toast({
-        title: rateLimitMsg ? "Too many requests" : "Verification failed",
-        description: rateLimitMsg || error?.message || "Invalid code",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleMfaDisable = async () => {
-    if (!mfaDisableCode.trim()) return;
-    setIsDisablingMfa(true);
-    try {
-      const response = await apiRequest("POST", "/api/mfa/disable", { code: mfaDisableCode.trim() });
-      const data = await response.json();
-      if (data.success) {
-        toast({ title: "MFA disabled", description: "Two-factor authentication has been removed from your account." });
-        setMfaDisableCode("");
-        refetchMfa();
-      }
-    } catch (error: any) {
-      const rateLimitMsg = parse429Message(error);
-      toast({
-        title: rateLimitMsg ? "Too many requests" : "Failed to disable MFA",
-        description: rateLimitMsg || error?.message || "Invalid code",
-        variant: "destructive",
-      });
-    } finally {
-      setIsDisablingMfa(false);
-    }
-  };
-
-  const handleClearAllTasks = async () => {
-    if (!clearAllMfaCode.trim()) return;
-    setIsClearingAll(true);
-    try {
-      const response = await apiRequest("POST", "/api/tasks/clear-all", { mfaCode: clearAllMfaCode.trim() });
-      const data = await response.json();
-      if (data.success) {
-        toast({ title: "All tasks cleared", description: `${data.deletedCount} tasks have been permanently deleted.` });
-        setShowClearAllDialog(false);
-        setClearAllMfaCode("");
-        queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-      }
-    } catch (error: any) {
-      const rateLimitMsg = parse429Message(error);
-      toast({
-        title: rateLimitMsg ? "Too many requests" : "Failed to clear tasks",
-        description: rateLimitMsg || error?.message || "Action denied",
-        variant: "destructive",
-      });
-    } finally {
-      setIsClearingAll(false);
-    }
-  };
-
-  const handleAccountExport = async () => {
-    setIsExportingAccount(true);
-    try {
-      const response = await fetch("/api/account/export", { credentials: "include" });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({ message: "Export failed" }));
-        throw new Error(err.message);
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `my-axtask-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast({
-        title: "Account backup downloaded",
-        description: "Your full account data has been exported including tasks, coins, badges, and patterns.",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Account export failed",
-        description: error.message || "Could not export account data.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsExportingAccount(false);
-    }
-  };
-
-  const handleAccountImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.name.endsWith(".json")) {
-      toast({
-        title: "Invalid file",
-        description: "Please select a .json backup file exported from AxTask.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsImportingAccount(true);
-    setAccountImportResult(null);
-
-    try {
-      const text = await file.text();
-      const bundle = JSON.parse(text);
-
-      if (!bundle.metadata || !bundle.data) {
-        throw new Error("This doesn't look like an AxTask backup file. It should have metadata and data sections.");
-      }
-
-      const dryRunResponse = await apiRequest("POST", "/api/account/import", { bundle, dryRun: true });
-      const dryResult = await dryRunResponse.json();
-
-      if (dryResult.errors && dryResult.errors.length > 0) {
-        const errorMsgs = dryResult.errors.slice(0, 5).map((e: any) => `${e.table}: ${e.message}`).join("; ");
-        throw new Error(`Validation issues: ${errorMsgs}`);
-      }
-
-      const response = await apiRequest("POST", "/api/account/import", { bundle, dryRun: false });
-      const result = await response.json();
-
-      setAccountImportResult(result);
-
-      if (!result.success || (result.errors && result.errors.length > 0)) {
-        const errorCount = result.errors?.length || 0;
-        toast({
-          title: "Account restore had issues",
-          description: `Import completed with ${errorCount} error(s). Some data may not have been restored.`,
-          variant: "destructive",
-        });
-      } else {
-        const totalInserted = Object.values(result.inserted as Record<string, number>).reduce((a, b) => a + b, 0);
-        queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/tasks/stats"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/gamification/wallet"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/gamification/badges"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/gamification/transactions"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/gamification/my-rewards"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/gamification/rewards"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/gamification/classification-stats"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/gamification/cleanup-stats"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/patterns/insights"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/import-history"] });
-
-        toast({
-          title: "Account restore complete",
-          description: `${totalInserted} records imported across all tables.`,
-        });
-      }
-    } catch (error: any) {
-      toast({
-        title: "Account import failed",
-        description: error.message || "Could not import account data.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsImportingAccount(false);
-      if (accountFileRef.current) accountFileRef.current.value = "";
-    }
-  };
-
-  const ACCOUNT_TABLE_LABELS: Record<string, string> = {
-    tasks: "Tasks",
-    wallets: "Wallet",
-    coinTransactions: "Coin Transactions",
-    userBadges: "Badges",
-    userRewards: "Rewards",
-    taskPatterns: "Learned Patterns",
-    taskCollaborators: "Collaborators",
-    classificationContributions: "Classifications",
-    classificationConfirmations: "Confirmations",
-    users: "User Profile",
-    rewardsCatalog: "Reward Catalog",
-  };
-
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6">
-      <div>
-        <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100">Import/Export</h2>
-        <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">Sync your tasks with Google Sheets or other tools</p>
-      </div>
+      <PretextPageHeader
+        eyebrow="Data"
+        title="Import/Export"
+        subtitle="Google Sheets–friendly CSV/Excel plus a full JSON backup. Same task (date, time, activity, notes) is deduplicated across both."
+      />
 
-      <SurveyPrompt targetModule="import" trigger="page_visit" />
+      <MfaVerificationPanel
+        open={dataExportMfaOpen}
+        challengeId={dataExportChallenge?.challengeId}
+        codeEntryDisabled={!dataExportChallenge?.challengeId}
+        purpose={MFA_PURPOSES.ACCOUNT_DATA_EXPORT}
+        title="Verify for account backup"
+        description={
+          dataExportChallenge?.maskedDestination
+            ? `Code sent to ${dataExportChallenge.maskedDestination}`
+            : "Enter the code we email you."
+        }
+        expiresAt={dataExportChallenge?.expiresAt}
+        devCode={dataExportChallenge?.devCode ?? null}
+        isBusy={verifyDataExportStepUpMutation.isPending}
+        onDismiss={() => {
+          setDataExportMfaOpen(false);
+          setDataExportChallenge(null);
+        }}
+        onResend={() => void startDataExportVerification()}
+        onSubmitCode={async (code) => {
+          const challengeId = dataExportChallenge?.challengeId;
+          if (!challengeId) {
+            toast({
+              title: "Verification not ready",
+              description: "Request a new code and try again.",
+              variant: "destructive",
+            });
+            return;
+          }
+          await verifyDataExportStepUpMutation.mutateAsync({ challengeId, code });
+        }}
+      />
 
-      <Card className="border-2 border-blue-200 dark:border-blue-800">
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <DatabaseBackup className="mr-2 h-5 w-5 text-blue-600" />
-            Full Account Backup & Restore
-          </CardTitle>
-          <CardDescription>
-            Export or restore your complete account — tasks, AxCoins, wallet, badges, patterns, and all associated data. Use this to migrate between environments or create a full backup.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-3">
-              <div className="text-sm font-medium">Export Everything</div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Downloads a single .json file containing all your tasks, coin balance, transaction history, badges, learned patterns, and collaborator data.
-              </p>
-              <Button
-                onClick={handleAccountExport}
-                disabled={isExportingAccount}
-                className="w-full"
-                variant="default"
-              >
-                {isExportingAccount ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                {isExportingAccount ? "Exporting..." : "Download Full Backup"}
-              </Button>
-            </div>
-
-            <div className="space-y-3">
-              <div className="text-sm font-medium">Restore from Backup</div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Upload a previously exported .json backup to restore your data. A validation check runs first to catch any issues before importing.
-              </p>
-              <div className="space-y-2">
-                <Input
-                  ref={accountFileRef}
-                  type="file"
-                  accept=".json"
-                  onChange={handleAccountImport}
-                  disabled={isImportingAccount}
-                />
-              </div>
-              {isImportingAccount && (
-                <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
-                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                  <span className="text-sm text-blue-900 dark:text-blue-100">Validating and importing...</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {accountImportResult && (
-            <div className={`mt-4 p-4 rounded-lg space-y-3 ${
-              accountImportResult.success
-                ? "bg-green-50 dark:bg-green-900/30"
-                : "bg-red-50 dark:bg-red-900/30"
-            }`}>
-              <div className="flex items-center gap-2">
-                {accountImportResult.success ? (
-                  <CheckCircle2 className="h-5 w-5 text-green-600" />
-                ) : (
-                  <AlertTriangle className="h-5 w-5 text-red-600" />
-                )}
-                <span className={`text-sm font-medium ${
-                  accountImportResult.success
-                    ? "text-green-900 dark:text-green-100"
-                    : "text-red-900 dark:text-red-100"
-                }`}>
-                  {accountImportResult.success ? "Account Restore Complete" : "Account Restore Had Issues"}
-                </span>
-              </div>
-              {accountImportResult.errors && accountImportResult.errors.length > 0 && (
-                <div className="text-xs text-red-700 dark:text-red-300 space-y-1">
-                  {accountImportResult.errors.slice(0, 5).map((err: any, i: number) => (
-                    <div key={i} className="flex items-start gap-1">
-                      <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
-                      <span>{err.table}: {err.message}</span>
+      <Dialog open={importOwnershipQuizOpen} onOpenChange={setImportOwnershipQuizOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Confirm this backup is yours</DialogTitle>
+            <DialogDescription>
+              Pick the missing detail for each task. Imports need at least 80% correct to proceed (wrong file or guesswork
+              should fail).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-2">
+            {importOwnershipQuizQuestions.map((q, qi) => (
+              <div key={q.id} className="space-y-3">
+                <p className="text-sm font-medium text-foreground">
+                  Question {qi + 1} of {importOwnershipQuizQuestions.length}
+                </p>
+                <pre className="text-xs whitespace-pre-wrap font-sans text-muted-foreground bg-muted/50 rounded-md p-3 border">
+                  {q.prompt}
+                </pre>
+                <RadioGroup
+                  value={
+                    importOwnershipQuizAnswers[q.id] !== undefined
+                      ? String(importOwnershipQuizAnswers[q.id])
+                      : undefined
+                  }
+                  onValueChange={(v) =>
+                    setImportOwnershipQuizAnswers((prev) => ({ ...prev, [q.id]: Number.parseInt(v, 10) }))
+                  }
+                >
+                  {q.choices.map((choice, ci) => (
+                    <div key={ci} className="flex items-start gap-2 rounded-md border p-2">
+                      <RadioGroupItem value={String(ci)} id={`${q.id}-${ci}`} className="mt-0.5" />
+                      <Label htmlFor={`${q.id}-${ci}`} className="text-sm font-normal cursor-pointer flex-1">
+                        {choice}
+                      </Label>
                     </div>
                   ))}
-                  {accountImportResult.errors.length > 5 && (
-                    <div className="text-red-600">...and {accountImportResult.errors.length - 5} more errors</div>
-                  )}
-                </div>
-              )}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-center text-xs">
-                {Object.entries(accountImportResult.inserted)
-                  .filter(([, count]) => (count as number) > 0)
-                  .map(([table, count]) => (
-                    <div key={table} className="p-2 bg-white dark:bg-gray-800 rounded">
-                      <div className="font-bold text-lg text-green-700 dark:text-green-300">
-                        {(count as number).toLocaleString()}
-                      </div>
-                      <div className="text-gray-600 dark:text-gray-400">
-                        {ACCOUNT_TABLE_LABELS[table] || table}
-                      </div>
-                    </div>
-                  ))}
+                </RadioGroup>
               </div>
-              {accountImportResult.skipped && Object.values(accountImportResult.skipped).some(v => (v as number) > 0) && (
-                <div className="text-xs text-gray-600 dark:text-gray-400 flex items-start gap-1">
-                  <SkipForward className="h-3 w-3 mt-0.5 shrink-0" />
-                  <span>
-                    {Object.values(accountImportResult.skipped).reduce((a, b) => (a as number) + (b as number), 0) as number} duplicate records were automatically skipped.
-                  </span>
-                </div>
-              )}
-              {accountImportResult.warnings && accountImportResult.warnings.length > 0 && (
-                <div className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1">
-                  <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                  {accountImportResult.warnings.length} warning(s) during import.
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
-            <div className="flex items-start gap-2">
-              <PackageOpen className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-              <div className="text-xs text-blue-900 dark:text-blue-100">
-                <p className="font-medium mb-1">What's included in a full backup:</p>
-                <span className="text-blue-700 dark:text-blue-300">
-                  Tasks, AxCoin wallet & balance, transaction history, earned badges, purchased rewards, learned patterns, collaborator links, and classification data.
-                </span>
-              </div>
-            </div>
+            ))}
           </div>
-        </CardContent>
-      </Card>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setImportOwnershipQuizOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={submitImportOwnershipQuiz}>
+              Continue import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {accountDataStepUpBlocks ? (
+        <div className="rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 p-4 text-sm">
+          <p className="font-medium text-amber-950 dark:text-amber-100 mb-2">
+            Email verification required for JSON account backup
+          </p>
+          <p className="text-amber-900/90 dark:text-amber-200/90 mb-3">
+            In production, downloading or importing your full JSON backup requires a one-time code (same idea as billing
+            verification).
+          </p>
+          <Button type="button" size="sm" onClick={() => void startDataExportVerification()} disabled={dataExportCodeSending}>
+            {dataExportCodeSending ? "Sending…" : "Email me a code"}
+          </Button>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center">
               <Download className="mr-2 h-5 w-5" />
-              Export Tasks (CSV)
+              Export Tasks
             </CardTitle>
             <CardDescription>
-              Download your tasks as a CSV file for use in Google Sheets or other applications. For a full backup including coins and badges, use the backup tool above.
+              Spreadsheet export (CSV or Excel) uses AxCoins per download. JSON backup is a separate full account export
+              (tasks, wallet, badges, patterns, and more).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -814,10 +755,52 @@ export default function ImportExport() {
                   {tasks.length} tasks ready for export
                 </span>
               </div>
+              {exportPrices?.freeInDev ? (
+                <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-2">Spreadsheet export is free in local dev.</p>
+              ) : (
+                <p className="text-xs text-blue-800/90 dark:text-blue-200/90 mt-2 inline-flex items-center gap-1">
+                  <Coins className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                  Each spreadsheet download costs {exportPrices?.tasksSpreadsheet ?? "…"} AxCoins.
+                </p>
+              )}
             </div>
-            <Button onClick={handleExport} className="w-full" disabled={tasks.length === 0}>
-              <Download className="mr-2 h-4 w-4" />
+            <Button
+              onClick={() => void handleSpreadsheetExport("csv")}
+              className="w-full"
+              disabled={tasks.length === 0 || spreadsheetExportBusy !== null}
+            >
+              {spreadsheetExportBusy === "csv" ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
               Export to CSV
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void handleSpreadsheetExport("xlsx")}
+              className="w-full"
+              disabled={tasks.length === 0 || spreadsheetExportBusy !== null}
+            >
+              {spreadsheetExportBusy === "xlsx" ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sheet className="mr-2 h-4 w-4" />
+              )}
+              Export to Excel (.xlsx)
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => void handleExportJsonBundle()}
+              disabled={jsonExportBusy || accountDataStepUpBlocks}
+            >
+              {jsonExportBusy ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileCode className="mr-2 h-4 w-4" />
+              )}
+              Download JSON backup
             </Button>
           </CardContent>
         </Card>
@@ -829,19 +812,25 @@ export default function ImportExport() {
               Import Tasks
             </CardTitle>
             <CardDescription>
-              Upload a CSV, Excel, or JSON file to import tasks. Duplicates are automatically detected and skipped.
+              Import from a spreadsheet, from a JSON backup, or both—overlapping tasks match on date, time, activity, and notes.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="csv-file">Choose File</Label>
+              <div>
+                <div className="text-sm font-semibold">Spreadsheet (CSV / Excel)</div>
+                <p className="text-xs text-muted-foreground">Google Sheets export or CSV template</p>
+              </div>
+              <Label htmlFor="csv-file" className="sr-only">
+                Spreadsheet file
+              </Label>
               <Input
                 id="csv-file"
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.xlsx,.xls,.json"
+                accept=".csv,.xlsx,.xls"
                 onChange={handleFileSelect}
-                disabled={isImporting || isParsing}
+                disabled={isImporting || isParsing || accountJsonMutation.isPending}
               />
             </div>
 
@@ -875,17 +864,6 @@ export default function ImportExport() {
                   </div>
                 ))}
 
-                <div className="flex items-center justify-between p-3 border rounded-lg bg-amber-50 dark:bg-amber-900/20">
-                  <div className="flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4 text-amber-600" />
-                    <div>
-                      <div className="text-sm font-medium text-amber-900 dark:text-amber-100">Force import duplicates</div>
-                      <div className="text-xs text-amber-700 dark:text-amber-300">Import even if tasks already exist. Forced duplicates earn no rewards.</div>
-                    </div>
-                  </div>
-                  <Switch checked={forceImport} onCheckedChange={setForceImport} />
-                </div>
-
                 <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-between">
                   <span className="text-sm font-medium">
                     Total selected: {totalSelected.toLocaleString()} tasks
@@ -918,71 +896,42 @@ export default function ImportExport() {
             )}
 
             {importResult && !isImporting && (
-              <div className="space-y-3">
-                {importResult.fileWarning && (
-                  <div className="p-3 bg-amber-50 dark:bg-amber-900/30 rounded-lg flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                    <span className="text-sm text-amber-900 dark:text-amber-100">{importResult.fileWarning}</span>
-                  </div>
-                )}
-
-                <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-lg space-y-3">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
-                    <span className="text-sm font-medium text-green-900 dark:text-green-100">
-                      Import Complete
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center text-xs">
-                    <div className="p-2 bg-white dark:bg-gray-800 rounded">
-                      <div className="font-bold text-lg text-green-700 dark:text-green-300">
-                        {importResult.imported.toLocaleString()}
-                      </div>
-                      <div className="text-gray-600 dark:text-gray-400">New Imported</div>
+              <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-lg space-y-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  <span className="text-sm font-medium text-green-900 dark:text-green-100">
+                    Import Complete
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                  <div>
+                    <div className="font-bold text-lg text-green-700 dark:text-green-300">
+                      {importResult.imported.toLocaleString()}
                     </div>
-                    {importResult.skippedCompleted > 0 && (
-                      <div className="p-2 bg-white dark:bg-gray-800 rounded">
-                        <div className="font-bold text-lg text-orange-600">
-                          {importResult.skippedCompleted.toLocaleString()}
-                        </div>
-                        <div className="text-gray-600 dark:text-gray-400">Already Done</div>
-                      </div>
-                    )}
-                    {importResult.skippedDuplicate > 0 && (
-                      <div className="p-2 bg-white dark:bg-gray-800 rounded">
-                        <div className="font-bold text-lg text-yellow-600">
-                          {importResult.skippedDuplicate.toLocaleString()}
-                        </div>
-                        <div className="text-gray-600 dark:text-gray-400">Existing Duplicates</div>
-                      </div>
-                    )}
-                    {importResult.forceImported > 0 && (
-                      <div className="p-2 bg-white dark:bg-gray-800 rounded">
-                        <div className="font-bold text-lg text-amber-600">
-                          {importResult.forceImported.toLocaleString()}
-                        </div>
-                        <div className="text-gray-600 dark:text-gray-400">Force Imported</div>
-                      </div>
-                    )}
-                    {importResult.failed > 0 && (
-                      <div className="p-2 bg-white dark:bg-gray-800 rounded">
-                        <div className="font-bold text-lg text-red-600">
-                          {importResult.failed.toLocaleString()}
-                        </div>
-                        <div className="text-gray-600 dark:text-gray-400">Failed</div>
-                      </div>
-                    )}
+                    <div className="text-gray-600 dark:text-gray-400">Imported</div>
                   </div>
-                  {(importResult.skippedCompleted > 0 || importResult.skippedDuplicate > 0) && (
-                    <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-1">
-                      <SkipForward className="h-3 w-3" />
-                      {importResult.skippedCompleted + importResult.skippedDuplicate} duplicate tasks were skipped to prevent reward inflation.
+                  <div>
+                    <div className="font-bold text-lg text-red-600">
+                      {importResult.failed.toLocaleString()}
                     </div>
-                  )}
+                    <div className="text-gray-600 dark:text-gray-400">Failed</div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-lg text-amber-600">
+                      {(importResult.skippedAsDuplicate || 0).toLocaleString()}
+                    </div>
+                    <div className="text-gray-600 dark:text-gray-400">Skipped</div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-lg text-gray-700 dark:text-gray-300">
+                      {importResult.total.toLocaleString()}
+                    </div>
+                    <div className="text-gray-600 dark:text-gray-400">Total</div>
+                  </div>
                 </div>
               </div>
             )}
-
+            
             <div className="bg-yellow-50 dark:bg-yellow-900/30 p-4 rounded-lg">
               <div className="flex items-start">
                 <AlertCircle className="mr-2 h-4 w-4 text-yellow-600 mt-0.5" />
@@ -991,60 +940,237 @@ export default function ImportExport() {
                   <ul className="text-xs space-y-1 list-disc list-inside">
                     <li>Excel (.xlsx) with sheets: Daily Planner 2026, Archives, Vault</li>
                     <li>CSV with columns: Date, Activity, Notes, Urgency, Impact, Effort</li>
-                    <li>JSON — AxTask backup bundles or plain task arrays</li>
                     <li>Priority and classification are auto-calculated after import</li>
-                    <li>Duplicate tasks are automatically detected and skipped</li>
+                    <li>
+                      JSON backup and spreadsheet imports share the same task fingerprint; order does not matter for duplicate tasks
+                    </li>
                   </ul>
                 </div>
               </div>
             </div>
 
-            <Button
-              variant="outline"
+            <Button 
+              variant="outline" 
               onClick={handleDownloadTemplate}
               className="w-full"
             >
               <FileText className="mr-2 h-4 w-4" />
               Download Template
             </Button>
+
+            <Separator className="my-2" />
+
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">Full account backup (JSON)</Label>
+              <p className="text-xs text-muted-foreground">
+                Use the same format as &quot;Download JSON backup&quot;. If the file includes tasks, you will answer 1–3
+                quick multiple-choice questions about those tasks before dry run or import. Backups with no tasks skip
+                that step. Large files can take a minute.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="json-backup-file" className="text-xs font-normal text-muted-foreground">
+                  AxTask user export (.json)
+                </Label>
+                <Input
+                  id="json-backup-file"
+                  ref={jsonInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleJsonFileSelect}
+                  disabled={isImporting || isParsing || accountJsonMutation.isPending || accountDataStepUpBlocks}
+                />
+              </div>
+              {jsonFileName ? (
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  Loaded: <span className="font-medium">{jsonFileName}</span>
+                  {jsonBundle?.metadata.tableCounts?.tasks != null
+                    ? ` — ${Number(jsonBundle.metadata.tableCounts.tasks).toLocaleString()} tasks in bundle`
+                    : ""}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={
+                    !jsonBundle
+                    || accountJsonMutation.isPending
+                    || importChallengeBusy
+                    || accountDataStepUpBlocks
+                  }
+                  onClick={() => void beginJsonAccountImport(true)}
+                >
+                  {accountJsonMutation.isPending || importChallengeBusy ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Dry run
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={
+                    !jsonBundle
+                    || accountJsonMutation.isPending
+                    || importChallengeBusy
+                    || accountDataStepUpBlocks
+                  }
+                  onClick={() => void beginJsonAccountImport(false)}
+                >
+                  Import JSON backup
+                </Button>
+              </div>
+              {jsonAccountResult ? (
+                <div
+                  className={`rounded-lg border p-3 text-xs space-y-2 ${
+                    jsonAccountResult.success
+                      ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
+                      : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                  }`}
+                >
+                  <div className="font-medium">
+                    {jsonAccountResult.dryRun ? "Dry run" : "Import"} —{" "}
+                    {jsonAccountResult.success ? "completed" : "see errors"}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {Object.entries(jsonAccountResult.inserted || {}).map(([k, v]) => (
+                      <div key={`ins-${k}`}>
+                        <span className="text-muted-foreground">{k}: </span>
+                        <span className="font-mono">{String(v)}</span>{" "}
+                        {jsonAccountResult.dryRun ? "would insert" : "inserted"}
+                      </div>
+                    ))}
+                    {Object.entries(jsonAccountResult.skipped || {}).some(([, v]) => v > 0) ? (
+                      <div className="col-span-full text-amber-800 dark:text-amber-200">
+                        Skipped rows (already present or unresolved links):{" "}
+                        {Object.entries(jsonAccountResult.skipped || {})
+                          .filter(([, v]) => v > 0)
+                          .map(([k, v]) => `${k}: ${v}`)
+                          .join(", ")}
+                      </div>
+                    ) : null}
+                  </div>
+                  {jsonAccountResult.errors?.length ? (
+                    <ul className="list-disc list-inside text-red-700 dark:text-red-300 max-h-32 overflow-y-auto">
+                      {jsonAccountResult.errors.slice(0, 8).map((e, i) => (
+                        <li key={i}>
+                          {e.table} — {e.message}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      {importHistoryData.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <History className="mr-2 h-5 w-5" />
-              Import History
-            </CardTitle>
-            <CardDescription>Previous file imports and their results</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {importHistoryData.map((h) => (
-                <div key={h.id} className="flex items-center justify-between p-3 border rounded-lg text-sm">
-                  <div>
-                    <div className="font-medium">{h.fileName}</div>
-                    <div className="text-xs text-gray-500">
-                      {h.createdAt ? new Date(h.createdAt).toLocaleDateString() : "Unknown date"}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Badge variant="secondary">{h.imported} imported</Badge>
-                    {(h.skippedCompleted + h.skippedDuplicate) > 0 && (
-                      <Badge variant="outline">{h.skippedCompleted + h.skippedDuplicate} skipped</Badge>
-                    )}
-                    {h.forceImported > 0 && (
-                      <Badge variant="outline" className="text-amber-600">{h.forceImported} forced</Badge>
-                    )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Automatic Backup Preferences</CardTitle>
+          <CardDescription>
+            Control whether the server automatically backs up your account data.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {backupStatus ? (
+            <>
+              <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <div>
+                  <div className="text-sm font-medium">Server Backups</div>
+                  <div className="text-xs text-muted-foreground">
+                    {backupStatus.automaticBackupsConfigured
+                      ? backupStatus.lastServerBackupAt
+                        ? `Last backup: ${new Date(backupStatus.lastServerBackupAt).toLocaleString()}`
+                        : "Scheduled, no completed backup yet"
+                      : "Not configured on this server"}
                   </div>
                 </div>
-              ))}
+                <div
+                  className={`text-xs font-medium px-2 py-1 rounded-full ${
+                    backupStatus.automaticBackupsConfigured
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
+                      : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                  }`}
+                >
+                  {backupStatus.automaticBackupsConfigured ? "Enabled" : "Disabled"}
+                </div>
+              </div>
+
+              {backupStatus.consecutiveFailures > 0 && (
+                <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <div className="text-sm text-red-900 dark:text-red-100">
+                      <p className="font-medium">
+                        {backupStatus.consecutiveFailures === 1
+                          ? "Last automatic backup failed"
+                          : `${backupStatus.consecutiveFailures} consecutive automatic backups failed`}
+                      </p>
+                      <p className="text-xs text-red-700 dark:text-red-300 mt-1">
+                        Your data may not be safely backed up. Run a manual JSON export below, or check the server logs.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {backupStatus.automaticBackupsConfigured && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium">Include my account</div>
+                      <div className="text-xs text-muted-foreground">
+                        Opt in or out of automatic server-side backups
+                      </div>
+                    </div>
+                    <Checkbox
+                      checked={backupStatus.userAutoBackupEnabled}
+                      onCheckedChange={(checked) =>
+                        updateBackupPrefMutation.mutate({
+                          autoBackupEnabled: checked === true,
+                        })
+                      }
+                      disabled={updateBackupPrefMutation.isPending}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium">Preferred target</div>
+                    <div className="flex gap-2">
+                      {(["default", "local", "s3"] as const).map((target) => (
+                        <Button
+                          key={target}
+                          variant={backupStatus.userPreferredTarget === target ? "default" : "outline"}
+                          size="sm"
+                          onClick={() =>
+                            updateBackupPrefMutation.mutate({
+                              preferredTarget: target,
+                            })
+                          }
+                          disabled={updateBackupPrefMutation.isPending}
+                        >
+                          {target === "default" ? "Server default" : target.toUpperCase()}
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      &quot;Server default&quot; follows the server&apos;s configured target. &quot;Local&quot; or &quot;S3"
+                      overrides it for your account.
+                    </p>
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading backup status…
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -1064,7 +1190,7 @@ export default function ImportExport() {
                 <li>Choose "Replace spreadsheet" and click "Import data"</li>
               </ol>
             </div>
-
+            
             <div>
               <h4 className="font-semibold text-sm mb-2">To import from Google Sheets:</h4>
               <ol className="text-sm text-gray-600 dark:text-gray-400 space-y-1 list-decimal list-inside">
@@ -1075,225 +1201,19 @@ export default function ImportExport() {
               </ol>
             </div>
 
-            <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+            <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg space-y-2">
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                <strong>Tip:</strong> The priority scoring engine from your Google Apps Script
+                <strong>Tip:</strong> The priority scoring engine from your Google Apps Script 
                 is built into AxTask, so your tasks will have consistent priority scoring.
               </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-2 border-indigo-200 dark:border-indigo-800">
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Shield className="mr-2 h-5 w-5 text-indigo-600" />
-            Two-Factor Authentication (MFA)
-          </CardTitle>
-          <CardDescription>
-            Secure your account with TOTP-based two-factor authentication using an authenticator app like Google Authenticator, Authy, or 1Password. MFA is required for destructive actions like clearing all tasks.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {mfaStatus?.mfaEnabled ? (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/30 rounded-lg">
-                <Lock className="h-5 w-5 text-green-600" />
-                <span className="text-sm font-medium text-green-900 dark:text-green-100">
-                  MFA is enabled on your account
-                </span>
-              </div>
-              <div className="space-y-2">
-                <Label>To disable MFA, enter your current authenticator code:</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={6}
-                    placeholder="000000"
-                    value={mfaDisableCode}
-                    onChange={(e) => setMfaDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    className="w-32 text-center font-mono text-lg tracking-widest"
-                  />
-                  <Button
-                    variant="destructive"
-                    onClick={handleMfaDisable}
-                    disabled={mfaDisableCode.length !== 6 || isDisablingMfa}
-                  >
-                    {isDisablingMfa ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Unlock className="mr-2 h-4 w-4" />}
-                    Disable MFA
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : mfaSetupData ? (
-            <div className="space-y-4">
-              <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg space-y-3">
-                <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100">
-                  Scan this QR code with your authenticator app:
-                </p>
-                <div className="flex justify-center">
-                  <img src={mfaSetupData.qrCode} alt="MFA QR Code" className="w-48 h-48 rounded-lg border" />
-                </div>
-                <div className="text-xs text-center text-gray-500 dark:text-gray-400 space-y-1">
-                  <p>Or enter this secret manually:</p>
-                  <code className="block bg-white dark:bg-gray-800 px-3 py-1.5 rounded text-sm font-mono select-all break-all">
-                    {mfaSetupData.secret}
-                  </code>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Enter the 6-digit code from your authenticator app to confirm:</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={6}
-                    placeholder="000000"
-                    value={mfaCode}
-                    onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    className="w-32 text-center font-mono text-lg tracking-widest"
-                  />
-                  <Button onClick={handleMfaVerify} disabled={mfaCode.length !== 6}>
-                    <CheckCircle2 className="mr-2 h-4 w-4" />
-                    Verify & Enable
-                  </Button>
-                </div>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => { setMfaSetupData(null); setMfaCode(""); }}>
-                Cancel Setup
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg">
-                <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                <span className="text-sm text-yellow-900 dark:text-yellow-100">
-                  MFA is not enabled. Enable it to unlock Danger Zone actions and add an extra layer of security.
-                </span>
-              </div>
-              <Button onClick={handleMfaSetup} disabled={isMfaSetupLoading}>
-                {isMfaSetupLoading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <QrCode className="mr-2 h-4 w-4" />
-                )}
-                Set Up MFA
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="border-2 border-red-300 dark:border-red-800">
-        <CardHeader>
-          <CardTitle className="flex items-center text-red-700 dark:text-red-400">
-            <AlertTriangle className="mr-2 h-5 w-5" />
-            Danger Zone
-          </CardTitle>
-          <CardDescription>
-            Destructive actions that cannot be undone. These require MFA verification for security.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="p-4 border-2 border-red-200 dark:border-red-800 rounded-lg space-y-3">
-            <div className="flex items-start justify-between">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Trash2 className="h-4 w-4 text-red-600" />
-                  <span className="font-medium text-red-900 dark:text-red-100">Clear All Tasks</span>
-                </div>
-                <p className="text-xs text-gray-600 dark:text-gray-400">
-                  Permanently delete all {tasks.length.toLocaleString()} tasks from your account. This action cannot be undone.
-                </p>
-              </div>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  if (!mfaStatus?.mfaEnabled) {
-                    toast({
-                      title: "MFA required",
-                      description: "You must enable two-factor authentication before performing destructive actions.",
-                      variant: "destructive",
-                    });
-                    return;
-                  }
-                  setShowClearAllDialog(true);
-                  setClearAllMfaCode("");
-                }}
-                disabled={tasks.length === 0}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Clear All Tasks
-              </Button>
-            </div>
-          </div>
-          {!mfaStatus?.mfaEnabled && (
-            <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
-              <Lock className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-              <span className="text-xs text-amber-900 dark:text-amber-100">
-                Danger zone actions are locked. Enable MFA (above) to unlock them.
-              </span>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Dialog open={showClearAllDialog} onOpenChange={setShowClearAllDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-700 dark:text-red-400">
-              <AlertTriangle className="h-5 w-5" />
-              Confirm: Clear All Tasks
-            </DialogTitle>
-            <DialogDescription>
-              This will permanently delete all {tasks.length.toLocaleString()} tasks from your account. This action cannot be undone. Enter your MFA code to confirm.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="p-3 bg-red-50 dark:bg-red-900/30 rounded-lg">
-              <p className="text-sm text-red-900 dark:text-red-100 font-medium">
-                You are about to delete {tasks.length.toLocaleString()} tasks permanently.
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                <strong>JSON + Sheets:</strong> Keep using your repo spreadsheet for day-to-day capture; use JSON for full backups.
+                Import either first; matching rows are merged by task content, not by row position.
               </p>
             </div>
-            <div className="space-y-2">
-              <Label>Enter your 6-digit authenticator code:</Label>
-              <Input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                placeholder="000000"
-                value={clearAllMfaCode}
-                onChange={(e) => setClearAllMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                className="w-32 text-center font-mono text-lg tracking-widest"
-                autoFocus
-              />
-            </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowClearAllDialog(false)} disabled={isClearingAll}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleClearAllTasks}
-              disabled={clearAllMfaCode.length !== 6 || isClearingAll}
-            >
-              {isClearingAll ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="mr-2 h-4 w-4" />
-              )}
-              {isClearingAll ? "Clearing..." : "Delete All Tasks"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </CardContent>
+      </Card>
     </div>
   );
 }

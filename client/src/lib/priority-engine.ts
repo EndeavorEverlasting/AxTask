@@ -28,7 +28,7 @@ export class PriorityEngine {
       "send": 2, "deliver": 2, "pack": 1, "arrange": 1, "renew": 3,
       "pay": 3, "transfer": 2, "complete": 1, "finish": 1, "create": 1,
       "book": 2, "register": 2, "apply": 2, "request": 2, "return": 2,
-      "cancel": 2, "repair": 2, "assemble": 1, "pick": 1, "drop": 1
+      "cancel": 2, "repair": 2, "assemble": 1, "pick": 1, "drop": 1,
     };
 
     Object.keys(criticalKeywords).forEach(keyword => {
@@ -82,6 +82,10 @@ export class PriorityEngine {
       score -= 1;
     }
 
+    // Manual override with Urgency × Impact. When only one of urgency/impact
+    // is set, still produce a non-zero floor (baseline Task #16 fix) using
+    // value * 0.8 so the slider feels responsive even before the other is
+    // filled in.
     if (urgency && impact) {
       const manualScore = (urgency * impact) / 2;
       score = Math.max(score, manualScore);
@@ -91,6 +95,7 @@ export class PriorityEngine {
       score = Math.max(score, impact * 0.8);
     }
 
+    // Effort penalty (higher effort = slight priority reduction)
     if (effort && effort > 3) {
       score = score * 0.9;
     }
@@ -119,7 +124,13 @@ export class PriorityEngine {
     if (combined.match(/\b(research|investigate|explore|analyze|study|learn)\b/)) return "Research";
     if (combined.match(/\b(install|setup|configure|maintain|update|upgrade)\b/)) return "Maintenance";
     if (combined.match(/\b(submit|confirm|approve|sign|document|paperwork|admin)\b/)) return "Administrative";
-    
+    if (
+      combined.match(
+        /\b(buy|grocery|groceries|pick up|shopping list|supermarket|market|store run|shop for|errand)\b/,
+      )
+    )
+      return "Shopping";
+
     return "General";
   }
 
@@ -172,7 +183,7 @@ export class PriorityEngine {
       "send": 2, "deliver": 2, "pack": 1, "arrange": 1, "renew": 3,
       "pay": 3, "transfer": 2, "complete": 1, "finish": 1, "create": 1,
       "book": 2, "register": 2, "apply": 2, "request": 2, "return": 2,
-      "cancel": 2, "repair": 2, "assemble": 1, "pick": 1, "drop": 1
+      "cancel": 2, "repair": 2, "assemble": 1, "pick": 1, "drop": 1,
     };
 
     Object.keys(criticalKeywords).forEach(keyword => {

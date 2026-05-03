@@ -5,23 +5,81 @@ import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
+import { getSessionMaxAgeMs } from "./session-config";
 import { registerOAuthRoutes } from "./auth-providers";
 import { seedDevAccounts } from "./seed-dev";
+import { pool } from "./db";
+import { installProbeSink } from "./probe-sink";
 import { setupCollaborationWs } from "./collaboration";
+import { setupShoppingListWs } from "./shopping-list-ws";
+import { attachMonitorContext } from "./monitoring/request-context";
+import { appendSecurityEvent } from "./storage";
+import { notifyAdminsOfApiError } from "./monitoring/admin-alerts";
+import { evaluateAdherenceForAllUsers } from "./services/adherence-evaluator";
+import { dispatchAdherencePushNotifications } from "./services/adherence-dispatch";
+import { dispatchDueReminderTriggers } from "./services/reminder-dispatch";
+import { getAdherenceThresholds, isAdherenceEnabled } from "./services/adherence-thresholds";
+import { startArchetypeRollupTicker } from "./workers/archetype-rollup";
+import { startRetentionPruneTicker } from "./workers/retention-prune";
+import { captureDbSizeSnapshot } from "./workers/db-size-snapshot";
+import { startBackupSchedulerTicker } from "./workers/backup-scheduler";
+import { startBackupQueueWorker } from "./workers/backup-queue-worker";
+import { startBackupBullmqWorker } from "./workers/backup-bullmq-worker";
+import { logBootConfigSummary } from "./boot-config-summary";
+import { getRegistrationConfig } from "./registration-config";
 
 const app = express();
 
 app.set("trust proxy", 1);
+installProbeSink(app);
 
 const isDev = process.env.NODE_ENV !== "production";
-const productionDomain = "axtask.replit.app";
+const canonicalHost = (process.env.CANONICAL_HOST || "").trim().toLowerCase();
+const replitFallbackHost = (process.env.REPLIT_FALLBACK_HOST || "axtask.replit.app").trim().toLowerCase();
+const forceHttps = process.env.FORCE_HTTPS !== "false";
+
+function parseCsvEnv(value?: string): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function normalizeHost(hostHeader: string): string {
+  return hostHeader.split(":")[0].trim().toLowerCase();
+}
+
+function isLocalHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1";
+}
+
+// Production custom domain (e.g. axtask.app): set CANONICAL_HOST and/or ADDITIONAL_ALLOWED_HOSTS so host checks pass behind the proxy.
+const extraAllowedHosts = parseCsvEnv(process.env.ADDITIONAL_ALLOWED_HOSTS);
+const allowedHosts = new Set<string>(
+  [canonicalHost, replitFallbackHost, ...extraAllowedHosts].filter(Boolean),
+);
+
+function isAllowedHost(hostHeader: string): boolean {
+  const host = normalizeHost(hostHeader);
+  if (isLocalHost(host)) return true;
+  if (host.endsWith(".replit.dev")) return true;
+  return allowedHosts.has(host);
+}
+
+const allowedOrigins = new Set<string>(
+  Array.from(allowedHosts).map((host) => `https://${host}`),
+);
+for (const origin of parseCsvEnv(process.env.ADDITIONAL_ALLOWED_ORIGINS)) {
+  allowedOrigins.add(origin.startsWith("http") ? origin : `https://${origin}`);
+}
 
 app.use(
   helmet({
     contentSecurityPolicy: isDev ? false : {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
+        scriptSrc: ["'self'", "https://replit.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"],
@@ -49,22 +107,27 @@ app.use(
 
 if (!isDev) {
   app.use((req, res, next) => {
-    const host = req.get("host") || "";
-    if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) {
-      return next();
+    const hostHeader = req.get("host") || "";
+    const host = normalizeHost(hostHeader);
+
+    if (forceHttps && req.protocol !== "https" && !isLocalHost(host)) {
+      const httpsHost = hostHeader || canonicalHost || replitFallbackHost;
+      return res.redirect(301, `https://${httpsHost}${req.originalUrl}`);
     }
-    if (req.get("x-forwarded-proto") !== "https" && req.protocol !== "https") {
-      return res.redirect(301, `https://${productionDomain}${req.originalUrl}`);
+
+    if (hostHeader && !isAllowedHost(hostHeader)) {
+      if (canonicalHost) {
+        return res.redirect(301, `https://${canonicalHost}${req.originalUrl}`);
+      }
+      return res.status(403).json({ message: "Forbidden host" });
     }
-    if (host && host !== productionDomain && !host.endsWith(".replit.dev")) {
-      return res.redirect(301, `https://${productionDomain}${req.originalUrl}`);
-    }
+
     next();
   });
 }
 
 app.use(cookieParser());
-const LARGE_BODY_PATHS = ["/api/admin/import", "/api/account/import", "/api/admin/import/validate", "/api/tasks/import"];
+const LARGE_BODY_PATHS = ["/api/admin/import", "/api/account/import", "/api/admin/import/validate"];
 app.use((req, res, next) => {
   if (LARGE_BODY_PATHS.some(p => req.path.startsWith(p))) {
     return express.json({ limit: "50mb" })(req, res, next);
@@ -73,6 +136,37 @@ app.use((req, res, next) => {
 });
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 
+// Attach a privacy-safe snapshot of allowlisted request parameters for monitoring.
+// Must run after body parsers so req.body is available.
+app.use("/api", attachMonitorContext());
+
+if (!isDev) {
+  app.use((_, res, next) => {
+    res.setHeader(
+      "Content-Security-Policy-Report-Only",
+      "default-src 'self'; script-src 'self' https://replit.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; object-src 'none'; base-uri 'self'; frame-src 'none'; form-action 'self' https://accounts.google.com; report-uri /csp-report",
+    );
+    next();
+  });
+}
+
+app.post(
+  "/csp-report",
+  express.json({ type: ["application/csp-report", "application/reports+json", "application/json"] }),
+  (req, res) => {
+    const report = (req.body && (req.body["csp-report"] || req.body)) as
+      | Record<string, unknown>
+      | undefined;
+    if (report) {
+      const blockedUri = String(report["blocked-uri"] || "");
+      const violated = String(report["violated-directive"] || "");
+      const sourceFile = String(report["source-file"] || "");
+      log(`[csp-report] violated="${violated}" blocked="${blockedUri}" source="${sourceFile}"`);
+    }
+    res.status(204).send();
+  },
+);
+
 if (!isDev) {
   app.use("/api", (req, res, next) => {
     if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
@@ -80,12 +174,18 @@ if (!isDev) {
     }
     const origin = req.get("origin");
     const referer = req.get("referer");
-    const allowed = [`https://${productionDomain}`];
-    if (origin && !allowed.some((a) => origin.startsWith(a))) {
+    if (origin && !allowedOrigins.has(origin.toLowerCase())) {
       return res.status(403).json({ message: "Forbidden — invalid origin" });
     }
-    if (!origin && referer && !allowed.some((a) => referer.startsWith(a))) {
-      return res.status(403).json({ message: "Forbidden — invalid referer" });
+    if (!origin && referer) {
+      try {
+        const refererOrigin = new URL(referer).origin.toLowerCase();
+        if (!allowedOrigins.has(refererOrigin)) {
+          return res.status(403).json({ message: "Forbidden — invalid referer" });
+        }
+      } catch {
+        return res.status(403).json({ message: "Forbidden — invalid referer" });
+      }
     }
     next();
   });
@@ -97,6 +197,7 @@ const CSRF_COOKIE = "axtask.csrf";
 const CSRF_HEADER = "x-csrf-token";
 
 app.use("/api", (req, res, next) => {
+  const csrfMaxAge = getSessionMaxAgeMs();
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
     if (!req.cookies?.[CSRF_COOKIE]) {
       const token = csrfRandomBytes(32).toString("base64url");
@@ -105,7 +206,7 @@ app.use("/api", (req, res, next) => {
         secure: !isDev,
         sameSite: "lax",
         path: "/",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: csrfMaxAge,
       });
     }
     return next();
@@ -124,11 +225,37 @@ app.use("/api", (req, res, next) => {
       secure: !isDev,
       sameSite: "lax",
       path: "/",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: csrfMaxAge,
     });
     return res.status(403).json({ message: "Invalid CSRF token" });
   }
   next();
+});
+
+app.get("/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    service: "axtask",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get("/ready", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.json({
+      status: "ready",
+      service: "axtask",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: "not_ready",
+      service: "axtask",
+      timestamp: new Date().toISOString(),
+      message: "Database not reachable",
+    });
+  }
 });
 
 setupAuth(app);
@@ -138,28 +265,12 @@ registerOAuthRoutes(app);
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
 
-      const isSensitive = path.startsWith("/api/auth");
-      if (capturedJsonResponse && !isSensitive) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
+      // Never append response bodies to access logs: they may contain PII and land in log aggregators.
       log(logLine);
     }
   });
@@ -167,14 +278,182 @@ app.use((req, res, next) => {
   next();
 });
 
+function warnIfVapidMissing(): void {
+  const publicKey = (process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY || "").trim();
+  const privateKey = (process.env.VAPID_PRIVATE_KEY || "").trim();
+  if (publicKey && privateKey) return;
+  const missing = [
+    publicKey ? null : "VAPID_PUBLIC_KEY",
+    privateKey ? null : "VAPID_PRIVATE_KEY",
+  ].filter(Boolean);
+  console.warn(
+    `[push] VAPID keys missing (${missing.join(", ")}); /api/notifications/subscriptions accepts clients but no pushes will be dispatched until VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are set. Run \`npm run vapid:generate\` to generate a key pair. See docs/NOTIFICATIONS_AND_PUSH.md.`,
+  );
+}
+
+function warnIfInviteConfigBroken(): void {
+  const cfg = getRegistrationConfig();
+
+  if (cfg.rawModeWasUnknown && cfg.rawRegistrationModeEnv) {
+    console.warn(
+      `[auth] Unknown REGISTRATION_MODE "${cfg.rawRegistrationModeEnv}" — falling back to ${cfg.mode} (NODE_ENV=${process.env.NODE_ENV}).`,
+    );
+  }
+
+  if (cfg.inviteCode && cfg.mode !== "invite") {
+    console.warn(
+      `[auth] INVITE_CODE is set but REGISTRATION_MODE is "${cfg.mode}" (not invite). Invite codes are ignored unless mode is invite.`,
+    );
+  }
+
+  if (cfg.mode === "invite") {
+    if (!cfg.inviteCode) {
+      console.warn("[auth] REGISTRATION_MODE=invite but INVITE_CODE is not configured.");
+    } else if (cfg.inviteCodeWeak) {
+      console.warn(
+        "[auth] INVITE_CODE is shorter than 8 characters — users may have trouble; consider a longer code.",
+      );
+    } else {
+      console.info("[auth] Registration invite mode is active with INVITE_CODE configured.");
+    }
+  }
+}
+
 (async () => {
-  await seedDevAccounts();
+  warnIfVapidMissing();
+  warnIfInviteConfigBroken();
+  logBootConfigSummary();
+
+  try {
+    await seedDevAccounts();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[seed] Dev account seed failed (${msg}). Start PostgreSQL and ensure DATABASE_URL is correct, or set DISABLE_DEV_SEED=true to skip seeding. The server will continue; auth DB calls will still fail until the database is reachable.`,
+    );
+  }
 
   const server = await registerRoutes(app);
 
   setupCollaborationWs(server);
+  setupShoppingListWs(server);
+
+  if (isAdherenceEnabled()) {
+    const thresholds = getAdherenceThresholds();
+    const runAdherenceTick = async () => {
+      try {
+        await evaluateAdherenceForAllUsers("cron");
+        await dispatchAdherencePushNotifications(100);
+      } catch (error) {
+        console.warn("[adherence] background tick failed:", (error as Error)?.message || String(error));
+      }
+    };
+    void runAdherenceTick();
+    setInterval(() => {
+      void runAdherenceTick();
+    }, thresholds.cronIntervalMs);
+  }
+
+  if (process.env.NODE_ENV !== "test" && process.env.DISABLE_REMINDER_DISPATCH !== "true") {
+    const intervalMs = Number(process.env.REMINDER_DISPATCH_INTERVAL_MS) || 60 * 1000;
+    const maxPerTick = Number(process.env.REMINDER_DISPATCH_MAX_PER_TICK) || 100;
+    const runReminderTick = async () => {
+      try {
+        const summary = await dispatchDueReminderTriggers(maxPerTick);
+        if (summary.scanned > 0 || summary.failedSend > 0) {
+          console.info("[reminders] dispatch tick", {
+            scanned: summary.scanned,
+            attempted: summary.attempted,
+            sent: summary.sent,
+            skipped: summary.skipped,
+            skippedPreferenceDisabled: summary.skippedPreferenceDisabled,
+            skippedNoSubscription: summary.skippedNoSubscription,
+            failedSend: summary.failedSend,
+          });
+        }
+      } catch (error) {
+        console.warn("[reminders] background tick failed:", (error as Error)?.message || String(error));
+      }
+    };
+    void runReminderTick();
+    setInterval(() => {
+      void runReminderTick();
+    }, intervalMs);
+  }
+
+  // Archetype empathy rollup worker: see docs/ARCHETYPE_EMPATHY_ANALYTICS.md.
+  // Disabled in tests to keep the suite hermetic.
+  if (process.env.NODE_ENV !== "test" && process.env.DISABLE_ARCHETYPE_ROLLUP !== "true") {
+    const intervalMs = Number(process.env.ARCHETYPE_ROLLUP_INTERVAL_MS) || 60 * 60 * 1000;
+    startArchetypeRollupTicker(intervalMs);
+  }
+
+  // Retention prune worker: daily sweep of append-only tables so Neon's
+  // 512 MB ceiling doesn't surprise us again (see server/workers/
+  // retention-prune.ts for windows). Opt-out with DISABLE_RETENTION_PRUNE
+  // or override the 24h cadence with RETENTION_PRUNE_INTERVAL_MS.
+  //
+  // We piggy-back the DB size snapshot writer on the same tick, since
+  // both are once-per-day operations and both want a quiet post-boot
+  // window. `captureDbSizeSnapshot` is idempotent per calendar day, so
+  // operator-triggered reruns and restarts won't double-write rows.
+  if (process.env.NODE_ENV !== "test" && process.env.DISABLE_RETENTION_PRUNE !== "true") {
+    const intervalMs = Number(process.env.RETENTION_PRUNE_INTERVAL_MS) || 24 * 60 * 60 * 1000;
+    const initialDelayMs = Number(process.env.RETENTION_PRUNE_INITIAL_DELAY_MS) || 2 * 60 * 1000;
+    startRetentionPruneTicker({
+      intervalMs,
+      initialDelayMs,
+      run: async (input) => {
+        // Order matters: snapshot first (so the captured size reflects
+        // pre-prune weight — that's the actual observed disk use), then
+        // prune. Both steps swallow their own errors.
+        try {
+          await captureDbSizeSnapshot();
+        } catch (err) {
+          console.warn("[db-size-snapshot] tick failed:", (err as Error)?.message || String(err));
+        }
+        const { runRetentionPrune } = await import("./workers/retention-prune");
+        return runRetentionPrune(input);
+      },
+    });
+  }
+
+  // Backup scheduler worker: opt-in only. Set BACKUP_SCHEDULER_ENABLED=true
+  // to activate periodic local JSON backups. Interval defaults to 24h.
+  // Guard: scheduler must not run alongside queue or BullMQ workers to avoid
+  // duplicate backup jobs for the same users.
+  const schedulerEnabled = process.env.NODE_ENV !== "test" && process.env.BACKUP_SCHEDULER_ENABLED === "true";
+  const queueWorkerEnabled = process.env.NODE_ENV !== "test" && process.env.BACKUP_QUEUE_WORKER_ENABLED === "true";
+  const bullmqEnabled = process.env.NODE_ENV !== "test" && process.env.BACKUP_BULLMQ_ENABLED === "true";
+
+  if (schedulerEnabled && (queueWorkerEnabled || bullmqEnabled)) {
+    console.warn(
+      "Conflicting backup flags: BACKUP_SCHEDULER_ENABLED=true cannot be used together with BACKUP_QUEUE_WORKER_ENABLED=true or BACKUP_BULLMQ_ENABLED=true. " +
+      "The scheduler will not start. Use either the scheduler OR the queue workers, not both."
+    );
+  } else if (schedulerEnabled) {
+    const intervalMs = Number(process.env.BACKUP_SCHEDULER_INTERVAL_MS) || 24 * 60 * 60 * 1000;
+    startBackupSchedulerTicker({ intervalMs });
+  }
+
+  // Backup queue worker: opt-in only. Set BACKUP_QUEUE_WORKER_ENABLED=true
+  // for a persistent PostgreSQL-backed job queue (replaces the tick-based
+  // scheduler for horizontal scaling). Polling interval defaults to 30s.
+  if (queueWorkerEnabled) {
+    const pollIntervalMs = Number(process.env.BACKUP_QUEUE_WORKER_POLL_MS) || 30_000;
+    const concurrency = Number(process.env.BACKUP_QUEUE_WORKER_CONCURRENCY) || 4;
+    startBackupQueueWorker({ pollIntervalMs, concurrency });
+  }
+
+  // BullMQ Redis-backed worker: opt-in only. Set BACKUP_BULLMQ_ENABLED=true
+  // for higher throughput and built-in dead-letter queues. Requires REDIS_URL
+  // or REDIS_HOST / REDIS_PORT.
+  if (bullmqEnabled) {
+    startBackupBullmqWorker();
+  }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    const req = _req as Request & { monitor?: { requestId?: string; params?: any; query?: any; body?: any; headers?: any } };
     const status = err.status || err.statusCode || 500;
     const message =
       process.env.NODE_ENV === "production" && status >= 500
@@ -182,13 +461,46 @@ app.use((req, res, next) => {
         : err.message || "Internal Server Error";
 
     console.error(`[error] ${status} — ${err.message || err}`);
+
+    // Best-effort audit event for server-side errors (never blocks response).
+    try {
+      (req as any).__axtaskApiErrorEmitted = true;
+      const ctx = req.monitor;
+      const errorName = err?.name ? String(err.name) : "Error";
+      const errorMessage = err?.message ? String(err.message) : String(err);
+      void appendSecurityEvent({
+        eventType: "api_error",
+        actorUserId: (req.user as any)?.id,
+        route: req.path,
+        method: req.method,
+        statusCode: status,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+        payload: {
+          requestId: ctx?.requestId,
+          params: ctx?.params,
+          query: ctx?.query,
+          body: ctx?.body,
+          headers: ctx?.headers,
+          errorName,
+          errorMessage,
+          ...(process.env.NODE_ENV !== "production" ? { stack: err?.stack ? String(err.stack) : undefined } : {}),
+        },
+      });
+      void notifyAdminsOfApiError({
+        requestId: ctx?.requestId,
+        route: req.path,
+        method: req.method,
+        statusCode: status,
+        errorName,
+        errorMessage,
+      });
+    } catch {
+      // ignore
+    }
     if (!res.headersSent) {
       res.status(status).json({ message });
     }
-  });
-
-  app.get("/healthz", (_req, res) => {
-    res.status(200).send("ok");
   });
 
   if (app.get("env") === "development") {
@@ -198,55 +510,14 @@ app.use((req, res, next) => {
   }
 
   const port = parseInt(process.env.PORT || '5000', 10);
-  console.log(`[startup] NODE_ENV=${process.env.NODE_ENV}, PORT env=${process.env.PORT || '(not set, defaulting to 5000)'}, binding to port ${port}`);
-
-  const killPortAndListen = async (targetPort: number, retries = 2): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      const onError = async (err: NodeJS.ErrnoException) => {
-        if (err.code === "EADDRINUSE" && retries > 0) {
-          console.warn(`[startup] Port ${targetPort} in use — attempting to free it (${retries} retries left)`);
-          try {
-            const { execSync } = await import("child_process");
-            try {
-              const pids = execSync(`lsof -ti :${targetPort}`, { encoding: "utf8" }).trim();
-              if (pids) {
-                for (const pid of pids.split("\n")) {
-                  const p = pid.trim();
-                  if (p && p !== String(process.pid)) {
-                    try { process.kill(Number(p), "SIGTERM"); } catch {}
-                  }
-                }
-                await new Promise(r => setTimeout(r, 1000));
-              }
-            } catch {}
-          } catch {}
-          server.removeListener("error", onError);
-          return killPortAndListen(targetPort, retries - 1).then(resolve, reject);
-        }
-        reject(err);
-      };
-
-      server.once("error", onError);
-      server.listen(
-        {
-          port: targetPort,
-          host: "0.0.0.0",
-          ...(process.platform !== "win32" && { reusePort: true }),
-        },
-        () => {
-          server.removeListener("error", onError);
-          log(`serving on port ${targetPort}`);
-          console.log(`[startup] Server is listening on 0.0.0.0:${targetPort} — ready for traffic`);
-          resolve();
-        },
-      );
-    });
-  };
-
-  try {
-    await killPortAndListen(port);
-  } catch (err) {
-    console.error(`[startup] Failed to bind port ${port}:`, err);
-    process.exit(1);
-  }
+  server.listen(
+    {
+      port,
+      host: "0.0.0.0",
+      ...(process.platform !== "win32" && { reusePort: true }),
+    },
+    () => {
+      log(`serving on port ${port}`);
+    },
+  );
 })();

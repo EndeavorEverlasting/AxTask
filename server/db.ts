@@ -11,4 +11,14 @@ if (!process.env.DATABASE_URL) {
 }
 
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+pool.on("error", (err) => {
+  const code = (err as NodeJS.ErrnoException)?.code;
+  const hint =
+    code === "ECONNREFUSED"
+      ? "Database refused the connection. Start Postgres (for example `npm run docker:start` from the repo root), then confirm `DATABASE_URL` in `.env` matches the running instance. See docs/DEV_DATABASE_AND_SCHEMA.md."
+      : "Check DATABASE_URL and database availability.";
+  console.warn(`[db] Unexpected pool error (${code || "unknown"}): ${err.message}. ${hint}`);
+});
+
 export const db = drizzle(pool, { schema });

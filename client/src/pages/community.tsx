@@ -1,766 +1,1133 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation, Link } from "wouter";
-import { queryClient, apiRequest, getCsrfToken } from "@/lib/queryClient";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { formatDistanceToNow } from "date-fns";
+import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
+import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
+import { apiRequest } from "@/lib/queryClient";
+import { parseApiRequestError, participationAgeUserHint } from "@/lib/api-request-parse";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Globe2, ChevronLeft, Loader2, Sparkles, Clock, Flame, Zap,
+  CheckCircle2, CircleDot, Timer, Users, ArrowDown,
+  MessageCircle, Send, ChevronDown, ChevronUp, BarChart3,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, ThumbsUp, ThumbsDown, MessageSquare, Pin, Eye, EyeOff, Trash2, ArrowUpDown, Clock, X, Image, Tag, Search, Users, UserPlus, UserMinus } from "lucide-react";
-import { AvatarCard } from "@/components/avatar-card";
-import { MarkdownEditor } from "@/components/markdown-editor";
-import type { ForumPost } from "@shared/schema";
+import { FloatingChip } from "@/components/ui/floating-chip";
+import { AvatarGlowChip } from "@/components/ui/avatar-glow-chip";
+import { AvatarOrb as PretextAvatarOrb } from "@/components/ui/avatar-orb";
+import type { PasteComposerValue } from "@/components/composer/paste-composer";
+/**
+ * PasteComposer + SafeMarkdown both pull meaningful code:
+ *   - PasteComposer owns the image/GIF/paste upload pipeline and is only
+ *     ever rendered when a forum post is expanded to reveal its reply
+ *     composer. Lazy-loading keeps its attachment + GIF-search modules
+ *     out of the initial /community bundle for users who don't reply.
+ *   - SafeMarkdown is a custom closed-world renderer (no raw HTML). It is
+ *     lazy-loaded for expanded post bodies and replies.
+ */
+const PasteComposer = lazy(() =>
+  import("@/components/composer/paste-composer").then((m) => ({
+    default: m.PasteComposer,
+  })),
+);
+const SafeMarkdown = lazy(() =>
+  import("@/lib/safe-markdown").then((m) => ({ default: m.SafeMarkdown })),
+);
 
-function highlightMatch(text: string, query: string): JSX.Element {
-  if (!query || query.length < 2) return <>{text}</>;
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(${escaped})`, "gi");
-  const parts = text.split(regex);
-  return (
-    <>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? (
-          <mark key={i} className="bg-amber-300/50 dark:bg-amber-500/30 text-inherit rounded-sm px-0.5">{part}</mark>
-        ) : (
-          <span key={i}>{part}</span>
-        )
-      )}
-    </>
-  );
-}
-
-function getBodyExcerpt(body: string, query: string, maxLen = 120): string {
-  if (!query || query.length < 2) return body.slice(0, maxLen) + (body.length > maxLen ? "…" : "");
-  const lower = body.toLowerCase();
-  const idx = lower.indexOf(query.toLowerCase());
-  if (idx === -1) return body.slice(0, maxLen) + (body.length > maxLen ? "…" : "");
-  const start = Math.max(0, idx - 40);
-  const end = Math.min(body.length, start + maxLen);
-  return (start > 0 ? "…" : "") + body.slice(start, end) + (end < body.length ? "…" : "");
-}
-
-const CATEGORIES = ["All", "Tips", "Questions", "Feedback", "Facts", "Productivity", "General"];
-
-const CATEGORY_COLORS: Record<string, string> = {
-  Tips: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  Questions: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  Feedback: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
-  Facts: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  Productivity: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400",
-  General: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
+type PublicTask = {
+  id: string;
+  activity: string;
+  date: string;
+  time: string | null;
+  status: string;
+  priority: string;
+  classification: string;
+  notes?: string;
 };
 
-const TAG_COLORS = [
-  "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
-  "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-  "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400",
-  "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400",
-  "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400",
-];
+type ListResponse = {
+  tasks: PublicTask[];
+  nextCursor: { publishedAt: string; id: string; createdAt: string } | null;
+};
 
-function getTagColor(tag: string): string {
-  let hash = 0;
-  for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) & 0xffffffff;
-  return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
-}
+type ForumPost = {
+  id: string;
+  avatarKey: string;
+  avatarName: string;
+  title: string;
+  body: string;
+  category: string;
+  createdAt: string;
+  attachments?: PublicAttachmentRef[];
+};
 
-function timeAgo(date: string | Date): string {
-  const now = Date.now();
-  const then = new Date(date).getTime();
-  const seconds = Math.floor((now - then) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(date).toLocaleDateString();
-}
+type PublicAttachmentRef = {
+  id: string;
+  mimeType: string;
+  byteSize: number;
+  fileName: string | null;
+  downloadUrl: string;
+};
 
-function TagChips({ tags, onTagClick }: { tags: string[]; onTagClick?: (tag: string) => void }) {
-  if (!tags || tags.length === 0) return null;
+type ForumReply = {
+  id: string;
+  postId: string;
+  userId: string | null;
+  avatarKey: string | null;
+  displayName: string;
+  body: string;
+  createdAt: string;
+  attachments?: PublicAttachmentRef[];
+};
+
+type ArchetypePollSummary = {
+  id: string;
+  title: string;
+  body: string | null;
+  opensAt: string;
+  closesAt: string;
+  authorAvatarKey: string;
+  votingOpen: boolean;
+  resultsAvailable: boolean;
+};
+
+type ArchetypePollOption = {
+  id: string;
+  label: string;
+  sortOrder: number;
+};
+
+type ArchetypePollDetail = ArchetypePollSummary & {
+  options: ArchetypePollOption[];
+  results: Array<{
+    optionId: string;
+    label: string;
+    sortOrder: number;
+    totalCount: number;
+    byArchetype: Record<string, number>;
+  }> | null;
+};
+
+/** Analytical archetype keys → companion orb keys for colouring (mirrors @shared/avatar-archetypes). */
+const ARCHETYPE_TO_ORB: Record<string, string> = {
+  momentum: "mood",
+  strategy: "archetype",
+  execution: "productivity",
+  collaboration: "social",
+  recovery: "lazy",
+};
+
+const ARCHETYPE_LABEL: Record<string, string> = {
+  momentum: "Momentum",
+  strategy: "Strategy",
+  execution: "Execution",
+  collaboration: "Collaboration",
+  recovery: "Recovery",
+};
+
+/* ── Floating ambient orbs ─────────────────────────────────────────── */
+function AmbientOrbs() {
+  const orbs = useMemo(
+    () =>
+      Array.from({ length: 6 }, (_, i) => ({
+        id: i,
+        size: 120 + Math.random() * 200,
+        x: `${10 + (i * 17) % 80}%`,
+        y: `${5 + (i * 23) % 70}%`,
+        delay: i * 0.7,
+        dur: 6 + Math.random() * 4,
+        color:
+          i % 3 === 0
+            ? "from-sky-500/15 to-indigo-500/10"
+            : i % 3 === 1
+              ? "from-violet-500/12 to-fuchsia-500/8"
+              : "from-cyan-400/10 to-teal-400/8",
+      })),
+    [],
+  );
   return (
-    <div className="flex flex-wrap gap-1 mt-1.5">
-      {tags.map(tag => (
-        <button
-          key={tag}
-          className={`inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full font-medium transition-opacity hover:opacity-80 ${getTagColor(tag)}`}
-          onClick={onTagClick ? (e) => { e.stopPropagation(); onTagClick(tag); } : undefined}
-        >
-          #{tag}
-        </button>
+    <div className="absolute inset-0 pointer-events-none overflow-hidden">
+      {orbs.map((o) => (
+        <div
+          key={o.id}
+          className={`axtask-community-orb absolute rounded-full bg-gradient-to-br ${o.color} blur-3xl`}
+          style={{
+            width: o.size,
+            height: o.size,
+            left: o.x,
+            top: o.y,
+            animationDuration: `${o.dur}s`,
+            animationDelay: `${o.delay}s`,
+          }}
+        />
       ))}
     </div>
   );
 }
 
-function TagInput({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => void }) {
-  const [input, setInput] = useState("");
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  const { data: allTags } = useQuery<{ tag: string; count: number }[]>({
-    queryKey: ["/api/forum/tags"],
-  });
-
-  const normalizeTag = (raw: string) =>
-    raw.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
-
-  const addTag = (raw: string) => {
-    const tag = normalizeTag(raw);
-    if (!tag || tags.includes(tag) || tags.length >= 5) return;
-    onChange([...tags, tag]);
-    setInput("");
-    setShowSuggestions(false);
-  };
-
-  const removeTag = (tag: string) => onChange(tags.filter(t => t !== tag));
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      addTag(input);
-    } else if (e.key === "Backspace" && !input && tags.length > 0) {
-      removeTag(tags[tags.length - 1]);
-    }
-  };
-
-  const filtered = (allTags || [])
-    .map(t => t.tag)
-    .filter(t => input ? t.includes(input.toLowerCase()) : true)
-    .filter(t => !tags.includes(t))
-    .slice(0, 6);
-
-  return (
-    <div className="relative" ref={wrapperRef}>
-      <div className="flex flex-wrap gap-1 p-2 border border-input rounded-md min-h-[40px] bg-background focus-within:ring-1 focus-within:ring-ring">
-        {tags.map(t => (
-          <span key={t} className={`inline-flex items-center gap-0.5 text-xs px-2 py-0.5 rounded-full font-medium ${getTagColor(t)}`}>
-            #{t}
-            <button type="button" onClick={() => removeTag(t)} className="hover:opacity-70 ml-0.5">
-              <X className="h-2.5 w-2.5" />
-            </button>
-          </span>
-        ))}
-        {tags.length < 5 && (
-          <input
-            className="flex-1 min-w-[100px] text-sm outline-none bg-transparent placeholder:text-muted-foreground"
-            value={input}
-            onChange={e => { setInput(e.target.value); setShowSuggestions(true); }}
-            onKeyDown={handleKeyDown}
-            onFocus={() => setShowSuggestions(true)}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-            placeholder={tags.length === 0 ? "Add tags (Enter or comma)..." : ""}
-            maxLength={30}
-          />
-        )}
-      </div>
-      {showSuggestions && filtered.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 border border-border rounded-md bg-popover shadow-md z-50 max-h-40 overflow-y-auto">
-          {filtered.map(t => (
-            <button
-              key={t}
-              type="button"
-              className="block w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
-              onMouseDown={() => addTag(t)}
-            >
-              <span className={`inline-flex text-xs px-1.5 py-0.5 rounded-full mr-1 ${getTagColor(t)}`}>#{t}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      <p className="text-xs text-muted-foreground mt-1">{tags.length}/5 tags used</p>
-    </div>
-  );
+/* ── Priority icon helper ──────────────────────────────────────────── */
+function PriorityIcon({ priority }: { priority: string }) {
+  switch (priority.toLowerCase()) {
+    case "high":
+    case "critical":
+      return <Flame className="h-3.5 w-3.5 text-rose-400" />;
+    case "medium":
+      return <Zap className="h-3.5 w-3.5 text-amber-400" />;
+    default:
+      return <Clock className="h-3.5 w-3.5 text-sky-400" />;
+  }
 }
 
-function ImageUploader({ imageUrls, onChange }: { imageUrls: string[]; onChange: (urls: string[]) => void }) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const { toast } = useToast();
-
-  const handleFiles = useCallback(async (files: File[]) => {
-    const remaining = 3 - imageUrls.length;
-    if (remaining <= 0) return;
-    const toUpload = files.slice(0, remaining);
-    setUploading(true);
-    const newUrls: string[] = [];
-    for (const file of toUpload) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast({ title: "File too large", description: `${file.name} exceeds 5 MB`, variant: "destructive" });
-        continue;
-      }
-      if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type)) {
-        toast({ title: "Invalid type", description: `${file.name} is not a supported image`, variant: "destructive" });
-        continue;
-      }
-      try {
-        const fd = new FormData();
-        fd.append("image", file);
-        const headers: Record<string, string> = {};
-        const csrf = getCsrfToken();
-        if (csrf) headers["x-csrf-token"] = csrf;
-        const resp = await fetch("/api/forum/upload", { method: "POST", headers, body: fd, credentials: "include" });
-        if (!resp.ok) throw new Error((await resp.json()).message || "Upload failed");
-        const { url } = await resp.json();
-        newUrls.push(url);
-      } catch (err) {
-        toast({ title: "Upload failed", description: err instanceof Error ? err.message : "Upload failed", variant: "destructive" });
-      }
-    }
-    setUploading(false);
-    if (newUrls.length > 0) onChange([...imageUrls, ...newUrls]);
-  }, [imageUrls, onChange, toast]);
-
-  const removeImage = (url: string) => onChange(imageUrls.filter(u => u !== url));
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 text-xs gap-1.5"
-          disabled={imageUrls.length >= 3 || uploading}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Image className="h-3.5 w-3.5" />}
-          {uploading ? "Uploading..." : "Add Image"}
-        </Button>
-        <span className="text-xs text-muted-foreground">{imageUrls.length}/3 images</span>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
-          multiple
-          className="hidden"
-          onChange={e => { if (e.target.files) handleFiles(Array.from(e.target.files)); e.target.value = ""; }}
-        />
-      </div>
-      {imageUrls.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          {imageUrls.map((url) => (
-            <div key={url} className="relative group">
-              <img src={url} alt="attachment" className="h-20 w-20 object-cover rounded-md border border-border" />
-              <button
-                type="button"
-                className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => removeImage(url)}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+function StatusIcon({ status }: { status: string }) {
+  switch (status) {
+    case "completed":
+      return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />;
+    case "in-progress":
+      return <Timer className="h-3.5 w-3.5 text-amber-400" />;
+    default:
+      return <CircleDot className="h-3.5 w-3.5 text-slate-400" />;
+  }
 }
 
-function PostCard({ post, authors, isAdmin, onNavigate, onTagClick, searchQuery }: {
-  post: ForumPost;
-  authors: Record<string, { displayName: string | null; profileImageUrl: string | null }>;
-  isAdmin: boolean;
-  onNavigate: (id: string) => void;
-  onTagClick: (tag: string) => void;
-  searchQuery?: string;
-}) {
-  const { toast } = useToast();
-  const author = authors[post.userId];
-  const snippet = searchQuery && searchQuery.length >= 2
-    ? getBodyExcerpt(post.body, searchQuery)
-    : (post.body.length > 150 ? post.body.slice(0, 150) + "..." : post.body);
-  const score = post.upvotes - post.downvotes;
-  const tags: string[] = Array.isArray(post.tags) ? post.tags : [];
-  const imageUrls: string[] = Array.isArray(post.imageUrls) ? post.imageUrls : [];
-
-  const pinMutation = useMutation({
-    mutationFn: (pinned: boolean) => apiRequest("PATCH", `/api/forum/admin/posts/${post.id}`, { pinned }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/forum/posts"] }); },
-  });
-
-  const hideMutation = useMutation({
-    mutationFn: (hidden: boolean) => apiRequest("PATCH", `/api/forum/admin/posts/${post.id}`, { hidden }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/forum/posts"] }); },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: () => apiRequest("DELETE", `/api/forum/admin/posts/${post.id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/forum/posts"] });
-      toast({ title: "Post deleted" });
-    },
-  });
-
-  return (
-    <div
-      className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow cursor-pointer ${post.hidden ? "opacity-60" : ""} ${post.pinned ? "ring-2 ring-amber-400 dark:ring-amber-600" : ""}`}
-      onClick={() => onNavigate(post.id)}
-    >
-      <div className="flex items-start gap-3">
-        <div className="flex flex-col items-center gap-1 text-center min-w-[40px] pt-1">
-          <ThumbsUp className="h-4 w-4 text-gray-400" />
-          <span className={`text-sm font-bold ${score > 0 ? "text-green-600 dark:text-green-400" : score < 0 ? "text-red-600 dark:text-red-400" : "text-gray-500"}`}>{score}</span>
-          <ThumbsDown className="h-4 w-4 text-gray-400" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            {post.pinned && <Pin className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
-            {post.hidden && <EyeOff className="h-3.5 w-3.5 text-red-400 shrink-0" />}
-            <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${CATEGORY_COLORS[post.category] || CATEGORY_COLORS.General}`}>
-              {post.category}
-            </Badge>
-            {imageUrls.length > 0 && (
-              <span className="inline-flex items-center gap-0.5 text-[10px] text-gray-400">
-                <Image className="h-3 w-3" />{imageUrls.length}
-              </span>
-            )}
-          </div>
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1 line-clamp-1">
-            {searchQuery ? highlightMatch(post.title, searchQuery) : post.title}
-          </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-1">
-            {searchQuery ? highlightMatch(snippet, searchQuery) : snippet}
-          </p>
-          {tags.length > 0 && <TagChips tags={tags} onTagClick={onTagClick} />}
-          <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-2">
-            <Link
-              href={`/profile/${post.userId}`}
-              onClick={(e) => e.stopPropagation()}
-              className="hover:opacity-80 transition-opacity"
-            >
-              <AvatarCard
-                userId={post.userId}
-                displayName={author?.displayName}
-                profileImageUrl={author?.profileImageUrl}
-                size="sm"
-              />
-            </Link>
-            <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{timeAgo(post.createdAt!)}</span>
-            <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" />{post.commentCount}</span>
-            {(() => {
-              const r = (post.reactions || {}) as Record<string, string[]>;
-              const entries = Object.entries(r).filter(([, v]) => v.length > 0);
-              if (entries.length === 0) return null;
-              return (
-                <span className="flex items-center gap-0.5">
-                  {entries.map(([key, users]) => {
-                    const em = key === "thumbsUp" ? "\u{1F44D}" : key === "heart" ? "\u2764\uFE0F" : key === "party" ? "\u{1F389}" : key === "laugh" ? "\u{1F602}" : "\u{1F525}";
-                    return <span key={key} className="text-xs">{em}{users.length > 1 ? users.length : ""}</span>;
-                  })}
-                </span>
-              );
-            })()}
-          </div>
-        </div>
-      </div>
-      {isAdmin && (
-        <div className="flex gap-1 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700" onClick={(e) => e.stopPropagation()}>
-          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => pinMutation.mutate(!post.pinned)}>
-            <Pin className="h-3 w-3 mr-1" />{post.pinned ? "Unpin" : "Pin"}
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => hideMutation.mutate(!post.hidden)}>
-            {post.hidden ? <><Eye className="h-3 w-3 mr-1" />Show</> : <><EyeOff className="h-3 w-3 mr-1" />Hide</>}
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 text-xs text-red-500 hover:text-red-700" onClick={() => { if (confirm("Delete this post?")) deleteMutation.mutate(); }}>
-            <Trash2 className="h-3 w-3 mr-1" />Delete
-          </Button>
-        </div>
-      )}
-    </div>
-  );
+function priorityColor(p: string) {
+  switch (p.toLowerCase()) {
+    case "high":
+    case "critical":
+      return "border-rose-500/30 bg-rose-500/10 text-rose-300";
+    case "medium":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+    default:
+      return "border-sky-500/30 bg-sky-500/10 text-sky-300";
+  }
 }
 
-function NewPostDialog({ onCreated }: { onCreated: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [category, setCategory] = useState("General");
-  const [tags, setTags] = useState<string[]>([]);
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
-  const { toast } = useToast();
-
-  const mutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/forum/posts", { title, body, category, tags, imageUrls }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/forum/posts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/forum/tags"] });
-      toast({ title: "Post created!", description: "You earned 5 AxCoins for posting." });
-      setTitle("");
-      setBody("");
-      setCategory("General");
-      setTags([]);
-      setImageUrls([]);
-      setOpen(false);
-      onCreated();
-    },
-    onError: (err: Error) => {
-      toast({ title: "Failed to create post", description: err.message, variant: "destructive" });
-    },
-  });
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" />
-          New Post
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Create a Post</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 mt-2">
-          <Input
-            placeholder="Post title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={200}
-          />
-          <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CATEGORIES.filter(c => c !== "All").map(c => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 block">Content</label>
-            <MarkdownEditor
-              value={body}
-              onChange={setBody}
-              placeholder="Write your post... (Markdown supported)"
-            />
-            <p className="text-xs text-muted-foreground mt-1">{body.length}/10000 characters</p>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1.5">
-              <Tag className="h-3.5 w-3.5" />Tags
-            </label>
-            <TagInput tags={tags} onChange={setTags} />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 block">Images</label>
-            <ImageUploader imageUrls={imageUrls} onChange={setImageUrls} />
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button
-              onClick={() => mutation.mutate()}
-              disabled={!title.trim() || !body.trim() || mutation.isPending}
-            >
-              {mutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Post
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-type UserSearchResult = {
-  id: string;
-  displayName: string | null;
-  profileImageUrl: string | null;
-  followerCount: number;
-  isFollowing: boolean;
-  isSelf: boolean;
+/* ── Orb style map — each archetype drives a unique orb personality ── */
+const AVATAR_STYLES: Record<string, { gradient: string; glow: string; accent: string; ring: string; pulse: string }> = {
+  mood:         { gradient: "from-pink-400/40 via-rose-500/30 to-fuchsia-400/20",  glow: "shadow-pink-500/30",   accent: "text-pink-300",    ring: "ring-pink-400/30",    pulse: "[animation-delay:0s]" },
+  archetype:    { gradient: "from-sky-400/40 via-blue-500/30 to-cyan-400/20",       glow: "shadow-sky-500/30",    accent: "text-cyan-300",    ring: "ring-cyan-400/30",    pulse: "[animation-delay:0.4s]" },
+  productivity: { gradient: "from-emerald-400/40 via-teal-500/30 to-green-400/20",  glow: "shadow-emerald-500/30",accent: "text-emerald-300", ring: "ring-emerald-400/30", pulse: "[animation-delay:0.8s]" },
+  social:       { gradient: "from-amber-400/40 via-orange-500/30 to-yellow-400/20", glow: "shadow-amber-500/30",  accent: "text-amber-300",   ring: "ring-amber-400/30",   pulse: "[animation-delay:1.2s]" },
+  lazy:         { gradient: "from-violet-400/40 via-purple-500/30 to-indigo-400/20",glow: "shadow-violet-500/30", accent: "text-violet-300",  ring: "ring-violet-400/30",  pulse: "[animation-delay:1.6s]" },
 };
 
-function UserResultCard({ user: u, currentUserId }: { user: UserSearchResult; currentUserId: string }) {
-  const { toast } = useToast();
-
-  const followMutation = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/users/${u.id}/follow`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/users/search"] }); },
-    onError: () => toast({ title: "Failed to follow user", variant: "destructive" }),
-  });
-
-  const unfollowMutation = useMutation({
-    mutationFn: () => apiRequest("DELETE", `/api/users/${u.id}/follow`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/users/search"] }); },
-    onError: () => toast({ title: "Failed to unfollow user", variant: "destructive" }),
-  });
-
+/** Renders an avatar orb — a glowing sphere whose colour is driven by its archetype personality */
+function AvatarOrb({ avatarKey, size = "md" }: { avatarKey: string; size?: "sm" | "md" }) {
+  const s = AVATAR_STYLES[avatarKey] || AVATAR_STYLES.mood;
+  const dim = size === "md" ? "h-10 w-10" : "h-7 w-7";
+  const innerDim = size === "md" ? "h-4 w-4" : "h-2.5 w-2.5";
   return (
-    <div className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-sm transition-shadow">
-      <Link href={`/profile/${u.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-        <AvatarCard
-          userId={u.id}
-          displayName={u.displayName}
-          profileImageUrl={u.profileImageUrl}
-          size="md"
-        />
-        <div className="min-w-0">
-          <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{u.displayName || "Unknown"}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">{u.followerCount} follower{u.followerCount !== 1 ? "s" : ""}</p>
-        </div>
-      </Link>
-      {!u.isSelf && (
-        <Button
-          variant={u.isFollowing ? "outline" : "default"}
-          size="sm"
-          className="h-8 text-xs gap-1.5 shrink-0 ml-3"
-          disabled={followMutation.isPending || unfollowMutation.isPending}
-          onClick={() => u.isFollowing ? unfollowMutation.mutate() : followMutation.mutate()}
-        >
-          {u.isFollowing ? <><UserMinus className="h-3.5 w-3.5" />Unfollow</> : <><UserPlus className="h-3.5 w-3.5" />Follow</>}
-        </Button>
-      )}
+    <div className={`relative shrink-0 ${dim}`}>
+      {/* Outer glow ring */}
+      <div className={`absolute inset-0 rounded-full bg-gradient-to-br ${s.gradient} blur-sm opacity-60 animate-pulse ${s.pulse}`} />
+      {/* Main orb body */}
+      <div className={`relative ${dim} rounded-full bg-gradient-to-br ${s.gradient} border border-white/20 ring-1 ${s.ring} shadow-lg ${s.glow} flex items-center justify-center backdrop-blur-sm`}>
+        {/* Inner light core */}
+        <div className={`${innerDim} rounded-full bg-white/25 blur-[1px]`} />
+      </div>
     </div>
   );
 }
 
-export default function CommunityPage() {
-  const [, setLocation] = useLocation();
-  const { user } = useAuth();
-  const [category, setCategory] = useState("All");
-  const [activeTag, setActiveTag] = useState("");
-  const [sort, setSort] = useState<"newest" | "popular">("newest");
-  const [page, setPage] = useState(0);
-  const [searchMode, setSearchMode] = useState<"posts" | "users">("posts");
-  const [searchInput, setSearchInput] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const LIMIT = 20;
+const CATEGORY_BADGES: Record<string, string> = {
+  productivity: "bg-emerald-500/15 text-emerald-300 border-emerald-500/25",
+  insights: "bg-cyan-500/15 text-cyan-300 border-cyan-500/25",
+  discussion: "bg-amber-500/15 text-amber-300 border-amber-500/25",
+  fun: "bg-pink-500/15 text-pink-300 border-pink-500/25",
+  wellness: "bg-violet-500/15 text-violet-300 border-violet-500/25",
+  general: "bg-slate-500/15 text-slate-300 border-slate-500/25",
+};
 
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(searchInput), 300);
-    return () => clearTimeout(timer);
-  }, [searchInput]);
-
-  const isSearchActive = debouncedSearch.length >= 2;
-  const searchParam = isSearchActive ? `&q=${encodeURIComponent(debouncedSearch)}` : "";
-  const tagParam = activeTag ? `&tag=${encodeURIComponent(activeTag)}` : "";
-  const queryString = `?category=${category}&sort=${sort}&limit=${LIMIT}&offset=${page * LIMIT}${tagParam}${searchParam}`;
-
-  const { data, isLoading } = useQuery<{ posts: ForumPost[]; total: number; authors: Record<string, { displayName: string | null; profileImageUrl: string | null }> }>({
-    queryKey: ["/api/forum/posts", queryString],
-    refetchInterval: searchMode === "posts" ? 30000 : false,
-    enabled: searchMode === "posts",
-  });
-
-  const { data: userResults, isLoading: usersLoading } = useQuery<UserSearchResult[]>({
-    queryKey: ["/api/users/search", { q: debouncedSearch }],
-    queryFn: async () => {
-      if (!debouncedSearch || debouncedSearch.length < 2) return [];
-      const res = await fetch(`/api/users/search?q=${encodeURIComponent(debouncedSearch)}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: searchMode === "users" && isSearchActive,
-  });
-
-  const { data: popularTags } = useQuery<{ tag: string; count: number }[]>({
-    queryKey: ["/api/forum/tags"],
-    staleTime: 60000,
-  });
-
-  const isAdmin = user?.role === "admin";
-  const totalPages = data ? Math.ceil(data.total / LIMIT) : 0;
-
-  const handleTagClick = (tag: string) => {
-    setActiveTag(prev => prev === tag ? "" : tag);
-    setPage(0);
-  };
-
-  const clearSearch = () => {
-    setSearchInput("");
-    setDebouncedSearch("");
-  };
+/* ── Forum post card ─────────────────────────────────────────────── */
+function ForumPostCard({
+  post,
+  isExpanded,
+  onToggle,
+  replies,
+  onReply,
+  replying,
+  isLoggedIn,
+  replyError,
+}: {
+  post: ForumPost;
+  isExpanded: boolean;
+  onToggle: () => void;
+  replies: ForumReply[];
+  onReply: (body: string, attachmentAssetIds: string[]) => void;
+  replying: boolean;
+  isLoggedIn: boolean;
+  replyError?: string | null;
+}) {
+  const [replyDraft, setReplyDraft] = useState<PasteComposerValue>({ body: "", attachmentAssetIds: [] });
+  const style = AVATAR_STYLES[post.avatarKey] || AVATAR_STYLES.mood;
+  const catStyle = CATEGORY_BADGES[post.category] || CATEGORY_BADGES.general;
 
   return (
-    <div className="max-w-3xl mx-auto p-4 md:p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Community</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Share tips, ask questions, and connect with others</p>
-        </div>
-        <NewPostDialog onCreated={() => setPage(0)} />
-      </div>
-
-      {/* Search bar + mode toggle */}
-      <div className="flex gap-2 mb-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-          <Input
-            value={searchInput}
-            onChange={(e) => { setSearchInput(e.target.value); setPage(0); }}
-            placeholder={searchMode === "posts" ? "Search posts…" : "Search users by name…"}
-            className="pl-9 pr-9 h-9 text-sm"
-          />
-          {searchInput && (
-            <button
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-              onClick={clearSearch}
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-        <Button
-          variant={searchMode === "users" ? "default" : "outline"}
-          size="sm"
-          className="h-9 text-xs gap-1.5 shrink-0"
-          onClick={() => { setSearchMode(m => m === "posts" ? "users" : "posts"); clearSearch(); }}
-        >
-          <Users className="h-3.5 w-3.5" />
-          {searchMode === "posts" ? "Find Users" : "Posts"}
-        </Button>
-      </div>
-
-      {/* User search mode */}
-      {searchMode === "users" ? (
-        <div>
-          {!isSearchActive ? (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">Find community members</p>
-              <p className="text-sm mt-1">Type at least 2 characters to search by display name</p>
+    <div className="axtask-fade-in-up glass-panel overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full text-left p-4 sm:p-5 hover:bg-white/[0.02] transition-colors"
+      >
+        <div className="flex items-start gap-3">
+          <AvatarOrb avatarKey={post.avatarKey} size="md" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className={`text-xs font-semibold ${style.accent}`}>
+                {post.avatarName}
+              </span>
+              <span className={`inline-block h-2 w-2 rounded-full bg-gradient-to-br ${style.gradient} shadow-sm ${style.glow}`} />
+              <Badge className={`text-[10px] border px-1.5 py-0 font-medium ${catStyle}`}>
+                {post.category}
+              </Badge>
             </div>
-          ) : usersLoading ? (
-            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
-          ) : !userResults?.length ? (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">No users found</p>
-              <p className="text-sm mt-1">No members match "{debouncedSearch}"</p>
+            <h3 className="text-sm sm:text-base font-semibold text-slate-100 leading-snug">
+              {post.title}
+            </h3>
+            <p className="mt-1.5 text-xs sm:text-sm text-slate-400 leading-relaxed line-clamp-2">
+              {post.body}
+            </p>
+            <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-500">
+              <span className="flex items-center gap-1">
+                <MessageCircle className="h-3 w-3" />
+                {replies.length} {replies.length === 1 ? "reply" : "replies"}
+              </span>
+              <span>{new Date(post.createdAt).toLocaleDateString()}</span>
+              {isExpanded ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
             </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{userResults.length} result{userResults.length !== 1 ? "s" : ""}</p>
-              {userResults.map(u => (
-                <UserResultCard key={u.id} user={u} currentUserId={user?.id || ""} />
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        <>
-          {/* Category + sort controls */}
-          <div className="flex flex-col sm:flex-row gap-3 mb-3">
-            <div className="flex gap-1.5 flex-wrap flex-1">
-              {CATEGORIES.map(c => (
-                <Button
-                  key={c}
-                  variant={category === c ? "default" : "outline"}
-                  size="sm"
-                  className="text-xs h-8"
-                  onClick={() => { setCategory(c); setPage(0); }}
-                >
-                  {c}
-                </Button>
-              ))}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs gap-1.5 shrink-0"
-              onClick={() => setSort(s => s === "newest" ? "popular" : "newest")}
-            >
-              <ArrowUpDown className="h-3.5 w-3.5" />
-              {sort === "newest" ? "Newest" : "Popular"}
-            </Button>
           </div>
+        </div>
+      </button>
 
-          {/* Tag filter row */}
-          {popularTags && popularTags.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap mb-4 pb-3 border-b border-gray-100 dark:border-gray-700">
-              <Tag className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-              {activeTag && (
-                <button
-                  className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 font-medium"
-                  onClick={() => { setActiveTag(""); setPage(0); }}
+      {isExpanded && (
+          <div className="overflow-hidden">
+            <div className="border-t border-white/5 px-4 sm:px-5 py-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
+              <Suspense fallback={<div className="text-xs text-slate-500">Loading…</div>}>
+                <SafeMarkdown
+                  source={post.body}
+                  allowedAttachmentIds={(post.attachments ?? []).map((a) => a.id)}
+                />
+              </Suspense>
+            </div>
+
+            {/* Replies */}
+            {replies.length > 0 && (
+              <div className="border-t border-white/5 px-4 sm:px-5 py-3 space-y-3">
+                {replies.map((r) => {
+                  const rStyle = r.avatarKey ? AVATAR_STYLES[r.avatarKey] || AVATAR_STYLES.mood : null;
+                  return (
+                    <div key={r.id} className="flex gap-2.5">
+                      {r.avatarKey ? (
+                        <AvatarOrb avatarKey={r.avatarKey} size="sm" />
+                      ) : (
+                        <div className="shrink-0 h-7 w-7 rounded-full bg-white/10 border border-white/10 flex items-center justify-center">
+                          <div className="h-2.5 w-2.5 rounded-full bg-white/20" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-xs font-semibold ${rStyle ? rStyle.accent : "text-slate-200"}`}>
+                            {r.displayName}
+                          </span>
+                          {r.avatarKey && <span className={`inline-block h-1.5 w-1.5 rounded-full bg-gradient-to-br ${rStyle!.gradient}`} />}
+                          <span className="text-[10px] text-slate-600">
+                            {new Date(r.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-400 leading-relaxed mt-0.5">
+                          <Suspense fallback={<span className="text-[11px] text-slate-500">…</span>}>
+                            <SafeMarkdown
+                              source={r.body}
+                              allowedAttachmentIds={(r.attachments ?? []).map((a) => a.id)}
+                            />
+                          </Suspense>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Reply input */}
+            {isLoggedIn ? (
+              <div className="border-t border-white/5 px-4 sm:px-5 py-3 space-y-2">
+                <Suspense fallback={<div className="h-20 rounded bg-white/5 animate-pulse" aria-label="Loading composer" />}>
+                  <PasteComposer
+                    value={replyDraft}
+                    onChange={setReplyDraft}
+                    kind="community-reply"
+                    placeholder="Join the conversation…"
+                    ariaLabel="Reply to post"
+                    maxAttachments={6}
+                  />
+                </Suspense>
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    disabled={
+                      (!replyDraft.body.trim() && replyDraft.attachmentAssetIds.length === 0) || replying
+                    }
+                    onClick={() => {
+                      onReply(replyDraft.body.trim(), replyDraft.attachmentAssetIds);
+                      setReplyDraft({ body: "", attachmentAssetIds: [] });
+                    }}
+                    className="gap-1 h-8"
+                  >
+                    <Send className="h-3 w-3" />
+                    Reply
+                  </Button>
+                </div>
+                {replyError && (
+                  <p className="text-[11px] text-rose-400 leading-snug px-1">{replyError}</p>
+                )}
+              </div>
+            ) : (
+              <div className="border-t border-white/5 px-4 sm:px-5 py-3 text-center">
+                <Link href="/login">
+                  <span className="text-xs text-sky-400 hover:text-sky-300 cursor-pointer">Sign in to reply</span>
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+    </div>
+  );
+}
+
+function ArchetypePollCard({
+  poll,
+  myOptionId,
+  voteSubmitting,
+  isLoggedIn,
+  onVote,
+}: {
+  poll: ArchetypePollDetail;
+  myOptionId: string | null;
+  voteSubmitting: boolean;
+  isLoggedIn: boolean;
+  onVote: (optionId: string) => void;
+}) {
+  const [, forceCloseTimeTick] = useReducer((x: number) => x + 1, 0);
+  useEffect(() => {
+    if (!poll.votingOpen) return;
+    const id = window.setInterval(() => forceCloseTimeTick(), 60_000);
+    return () => clearInterval(id);
+  }, [poll.votingOpen]);
+
+  const orbKey = poll.authorAvatarKey;
+  const style = AVATAR_STYLES[orbKey] || AVATAR_STYLES.mood;
+  const totalVotes =
+    poll.results?.reduce((s, r) => s + r.totalCount, 0) ?? 0;
+  const closesAt = new Date(poll.closesAt);
+
+  return (
+    <div className="axtask-fade-in-up glass-panel-glossy overflow-hidden border border-white/10 shadow-xl">
+      <div className={`px-4 sm:px-5 py-3 border-b border-white/5 bg-gradient-to-r ${style.gradient} bg-opacity-30`}>
+        <div className="flex items-center gap-3">
+          <AvatarOrb avatarKey={orbKey} size="sm" />
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-white/70 font-medium flex items-center gap-1.5">
+              <BarChart3 className="h-3 w-3 opacity-80" />
+              Archetype pulse
+            </p>
+            <h2 className="text-base sm:text-lg font-semibold text-white leading-snug">{poll.title}</h2>
+            {poll.votingOpen && (
+              <p className="mt-1.5 text-[11px] text-slate-300/90 flex items-center gap-1.5">
+                <Clock className="h-3 w-3 shrink-0 opacity-80" />
+                <span>
+                  Closes{" "}
+                  {formatDistanceToNow(closesAt, { addSuffix: true })}
+                </span>
+              </p>
+            )}
+          </div>
+        </div>
+        {poll.body && (
+          <p className="mt-2 text-xs sm:text-sm text-slate-200/90 leading-relaxed">{poll.body}</p>
+        )}
+      </div>
+
+      <div className="px-4 sm:px-5 py-4 space-y-4">
+        {poll.votingOpen && (
+          <div className="space-y-2">
+            <p className="text-[11px] text-slate-400">Vote once — results unlock after this poll closes.</p>
+            <div className="flex flex-col gap-2">
+              {poll.options.map((opt) => {
+                const selected = myOptionId === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={!isLoggedIn || voteSubmitting}
+                    onClick={() => onVote(opt.id)}
+                    className={`text-left rounded-lg border px-3 py-2.5 text-sm transition-all ${
+                      selected
+                        ? "border-sky-400/50 bg-sky-500/15 text-white"
+                        : "border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.06]"
+                    } ${!isLoggedIn ? "opacity-60 cursor-not-allowed" : ""}`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {!isLoggedIn && (
+              <p className="text-[11px] text-slate-500">
+                <Link href="/login">
+                  <span className="text-sky-400 hover:text-sky-300 cursor-pointer">Sign in</span>
+                </Link>{" "}
+                to vote.
+              </p>
+            )}
+          </div>
+        )}
+
+        {poll.resultsAvailable && poll.results && totalVotes > 0 && (
+          <div className="space-y-3">
+            <p className="text-[11px] uppercase tracking-[0.15em] text-slate-400 font-medium">Results by archetype</p>
+            <p className="text-[10px] text-slate-500 leading-snug max-w-prose">
+              Votes are grouped by your dominant analytical archetype—the strongest signal in your companion profile—so each person counts once toward one archetype column.
+            </p>
+            {poll.results.map((row) => {
+              const pct = Math.round((row.totalCount / totalVotes) * 1000) / 10;
+              return (
+                <div key={row.optionId} className="space-y-1.5">
+                  <div className="flex justify-between gap-2 text-xs text-slate-300">
+                    <span className="font-medium">{row.label}</span>
+                    <span className="text-slate-500 tabular-nums">
+                      {row.totalCount} ({pct}%)
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-sky-500/80 to-indigo-500/70"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {Object.entries(row.byArchetype).map(([key, n]) => {
+                      const orb = ARCHETYPE_TO_ORB[key] || "mood";
+                      const st = AVATAR_STYLES[orb] || AVATAR_STYLES.mood;
+                      return (
+                        <span
+                          key={key}
+                          className={`inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-0.5 text-[10px] ${st.accent} bg-white/[0.04]`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full bg-gradient-to-br ${st.gradient}`} />
+                          {ARCHETYPE_LABEL[key] ?? key}: {n}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            <p className="text-[10px] text-slate-500 leading-snug">
+              Per-archetype counts below five responses are hidden to protect privacy.
+            </p>
+          </div>
+        )}
+
+        {poll.resultsAvailable && (!poll.results || totalVotes === 0) && (
+          <p className="text-xs text-slate-500">No votes recorded for this poll yet.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Main page ─────────────────────────────────────────────────────── */
+export default function CommunityPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [tasks, setTasks] = useState<PublicTask[]>([]);
+  const [nextCursor, setNextCursor] = useState<{
+    publishedAt: string;
+    id: string;
+    createdAt: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const loadMoreAbortRef = useRef<AbortController | null>(null);
+  const pollRefreshDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Forum state
+  const [forumPosts, setForumPosts] = useState<ForumPost[]>([]);
+  const [forumReplies, setForumReplies] = useState<Record<string, ForumReply[]>>({});
+  const [expandedPost, setExpandedPost] = useState<string | null>(null);
+  const [replying, setReplying] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"forum" | "tasks">("forum");
+  const [momentum, setMomentum] = useState<{ postsLast24h: number; repliesLast24h: number } | null>(null);
+  const [pollDetail, setPollDetail] = useState<ArchetypePollDetail | null>(null);
+  const [pollMyOptionId, setPollMyOptionId] = useState<string | null>(null);
+  const [pollVoteSubmitting, setPollVoteSubmitting] = useState(false);
+
+  const fetchPage = useCallback(
+    async (
+      cursor: { publishedAt: string; id: string; createdAt: string } | null,
+      signal?: AbortSignal,
+    ) => {
+      const params = new URLSearchParams();
+      params.set("limit", "20");
+      if (cursor) {
+        params.set("cursorAt", cursor.publishedAt);
+        params.set("cursorId", cursor.id);
+        params.set("cursorCreatedAt", cursor.createdAt);
+      }
+      const r = await fetch(
+        `/api/public/community/tasks?${params.toString()}`,
+        { signal },
+      );
+      if (!r.ok) {
+        throw new Error(
+          (await r.json().catch(() => ({})))?.message || r.statusText,
+        );
+      }
+      return r.json() as Promise<ListResponse>;
+    },
+    [],
+  );
+
+  const refreshPollDetail = useCallback(async () => {
+    try {
+      const pr = await fetch("/api/public/community/polls");
+      if (!pr.ok) return;
+      const pj = (await pr.json()) as { polls: ArchetypePollSummary[] };
+      const featured = pj.polls.find((p) => p.votingOpen) ?? pj.polls[0];
+      if (!featured) {
+        if (mountedRef.current) setPollDetail(null);
+        return;
+      }
+      const dr = await fetch(`/api/public/community/polls/${featured.id}`);
+      if (!dr.ok) return;
+      const dj = (await dr.json()) as { poll: ArchetypePollDetail };
+      if (mountedRef.current) setPollDetail(dj.poll);
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
+
+  /** Coalesces visibility + focus + interval so one user action does not spam refetches. */
+  const schedulePollRefresh = useCallback(() => {
+    if (pollRefreshDebounceRef.current) clearTimeout(pollRefreshDebounceRef.current);
+    pollRefreshDebounceRef.current = setTimeout(() => {
+      pollRefreshDebounceRef.current = null;
+      void refreshPollDetail();
+    }, 400);
+  }, [refreshPollDetail]);
+
+  useEffect(() => {
+    if (user) sendProductFunnelBeacon("community_feed_viewed");
+  }, [user]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const ac = new AbortController();
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [taskRes, forumRes, momRes] = await Promise.all([
+          fetchPage(null, ac.signal),
+          fetch("/api/public/community/posts", { signal: ac.signal }).then((r) =>
+            r.ok ? (r.json() as Promise<{ posts: ForumPost[] }>) : { posts: [] },
+          ),
+          fetch("/api/public/community/momentum", { signal: ac.signal }).then((r) =>
+            r.ok
+              ? (r.json() as Promise<{ postsLast24h: number; repliesLast24h: number }>)
+              : { postsLast24h: 0, repliesLast24h: 0 },
+          ),
+        ]);
+        let nextPoll: ArchetypePollDetail | null = null;
+        try {
+          const pr = await fetch("/api/public/community/polls", { signal: ac.signal });
+          if (pr.ok) {
+            const pj = (await pr.json()) as { polls: ArchetypePollSummary[] };
+            const featured = pj.polls.find((p) => p.votingOpen) ?? pj.polls[0];
+            if (featured) {
+              const dr = await fetch(`/api/public/community/polls/${featured.id}`, {
+                signal: ac.signal,
+              });
+              if (dr.ok) {
+                const dj = (await dr.json()) as { poll: ArchetypePollDetail };
+                nextPoll = dj.poll;
+              }
+            }
+          }
+        } catch {
+          /* non-fatal */
+        }
+        if (!mountedRef.current) return;
+        setTasks(taskRes.tasks);
+        setNextCursor(taskRes.nextCursor);
+        setForumPosts(forumRes.posts);
+        setMomentum(momRes);
+        setPollDetail(nextPoll);
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return;
+        if (mountedRef.current)
+          setError(e instanceof Error ? e.message : "Failed to load");
+      } finally {
+        if (mountedRef.current) setLoading(false);
+      }
+    })();
+    return () => {
+      mountedRef.current = false;
+      ac.abort();
+      loadMoreAbortRef.current?.abort();
+    };
+  }, [fetchPage]);
+
+  useEffect(() => {
+    return () => {
+      if (pollRefreshDebounceRef.current) clearTimeout(pollRefreshDebounceRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user || !pollDetail) {
+      setPollMyOptionId(null);
+      return;
+    }
+    const ac = new AbortController();
+    fetch(`/api/public/community/polls/${pollDetail.id}/my-vote`, {
+      credentials: "include",
+      signal: ac.signal,
+    })
+      .then((r) => (r.ok ? r.json() : Promise.resolve({ optionId: null })))
+      .then((j: { optionId: string | null }) => {
+        if (mountedRef.current) setPollMyOptionId(j.optionId);
+      })
+      .catch(() => {});
+    return () => ac.abort();
+  }, [user?.id, pollDetail?.id]);
+
+  useEffect(() => {
+    if (!pollDetail?.votingOpen) return;
+    const id = window.setInterval(() => {
+      schedulePollRefresh();
+    }, 45_000);
+    return () => clearInterval(id);
+  }, [pollDetail?.id, pollDetail?.votingOpen, schedulePollRefresh]);
+
+  useEffect(() => {
+    if (!pollDetail?.votingOpen) return;
+    const onVis = () => {
+      if (document.visibilityState === "visible") schedulePollRefresh();
+    };
+    const onFocus = () => {
+      schedulePollRefresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [pollDetail?.id, pollDetail?.votingOpen, schedulePollRefresh]);
+
+  const handlePollVote = async (optionId: string) => {
+    if (!user || !pollDetail?.votingOpen) return;
+    setPollVoteSubmitting(true);
+    try {
+      const res = await apiRequest("POST", `/api/public/community/polls/${pollDetail.id}/vote`, {
+        optionId,
+      });
+      const body = (await res.json()) as {
+        optionId: string;
+        pollVoteReward: { coins: number; newBalance: number } | null;
+        pollVoteRewardNote?: "weekly_cap";
+        isNewVote?: boolean;
+      };
+      setPollMyOptionId(body.optionId);
+      if (body.pollVoteReward) {
+        toast({
+          title: "Vote recorded",
+          description: `+${body.pollVoteReward.coins} AxCoin (weekly poll reward). New balance: ${body.pollVoteReward.newBalance}.`,
+        });
+      } else if (body.pollVoteRewardNote === "weekly_cap") {
+        const title = body.isNewVote === false ? "Vote updated" : "Vote recorded";
+        toast({
+          title,
+          description:
+            "Weekly poll reward already claimed for this 7-day window (shared across all archetype polls).",
+        });
+      } else {
+        toast({
+          title: "Vote recorded",
+          description: "Thanks for shaping the pulse.",
+        });
+      }
+      await refreshPollDetail();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      let description = "Please try again.";
+      const jsonStart = msg.indexOf("{");
+      if (jsonStart >= 0) {
+        try {
+          const parsed = JSON.parse(msg.slice(jsonStart)) as { message?: string };
+          if (parsed.message) description = parsed.message;
+        } catch {
+          /* keep default */
+        }
+      }
+      toast({
+        title: "Could not record vote",
+        description,
+        variant: "destructive",
+      });
+    } finally {
+      setPollVoteSubmitting(false);
+    }
+  };
+
+  const loadMore = async () => {
+    if (!nextCursor) return;
+    loadMoreAbortRef.current?.abort();
+    const ac = new AbortController();
+    loadMoreAbortRef.current = ac;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const j = await fetchPage(nextCursor, ac.signal);
+      if (!mountedRef.current) return;
+      setTasks((t) => [...t, ...j.tasks]);
+      setNextCursor(j.nextCursor);
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      if (mountedRef.current)
+        setError(e instanceof Error ? e.message : "Failed to load more");
+    } finally {
+      if (mountedRef.current) setLoadingMore(false);
+    }
+  };
+
+  const togglePost = async (postId: string) => {
+    if (expandedPost === postId) {
+      setExpandedPost(null);
+      return;
+    }
+    setExpandedPost(postId);
+    // Fetch replies if we haven't yet
+    if (!forumReplies[postId]) {
+      try {
+        const r = await fetch(`/api/public/community/posts/${postId}`);
+        if (r.ok) {
+          const data = await r.json() as { post: ForumPost; replies: ForumReply[] };
+          setForumReplies((prev) => ({ ...prev, [postId]: data.replies }));
+        }
+      } catch { /* silently fail */ }
+    }
+  };
+
+  const handleReply = async (postId: string, body: string, attachmentAssetIds: string[] = []) => {
+    if (!user) return;
+    if (!body && attachmentAssetIds.length === 0) return;
+    setReplying(true);
+    setReplyError(null);
+    try {
+      const r = await apiRequest("POST", `/api/public/community/posts/${postId}/reply`, {
+        body,
+        attachmentAssetIds,
+      });
+      const newReply = await r.json() as ForumReply;
+      // Refetch to get any orb auto-reply too
+      const full = await fetch(`/api/public/community/posts/${postId}`);
+      if (full.ok) {
+        const data = await full.json() as { post: ForumPost; replies: ForumReply[] };
+        setForumReplies((prev) => ({ ...prev, [postId]: data.replies }));
+      } else {
+        setForumReplies((prev) => ({
+          ...prev,
+          [postId]: [...(prev[postId] || []), newReply],
+        }));
+      }
+    } catch (err) {
+      // apiRequest throws "STATUS: body" — try to parse moderation JSON from the body
+      const msg = err instanceof Error ? err.message : String(err);
+      const jsonStart = msg.indexOf("{");
+      if (jsonStart >= 0) {
+        try {
+          const parsed = JSON.parse(msg.slice(jsonStart)) as { message?: string; code?: string };
+          const base = parsed.message || "Your reply could not be posted.";
+          setReplyError(base + participationAgeUserHint(parsed.code));
+        } catch {
+          const p = parseApiRequestError(err);
+          setReplyError(p.message + participationAgeUserHint(p.code));
+        }
+      } else {
+        const p = parseApiRequestError(err);
+        setReplyError(p.message + participationAgeUserHint(p.code));
+      }
+    } finally {
+      setReplying(false);
+    }
+  };
+
+  /* PretextShell supplies the aurora + ambient orbs at the app level; the
+   * community page keeps its local AmbientOrbs as a gentle extra flourish
+   * and drops its own opaque gradient so the shared backdrop reads through. */
+  return (
+    <div className="relative min-h-full overflow-y-auto text-white">
+      <AmbientOrbs />
+
+      <div className="relative mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10 space-y-8">
+        {/* Back nav */}
+        <Link href="/tasks">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-slate-300 hover:text-white hover:bg-white/10"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Tasks
+          </Button>
+        </Link>
+
+        {/* Hero header */}
+        <div className="axtask-fade-in-up glass-panel-glossy p-6 sm:p-8 shadow-2xl">
+          <div className="flex items-center gap-4">
+            <PretextAvatarOrb
+              variant="social"
+              size="lg"
+              label="Community hero orb"
+            />
+
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.22em] text-sky-300/80 font-medium">
+                AxTask Community
+              </p>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-white via-sky-100 to-indigo-200 bg-clip-text text-transparent">
+                Community Board
+              </h1>
+            </div>
+          </div>
+          <p className="mt-3 text-sm sm:text-base text-slate-300/80 leading-relaxed max-w-xl">
+            The orbs are alive. Each one is driven by an archetype personality — mood, productivity, social, and more. They start the conversations; you shape them.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <Users className="h-3.5 w-3.5" />
+            <span>{forumPosts.length} thread{forumPosts.length !== 1 ? "s" : ""}</span>
+            <span className="text-slate-600">·</span>
+            <span>{tasks.length} task{tasks.length !== 1 ? "s" : ""} shared</span>
+            {momentum && (
+              <>
+                <span className="text-slate-600">·</span>
+                <span className="text-sky-300/90">
+                  Last 24h: {momentum.postsLast24h} post{momentum.postsLast24h !== 1 ? "s" : ""},{" "}
+                  {momentum.repliesLast24h} repl{momentum.repliesLast24h === 1 ? "y" : "ies"} (aggregate counts only)
+                </span>
+              </>
+            )}
+            <span className="text-slate-600">·</span>
+            <Sparkles className="h-3.5 w-3.5 text-amber-400/60" />
+            <span>Powered by Orb Archetypes</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <FloatingChip tone="neutral">Community pulse</FloatingChip>
+            <FloatingChip tone="success">Orb-guided threads</FloatingChip>
+            <AvatarGlowChip avatarKey="mood">Mood</AvatarGlowChip>
+            <AvatarGlowChip avatarKey="productivity">Cadence</AvatarGlowChip>
+          </div>
+        </div>
+
+        {pollDetail && (
+          <ArchetypePollCard
+            poll={pollDetail}
+            myOptionId={pollMyOptionId}
+            voteSubmitting={pollVoteSubmitting}
+            isLoggedIn={!!user}
+            onVote={handlePollVote}
+          />
+        )}
+
+        {/* Tab switcher */}
+        <div className="glass-panel flex gap-1 p-1 rounded-xl">
+          <button
+            onClick={() => setActiveTab("forum")}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              activeTab === "forum"
+                ? "bg-white/10 text-white shadow-lg"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+            }`}
+          >
+            <MessageCircle className="h-4 w-4" />
+            Orb Forum
+          </button>
+          <button
+            onClick={() => setActiveTab("tasks")}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              activeTab === "tasks"
+                ? "bg-white/10 text-white shadow-lg"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+            }`}
+          >
+            <Globe2 className="h-4 w-4" />
+            Public Tasks
+          </button>
+        </div>
+
+        {/* Error state */}
+        {error && (
+          <div className="axtask-fade-in-up rounded-xl border border-rose-500/20 bg-rose-500/10 backdrop-blur px-4 py-3 text-sm text-rose-300">
+            {error}
+          </div>
+        )}
+
+        {/* Loading state */}
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-16 gap-4 axtask-fade-in-up">
+            <div className="relative">
+              <Loader2 className="h-8 w-8 text-sky-400 animate-spin" />
+              <div
+                className="absolute inset-0 rounded-full bg-sky-400/20 animate-ping opacity-40"
+                style={{ animationDuration: "1.5s" }}
+                aria-hidden
+              />
+            </div>
+            <p className="text-sm text-slate-400">Loading community…</p>
+          </div>
+        )}
+
+        {/* ── FORUM TAB ─────────────────────────────────────────── */}
+        {!loading && activeTab === "forum" && (
+          <div className="space-y-3">
+            {forumPosts.length === 0 ? (
+              <div className="axtask-fade-in-up flex flex-col items-center justify-center py-20 gap-4">
+                <div className="relative h-16 w-16">
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-sky-400/30 via-violet-500/20 to-cyan-400/20 blur-md animate-pulse" />
+                  <div className="relative h-16 w-16 rounded-full bg-gradient-to-br from-sky-400/20 via-violet-500/15 to-cyan-400/10 border border-white/15 grid place-items-center">
+                    <div className="h-5 w-5 rounded-full bg-white/20 blur-[1px]" />
+                  </div>
+                </div>
+                <p className="text-sm text-slate-300">The orbs are gathering…</p>
+              </div>
+            ) : (
+              forumPosts.map((post) => (
+                <ForumPostCard
+                  key={post.id}
+                  post={post}
+                  isExpanded={expandedPost === post.id}
+                  onToggle={() => togglePost(post.id)}
+                  replies={forumReplies[post.id] || []}
+                  onReply={(body, attachmentAssetIds) => handleReply(post.id, body, attachmentAssetIds)}
+                  replying={replying}
+                  isLoggedIn={!!user}
+                  replyError={expandedPost === post.id ? replyError : null}
+                />
+              ))
+            )}
+          </div>
+        )}
+
+        {/* ── TASKS TAB ─────────────────────────────────────────── */}
+        {!loading && activeTab === "tasks" && (
+          <>
+            <div className="space-y-3">
+              {/*
+                Community task feed.
+                Replaces the previous AnimatePresence + per-row
+                framer-motion wrapper with:
+                  - plain <div> rows (saves one MotionValue subscription
+                    observer per card — cheap but adds up in feeds),
+                  - a one-shot CSS fade-in (`axtask-fade-in-up`) for the
+                    entrance transition, and
+                  - `axtask-cv-row` which turns on `content-visibility:
+                    auto` and `contain-intrinsic-size`. Browsers skip
+                    layout + paint for rows that are off-screen, which
+                    is what makes long feeds feel like /tasks again.
+              */}
+              {tasks.map((t) => (
+                <div
+                  key={t.id}
+                  className="axtask-fade-in-up axtask-cv-row group glass-panel hover:bg-white/[0.07] transition-colors duration-200 overflow-hidden"
                 >
-                  <X className="h-2.5 w-2.5" />Clear tag
-                </button>
-              )}
-              {popularTags.slice(0, 12).map(({ tag }) => (
-                <button
-                  key={tag}
-                  className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded-full font-medium transition-all ${
-                    activeTag === tag
-                      ? `${getTagColor(tag)} ring-1 ring-current opacity-100`
-                      : `${getTagColor(tag)} opacity-70 hover:opacity-100`
-                  }`}
-                  onClick={() => handleTagClick(tag)}
-                >
-                  #{tag}
-                </button>
+                    <div className="p-4 sm:p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="text-sm sm:text-base font-semibold text-slate-100 leading-snug group-hover:text-white transition-colors">
+                          {t.activity}
+                        </h3>
+                        <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+                          <StatusIcon status={t.status} />
+                          <span className="text-[11px] text-slate-400 capitalize">
+                            {t.status.replace("-", " ")}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 bg-white/5 rounded-md px-2 py-0.5 border border-white/5">
+                          <Clock className="h-3 w-3" />
+                          {t.date}
+                          {t.time ? ` · ${t.time}` : ""}
+                        </span>
+                        <Badge
+                          className={`text-[11px] border px-2 py-0.5 font-medium ${priorityColor(t.priority)}`}
+                        >
+                          <PriorityIcon priority={t.priority} />
+                          <span className="ml-1">{t.priority}</span>
+                        </Badge>
+                        <Badge className="text-[11px] border border-violet-500/25 bg-violet-500/10 text-violet-300 px-2 py-0.5 font-medium">
+                          {t.classification}
+                        </Badge>
+                      </div>
+                    </div>
+
+                  {t.notes && (
+                    <div className="border-t border-white/5 px-4 sm:px-5 py-3">
+                      <p className="text-xs sm:text-sm text-slate-400 leading-relaxed whitespace-pre-wrap">
+                        {t.notes}
+                      </p>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
-          )}
 
-          {/* Search hint when active */}
-          {isSearchActive && (
-            <div className="flex items-center gap-2 mb-3 text-xs text-gray-500 dark:text-gray-400">
-              <Search className="h-3.5 w-3.5" />
-              <span>Searching for <strong className="text-gray-700 dark:text-gray-300">"{debouncedSearch}"</strong></span>
-              <button onClick={clearSearch} className="text-blue-500 hover:underline">clear</button>
-            </div>
-          )}
-
-          {isLoading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-          ) : !data?.posts?.length ? (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">{isSearchActive ? "No posts match your search" : "No posts yet"}</p>
-              <p className="text-sm mt-1">
-                {isSearchActive
-                  ? `No results for "${debouncedSearch}"${activeTag ? ` with tag #${activeTag}` : ""}`
-                  : activeTag ? `No posts with tag #${activeTag}` : "Be the first to start a conversation!"}
-              </p>
-              {(isSearchActive || activeTag) && (
-                <Button variant="outline" size="sm" className="mt-3" onClick={() => { clearSearch(); setActiveTag(""); setPage(0); }}>
-                  Clear filters
-                </Button>
-              )}
-            </div>
-          ) : (
-            <>
-              {isSearchActive && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{data.total} result{data.total !== 1 ? "s" : ""}</p>
-              )}
-              <div className="space-y-3">
-                {data.posts.map(post => (
-                  <PostCard
-                    key={post.id}
-                    post={post}
-                    authors={data.authors}
-                    isAdmin={isAdmin}
-                    onNavigate={(id) => setLocation(`/community/${id}`)}
-                    onTagClick={handleTagClick}
-                    searchQuery={isSearchActive ? debouncedSearch : undefined}
-                  />
-                ))}
-              </div>
-              {totalPages > 1 && (
-                <div className="flex justify-center gap-2 mt-6">
-                  <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous</Button>
-                  <span className="flex items-center text-sm text-gray-500">Page {page + 1} of {totalPages}</span>
-                  <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next</Button>
+            {/* Empty state */}
+            {tasks.length === 0 && !error && (
+              <div className="axtask-fade-in-up flex flex-col items-center justify-center py-20 gap-4">
+                <div className="h-16 w-16 rounded-2xl bg-white/5 border border-white/10 grid place-items-center">
+                  <Globe2 className="h-8 w-8 text-slate-500" />
                 </div>
-              )}
-            </>
-          )}
-        </>
-      )}
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-medium text-slate-300">No community tasks yet</p>
+                  <p className="text-xs text-slate-500 max-w-xs">
+                    Be the first to share — publish a task from your task list to see it here.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Load more */}
+            {nextCursor && (
+              <div className="flex justify-center pt-2 pb-6">
+                <Button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="gap-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-200 hover:text-white backdrop-blur px-6 h-11 shadow-lg transition-all"
+                >
+                  {loadingMore ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading…
+                    </>
+                  ) : (
+                    <>
+                      <ArrowDown className="h-4 w-4" />
+                      Load more
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
