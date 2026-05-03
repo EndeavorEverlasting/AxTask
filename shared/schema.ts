@@ -597,3 +597,22 @@ export const insertForumReportSchema = createInsertSchema(forumReports).omit({
   createdAt: true,
 });
 export type InsertForumReport = z.infer<typeof insertForumReportSchema>;
+
+// ─── Skill Tree: Unlock Events ───────────────────────────────────────────────
+export const skillUnlocks = pgTable("skill_unlocks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  nodeId: text("node_id").notNull(),
+  unlockedAt: timestamp("unlocked_at").defaultNow(),
+}, (table) => [
+  index("idx_skill_unlocks_user").on(table.userId),
+  uniqueIndex("idx_skill_unlocks_user_node").on(table.userId, table.nodeId),
+]);
+
+export type SkillUnlock = typeof skillUnlocks.$inferSelect;
+export const insertSkillUnlockSchema = createInsertSchema(skillUnlocks).omit({
+  id: true,
+  userId: true,
+  unlockedAt: true,
+});
+export type InsertSkillUnlock = z.infer<typeof insertSkillUnlockSchema>;

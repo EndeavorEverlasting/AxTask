@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, forumPosts, forumComments, forumVotes, forumUpvoteRewards, forumReports, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger, type ForumPost, type InsertForumPost, type ForumComment, type InsertForumComment, type ForumVote, type ForumReport } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, forumPosts, forumComments, forumVotes, forumUpvoteRewards, forumReports, skillUnlocks, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger, type ForumPost, type InsertForumPost, type ForumComment, type InsertForumComment, type ForumVote, type ForumReport, type SkillUnlock } from "@shared/schema";
 import { computeContentHash } from "./fingerprint";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
@@ -2202,4 +2202,43 @@ export async function toggleForumReaction(
     return { action, reactions };
   }
   throw new Error("postId or commentId required");
+}
+
+// ─── Skill Unlocks ────────────────────────────────────────────────────────────
+
+export async function getSkillUnlocks(userId: string): Promise<SkillUnlock[]> {
+  return db
+    .select()
+    .from(skillUnlocks)
+    .where(eq(skillUnlocks.userId, userId))
+    .orderBy(asc(skillUnlocks.unlockedAt));
+}
+
+/**
+ * Persist a skill node unlock for a user.
+ * Uses an atomic conflict-safe insert so concurrent requests from multiple
+ * devices/tabs never cause a unique constraint violation.
+ * `isNew` is true when the unlock was just created for the first time.
+ */
+export async function unlockSkillNode(
+  userId: string,
+  nodeId: string
+): Promise<{ unlock: SkillUnlock; isNew: boolean }> {
+  const [inserted] = await db
+    .insert(skillUnlocks)
+    .values({ id: randomUUID(), userId, nodeId })
+    .onConflictDoNothing()
+    .returning();
+
+  if (inserted) {
+    return { unlock: inserted, isNew: true };
+  }
+
+  // Conflict: the row already exists — fetch and return it
+  const [existing] = await db
+    .select()
+    .from(skillUnlocks)
+    .where(and(eq(skillUnlocks.userId, userId), eq(skillUnlocks.nodeId, nodeId)));
+
+  return { unlock: existing, isNew: false };
 }

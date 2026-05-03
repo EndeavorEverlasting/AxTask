@@ -1,132 +1,23 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { type Task } from "@shared/schema";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { type Task, type SkillUnlock } from "@shared/schema";
+import { SKILL_NODE_DATA, type SkillNodeData } from "@shared/skill-nodes";
 import { Lock, Unlock, X, Star, Target, Clock, Zap, Flame, BarChart2, Eye, Cpu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
-interface SkillNode {
-  id: string;
-  title: string;
-  description: string;
-  unlockCondition: string;
-  requiredTasks: number;
-  icon: React.ReactNode;
-  col: number;
-  row: number;
-  tier: 1 | 2;
-  connections: string[];
-}
-
-const SKILL_NODES: SkillNode[] = [
-  // ── Tier I ────────────────────────────────────────────────────────────────
-  {
-    id: "discipline-1",
-    title: "Discipline I",
-    description:
-      "The foundation of all productivity. Discipline means showing up consistently, even when motivation is low. Completing your first tasks is the first step.",
-    unlockCondition: "Complete 3 tasks",
-    requiredTasks: 3,
-    icon: <Star className="h-6 w-6" />,
-    col: 0,
-    row: 0,
-    tier: 1,
-    connections: ["planning-1", "focus-1"],
-  },
-  {
-    id: "planning-1",
-    title: "Planning I",
-    description:
-      "Strategic planning transforms chaotic to-do lists into structured, prioritized workflows. You understand deadlines and importance.",
-    unlockCondition: "Complete 10 tasks",
-    requiredTasks: 10,
-    icon: <Target className="h-6 w-6" />,
-    col: 1,
-    row: 0,
-    tier: 1,
-    connections: ["systems-1"],
-  },
-  {
-    id: "focus-1",
-    title: "Focus I",
-    description:
-      "Deep focus allows you to work without distraction. You complete tasks efficiently and with higher quality by minimizing context-switching.",
-    unlockCondition: "Complete 10 tasks",
-    requiredTasks: 10,
-    icon: <Clock className="h-6 w-6" />,
-    col: 0,
-    row: 1,
-    tier: 1,
-    connections: ["systems-1"],
-  },
-  {
-    id: "systems-1",
-    title: "Systems Thinking I",
-    description:
-      "You see the big picture. Systems thinking means designing processes and habits that compound over time, making you increasingly effective.",
-    unlockCondition: "Complete 25 tasks",
-    requiredTasks: 25,
-    icon: <Zap className="h-6 w-6" />,
-    col: 1,
-    row: 1,
-    tier: 1,
-    connections: ["discipline-2", "planning-2"],
-  },
-
-  // ── Tier II ───────────────────────────────────────────────────────────────
-  {
-    id: "discipline-2",
-    title: "Discipline II",
-    description:
-      "Elite discipline means maintaining output quality under pressure. You've built routines that stick no matter what — adversity no longer derails you.",
-    unlockCondition: "Complete 50 tasks",
-    requiredTasks: 50,
-    icon: <Flame className="h-6 w-6" />,
-    col: 0,
-    row: 2,
-    tier: 2,
-    connections: ["focus-2"],
-  },
-  {
-    id: "planning-2",
-    title: "Planning II",
-    description:
-      "Advanced planning means you anticipate blockers before they arrive. Your project maps extend weeks ahead with clear milestones and contingency paths.",
-    unlockCondition: "Complete 50 tasks",
-    requiredTasks: 50,
-    icon: <BarChart2 className="h-6 w-6" />,
-    col: 1,
-    row: 2,
-    tier: 2,
-    connections: ["focus-2"],
-  },
-  {
-    id: "focus-2",
-    title: "Focus II",
-    description:
-      "Mastery-level focus means entering flow states on demand. You batch deep work, protect your peak hours, and finish complex work in record time.",
-    unlockCondition: "Complete 75 tasks",
-    requiredTasks: 75,
-    icon: <Eye className="h-6 w-6" />,
-    col: 0,
-    row: 3,
-    tier: 2,
-    connections: ["systems-2"],
-  },
-  {
-    id: "systems-2",
-    title: "Systems Thinking II",
-    description:
-      "At this level you engineer self-improving systems. Your workflows adapt, automate, and multiply your output — you build leverage, not just effort.",
-    unlockCondition: "Complete 100 tasks",
-    requiredTasks: 100,
-    icon: <Cpu className="h-6 w-6" />,
-    col: 1,
-    row: 3,
-    tier: 2,
-    connections: [],
-  },
-];
+const ICON_MAP: Record<string, React.ReactNode> = {
+  Star: <Star className="h-6 w-6" />,
+  Target: <Target className="h-6 w-6" />,
+  Clock: <Clock className="h-6 w-6" />,
+  Zap: <Zap className="h-6 w-6" />,
+  Flame: <Flame className="h-6 w-6" />,
+  BarChart2: <BarChart2 className="h-6 w-6" />,
+  Eye: <Eye className="h-6 w-6" />,
+  Cpu: <Cpu className="h-6 w-6" />,
+};
 
 const COL_W = 160;
 const ROW_H = 160;
@@ -154,7 +45,7 @@ const TIER_COLORS = {
   },
 };
 
-function getNodeCenter(node: SkillNode) {
+function getNodeCenter(node: SkillNodeData) {
   return {
     x: PAD + node.col * COL_W + NODE_SIZE / 2,
     y: PAD + node.row * ROW_H + NODE_SIZE / 2,
@@ -167,7 +58,7 @@ function NodeCard({
   isSelected,
   onClick,
 }: {
-  node: SkillNode;
+  node: SkillNodeData;
   isUnlocked: boolean;
   isSelected: boolean;
   onClick: () => void;
@@ -195,7 +86,6 @@ function NodeCard({
         }`}
         strokeWidth={isSelected ? 3 : 1.5}
       />
-      {/* Tier badge ribbon */}
       <rect x={NODE_SIZE - 32} y={0} width={32} height={18} rx={6} className={isUnlocked ? (node.tier === 2 ? "fill-violet-400" : "fill-blue-400") : "fill-gray-400 dark:fill-gray-600"} />
       <text
         x={NODE_SIZE - 16}
@@ -216,7 +106,7 @@ function NodeCard({
           <div className={isUnlocked ? "text-white" : "text-gray-400 dark:text-gray-500"}>
             {isUnlocked ? <Unlock className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
           </div>
-          <div className="text-center">{node.icon}</div>
+          <div className="text-center">{ICON_MAP[node.iconName]}</div>
           <span className="text-[10px] font-semibold text-center leading-tight">{node.title}</span>
         </div>
       </foreignObject>
@@ -225,28 +115,87 @@ function NodeCard({
 }
 
 export default function SkillTreePage() {
-  const [selectedNode, setSelectedNode] = useState<SkillNode | null>(null);
+  const [selectedNode, setSelectedNode] = useState<SkillNodeData | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
   });
 
-  const completedCount = tasks.filter((t) => t.status === "completed").length;
+  const { data: skillUnlockRecords = [], isLoading: unlockLoading } = useQuery<SkillUnlock[]>({
+    queryKey: ["/api/skill-unlocks"],
+    staleTime: 30_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+  });
 
-  const isUnlocked = (node: SkillNode) => completedCount >= node.requiredTasks;
+  const completedCount = useMemo(
+    () => tasks.filter((t) => t.status === "completed").length,
+    [tasks]
+  );
 
-  const maxRow = Math.max(...SKILL_NODES.map((n) => n.row));
-  const maxCol = Math.max(...SKILL_NODES.map((n) => n.col));
+  const serverUnlockedIds = useMemo(
+    () => new Set(skillUnlockRecords.map((u) => u.nodeId)),
+    [skillUnlockRecords]
+  );
+
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const succeededRef = useRef<Set<string>>(new Set());
+
+  const unlockMutation = useMutation({
+    mutationFn: (nodeId: string) =>
+      apiRequest("POST", "/api/skill-unlocks", { nodeId }),
+    onSuccess: async (res, nodeId) => {
+      const data = await res.json();
+      succeededRef.current.add(nodeId);
+      inFlightRef.current.delete(nodeId);
+      if (data.isNew) {
+        const node = SKILL_NODE_DATA.find((n) => n.id === data.unlock.nodeId);
+        toast({
+          title: "Skill Unlocked!",
+          description: node
+            ? `You've unlocked "${node.title}". Keep completing tasks to progress further!`
+            : "A new skill has been unlocked.",
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/skill-unlocks"] });
+    },
+    onError: (_err, nodeId) => {
+      inFlightRef.current.delete(nodeId);
+    },
+  });
+
+  useEffect(() => {
+    if (unlockLoading) return;
+
+    SKILL_NODE_DATA.forEach((node) => {
+      if (
+        completedCount >= node.requiredTasks &&
+        !serverUnlockedIds.has(node.id) &&
+        !succeededRef.current.has(node.id) &&
+        !inFlightRef.current.has(node.id)
+      ) {
+        inFlightRef.current.add(node.id);
+        unlockMutation.mutate(node.id);
+      }
+    });
+  }, [unlockLoading, completedCount, serverUnlockedIds]);
+
+  const isUnlocked = (node: SkillNodeData) => serverUnlockedIds.has(node.id);
+
+  const maxRow = Math.max(...SKILL_NODE_DATA.map((n) => n.row));
+  const maxCol = Math.max(...SKILL_NODE_DATA.map((n) => n.col));
   const svgWidth = PAD * 2 + COL_W * (maxCol + 1);
   const svgHeight = PAD * 2 + ROW_H * (maxRow + 1);
 
-  const nodeMap = Object.fromEntries(SKILL_NODES.map((n) => [n.id, n]));
+  const nodeMap = Object.fromEntries(SKILL_NODE_DATA.map((n) => [n.id, n]));
 
   const lines: {
     x1: number; y1: number; x2: number; y2: number;
     fromUnlocked: boolean; tier: 1 | 2;
   }[] = [];
-  SKILL_NODES.forEach((node) => {
+  SKILL_NODE_DATA.forEach((node) => {
     const from = getNodeCenter(node);
     node.connections.forEach((targetId) => {
       const target = nodeMap[targetId];
@@ -296,7 +245,7 @@ export default function SkillTreePage() {
                   }
                 />
               ))}
-              {SKILL_NODES.map((node) => (
+              {SKILL_NODE_DATA.map((node) => (
                 <NodeCard
                   key={node.id}
                   node={node}
@@ -339,7 +288,7 @@ export default function SkillTreePage() {
 
               <div className="flex items-center gap-3 mb-3">
                 <div className={`p-2 rounded-lg ${isUnlocked(selectedNode) ? selectedColors.icon : "bg-gray-100 dark:bg-gray-700 text-gray-400"}`}>
-                  {selectedNode.icon}
+                  {ICON_MAP[selectedNode.iconName]}
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
@@ -370,22 +319,33 @@ export default function SkillTreePage() {
                   Unlock Condition
                 </div>
                 <div className="text-sm text-gray-800 dark:text-gray-200">{selectedNode.unlockCondition}</div>
-                <div className="mt-2">
-                  <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    <span>Progress</span>
-                    <span>
-                      {Math.min(completedCount, selectedNode.requiredTasks)}/{selectedNode.requiredTasks}
-                    </span>
+                {!isUnlocked(selectedNode) && (
+                  <div className="mt-2">
+                    <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      <span>Progress</span>
+                      <span>
+                        {Math.min(completedCount, selectedNode.requiredTasks)}/{selectedNode.requiredTasks}
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full transition-all duration-500 ${selectedColors.progress}`}
+                        style={{
+                          width: `${Math.min(100, (completedCount / selectedNode.requiredTasks) * 100)}%`,
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full transition-all duration-500 ${selectedColors.progress}`}
-                      style={{
-                        width: `${Math.min(100, (completedCount / selectedNode.requiredTasks) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                </div>
+                )}
+                {isUnlocked(selectedNode) && (() => {
+                  const record = skillUnlockRecords.find((u) => u.nodeId === selectedNode.id);
+                  if (!record?.unlockedAt) return null;
+                  return (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Unlocked {new Date(record.unlockedAt).toLocaleDateString()}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           ) : (
@@ -403,7 +363,7 @@ export default function SkillTreePage() {
                 <div className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 ${tier === 1 ? "text-blue-500" : "text-violet-500"}`}>
                   Tier {tier}
                 </div>
-                {SKILL_NODES.filter((n) => n.tier === tier).map((node) => (
+                {SKILL_NODE_DATA.filter((n) => n.tier === tier).map((node) => (
                   <div key={node.id} className="flex items-center gap-2 py-1">
                     {isUnlocked(node) ? (
                       <Unlock className={`h-3.5 w-3.5 shrink-0 ${node.tier === 2 ? "text-violet-500" : "text-blue-500"}`} />

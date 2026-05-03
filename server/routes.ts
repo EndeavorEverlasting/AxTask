@@ -41,6 +41,7 @@ import {
   castForumVote, getUserForumVotes, hasUpvoteRewardBeenGiven, recordUpvoteReward,
   createForumReport, getForumReports, updateForumReportStatus, toggleForumReaction,
   getUserById,
+  getSkillUnlocks, unlockSkillNode,
 } from "./storage";
 import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, BADGE_DEFINITIONS } from "./coin-engine";
 import { computeContentHash, computeFileHash } from "./fingerprint";
@@ -48,6 +49,7 @@ import { awardCoinsForClassification, awardCoinsForConfirmation } from "./classi
 import { getContributionsForTask, hasUserConfirmedTask, getUserClassificationStats, getContribution } from "./storage";
 import { z } from "zod";
 import { insertTaskSchema, updateTaskSchema, internalUpdateTaskSchema, reorderTasksSchema, registerSchema, loginSchema, insertForumPostSchema, insertForumCommentSchema, type UpdateTask, type InternalUpdateTask, type TaskAttachment } from "@shared/schema";
+import { VALID_SKILL_NODE_IDS, SKILL_NODE_REQUIRED_TASKS } from "@shared/skill-nodes";
 import { PriorityEngine } from "../client/src/lib/priority-engine";
 import { dispatchVoiceCommand } from "./engines/dispatcher";
 import { processPlannerQuery } from "./engines/planner-engine";
@@ -3041,6 +3043,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "Report updated" });
     } catch (error) {
       res.status(500).json({ message: "Failed to update report" });
+    }
+  });
+
+  // ── Skill Unlocks ──────────────────────────────────────────────────────────
+
+  app.get("/api/skill-unlocks", requireAuth, async (req, res) => {
+    try {
+      const unlocks = await getSkillUnlocks(req.user!.id);
+      res.json(unlocks);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch skill unlocks" });
+    }
+  });
+
+  app.post("/api/skill-unlocks", requireAuth, async (req, res) => {
+    try {
+      const { nodeId } = req.body;
+      if (!nodeId || typeof nodeId !== "string") {
+        return res.status(400).json({ message: "nodeId is required" });
+      }
+
+      if (!VALID_SKILL_NODE_IDS.has(nodeId)) {
+        return res.status(400).json({ message: "Invalid nodeId" });
+      }
+
+      const userTasks = await storage.getTasksByStatus(req.user!.id, "completed");
+      const completedCount = userTasks.length;
+      const required = SKILL_NODE_REQUIRED_TASKS[nodeId];
+
+      if (completedCount < required) {
+        return res.status(403).json({
+          message: `Not enough completed tasks. Need ${required}, have ${completedCount}.`,
+        });
+      }
+
+      const result = await unlockSkillNode(req.user!.id, nodeId);
+      res.json({ unlock: result.unlock, isNew: result.isNew });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to unlock skill node" });
     }
   });
 
