@@ -80,13 +80,13 @@ function NewConversationDialog({ open, onOpenChange, onConversationStarted }: {
   const results: UserSearchResult[] = Array.isArray(rawResults) ? rawResults : [];
 
   const startMutation = useMutation({
-    mutationFn: (userId: string) => apiRequest("POST", "/api/messages/conversations", { userId }),
-    onSuccess: (data: unknown) => {
-      const typed = data as { conversationId: string };
+    mutationFn: (userId: string) =>
+      apiRequest("POST", "/api/messages/conversations", { userId }).then(r => r.json() as Promise<{ conversationId: string }>),
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
       onOpenChange(false);
       setQuery("");
-      onConversationStarted(typed.conversationId);
+      onConversationStarted(data.conversationId);
     },
     onError: (err: Error) => {
       toast({ title: "Failed to start conversation", description: err.message, variant: "destructive" });
@@ -227,17 +227,17 @@ function MessageThread({ conversationId, currentUserId, otherUser }: {
     },
   });
 
-  // Mark as read whenever conversation is opened/messages change
-  useMutation({
+  const markReadMutation = useMutation({
     mutationFn: () => apiRequest("PATCH", `/api/messages/conversations/${conversationId}/read`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/messages/unread-count"] });
+    },
   });
 
   useEffect(() => {
     if (conversationId) {
-      apiRequest("PATCH", `/api/messages/conversations/${conversationId}/read`, {}).then(() => {
-        queryClient.invalidateQueries({ queryKey: ["/api/messages/conversations"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/messages/unread-count"] });
-      }).catch(() => {});
+      markReadMutation.mutate();
     }
   }, [conversationId, messages.length]);
 

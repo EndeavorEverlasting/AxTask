@@ -3380,6 +3380,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await markConversationRead(req.params.id, req.user!.id);
       res.json({ message: "Marked as read" });
     } catch (error) {
+      if (error instanceof Error && error.message === "Not a participant") {
+        return res.status(403).json({ message: "Not a participant" });
+      }
       res.status(500).json({ message: "Failed to mark as read" });
     }
   });

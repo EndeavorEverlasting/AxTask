@@ -2630,6 +2630,16 @@ export async function sendDirectMessage(conversationId: string, senderId: string
 }
 
 export async function markConversationRead(conversationId: string, userId: string): Promise<void> {
+  // Verify user is a participant before marking as read
+  const [participant] = await db
+    .select()
+    .from(conversationParticipants)
+    .where(and(
+      eq(conversationParticipants.conversationId, conversationId),
+      eq(conversationParticipants.userId, userId),
+    ));
+  if (!participant) throw new Error("Not a participant");
+
   await db
     .update(directMessages)
     .set({ readAt: new Date() })
