@@ -3219,17 +3219,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/forum/admin/reports/bulk", requireAuth, async (req, res) => {
     try {
       if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
-      const { ids, action } = req.body;
+      const { ids, action, note } = req.body;
       if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ message: "ids array required" });
       if (!["dismiss", "resolve"].includes(action)) return res.status(400).json({ message: "Invalid action" });
       const status = action === "dismiss" ? "dismissed" : "resolved";
       for (const id of ids) {
-        await updateForumReportStatus(id, status);
+        await updateForumReportStatus(id, status, note || undefined);
         await createModerationLog({
           moderatorId: req.user!.id,
           action: `${action}_report`,
           targetType: "report",
           targetId: id,
+          note: note || undefined,
         });
       }
       res.json({ message: `${ids.length} report(s) ${status}` });

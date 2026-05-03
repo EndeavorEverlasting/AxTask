@@ -48,6 +48,7 @@ type ModLogEntry = {
   action: string;
   targetType: string;
   targetId: string;
+  targetSnippet: string;
   note: string | null;
   createdAt: string | null;
 };
@@ -124,7 +125,7 @@ export default function AdminPage() {
       if (ids.length === 1) {
         await apiRequest("PATCH", `/api/forum/admin/reports/${ids[0]}`, { status, note });
       } else {
-        await apiRequest("POST", "/api/forum/admin/reports/bulk", { ids, action: status === "dismissed" ? "dismiss" : "resolve" });
+        await apiRequest("POST", "/api/forum/admin/reports/bulk", { ids, action: status === "dismissed" ? "dismiss" : "resolve", note });
       }
     },
     onSuccess: () => {
@@ -712,7 +713,10 @@ export default function AdminPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-muted-foreground text-xs">
                         By <span className="font-medium dark:text-gray-300">{entry.moderatorName}</span>
-                        {" · "}{entry.targetType} <span className="font-mono">{entry.targetId.slice(0, 8)}…</span>
+                        {" · "}{entry.targetType}
+                        {entry.targetSnippet && (
+                          <span className="ml-1 italic text-muted-foreground">"{entry.targetSnippet.slice(0, 80)}{entry.targetSnippet.length > 80 ? "…" : ""}"</span>
+                        )}
                       </p>
                       {entry.note && (
                         <p className="text-xs text-muted-foreground mt-0.5 italic">Note: {entry.note}</p>

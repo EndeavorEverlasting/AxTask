@@ -2233,7 +2233,7 @@ export async function createForumReport(reporterId: string, opts: { postId?: str
     const [row] = await db.select({ c: count() }).from(forumReports).where(eq(forumReports.postId, opts.postId));
     reportCount = Number(row?.c ?? 0);
     if (reportCount >= AUTO_HIDE_THRESHOLD) {
-      const [post] = await db.select({ hidden: forumPosts.hidden }).from(forumPosts).where(eq(forumPosts.id, opts.postId));
+      const [post] = await db.select({ hidden: forumPosts.hidden, userId: forumPosts.userId, title: forumPosts.title }).from(forumPosts).where(eq(forumPosts.id, opts.postId));
       if (post && !post.hidden) {
         await db.update(forumPosts).set({ hidden: true, autoHidden: true, updatedAt: new Date() }).where(eq(forumPosts.id, opts.postId));
         await db.insert(moderationLog).values({
@@ -2244,6 +2244,11 @@ export async function createForumReport(reporterId: string, opts: { postId?: str
           targetId: opts.postId,
           note: `Auto-hidden after ${reportCount} reports`,
         });
+        await createNotification(
+          post.userId,
+          "content_hidden",
+          `Your forum post "${post.title.slice(0, 60)}" has been hidden automatically after receiving multiple reports. It will be reviewed by a moderator.`
+        );
         return { autoHidden: true };
       }
     }
@@ -2251,7 +2256,7 @@ export async function createForumReport(reporterId: string, opts: { postId?: str
     const [row] = await db.select({ c: count() }).from(forumReports).where(eq(forumReports.commentId, opts.commentId));
     reportCount = Number(row?.c ?? 0);
     if (reportCount >= AUTO_HIDE_THRESHOLD) {
-      const [comment] = await db.select({ hidden: forumComments.hidden }).from(forumComments).where(eq(forumComments.id, opts.commentId));
+      const [comment] = await db.select({ hidden: forumComments.hidden, userId: forumComments.userId, body: forumComments.body }).from(forumComments).where(eq(forumComments.id, opts.commentId));
       if (comment && !comment.hidden) {
         await db.update(forumComments).set({ hidden: true, autoHidden: true }).where(eq(forumComments.id, opts.commentId));
         await db.insert(moderationLog).values({
@@ -2262,6 +2267,11 @@ export async function createForumReport(reporterId: string, opts: { postId?: str
           targetId: opts.commentId,
           note: `Auto-hidden after ${reportCount} reports`,
         });
+        await createNotification(
+          comment.userId,
+          "content_hidden",
+          `Your forum comment "${comment.body.slice(0, 80)}" has been hidden automatically after receiving multiple reports. It will be reviewed by a moderator.`
+        );
         return { autoHidden: true };
       }
     }
@@ -2361,7 +2371,7 @@ export async function createModerationLog(opts: {
   });
 }
 
-export type EnrichedModLogEntry = ModerationLogEntry & { moderatorName: string };
+export type EnrichedModLogEntry = ModerationLogEntry & { moderatorName: string; targetSnippet: string };
 
 export async function getModerationLog(limit = 50, offset = 0): Promise<EnrichedModLogEntry[]> {
   const entries = await db
@@ -2379,11 +2389,31 @@ export async function getModerationLog(limit = 50, offset = 0): Promise<Enriched
     : [];
   const modMap = new Map(mods.map(m => [m.id, m]));
 
+  const postIds = entries.filter(e => e.targetType === "post").map(e => e.targetId);
+  const commentIds = entries.filter(e => e.targetType === "comment").map(e => e.targetId);
+
+  const [postSnippets, commentSnippets] = await Promise.all([
+    postIds.length > 0
+      ? db.select({ id: forumPosts.id, title: forumPosts.title, body: forumPosts.body }).from(forumPosts).where(inArray(forumPosts.id, postIds))
+      : [],
+    commentIds.length > 0
+      ? db.select({ id: forumComments.id, body: forumComments.body }).from(forumComments).where(inArray(forumComments.id, commentIds))
+      : [],
+  ]);
+
+  const postSnippetMap = new Map(postSnippets.map(p => [p.id, p.title || p.body.slice(0, 100)]));
+  const commentSnippetMap = new Map(commentSnippets.map(c => [c.id, c.body.slice(0, 100)]));
+
   return entries.map(e => {
     const mod = e.moderatorId ? modMap.get(e.moderatorId) : undefined;
+    let targetSnippet = "";
+    if (e.targetType === "post") targetSnippet = postSnippetMap.get(e.targetId) ?? "[deleted]";
+    else if (e.targetType === "comment") targetSnippet = commentSnippetMap.get(e.targetId) ?? "[deleted]";
+    else if (e.targetType === "report") targetSnippet = `Report #${e.targetId.slice(0, 8)}`;
     return {
       ...e,
       moderatorName: mod?.displayName ?? mod?.email ?? "System",
+      targetSnippet,
     };
   });
 }
