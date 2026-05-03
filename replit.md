@@ -52,6 +52,9 @@ Key features include:
 ### Authentication & Security
 Supports Google OAuth, Replit OIDC, WorkOS AuthKit, and local email/password (bcrypt). Security features include account lockout, banning, robust password policies, input validation, security questions, hashed password reset tokens, Security Admin UI, rate limiting, audit logging, request size limits, httpOnly session cookies, and enforced HTTPS with HSTS and CSP. Passport.js handles authentication middleware. TOTP-based MFA is available for critical actions, with secrets encrypted at rest.
 
+### GitHub Sync
+The GitHub repo (`EndeavorEverlasting/AxTask`) mirrors Replit's `main` branch. Because Replit creates automated checkpoint commits that GitHub does not receive, the two histories can diverge. To re-sync, run `bash scripts/sync-github.sh` from the Replit Shell — it force-pushes Replit's `main` to GitHub's `main`. A GitHub Actions workflow at `.github/workflows/replit-sync.yml` provides an alternative trigger (manual dispatch or push to `replit/main` branch). Full details in `docs/GITHUB_SYNC.md`.
+
 ### System Design Choices
 Designed for Replit Autoscale (Google Cloud Run), necessitating a stateless architecture. All persistent state resides in PostgreSQL. File uploads are streamed without persistent disk storage. Deployment involves `npm run build` to create `dist/index.js` (backend) and `dist/public/` (frontend). Autoscale constraints include a single exposed port, Cloud Run controlling `PORT`, no persistent server memory/filesystem, and fast startup times. API routes and health checks must register before static file serving. Canonical production endpoints are `https://axtask.app` and `https://axtask.dev`.
 
