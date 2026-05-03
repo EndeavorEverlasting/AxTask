@@ -2391,25 +2391,50 @@ export async function getModerationLog(limit = 50, offset = 0): Promise<Enriched
 
   const postIds = entries.filter(e => e.targetType === "post").map(e => e.targetId);
   const commentIds = entries.filter(e => e.targetType === "comment").map(e => e.targetId);
+  const reportIds = entries.filter(e => e.targetType === "report").map(e => e.targetId);
 
-  const [postSnippets, commentSnippets] = await Promise.all([
+  const [postSnippets, commentSnippets, reportRows] = await Promise.all([
     postIds.length > 0
       ? db.select({ id: forumPosts.id, title: forumPosts.title, body: forumPosts.body }).from(forumPosts).where(inArray(forumPosts.id, postIds))
       : [],
     commentIds.length > 0
       ? db.select({ id: forumComments.id, body: forumComments.body }).from(forumComments).where(inArray(forumComments.id, commentIds))
       : [],
+    reportIds.length > 0
+      ? db.select({ id: forumReports.id, reason: forumReports.reason, postId: forumReports.postId, commentId: forumReports.commentId }).from(forumReports).where(inArray(forumReports.id, reportIds))
+      : [],
   ]);
+
+  // For reports, also look up linked post/comment titles for richer context
+  const reportPostIds = reportRows.filter(r => r.postId).map(r => r.postId!);
+  const reportCommentIds = reportRows.filter(r => r.commentId).map(r => r.commentId!);
+  const [reportLinkedPosts, reportLinkedComments] = await Promise.all([
+    reportPostIds.length > 0
+      ? db.select({ id: forumPosts.id, title: forumPosts.title, body: forumPosts.body }).from(forumPosts).where(inArray(forumPosts.id, reportPostIds))
+      : [],
+    reportCommentIds.length > 0
+      ? db.select({ id: forumComments.id, body: forumComments.body }).from(forumComments).where(inArray(forumComments.id, reportCommentIds))
+      : [],
+  ]);
+
+  const reportLinkedPostMap = new Map(reportLinkedPosts.map(p => [p.id, p.title || p.body.slice(0, 80)]));
+  const reportLinkedCommentMap = new Map(reportLinkedComments.map(c => [c.id, c.body.slice(0, 80)]));
 
   const postSnippetMap = new Map(postSnippets.map(p => [p.id, p.title || p.body.slice(0, 100)]));
   const commentSnippetMap = new Map(commentSnippets.map(c => [c.id, c.body.slice(0, 100)]));
+  const reportSnippetMap = new Map(reportRows.map(r => {
+    let contentSnippet = "";
+    if (r.postId) contentSnippet = reportLinkedPostMap.get(r.postId) ?? "[deleted post]";
+    else if (r.commentId) contentSnippet = reportLinkedCommentMap.get(r.commentId) ?? "[deleted comment]";
+    return [r.id, `Reported (${r.reason}): ${contentSnippet}`];
+  }));
 
   return entries.map(e => {
     const mod = e.moderatorId ? modMap.get(e.moderatorId) : undefined;
     let targetSnippet = "";
     if (e.targetType === "post") targetSnippet = postSnippetMap.get(e.targetId) ?? "[deleted]";
     else if (e.targetType === "comment") targetSnippet = commentSnippetMap.get(e.targetId) ?? "[deleted]";
-    else if (e.targetType === "report") targetSnippet = `Report #${e.targetId.slice(0, 8)}`;
+    else if (e.targetType === "report") targetSnippet = reportSnippetMap.get(e.targetId) ?? `Report #${e.targetId.slice(0, 8)}`;
     return {
       ...e,
       moderatorName: mod?.displayName ?? mod?.email ?? "System",

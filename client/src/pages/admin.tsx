@@ -164,6 +164,15 @@ export default function AdminPage() {
     },
   });
 
+  const deleteCommentMutation = useMutation({
+    mutationFn: (commentId: string) => apiRequest("DELETE", `/api/forum/admin/comments/${commentId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/mod-log"] });
+      toast({ title: "Comment deleted" });
+    },
+  });
+
   const bulkHideMutation = useMutation({
     mutationFn: (reportIds: string[]) =>
       apiRequest("POST", "/api/forum/admin/bulk-hide", { reportIds }),
@@ -646,15 +655,30 @@ export default function AdminPage() {
                         </>
                       )}
                       {report.commentId && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs gap-1"
-                          disabled={hideContentMutation.isPending}
-                          onClick={() => hideContentMutation.mutate({ type: "comments", id: report.commentId! })}
-                        >
-                          <EyeOff className="h-3 w-3" /> Hide comment
-                        </Button>
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1"
+                            disabled={hideContentMutation.isPending}
+                            onClick={() => hideContentMutation.mutate({ type: "comments", id: report.commentId! })}
+                          >
+                            <EyeOff className="h-3 w-3" /> Hide comment
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-7 text-xs gap-1"
+                            disabled={deleteCommentMutation.isPending}
+                            onClick={() => {
+                              if (confirm("Delete this comment permanently?")) {
+                                deleteCommentMutation.mutate(report.commentId!);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" /> Delete comment
+                          </Button>
+                        </>
                       )}
                       <Button
                         size="sm"
