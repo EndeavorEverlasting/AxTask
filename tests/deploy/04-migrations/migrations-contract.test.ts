@@ -44,6 +44,17 @@ describe("[04-migrations] apply-migrations.mjs", () => {
   });
 });
 
+describe("[04-migrations] migration-airlock.mjs", () => {
+  const scriptPath = path.join(repoRoot, "scripts", "migration-airlock.mjs");
+  let src = "";
+
+  it("allows bootstrap migrations when backup_records does not exist yet", () => {
+    if (!src) src = fs.readFileSync(scriptPath, "utf8");
+    expect(src).toMatch(/to_regclass\('public\.backup_records'\)/);
+    expect(src).toMatch(/backup_records table missing; allowing migrations/i);
+  });
+});
+
 describe("[04-migrations] migrations/", () => {
   const migrationsDir = path.join(repoRoot, "migrations");
 
