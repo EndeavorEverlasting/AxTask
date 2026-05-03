@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, forumPosts, forumComments, forumVotes, forumUpvoteRewards, forumReports, skillUnlocks, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger, type ForumPost, type InsertForumPost, type ForumComment, type InsertForumComment, type ForumVote, type ForumReport, type SkillUnlock } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, forumPosts, forumComments, forumVotes, forumUpvoteRewards, forumReports, skillUnlocks, userFollowers, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger, type ForumPost, type InsertForumPost, type ForumComment, type InsertForumComment, type ForumVote, type ForumReport, type SkillUnlock, type UserFollower } from "@shared/schema";
 import { computeContentHash } from "./fingerprint";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
@@ -2222,6 +2222,184 @@ export async function toggleForumReaction(
     return { action, reactions };
   }
   throw new Error("postId or commentId required");
+}
+
+// ─── User Followers ────────────────────────────────────────────────────────────
+
+export async function followUser(followerId: string, followingId: string): Promise<{ isNew: boolean }> {
+  const [inserted] = await db
+    .insert(userFollowers)
+    .values({ id: randomUUID(), followerId, followingId })
+    .onConflictDoNothing()
+    .returning();
+  return { isNew: !!inserted };
+}
+
+export async function unfollowUser(followerId: string, followingId: string): Promise<void> {
+  await db
+    .delete(userFollowers)
+    .where(and(eq(userFollowers.followerId, followerId), eq(userFollowers.followingId, followingId)));
+}
+
+export async function isFollowing(followerId: string, followingId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: userFollowers.id })
+    .from(userFollowers)
+    .where(and(eq(userFollowers.followerId, followerId), eq(userFollowers.followingId, followingId)));
+  return !!row;
+}
+
+export async function getFollowerCount(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: count() })
+    .from(userFollowers)
+    .where(eq(userFollowers.followingId, userId));
+  return Number(row?.count ?? 0);
+}
+
+export async function getFollowingCount(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: count() })
+    .from(userFollowers)
+    .where(eq(userFollowers.followerId, userId));
+  return Number(row?.count ?? 0);
+}
+
+export async function getUserPublicProfile(
+  targetUserId: string,
+  requestingUserId?: string,
+  postsPage = 0,
+  postsLimit = 10
+) {
+  const [user] = await db.select().from(users).where(eq(users.id, targetUserId));
+  if (!user) return null;
+
+  const [
+    wallet,
+    badgeList,
+    userRewardsList,
+    followerCount,
+    followingCount,
+  ] = await Promise.all([
+    getOrCreateWallet(targetUserId),
+    getUserBadges(targetUserId),
+    getUserRewards(targetUserId),
+    getFollowerCount(targetUserId),
+    getFollowingCount(targetUserId),
+  ]);
+
+  // Paginated posts
+  const [paginatedPosts, postCountRow, commentCountRow, recentCommentsRaw] = await Promise.all([
+    db
+      .select()
+      .from(forumPosts)
+      .where(and(eq(forumPosts.userId, targetUserId), eq(forumPosts.hidden, false)))
+      .orderBy(desc(forumPosts.createdAt))
+      .limit(postsLimit)
+      .offset(postsPage * postsLimit),
+    db
+      .select({ count: count() })
+      .from(forumPosts)
+      .where(and(eq(forumPosts.userId, targetUserId), eq(forumPosts.hidden, false))),
+    db
+      .select({ count: count() })
+      .from(forumComments)
+      .where(eq(forumComments.userId, targetUserId)),
+    db
+      .select({ id: forumComments.id, postId: forumComments.postId, body: forumComments.body, createdAt: forumComments.createdAt, upvotes: forumComments.upvotes, downvotes: forumComments.downvotes })
+      .from(forumComments)
+      .where(eq(forumComments.userId, targetUserId))
+      .orderBy(desc(forumComments.createdAt))
+      .limit(10),
+  ]);
+
+  const postCount = Number(postCountRow[0]?.count ?? 0);
+  const commentCount = Number(commentCountRow[0]?.count ?? 0);
+
+  // Build unified recent activity feed (last 10 posts/comments combined)
+  const recentPostsForFeed = await db
+    .select()
+    .from(forumPosts)
+    .where(and(eq(forumPosts.userId, targetUserId), eq(forumPosts.hidden, false)))
+    .orderBy(desc(forumPosts.createdAt))
+    .limit(10);
+
+  type ActivityItem =
+    | { type: "post"; id: string; title: string; category: string; createdAt: Date | null; commentCount: number; score: number }
+    | { type: "comment"; id: string; postId: string; body: string; createdAt: Date | null; score: number };
+
+  const activityItems: ActivityItem[] = [
+    ...recentPostsForFeed.map(p => ({
+      type: "post" as const,
+      id: p.id,
+      title: p.title,
+      category: p.category,
+      createdAt: p.createdAt,
+      commentCount: p.commentCount,
+      score: p.upvotes - p.downvotes,
+    })),
+    ...recentCommentsRaw.map(c => ({
+      type: "comment" as const,
+      id: c.id,
+      postId: c.postId,
+      body: c.body.length > 200 ? c.body.slice(0, 200) + "…" : c.body,
+      createdAt: c.createdAt,
+      score: c.upvotes - c.downvotes,
+    })),
+  ];
+  activityItems.sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
+  const recentActivity = activityItems.slice(0, 10);
+
+  const catalog = await getRewardsCatalog();
+  let equippedTitle: string | null = null;
+  if (userRewardsList.length > 0) {
+    const activeUserTitle = userRewardsList.find(ur => ur.isActive && catalog.find(r => r.id === ur.rewardId && r.type === "title"));
+    const fallbackUserTitle = [...userRewardsList].reverse().find(ur => catalog.find(r => r.id === ur.rewardId && r.type === "title"));
+    const chosenUserTitle = activeUserTitle ?? fallbackUserTitle;
+    if (chosenUserTitle) {
+      const catalogEntry = catalog.find(r => r.id === chosenUserTitle.rewardId);
+      equippedTitle = catalogEntry?.name ?? null;
+    }
+  }
+
+  const completedTaskCount = await getCompletedTaskCount(targetUserId);
+  const { SKILL_NODE_REQUIRED_TASKS } = await import("@shared/skill-nodes");
+  let skillTier: 0 | 1 | 2 = 0;
+  for (const [nodeId, required] of Object.entries(SKILL_NODE_REQUIRED_TASKS)) {
+    if (completedTaskCount >= required) {
+      if (nodeId.endsWith("-2") && skillTier < 2) skillTier = 2;
+      else if (nodeId.endsWith("-1") && skillTier < 1) skillTier = 1;
+    }
+  }
+
+  const badges = badgeList.map(b => ({ id: b.id, badgeId: b.badgeId, earnedAt: b.earnedAt }));
+
+  let isFollowedByRequester = false;
+  if (requestingUserId && requestingUserId !== targetUserId) {
+    isFollowedByRequester = await isFollowing(requestingUserId, targetUserId);
+  }
+
+  return {
+    userId: user.id,
+    displayName: user.displayName,
+    profileImageUrl: user.profileImageUrl,
+    equippedTitle,
+    skillTier,
+    badges,
+    coinBalance: wallet.balance,
+    lifetimeEarned: wallet.lifetimeEarned,
+    currentStreak: wallet.currentStreak,
+    longestStreak: wallet.longestStreak,
+    streakShields: wallet.streakShields,
+    postCount,
+    commentCount,
+    followerCount,
+    followingCount,
+    isFollowing: isFollowedByRequester,
+    recentActivity,
+    posts: paginatedPosts,
+    postsTotal: postCount,
+  };
 }
 
 // ─── Skill Unlocks ────────────────────────────────────────────────────────────

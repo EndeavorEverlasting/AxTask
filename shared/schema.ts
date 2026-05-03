@@ -604,6 +604,20 @@ export const insertForumReportSchema = createInsertSchema(forumReports).omit({
 });
 export type InsertForumReport = z.infer<typeof insertForumReportSchema>;
 
+// ─── User Followers ──────────────────────────────────────────────────────────
+export const userFollowers = pgTable("user_followers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  followerId: varchar("follower_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  followingId: varchar("following_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_user_followers_follower").on(table.followerId),
+  index("idx_user_followers_following").on(table.followingId),
+  uniqueIndex("idx_user_followers_pair").on(table.followerId, table.followingId),
+]);
+
+export type UserFollower = typeof userFollowers.$inferSelect;
+
 // ─── Skill Tree: Unlock Events ───────────────────────────────────────────────
 export const skillUnlocks = pgTable("skill_unlocks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

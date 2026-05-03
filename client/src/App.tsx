@@ -33,6 +33,7 @@ import CommunityPostPage from "@/pages/community-post";
 import SkillTreePage from "@/pages/skill-tree";
 import BackupPage from "@/pages/backup";
 import SettingsPage from "@/pages/settings";
+import ProfilePage from "@/pages/profile";
 import LoginPage from "@/pages/login";
 import PrivacyPolicy from "@/pages/privacy";
 import TermsOfService from "@/pages/terms";
@@ -56,6 +57,7 @@ function Router() {
       <Route path="/community" component={CommunityPage} />
       <Route path="/community/:id" component={CommunityPostPage} />
       <Route path="/skill-tree" component={SkillTreePage} />
+      <Route path="/profile/:userId" component={ProfilePage} />
       <Route path="/backup" component={BackupPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />

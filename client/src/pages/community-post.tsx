@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation, useParams } from "wouter";
+import { useLocation, useParams, Link } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
@@ -264,7 +264,9 @@ function CommentItem({ comment, authors, votes, isAdmin, postId, userId }: {
     <div className={`flex gap-3 py-3 ${comment.hidden ? "opacity-50" : ""}`}>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <AvatarCard userId={comment.userId} displayName={author?.displayName} profileImageUrl={author?.profileImageUrl} size="sm" />
+          <Link href={`/profile/${comment.userId}`} className="hover:opacity-80 transition-opacity">
+            <AvatarCard userId={comment.userId} displayName={author?.displayName} profileImageUrl={author?.profileImageUrl} size="sm" />
+          </Link>
           <span className="text-xs text-gray-400"><Clock className="h-3 w-3 inline mr-0.5" />{timeAgo(comment.createdAt!)}</span>
           {comment.hidden && <Badge variant="outline" className="text-[10px] text-red-400 border-red-300">Hidden</Badge>}
         </div>
@@ -375,12 +377,14 @@ export default function CommunityPostPage() {
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-3">{post.title}</h1>
 
         <div className="flex items-center gap-3 mb-4 text-sm text-gray-500 dark:text-gray-400">
-          <AvatarCard
-            userId={post.userId}
-            displayName={author?.displayName}
-            profileImageUrl={author?.profileImageUrl}
-            size="md"
-          />
+          <Link href={`/profile/${post.userId}`} className="hover:opacity-80 transition-opacity">
+            <AvatarCard
+              userId={post.userId}
+              displayName={author?.displayName}
+              profileImageUrl={author?.profileImageUrl}
+              size="md"
+            />
+          </Link>
           <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{timeAgo(post.createdAt!)}</span>
         </div>
 

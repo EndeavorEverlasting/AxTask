@@ -43,6 +43,7 @@ import {
   getUserById,
   getSkillUnlocks, unlockSkillNode,
   getCompletedTaskCount,
+  followUser, unfollowUser, getUserPublicProfile,
 } from "./storage";
 import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, getActiveSkillBonuses, getActiveSkillIds, maybeGrantMonthlyShield, BADGE_DEFINITIONS } from "./coin-engine";
 import { db } from "./db";
@@ -3131,6 +3132,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "Report updated" });
     } catch (error) {
       res.status(500).json({ message: "Failed to update report" });
+    }
+  });
+
+  // ── User Profile & Follow System ─────────────────────────────────────────
+
+  app.get("/api/users/:userId/profile", requireAuth, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const postsPage = parseInt(typeof req.query.postsPage === "string" ? req.query.postsPage : "0") || 0;
+      const profile = await getUserPublicProfile(userId, req.user!.id, postsPage);
+      if (!profile) return res.status(404).json({ message: "User not found" });
+      res.json(profile);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch profile" });
+    }
+  });
+
+  app.post("/api/users/:userId/follow", requireAuth, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      if (userId === req.user!.id) return res.status(400).json({ message: "Cannot follow yourself" });
+      const target = await getUserById(userId);
+      if (!target) return res.status(404).json({ message: "User not found" });
+      const result = await followUser(req.user!.id, userId);
+      res.json({ isNew: result.isNew });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to follow user" });
+    }
+  });
+
+  app.delete("/api/users/:userId/follow", requireAuth, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      await unfollowUser(req.user!.id, userId);
+      res.json({ message: "Unfollowed" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to unfollow user" });
+    }
+  });
+
+  app.patch("/api/auth/profile", requireAuth, async (req, res) => {
+    try {
+      const { displayName } = req.body;
+      if (typeof displayName !== "string" || displayName.trim().length === 0) {
+        return res.status(400).json({ message: "Display name is required" });
+      }
+      if (displayName.trim().length > 50) {
+        return res.status(400).json({ message: "Display name must be 50 characters or less" });
+      }
+      const { users: usersTable } = await import("@shared/schema");
+      await db.update(usersTable).set({ displayName: displayName.trim() }).where(sql`id = ${req.user!.id}`);
+      res.json({ message: "Profile updated" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update profile" });
     }
   });
 

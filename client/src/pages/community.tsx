@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { queryClient, apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
@@ -294,12 +294,18 @@ function PostCard({ post, authors, isAdmin, onNavigate, onTagClick }: {
           <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-1">{snippet}</p>
           {tags.length > 0 && <TagChips tags={tags} onTagClick={onTagClick} />}
           <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-2">
-            <AvatarCard
-              userId={post.userId}
-              displayName={author?.displayName}
-              profileImageUrl={author?.profileImageUrl}
-              size="sm"
-            />
+            <Link
+              href={`/profile/${post.userId}`}
+              onClick={(e) => e.stopPropagation()}
+              className="hover:opacity-80 transition-opacity"
+            >
+              <AvatarCard
+                userId={post.userId}
+                displayName={author?.displayName}
+                profileImageUrl={author?.profileImageUrl}
+                size="sm"
+              />
+            </Link>
             <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{timeAgo(post.createdAt!)}</span>
             <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" />{post.commentCount}</span>
             {(() => {
