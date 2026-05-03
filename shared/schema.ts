@@ -618,6 +618,50 @@ export const userFollowers = pgTable("user_followers", {
 
 export type UserFollower = typeof userFollowers.$inferSelect;
 
+// ─── Direct Messaging ────────────────────────────────────────────────────────
+
+export const conversations = pgTable("conversations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const conversationParticipants = pgTable("conversation_participants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: varchar("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+}, (table) => [
+  index("idx_conv_participants_conv").on(table.conversationId),
+  index("idx_conv_participants_user").on(table.userId),
+  uniqueIndex("idx_conv_participants_conv_user").on(table.conversationId, table.userId),
+]);
+
+export const directMessages = pgTable("direct_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: varchar("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  senderId: varchar("sender_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_dm_conversation").on(table.conversationId),
+  index("idx_dm_sender").on(table.senderId),
+  index("idx_dm_created").on(table.createdAt),
+]);
+
+export type Conversation = typeof conversations.$inferSelect;
+export type ConversationParticipant = typeof conversationParticipants.$inferSelect;
+export type DirectMessage = typeof directMessages.$inferSelect;
+
+export const insertDirectMessageSchema = createInsertSchema(directMessages).omit({
+  id: true,
+  senderId: true,
+  readAt: true,
+  createdAt: true,
+}).extend({
+  body: z.string().min(1, "Message is required").max(5000, "Message must be under 5000 characters"),
+});
+export type InsertDirectMessage = z.infer<typeof insertDirectMessageSchema>;
+
 // ─── Skill Tree: Unlock Events ───────────────────────────────────────────────
 export const skillUnlocks = pgTable("skill_unlocks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

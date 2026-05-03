@@ -1,4 +1,4 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, forumPosts, forumComments, forumVotes, forumUpvoteRewards, forumReports, skillUnlocks, userFollowers, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger, type ForumPost, type InsertForumPost, type ForumComment, type InsertForumComment, type ForumVote, type ForumReport, type SkillUnlock, type UserFollower } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, forumPosts, forumComments, forumVotes, forumUpvoteRewards, forumReports, skillUnlocks, userFollowers, conversations, conversationParticipants, directMessages, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger, type ForumPost, type InsertForumPost, type ForumComment, type InsertForumComment, type ForumVote, type ForumReport, type SkillUnlock, type UserFollower, type Conversation, type DirectMessage } from "@shared/schema";
 import { computeContentHash } from "./fingerprint";
 import { db } from "./db";
 import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
@@ -2473,6 +2473,200 @@ export async function getUserPublicProfile(
     posts: paginatedPosts,
     postsTotal: postCount,
   };
+}
+
+// ─── Direct Messaging ────────────────────────────────────────────────────────
+
+export interface ConversationPreview {
+  id: string;
+  otherUser: { id: string; displayName: string | null; profileImageUrl: string | null };
+  lastMessage: { body: string; senderId: string; createdAt: Date } | null;
+  unreadCount: number;
+  createdAt: Date | null;
+}
+
+export async function getOrCreateConversation(userAId: string, userBId: string): Promise<string> {
+  // Find an existing 1:1 conversation between these two users
+  const existing = await db.execute(sql`
+    SELECT cp1.conversation_id
+    FROM conversation_participants cp1
+    JOIN conversation_participants cp2
+      ON cp1.conversation_id = cp2.conversation_id
+      AND cp2.user_id = ${userBId}
+    WHERE cp1.user_id = ${userAId}
+    LIMIT 1
+  `);
+
+  if (existing.rows.length > 0) {
+    return existing.rows[0].conversation_id as string;
+  }
+
+  const convId = randomUUID();
+  await db.insert(conversations).values({ id: convId });
+  await db.insert(conversationParticipants).values([
+    { id: randomUUID(), conversationId: convId, userId: userAId },
+    { id: randomUUID(), conversationId: convId, userId: userBId },
+  ]);
+  return convId;
+}
+
+export async function getConversations(userId: string): Promise<ConversationPreview[]> {
+  // All conversations this user participates in
+  const userConvs = await db
+    .select({ conversationId: conversationParticipants.conversationId })
+    .from(conversationParticipants)
+    .where(eq(conversationParticipants.userId, userId));
+
+  if (userConvs.length === 0) return [];
+
+  const convIds = userConvs.map(r => r.conversationId);
+
+  // Batch: get all participants for these conversations
+  const allParticipants = await db
+    .select({ conversationId: conversationParticipants.conversationId, userId: conversationParticipants.userId })
+    .from(conversationParticipants)
+    .where(sql`${conversationParticipants.conversationId} = ANY(${convIds})`);
+
+  // Other user IDs per conversation
+  const otherUserIds = new Set(allParticipants.filter(p => p.userId !== userId).map(p => p.userId));
+  const otherUserIdList = [...otherUserIds];
+
+  const otherUsers = otherUserIdList.length > 0
+    ? await db
+        .select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl })
+        .from(users)
+        .where(sql`${users.id} = ANY(${otherUserIdList})`)
+    : [];
+
+  const userMap = new Map(otherUsers.map(u => [u.id, u]));
+
+  const results: ConversationPreview[] = [];
+
+  for (const convId of convIds) {
+    const participants = allParticipants.filter(p => p.conversationId === convId);
+    const otherParticipant = participants.find(p => p.userId !== userId);
+    if (!otherParticipant) continue;
+
+    const otherUser = userMap.get(otherParticipant.userId);
+    if (!otherUser) continue;
+
+    // Get last message + unread count for this conversation
+    const [lastMsgRow] = await db
+      .select()
+      .from(directMessages)
+      .where(eq(directMessages.conversationId, convId))
+      .orderBy(desc(directMessages.createdAt))
+      .limit(1);
+
+    const [unreadRow] = await db
+      .select({ count: count() })
+      .from(directMessages)
+      .where(and(
+        eq(directMessages.conversationId, convId),
+        sql`${directMessages.senderId} != ${userId}`,
+        sql`${directMessages.readAt} IS NULL`,
+      ));
+
+    const [convRow] = await db
+      .select({ createdAt: conversations.createdAt })
+      .from(conversations)
+      .where(eq(conversations.id, convId));
+
+    results.push({
+      id: convId,
+      otherUser: { id: otherUser.id, displayName: otherUser.displayName, profileImageUrl: otherUser.profileImageUrl },
+      lastMessage: lastMsgRow ? { body: lastMsgRow.body, senderId: lastMsgRow.senderId, createdAt: lastMsgRow.createdAt! } : null,
+      unreadCount: Number(unreadRow?.count ?? 0),
+      createdAt: convRow?.createdAt ?? null,
+    });
+  }
+
+  // Sort by last message timestamp, newest first
+  results.sort((a, b) => {
+    const ta = a.lastMessage?.createdAt ?? a.createdAt ?? new Date(0);
+    const tb = b.lastMessage?.createdAt ?? b.createdAt ?? new Date(0);
+    return new Date(tb).getTime() - new Date(ta).getTime();
+  });
+
+  return results;
+}
+
+export async function getConversationMessages(conversationId: string, userId: string): Promise<DirectMessage[]> {
+  // Verify user is a participant
+  const [participant] = await db
+    .select()
+    .from(conversationParticipants)
+    .where(and(
+      eq(conversationParticipants.conversationId, conversationId),
+      eq(conversationParticipants.userId, userId),
+    ));
+  if (!participant) throw new Error("Not a participant");
+
+  return db
+    .select()
+    .from(directMessages)
+    .where(eq(directMessages.conversationId, conversationId))
+    .orderBy(asc(directMessages.createdAt));
+}
+
+export async function sendDirectMessage(conversationId: string, senderId: string, body: string): Promise<DirectMessage> {
+  // Verify sender is a participant
+  const [participant] = await db
+    .select()
+    .from(conversationParticipants)
+    .where(and(
+      eq(conversationParticipants.conversationId, conversationId),
+      eq(conversationParticipants.userId, senderId),
+    ));
+  if (!participant) throw new Error("Not a participant");
+
+  const [msg] = await db.insert(directMessages).values({
+    id: randomUUID(),
+    conversationId,
+    senderId,
+    body,
+  }).returning();
+  return msg;
+}
+
+export async function markConversationRead(conversationId: string, userId: string): Promise<void> {
+  await db
+    .update(directMessages)
+    .set({ readAt: new Date() })
+    .where(and(
+      eq(directMessages.conversationId, conversationId),
+      sql`${directMessages.senderId} != ${userId}`,
+      sql`${directMessages.readAt} IS NULL`,
+    ));
+}
+
+export async function getTotalUnreadCount(userId: string): Promise<number> {
+  const userConvs = await db
+    .select({ conversationId: conversationParticipants.conversationId })
+    .from(conversationParticipants)
+    .where(eq(conversationParticipants.userId, userId));
+
+  if (userConvs.length === 0) return 0;
+
+  const convIds = userConvs.map(r => r.conversationId);
+
+  const [row] = await db
+    .select({ count: count() })
+    .from(directMessages)
+    .where(and(
+      sql`${directMessages.conversationId} = ANY(${convIds})`,
+      sql`${directMessages.senderId} != ${userId}`,
+      sql`${directMessages.readAt} IS NULL`,
+    ));
+
+  return Number(row?.count ?? 0);
+}
+
+export async function getConversationParticipants(conversationId: string): Promise<{ userId: string }[]> {
+  return db
+    .select({ userId: conversationParticipants.userId })
+    .from(conversationParticipants)
+    .where(eq(conversationParticipants.conversationId, conversationId));
 }
 
 // ─── Skill Unlocks ────────────────────────────────────────────────────────────

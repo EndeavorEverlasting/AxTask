@@ -28,6 +28,7 @@ import {
   ClipboardList,
   Users,
   ShoppingBag,
+  MessageSquare,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -43,6 +44,7 @@ const CORE_MENU_ITEMS = [
   { path: "/", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/tasks", icon: List, label: "Tasks" },
   { path: "/planner", icon: Brain, label: "AI Planner", hasBadge: true },
+  { path: "/messages", icon: MessageSquare, label: "Messages", hasUnreadBadge: true },
   { path: "/skill-tree", icon: Network, label: "Skill Tree" },
   { path: "/backup", icon: DatabaseBackup, label: "Backup" },
   { path: "/settings", icon: Settings, label: "Settings" },
@@ -66,6 +68,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { isActive: tutorialActive, startTutorial, stopTutorial, hasCompleted } = useTutorial();
   const isMobile = useIsMobile();
   const [moreOpen, setMoreOpen] = useState(false);
+
+  const { data: unreadMessages } = useQuery<{ count: number }>({
+    queryKey: ["/api/messages/unread-count"],
+    refetchInterval: 30000,
+    enabled: !!user,
+  });
+  const unreadMessageCount = unreadMessages?.count ?? 0;
 
   const { data: briefing } = useQuery<{ overdue: { count: number }; dueWithinHour: { count: number } }>({
     queryKey: ["/api/planner/briefing"],
@@ -127,8 +136,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       <nav className="flex-1 p-4 overflow-y-auto">
         <ul className="space-y-1">
-          {CORE_MENU_ITEMS.map(({ path, icon: Icon, label, hasBadge }) => {
-            const badge = hasBadge ? overdueCount : 0;
+          {CORE_MENU_ITEMS.map(({ path, icon: Icon, label, hasBadge, hasUnreadBadge }) => {
+            const badge = hasBadge ? overdueCount : hasUnreadBadge ? unreadMessageCount : 0;
+            const badgeColor = hasUnreadBadge ? "bg-blue-500" : "bg-red-500";
             return (
               <li key={path}>
                 <Link href={path}>
@@ -144,7 +154,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                     <Icon className="mr-3 h-5 w-5 shrink-0" />
                     {label}
                     {typeof badge === "number" && badge > 0 && (
-                      <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+                      <span className={`ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full ${badgeColor} px-1.5 text-[10px] font-bold text-white`}>
                         {badge > 99 ? "99+" : badge}
                       </span>
                     )}

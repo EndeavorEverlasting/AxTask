@@ -44,6 +44,7 @@ import {
   getSkillUnlocks, unlockSkillNode,
   getCompletedTaskCount,
   followUser, unfollowUser, getUserPublicProfile, isFollowing, batchGetFollowing,
+  getOrCreateConversation, getConversations, getConversationMessages, sendDirectMessage, markConversationRead, getTotalUnreadCount, getConversationParticipants,
 } from "./storage";
 import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, getActiveSkillBonuses, getActiveSkillIds, maybeGrantMonthlyShield, BADGE_DEFINITIONS } from "./coin-engine";
 import { db } from "./db";
@@ -2939,6 +2940,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }));
       res.json(withFollow);
     } catch (error) {
+      console.error("[search users error]", error);
       res.status(500).json({ message: "Failed to search users" });
     }
   });
@@ -3292,6 +3294,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ unlock: result.unlock, isNew: result.isNew });
     } catch (error) {
       res.status(500).json({ message: "Failed to unlock skill node" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Direct Messaging routes
+  // ════════════════════════════════════════════════════════════════════════
+
+  // Get total unread count (for badge polling)
+  app.get("/api/messages/unread-count", requireAuth, async (req, res) => {
+    try {
+      const count = await getTotalUnreadCount(req.user!.id);
+      res.json({ count });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch unread count" });
+    }
+  });
+
+  // List all conversations with preview
+  app.get("/api/messages/conversations", requireAuth, async (req, res) => {
+    try {
+      const convs = await getConversations(req.user!.id);
+      res.json(convs);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch conversations" });
+    }
+  });
+
+  // Start or retrieve a conversation with another user
+  app.post("/api/messages/conversations", requireAuth, async (req, res) => {
+    try {
+      const { userId: otherUserId } = req.body;
+      if (!otherUserId || typeof otherUserId !== "string") {
+        return res.status(400).json({ message: "userId is required" });
+      }
+      if (otherUserId === req.user!.id) {
+        return res.status(400).json({ message: "Cannot message yourself" });
+      }
+      const other = await getUserById(otherUserId);
+      if (!other) return res.status(404).json({ message: "User not found" });
+
+      const conversationId = await getOrCreateConversation(req.user!.id, otherUserId);
+      res.json({ conversationId });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to start conversation" });
+    }
+  });
+
+  // Get messages in a conversation
+  app.get("/api/messages/conversations/:id", requireAuth, async (req, res) => {
+    try {
+      const messages = await getConversationMessages(req.params.id, req.user!.id);
+      res.json(messages);
+    } catch (error) {
+      if (error instanceof Error && error.message === "Not a participant") {
+        return res.status(403).json({ message: "Not a participant" });
+      }
+      res.status(500).json({ message: "Failed to fetch messages" });
+    }
+  });
+
+  // Send a message in a conversation
+  app.post("/api/messages/conversations/:id", requireAuth, async (req, res) => {
+    try {
+      const { body } = req.body;
+      if (!body || typeof body !== "string" || !body.trim()) {
+        return res.status(400).json({ message: "Message body is required" });
+      }
+      if (body.length > 5000) {
+        return res.status(400).json({ message: "Message too long" });
+      }
+      const msg = await sendDirectMessage(req.params.id, req.user!.id, body.trim());
+      res.status(201).json(msg);
+    } catch (error) {
+      if (error instanceof Error && error.message === "Not a participant") {
+        return res.status(403).json({ message: "Not a participant" });
+      }
+      res.status(500).json({ message: "Failed to send message" });
+    }
+  });
+
+  // Mark all messages in a conversation as read
+  app.patch("/api/messages/conversations/:id/read", requireAuth, async (req, res) => {
+    try {
+      await markConversationRead(req.params.id, req.user!.id);
+      res.json({ message: "Marked as read" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to mark as read" });
     }
   });
 

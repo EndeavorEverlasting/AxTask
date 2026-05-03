@@ -1,7 +1,7 @@
 import { Switch, Route, useLocation } from "wouter";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { useQuery, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -17,6 +17,7 @@ import BulkActionDialog from "@/components/bulk-action-dialog";
 import { GlobalSearch } from "@/components/global-search";
 import { setPendingEditTask } from "@/lib/pending-edit";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useToast } from "@/hooks/use-toast";
 import { LayoutDashboard, List, CalendarDays, Brain, Users } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
@@ -34,6 +35,7 @@ import SkillTreePage from "@/pages/skill-tree";
 import BackupPage from "@/pages/backup";
 import SettingsPage from "@/pages/settings";
 import ProfilePage from "@/pages/profile";
+import MessagesPage from "@/pages/messages";
 import LoginPage from "@/pages/login";
 import PrivacyPolicy from "@/pages/privacy";
 import TermsOfService from "@/pages/terms";
@@ -58,6 +60,7 @@ function Router() {
       <Route path="/community/:id" component={CommunityPostPage} />
       <Route path="/skill-tree" component={SkillTreePage} />
       <Route path="/profile/:userId" component={ProfilePage} />
+      <Route path="/messages" component={MessagesPage} />
       <Route path="/backup" component={BackupPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
@@ -120,7 +123,7 @@ function MobileBottomNav() {
 
 
 const ROUTE_STORAGE_KEY = "axtask_last_route";
-const VALID_ROUTES = ["/", "/tasks", "/calendar", "/analytics", "/import-export", "/google-sheets", "/checklist", "/planner", "/admin", "/rewards", "/community", "/skill-tree", "/backup", "/settings"];
+const VALID_ROUTES = ["/", "/tasks", "/calendar", "/analytics", "/import-export", "/google-sheets", "/checklist", "/planner", "/admin", "/rewards", "/community", "/skill-tree", "/messages", "/backup", "/settings"];
 
 function useRoutePersistence() {
   const [location, setLocation] = useLocation();
@@ -149,6 +152,30 @@ function useRoutePersistence() {
   }, [location]);
 }
 
+function useUnreadMessagePolling() {
+  const { user } = useAuth();
+  const [location] = useLocation();
+  const prevCountRef = useRef(0);
+  const { toast } = useToast();
+
+  const { data } = useQuery<{ count: number }>({
+    queryKey: ["/api/messages/unread-count"],
+    refetchInterval: 30000,
+    enabled: !!user,
+  });
+
+  useEffect(() => {
+    const count = data?.count ?? 0;
+    if (count > prevCountRef.current && prevCountRef.current >= 0 && !location.startsWith("/messages")) {
+      toast({
+        title: "New message",
+        description: `You have ${count} unread message${count !== 1 ? "s" : ""}`,
+      });
+    }
+    prevCountRef.current = count;
+  }, [data?.count, location, toast]);
+}
+
 function AuthenticatedApp() {
   const { user, loading } = useAuth();
   const { zoom } = useZoom();
@@ -158,6 +185,7 @@ function AuthenticatedApp() {
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
 
   useRoutePersistence();
+  useUnreadMessagePolling();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
