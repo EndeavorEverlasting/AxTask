@@ -39,7 +39,9 @@ import {
   createForumPost, getForumPosts, getForumPostById, getForumTags, deleteForumPost, updateForumPost, searchUsers,
   createForumComment, getForumComments, updateForumComment, deleteForumComment,
   castForumVote, getUserForumVotes, hasUpvoteRewardBeenGiven, recordUpvoteReward,
-  createForumReport, getForumReports, updateForumReportStatus, toggleForumReaction,
+  createForumReport, getForumReports, getForumReportsEnriched, updateForumReportStatus, toggleForumReaction,
+  createModerationLog, getModerationLog,
+  createNotification, getNotifications, markNotificationRead, markAllNotificationsRead, getUnreadNotificationCount,
   getUserById,
   getSkillUnlocks, unlockSkillNode,
   getCompletedTaskCount,
@@ -3091,7 +3093,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
       const status = typeof req.query.status === "string" ? req.query.status : undefined;
-      const reports = await getForumReports(status);
+      const targetType = typeof req.query.targetType === "string" ? req.query.targetType : undefined;
+      const reports = await getForumReportsEnriched(status, targetType);
       res.json(reports);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch reports" });
@@ -3101,12 +3104,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/forum/admin/posts/:id", requireAuth, async (req, res) => {
     try {
       if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
-      const { pinned, hidden } = req.body;
+      const { pinned, hidden, note } = req.body;
       const updates: { pinned?: boolean; hidden?: boolean } = {};
       if (typeof pinned === "boolean") updates.pinned = pinned;
       if (typeof hidden === "boolean") updates.hidden = hidden;
       const post = await updateForumPost(req.params.id, updates);
       if (!post) return res.status(404).json({ message: "Post not found" });
+      if (hidden === true) {
+        await createModerationLog({
+          moderatorId: req.user!.id,
+          action: "hide_post",
+          targetType: "post",
+          targetId: req.params.id,
+          note: note || undefined,
+        });
+        await createNotification(
+          post.userId,
+          "content_hidden",
+          `Your forum post "${post.title.slice(0, 60)}" has been hidden for review by a moderator.`
+        );
+      }
       res.json(post);
     } catch (error) {
       res.status(500).json({ message: "Failed to update post" });
@@ -3116,7 +3133,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/forum/admin/posts/:id", requireAuth, async (req, res) => {
     try {
       if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      const post = await getForumPostById(req.params.id);
       await deleteForumPost(req.params.id);
+      await createModerationLog({
+        moderatorId: req.user!.id,
+        action: "delete_post",
+        targetType: "post",
+        targetId: req.params.id,
+        note: req.body?.note || undefined,
+      });
+      if (post) {
+        await createNotification(
+          post.userId,
+          "content_deleted",
+          `Your forum post "${post.title.slice(0, 60)}" has been removed by a moderator.`
+        );
+      }
       res.json({ message: "Post deleted" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete post" });
@@ -3126,9 +3158,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/forum/admin/comments/:id", requireAuth, async (req, res) => {
     try {
       if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
-      const { hidden } = req.body;
+      const { hidden, note } = req.body;
       const comment = await updateForumComment(req.params.id, { hidden: !!hidden });
       if (!comment) return res.status(404).json({ message: "Comment not found" });
+      if (hidden === true) {
+        await createModerationLog({
+          moderatorId: req.user!.id,
+          action: "hide_comment",
+          targetType: "comment",
+          targetId: req.params.id,
+          note: note || undefined,
+        });
+        await createNotification(
+          comment.userId,
+          "content_hidden",
+          `Your forum comment has been hidden for review by a moderator.`
+        );
+      }
       res.json(comment);
     } catch (error) {
       res.status(500).json({ message: "Failed to update comment" });
@@ -3138,6 +3184,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/forum/admin/comments/:id", requireAuth, async (req, res) => {
     try {
       if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      await createModerationLog({
+        moderatorId: req.user!.id,
+        action: "delete_comment",
+        targetType: "comment",
+        targetId: req.params.id,
+      });
       await deleteForumComment(req.params.id);
       res.json({ message: "Comment deleted" });
     } catch (error) {
@@ -3148,12 +3200,119 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/forum/admin/reports/:id", requireAuth, async (req, res) => {
     try {
       if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
-      const { status } = req.body;
+      const { status, note } = req.body;
       if (!["resolved", "dismissed"].includes(status)) return res.status(400).json({ message: "Invalid status" });
-      await updateForumReportStatus(req.params.id, status);
+      await updateForumReportStatus(req.params.id, status, note || undefined);
+      await createModerationLog({
+        moderatorId: req.user!.id,
+        action: status === "resolved" ? "resolve_report" : "dismiss_report",
+        targetType: "report",
+        targetId: req.params.id,
+        note: note || undefined,
+      });
       res.json({ message: "Report updated" });
     } catch (error) {
       res.status(500).json({ message: "Failed to update report" });
+    }
+  });
+
+  app.post("/api/forum/admin/reports/bulk", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      const { ids, action } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ message: "ids array required" });
+      if (!["dismiss", "resolve"].includes(action)) return res.status(400).json({ message: "Invalid action" });
+      const status = action === "dismiss" ? "dismissed" : "resolved";
+      for (const id of ids) {
+        await updateForumReportStatus(id, status);
+        await createModerationLog({
+          moderatorId: req.user!.id,
+          action: `${action}_report`,
+          targetType: "report",
+          targetId: id,
+        });
+      }
+      res.json({ message: `${ids.length} report(s) ${status}` });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to bulk update reports" });
+    }
+  });
+
+  app.post("/api/forum/admin/bulk-hide", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      const { reportIds } = req.body;
+      if (!Array.isArray(reportIds) || reportIds.length === 0) return res.status(400).json({ message: "reportIds array required" });
+      const reports = await getForumReportsEnriched(undefined, undefined);
+      const selected = reports.filter(r => reportIds.includes(r.id));
+      for (const report of selected) {
+        if (report.postId) {
+          const post = await getForumPostById(report.postId);
+          if (post) {
+            await updateForumPost(report.postId, { hidden: true });
+            await createModerationLog({ moderatorId: req.user!.id, action: "hide_post", targetType: "post", targetId: report.postId });
+            await createNotification(post.userId, "content_hidden", `Your forum post "${post.title.slice(0, 60)}" has been hidden for review by a moderator.`);
+          }
+        } else if (report.commentId) {
+          const comment = await updateForumComment(report.commentId, { hidden: true });
+          if (comment) {
+            await createModerationLog({ moderatorId: req.user!.id, action: "hide_comment", targetType: "comment", targetId: report.commentId });
+            await createNotification(comment.userId, "content_hidden", `Your forum comment has been hidden for review by a moderator.`);
+          }
+        }
+        await updateForumReportStatus(report.id, "resolved");
+      }
+      res.json({ message: `${selected.length} item(s) hidden` });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to bulk hide" });
+    }
+  });
+
+  app.get("/api/admin/mod-log", requireAuth, async (req, res) => {
+    try {
+      if (req.user!.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      const limit = parseInt(typeof req.query.limit === "string" ? req.query.limit : "50") || 50;
+      const offset = parseInt(typeof req.query.offset === "string" ? req.query.offset : "0") || 0;
+      const entries = await getModerationLog(limit, offset);
+      res.json(entries);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch mod log" });
+    }
+  });
+
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    try {
+      const notifs = await getNotifications(req.user!.id);
+      res.json(notifs);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch notifications" });
+    }
+  });
+
+  app.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
+    try {
+      const count = await getUnreadNotificationCount(req.user!.id);
+      res.json({ count });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch unread count" });
+    }
+  });
+
+  app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    try {
+      await markNotificationRead(req.params.id, req.user!.id);
+      res.json({ message: "Marked as read" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to mark notification as read" });
+    }
+  });
+
+  app.post("/api/notifications/mark-all-read", requireAuth, async (req, res) => {
+    try {
+      await markAllNotificationsRead(req.user!.id);
+      res.json({ message: "All marked as read" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to mark all as read" });
     }
   });
 

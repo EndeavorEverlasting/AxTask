@@ -1,7 +1,7 @@
-import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, forumPosts, forumComments, forumVotes, forumUpvoteRewards, forumReports, skillUnlocks, userFollowers, conversations, conversationParticipants, directMessages, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger, type ForumPost, type InsertForumPost, type ForumComment, type InsertForumComment, type ForumVote, type ForumReport, type SkillUnlock, type UserFollower, type Conversation, type DirectMessage } from "@shared/schema";
+import { tasks, users, passwordResetTokens, securityLogs, wallets, coinTransactions, userBadges, rewardsCatalog, userRewards, taskCollaborators, taskPatterns, classificationContributions, classificationConfirmations, importHistory, surveys, surveyResponses, feedbackClassifications, classificationDisputes, classificationDisputeVotes, categoryReviewTriggers, forumPosts, forumComments, forumVotes, forumUpvoteRewards, forumReports, skillUnlocks, userFollowers, conversations, conversationParticipants, directMessages, moderationLog, notifications, type Task, type InsertTask, type UpdateTask, type User, type SafeUser, type SecurityLog, type Wallet, type CoinTransaction, type UserBadge, type RewardItem, type TaskCollaborator, type TaskPattern, type InsertTaskPattern, type ClassificationContribution, type ClassificationConfirmation, type ImportHistory, type Survey, type SurveyResponse, type FeedbackClassification, type ClassificationDispute, type DisputeVote, type CategoryReviewTrigger, type ForumPost, type InsertForumPost, type ForumComment, type InsertForumComment, type ForumVote, type ForumReport, type SkillUnlock, type UserFollower, type Conversation, type DirectMessage, type ModerationLogEntry, type Notification } from "@shared/schema";
 import { computeContentHash } from "./fingerprint";
 import { db } from "./db";
-import { eq, and, ilike, or, asc, lt, count, avg, sql, desc } from "drizzle-orm";
+import { eq, and, ilike, or, asc, lt, count, avg, sql, desc, inArray, gt } from "drizzle-orm";
 import { randomUUID, randomBytes, createHash, createCipheriv, createDecipheriv } from "crypto";
 import bcrypt from "bcrypt";
 
@@ -2216,7 +2216,9 @@ export async function getUserForumVotes(userId: string, postId: string): Promise
   );
 }
 
-export async function createForumReport(reporterId: string, opts: { postId?: string; commentId?: string; reason: string }): Promise<void> {
+const AUTO_HIDE_THRESHOLD = 3;
+
+export async function createForumReport(reporterId: string, opts: { postId?: string; commentId?: string; reason: string }): Promise<{ autoHidden: boolean }> {
   await db.insert(forumReports).values({
     id: randomUUID(),
     reporterId,
@@ -2224,6 +2226,47 @@ export async function createForumReport(reporterId: string, opts: { postId?: str
     commentId: opts.commentId || null,
     reason: opts.reason,
   });
+
+  // Count total reports for this target and auto-hide if threshold reached
+  let reportCount = 0;
+  if (opts.postId) {
+    const [row] = await db.select({ c: count() }).from(forumReports).where(eq(forumReports.postId, opts.postId));
+    reportCount = Number(row?.c ?? 0);
+    if (reportCount >= AUTO_HIDE_THRESHOLD) {
+      const [post] = await db.select({ hidden: forumPosts.hidden }).from(forumPosts).where(eq(forumPosts.id, opts.postId));
+      if (post && !post.hidden) {
+        await db.update(forumPosts).set({ hidden: true, autoHidden: true, updatedAt: new Date() }).where(eq(forumPosts.id, opts.postId));
+        await db.insert(moderationLog).values({
+          id: randomUUID(),
+          moderatorId: null,
+          action: "auto_hide_post",
+          targetType: "post",
+          targetId: opts.postId,
+          note: `Auto-hidden after ${reportCount} reports`,
+        });
+        return { autoHidden: true };
+      }
+    }
+  } else if (opts.commentId) {
+    const [row] = await db.select({ c: count() }).from(forumReports).where(eq(forumReports.commentId, opts.commentId));
+    reportCount = Number(row?.c ?? 0);
+    if (reportCount >= AUTO_HIDE_THRESHOLD) {
+      const [comment] = await db.select({ hidden: forumComments.hidden }).from(forumComments).where(eq(forumComments.id, opts.commentId));
+      if (comment && !comment.hidden) {
+        await db.update(forumComments).set({ hidden: true, autoHidden: true }).where(eq(forumComments.id, opts.commentId));
+        await db.insert(moderationLog).values({
+          id: randomUUID(),
+          moderatorId: null,
+          action: "auto_hide_comment",
+          targetType: "comment",
+          targetId: opts.commentId,
+          note: `Auto-hidden after ${reportCount} reports`,
+        });
+        return { autoHidden: true };
+      }
+    }
+  }
+  return { autoHidden: false };
 }
 
 export async function getForumReports(status?: string): Promise<ForumReport[]> {
@@ -2231,8 +2274,151 @@ export async function getForumReports(status?: string): Promise<ForumReport[]> {
   return db.select().from(forumReports).where(conditions.length > 0 ? and(...conditions) : undefined).orderBy(desc(forumReports.createdAt));
 }
 
-export async function updateForumReportStatus(id: string, status: string): Promise<void> {
-  await db.update(forumReports).set({ status }).where(eq(forumReports.id, id));
+export type EnrichedForumReport = ForumReport & {
+  reporterName: string;
+  contentBody: string;
+  contentTitle: string | null;
+  contentAuthorId: string | null;
+  contentAuthorName: string;
+};
+
+export async function getForumReportsEnriched(status?: string, targetType?: string): Promise<EnrichedForumReport[]> {
+  let conditions: any[] = [];
+  if (status) conditions.push(eq(forumReports.status, status));
+  if (targetType === "post") conditions.push(sql`${forumReports.postId} IS NOT NULL`);
+  if (targetType === "comment") conditions.push(sql`${forumReports.commentId} IS NOT NULL`);
+
+  const reports = await db
+    .select()
+    .from(forumReports)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(forumReports.createdAt));
+
+  if (reports.length === 0) return [];
+
+  const reporterIds = [...new Set(reports.map(r => r.reporterId))];
+  const postIds = reports.filter(r => r.postId).map(r => r.postId!);
+  const commentIds = reports.filter(r => r.commentId).map(r => r.commentId!);
+
+  const [allPosts, allComments] = await Promise.all([
+    postIds.length > 0
+      ? db.select({ id: forumPosts.id, title: forumPosts.title, body: forumPosts.body, userId: forumPosts.userId }).from(forumPosts).where(inArray(forumPosts.id, postIds))
+      : [],
+    commentIds.length > 0
+      ? db.select({ id: forumComments.id, body: forumComments.body, userId: forumComments.userId }).from(forumComments).where(inArray(forumComments.id, commentIds))
+      : [],
+  ]);
+
+  const contentAuthorIds = [...new Set([...allPosts.map(p => p.userId), ...allComments.map(c => c.userId)])];
+  const allUserIds = [...new Set([...reporterIds, ...contentAuthorIds])];
+  const allUsers = allUserIds.length > 0
+    ? await db.select({ id: users.id, displayName: users.displayName, email: users.email }).from(users).where(inArray(users.id, allUserIds))
+    : [];
+
+  const userMap = new Map(allUsers.map(u => [u.id, u]));
+  const postMap = new Map(allPosts.map(p => [p.id, p]));
+  const commentMap = new Map(allComments.map(c => [c.id, c]));
+
+  return reports.map(r => {
+    const reporter = userMap.get(r.reporterId);
+    const post = r.postId ? postMap.get(r.postId) : undefined;
+    const comment = r.commentId ? commentMap.get(r.commentId) : undefined;
+    const contentUserId = post?.userId ?? comment?.userId ?? null;
+    const contentAuthor = contentUserId ? userMap.get(contentUserId) : undefined;
+    return {
+      ...r,
+      reporterName: reporter?.displayName ?? reporter?.email ?? "Unknown",
+      contentBody: post?.body ?? comment?.body ?? "[Deleted]",
+      contentTitle: post?.title ?? null,
+      contentAuthorId: contentUserId,
+      contentAuthorName: contentAuthor?.displayName ?? contentAuthor?.email ?? "Unknown",
+    };
+  });
+}
+
+export async function updateForumReportStatus(id: string, status: string, note?: string): Promise<void> {
+  const updates: Record<string, unknown> = { status };
+  if (note !== undefined) updates.note = note;
+  await db.update(forumReports).set(updates).where(eq(forumReports.id, id));
+}
+
+// ─── Moderation Log ──────────────────────────────────────────────────────────
+
+export async function createModerationLog(opts: {
+  moderatorId: string | null;
+  action: string;
+  targetType: string;
+  targetId: string;
+  note?: string;
+}): Promise<void> {
+  await db.insert(moderationLog).values({
+    id: randomUUID(),
+    moderatorId: opts.moderatorId,
+    action: opts.action,
+    targetType: opts.targetType,
+    targetId: opts.targetId,
+    note: opts.note ?? null,
+  });
+}
+
+export type EnrichedModLogEntry = ModerationLogEntry & { moderatorName: string };
+
+export async function getModerationLog(limit = 50, offset = 0): Promise<EnrichedModLogEntry[]> {
+  const entries = await db
+    .select()
+    .from(moderationLog)
+    .orderBy(desc(moderationLog.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  if (entries.length === 0) return [];
+
+  const modIds = [...new Set(entries.filter(e => e.moderatorId).map(e => e.moderatorId!))];
+  const mods = modIds.length > 0
+    ? await db.select({ id: users.id, displayName: users.displayName, email: users.email }).from(users).where(inArray(users.id, modIds))
+    : [];
+  const modMap = new Map(mods.map(m => [m.id, m]));
+
+  return entries.map(e => {
+    const mod = e.moderatorId ? modMap.get(e.moderatorId) : undefined;
+    return {
+      ...e,
+      moderatorName: mod?.displayName ?? mod?.email ?? "System",
+    };
+  });
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+export async function createNotification(userId: string, type: string, message: string): Promise<void> {
+  await db.insert(notifications).values({
+    id: randomUUID(),
+    userId,
+    type,
+    message,
+  });
+}
+
+export async function getNotifications(userId: string): Promise<Notification[]> {
+  return db
+    .select()
+    .from(notifications)
+    .where(eq(notifications.userId, userId))
+    .orderBy(desc(notifications.createdAt))
+    .limit(50);
+}
+
+export async function markNotificationRead(id: string, userId: string): Promise<void> {
+  await db.update(notifications).set({ read: true }).where(and(eq(notifications.id, id), eq(notifications.userId, userId)));
+}
+
+export async function markAllNotificationsRead(userId: string): Promise<void> {
+  await db.update(notifications).set({ read: true }).where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
+}
+
+export async function getUnreadNotificationCount(userId: string): Promise<number> {
+  const [row] = await db.select({ c: count() }).from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
+  return Number(row?.c ?? 0);
 }
 
 const VALID_REACTIONS = ["thumbsUp", "heart", "party", "laugh", "fire"];

@@ -486,6 +486,7 @@ export const forumPosts = pgTable("forum_posts", {
   commentCount: integer("comment_count").notNull().default(0),
   pinned: boolean("pinned").notNull().default(false),
   hidden: boolean("hidden").notNull().default(false),
+  autoHidden: boolean("auto_hidden").notNull().default(false),
   reactions: jsonb("reactions").default({}),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -504,6 +505,7 @@ export const insertForumPostSchema = createInsertSchema(forumPosts).omit({
   commentCount: true,
   pinned: true,
   hidden: true,
+  autoHidden: true,
   reactions: true,
   createdAt: true,
   updatedAt: true,
@@ -527,6 +529,7 @@ export const forumComments = pgTable("forum_comments", {
   upvotes: integer("upvotes").notNull().default(0),
   downvotes: integer("downvotes").notNull().default(0),
   hidden: boolean("hidden").notNull().default(false),
+  autoHidden: boolean("auto_hidden").notNull().default(false),
   reactions: jsonb("reactions").default({}),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
@@ -540,6 +543,7 @@ export const insertForumCommentSchema = createInsertSchema(forumComments).omit({
   upvotes: true,
   downvotes: true,
   hidden: true,
+  autoHidden: true,
   createdAt: true,
 }).extend({
   postId: z.string().min(1),
@@ -590,6 +594,7 @@ export const forumReports = pgTable("forum_reports", {
   commentId: varchar("comment_id").references(() => forumComments.id, { onDelete: "cascade" }),
   reason: text("reason").notNull(),
   status: text("status").notNull().default("pending"),
+  note: text("note"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_forum_reports_status").on(table.status),
@@ -680,3 +685,35 @@ export const insertSkillUnlockSchema = createInsertSchema(skillUnlocks).omit({
   unlockedAt: true,
 });
 export type InsertSkillUnlock = z.infer<typeof insertSkillUnlockSchema>;
+
+// ─── Moderation Log ──────────────────────────────────────────────────────────
+export const moderationLog = pgTable("moderation_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  moderatorId: varchar("moderator_id").references(() => users.id, { onDelete: "set null" }),
+  action: text("action").notNull(),
+  targetType: text("target_type").notNull(),
+  targetId: varchar("target_id").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_mod_log_moderator").on(table.moderatorId),
+  index("idx_mod_log_created").on(table.createdAt),
+  index("idx_mod_log_target").on(table.targetType, table.targetId),
+]);
+
+export type ModerationLogEntry = typeof moderationLog.$inferSelect;
+
+// ─── In-App Notifications ────────────────────────────────────────────────────
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  message: text("message").notNull(),
+  read: boolean("read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_notifications_user").on(table.userId),
+  index("idx_notifications_user_read").on(table.userId, table.read),
+]);
+
+export type Notification = typeof notifications.$inferSelect;

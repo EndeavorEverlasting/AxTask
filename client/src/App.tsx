@@ -36,6 +36,7 @@ import BackupPage from "@/pages/backup";
 import SettingsPage from "@/pages/settings";
 import ProfilePage from "@/pages/profile";
 import MessagesPage from "@/pages/messages";
+import NotificationsPage from "@/pages/notifications";
 import LoginPage from "@/pages/login";
 import PrivacyPolicy from "@/pages/privacy";
 import TermsOfService from "@/pages/terms";
@@ -61,6 +62,7 @@ function Router() {
       <Route path="/skill-tree" component={SkillTreePage} />
       <Route path="/profile/:userId" component={ProfilePage} />
       <Route path="/messages" component={MessagesPage} />
+      <Route path="/notifications" component={NotificationsPage} />
       <Route path="/backup" component={BackupPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />

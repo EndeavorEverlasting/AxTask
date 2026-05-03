@@ -29,6 +29,7 @@ import {
   Users,
   ShoppingBag,
   MessageSquare,
+  Bell,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -45,6 +46,7 @@ const CORE_MENU_ITEMS = [
   { path: "/tasks", icon: List, label: "Tasks" },
   { path: "/planner", icon: Brain, label: "AI Planner", hasBadge: true },
   { path: "/messages", icon: MessageSquare, label: "Messages", hasUnreadBadge: true },
+  { path: "/notifications", icon: Bell, label: "Notifications", hasNotifBadge: true },
   { path: "/skill-tree", icon: Network, label: "Skill Tree" },
   { path: "/backup", icon: DatabaseBackup, label: "Backup" },
   { path: "/settings", icon: Settings, label: "Settings" },
@@ -75,6 +77,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     enabled: !!user,
   });
   const unreadMessageCount = unreadMessages?.count ?? 0;
+
+  const { data: unreadNotifications } = useQuery<{ count: number }>({
+    queryKey: ["/api/notifications/unread-count"],
+    refetchInterval: 60000,
+    enabled: !!user,
+  });
+  const unreadNotifCount = unreadNotifications?.count ?? 0;
 
   const { data: briefing } = useQuery<{ overdue: { count: number }; dueWithinHour: { count: number } }>({
     queryKey: ["/api/planner/briefing"],
@@ -136,9 +145,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       <nav className="flex-1 p-4 overflow-y-auto">
         <ul className="space-y-1">
-          {CORE_MENU_ITEMS.map(({ path, icon: Icon, label, hasBadge, hasUnreadBadge }) => {
-            const badge = hasBadge ? overdueCount : hasUnreadBadge ? unreadMessageCount : 0;
-            const badgeColor = hasUnreadBadge ? "bg-blue-500" : "bg-red-500";
+          {CORE_MENU_ITEMS.map(({ path, icon: Icon, label, hasBadge, hasUnreadBadge, hasNotifBadge }: { path: string; icon: typeof LayoutDashboard; label: string; hasBadge?: boolean; hasUnreadBadge?: boolean; hasNotifBadge?: boolean }) => {
+            const badge = hasBadge ? overdueCount : hasUnreadBadge ? unreadMessageCount : hasNotifBadge ? unreadNotifCount : 0;
+            const badgeColor = hasUnreadBadge ? "bg-blue-500" : hasNotifBadge ? "bg-orange-500" : "bg-red-500";
             return (
               <li key={path}>
                 <Link href={path}>

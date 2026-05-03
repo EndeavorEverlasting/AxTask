@@ -3,12 +3,14 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
-import type { SafeUser, SecurityLog, ForumReport } from "@shared/schema";
+import type { SafeUser, SecurityLog } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +19,49 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Shield, ShieldOff, Users, ScrollText, AlertTriangle, Search, Download, Upload, Database, CheckCircle, XCircle, Loader2, Flag, Eye, Trash2 } from "lucide-react";
+import {
+  Shield, ShieldOff, Users, ScrollText, AlertTriangle, Search,
+  Download, Upload, Database, CheckCircle, XCircle, Loader2,
+  Flag, Eye, Trash2, EyeOff, FileText, Filter, ClipboardList,
+} from "lucide-react";
+
+type EnrichedReport = {
+  id: string;
+  reporterId: string;
+  postId: string | null;
+  commentId: string | null;
+  reason: string;
+  status: string;
+  note: string | null;
+  createdAt: string | null;
+  reporterName: string;
+  contentBody: string;
+  contentTitle: string | null;
+  contentAuthorId: string | null;
+  contentAuthorName: string;
+};
+
+type ModLogEntry = {
+  id: string;
+  moderatorId: string | null;
+  moderatorName: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  note: string | null;
+  createdAt: string | null;
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  hide_post: "Hidden post",
+  hide_comment: "Hidden comment",
+  delete_post: "Deleted post",
+  delete_comment: "Deleted comment",
+  resolve_report: "Resolved report",
+  dismiss_report: "Dismissed report",
+  auto_hide_post: "Auto-hidden post",
+  auto_hide_comment: "Auto-hidden comment",
+};
 
 export default function AdminPage() {
   const { user } = useAuth();
@@ -31,6 +75,17 @@ export default function AdminPage() {
   const [importMode, setImportMode] = useState<"preserve" | "remap">("preserve");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Reports tab state
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [selectedReports, setSelectedReports] = useState<Set<string>>(new Set());
+  const [actionDialog, setActionDialog] = useState<{ type: "resolve" | "dismiss"; ids: string[] } | null>(null);
+  const [actionNote, setActionNote] = useState("");
+
+  // Mod log
+  const [modLogOffset, setModLogOffset] = useState(0);
+  const MOD_LOG_LIMIT = 20;
+
   const { data: users = [], isLoading: usersLoading } = useQuery<SafeUser[]>({
     queryKey: ["/api/admin/users"],
     enabled: user?.role === "admin",
@@ -41,38 +96,84 @@ export default function AdminPage() {
     enabled: user?.role === "admin",
   });
 
-  const { data: reports = [], isLoading: reportsLoading } = useQuery<ForumReport[]>({
-    queryKey: ["/api/forum/reports"],
+  const reportsQuery = useQuery<EnrichedReport[]>({
+    queryKey: ["/api/forum/reports", statusFilter, typeFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (typeFilter !== "all") params.set("targetType", typeFilter);
+      const res = await apiRequest("GET", `/api/forum/reports?${params.toString()}`);
+      return res.json();
+    },
     enabled: user?.role === "admin",
   });
+  const reports = reportsQuery.data ?? [];
+
+  const modLogQuery = useQuery<ModLogEntry[]>({
+    queryKey: ["/api/admin/mod-log", modLogOffset],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/admin/mod-log?limit=${MOD_LOG_LIMIT}&offset=${modLogOffset}`);
+      return res.json();
+    },
+    enabled: user?.role === "admin",
+  });
+  const modLog = modLogQuery.data ?? [];
 
   const resolveReportMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
-      apiRequest("PATCH", `/api/forum/admin/reports/${id}`, { status }),
+    mutationFn: async ({ ids, status, note }: { ids: string[]; status: string; note?: string }) => {
+      if (ids.length === 1) {
+        await apiRequest("PATCH", `/api/forum/admin/reports/${ids[0]}`, { status, note });
+      } else {
+        await apiRequest("POST", "/api/forum/admin/reports/bulk", { ids, action: status === "dismissed" ? "dismiss" : "resolve" });
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
-      toast({ title: "Report updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/mod-log"] });
+      toast({ title: "Reports updated" });
+      setSelectedReports(new Set());
+      setActionDialog(null);
+      setActionNote("");
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to update report", description: err.message, variant: "destructive" });
+      toast({ title: "Failed to update reports", description: err.message, variant: "destructive" });
     },
   });
 
-  const deleteForumPostMutation = useMutation({
+  const hideContentMutation = useMutation({
+    mutationFn: async ({ type, id, note }: { type: "posts" | "comments"; id: string; note?: string }) =>
+      apiRequest("PATCH", `/api/forum/admin/${type}/${id}`, { hidden: true, note }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/mod-log"] });
+      toast({ title: "Content hidden" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to hide content", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deletePostMutation = useMutation({
     mutationFn: (postId: string) => apiRequest("DELETE", `/api/forum/admin/posts/${postId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
       queryClient.invalidateQueries({ queryKey: ["/api/forum/posts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/mod-log"] });
       toast({ title: "Post deleted" });
     },
   });
 
-  const hideForumContentMutation = useMutation({
-    mutationFn: ({ type, id }: { type: "posts" | "comments"; id: string }) =>
-      apiRequest("PATCH", `/api/forum/admin/${type}/${id}`, { hidden: true }),
+  const bulkHideMutation = useMutation({
+    mutationFn: (reportIds: string[]) =>
+      apiRequest("POST", "/api/forum/admin/bulk-hide", { reportIds }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/forum/reports"] });
-      toast({ title: "Content hidden" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/mod-log"] });
+      toast({ title: "Selected items hidden" });
+      setSelectedReports(new Set());
+    },
+    onError: (err: Error) => {
+      toast({ title: "Bulk hide failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -191,6 +292,25 @@ export default function AdminPage() {
   );
 
   const bannedCount = users.filter((u) => u.isBanned).length;
+  const pendingCount = reports.filter((r) => r.status === "pending").length;
+  const selectedArr = Array.from(selectedReports);
+
+  function toggleSelect(id: string) {
+    setSelectedReports(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    const pending = reports.filter(r => r.status === "pending").map(r => r.id);
+    setSelectedReports(new Set(pending));
+  }
+
+  function clearSelection() {
+    setSelectedReports(new Set());
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
@@ -225,10 +345,10 @@ export default function AdminPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
-              <ScrollText className="h-5 w-5 text-green-500" />
+              <Flag className="h-5 w-5 text-orange-500" />
               <div>
-                <p className="text-2xl font-bold dark:text-white">{logs.length}</p>
-                <p className="text-sm text-muted-foreground">Security Events</p>
+                <p className="text-2xl font-bold dark:text-white">{pendingCount}</p>
+                <p className="text-sm text-muted-foreground">Pending Reports</p>
               </div>
             </div>
           </CardContent>
@@ -236,13 +356,22 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="users">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="users">User Management</TabsTrigger>
           <TabsTrigger value="logs">Security Logs</TabsTrigger>
-          <TabsTrigger value="reports">Forum Reports</TabsTrigger>
+          <TabsTrigger value="reports">
+            Forum Reports
+            {pendingCount > 0 && (
+              <span className="ml-1.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                {pendingCount}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="modlog">Mod Log</TabsTrigger>
           <TabsTrigger value="migration">Data Migration</TabsTrigger>
         </TabsList>
 
+        {/* ── Users Tab ─────────────────────────────────────────────── */}
         <TabsContent value="users" className="space-y-4">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -317,6 +446,7 @@ export default function AdminPage() {
           )}
         </TabsContent>
 
+        {/* ── Security Logs Tab ─────────────────────────────────────── */}
         <TabsContent value="logs" className="space-y-4">
           {logsLoading ? (
             <p className="text-muted-foreground">Loading security logs...</p>
@@ -354,82 +484,269 @@ export default function AdminPage() {
           )}
         </TabsContent>
 
+        {/* ── Forum Reports Tab ─────────────────────────────────────── */}
         <TabsContent value="reports" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Flag className="h-5 w-5 text-orange-500" />
-                Forum Reports
-                {reports.filter(r => r.status === "pending").length > 0 && (
-                  <Badge variant="destructive" className="ml-2">{reports.filter(r => r.status === "pending").length} pending</Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {reportsLoading ? (
-                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
-              ) : reports.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">No reports yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {reports.map((report) => (
-                    <div key={report.id} className="flex items-start justify-between gap-4 p-3 border rounded-lg bg-gray-50 dark:bg-gray-900">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Badge variant={report.status === "pending" ? "destructive" : report.status === "resolved" ? "default" : "secondary"}>
-                            {report.status}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            {report.postId ? `Post: ${report.postId.slice(0, 8)}...` : ""}
-                            {report.commentId ? `Comment: ${report.commentId.slice(0, 8)}...` : ""}
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium dark:text-white">Status:</span>
+            {["all", "pending", "resolved", "dismissed"].map(s => (
+              <Button
+                key={s}
+                size="sm"
+                variant={statusFilter === s ? "default" : "outline"}
+                className="h-7 text-xs capitalize"
+                onClick={() => { setStatusFilter(s); setSelectedReports(new Set()); }}
+              >
+                {s}
+              </Button>
+            ))}
+            <span className="text-sm font-medium dark:text-white ml-2">Type:</span>
+            {[["all", "All"], ["post", "Posts"], ["comment", "Comments"]].map(([val, label]) => (
+              <Button
+                key={val}
+                size="sm"
+                variant={typeFilter === val ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => { setTypeFilter(val); setSelectedReports(new Set()); }}
+              >
+                {label}
+              </Button>
+            ))}
+            {reports.some(r => r.status === "pending") && (
+              <Button size="sm" variant="ghost" className="h-7 text-xs ml-auto" onClick={selectAll}>
+                Select all pending
+              </Button>
+            )}
+          </div>
+
+          {/* Bulk action bar */}
+          {selectedArr.length > 0 && (
+            <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <span className="text-sm font-medium dark:text-blue-200">{selectedArr.length} selected</span>
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setActionDialog({ type: "dismiss", ids: selectedArr })}
+              >
+                Dismiss selected
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => bulkHideMutation.mutate(selectedArr)}
+                disabled={bulkHideMutation.isPending}
+              >
+                {bulkHideMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <EyeOff className="h-3 w-3 mr-1" />}
+                Hide all content
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs ml-auto" onClick={clearSelection}>
+                Clear
+              </Button>
+            </div>
+          )}
+
+          {reportsQuery.isLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
+          ) : reports.length === 0 ? (
+            <p className="text-muted-foreground text-center py-8">No reports found.</p>
+          ) : (
+            <div className="space-y-3">
+              {reports.map((report) => (
+                <div
+                  key={report.id}
+                  className={`p-4 border rounded-lg transition-colors ${
+                    selectedReports.has(report.id)
+                      ? "border-blue-400 bg-blue-50 dark:bg-blue-950/20"
+                      : "bg-card border-border"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    {report.status === "pending" && (
+                      <Checkbox
+                        checked={selectedReports.has(report.id)}
+                        onCheckedChange={() => toggleSelect(report.id)}
+                        className="mt-0.5 shrink-0"
+                      />
+                    )}
+                    <div className="flex-1 min-w-0 space-y-2">
+                      {/* Header row */}
+                      <div className="flex items-center flex-wrap gap-2">
+                        <Badge variant={report.status === "pending" ? "destructive" : report.status === "resolved" ? "default" : "secondary"}>
+                          {report.status}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {report.postId ? "Post" : "Comment"}
+                        </Badge>
+                        {report.contentTitle && (
+                          <span className="text-sm font-medium dark:text-white truncate max-w-xs">
+                            "{report.contentTitle}"
                           </span>
-                          <span className="text-xs text-muted-foreground">
-                            {report.createdAt ? new Date(report.createdAt).toLocaleDateString() : ""}
-                          </span>
-                        </div>
-                        <p className="text-sm">{report.reason}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Reporter: {report.reporterId.slice(0, 8)}...</p>
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        {report.status === "pending" && (
-                          <>
-                            {report.postId && (
-                              <>
-                                <Button variant="outline" size="sm" className="h-7 text-xs gap-1"
-                                  onClick={() => hideForumContentMutation.mutate({ type: "posts", id: report.postId! })}>
-                                  <Eye className="h-3 w-3" /> Hide
-                                </Button>
-                                <Button variant="destructive" size="sm" className="h-7 text-xs gap-1"
-                                  onClick={() => deleteForumPostMutation.mutate(report.postId!)}>
-                                  <Trash2 className="h-3 w-3" /> Delete
-                                </Button>
-                              </>
-                            )}
-                            {report.commentId && (
-                              <Button variant="outline" size="sm" className="h-7 text-xs gap-1"
-                                onClick={() => hideForumContentMutation.mutate({ type: "comments", id: report.commentId! })}>
-                                <Eye className="h-3 w-3" /> Hide
-                              </Button>
-                            )}
-                            <Button variant="default" size="sm" className="h-7 text-xs"
-                              onClick={() => resolveReportMutation.mutate({ id: report.id, status: "resolved" })}>
-                              Resolve
-                            </Button>
-                            <Button variant="secondary" size="sm" className="h-7 text-xs"
-                              onClick={() => resolveReportMutation.mutate({ id: report.id, status: "dismissed" })}>
-                              Dismiss
-                            </Button>
-                          </>
                         )}
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          {report.createdAt ? new Date(report.createdAt).toLocaleString() : ""}
+                        </span>
                       </div>
+
+                      {/* Content preview */}
+                      <div className="bg-muted/50 dark:bg-gray-800/60 rounded-md p-2.5 text-sm">
+                        <p className="text-muted-foreground line-clamp-3">{report.contentBody}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Author: <span className="font-medium dark:text-gray-300">{report.contentAuthorName}</span>
+                        </p>
+                      </div>
+
+                      {/* Report info */}
+                      <div className="flex items-start gap-1 text-sm">
+                        <Flag className="h-3.5 w-3.5 text-orange-500 mt-0.5 shrink-0" />
+                        <span className="text-muted-foreground">
+                          <span className="font-medium dark:text-gray-300">{report.reporterName}</span> reported:{" "}
+                          <span className="italic">{report.reason}</span>
+                        </span>
+                      </div>
+
+                      {report.note && (
+                        <div className="flex items-start gap-1 text-xs text-muted-foreground bg-muted/30 rounded px-2 py-1">
+                          <ClipboardList className="h-3 w-3 mt-0.5 shrink-0" />
+                          Mod note: {report.note}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  </div>
+
+                  {/* Action buttons */}
+                  {report.status === "pending" && (
+                    <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-border">
+                      {report.postId && (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1"
+                            disabled={hideContentMutation.isPending}
+                            onClick={() => hideContentMutation.mutate({ type: "posts", id: report.postId! })}
+                          >
+                            <EyeOff className="h-3 w-3" /> Hide post
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-7 text-xs gap-1"
+                            disabled={deletePostMutation.isPending}
+                            onClick={() => {
+                              if (confirm("Delete this post permanently?")) {
+                                deletePostMutation.mutate(report.postId!);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" /> Delete post
+                          </Button>
+                        </>
+                      )}
+                      {report.commentId && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1"
+                          disabled={hideContentMutation.isPending}
+                          onClick={() => hideContentMutation.mutate({ type: "comments", id: report.commentId! })}
+                        >
+                          <EyeOff className="h-3 w-3" /> Hide comment
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setActionDialog({ type: "resolve", ids: [report.id] })}
+                      >
+                        <CheckCircle className="h-3 w-3 mr-1" /> Resolve
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setActionDialog({ type: "dismiss", ids: [report.id] })}
+                      >
+                        <XCircle className="h-3 w-3 mr-1" /> Dismiss
+                      </Button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
 
+        {/* ── Mod Log Tab ───────────────────────────────────────────── */}
+        <TabsContent value="modlog" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-primary" />
+              <h2 className="text-lg font-semibold dark:text-white">Moderation Audit Log</h2>
+            </div>
+          </div>
+
+          {modLogQuery.isLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
+          ) : modLog.length === 0 && modLogOffset === 0 ? (
+            <p className="text-center text-muted-foreground py-8">No moderation actions recorded yet.</p>
+          ) : (
+            <>
+              <div className="space-y-1">
+                {modLog.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="flex items-start gap-3 py-2.5 px-3 rounded-md hover:bg-muted/40 text-sm border-b border-border/40 last:border-0"
+                  >
+                    <Badge
+                      variant={
+                        entry.action.includes("delete") ? "destructive" :
+                        entry.action.includes("hide") ? "secondary" :
+                        "default"
+                      }
+                      className="text-xs shrink-0 mt-0.5"
+                    >
+                      {ACTION_LABELS[entry.action] ?? entry.action}
+                    </Badge>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-muted-foreground text-xs">
+                        By <span className="font-medium dark:text-gray-300">{entry.moderatorName}</span>
+                        {" · "}{entry.targetType} <span className="font-mono">{entry.targetId.slice(0, 8)}…</span>
+                      </p>
+                      {entry.note && (
+                        <p className="text-xs text-muted-foreground mt-0.5 italic">Note: {entry.note}</p>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {entry.createdAt ? new Date(entry.createdAt).toLocaleString() : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 justify-center pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={modLogOffset === 0}
+                  onClick={() => setModLogOffset(Math.max(0, modLogOffset - MOD_LOG_LIMIT))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={modLog.length < MOD_LOG_LIMIT}
+                  onClick={() => setModLogOffset(modLogOffset + MOD_LOG_LIMIT)}
+                >
+                  Next
+                </Button>
+              </div>
+            </>
+          )}
+        </TabsContent>
+
+        {/* ── Data Migration Tab ────────────────────────────────────── */}
         <TabsContent value="migration" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card>
@@ -661,6 +978,7 @@ export default function AdminPage() {
         </TabsContent>
       </Tabs>
 
+      {/* Ban dialog */}
       <Dialog open={!!banTarget} onOpenChange={(open) => !open && setBanTarget(null)}>
         <DialogContent>
           <DialogHeader>
@@ -682,6 +1000,40 @@ export default function AdminPage() {
               onClick={() => banTarget && banMutation.mutate({ userId: banTarget.id, reason: banReason })}
             >
               Confirm Ban
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Resolve / Dismiss dialog */}
+      <Dialog open={!!actionDialog} onOpenChange={(open) => { if (!open) { setActionDialog(null); setActionNote(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="capitalize">{actionDialog?.type} {actionDialog?.ids.length === 1 ? "Report" : `${actionDialog?.ids.length} Reports`}</DialogTitle>
+            <DialogDescription>
+              Optionally add an internal note explaining the decision.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder="Internal note (optional)"
+            value={actionNote}
+            onChange={(e) => setActionNote(e.target.value)}
+            className="min-h-[80px]"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setActionDialog(null); setActionNote(""); }}>Cancel</Button>
+            <Button
+              disabled={resolveReportMutation.isPending}
+              onClick={() => {
+                if (!actionDialog) return;
+                resolveReportMutation.mutate({
+                  ids: actionDialog.ids,
+                  status: actionDialog.type === "resolve" ? "resolved" : "dismissed",
+                  note: actionNote || undefined,
+                });
+              }}
+            >
+              {resolveReportMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm"}
             </Button>
           </DialogFooter>
         </DialogContent>
