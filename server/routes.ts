@@ -43,7 +43,7 @@ import {
   getUserById,
   getSkillUnlocks, unlockSkillNode,
   getCompletedTaskCount,
-  followUser, unfollowUser, getUserPublicProfile,
+  followUser, unfollowUser, getUserPublicProfile, isFollowing, batchGetFollowing,
 } from "./storage";
 import { awardCoinsForCompletion, awardCoinsForSharing, awardCleanupBonus, getCleanupStats, getActiveSkillBonuses, getActiveSkillIds, maybeGrantMonthlyShield, BADGE_DEFINITIONS } from "./coin-engine";
 import { db } from "./db";
@@ -2929,13 +2929,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
       if (!q || q.length < 2) return res.json([]);
       const results = await searchUsers(q);
+      if (results.length === 0) return res.json([]);
       const requestingUserId = req.user!.id;
-      const { isFollowing } = await import("./storage");
-      const withFollow = await Promise.all(results.map(async (u) => ({
+      const followingSet = await batchGetFollowing(requestingUserId, results.map(u => u.id));
+      const withFollow = results.map(u => ({
         ...u,
-        isFollowing: await isFollowing(requestingUserId, u.id),
+        isFollowing: followingSet.has(u.id),
         isSelf: u.id === requestingUserId,
-      })));
+      }));
       res.json(withFollow);
     } catch (error) {
       res.status(500).json({ message: "Failed to search users" });

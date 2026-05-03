@@ -1967,6 +1967,7 @@ export async function searchUsers(query: string): Promise<Array<{
   displayName: string | null;
   profileImageUrl: string | null;
   followerCount: number;
+  skillTier: 0 | 1 | 2;
 }>> {
   if (!query || query.trim().length < 2) return [];
   const rows = await db
@@ -1976,11 +1977,45 @@ export async function searchUsers(query: string): Promise<Array<{
     .orderBy(asc(users.displayName))
     .limit(20);
 
-  const results = await Promise.all(rows.map(async (u) => {
-    const fc = await getFollowerCount(u.id);
-    return { id: u.id, displayName: u.displayName, profileImageUrl: u.profileImageUrl, followerCount: fc };
-  }));
-  return results;
+  if (rows.length === 0) return [];
+  const userIds = rows.map(u => u.id);
+
+  const [followerRows, completedCountRows] = await Promise.all([
+    db
+      .select({ followingId: userFollowers.followingId, cnt: count() })
+      .from(userFollowers)
+      .where(sql`${userFollowers.followingId} = ANY(${userIds})`)
+      .groupBy(userFollowers.followingId),
+    db
+      .select({ userId: tasks.userId, cnt: count() })
+      .from(tasks)
+      .where(and(sql`${tasks.userId} = ANY(${userIds})`, eq(tasks.status, "completed")))
+      .groupBy(tasks.userId),
+  ]);
+
+  const followerMap = new Map(followerRows.map(r => [r.followingId, Number(r.cnt)]));
+  const completedMap = new Map(completedCountRows.map(r => [r.userId, Number(r.cnt)]));
+
+  const { SKILL_NODE_REQUIRED_TASKS } = await import("@shared/skill-nodes");
+  const tierEntries = Object.entries(SKILL_NODE_REQUIRED_TASKS);
+
+  return rows.map(u => {
+    const completedCount = completedMap.get(u.id) ?? 0;
+    let skillTier: 0 | 1 | 2 = 0;
+    for (const [nodeId, required] of tierEntries) {
+      if (completedCount >= required) {
+        if (nodeId.endsWith("-2") && skillTier < 2) skillTier = 2;
+        else if (nodeId.endsWith("-1") && skillTier < 1) skillTier = 1;
+      }
+    }
+    return {
+      id: u.id,
+      displayName: u.displayName,
+      profileImageUrl: u.profileImageUrl,
+      followerCount: followerMap.get(u.id) ?? 0,
+      skillTier,
+    };
+  });
 }
 
 export async function getForumPosts(opts: {
@@ -2273,6 +2308,18 @@ export async function isFollowing(followerId: string, followingId: string): Prom
     .from(userFollowers)
     .where(and(eq(userFollowers.followerId, followerId), eq(userFollowers.followingId, followingId)));
   return !!row;
+}
+
+export async function batchGetFollowing(followerId: string, followingIds: string[]): Promise<Set<string>> {
+  if (followingIds.length === 0) return new Set();
+  const rows = await db
+    .select({ followingId: userFollowers.followingId })
+    .from(userFollowers)
+    .where(and(
+      eq(userFollowers.followerId, followerId),
+      sql`${userFollowers.followingId} = ANY(${followingIds})`
+    ));
+  return new Set(rows.map(r => r.followingId));
 }
 
 export async function getFollowerCount(userId: string): Promise<number> {
