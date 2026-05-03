@@ -1,17 +1,17 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, ThumbsUp, ThumbsDown, MessageSquare, Pin, Eye, EyeOff, Trash2, ArrowUpDown, Clock } from "lucide-react";
+import { Loader2, Plus, ThumbsUp, ThumbsDown, MessageSquare, Pin, Eye, EyeOff, Trash2, ArrowUpDown, Clock, X, Image, Tag } from "lucide-react";
 import { AvatarCard } from "@/components/avatar-card";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import type { ForumPost } from "@shared/schema";
 
 const CATEGORIES = ["All", "Tips", "Questions", "Feedback", "Facts", "Productivity", "General"];
@@ -24,6 +24,20 @@ const CATEGORY_COLORS: Record<string, string> = {
   Productivity: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400",
   General: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
 };
+
+const TAG_COLORS = [
+  "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
+  "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
+  "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400",
+  "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400",
+  "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400",
+];
+
+function getTagColor(tag: string): string {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) & 0xffffffff;
+  return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
+}
 
 function timeAgo(date: string | Date): string {
   const now = Date.now();
@@ -39,17 +53,200 @@ function timeAgo(date: string | Date): string {
   return new Date(date).toLocaleDateString();
 }
 
-function PostCard({ post, authors, isAdmin, onNavigate }: {
+function TagChips({ tags, onTagClick }: { tags: string[]; onTagClick?: (tag: string) => void }) {
+  if (!tags || tags.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1.5">
+      {tags.map(tag => (
+        <button
+          key={tag}
+          className={`inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full font-medium transition-opacity hover:opacity-80 ${getTagColor(tag)}`}
+          onClick={onTagClick ? (e) => { e.stopPropagation(); onTagClick(tag); } : undefined}
+        >
+          #{tag}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TagInput({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => void }) {
+  const [input, setInput] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const { data: allTags } = useQuery<{ tag: string; count: number }[]>({
+    queryKey: ["/api/forum/tags"],
+  });
+
+  const normalizeTag = (raw: string) =>
+    raw.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
+
+  const addTag = (raw: string) => {
+    const tag = normalizeTag(raw);
+    if (!tag || tags.includes(tag) || tags.length >= 5) return;
+    onChange([...tags, tag]);
+    setInput("");
+    setShowSuggestions(false);
+  };
+
+  const removeTag = (tag: string) => onChange(tags.filter(t => t !== tag));
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTag(input);
+    } else if (e.key === "Backspace" && !input && tags.length > 0) {
+      removeTag(tags[tags.length - 1]);
+    }
+  };
+
+  const filtered = (allTags || [])
+    .map(t => t.tag)
+    .filter(t => input ? t.includes(input.toLowerCase()) : true)
+    .filter(t => !tags.includes(t))
+    .slice(0, 6);
+
+  return (
+    <div className="relative" ref={wrapperRef}>
+      <div className="flex flex-wrap gap-1 p-2 border border-input rounded-md min-h-[40px] bg-background focus-within:ring-1 focus-within:ring-ring">
+        {tags.map(t => (
+          <span key={t} className={`inline-flex items-center gap-0.5 text-xs px-2 py-0.5 rounded-full font-medium ${getTagColor(t)}`}>
+            #{t}
+            <button type="button" onClick={() => removeTag(t)} className="hover:opacity-70 ml-0.5">
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </span>
+        ))}
+        {tags.length < 5 && (
+          <input
+            className="flex-1 min-w-[100px] text-sm outline-none bg-transparent placeholder:text-muted-foreground"
+            value={input}
+            onChange={e => { setInput(e.target.value); setShowSuggestions(true); }}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            placeholder={tags.length === 0 ? "Add tags (Enter or comma)..." : ""}
+            maxLength={30}
+          />
+        )}
+      </div>
+      {showSuggestions && filtered.length > 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1 border border-border rounded-md bg-popover shadow-md z-50 max-h-40 overflow-y-auto">
+          {filtered.map(t => (
+            <button
+              key={t}
+              type="button"
+              className="block w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+              onMouseDown={() => addTag(t)}
+            >
+              <span className={`inline-flex text-xs px-1.5 py-0.5 rounded-full mr-1 ${getTagColor(t)}`}>#{t}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground mt-1">{tags.length}/5 tags used</p>
+    </div>
+  );
+}
+
+function ImageUploader({ imageUrls, onChange }: { imageUrls: string[]; onChange: (urls: string[]) => void }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const { toast } = useToast();
+
+  const handleFiles = useCallback(async (files: File[]) => {
+    const remaining = 3 - imageUrls.length;
+    if (remaining <= 0) return;
+    const toUpload = files.slice(0, remaining);
+    setUploading(true);
+    const newUrls: string[] = [];
+    for (const file of toUpload) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast({ title: "File too large", description: `${file.name} exceeds 5 MB`, variant: "destructive" });
+        continue;
+      }
+      if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type)) {
+        toast({ title: "Invalid type", description: `${file.name} is not a supported image`, variant: "destructive" });
+        continue;
+      }
+      try {
+        const fd = new FormData();
+        fd.append("image", file);
+        const headers: Record<string, string> = {};
+        const csrf = getCsrfToken();
+        if (csrf) headers["x-csrf-token"] = csrf;
+        const resp = await fetch("/api/forum/upload", { method: "POST", headers, body: fd, credentials: "include" });
+        if (!resp.ok) throw new Error((await resp.json()).message || "Upload failed");
+        const { url } = await resp.json();
+        newUrls.push(url);
+      } catch (err: any) {
+        toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      }
+    }
+    setUploading(false);
+    if (newUrls.length > 0) onChange([...imageUrls, ...newUrls]);
+  }, [imageUrls, onChange, toast]);
+
+  const removeImage = (url: string) => onChange(imageUrls.filter(u => u !== url));
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs gap-1.5"
+          disabled={imageUrls.length >= 3 || uploading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Image className="h-3.5 w-3.5" />}
+          {uploading ? "Uploading..." : "Add Image"}
+        </Button>
+        <span className="text-xs text-muted-foreground">{imageUrls.length}/3 images</span>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          multiple
+          className="hidden"
+          onChange={e => { if (e.target.files) handleFiles(Array.from(e.target.files)); e.target.value = ""; }}
+        />
+      </div>
+      {imageUrls.length > 0 && (
+        <div className="flex gap-2 flex-wrap">
+          {imageUrls.map((url) => (
+            <div key={url} className="relative group">
+              <img src={url} alt="attachment" className="h-20 w-20 object-cover rounded-md border border-border" />
+              <button
+                type="button"
+                className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => removeImage(url)}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PostCard({ post, authors, isAdmin, onNavigate, onTagClick }: {
   post: ForumPost;
   authors: Record<string, { displayName: string | null; profileImageUrl: string | null }>;
   isAdmin: boolean;
   onNavigate: (id: string) => void;
-})
- {
+  onTagClick: (tag: string) => void;
+}) {
   const { toast } = useToast();
   const author = authors[post.userId];
   const snippet = post.body.length > 150 ? post.body.slice(0, 150) + "..." : post.body;
   const score = post.upvotes - post.downvotes;
+  const tags: string[] = Array.isArray(post.tags) ? post.tags : [];
+  const imageUrls: string[] = Array.isArray(post.imageUrls) ? post.imageUrls : [];
 
   const pinMutation = useMutation({
     mutationFn: (pinned: boolean) => apiRequest("PATCH", `/api/forum/admin/posts/${post.id}`, { pinned }),
@@ -87,10 +284,16 @@ function PostCard({ post, authors, isAdmin, onNavigate }: {
             <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${CATEGORY_COLORS[post.category] || CATEGORY_COLORS.General}`}>
               {post.category}
             </Badge>
+            {imageUrls.length > 0 && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] text-gray-400">
+                <Image className="h-3 w-3" />{imageUrls.length}
+              </span>
+            )}
           </div>
           <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1 line-clamp-1">{post.title}</h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">{snippet}</p>
-          <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-1">{snippet}</p>
+          {tags.length > 0 && <TagChips tags={tags} onTagClick={onTagClick} />}
+          <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-2">
             <AvatarCard
               userId={post.userId}
               displayName={author?.displayName}
@@ -132,33 +335,26 @@ function PostCard({ post, authors, isAdmin, onNavigate }: {
   );
 }
 
-function renderMarkdown(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/`(.+?)`/g, '<code class="bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded text-sm">$1</code>')
-    .replace(/\n/g, "<br />");
-}
-
 function NewPostDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [category, setCategory] = useState("General");
-  const [showPreview, setShowPreview] = useState(false);
+  const [tags, setTags] = useState<string[]>([]);
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
   const { toast } = useToast();
 
   const mutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/forum/posts", { title, body, category }),
+    mutationFn: () => apiRequest("POST", "/api/forum/posts", { title, body, category, tags, imageUrls }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/forum/posts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/forum/tags"] });
       toast({ title: "Post created!", description: "You earned 5 AxCoins for posting." });
       setTitle("");
       setBody("");
       setCategory("General");
+      setTags([]);
+      setImageUrls([]);
       setOpen(false);
       onCreated();
     },
@@ -175,52 +371,50 @@ function NewPostDialog({ onCreated }: { onCreated: () => void }) {
           New Post
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[550px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create a Post</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 mt-2">
+          <Input
+            placeholder="Post title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={200}
+          />
+          <Select value={category} onValueChange={setCategory}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CATEGORIES.filter(c => c !== "All").map(c => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <div>
-            <Input
-              placeholder="Post title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={200}
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 block">Content</label>
+            <MarkdownEditor
+              value={body}
+              onChange={setBody}
+              placeholder="Write your post... (Markdown supported)"
             />
-          </div>
-          <div>
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CATEGORIES.filter(c => c !== "All").map(c => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <div className="flex gap-1 mb-2">
-              <Button type="button" variant={!showPreview ? "default" : "outline"} size="sm" className="text-xs h-7"
-                onClick={() => setShowPreview(false)}>Write</Button>
-              <Button type="button" variant={showPreview ? "default" : "outline"} size="sm" className="text-xs h-7"
-                onClick={() => setShowPreview(true)}>Preview</Button>
-            </div>
-            {showPreview ? (
-              <div className="border rounded-md p-3 min-h-[200px] prose prose-sm dark:prose-invert max-w-none text-sm bg-gray-50 dark:bg-gray-900"
-                dangerouslySetInnerHTML={{ __html: body.trim() ? renderMarkdown(body) : '<span class="text-gray-400">Nothing to preview</span>' }} />
-            ) : (
-              <Textarea
-                placeholder="Write your post... (Markdown supported)"
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={8}
-                maxLength={10000}
-              />
-            )}
             <p className="text-xs text-muted-foreground mt-1">{body.length}/10000 characters</p>
           </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1.5">
+              <Tag className="h-3.5 w-3.5" />Tags
+            </label>
+            <TagInput tags={tags} onChange={setTags} />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 block">Images</label>
+            <ImageUploader imageUrls={imageUrls} onChange={setImageUrls} />
+          </div>
+
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
             <Button
@@ -241,17 +435,31 @@ export default function CommunityPage() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const [category, setCategory] = useState("All");
+  const [activeTag, setActiveTag] = useState("");
   const [sort, setSort] = useState<"newest" | "popular">("newest");
   const [page, setPage] = useState(0);
   const LIMIT = 20;
 
+  const tagParam = activeTag ? `&tag=${encodeURIComponent(activeTag)}` : "";
+  const queryString = `?category=${category}&sort=${sort}&limit=${LIMIT}&offset=${page * LIMIT}${tagParam}`;
+
   const { data, isLoading } = useQuery<{ posts: ForumPost[]; total: number; authors: Record<string, { displayName: string | null; profileImageUrl: string | null }> }>({
-    queryKey: ["/api/forum/posts", `?category=${category}&sort=${sort}&limit=${LIMIT}&offset=${page * LIMIT}`],
+    queryKey: ["/api/forum/posts", queryString],
     refetchInterval: 30000,
+  });
+
+  const { data: popularTags } = useQuery<{ tag: string; count: number }[]>({
+    queryKey: ["/api/forum/tags"],
+    staleTime: 60000,
   });
 
   const isAdmin = user?.role === "admin";
   const totalPages = data ? Math.ceil(data.total / LIMIT) : 0;
+
+  const handleTagClick = (tag: string) => {
+    setActiveTag(prev => prev === tag ? "" : tag);
+    setPage(0);
+  };
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-6">
@@ -263,7 +471,7 @@ export default function CommunityPage() {
         <NewPostDialog onCreated={() => setPage(0)} />
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row gap-3 mb-3">
         <div className="flex gap-1.5 flex-wrap flex-1">
           {CATEGORIES.map(c => (
             <Button
@@ -288,6 +496,33 @@ export default function CommunityPage() {
         </Button>
       </div>
 
+      {popularTags && popularTags.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap mb-4 pb-3 border-b border-gray-100 dark:border-gray-700">
+          <Tag className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+          {activeTag && (
+            <button
+              className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 font-medium"
+              onClick={() => { setActiveTag(""); setPage(0); }}
+            >
+              <X className="h-2.5 w-2.5" />Clear tag
+            </button>
+          )}
+          {popularTags.slice(0, 12).map(({ tag }) => (
+            <button
+              key={tag}
+              className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded-full font-medium transition-all ${
+                activeTag === tag
+                  ? `${getTagColor(tag)} ring-1 ring-current opacity-100`
+                  : `${getTagColor(tag)} opacity-70 hover:opacity-100`
+              }`}
+              onClick={() => handleTagClick(tag)}
+            >
+              #{tag}
+            </button>
+          ))}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -296,7 +531,14 @@ export default function CommunityPage() {
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
           <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
           <p className="font-medium">No posts yet</p>
-          <p className="text-sm mt-1">Be the first to start a conversation!</p>
+          <p className="text-sm mt-1">
+            {activeTag ? `No posts with tag #${activeTag}` : "Be the first to start a conversation!"}
+          </p>
+          {activeTag && (
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => { setActiveTag(""); setPage(0); }}>
+              Clear tag filter
+            </Button>
+          )}
         </div>
       ) : (
         <>
@@ -308,6 +550,7 @@ export default function CommunityPage() {
                 authors={data.authors}
                 isAdmin={isAdmin}
                 onNavigate={(id) => setLocation(`/community/${id}`)}
+                onTagClick={handleTagClick}
               />
             ))}
           </div>

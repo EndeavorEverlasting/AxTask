@@ -9,8 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Loader2, ArrowLeft, ThumbsUp, ThumbsDown, MessageSquare, Flag, Pin, Eye, EyeOff, Trash2, Clock, Users, Send } from "lucide-react";
+import { Loader2, ArrowLeft, ThumbsUp, ThumbsDown, MessageSquare, Flag, Pin, Eye, EyeOff, Trash2, Clock, Send } from "lucide-react";
 import { AvatarCard } from "@/components/avatar-card";
+import { MarkdownRenderer } from "@/components/markdown-editor";
 import type { ForumPost, ForumComment, ForumVote } from "@shared/schema";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -21,6 +22,20 @@ const CATEGORY_COLORS: Record<string, string> = {
   Productivity: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400",
   General: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
 };
+
+const TAG_COLORS = [
+  "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
+  "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
+  "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400",
+  "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400",
+  "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400",
+];
+
+function getTagColor(tag: string): string {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) & 0xffffffff;
+  return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
+}
 
 function timeAgo(date: string | Date): string {
   const now = Date.now();
@@ -36,7 +51,7 @@ function timeAgo(date: string | Date): string {
   return new Date(date).toLocaleDateString();
 }
 
-function renderMarkdown(text: string): string {
+function renderMarkdownLegacy(text: string): string {
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -253,7 +268,7 @@ function CommentItem({ comment, authors, votes, isAdmin, postId, userId }: {
           <span className="text-xs text-gray-400"><Clock className="h-3 w-3 inline mr-0.5" />{timeAgo(comment.createdAt!)}</span>
           {comment.hidden && <Badge variant="outline" className="text-[10px] text-red-400 border-red-300">Hidden</Badge>}
         </div>
-        <div className="text-sm text-gray-700 dark:text-gray-300" dangerouslySetInnerHTML={{ __html: renderMarkdown(comment.body) }} />
+        <div className="text-sm text-gray-700 dark:text-gray-300" dangerouslySetInnerHTML={{ __html: renderMarkdownLegacy(comment.body) }} />
         <div className="flex items-center gap-2 mt-2">
           <VoteButtons
             commentId={comment.id}
@@ -289,6 +304,7 @@ export default function CommunityPostPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [commentBody, setCommentBody] = useState("");
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const isAdmin = user?.role === "admin";
 
   const { data, isLoading } = useQuery<{
@@ -333,6 +349,8 @@ export default function CommunityPostPage() {
   const { post, comments, votes, authors } = data;
   const author = authors[post.userId];
   const postVote = votes.find(v => v.postId === post.id);
+  const tags: string[] = Array.isArray(post.tags) ? post.tags : [];
+  const imageUrls: string[] = Array.isArray(post.imageUrls) ? post.imageUrls : [];
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-6">
@@ -346,6 +364,11 @@ export default function CommunityPostPage() {
           <Badge variant="secondary" className={`text-xs ${CATEGORY_COLORS[post.category] || CATEGORY_COLORS.General}`}>
             {post.category}
           </Badge>
+          {tags.map(tag => (
+            <span key={tag} className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded-full font-medium ${getTagColor(tag)}`}>
+              #{tag}
+            </span>
+          ))}
           {post.hidden && <Badge variant="outline" className="text-xs text-red-400 border-red-300">Hidden</Badge>}
         </div>
 
@@ -361,10 +384,23 @@ export default function CommunityPostPage() {
           <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{timeAgo(post.createdAt!)}</span>
         </div>
 
-        <div
-          className="prose prose-sm dark:prose-invert max-w-none text-gray-700 dark:text-gray-300 mb-4"
-          dangerouslySetInnerHTML={{ __html: renderMarkdown(post.body) }}
-        />
+        <div className="prose prose-sm dark:prose-invert max-w-none mb-4">
+          <MarkdownRenderer content={post.body} />
+        </div>
+
+        {imageUrls.length > 0 && (
+          <div className={`grid gap-2 mb-4 ${imageUrls.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+            {imageUrls.map((url) => (
+              <img
+                key={url}
+                src={url}
+                alt="Post image"
+                className="rounded-md border border-border object-cover w-full max-h-80 cursor-zoom-in hover:opacity-95 transition-opacity"
+                onClick={() => setLightboxUrl(url)}
+              />
+            ))}
+          </div>
+        )}
 
         <div className="flex items-center gap-3 pt-4 border-t border-gray-100 dark:border-gray-700 flex-wrap">
           <VoteButtons
@@ -427,6 +463,26 @@ export default function CommunityPostPage() {
           </div>
         )}
       </div>
+
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <img
+            src={lightboxUrl}
+            alt="Full size"
+            className="max-w-full max-h-full rounded-lg shadow-2xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            className="absolute top-4 right-4 text-white bg-black/40 rounded-full p-2 hover:bg-black/60"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <ArrowLeft className="h-5 w-5 rotate-[135deg]" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

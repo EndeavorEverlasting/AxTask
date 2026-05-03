@@ -36,7 +36,7 @@ import {
   getDisputeVotes,
   getCategoryReviewTriggers,
   resolveCategoryReview,
-  createForumPost, getForumPosts, getForumPostById, deleteForumPost, updateForumPost,
+  createForumPost, getForumPosts, getForumPostById, getForumTags, deleteForumPost, updateForumPost,
   createForumComment, getForumComments, updateForumComment, deleteForumComment,
   castForumVote, getUserForumVotes, hasUpvoteRewardBeenGiven, recordUpvoteReward,
   createForumReport, getForumReports, updateForumReportStatus, toggleForumReaction,
@@ -2321,6 +2321,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ════════════════════════════════════════════════════════════════════════
+  //  Forum image upload
+  // ════════════════════════════════════════════════════════════════════════
+
+  const FORUM_UPLOADS_DIR = path.join(process.cwd(), "server", "uploads", "forum");
+  if (!fs.existsSync(FORUM_UPLOADS_DIR)) {
+    fs.mkdirSync(FORUM_UPLOADS_DIR, { recursive: true });
+  }
+
+  const forumUploadStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, FORUM_UPLOADS_DIR),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
+      cb(null, `${randomUUID()}${ext}`);
+    },
+  });
+
+  const forumUpload = multer({
+    storage: forumUploadStorage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+      if (allowed.includes(file.mimetype)) cb(null, true);
+      else cb(new Error("Only JPEG, PNG, GIF, and WebP images are allowed"));
+    },
+  });
+
+  app.post("/api/forum/upload", requireAuth, forumUpload.single("image"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const url = `/uploads/forum/${req.file.filename}`;
+      res.json({ url });
+    } catch (error) {
+      res.status(500).json({ message: "Upload failed" });
+    }
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
   //  Task Attachments (image upload / delete)
   // ════════════════════════════════════════════════════════════════════════
 
@@ -2881,14 +2918,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   //  Forum routes (protected)
   // ════════════════════════════════════════════════════════════════════════
 
+  app.get("/api/forum/tags", requireAuth, async (_req, res) => {
+    try {
+      const tags = await getForumTags();
+      res.json(tags);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch tags" });
+    }
+  });
+
   app.get("/api/forum/posts", requireAuth, async (req, res) => {
     try {
       const category = typeof req.query.category === "string" ? req.query.category : undefined;
+      const tag = typeof req.query.tag === "string" && req.query.tag ? req.query.tag : undefined;
       const sort = req.query.sort === "popular" ? "popular" : "newest";
       const limit = Math.min(Number(req.query.limit) || 20, 50);
       const offset = Math.max(Number(req.query.offset) || 0, 0);
       const isAdmin = req.user!.role === "admin";
-      const { posts, total } = await getForumPosts({ category, sort, limit, offset, includeHidden: isAdmin });
+      const { posts, total } = await getForumPosts({ category, tag, sort, limit, offset, includeHidden: isAdmin });
 
       const userIds = [...new Set(posts.map(p => p.userId))];
       const authors: Record<string, { displayName: string | null; profileImageUrl: string | null }> = {};

@@ -479,6 +479,8 @@ export const forumPosts = pgTable("forum_posts", {
   title: text("title").notNull(),
   body: text("body").notNull(),
   category: text("category").notNull().default("General"),
+  tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+  imageUrls: text("image_urls").array().notNull().default(sql`'{}'::text[]`),
   upvotes: integer("upvotes").notNull().default(0),
   downvotes: integer("downvotes").notNull().default(0),
   commentCount: integer("comment_count").notNull().default(0),
@@ -502,12 +504,15 @@ export const insertForumPostSchema = createInsertSchema(forumPosts).omit({
   commentCount: true,
   pinned: true,
   hidden: true,
+  reactions: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
   title: z.string().min(1, "Title is required").max(200, "Title must be under 200 characters"),
   body: z.string().min(1, "Body is required").max(10000, "Body must be under 10000 characters"),
   category: z.enum(["Tips", "Questions", "Feedback", "Facts", "Productivity", "General"]).default("General"),
+  tags: z.array(z.string().max(30)).max(5, "Maximum 5 tags allowed").default([]),
+  imageUrls: z.array(z.string().url()).max(3, "Maximum 3 images allowed").default([]),
 });
 
 export type ForumPost = typeof forumPosts.$inferSelect;

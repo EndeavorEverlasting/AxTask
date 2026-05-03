@@ -1956,12 +1956,15 @@ export async function createForumPost(userId: string, post: InsertForumPost): Pr
     title: post.title,
     body: post.body,
     category: post.category || "General",
+    tags: post.tags || [],
+    imageUrls: post.imageUrls || [],
   }).returning();
   return row;
 }
 
 export async function getForumPosts(opts: {
   category?: string;
+  tag?: string;
   sort?: "newest" | "popular";
   limit?: number;
   offset?: number;
@@ -1973,6 +1976,9 @@ export async function getForumPosts(opts: {
   }
   if (opts.category && opts.category !== "All") {
     conditions.push(eq(forumPosts.category, opts.category));
+  }
+  if (opts.tag) {
+    conditions.push(sql`${opts.tag} = ANY(${forumPosts.tags})`);
   }
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -1992,6 +1998,18 @@ export async function getForumPosts(opts: {
     .offset(opts.offset || 0);
 
   return { posts, total };
+}
+
+export async function getForumTags(): Promise<{ tag: string; count: number }[]> {
+  const rows = await db.execute(sql`
+    SELECT tag, COUNT(*) AS count
+    FROM forum_posts, unnest(tags) AS tag
+    WHERE hidden = false AND array_length(tags, 1) > 0
+    GROUP BY tag
+    ORDER BY count DESC
+    LIMIT 50
+  `);
+  return (rows.rows as any[]).map((r) => ({ tag: String(r.tag), count: Number(r.count) }));
 }
 
 export async function getForumPostById(id: string): Promise<ForumPost | undefined> {
