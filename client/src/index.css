@@ -348,3 +348,54 @@
     animation: none !important;
   }
 }
+
+/* ── Global cursor & interaction rules ── */
+
+button,
+[role="button"],
+a,
+label[for],
+select,
+.cursor-pointer {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"],
+input:disabled,
+select:disabled,
+textarea:disabled,
+.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Allow pointer-events on disabled wrappers so not-allowed cursor still shows */
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  pointer-events: auto;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="search"],
+input[type="url"],
+input[type="tel"],
+textarea,
+[contenteditable="true"] {
+  cursor: text;
+}
+
+/* Skill-tree node cursors */
+.skill-node {
+  cursor: pointer;
+}
+
+.skill-node-locked {
+  cursor: not-allowed;
+}

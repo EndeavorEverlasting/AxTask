@@ -4,25 +4,30 @@ import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard,
   List,
-  BarChart3,
-  Upload,
   Moon,
   Sun,
   CheckSquare,
-  FileSpreadsheet,
-  CalendarDays,
   LogOut,
   User,
   ZoomIn,
   ZoomOut,
-  ClipboardList,
   GraduationCap,
   Brain,
   Shield,
   Coins,
-  ShoppingBag,
   Menu,
+  Network,
+  DatabaseBackup,
+  Settings,
+  ChevronDown,
+  ChevronRight,
+  BarChart3,
+  Upload,
+  FileSpreadsheet,
+  CalendarDays,
+  ClipboardList,
   Users,
+  ShoppingBag,
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import { useAuth } from "@/lib/auth-context";
@@ -34,6 +39,25 @@ import { Button } from "@/components/ui/button";
 import { VoiceBarTrigger } from "@/components/voice-command-bar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 
+const CORE_MENU_ITEMS = [
+  { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { path: "/tasks", icon: List, label: "Tasks" },
+  { path: "/planner", icon: Brain, label: "AI Planner", hasBadge: true },
+  { path: "/skill-tree", icon: Network, label: "Skill Tree" },
+  { path: "/backup", icon: DatabaseBackup, label: "Backup" },
+  { path: "/settings", icon: Settings, label: "Settings" },
+];
+
+const MORE_MENU_ITEMS = [
+  { path: "/analytics", icon: BarChart3, label: "Analytics" },
+  { path: "/calendar", icon: CalendarDays, label: "Calendar" },
+  { path: "/community", icon: Users, label: "Community" },
+  { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
+  { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
+  { path: "/import-export", icon: Upload, label: "Import/Export" },
+  { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
+];
+
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const { theme, toggleTheme } = useTheme();
@@ -41,6 +65,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { zoom, zoomIn, zoomOut, resetZoom, ZOOM_MIN, ZOOM_MAX } = useZoom();
   const { isActive: tutorialActive, startTutorial, stopTutorial, hasCompleted } = useTutorial();
   const isMobile = useIsMobile();
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const { data: briefing } = useQuery<{ overdue: { count: number }; dueWithinHour: { count: number } }>({
     queryKey: ["/api/planner/briefing"],
@@ -65,19 +90,15 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     prevBalanceRef.current = bal;
   }, [wallet?.balance]);
 
-  const menuItems = [
-    { path: "/", icon: LayoutDashboard, label: "Dashboard" },
-    { path: "/planner", icon: Brain, label: "AI Planner", badge: overdueCount },
-    { path: "/tasks", icon: List, label: "All Tasks" },
-    { path: "/calendar", icon: CalendarDays, label: "Calendar" },
-    { path: "/analytics", icon: BarChart3, label: "Analytics" },
-    { path: "/community", icon: Users, label: "Community" },
-    { path: "/rewards", icon: ShoppingBag, label: "Rewards Shop" },
-    { path: "/checklist", icon: ClipboardList, label: "Print Checklist" },
-    { path: "/import-export", icon: Upload, label: "Import/Export" },
-    { path: "/google-sheets", icon: FileSpreadsheet, label: "Google Sheets" },
-    ...(user?.role === "admin" ? [{ path: "/admin", icon: Shield, label: "Security Admin" }] : []),
-  ];
+  const isMoreActive = MORE_MENU_ITEMS.some((item) => {
+    if (item.path === "/" && location === "/") return true;
+    if (item.path !== "/" && location.startsWith(item.path)) return true;
+    return false;
+  });
+
+  useEffect(() => {
+    if (isMoreActive) setMoreOpen(true);
+  }, [isMoreActive]);
 
   const isActiveRoute = (path: string) => {
     if (path === "/" && location === "/") return true;
@@ -88,6 +109,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const handleNavClick = () => {
     onNavigate?.();
   };
+
+  const adminItem = user?.role === "admin" ? { path: "/admin", icon: Shield, label: "Security Admin" } : null;
 
   return (
     <div className="flex flex-col h-full outline-none" tabIndex={-1}>
@@ -104,29 +127,89 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       <nav className="flex-1 p-4 overflow-y-auto">
         <ul className="space-y-1">
-          {menuItems.map(({ path, icon: Icon, label, badge }) => (
-            <li key={path}>
-              <Link href={path}>
+          {CORE_MENU_ITEMS.map(({ path, icon: Icon, label, hasBadge }) => {
+            const badge = hasBadge ? overdueCount : 0;
+            return (
+              <li key={path}>
+                <Link href={path}>
+                  <div
+                    id={`sidebar-link-${path}`}
+                    className={`flex items-center p-3 rounded-lg font-medium transition-colors cursor-pointer min-h-[44px] ${
+                      isActiveRoute(path)
+                        ? "text-primary bg-blue-50 dark:bg-blue-900/30"
+                        : "text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
+                    }`}
+                    onClick={handleNavClick}
+                  >
+                    <Icon className="mr-3 h-5 w-5 shrink-0" />
+                    {label}
+                    {typeof badge === "number" && badge > 0 && (
+                      <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+                        {badge > 99 ? "99+" : badge}
+                      </span>
+                    )}
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+
+          {adminItem && (
+            <li>
+              <Link href={adminItem.path}>
                 <div
-                  id={`sidebar-link-${path}`}
                   className={`flex items-center p-3 rounded-lg font-medium transition-colors cursor-pointer min-h-[44px] ${
-                  isActiveRoute(path)
-                    ? "text-primary bg-blue-50 dark:bg-blue-900/30"
-                    : "text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
-                }`}
+                    isActiveRoute(adminItem.path)
+                      ? "text-primary bg-blue-50 dark:bg-blue-900/30"
+                      : "text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
+                  }`}
                   onClick={handleNavClick}
                 >
-                  <Icon className="mr-3 h-5 w-5 shrink-0" />
-                  {label}
-                  {typeof badge === "number" && badge > 0 && (
-                    <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
-                      {badge > 99 ? "99+" : badge}
-                    </span>
-                  )}
+                  <adminItem.icon className="mr-3 h-5 w-5 shrink-0" />
+                  {adminItem.label}
                 </div>
               </Link>
             </li>
-          ))}
+          )}
+
+          <li>
+            <button
+              onClick={() => setMoreOpen((v) => !v)}
+              className={`w-full flex items-center p-3 rounded-lg font-medium transition-colors cursor-pointer min-h-[44px] ${
+                isMoreActive
+                  ? "text-primary bg-blue-50 dark:bg-blue-900/30"
+                  : "text-gray-600 dark:text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
+              }`}
+            >
+              {moreOpen ? (
+                <ChevronDown className="mr-3 h-5 w-5 shrink-0" />
+              ) : (
+                <ChevronRight className="mr-3 h-5 w-5 shrink-0" />
+              )}
+              More
+            </button>
+            {moreOpen && (
+              <ul className="mt-1 ml-4 space-y-1 border-l-2 border-gray-100 dark:border-gray-700 pl-2">
+                {MORE_MENU_ITEMS.map(({ path, icon: Icon, label }) => (
+                  <li key={path}>
+                    <Link href={path}>
+                      <div
+                        className={`flex items-center p-2.5 rounded-lg font-medium transition-colors cursor-pointer text-sm min-h-[40px] ${
+                          isActiveRoute(path)
+                            ? "text-primary bg-blue-50 dark:bg-blue-900/30"
+                            : "text-gray-500 dark:text-gray-500 hover:text-primary hover:bg-gray-100 dark:hover:bg-gray-700"
+                        }`}
+                        onClick={handleNavClick}
+                      >
+                        <Icon className="mr-2.5 h-4 w-4 shrink-0" />
+                        {label}
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
         </ul>
       </nav>
 
