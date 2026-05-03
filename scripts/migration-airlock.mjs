@@ -75,6 +75,17 @@ const pool = new pg.Pool({ connectionString: url, max: 1 });
 async function main() {
   const client = await pool.connect();
   try {
+    const { rows: tableRows } = await client.query(`
+      SELECT to_regclass('public.backup_records') AS table_ref
+    `);
+    const backupTableExists = tableRows[0]?.table_ref !== null;
+    if (!backupTableExists) {
+      console.warn(
+        "[migration-airlock] backup_records table missing; allowing migrations because backup schema has not been created yet.",
+      );
+      return;
+    }
+
     // Query most recent completed backup record
     const { rows } = await client.query(`
       SELECT id, path_or_url, metadata_json, completed_at, created_at
