@@ -1962,9 +1962,31 @@ export async function createForumPost(userId: string, post: InsertForumPost): Pr
   return row;
 }
 
+export async function searchUsers(query: string): Promise<Array<{
+  id: string;
+  displayName: string | null;
+  profileImageUrl: string | null;
+  followerCount: number;
+}>> {
+  if (!query || query.trim().length < 2) return [];
+  const rows = await db
+    .select({ id: users.id, displayName: users.displayName, profileImageUrl: users.profileImageUrl })
+    .from(users)
+    .where(and(ilike(users.displayName, `%${query.trim()}%`), eq(users.isBanned, false)))
+    .orderBy(asc(users.displayName))
+    .limit(20);
+
+  const results = await Promise.all(rows.map(async (u) => {
+    const fc = await getFollowerCount(u.id);
+    return { id: u.id, displayName: u.displayName, profileImageUrl: u.profileImageUrl, followerCount: fc };
+  }));
+  return results;
+}
+
 export async function getForumPosts(opts: {
   category?: string;
   tag?: string;
+  q?: string;
   sort?: "newest" | "popular";
   limit?: number;
   offset?: number;
@@ -1979,6 +2001,10 @@ export async function getForumPosts(opts: {
   }
   if (opts.tag) {
     conditions.push(sql`${opts.tag} = ANY(${forumPosts.tags})`);
+  }
+  if (opts.q && opts.q.trim()) {
+    const pattern = `%${opts.q.trim()}%`;
+    conditions.push(or(ilike(forumPosts.title, pattern), ilike(forumPosts.body, pattern)));
   }
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 

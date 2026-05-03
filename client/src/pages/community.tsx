@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import { queryClient, apiRequest, getCsrfToken } from "@/lib/queryClient";
@@ -9,10 +9,38 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, ThumbsUp, ThumbsDown, MessageSquare, Pin, Eye, EyeOff, Trash2, ArrowUpDown, Clock, X, Image, Tag } from "lucide-react";
+import { Loader2, Plus, ThumbsUp, ThumbsDown, MessageSquare, Pin, Eye, EyeOff, Trash2, ArrowUpDown, Clock, X, Image, Tag, Search, Users, UserPlus, UserMinus } from "lucide-react";
 import { AvatarCard } from "@/components/avatar-card";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import type { ForumPost } from "@shared/schema";
+
+function highlightMatch(text: string, query: string): JSX.Element {
+  if (!query || query.length < 2) return <>{text}</>;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <mark key={i} className="bg-amber-300/50 dark:bg-amber-500/30 text-inherit rounded-sm px-0.5">{part}</mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
+function getBodyExcerpt(body: string, query: string, maxLen = 120): string {
+  if (!query || query.length < 2) return body.slice(0, maxLen) + (body.length > maxLen ? "…" : "");
+  const lower = body.toLowerCase();
+  const idx = lower.indexOf(query.toLowerCase());
+  if (idx === -1) return body.slice(0, maxLen) + (body.length > maxLen ? "…" : "");
+  const start = Math.max(0, idx - 40);
+  const end = Math.min(body.length, start + maxLen);
+  return (start > 0 ? "…" : "") + body.slice(start, end) + (end < body.length ? "…" : "");
+}
 
 const CATEGORIES = ["All", "Tips", "Questions", "Feedback", "Facts", "Productivity", "General"];
 
@@ -234,16 +262,19 @@ function ImageUploader({ imageUrls, onChange }: { imageUrls: string[]; onChange:
   );
 }
 
-function PostCard({ post, authors, isAdmin, onNavigate, onTagClick }: {
+function PostCard({ post, authors, isAdmin, onNavigate, onTagClick, searchQuery }: {
   post: ForumPost;
   authors: Record<string, { displayName: string | null; profileImageUrl: string | null }>;
   isAdmin: boolean;
   onNavigate: (id: string) => void;
   onTagClick: (tag: string) => void;
+  searchQuery?: string;
 }) {
   const { toast } = useToast();
   const author = authors[post.userId];
-  const snippet = post.body.length > 150 ? post.body.slice(0, 150) + "..." : post.body;
+  const snippet = searchQuery && searchQuery.length >= 2
+    ? getBodyExcerpt(post.body, searchQuery)
+    : (post.body.length > 150 ? post.body.slice(0, 150) + "..." : post.body);
   const score = post.upvotes - post.downvotes;
   const tags: string[] = Array.isArray(post.tags) ? post.tags : [];
   const imageUrls: string[] = Array.isArray(post.imageUrls) ? post.imageUrls : [];
@@ -290,8 +321,12 @@ function PostCard({ post, authors, isAdmin, onNavigate, onTagClick }: {
               </span>
             )}
           </div>
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1 line-clamp-1">{post.title}</h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-1">{snippet}</p>
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1 line-clamp-1">
+            {searchQuery ? highlightMatch(post.title, searchQuery) : post.title}
+          </h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-1">
+            {searchQuery ? highlightMatch(snippet, searchQuery) : snippet}
+          </p>
           {tags.length > 0 && <TagChips tags={tags} onTagClick={onTagClick} />}
           <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-2">
             <Link
@@ -437,6 +472,59 @@ function NewPostDialog({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+type UserSearchResult = {
+  id: string;
+  displayName: string | null;
+  profileImageUrl: string | null;
+  followerCount: number;
+  isFollowing: boolean;
+  isSelf: boolean;
+};
+
+function UserResultCard({ user: u, currentUserId }: { user: UserSearchResult; currentUserId: string }) {
+  const { toast } = useToast();
+
+  const followMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/users/${u.id}/follow`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/users/search"] }); },
+    onError: () => toast({ title: "Failed to follow user", variant: "destructive" }),
+  });
+
+  const unfollowMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/users/${u.id}/follow`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/users/search"] }); },
+    onError: () => toast({ title: "Failed to unfollow user", variant: "destructive" }),
+  });
+
+  return (
+    <div className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-sm transition-shadow">
+      <Link href={`/profile/${u.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+        <AvatarCard
+          userId={u.id}
+          displayName={u.displayName}
+          profileImageUrl={u.profileImageUrl}
+          size="md"
+        />
+        <div className="min-w-0">
+          <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{u.displayName || "Unknown"}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{u.followerCount} follower{u.followerCount !== 1 ? "s" : ""}</p>
+        </div>
+      </Link>
+      {!u.isSelf && (
+        <Button
+          variant={u.isFollowing ? "outline" : "default"}
+          size="sm"
+          className="h-8 text-xs gap-1.5 shrink-0 ml-3"
+          disabled={followMutation.isPending || unfollowMutation.isPending}
+          onClick={() => u.isFollowing ? unfollowMutation.mutate() : followMutation.mutate()}
+        >
+          {u.isFollowing ? <><UserMinus className="h-3.5 w-3.5" />Unfollow</> : <><UserPlus className="h-3.5 w-3.5" />Follow</>}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export default function CommunityPage() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
@@ -444,14 +532,36 @@ export default function CommunityPage() {
   const [activeTag, setActiveTag] = useState("");
   const [sort, setSort] = useState<"newest" | "popular">("newest");
   const [page, setPage] = useState(0);
+  const [searchMode, setSearchMode] = useState<"posts" | "users">("posts");
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const LIMIT = 20;
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchInput), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const isSearchActive = debouncedSearch.length >= 2;
+  const searchParam = isSearchActive ? `&q=${encodeURIComponent(debouncedSearch)}` : "";
   const tagParam = activeTag ? `&tag=${encodeURIComponent(activeTag)}` : "";
-  const queryString = `?category=${category}&sort=${sort}&limit=${LIMIT}&offset=${page * LIMIT}${tagParam}`;
+  const queryString = `?category=${category}&sort=${sort}&limit=${LIMIT}&offset=${page * LIMIT}${tagParam}${searchParam}`;
 
   const { data, isLoading } = useQuery<{ posts: ForumPost[]; total: number; authors: Record<string, { displayName: string | null; profileImageUrl: string | null }> }>({
     queryKey: ["/api/forum/posts", queryString],
-    refetchInterval: 30000,
+    refetchInterval: searchMode === "posts" ? 30000 : false,
+    enabled: searchMode === "posts",
+  });
+
+  const { data: userResults, isLoading: usersLoading } = useQuery<UserSearchResult[]>({
+    queryKey: ["/api/users/search", { q: debouncedSearch }],
+    queryFn: async () => {
+      if (!debouncedSearch || debouncedSearch.length < 2) return [];
+      const res = await fetch(`/api/users/search?q=${encodeURIComponent(debouncedSearch)}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: searchMode === "users" && isSearchActive,
   });
 
   const { data: popularTags } = useQuery<{ tag: string; count: number }[]>({
@@ -467,9 +577,14 @@ export default function CommunityPage() {
     setPage(0);
   };
 
+  const clearSearch = () => {
+    setSearchInput("");
+    setDebouncedSearch("");
+  };
+
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-6">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Community</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Share tips, ask questions, and connect with others</p>
@@ -477,95 +592,172 @@ export default function CommunityPage() {
         <NewPostDialog onCreated={() => setPage(0)} />
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-3">
-        <div className="flex gap-1.5 flex-wrap flex-1">
-          {CATEGORIES.map(c => (
-            <Button
-              key={c}
-              variant={category === c ? "default" : "outline"}
-              size="sm"
-              className="text-xs h-8"
-              onClick={() => { setCategory(c); setPage(0); }}
+      {/* Search bar + mode toggle */}
+      <div className="flex gap-2 mb-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+          <Input
+            value={searchInput}
+            onChange={(e) => { setSearchInput(e.target.value); setPage(0); }}
+            placeholder={searchMode === "posts" ? "Search posts…" : "Search users by name…"}
+            className="pl-9 pr-9 h-9 text-sm"
+          />
+          {searchInput && (
+            <button
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              onClick={clearSearch}
             >
-              {c}
-            </Button>
-          ))}
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
         <Button
-          variant="outline"
+          variant={searchMode === "users" ? "default" : "outline"}
           size="sm"
-          className="h-8 text-xs gap-1.5 shrink-0"
-          onClick={() => setSort(s => s === "newest" ? "popular" : "newest")}
+          className="h-9 text-xs gap-1.5 shrink-0"
+          onClick={() => { setSearchMode(m => m === "posts" ? "users" : "posts"); clearSearch(); }}
         >
-          <ArrowUpDown className="h-3.5 w-3.5" />
-          {sort === "newest" ? "Newest" : "Popular"}
+          <Users className="h-3.5 w-3.5" />
+          {searchMode === "posts" ? "Find Users" : "Posts"}
         </Button>
       </div>
 
-      {popularTags && popularTags.length > 0 && (
-        <div className="flex items-center gap-1.5 flex-wrap mb-4 pb-3 border-b border-gray-100 dark:border-gray-700">
-          <Tag className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-          {activeTag && (
-            <button
-              className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 font-medium"
-              onClick={() => { setActiveTag(""); setPage(0); }}
-            >
-              <X className="h-2.5 w-2.5" />Clear tag
-            </button>
-          )}
-          {popularTags.slice(0, 12).map(({ tag }) => (
-            <button
-              key={tag}
-              className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded-full font-medium transition-all ${
-                activeTag === tag
-                  ? `${getTagColor(tag)} ring-1 ring-current opacity-100`
-                  : `${getTagColor(tag)} opacity-70 hover:opacity-100`
-              }`}
-              onClick={() => handleTagClick(tag)}
-            >
-              #{tag}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {isLoading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      ) : !data?.posts?.length ? (
-        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-          <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <p className="font-medium">No posts yet</p>
-          <p className="text-sm mt-1">
-            {activeTag ? `No posts with tag #${activeTag}` : "Be the first to start a conversation!"}
-          </p>
-          {activeTag && (
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => { setActiveTag(""); setPage(0); }}>
-              Clear tag filter
-            </Button>
+      {/* User search mode */}
+      {searchMode === "users" ? (
+        <div>
+          {!isSearchActive ? (
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+              <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">Find community members</p>
+              <p className="text-sm mt-1">Type at least 2 characters to search by display name</p>
+            </div>
+          ) : usersLoading ? (
+            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+          ) : !userResults?.length ? (
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+              <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">No users found</p>
+              <p className="text-sm mt-1">No members match "{debouncedSearch}"</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{userResults.length} result{userResults.length !== 1 ? "s" : ""}</p>
+              {userResults.map(u => (
+                <UserResultCard key={u.id} user={u} currentUserId={user?.id || ""} />
+              ))}
+            </div>
           )}
         </div>
       ) : (
         <>
-          <div className="space-y-3">
-            {data.posts.map(post => (
-              <PostCard
-                key={post.id}
-                post={post}
-                authors={data.authors}
-                isAdmin={isAdmin}
-                onNavigate={(id) => setLocation(`/community/${id}`)}
-                onTagClick={handleTagClick}
-              />
-            ))}
-          </div>
-          {totalPages > 1 && (
-            <div className="flex justify-center gap-2 mt-6">
-              <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous</Button>
-              <span className="flex items-center text-sm text-gray-500">Page {page + 1} of {totalPages}</span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next</Button>
+          {/* Category + sort controls */}
+          <div className="flex flex-col sm:flex-row gap-3 mb-3">
+            <div className="flex gap-1.5 flex-wrap flex-1">
+              {CATEGORIES.map(c => (
+                <Button
+                  key={c}
+                  variant={category === c ? "default" : "outline"}
+                  size="sm"
+                  className="text-xs h-8"
+                  onClick={() => { setCategory(c); setPage(0); }}
+                >
+                  {c}
+                </Button>
+              ))}
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5 shrink-0"
+              onClick={() => setSort(s => s === "newest" ? "popular" : "newest")}
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              {sort === "newest" ? "Newest" : "Popular"}
+            </Button>
+          </div>
+
+          {/* Tag filter row */}
+          {popularTags && popularTags.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap mb-4 pb-3 border-b border-gray-100 dark:border-gray-700">
+              <Tag className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+              {activeTag && (
+                <button
+                  className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 font-medium"
+                  onClick={() => { setActiveTag(""); setPage(0); }}
+                >
+                  <X className="h-2.5 w-2.5" />Clear tag
+                </button>
+              )}
+              {popularTags.slice(0, 12).map(({ tag }) => (
+                <button
+                  key={tag}
+                  className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded-full font-medium transition-all ${
+                    activeTag === tag
+                      ? `${getTagColor(tag)} ring-1 ring-current opacity-100`
+                      : `${getTagColor(tag)} opacity-70 hover:opacity-100`
+                  }`}
+                  onClick={() => handleTagClick(tag)}
+                >
+                  #{tag}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Search hint when active */}
+          {isSearchActive && (
+            <div className="flex items-center gap-2 mb-3 text-xs text-gray-500 dark:text-gray-400">
+              <Search className="h-3.5 w-3.5" />
+              <span>Searching for <strong className="text-gray-700 dark:text-gray-300">"{debouncedSearch}"</strong></span>
+              <button onClick={clearSearch} className="text-blue-500 hover:underline">clear</button>
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : !data?.posts?.length ? (
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+              <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">{isSearchActive ? "No posts match your search" : "No posts yet"}</p>
+              <p className="text-sm mt-1">
+                {isSearchActive
+                  ? `No results for "${debouncedSearch}"${activeTag ? ` with tag #${activeTag}` : ""}`
+                  : activeTag ? `No posts with tag #${activeTag}` : "Be the first to start a conversation!"}
+              </p>
+              {(isSearchActive || activeTag) && (
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => { clearSearch(); setActiveTag(""); setPage(0); }}>
+                  Clear filters
+                </Button>
+              )}
+            </div>
+          ) : (
+            <>
+              {isSearchActive && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{data.total} result{data.total !== 1 ? "s" : ""}</p>
+              )}
+              <div className="space-y-3">
+                {data.posts.map(post => (
+                  <PostCard
+                    key={post.id}
+                    post={post}
+                    authors={data.authors}
+                    isAdmin={isAdmin}
+                    onNavigate={(id) => setLocation(`/community/${id}`)}
+                    onTagClick={handleTagClick}
+                    searchQuery={isSearchActive ? debouncedSearch : undefined}
+                  />
+                ))}
+              </div>
+              {totalPages > 1 && (
+                <div className="flex justify-center gap-2 mt-6">
+                  <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous</Button>
+                  <span className="flex items-center text-sm text-gray-500">Page {page + 1} of {totalPages}</span>
+                  <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next</Button>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

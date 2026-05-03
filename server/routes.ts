@@ -36,7 +36,7 @@ import {
   getDisputeVotes,
   getCategoryReviewTriggers,
   resolveCategoryReview,
-  createForumPost, getForumPosts, getForumPostById, getForumTags, deleteForumPost, updateForumPost,
+  createForumPost, getForumPosts, getForumPostById, getForumTags, deleteForumPost, updateForumPost, searchUsers,
   createForumComment, getForumComments, updateForumComment, deleteForumComment,
   castForumVote, getUserForumVotes, hasUpvoteRewardBeenGiven, recordUpvoteReward,
   createForumReport, getForumReports, updateForumReportStatus, toggleForumReaction,
@@ -2924,15 +2924,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/users/search", requireAuth, async (req, res) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      if (!q || q.length < 2) return res.json([]);
+      const results = await searchUsers(q);
+      const requestingUserId = req.user!.id;
+      const { isFollowing } = await import("./storage");
+      const withFollow = await Promise.all(results.map(async (u) => ({
+        ...u,
+        isFollowing: await isFollowing(requestingUserId, u.id),
+        isSelf: u.id === requestingUserId,
+      })));
+      res.json(withFollow);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to search users" });
+    }
+  });
+
   app.get("/api/forum/posts", requireAuth, async (req, res) => {
     try {
       const category = typeof req.query.category === "string" ? req.query.category : undefined;
       const tag = typeof req.query.tag === "string" && req.query.tag ? req.query.tag : undefined;
+      const q = typeof req.query.q === "string" && req.query.q ? req.query.q : undefined;
       const sort = req.query.sort === "popular" ? "popular" : "newest";
       const limit = Math.min(Number(req.query.limit) || 20, 50);
       const offset = Math.max(Number(req.query.offset) || 0, 0);
       const isAdmin = req.user!.role === "admin";
-      const { posts, total } = await getForumPosts({ category, tag, sort, limit, offset, includeHidden: isAdmin });
+      const { posts, total } = await getForumPosts({ category, tag, q, sort, limit, offset, includeHidden: isAdmin });
 
       const userIds = [...new Set(posts.map(p => p.userId))];
       const authors: Record<string, { displayName: string | null; profileImageUrl: string | null }> = {};
