@@ -66,6 +66,8 @@ export const ENGAGEMENT = {
   },
   recalculate: { reason: "priority_recalculate_reward", amount: 2, dailyCap: 8 },
   feedbackSubmission: { reason: "feedback_submission_reward", amount: 3, dailyCap: 5 },
+  recalculateRating: { reason: "urgency_recalculate_rating_reward", amount: 2, dailyCap: 6 },
+  consensusTierBonus: { reason: "classification_consensus_tier_bonus", amount: 3, dailyCap: 8 },
   classificationCorrectionConsensus: {
     reason: "classification_correction_consensus_reward",
     amount: 4,
@@ -76,16 +78,6 @@ export const ENGAGEMENT = {
     reason: "archetype_poll_vote_reward",
     amount: 2,
     weeklyCap: 1,
-  },
-  consensusTierBonus: {
-    reason: "consensus_tier_bonus_reward",
-    amount: 5,
-    dailyCap: 20,
-  },
-  recalculateRating: {
-    reason: "recalculate_rating_reward",
-    amount: 2,
-    dailyCap: 5,
   },
   /** Capped drip for substantive voice intents (see `server/voice-companion-rewards.ts`). */
   voiceCommandCompanion: {

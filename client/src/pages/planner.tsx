@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, lazy, Suspense } from "react";
-import { useLocation } from "wouter";
+import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from "react";
+import { useLocation, Link, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isBrowserOnline, syncUpdateTask, TaskSyncAbortedError } from "@/lib/task-sync-api";
@@ -8,6 +8,13 @@ import { useVoice } from "@/hooks/use-voice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PriorityBadge } from "@/components/priority-badge";
 import type { ProposedAction } from "@/components/bulk-action-dialog";
 
@@ -37,6 +44,8 @@ import {
   BarChart3,
   Lightbulb,
   RefreshCw,
+  Lock,
+  ShoppingCart,
 } from "lucide-react";
 import type { Task } from "@shared/schema";
 import { sendProductFunnelBeacon } from "@/lib/product-funnel-beacon";
@@ -47,11 +56,51 @@ import {
   type TaskListRouteFilter,
 } from "@/lib/task-list-route-filters";
 import { useBriefing } from "@/hooks/use-briefing";
+import { useRemindersSummary } from "@/hooks/use-reminders";
+import type { BriefingData } from "@/hooks/use-briefing";
+import {
+  TimelineSummaryCard,
+  computeTimelineSummaryCounts,
+} from "@/components/gantt/timeline-summary-card";
+import { useGanttPackUnlocked } from "@/hooks/use-gantt-pack-unlocked";
+import { isShoppingTask } from "@shared/shopping-tasks";
+import { useAuth } from "@/lib/auth-context";
+import { computeCriticalPathIds } from "@shared/critical-path";
+import {
+  buildLocalMarkovInsights,
+  loadLocalCompletionLedger,
+  mergePlannerInsights,
+  type LocalMarkovInsight,
+} from "@/lib/local-markov-predictions";
 
 interface QAResponse {
   answer: string;
   relatedTasks: Task[];
 }
+
+interface AiExecuteResponse {
+  type: "action_result" | "clarification";
+  action?: "create_reminder" | "create_task";
+  message?: string;
+  clarification?: string;
+  reason?: string;
+  interactionId?: string | null;
+  taskId?: string | null;
+  reminderId?: string | null;
+  meta?: {
+    confidence?: number;
+    fallbackLayer?: string;
+    provider?: string;
+    model?: string;
+    latencyMs?: number;
+  };
+}
+
+type GentleReminderTurn = {
+  role: "user" | "assistant";
+  text: string;
+  interactionId?: string | null;
+};
 
 const LOAD_COLORS: Record<string, string> = {
   none: "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500",
@@ -69,8 +118,11 @@ const SUGGESTED_QUESTIONS = [
 
 export default function PlannerPage() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const [question, setQuestion] = useState("");
   const [chatHistory, setChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiChatHistory, setAiChatHistory] = useState<GentleReminderTurn[]>([]);
   const [reviewInput, setReviewInput] = useState("");
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewActions, setReviewActions] = useState<ProposedAction[]>([]);
@@ -84,15 +136,128 @@ export default function PlannerPage() {
   }, []);
 
   const { data: briefing, isLoading } = useBriefing();
+  const { user } = useAuth();
+  const remindersSummary = useRemindersSummary({ enabled: Boolean(user) });
+
+  const { data: allTasks = [] } = useQuery<Task[]>({
+    queryKey: ["/api/tasks"],
+    staleTime: 30_000,
+  });
+  const ganttPack = useGanttPackUnlocked();
+
+  const bundleId = useMemo(() => {
+    try {
+      const raw = new URLSearchParams(search).get("bundle")?.trim() ?? "";
+      return /^[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$/i.test(raw)
+        ? raw
+        : "";
+    } catch {
+      return "";
+    }
+  }, [search]);
+
+  const { data: bundlePrefilter } = useQuery({
+    queryKey: ["/api/conversion-artifacts", bundleId],
+    enabled: Boolean(bundleId),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/conversion-artifacts/${bundleId}`);
+      if (!r.ok) throw new Error("bundle");
+      return (await r.json()) as { tasks: Task[] };
+    },
+  });
+
+  const bundleMemberIds = useMemo(
+    () => new Set(bundlePrefilter?.tasks.map((t) => t.id) ?? []),
+    [bundlePrefilter],
+  );
+
+  const [certificationView, setCertificationView] = useState<
+    "all" | "certification" | "hard" | "blocked"
+  >("all");
+
+  const ganttSourceTasks = useMemo(() => {
+    let t = allTasks;
+    if (bundleId) t = t.filter((x) => bundleMemberIds.has(x.id));
+    if (certificationView === "certification") {
+      t = t.filter((x) => x.classification === "Certification");
+    } else if (certificationView === "hard") {
+      t = t.filter(
+        (x) =>
+          x.deadlineType === "hard" ||
+          x.deadlineType === "audit-risk" ||
+          x.deadlineType === "exam",
+      );
+    } else if (certificationView === "blocked") {
+      const done = new Set(
+        allTasks.filter((x) => x.status === "completed").map((x) => x.id),
+      );
+      t = t.filter((x) => {
+        const deps = x.dependsOn ?? [];
+        return deps.some((d) => !done.has(d));
+      });
+    }
+    return t;
+  }, [allTasks, bundleId, bundleMemberIds, certificationView]);
+
+  const ganttCriticalIds = useMemo(() => {
+    const exam = ganttSourceTasks.find((x) => x.deadlineType === "exam");
+    const terminal = exam?.id ?? ganttSourceTasks[ganttSourceTasks.length - 1]?.id;
+    if (!terminal) return undefined;
+    return computeCriticalPathIds(ganttSourceTasks, terminal);
+  }, [ganttSourceTasks]);
+
+  const timelineSummary = useMemo(
+    () => computeTimelineSummaryCounts(ganttSourceTasks),
+    [ganttSourceTasks],
+  );
+
+  const timelineScopeParam = useMemo(() => {
+    switch (certificationView) {
+      case "certification":
+        return "certification";
+      case "hard":
+        return "hard-deadlines";
+      case "blocked":
+        return "blocked";
+      default:
+        return "next-21-days";
+    }
+  }, [certificationView]);
+
+  const openTimelineWorkspace = useCallback(() => {
+    const q = new URLSearchParams();
+    q.set("scope", timelineScopeParam);
+    if (bundleId) q.set("bundle", bundleId);
+    setLocation(`/planner/timeline?${q.toString()}`);
+  }, [bundleId, setLocation, timelineScopeParam]);
 
   interface PatternInsight {
-    type: "topic" | "recurrence" | "deadline_rhythm" | "similarity_cluster";
+    type: "topic" | "recurrence" | "deadline_rhythm" | "similarity_cluster" | "markov_local";
     title: string;
     description: string;
     confidence: number;
     taskIds?: string[];
     data: Record<string, unknown>;
   }
+
+  const [localMarkovInsights, setLocalMarkovInsights] = useState<LocalMarkovInsight[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const uid = user?.id ?? allTasks[0]?.userId ?? "";
+    if (!uid) {
+      setLocalMarkovInsights([]);
+      return;
+    }
+    void loadLocalCompletionLedger(uid).then((ledger) => {
+      if (cancelled) return;
+      const pending = allTasks.filter((t) => t.status !== "completed");
+      setLocalMarkovInsights(buildLocalMarkovInsights(uid, pending, allTasks, ledger));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, allTasks]);
 
   const handleInsightClick = useCallback(
     (insight: PatternInsight) => {
@@ -131,6 +296,11 @@ export default function PlannerPage() {
     queryKey: ["/api/patterns/insights"],
     refetchInterval: 120000,
   });
+
+  const mergedPlannerInsights = useMemo(
+    () => mergePlannerInsights(localMarkovInsights, patternData?.insights ?? [], 8) as PatternInsight[],
+    [patternData?.insights, localMarkovInsights],
+  );
 
   const learnMutation = useMutation({
     mutationFn: async () => {
@@ -257,6 +427,92 @@ export default function PlannerPage() {
     },
   });
 
+  const aiFeedbackMutation = useMutation({
+    mutationFn: async (input: { interactionId: string; verdict: "correct" | "wrong" | "needs_edit" }) => {
+      await apiRequest("POST", `/api/ai/interactions/${encodeURIComponent(input.interactionId)}/feedback`, {
+        verdict: input.verdict,
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Thanks — feedback saved." });
+    },
+    onError: () => {
+      toast({ title: "Could not save feedback", variant: "destructive" });
+    },
+  });
+
+  const aiExecuteMutation = useMutation({
+    mutationFn: async (message: string) => {
+      const res = await apiRequest("POST", "/api/ai/execute", { message });
+      return res.json() as Promise<AiExecuteResponse>;
+    },
+    onSuccess: (data, message) => {
+      const assistantText =
+        data.type === "action_result"
+          ? (data.message || "Done.")
+          : `Need clarification: ${data.clarification || "Please provide more details."}`;
+      setAiChatHistory((prev) => [
+        ...prev,
+        { role: "user", text: message },
+        {
+          role: "assistant",
+          text: assistantText,
+          interactionId: data.interactionId ?? null,
+        },
+      ]);
+      queryClient.invalidateQueries({ queryKey: ["/api/reminders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/reminders/summary"] });
+      if (data.type === "action_result" && data.action === "create_task") {
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      }
+    },
+    onError: (error: unknown) => {
+      const text = error instanceof Error ? error.message : "Failed to process reminder chat.";
+      toast({
+        title: "Gentle Reminder chat unavailable",
+        description: text,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const grocerySuggestMutation = useMutation({
+    mutationFn: async (applyOptInAutomation: boolean) => {
+      const res = await apiRequest("POST", "/api/grocery-reminders/suggest", { applyOptInAutomation });
+      return res.json() as Promise<{
+        suggestions: BriefingData["shopping"]["repurchaseSuggestions"];
+        automation: {
+          taskCreated: number;
+          notificationQueued: number;
+        };
+      }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/planner/briefing"] });
+      const parts: string[] = [];
+      if ((data.automation.taskCreated ?? 0) > 0) {
+        parts.push(`created ${data.automation.taskCreated} task(s)`);
+      }
+      if ((data.automation.notificationQueued ?? 0) > 0) {
+        parts.push(`queued ${data.automation.notificationQueued} nudge(s)`);
+      }
+      toast({
+        title: "Grocery suggestions refreshed",
+        description:
+          parts.length > 0
+            ? `Opt-in automation ${parts.join(" and ")}.`
+            : "Latest grocery repurchase suggestions are now in your planner.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Could not refresh grocery suggestions",
+        description: "Try again in a moment.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleAsk = useCallback(() => {
     const q = question.trim();
     if (!q) return;
@@ -264,12 +520,29 @@ export default function PlannerPage() {
     askMutation.mutate(q);
   }, [question, askMutation]);
 
+  const handleAiExecute = useCallback(() => {
+    const message = aiMessage.trim();
+    if (!message) return;
+    setAiMessage("");
+    aiExecuteMutation.mutate(message);
+  }, [aiMessage, aiExecuteMutation]);
+
   const todayStr = briefing?.today || new Date().toISOString().split("T")[0];
   const todayFormatted = new Date(todayStr + "T12:00:00").toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
   });
+
+  const isShoppingLike = useCallback(
+    (task: Task) =>
+      isShoppingTask({
+        classification: task.classification,
+        activity: task.activity,
+        notes: task.notes,
+      }),
+    [],
+  );
 
   return (
     <div className="p-4 md:p-6 space-y-6 md:space-y-8 max-w-5xl mx-auto">
@@ -386,9 +659,78 @@ export default function PlannerPage() {
                 : `You have ${briefing.thisWeek.total} task${briefing.thisWeek.total !== 1 ? "s" : ""} this week. Looking good!`}
           </p>
 
+          <div id="gantt">
+            <section className="axtask-stable-panel glass-panel-glossy overflow-hidden flex flex-col">
+              <header className="px-5 py-4 border-b border-white/10 dark:border-white/5 bg-gradient-to-r from-indigo-50/50 to-purple-50/50 dark:from-indigo-900/20 dark:to-purple-900/20">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <h2 className="text-base font-semibold flex items-center gap-2 text-indigo-900 dark:text-indigo-100">
+                      <BarChart3 className="h-5 w-5 text-indigo-500" />
+                      Task Timeline
+                    </h2>
+                    <p className="text-xs mt-1 text-indigo-700/80 dark:text-indigo-300/80">
+                      AI-assisted Gantt view of scheduled work
+                      {ganttCriticalIds && ganttCriticalIds.size > 0
+                        ? ` · ${ganttCriticalIds.size} tasks on critical path (exam milestone)`
+                        : ""}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select
+                      value={certificationView}
+                      onValueChange={(v) => setCertificationView(v as typeof certificationView)}
+                    >
+                      <SelectTrigger className="h-8 w-[200px] text-xs" aria-label="Timeline task filter">
+                        <SelectValue placeholder="Filter" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All tasks</SelectItem>
+                        <SelectItem value="certification">Certification only</SelectItem>
+                        <SelectItem value="hard">Hard deadlines</SelectItem>
+                        <SelectItem value="blocked">Blocked</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {bundleId ? (
+                      <span className="text-[10px] rounded-full border border-indigo-400/40 px-2 py-0.5 text-indigo-700 dark:text-indigo-300">
+                        Bundle
+                      </span>
+                    ) : null}
+                  </div>
+                  {ganttPack.unlocked ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/30 px-2.5 py-1 text-xs text-emerald-600 dark:text-emerald-400 shadow-sm">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {ganttPack.reason === "avatar-level" ? "Unlocked via avatar" : "Unlocked"}
+                    </span>
+                  ) : (
+                    <Link
+                      href="/rewards?tab=shop"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 border border-amber-400/30 px-2.5 py-1 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-500/25 transition-colors shadow-sm"
+                    >
+                      <Lock className="h-3.5 w-3.5" />
+                      Customize (avatar L3+ or 250 AxCoins)
+                    </Link>
+                  )}
+                </div>
+              </header>
+              <div className="p-5 flex-1 flex flex-col gap-4">
+                <TimelineSummaryCard
+                  blockerCount={timelineSummary.blockerCount}
+                  milestoneCount={timelineSummary.milestoneCount}
+                  hardDeadlineCount={timelineSummary.hardDeadlineCount}
+                  onOpenWorkspace={openTimelineWorkspace}
+                />
+                <p className="text-xs text-indigo-800/70 dark:text-indigo-200/60 leading-relaxed max-w-lg">
+                  {ganttPack.unlocked
+                    ? "Open the Timeline Workspace for pan/zoom, minimap, dependency arrows, swimlanes, and the full legend."
+                    : "Open the Timeline Workspace for the navigable chart. Unlock the Gantt Timeline Pack in the Rewards shop for swimlanes, dependency arrows, and priority coloring."}
+                </p>
+              </div>
+            </section>
+          </div>
+
           {briefing.overdue.count > 0 && (
-            <div className="axtask-fade-in-up" style={{ animationDelay: "80ms" }}>
-              <Card className="border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10">
+            <div className="axtask-stable-panel">
+              <Card className="axtask-stable-panel border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2 text-red-700 dark:text-red-400">
                     <AlertTriangle className="h-4 w-4" />
@@ -404,6 +746,12 @@ export default function PlannerPage() {
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{t.activity}</p>
+                          {isShoppingLike(t) ? (
+                            <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-300/50 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-900/20 dark:text-emerald-300">
+                              <ShoppingCart className="h-2.5 w-2.5" />
+                              Shopping
+                            </span>
+                          ) : null}
                           <p className="text-xs text-red-500">Was due {t.date}</p>
                         </div>
                         <PriorityBadge priority={t.priority} score={(t.priorityScore || 0) / 10} />
@@ -452,8 +800,8 @@ export default function PlannerPage() {
           )}
 
           {briefing.dueWithinHour.count > 0 && (
-            <div className="axtask-fade-in-up" style={{ animationDelay: "100ms" }}>
-              <Card className="border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-900/10">
+            <div className="axtask-stable-panel">
+              <Card className="axtask-stable-panel border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-900/10">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2 text-orange-700 dark:text-orange-400">
                     <Clock className="h-4 w-4" />
@@ -468,6 +816,12 @@ export default function PlannerPage() {
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{t.activity}</p>
+                        {isShoppingLike(t) ? (
+                          <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-300/50 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-900/20 dark:text-emerald-300">
+                            <ShoppingCart className="h-2.5 w-2.5" />
+                            Shopping
+                          </span>
+                        ) : null}
                         <p className="text-xs text-orange-600 dark:text-orange-400">Due at {t.time}</p>
                       </div>
                       <PriorityBadge priority={t.priority} />
@@ -478,9 +832,80 @@ export default function PlannerPage() {
             </div>
           )}
 
+          <div className="axtask-stable-panel">
+            <Card className="axtask-stable-panel border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-900/10">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
+                  <ShoppingCart className="h-4 w-4" />
+                  Grocery / Shopping
+                  <span className="ml-auto text-xs font-normal text-emerald-600/80 dark:text-emerald-400/80">
+                    {briefing.shopping.count} active
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <Link href="/shopping">
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      Open shopping list
+                    </Button>
+                  </Link>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs border-emerald-300 dark:border-emerald-700"
+                    disabled={grocerySuggestMutation.isPending}
+                    onClick={() => grocerySuggestMutation.mutate(false)}
+                  >
+                    Refresh suggestions
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs border-emerald-300 dark:border-emerald-700"
+                    disabled={grocerySuggestMutation.isPending}
+                    onClick={() => grocerySuggestMutation.mutate(true)}
+                  >
+                    Apply opt-in automation
+                  </Button>
+                </div>
+
+                {briefing.shopping.repurchaseSuggestions.length > 0 ? (
+                  <div className="space-y-2">
+                    {briefing.shopping.repurchaseSuggestions.slice(0, 4).map((s) => (
+                      <div
+                        key={`${s.item}-${s.suggestedDate}`}
+                        className="rounded-lg border border-emerald-100 dark:border-emerald-900/40 bg-white/70 dark:bg-gray-900/30 p-2.5"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                            {s.item}
+                          </p>
+                          <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium">
+                            {s.confidence}%
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                          {s.reason}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    No grocery cadence suggestions yet. Continue checking off shopping items and planner will learn your rhythm.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="axtask-fade-in-up" style={{ animationDelay: "120ms" }}>
-              <Card>
+            <div className="axtask-stable-panel">
+              <Card className="axtask-stable-panel">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-purple-500" />
@@ -504,6 +929,12 @@ export default function PlannerPage() {
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{t.activity}</p>
+                          {isShoppingLike(t) ? (
+                            <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-300/50 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-900/20 dark:text-emerald-300">
+                              <ShoppingCart className="h-2.5 w-2.5" />
+                              Shopping
+                            </span>
+                          ) : null}
                           <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-0.5">
                             <ArrowRight className="h-3 w-3" />
                             {t.reason}
@@ -517,8 +948,8 @@ export default function PlannerPage() {
               </Card>
             </div>
 
-            <div className="axtask-fade-in-up" style={{ animationDelay: "140ms" }}>
-              <Card>
+            <div className="axtask-stable-panel">
+              <Card className="axtask-stable-panel">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
                     <CalendarDays className="h-4 w-4 text-indigo-500" />
@@ -553,8 +984,8 @@ export default function PlannerPage() {
             </div>
           </div>
 
-          <div className="axtask-fade-in-up" style={{ animationDelay: "160ms" }}>
-            <Card className="border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50/50 to-purple-50/50 dark:from-indigo-900/10 dark:to-purple-900/10">
+          <div className="axtask-stable-panel">
+            <Card className="axtask-stable-panel border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50/50 to-purple-50/50 dark:from-indigo-900/10 dark:to-purple-900/10">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <ClipboardCheck className="h-4 w-4 text-indigo-500" />
@@ -626,8 +1057,8 @@ export default function PlannerPage() {
             </Card>
           </div>
 
-          <div className="axtask-fade-in-up" style={{ animationDelay: "180ms" }}>
-            <Card className="border-emerald-200 dark:border-emerald-800 bg-gradient-to-r from-emerald-50/50 to-teal-50/50 dark:from-emerald-900/10 dark:to-teal-900/10">
+          <div className="axtask-stable-panel">
+            <Card className="axtask-stable-panel border-emerald-200 dark:border-emerald-800 bg-gradient-to-r from-emerald-50/50 to-teal-50/50 dark:from-emerald-900/10 dark:to-teal-900/10">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Lightbulb className="h-4 w-4 text-emerald-500" />
@@ -660,20 +1091,22 @@ export default function PlannerPage() {
                   <div className="flex items-center justify-center py-6">
                     <Loader2 className="h-5 w-5 animate-spin text-emerald-500" />
                   </div>
-                ) : patternData && patternData.insights.length > 0 ? (
+                ) : mergedPlannerInsights.length > 0 ? (
                   <div className="space-y-3">
-                    {patternData.insights.slice(0, 6).map((insight, idx) => {
+                    {mergedPlannerInsights.map((insight, idx) => {
                       const iconMap: Record<string, typeof Repeat> = {
                         topic: BarChart3,
                         recurrence: Repeat,
                         deadline_rhythm: CalendarClock,
                         similarity_cluster: Users,
+                        markov_local: Brain,
                       };
                       const colorMap: Record<string, string> = {
                         topic: "text-blue-500 bg-blue-50 dark:bg-blue-900/20",
                         recurrence: "text-amber-500 bg-amber-50 dark:bg-amber-900/20",
                         deadline_rhythm: "text-purple-500 bg-purple-50 dark:bg-purple-900/20",
                         similarity_cluster: "text-teal-500 bg-teal-50 dark:bg-teal-900/20",
+                        markov_local: "text-cyan-600 bg-cyan-50 dark:bg-cyan-900/25",
                       };
                       const InsightIcon = iconMap[insight.type] || Lightbulb;
                       const colorClass = colorMap[insight.type] || "text-gray-500 bg-gray-50 dark:bg-gray-900/20";
@@ -701,8 +1134,13 @@ export default function PlannerPage() {
                               <InsightIcon className="h-3.5 w-3.5" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                                {insight.title}
+                              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate flex items-center gap-2">
+                                {insight.type === "markov_local" && (
+                                  <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-cyan-700 dark:text-cyan-300 bg-cyan-100/80 dark:bg-cyan-900/40 px-1.5 py-0.5 rounded">
+                                    On-device
+                                  </span>
+                                )}
+                                <span className="truncate">{insight.title}</span>
                               </p>
                               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
                                 {insight.description}
@@ -736,8 +1174,8 @@ export default function PlannerPage() {
             </Card>
           </div>
 
-          <div className="axtask-fade-in-up" style={{ animationDelay: "200ms" }}>
-            <Card>
+          <div className="axtask-stable-panel">
+            <Card className="axtask-stable-panel">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <MessageCircle className="h-4 w-4 text-purple-500" />
@@ -803,6 +1241,134 @@ export default function PlannerPage() {
                     className="bg-purple-600 hover:bg-purple-700 text-white"
                   >
                     {askMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="axtask-stable-panel">
+            <Card className="axtask-stable-panel border-violet-200 dark:border-violet-800 bg-violet-50/40 dark:bg-violet-900/10">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <MessageCircle className="h-4 w-4 text-violet-500" />
+                  Gentle Reminder Chat (beta)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  Ask in plain English to create reminders or tasks. Set home/work places under Settings so
+                  location reminders can run.
+                </p>
+
+                {remindersSummary.data?.reminders && remindersSummary.data.reminders.length > 0 ? (
+                  <div className="rounded-md border border-violet-100 dark:border-violet-900/40 bg-white/50 dark:bg-gray-900/30 px-2 py-2 text-xs space-y-1 max-h-28 overflow-y-auto">
+                    <div className="font-medium text-muted-foreground">Your reminders</div>
+                    {remindersSummary.data.reminders.slice(0, 8).map((r) => (
+                      <div key={`${r.source}-${r.id}`} className="flex justify-between gap-2 min-w-0">
+                        <span className="truncate text-foreground">{r.title}</span>
+                        <span className="shrink-0 text-muted-foreground tabular-nums">
+                          {r.triggerType ?? r.source}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {aiChatHistory.length > 0 && (
+                  <div className="space-y-3 max-h-52 overflow-y-auto rounded-lg bg-white/70 dark:bg-gray-800/50 p-3 border border-violet-100 dark:border-violet-900/30">
+                    {aiChatHistory.map((msg, i) => (
+                      <div
+                        key={i}
+                        className={`flex flex-col gap-1.5 ${msg.role === "user" ? "items-end" : "items-start"}`}
+                      >
+                        <div
+                          className={`max-w-[88%] rounded-lg px-3 py-2 text-sm whitespace-pre-line ${
+                            msg.role === "user"
+                              ? "bg-violet-600 text-white"
+                              : "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-600"
+                          }`}
+                        >
+                          {msg.text}
+                        </div>
+                        {msg.role === "assistant" && msg.interactionId ? (
+                          <div className="flex flex-wrap gap-1 max-w-[88%]">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
+                              disabled={aiFeedbackMutation.isPending}
+                              onClick={() =>
+                                aiFeedbackMutation.mutate({
+                                  interactionId: msg.interactionId!,
+                                  verdict: "correct",
+                                })
+                              }
+                            >
+                              Correct
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
+                              disabled={aiFeedbackMutation.isPending}
+                              onClick={() =>
+                                aiFeedbackMutation.mutate({
+                                  interactionId: msg.interactionId!,
+                                  verdict: "wrong",
+                                })
+                              }
+                            >
+                              Wrong
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
+                              disabled={aiFeedbackMutation.isPending}
+                              onClick={() =>
+                                aiFeedbackMutation.mutate({
+                                  interactionId: msg.interactionId!,
+                                  verdict: "needs_edit",
+                                })
+                              }
+                            >
+                              Needs edit
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Input
+                    placeholder='e.g. "Set a reminder to check my oil five minutes after I get home every day."'
+                    value={aiMessage}
+                    onChange={(e) => setAiMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAiExecute();
+                      }
+                    }}
+                    disabled={aiExecuteMutation.isPending}
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={handleAiExecute}
+                    disabled={!aiMessage.trim() || aiExecuteMutation.isPending}
+                    className="bg-violet-600 hover:bg-violet-700 text-white"
+                  >
+                    {aiExecuteMutation.isPending ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Send className="h-4 w-4" />
