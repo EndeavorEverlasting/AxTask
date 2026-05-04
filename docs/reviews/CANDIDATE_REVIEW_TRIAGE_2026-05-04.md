@@ -33,3 +33,8 @@ Target: main
 
 | Review ID | Reason Rejected |
 |---|---|
+
+| CAND-005 | Manual | client/src/pages/messages.tsx | Candidate replaced E2EE DM implementation with plaintext message flow. | P0/P1 | Restored | E2EE/security posture must not regress silently. | Re-run objective contracts and check/build. |
+| CAND-006 | Manual | client/src/components/share-dialog.tsx | Candidate removed MFA-gated community publish/unpublish, public-handle invite flow, suggestions, and offline sync handling. | P1/P2 | Restored | Sharing/collaboration security and offline behavior are active user workflows. | Add focused share-dialog regression tests later. |
+| CAND-007 | Manual | client/src/pages/planner.tsx | Candidate removed planner timeline/Gantt, bundle scoping, AI execute, reminder/grocery, and local insight features. | P2 | Restored | Active planner workflows should not be removed inside a broad candidate without explicit product decision. | Consider factoring planner changes into a separate branch. |
+| CAND-008 | Manual | server/engagement-rewards.ts / server/use-case-engagement.contract.test.ts | Candidate changed engagement reward reason strings/caps and removed contract assertions. | P2/P3 | Restored | Reward identifiers and contract coverage should stay stable unless intentionally migrated. | Separate economy migration required if changing reason strings. |
