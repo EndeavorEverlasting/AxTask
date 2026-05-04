@@ -12,7 +12,17 @@ import { Input } from "@/components/ui/input";
 import { Loader2, ArrowLeft, ThumbsUp, ThumbsDown, MessageSquare, Flag, Pin, Eye, EyeOff, Trash2, Clock, Send } from "lucide-react";
 import { AvatarCard } from "@/components/avatar-card";
 import { MarkdownRenderer } from "@/components/markdown-editor";
-import type { ForumPost, ForumComment, ForumVote } from "@shared/schema";
+type ForumPost = {
+  id: string; userId: string; title: string; body: string; category: string;
+  tags?: string[]; imageUrls?: string[]; pinned?: boolean; hidden?: boolean;
+  upvotes: number; downvotes: number; createdAt: string | Date; postId?: string;
+  reactions?: Record<string, string[]>;
+};
+type ForumComment = {
+  id: string; userId: string; body: string; upvotes: number; downvotes: number;
+  hidden?: boolean; reactions?: Record<string, string[]>; createdAt: string | Date;
+};
+type ForumVote = { id: string; postId?: string; commentId?: string; voteType: "up" | "down" };
 
 const CATEGORY_COLORS: Record<string, string> = {
   Tips: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",

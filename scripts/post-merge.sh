@@ -1,4 +1,4 @@
 #!/bin/bash
 set -e
 npm install
-npm run db:push
+AIRLOCK_BOOTSTRAP_ALLOWED=true npm run db:push

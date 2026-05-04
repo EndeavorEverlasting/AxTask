@@ -14,12 +14,11 @@ A full-stack task management application with an intelligent priority scoring en
 ```bash
 npm install
 cp .env.example .env
-npm run start:local
+npm run db:push
+npm run dev
 ```
 
 Visit `http://localhost:5000` to access the application.
-
-`npm run start:local` runs the smart local startup flow (SQL migrations first, then `db:push` when needed, then dev server). Use `npm run dev` only when you intentionally want server-only startup without schema automation. For command ordering details, see **[docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)**. For a **grouped list of all major env vars** (database, VAPID/push, auth, `VITE_*` build-time keys), see **[docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)**.
 
 ## Docker Quick Start (Recommended for Workstations)
 
@@ -65,7 +64,7 @@ Full companion options (auth, CORS, persistence): **[docs/ALARM_COMPANION.md](do
 - In-app: use `Install App Shortcut` in the left sidebar to install on desktop/mobile home screen (or show setup steps if browser prompt is unavailable)
 - First-login CTA: users also see a top install banner with `Dismiss` and `Don't show again` controls
 
-This flow runs [`tools/local/offline-start.mjs`](tools/local/offline-start.mjs): installs dependencies when needed, ensures `.env` via `local:env-init`, runs **`node scripts/apply-migrations.mjs` every time**, runs **`npm run db:push`** only when the schema fingerprint changed (`shared/schema.ts`, `drizzle.config.ts`, `migrations/*.sql`), then starts the dev server with `npx tsx server/index.ts`. Details: [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md).
+This flow automatically installs dependencies (first run), creates `.env` from `.env.example` if missing, runs `db:push`, and starts the app.
 
 ## Local + Offline Workflow
 
@@ -77,10 +76,8 @@ You can run AxTask fully local (including when offline) as long as your PostgreS
 2. Ensure `.env` has a local `DATABASE_URL` (for example `postgresql://postgres:postgres@localhost:5432/axtask`).
 3. Run from the AxTask project directory:
    - `npm install`
-   - After schema or migration changes: `node scripts/apply-migrations.mjs` (if `migrations/*.sql` changed) and/or `npm run db:push`
-  - `npm run start:local` (recommended; auto-applies migrations/schema before dev server)
-  - `npm run dev` (server only; does not run migrations or push)
-  - `npm run dev:smart` (same workflow as `start:local`)
+   - `npm run db:push`
+   - `npm run dev`
 4. Work offline as needed, then commit and push changes later when back online.
 
 ### Why local runs fail most often
@@ -147,9 +144,8 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 ## Development
 
 ### Scripts
-- `npm run dev` - Start development server only (no `apply-migrations`, no `db:push`)
-- `npm run start:local` - Recommended local startup: SQL migrations first, then conditional `db:push`, then dev server
-- `npm run dev:smart` - Smart local startup: SQL migrations every run, `db:push` when fingerprint changes, deps sync when lockfile changes; see [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md)
+- `npm run dev` - Start development server
+- `npm run dev:smart` - Smart local startup: sync deps only if lockfile changed, run `db:push` only if schema changed, then start dev server
 - `npm run deps:sync` - Sync dependencies from lockfile (`npm ci` fallback to `npm install`)
 - `npm run docker:start` - Build/start Docker app + Postgres stack
 - `npm run docker:stop` - Stop Docker stack (preserves named-volume data)
@@ -160,67 +156,6 @@ GOOGLE_CLIENT_SECRET=GOCSPX-...
 - `npm run db:push` - Sync database schema
 - `npm run test` - Run the full compendium of unit/integration/sweep tests (includes local login and Docker workflow guardrails)
 - `npm run check` - Run TypeScript checks
-
-### Git: testing vs deploy branch
-
-Running the app **locally** (or on a personal/staging URL) is the right place to try changes live. **Pushing** to the remote branch your hosting or CD pipeline deploys from can ship unfinished work or trigger production builds without a review gate. Prefer a **feature branch** for day-to-day commits, then open a **PR** into your team’s integration branch when you are ready to merge. See **[docs/GIT_BRANCHING_AND_DEPLOYMENT.md](docs/GIT_BRANCHING_AND_DEPLOYMENT.md)** for a short checklist (confirm current branch before `git push`, avoid using the deploy-connected branch as a scratchpad).
-
-### PR Size and Segmentation Policy
-
-Code review quality drops on very large PRs. Keep pull requests below the hard CI cap and prefer smaller slices for CodeRabbit review.
-
-- CI hard stop is enforced at 300 changed files by [`.github/workflows/pr-file-limit.yml`](.github/workflows/pr-file-limit.yml).
-- Recommended review target is 200 files or less for better automated feedback quality.
-- For large branches, split by concern (schema/migrations, server API, client UI, docs/tests).
-- Use [`tools/local/split-pr-helper.mjs`](tools/local/split-pr-helper.mjs) to generate split manifests and branch commands:
-
-```bash
-node tools/local/split-pr-helper.mjs --base origin/main --max-files 200
-```
-
-- Or use use-case factoring CLI:
-
-```bash
-npm run pr:factor
-```
-
-### Monorepo Note
-
-- AxTask should be operated as a monorepo-style repository for CI and release workflows.
-- **NodeWeaver** (standalone universal classifier; also used by AxTask) is **vendored** at `services/nodeweaver/upstream`—not a git submodule. See [`docs/NODEWEAVER.md`](docs/NODEWEAVER.md).
-- NodeWeaver runs in hybrid mode: internal vendored component by default, optional external service mode when deployment profile requires it.
-- Classification ownership is shared: NodeWeaver engine core + AxTask fallback/orchestration policy.
-- The old path `NodeWeaver._pre_submodule_backup` is no longer tracked in git (legacy submodule gitlink removed); ignore any local leftover folder.
-- If NodeWeaver is required for local/CI integration, use the vendored `services/nodeweaver/upstream` path.
-
-### Deployment-Impact Test Sweep Policy
-
-If a change touches runtime behavior (API routes, storage/schema, auth, CI/CD, Docker, startup scripts), run a targeted sweep before merge:
-
-- `npm run check` (TypeScript guardrail)
-- targeted `npm test -- <path/to/test>` for each touched domain
-- migration sanity checks when SQL or shared schema changes
-- endpoint smoke checks for newly added or modified API routes
-
-Add or update unit tests when any of these apply:
-
-- new schema validation contracts
-- new route/storage behaviors
-- session/progression logic that mutates persisted state
-
-Recent mini-games push should be segmented as:
-
-1. schema + migration + schema tests
-2. server routes/storage + server tests
-3. client page/hooks/nav + UI tests
-4. docs/process updates
-
-Recommended validation per segment:
-
-- Segment 1: `npm test -- shared/study-schema.test.ts`
-- Segment 2: route/storage targeted tests (add new tests if absent for new handlers)
-- Segment 3: UI/component tests for mini-game entry and session flow
-- Segment 4: docs + CI workflow lint/sanity checks
 
 ### Auto-sync dependencies after pull
 
@@ -242,7 +177,7 @@ If something ever gets out of sync, run:
 npm run deps:sync
 ```
 
-For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/upstream`) or the selected external service profile ([`docs/NODEWEAVER.md`](docs/NODEWEAVER.md)).
+For matching behavior in `NodeWeaver`, run that repo's setup script once too.
 
 ### File Structure
 ```
@@ -255,25 +190,19 @@ For NodeWeaver-matched behavior, use the vendored path (`services/nodeweaver/ups
 
 ## Documentation
 
-- **[Canonical Philosophy](docs/README.md)** - Completion-first doctrine, clarify-before-generate behavior, and avatar/privacy contract links
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - Technical architecture details
-- **[NodeWeaver in this repo](docs/NODEWEAVER.md)** - Standalone classifier vs vendored monorepo path (`services/nodeweaver/upstream`)
-- **[Active/Legacy Index](docs/ACTIVE_LEGACY_INDEX.md)** - Canonical active vs transitional vs legacy classification
-- **[Debugging Reference](docs/DEBUGGING_REFERENCE.md)** - Deployment-impact test sweep checklist and common fixes
-- **[Report Engine and Agent Contracts](docs/REPORT_ENGINE_AGENT_CONTRACTS.md)** - Report engine lifecycle and ambiguity gates
-- **[Clarification Protocol](docs/CLARIFICATION_PROTOCOL.md)** - Mandatory question-asking rules before report generation
-- **[RAG and Classification Blueprint](docs/RAG_CLASSIFICATION_BLUEPRINT.md)** - Retrieval + classification architecture for trusted output
-- **[Orb and Avatar Experience Contract](docs/ORB_AVATAR_EXPERIENCE_CONTRACT.md)** - Orb UX philosophy and mood/avatar behavior system
-- **[Scroll and calm-mode visual stability](docs/SCROLL_REFRESH_VISUAL_STABILITY.md)** - Pretext + glass + Gantt compositor contract (`data-axtask-calm`, nav chrome, scroll budget)
-- **[Community Automation Privacy Contract](docs/COMMUNITY_AUTOMATION_PRIVACY_CONTRACT.md)** - Public community automation and data-minimization guardrails
 - **[Google Sheets Setup](docs/GOOGLE_SHEETS_SETUP.md)** - API configuration guide
 - **[Security Guidelines](docs/SECURITY.md)** - Security best practices
 - **[Version History](VERSION.md)** - Release notes and changelog
-- **[Deployment Migration Plan](docs/DEPLOYMENT_MIGRATION_PLAN.md)** - Transitional runbook: 48-hour cutover and rollback guardrails
-- **[Next Setup Blueprint](docs/NEXT_SETUP_BLUEPRINT.md)** - Transitional runbook: host/DB/domain and integration groundwork
-- **[Cutover Runbook](docs/CUTOVER_RUNBOOK.md)** - Transitional runbook: zero-downtime DNS cutover with Replit fallback
-- **[Morning New-Box Migration Guide](docs/MORNING_NEW_BOX_MIGRATION_GUIDE.md)** - Transitional runbook: fresh-machine checklist with vendor/domain decisions
-- **[Morning Migration Checklist](docs/MORNING_NEW_BOX_MIGRATION_CHECKLIST.md)** - Transitional runbook: execution-only checklist for fast cutover
+- **[Production migration branch report](docs/PRODUCTION_MIGRATION_BRANCH_REPORT.md)** - Compare `main` / `experimental/next` vs Replit publish lines and `baseline/published` before DB cutover
+- **[Unified migration log](docs/MIGRATION_UNIFIED_LOG.md)** - Replit SHAs `008a8b0` / `afe5210`, deploy **D**, and integration tip **U**
+- **[Staging and cutover runbook](docs/STAGING_CUTOVER_RUNBOOK.md)** - Restore staging DB, `db:push`, attachments, production cutover
+- **[Migration automation](docs/MIGRATION_AUTOMATION.md)** - `migration:verify-schema`, smoke API, pg backup/restore scripts
+- **[Deployment Migration Plan](docs/DEPLOYMENT_MIGRATION_PLAN.md)** - 48-hour cutover and rollback guardrails
+- **[Next Setup Blueprint](docs/NEXT_SETUP_BLUEPRINT.md)** - Host/DB/domain and integration groundwork
+- **[Cutover Runbook](docs/CUTOVER_RUNBOOK.md)** - Zero-downtime DNS cutover with Replit fallback
+- **[Morning New-Box Migration Guide](docs/MORNING_NEW_BOX_MIGRATION_GUIDE.md)** - Fresh-machine checklist with vendor/domain decisions
+- **[Morning Migration Checklist](docs/MORNING_NEW_BOX_MIGRATION_CHECKLIST.md)** - Execution-only checklist for fast cutover
 - **[Branding and Fallback Modularity](docs/BRANDING.md)** - Logo paths and host-pivot guardrails
 - **[Per-Time Activity Association Test Plan](docs/PER_TIME_ACTIVITY_ASSOCIATION_TEST_PLAN.md)** - Active-user gating metrics and premium-affinity validation fixtures
 - **[Docker-First Accessibility Path](docs/DOCKER_ACCESSIBILITY_PATH.md)** - Step-by-step path to make startup and updates easy for non-technical users
@@ -373,12 +302,6 @@ See **[docs/NOTIFICATIONS_AND_PUSH.md](docs/NOTIFICATIONS_AND_PUSH.md)** for the
 Required env for browser push subscription:
 ```env
 VITE_VAPID_PUBLIC_KEY=...
-```
-
-Optional server-side fallback for runtime push-key publication (used by
-`/api/notifications/push-public-config`):
-```env
-VAPID_PUBLIC_KEY=...
 ```
 
 After pulling these changes, run:

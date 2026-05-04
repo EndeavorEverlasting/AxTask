@@ -5,7 +5,11 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Paperclip, Upload, X, Image, FileText, Loader2, Maximize2 } from "lucide-react";
-import { type TaskAttachment } from "@shared/schema";
+type TaskAttachment = {
+  id: string; taskId: string; fileName: string; filename?: string;
+  fileUrl: string; path?: string; thumbnailPath?: string;
+  type?: string; mimeType: string; fileSize: number; createdAt: string | null;
+};
 
 interface AttachmentUploadProps {
   taskId: string;
@@ -188,7 +192,7 @@ export function AttachmentList({ attachments, taskId, editable = false, compact 
             {att.type === "image" ? (
               <div
                 className="w-16 h-16 rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 cursor-pointer hover:opacity-90 transition-opacity"
-                onClick={() => setLightboxSrc(att.path)}
+                onClick={() => setLightboxSrc(att.path ?? null)}
               >
                 <img
                   src={att.thumbnailPath || att.path}

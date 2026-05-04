@@ -6,7 +6,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, ThumbsUp, ThumbsDown, Coins, Send, MessageSquare } from "lucide-react";
-import type { Survey } from "@shared/schema";
+type Survey = {
+  id: string; question: string; promptType: string; coinReward: number;
+  cooldownHours?: number; targetModule?: string; options?: string[];
+};
 
 const SURVEY_DISMISS_KEY = "axtask_survey_dismiss";
 const SURVEY_FIRST_VISIT_KEY = "axtask_first_visits";

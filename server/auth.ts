@@ -4,7 +4,6 @@ import { Strategy as LocalStrategy } from "passport-local";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
-import { getSessionMaxAgeMs, getSessionStoreTtlSeconds } from "./session-config";
 import { getUserByEmail, getUserById, verifyPassword } from "./storage";
 import type { Express, Request, Response, NextFunction } from "express";
 import type { SafeUser } from "@shared/schema";
@@ -41,46 +40,27 @@ function resolveSessionSecret(): string {
   return ephemeral;
 }
 
-function useDevMemorySessionStore(): boolean {
-  if (process.env.NODE_ENV === "production") return false;
-  const v = (process.env.DEV_SESSION_MEMORY_STORE || "").trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes";
-}
-
 export function setupAuth(app: Express) {
   const sessionSecret = resolveSessionSecret();
 
-  const memoryStore = useDevMemorySessionStore();
-  if (memoryStore) {
-    console.warn(
-      "[auth] DEV_SESSION_MEMORY_STORE is on — using in-memory sessions (no Postgres session table). " +
-        "Sessions reset on restart; login/OAuth still need the database for user records.",
-    );
-  }
-
-  // ── Session store: Postgres (default) or in-memory (dev-only escape hatch) ─
+  // ── Session store backed by PostgreSQL ──────────────────────────────────
   const PgStore = connectPgSimple(session);
-  const maxAgeMs = getSessionMaxAgeMs();
-  const store = memoryStore
-    ? undefined
-    : new PgStore({
-        pool: pool as any, // Neon Pool is compatible
-        createTableIfMissing: true,
-        ttl: getSessionStoreTtlSeconds(),
-      });
 
-  // WebSocket auth (collaboration) reads sessions from the same store instance as express-session.
-  (global as { __sessionStore?: InstanceType<typeof PgStore> | undefined }).__sessionStore = store;
+  const sessionStore = new PgStore({
+    pool: pool as any,
+    createTableIfMissing: true,
+  });
+  (global as { __sessionStore?: InstanceType<typeof PgStore> }).__sessionStore = sessionStore;
 
   app.use(
     session({
-      store,
+      store: sessionStore,
       secret: sessionSecret,
       name: "axtask.sid",
       resave: false,
       saveUninitialized: false,
       cookie: {
-        maxAge: maxAgeMs,
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
@@ -101,15 +81,13 @@ export function setupAuth(app: Express) {
           if (!user) {
             return done(null, false, { message: "Invalid email or password" });
           }
-          if (!user.passwordHash) {
-            return done(null, false, { message: "Use your OAuth provider to sign in" });
-          }
-          const valid = await verifyPassword(password, user.passwordHash);
+          const valid = await verifyPassword(password, user.passwordHash ?? "");
           if (!valid) {
             return done(null, false, { message: "Invalid email or password" });
           }
-          const safe = await getUserById(user.id);
-          return done(null, safe || false);
+          // Strip sensitive fields before serializing
+          const { passwordHash, failedLoginAttempts, lockedUntil, ...safeUser } = user;
+          return done(null, safeUser as unknown as Express.User);
         } catch (err) {
           return done(err);
         }

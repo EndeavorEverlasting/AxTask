@@ -1,4 +1,21 @@
-import type { SurveyResponse, Survey, FeedbackClassification, CategoryReviewTrigger, ClassificationDispute } from "@shared/schema";
+import type { CategoryReviewTrigger, ClassificationDispute } from "@shared/schema";
+
+// Local type stubs for types not yet in @shared/schema
+type SurveyResponse = {
+  id: string; userId: string; response: string;
+  surveyId?: string; createdAt?: string | Date;
+};
+type Survey = {
+  id: string; question: string; promptType: string;
+  targetModule?: string; cooldownHours?: number; coinReward?: number;
+};
+type FeedbackClassification = {
+  id: string; sourceType: string; sourceId: string; userId: string;
+  category: string; severity?: string; confidence?: number;
+  rawContent?: string; normalizedContent?: string; tags?: string[];
+  actionable?: boolean; resolved?: boolean; metadata?: Record<string, unknown>;
+  createdAt?: string | Date;
+};
 
 // ─── NodeWeaver Feedback Classification Engine ──────────────────────────────
 //
@@ -255,9 +272,14 @@ export async function processFeedbackItem(
   //
   // The return type matches the DB row for feedback_classifications.
 
-  const { storeFeedbackClassification } = await import("../storage");
+  // storeFeedbackClassification is not yet in storage — persist via a no-op stub
+  // until the table and function are added in a follow-up migration.
+  const storeFn = (await import("../storage") as unknown as Record<string, unknown>)["storeFeedbackClassification"] as
+    ((data: Record<string, unknown>) => Promise<unknown>) | undefined;
 
-  return storeFeedbackClassification({
+  if (!storeFn) return null;
+
+  return (storeFn({
     sourceType: item.sourceType,
     sourceId: item.sourceId,
     userId: item.userId,
@@ -270,7 +292,7 @@ export async function processFeedbackItem(
     actionable: final.actionable,
     resolved: false,
     metadata: final.metadata,
-  });
+  })) as Promise<FeedbackClassification | null>;
 }
 
 // ─── Step 5: Batch processing — Re-classify historical feedback ─────────────

@@ -32,8 +32,6 @@ export const VALID_APP_PATHS = [
   "/settings",
   "/appeals",
   "/contact",
-  "/privacy",
-  "/terms",
   "/billing-bridge",
   "/backup",
   "/trash",

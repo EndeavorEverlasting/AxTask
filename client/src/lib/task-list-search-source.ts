@@ -22,4 +22,3 @@ export function resolveTaskListSearchSource(input: {
   }
   return { baseTasks: input.allTasks, applyLocalSearch: true, serverSearchActive: false };
 }
-
