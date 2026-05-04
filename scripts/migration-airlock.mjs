@@ -88,10 +88,27 @@ async function main() {
     const backupTableExists = tableRows[0]?.table_ref !== null;
     if (!backupTableExists) {
       if (isProdLike && process.env.AIRLOCK_BOOTSTRAP_ALLOWED !== "true") {
-        console.error("[migration-airlock] FAILED: backup_records missing in production-like env and AIRLOCK_BOOTSTRAP_ALLOWED is not true.");
+        // Distinguish fresh bootstrap from an existing DB that somehow lacks the backup table
+        const { rows: migRows } = await client.query(`
+          SELECT to_regclass('public.applied_sql_migrations') AS table_ref
+        `);
+        const hasMigrations = migRows[0]?.table_ref !== null;
+
+        console.error("[migration-airlock] FAILED: backup_records missing in production-like env.");
+        if (hasMigrations) {
+          console.error("[migration-airlock] This database has previously run migrations, but the backup tracking table does not exist.");
+          console.error("[migration-airlock] If you recently added the backup system, create a backup first, or temporarily set AIRLOCK_BOOTSTRAP_ALLOWED=true for one deploy only.");
+        } else {
+          console.error("[migration-airlock] This looks like a first production bootstrap to a fresh database.");
+          console.error("[migration-airlock] If this is the initial deploy, set AIRLOCK_BOOTSTRAP_ALLOWED=true for one deploy only.");
+          console.error("[migration-airlock] Remove it immediately after migrations succeed.");
+        }
         process.exit(1);
       }
-      console.warn("[migration-airlock] backup_records table missing; allowing migrations because backup schema has not been created yet.");
+      const reason = process.env.AIRLOCK_BOOTSTRAP_ALLOWED === "true"
+        ? "AIRLOCK_BOOTSTRAP_ALLOWED=true — bootstrap permitted"
+        : "backup schema has not been created yet";
+      console.warn(`[migration-airlock] backup_records table missing; allowing migrations because ${reason}.`);
       return;
     }
 

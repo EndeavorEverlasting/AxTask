@@ -52,6 +52,9 @@ describe("[04-migrations] migration-airlock.mjs", () => {
     if (!src) src = fs.readFileSync(scriptPath, "utf8");
     expect(src).toMatch(/to_regclass\('public\.backup_records'\)/);
     expect(src).toMatch(/backup_records table missing; allowing migrations/i);
+    expect(src).toMatch(/AIRLOCK_BOOTSTRAP_ALLOWED=true/i);
+    expect(src).toMatch(/first production bootstrap/i);
+    expect(src).toMatch(/previously run migrations/i);
   });
 });
 

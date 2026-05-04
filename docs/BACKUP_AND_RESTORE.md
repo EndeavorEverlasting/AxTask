@@ -271,6 +271,10 @@ npm run db:push
 # Deep verification mode — also re-reads the file and compares the hash
 node scripts/migration-airlock.mjs --verify
 
+# First production bootstrap (fresh database without backup_records table)
+# Set for ONE deploy only, then remove immediately after success
+AIRLOCK_BOOTSTRAP_ALLOWED=true npm run db:migrate
+
 # Emergency bypass — use only when you understand the risk
 npm run db:migrate -- --skip-airlock
 # or
