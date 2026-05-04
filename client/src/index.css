@@ -299,8 +299,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-\\[task-flash-status_0\\.4s_ease-out\\],
-  .animate-\\[task-flash-priority_0\\.4s_ease-out\\] {
+  .animate-\[task-flash-status_0\.4s_ease-out\],
+  .animate-\[task-flash-priority_0\.4s_ease-out\] {
     animation: none !important;
   }
 }
