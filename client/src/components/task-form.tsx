@@ -941,6 +941,8 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                 <ShareDialog
                   taskId={task!.id}
                   isOwner={isOwner}
+                  visibility={task!.visibility}
+                  communityShowNotes={task!.communityShowNotes}
                 />
               </div>
             )}

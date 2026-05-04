@@ -55,9 +55,25 @@
     @apply border-border;
   }
 
+  html {
+    height: 100%;
+    min-height: 100dvh;
+    margin: 0;
+    color-scheme: light dark;
+  }
+
   body {
+    height: 100%;
+    min-height: 100dvh;
+    margin: 0;
     @apply font-sans antialiased bg-background text-foreground;
     text-rendering: optimizeLegibility;
+  }
+
+  #root {
+    height: 100%;
+    min-height: 100dvh;
+    overflow: hidden;
   }
 
   ::selection {
@@ -67,6 +83,61 @@
   .dark ::selection {
     background-color: hsl(207 90% 54% / 0.35);
   }
+}
+
+/* Tutorial speech-bubble tail (points toward highlighted target) */
+.tutorial-bubble-tail--left::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 24px;
+  border: 8px solid transparent;
+  border-right-color: white;
+}
+
+.dark .tutorial-bubble-tail--left::before {
+  border-right-color: rgb(31 41 55);
+}
+
+.tutorial-bubble-tail--right::before {
+  content: "";
+  position: absolute;
+  right: -8px;
+  top: 24px;
+  border: 8px solid transparent;
+  border-left-color: white;
+}
+
+.dark .tutorial-bubble-tail--right::before {
+  border-left-color: rgb(31 41 55);
+}
+
+.tutorial-bubble-tail--bottom::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-top-color: white;
+}
+
+.dark .tutorial-bubble-tail--bottom::before {
+  border-top-color: rgb(31 41 55);
+}
+
+.tutorial-bubble-tail--top::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-bottom-color: white;
+}
+
+.dark .tutorial-bubble-tail--top::before {
+  border-bottom-color: rgb(31 41 55);
 }
 
 .safe-area-bottom {
@@ -298,9 +369,17 @@
   100% { background-color: transparent; }
 }
 
+.axtask-animate-task-flash-status {
+  animation: task-flash-status 0.4s ease-out;
+}
+
+.axtask-animate-task-flash-priority {
+  animation: task-flash-priority 0.4s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-\[task-flash-status_0\.4s_ease-out\],
-  .animate-\[task-flash-priority_0\.4s_ease-out\] {
+  .axtask-animate-task-flash-status,
+  .axtask-animate-task-flash-priority {
     animation: none !important;
   }
 }

@@ -1,15 +1,8 @@
-import { useState, useCallback, useEffect, createContext, useContext } from "react";
+import { useState, useCallback, createContext, useContext } from "react";
+import type { TutorialStep } from "@/lib/tutorial-types";
+import { KBD, SHORTCUT_FOCUS_NOTE, SUBMIT_TASK_SHORTCUTS } from "@/lib/keyboard-shortcuts";
 
-export interface TutorialStep {
-  id: string;
-  title: string;
-  description: string;
-  targetSelector?: string;
-  targetId?: string;
-  page?: string;
-  position?: "top" | "bottom" | "left" | "right";
-  glowClass?: "field-glow-tutorial" | "field-glow-tutorial-success" | "field-glow-success" | "field-glow-hint" | "field-glow-warning";
-}
+export type { TutorialStep };
 
 const TUTORIAL_STEPS: TutorialStep[] = [
   {
@@ -39,27 +32,37 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "task-form",
     title: "Creating & Editing Tasks",
-    description: "Add tasks with the green \"+Add Task\" button or edit existing ones (blue \"Update\" button). Priority is auto-calculated from urgency, impact, and effort. Yellow glows highlight empty fields, and the RAG engine suggests deadlines based on your patterns.",
-    page: "/tasks",
-    targetId: "sidebar-link-/tasks",
+    description: "Use Quick Task Entry on the dashboard or open Tasks from the sidebar. Priority is auto-calculated from urgency, impact, and effort. Yellow glows highlight empty fields, and the RAG engine suggests deadlines based on your patterns.",
+    page: "/",
+    targetId: "tutorial-task-form",
     position: "right",
     glowClass: "field-glow-tutorial-success",
   },
   {
     id: "voice-commands",
     title: "Voice Commands",
-    description: "Tap the microphone icon or press Ctrl+M to dictate tasks hands-free. Say things like \"urgency 4\" or \"due tomorrow\" and the form fills in automatically. Switch between Activity and Notes targets.",
-    page: "/tasks",
-    targetId: "sidebar-link-/tasks",
+    description: `Tap the microphone icon or press ${KBD.voice} (${KBD.voiceMac} on Mac) for global voice control — with focus in the page, not the address bar. Try "Take me to the calendar", "Add a new task", "Search for a task", or "What's due today?". Say "open alarms" or "list alarms" for the task alarm panel. On task forms, you can also dictate into Activity or Notes ("urgency 4", "due tomorrow").`,
+    page: "/",
+    targetId: "tutorial-task-form",
     position: "right",
     glowClass: "field-glow-tutorial",
+  },
+  {
+    id: "task-alarms",
+    title: "Task alarms & reminders",
+    description: `Schedule and review alarms from the Task alarm panel (${KBD.alarmPanel} / ${KBD.alarmPanelMac}). Save snapshots, pick an apply channel, and send a test notification to confirm delivery. Voice shortcuts match the mic bar ("open alarms", "list alarms"). Optional Docker companion scheduling is documented in the repo under docs/ALARM_COMPANION.md.`,
+    page: "/tasks",
+    targetId: "tutorial-tasks-alarms",
+    position: "right",
+    glowClass: "field-glow-tutorial-success",
+    inlineWidget: "alarm-tutorial-demo",
   },
   {
     id: "classification",
     title: "Classification & Compound Interest",
     description: "Every task gets a classification (Crisis, Research, Development, etc.) that earns you AxCoins. When others confirm your classification, you earn 8% compound interest per confirmation — your classifications are investments!",
-    page: "/tasks",
-    targetId: "sidebar-link-/tasks",
+    page: "/",
+    targetId: "tutorial-task-form",
     position: "right",
     glowClass: "field-glow-tutorial-success",
   },
@@ -82,6 +85,15 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     glowClass: "field-glow-tutorial",
   },
   {
+    id: "community",
+    title: "Community feed",
+    description: "Browse tasks other members have published (MFA-gated when publishing your own). Great for inspiration and public accountability — open Community from the sidebar anytime.",
+    page: "/community",
+    targetId: "sidebar-link-/community",
+    position: "right",
+    glowClass: "field-glow-tutorial",
+  },
+  {
     id: "rewards",
     title: "Rewards Shop & AxCoins",
     description: "Earn AxCoins by completing tasks, maintaining streaks, and classifying tasks. Spend coins in the Shop on themes, badges, and titles. Check the Investments tab to see your compound interest earnings grow!",
@@ -98,6 +110,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     targetId: "sidebar-link-/skill-tree",
     position: "right",
     glowClass: "field-glow-tutorial-success",
+    inlineWidget: "skill-tree-mini-avatar",
   },
   {
     id: "checklist",
@@ -129,13 +142,13 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: "shortcuts",
     title: "Keyboard Shortcuts & Sidebar",
-    description: "Power user tips: Ctrl+Shift+B toggles the sidebar, Ctrl+Shift+/ opens the shortcut reference, Ctrl+M starts voice input, Ctrl+Enter submits the task form, and Ctrl+T restarts this tutorial.",
+    description: `Power user tips: ${KBD.sidebar} (${KBD.sidebarMac}) toggles the sidebar, ${KBD.hotkeyHelp} (${KBD.hotkeyHelpMac}) opens the shortcut reference, ${KBD.voice} (${KBD.voiceMac}) starts voice input, ${KBD.alarmPanel} (${KBD.alarmPanelMac}) opens the task alarm panel, ${SUBMIT_TASK_SHORTCUTS} submits the task form, and ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) toggles this tutorial. ${SHORTCUT_FOCUS_NOTE}`,
     position: "bottom",
   },
   {
     id: "complete",
     title: "You're All Set!",
-    description: "You now know every corner of AxTask. Restart this tutorial anytime with Ctrl+T or from the sidebar. Happy tasking!",
+    description: `You now know every corner of AxTask. Restart this tutorial anytime with ${KBD.tutorialToggle} (${KBD.tutorialToggleMac}) or from the sidebar. Happy tasking!`,
     position: "bottom",
     glowClass: "field-glow-tutorial-success",
   },
@@ -150,8 +163,9 @@ interface TutorialContextValue {
   stopTutorial: () => void;
   nextStep: () => void;
   prevStep: () => void;
+  /** Jump to a step by `TutorialStep.id` and activate the overlay. Returns false if id is unknown. */
+  jumpToStepById: (stepId: string) => boolean;
   hasCompleted: boolean;
-  jumpToStepById: (id: string) => boolean;
 }
 
 const TUTORIAL_COMPLETED_KEY = "axtask_tutorial_completed";
@@ -177,21 +191,6 @@ function useTutorialEngine(): TutorialContextValue {
     } catch {}
   }, []);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "t") {
-        e.preventDefault();
-        if (isActive) {
-          stopTutorial();
-        } else {
-          startTutorial();
-        }
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isActive, startTutorial, stopTutorial]);
-
   const nextStep = useCallback(() => {
     if (stepIndex < TUTORIAL_STEPS.length - 1) {
       setStepIndex(i => i + 1);
@@ -204,8 +203,8 @@ function useTutorialEngine(): TutorialContextValue {
     if (stepIndex > 0) setStepIndex(i => i - 1);
   }, [stepIndex]);
 
-  const jumpToStepById = useCallback((id: string): boolean => {
-    const idx = TUTORIAL_STEPS.findIndex(s => s.id === id);
+  const jumpToStepById = useCallback((stepId: string) => {
+    const idx = TUTORIAL_STEPS.findIndex((s) => s.id === stepId);
     if (idx < 0) return false;
     setStepIndex(idx);
     setIsActive(true);
@@ -221,8 +220,8 @@ function useTutorialEngine(): TutorialContextValue {
     stopTutorial,
     nextStep,
     prevStep,
-    hasCompleted,
     jumpToStepById,
+    hasCompleted,
   };
 }
 
