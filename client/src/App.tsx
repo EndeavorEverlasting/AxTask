@@ -1,5 +1,8 @@
 import { Switch, Route, useLocation } from "wouter";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { useScrollDirection } from "@/hooks/use-scroll-direction";
+import { notifyScrollBudget } from "@/lib/animation-budget";
 import { useTutorial } from "@/hooks/use-tutorial";
 import { PersistedQueryLayer } from "./lib/app-query-provider";
 import { Toaster } from "@/components/ui/toaster";
@@ -13,7 +16,23 @@ import { VoiceProvider, useVoice } from "@/hooks/use-voice";
 import { Sidebar } from "@/components/layout/sidebar";
 import { TutorialOverlay } from "@/components/tutorial-overlay";
 import { TutorialInteractionGuide } from "@/components/tutorial-interaction-guide";
-import { VoiceCommandBar } from "@/components/voice-command-bar";
+/* VoiceCommandBar hosts the speech-recognition wiring, hotkey listener,
+ * and its own Radix dialog. The bar is rendered on every authed surface
+ * but only _activates_ on user input (Alt+V or the voice hotkey), so
+ * the heavy speech-recognition pipeline behind it can wait until first
+ * interaction. Lazy-load and wrap it in `<Suspense fallback={null}>`
+ * — the hotkey dispatches through a ref on `useVoice()`, so the bar
+ * can be absent at first paint without breaking shortcuts. */
+const VoiceCommandBar = lazy(() =>
+  import("@/components/voice-command-bar").then((m) => ({
+    default: m.VoiceCommandBar,
+  })),
+);
+const CommandPalette = lazy(() =>
+  import("@/components/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
 import { InstallCtaBanner } from "@/components/install-cta-banner";
 import { WalletTopBar } from "@/components/wallet-top-bar";
 import { FeedbackNudgeDialog } from "@/components/feedback-nudge-dialog";
@@ -22,97 +41,172 @@ import { AdherenceNudges } from "@/components/adherence-nudges";
 import { OfflineDataBanner } from "@/components/offline-data-banner";
 import { OfflineBanner } from "@/components/offline-banner";
 import { TaskOfflineSyncProvider } from "@/components/task-offline-sync-provider";
-import BulkActionDialog from "@/components/bulk-action-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LayoutDashboard, List, CalendarDays, Brain, Mic, MicOff, Loader2, Gamepad2 } from "lucide-react";
+// Eager: first-paint / auth-critical pages. Kept static so the initial chunk
+// can render without a Suspense fallback flicker.
 import Dashboard from "@/pages/dashboard";
-import Tasks from "@/pages/tasks";
-import Analytics from "@/pages/analytics";
-import CalendarPage from "@/pages/calendar";
-import ImportExport from "@/pages/import-export";
-import GoogleSheetsSyncPage from "@/pages/google-sheets-sync";
-import ChecklistPage from "@/pages/checklist";
-import ShoppingPage from "@/pages/shopping";
-import PlannerPage from "@/pages/planner";
-import MiniGamesPage from "@/pages/mini-games";
-import RewardsPage from "@/pages/rewards";
-import SkillTreePage from "@/pages/skill-tree";
-import PremiumPage from "@/pages/premium";
-import BillingPage from "@/pages/billing";
-import AccountPage from "@/pages/account";
-import SettingsPage from "@/pages/settings";
-import AppealsPage from "@/pages/appeals";
-import FeedbackPage from "@/pages/feedback";
-import CommunityPage from "@/pages/community";
-import CollabInboxPage from "@/pages/collab-inbox";
-import VideoHuddlePage from "@/pages/video-huddle";
 import ExperienceConfirmPage from "@/pages/experience-confirm";
 import LoginPage from "@/pages/login";
 import LandingPage from "@/pages/landing";
 import ContactPage from "@/pages/contact";
+import NotFound from "@/pages/not-found";
 import PrivacyPolicyPage from "@/pages/privacy";
 import TermsOfServicePage from "@/pages/terms";
+
+// Lazy: everything else. Vite's manualChunks pulls heavy vendor libs out of
+// these chunks so a page chunk only carries that page's own code plus any
+// page-specific deps. Routes that are hit far less than the dashboard
+// (admin, billing-bridge, import-export, etc.) stay out of the initial
+// bundle entirely.
+const Tasks = lazy(() => import("@/pages/tasks"));
+const Analytics = lazy(() => import("@/pages/analytics"));
+const CalendarPage = lazy(() => import("@/pages/calendar"));
+const ImportExport = lazy(() => import("@/pages/import-export"));
+const TrashPage = lazy(() => import("@/pages/trash"));
+const GoogleSheetsSyncPage = lazy(() => import("@/pages/google-sheets-sync"));
+const ChecklistPage = lazy(() => import("@/pages/checklist"));
+const ShoppingPage = lazy(() => import("@/pages/shopping"));
+const ShoppingSharedPage = lazy(() => import("@/pages/shopping-shared"));
+const BundlesPage = lazy(() => import("@/pages/bundles"));
+const BundleNewPage = lazy(() => import("@/pages/bundle-new"));
+const BundleDetailPage = lazy(() => import("@/pages/bundle-detail"));
+const PlannerPage = lazy(() => import("@/pages/planner"));
+const PlannerTimelinePage = lazy(() => import("@/pages/planner-timeline"));
+const MiniGamesPage = lazy(() => import("@/pages/mini-games"));
+const RewardsPage = lazy(() => import("@/pages/rewards"));
+const SkillTreePage = lazy(() => import("@/pages/skill-tree"));
+const PremiumPage = lazy(() => import("@/pages/premium"));
+const BillingPage = lazy(() => import("@/pages/billing"));
+const AccountPage = lazy(() => import("@/pages/account"));
+const ProfilePage = lazy(() => import("@/pages/profile"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const AppealsPage = lazy(() => import("@/pages/appeals"));
+const FeedbackPage = lazy(() => import("@/pages/feedback"));
+const CommunityPage = lazy(() => import("@/pages/community"));
+const CollabInboxPage = lazy(() => import("@/pages/collab-inbox"));
+const VideoHuddlePage = lazy(() => import("@/pages/video-huddle"));
+const MessagesPage = lazy(() => import("@/pages/messages"));
+const BillingBridgePage = lazy(() => import("@/pages/billing-bridge-dashboard"));
+const BackupPage = lazy(() => import("@/pages/backup"));
 import { DeepLinkGate } from "@/components/marketing/deep-link-gate";
 import { isValidAppPath } from "@/lib/app-routes";
 import {
   getSafePostLoginPath,
   POST_LOGIN_REDIRECT_STORAGE_KEY,
 } from "@/lib/post-login-redirect";
-import BillingBridgePage from "@/pages/billing-bridge";
-import NotFound from "@/pages/not-found";
 import { Link } from "wouter";
 import { HotkeyHelpDialog } from "@/components/hotkey-help-dialog";
+/* GlobalSearch is a modal fired by Ctrl/⌘+F (and the sidebar magnifying
+ * glass). It pulls in the task-search query chain + keyboard nav, none
+ * of which is needed at first paint. Lazy-load so the initial shell
+ * chunk ships without the search dialog's deps. The callsite below
+ * uses a null Suspense fallback: the dialog is closed on first render,
+ * so there's nothing to flicker during chunk hydration. */
+const GlobalSearch = lazy(() =>
+  import("@/components/global-search").then((m) => ({
+    default: m.GlobalSearch,
+  })),
+);
 import { ImmersiveShellProvider } from "@/hooks/use-immersive-shell";
 import { matchHotkeyFromKeyboardEvent, voiceBarOpenRef } from "@/lib/hotkey-actions";
+import type { Task } from "@shared/schema";
 import { PretextShell } from "@/components/pretext/pretext-shell";
+import { PretextShortcutsBeacon } from "@/components/pretext/pretext-shortcuts-beacon";
+import { AlarmPanel } from "@/components/alarm-panel";
 
 const AdminPageLazy = lazy(() => import("@/pages/admin"));
+const AdminAiReminderLabPage = lazy(() => import("@/pages/admin-ai-reminder-lab"));
+
+/* Lazy-load the voice/review bulk-action dialog + its framer-motion
+ * AnimatePresence subtree. The dialog is only opened after a voice or
+ * planner review match, so keeping it out of the initial shell chunk
+ * saves framer-motion from the first-paint critical path. */
+const BulkActionDialogLazy = lazy(
+  () => import("@/components/bulk-action-dialog"),
+);
+
+function RouteFallback() {
+  // Branded lazy-route + session-loading shell — avoids blank white flash during
+  // Suspense (see docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md). Intentionally
+  // framer-motion-free and ambient-chip-free so the fallback chunk stays tiny.
+  // Also docs/PERF_PERFORMANCE_BUDGETS.md.
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex min-h-[40vh] w-full items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white"
+    >
+      <div className="flex flex-col items-center gap-3 px-6 text-center">
+        <div className="text-[11px] uppercase tracking-[0.28em] text-emerald-300/80">AxTask</div>
+        <div className="h-1 w-32 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-300 animate-pulse" />
+        </div>
+        <Loader2 className="h-6 w-6 animate-spin text-emerald-300" aria-hidden />
+        <span className="sr-only">Loading AxTask…</span>
+      </div>
+    </div>
+  );
+}
 
 function AdminRoute() {
+  // Kept for back-compat with app-admin-lazy.contract.test.ts which asserts
+  // the pages/admin chunk stays lazy. The outer Suspense below would catch
+  // it too, but keeping this local boundary means admin-specific loading
+  // never blocks sibling routes from rendering their own fallbacks.
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-[40vh] w-full items-center justify-center bg-background">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
-        </div>
-      }
-    >
+    <Suspense fallback={<RouteFallback />}>
       <AdminPageLazy />
     </Suspense>
   );
 }
 
 function Router() {
+  // One outer Suspense covers every lazy page. Pages we keep eager
+  // (Dashboard, Login, Landing, Contact, NotFound, ExperienceConfirm)
+  // render without suspending.
   return (
-    <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/tasks" component={Tasks} />
-      <Route path="/calendar" component={CalendarPage} />
-      <Route path="/analytics" component={Analytics} />
-      <Route path="/import-export" component={ImportExport} />
-      <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
-      <Route path="/checklist" component={ChecklistPage} />
-      <Route path="/shopping" component={ShoppingPage} />
-      <Route path="/planner" component={PlannerPage} />
-      <Route path="/mini-games" component={MiniGamesPage} />
-      <Route path="/feedback" component={FeedbackPage} />
-      <Route path="/community" component={CommunityPage} />
-      <Route path="/collab" component={CollabInboxPage} />
-      <Route path="/huddle" component={VideoHuddlePage} />
-      <Route path="/admin" component={AdminRoute} />
-      <Route path="/rewards" component={RewardsPage} />
-      <Route path="/skill-tree" component={SkillTreePage} />
-      <Route path="/premium" component={PremiumPage} />
-      <Route path="/billing" component={BillingPage} />
-      <Route path="/account" component={AccountPage} />
-      <Route path="/settings" component={SettingsPage} />
-      <Route path="/appeals" component={AppealsPage} />
-      <Route path="/contact" component={ContactPage} />
-      <Route path="/privacy" component={PrivacyPolicyPage} />
-      <Route path="/terms" component={TermsOfServicePage} />
-      <Route path="/billing-bridge" component={BillingBridgePage} />
-      <Route component={NotFound} />
-    </Switch>
+    <Suspense fallback={<RouteFallback />}>
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/tasks" component={Tasks} />
+        <Route path="/trash" component={TrashPage} />
+        <Route path="/calendar" component={CalendarPage} />
+        <Route path="/analytics" component={Analytics} />
+        <Route path="/import-export" component={ImportExport} />
+        <Route path="/google-sheets" component={GoogleSheetsSyncPage} />
+        <Route path="/checklist" component={ChecklistPage} />
+        <Route path="/shopping" component={ShoppingPage} />
+        <Route path="/shopping/shared/:listId" component={ShoppingSharedPage} />
+        <Route path="/bundles/new" component={BundleNewPage} />
+        <Route path="/bundles/:artifactId" component={BundleDetailPage} />
+        <Route path="/bundles" component={BundlesPage} />
+        <Route path="/planner/timeline" component={PlannerTimelinePage} />
+        <Route path="/planner" component={PlannerPage} />
+        <Route path="/mini-games" component={MiniGamesPage} />
+        <Route path="/feedback" component={FeedbackPage} />
+        <Route path="/community" component={CommunityPage} />
+        <Route path="/collab" component={CollabInboxPage} />
+        <Route path="/huddle" component={VideoHuddlePage} />
+        <Route path="/messages" component={MessagesPage} />
+        <Route path="/admin" component={AdminRoute} />
+        <Route path="/admin/ai-reminder-lab" component={AdminAiReminderLabPage} />
+        <Route path="/rewards" component={RewardsPage} />
+        <Route path="/skill-tree" component={SkillTreePage} />
+        <Route path="/premium" component={PremiumPage} />
+        <Route path="/billing" component={BillingPage} />
+        <Route path="/account" component={AccountPage} />
+        <Route path="/profile" component={ProfilePage} />
+        <Route path="/settings" component={SettingsPage} />
+        <Route path="/appeals" component={AppealsPage} />
+        <Route path="/contact" component={ContactPage} />
+        <Route path="/privacy" component={PrivacyPolicyPage} />
+        <Route path="/terms" component={TermsOfServicePage} />
+        <Route path="/billing-bridge" component={BillingBridgePage} />
+        <Route path="/backup" component={BackupPage} />
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
   );
 }
 
@@ -120,13 +214,15 @@ function ReviewDialogBridge() {
   const { reviewProposal, clearReviewProposal } = useVoice();
   if (!reviewProposal) return null;
   return (
-    <BulkActionDialog
-      open={!!reviewProposal}
-      onOpenChange={(open) => { if (!open) clearReviewProposal(); }}
-      actions={reviewProposal.actions}
-      message={reviewProposal.message}
-      unmatched={reviewProposal.unmatched}
-    />
+    <Suspense fallback={null}>
+      <BulkActionDialogLazy
+        open={!!reviewProposal}
+        onOpenChange={(open) => { if (!open) clearReviewProposal(); }}
+        actions={reviewProposal.actions}
+        message={reviewProposal.message}
+        unmatched={reviewProposal.unmatched}
+      />
+    </Suspense>
   );
 }
 
@@ -140,6 +236,7 @@ const BOTTOM_NAV_ITEMS = [
 
 function MobileBottomNav() {
   const [location] = useLocation();
+  const scrollDirection = useScrollDirection();
 
   const isActive = (path: string) => {
     if (path === "/") return location === "/";
@@ -147,7 +244,12 @@ function MobileBottomNav() {
   };
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 axtask-nav-chrome rounded-none border-x-0 border-b-0 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.45)] safe-area-bottom">
+    <motion.nav
+      initial={{ y: 0 }}
+      animate={{ y: scrollDirection === "down" ? "100%" : 0 }}
+      transition={{ duration: 0.3, ease: "easeInOut" }}
+      className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass-panel-glossy rounded-none border-x-0 border-b-0 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.45)] safe-area-bottom"
+    >
       <div className="flex items-center justify-around h-14">
         {BOTTOM_NAV_ITEMS.map(({ path, icon: Icon, label }) => (
           <Link
@@ -164,7 +266,7 @@ function MobileBottomNav() {
           </Link>
         ))}
       </div>
-    </nav>
+    </motion.nav>
   );
 }
 
@@ -294,6 +396,80 @@ function AuthenticatedApp() {
   }, [setLocation]);
 
   const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const mainScrollBudgetRaf = useRef<number | null>(null);
+  const lastScrollY = useRef(0);
+  // Inner scroll roots must call notifyScrollBudget — window scroll alone misses
+  // main content; dropping this brings hue pulse, glass blanking, chip bleed-back.
+  // docs/SCROLL_REFRESH_VISUAL_STABILITY.md, docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md
+  const onMainShellScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const currentScrollY = e.currentTarget.scrollTop;
+    if (Math.abs(currentScrollY - lastScrollY.current) > 10) {
+      const direction = currentScrollY > lastScrollY.current ? "down" : "up";
+      window.dispatchEvent(
+        new CustomEvent("axtask-scroll-direction", { detail: { direction } })
+      );
+      lastScrollY.current = currentScrollY;
+    }
+
+    if (mainScrollBudgetRaf.current != null) return;
+    mainScrollBudgetRaf.current = requestAnimationFrame(() => {
+      mainScrollBudgetRaf.current = null;
+      notifyScrollBudget();
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (mainScrollBudgetRaf.current != null) {
+        cancelAnimationFrame(mainScrollBudgetRaf.current);
+        mainScrollBudgetRaf.current = null;
+      }
+    };
+  }, []);
+
+  const toggleGlobalSearchLazy = useCallback(() => {
+    setGlobalSearchOpen((wasOpen) => {
+      if (wasOpen) return false;
+      void import("@/components/global-search").then(() => {
+        setGlobalSearchOpen(true);
+      });
+      return false;
+    });
+  }, []);
+
+  const ensureGlobalSearchOpenLazy = useCallback(() => {
+    setGlobalSearchOpen((wasOpen) => {
+      if (wasOpen) return true;
+      void import("@/components/global-search").then(() => {
+        setGlobalSearchOpen(true);
+      });
+      return false;
+    });
+  }, []);
+
+  const toggleCommandPaletteLazy = useCallback(() => {
+    setCommandPaletteOpen((wasOpen) => {
+      if (wasOpen) return false;
+      void import("@/components/command-palette").then(() => {
+        setCommandPaletteOpen(true);
+      });
+      return false;
+    });
+  }, []);
+
+  const handleGlobalSearchSelect = useCallback(
+    (task: Task) => {
+      setLocation("/tasks");
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("axtask-open-task-edit", { detail: { task } }),
+        );
+      }, 50);
+    },
+    [setLocation],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -340,13 +516,41 @@ function AuthenticatedApp() {
           window.dispatchEvent(new Event("axtask-close-mobile-nav"));
           break;
         }
+        case "openGlobalSearch": {
+          if (!user || loading) return;
+          e.preventDefault();
+          toggleGlobalSearchLazy();
+          break;
+        }
+        case "openCommandPalette": {
+          if (!user || loading) return;
+          e.preventDefault();
+          toggleCommandPaletteLazy();
+          break;
+        }
+        case "openAlarmPanel": {
+          if (!user || loading) return;
+          e.preventDefault();
+          window.dispatchEvent(new Event("axtask-open-alarm-panel"));
+          break;
+        }
         default:
           break;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [user, loading, hotkeyHelpOpen, setLocation, isTutorialActive, startTutorial, stopTutorial]);
+  }, [
+    user,
+    loading,
+    hotkeyHelpOpen,
+    setLocation,
+    isTutorialActive,
+    startTutorial,
+    stopTutorial,
+    toggleGlobalSearchLazy,
+    toggleCommandPaletteLazy,
+  ]);
 
   useEffect(() => {
     if (!user || loading) return;
@@ -362,14 +566,23 @@ function AuthenticatedApp() {
     return () => window.removeEventListener("axtask-toggle-hotkey-help", onToggle);
   }, [user, loading]);
 
+  useEffect(() => {
+    if (!user || loading) return;
+    const onOpenGlobalSearch = () => ensureGlobalSearchOpenLazy();
+    window.addEventListener("axtask-open-global-search", onOpenGlobalSearch);
+    return () => window.removeEventListener("axtask-open-global-search", onOpenGlobalSearch);
+  }, [user, loading, ensureGlobalSearchOpenLazy]);
+
   if (location === "/mfa/confirm" || location === "/welcome-confirm") {
     return <ExperienceConfirmPage />;
   }
 
+  // Auth loading: same branded RouteFallback as lazy Suspense — avoids white flash
+  // while /api/auth/me resolves (docs/AUTH_CONFIRMATION_SURFACE_STABILITY.md).
   if (loading) {
     return (
-      <div className="h-full min-h-0 overflow-y-auto flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="h-full min-h-0 overflow-y-auto">
+        <RouteFallback />
       </div>
     );
   }
@@ -429,6 +642,7 @@ function AuthenticatedApp() {
             <AdherenceNudges />
             <div
               className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-16 md:pb-0"
+              onScroll={onMainShellScroll}
               style={
                 scale !== 1
                   ? {
@@ -445,11 +659,34 @@ function AuthenticatedApp() {
           </main>
           <MobileBottomNav />
           <MobileVoiceFAB />
+          {user ? <PretextShortcutsBeacon /> : null}
           {user ? <HotkeyHelpDialog open={hotkeyHelpOpen} onOpenChange={setHotkeyHelpOpen} /> : null}
+          {user ? (
+            /* Lazy Suspense with a null fallback — the dialog isn't
+             * visible until the user triggers it, so there's nothing
+             * to flicker during chunk hydration. */
+            <Suspense fallback={null}>
+              <GlobalSearch
+                open={globalSearchOpen}
+                onOpenChange={setGlobalSearchOpen}
+                onSelectTask={handleGlobalSearchSelect}
+              />
+            </Suspense>
+          ) : null}
           <TutorialOverlay />
           <TutorialInteractionGuide />
-          <VoiceCommandBar />
+          {/* Voice bar chunk is also lazy — null fallback is safe
+           * because the bar itself only opens on user input. */}
+          <Suspense fallback={null}>
+            <VoiceCommandBar />
+          </Suspense>
+          {user ? (
+            <Suspense fallback={null}>
+              <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
+            </Suspense>
+          ) : null}
           <ReviewDialogBridge />
+          <AlarmPanel />
           <FeedbackNudgeDialog />
           <GeofenceNudgeBridge />
         </div>
