@@ -1,7 +1,7 @@
 # AxTask Version 1.3.0 - Planned Features
 
-**Planned Release Date**: TBD
-**Status**: Planning Phase
+**Planned Release Date**: TBD  
+**Status**: Planning Phase  
 **Type**: Minor Release
 
 ## Overview
@@ -10,9 +10,9 @@ Version 1.3.0 focuses on expanding drag-and-drop capabilities across all calenda
 
 ## What's Already in v1.2.0
 
-Γ£à **Autocomplete Functionality** - Implemented using HTML5 datalist element
-Γ£à **Rounded Average Priority Score** - Dashboard shows 1 decimal place
-Γ£à **Delete Confirmation Dialogs** - Keyboard accessible with visual feedback
+Γ£à **Autocomplete Functionality** - Implemented using HTML5 datalist element  
+Γ£à **Rounded Average Priority Score** - Dashboard shows 1 decimal place  
+Γ£à **Delete Confirmation Dialogs** - Keyboard accessible with visual feedback  
 Γ£à **Drag-and-Drop in Hourly Views** - Working in 1h, 2h, 4h, 8h calendar views
 
 ## Planned Features
@@ -46,8 +46,8 @@ Version 1.3.0 focuses on expanding drag-and-drop capabilities across all calenda
 const handleDrop = (e: React.DragEvent, targetDate: Date) => {
   e.preventDefault();
   if (draggedTask) {
-    updateTaskMutation.mutate({
-      taskId: draggedTask.id,
+    updateTaskMutation.mutate({ 
+      taskId: draggedTask.id, 
       date: format(targetDate, 'yyyy-MM-dd')
     });
   }
@@ -446,13 +446,13 @@ npm run start:prod
 ### Query Optimization
 ```sql
 -- Add index for deleted tasks
-CREATE INDEX idx_tasks_deleted_at_user
+CREATE INDEX idx_tasks_deleted_at_user 
 ON tasks(user_id, deleted_at);
 
 -- Optimize recycle bin query
-SELECT * FROM tasks
-WHERE user_id = :userId
-  AND deleted_at IS NOT NULL
+SELECT * FROM tasks 
+WHERE user_id = :userId 
+  AND deleted_at IS NOT NULL 
   AND deleted_at > NOW() - INTERVAL '30 days'
 ORDER BY deleted_at DESC;
 ```
