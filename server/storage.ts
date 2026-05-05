@@ -2671,6 +2671,244 @@ async function computeOfflineSkillEffects(userId: string): Promise<OfflineSkillE
   }, { rateBonusPct: 0, capacityBonusHours: 0 });
 }
 
+// ─── Leaderboard ─────────────────────────────────────────────────────────────
+
+export interface LeaderboardEntry {
+  rank: number;
+  userId: string;
+  displayName: string | null;
+  profileImageUrl: string | null;
+  equippedTitle: string | null;
+  skillTier: number;
+  metricValue: number;
+}
+
+export interface LeaderboardResult {
+  top25: LeaderboardEntry[];
+  myEntry: LeaderboardEntry | null;
+}
+
+type LeaderboardCategory = "coins" | "streak" | "contributions";
+type LeaderboardPeriod = "all" | "week";
+type LeaderboardMetricRow = { userId: string; metricValue: number };
+
+function normalizeLeaderboardRows(rows: LeaderboardMetricRow[]): LeaderboardMetricRow[] {
+  return rows
+    .map((row) => ({
+      userId: row.userId,
+      metricValue: Number(row.metricValue ?? 0),
+    }))
+    .filter((row) => row.userId)
+    .sort((a, b) => b.metricValue - a.metricValue || a.userId.localeCompare(b.userId));
+}
+
+function combineLeaderboardRows(...groups: LeaderboardMetricRow[][]): LeaderboardMetricRow[] {
+  const totals = new Map<string, number>();
+
+  for (const group of groups) {
+    for (const row of group) {
+      if (!row.userId) continue;
+      totals.set(row.userId, (totals.get(row.userId) ?? 0) + Number(row.metricValue ?? 0));
+    }
+  }
+
+  return normalizeLeaderboardRows(
+    Array.from(totals.entries()).map(([userId, metricValue]) => ({ userId, metricValue })),
+  );
+}
+
+async function getLeaderboardMetricRows(
+  category: LeaderboardCategory,
+  period: LeaderboardPeriod,
+): Promise<LeaderboardMetricRow[]> {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const since = period === "week" ? weekAgo : new Date(0);
+
+  if (category === "coins") {
+    if (period === "all") {
+      const rows = await db
+        .select({
+          userId: wallets.userId,
+          metricValue: wallets.lifetimeEarned,
+        })
+        .from(wallets);
+
+      return normalizeLeaderboardRows(rows);
+    }
+
+    const rows = await db
+      .select({
+        userId: coinTransactions.userId,
+        metricValue: sql<number>`COALESCE(SUM(${coinTransactions.amount}), 0)::int`,
+      })
+      .from(coinTransactions)
+      .where(and(gte(coinTransactions.createdAt, since), gt(coinTransactions.amount, 0)))
+      .groupBy(coinTransactions.userId);
+
+    return normalizeLeaderboardRows(rows);
+  }
+
+  if (category === "streak") {
+    const rows = await db
+      .select({
+        userId: wallets.userId,
+        metricValue: wallets.longestStreak,
+      })
+      .from(wallets);
+
+    return normalizeLeaderboardRows(rows);
+  }
+
+  const replyRowsRaw = await db
+    .select({
+      userId: communityReplies.userId,
+      metricValue: sql<number>`COUNT(*)::int`,
+    })
+    .from(communityReplies)
+    .where(and(isNotNull(communityReplies.userId), gte(communityReplies.createdAt, since)))
+    .groupBy(communityReplies.userId);
+
+  const replyRows = replyRowsRaw
+    .filter((row): row is { userId: string; metricValue: number } => Boolean(row.userId))
+    .map((row) => ({
+      userId: row.userId,
+      metricValue: Number(row.metricValue ?? 0),
+    }));
+
+  const classificationRows = await db
+    .select({
+      userId: classificationContributions.userId,
+      metricValue: sql<number>`COUNT(*)::int`,
+    })
+    .from(classificationContributions)
+    .where(gte(classificationContributions.createdAt, since))
+    .groupBy(classificationContributions.userId);
+
+  return combineLeaderboardRows(
+    replyRows,
+    classificationRows.map((row) => ({
+      userId: row.userId,
+      metricValue: Number(row.metricValue ?? 0),
+    })),
+  );
+}
+
+export async function getLeaderboard(
+  requestingUserId: string,
+  category: LeaderboardCategory,
+  period: LeaderboardPeriod,
+): Promise<LeaderboardResult> {
+  const metricRows = await getLeaderboardMetricRows(category, period);
+  const top25Rows = metricRows.filter((row) => row.metricValue > 0).slice(0, 25);
+
+  const myMetricRow = metricRows.find((row) => row.userId === requestingUserId) ?? {
+    userId: requestingUserId,
+    metricValue: 0,
+  };
+
+  const myRank = metricRows.filter((row) => row.metricValue > myMetricRow.metricValue).length + 1;
+  const allUserIds = [...new Set([...top25Rows.map((row) => row.userId), requestingUserId])];
+
+  const userRows = allUserIds.length
+    ? await db
+        .select({
+          id: users.id,
+          displayName: users.displayName,
+          profileImageUrl: users.profileImageUrl,
+        })
+        .from(users)
+        .where(inArray(users.id, allUserIds))
+    : [];
+
+  const userRewardRows = allUserIds.length
+    ? await db
+        .select({
+          userId: userRewards.userId,
+          rewardId: userRewards.rewardId,
+        })
+        .from(userRewards)
+        .where(and(inArray(userRewards.userId, allUserIds), eq(userRewards.isActive, true)))
+    : [];
+
+  const offlineSkillRows = allUserIds.length
+    ? await db
+        .select({ userId: userOfflineSkills.userId })
+        .from(userOfflineSkills)
+        .where(inArray(userOfflineSkills.userId, allUserIds))
+    : [];
+
+  const avatarSkillRows = allUserIds.length
+    ? await db
+        .select({ userId: userAvatarSkills.userId })
+        .from(userAvatarSkills)
+        .where(inArray(userAvatarSkills.userId, allUserIds))
+    : [];
+
+  const rewardIds = [...new Set(userRewardRows.map((row) => row.rewardId))];
+
+  const catalogRows = rewardIds.length
+    ? await db
+        .select({
+          id: rewardsCatalog.id,
+          type: rewardsCatalog.type,
+          data: rewardsCatalog.data,
+        })
+        .from(rewardsCatalog)
+        .where(inArray(rewardsCatalog.id, rewardIds))
+    : [];
+
+  const userMap = new Map(userRows.map((row) => [row.id, row]));
+  const activeRewardIdsByUser = new Map<string, Set<string>>();
+
+  for (const row of userRewardRows) {
+    if (!activeRewardIdsByUser.has(row.userId)) {
+      activeRewardIdsByUser.set(row.userId, new Set());
+    }
+    activeRewardIdsByUser.get(row.userId)!.add(row.rewardId);
+  }
+
+  const titleMap = new Map<string, string | null>();
+
+  for (const userId of allUserIds) {
+    const activeRewardIds = activeRewardIdsByUser.get(userId) ?? new Set<string>();
+    const titleReward = catalogRows.find(
+      (reward) => reward.type === "title" && activeRewardIds.has(reward.id),
+    );
+    titleMap.set(userId, titleReward?.data ?? null);
+  }
+
+  const skillCountByUser = new Map<string, number>();
+
+  for (const row of offlineSkillRows) {
+    skillCountByUser.set(row.userId, (skillCountByUser.get(row.userId) ?? 0) + 1);
+  }
+
+  for (const row of avatarSkillRows) {
+    skillCountByUser.set(row.userId, (skillCountByUser.get(row.userId) ?? 0) + 1);
+  }
+
+  const makeEntry = (row: LeaderboardMetricRow, rank: number): LeaderboardEntry => {
+    const user = userMap.get(row.userId);
+    const skillCount = skillCountByUser.get(row.userId) ?? 0;
+
+    return {
+      rank,
+      userId: row.userId,
+      displayName: user?.displayName ?? null,
+      profileImageUrl: user?.profileImageUrl ?? null,
+      equippedTitle: titleMap.get(row.userId) ?? null,
+      skillTier: skillCount >= 10 ? 2 : skillCount >= 3 ? 1 : 0,
+      metricValue: Number(row.metricValue ?? 0),
+    };
+  };
+
+  const top25 = top25Rows.map((row, index) => makeEntry(row, index + 1));
+  const myEntry = makeEntry(myMetricRow, myRank);
+
+  return { top25, myEntry };
+}
+
+
 export async function seedOfflineSkillTree(): Promise<void> {
   const existing = await db.select().from(offlineSkillNodes);
   if (existing.length > 0) return;

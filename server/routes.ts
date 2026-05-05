@@ -6782,6 +6782,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   attachShoppingListRoutes(app);
   attachConversionArtifactRoutes(app);
 
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Leaderboard
+  // ════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/leaderboard", requireAuth, async (req, res) => {
+    try {
+      const category = String(req.query.category || "coins");
+      const period = String(req.query.period || "all");
+
+      if (!["coins", "streak", "contributions"].includes(category)) {
+        return res.status(400).json({ message: "Invalid category" });
+      }
+
+      if (!["all", "week"].includes(period)) {
+        return res.status(400).json({ message: "Invalid period" });
+      }
+
+      const { getLeaderboard } = await import("./storage");
+      const result = await getLeaderboard(
+        req.user!.id,
+        category as "coins" | "streak" | "contributions",
+        period as "all" | "week",
+      );
+
+      res.json(result);
+    } catch (error) {
+      console.error("[leaderboard]", error);
+      res.status(500).json({ message: "Failed to fetch leaderboard" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
