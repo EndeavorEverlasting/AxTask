@@ -5,7 +5,8 @@ services:
     plan: starter
     rootDir: .
     buildCommand: npm ci && npm run build
-    # npm run start runs scripts/production-start.mjs: migrations → drizzle push → dist/index.js
+    # npm run start runs scripts/production-start.mjs: guarded startup checks → SQL migrations → dist/index.js.
+    # Drizzle schema push is intentionally disabled in production startup by default.
     startCommand: npm run start
     healthCheckPath: /ready
     # autoDeploy: every push to main ships. Safety is delegated to:
@@ -26,6 +27,11 @@ services:
       - key: PORT
         value: 5000
       - key: FORCE_HTTPS
+        value: "true"
+      # Disable Drizzle schema push during production startup. Startup should
+      # boot the app or fail on explicit env/migration/readiness gates, not on
+      # interactive ORM prompts. Run db:push manually from an interactive shell.
+      - key: SKIP_DB_PUSH_ON_START
         value: "true"
       # Set CANONICAL_HOST to your primary domain (for unknown host redirects).
       # Keep REPLIT_FALLBACK_HOST set so rollback is instant.
