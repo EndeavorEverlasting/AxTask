@@ -13,6 +13,19 @@ import { dirname, join } from "node:path";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distIndex = join(root, "dist/index.js");
 
+const explicitSkipDbPush = process.env.SKIP_DB_PUSH_ON_START === "true";
+const explicitAllowDbPush = process.env.AXTASK_ALLOW_DB_PUSH_ON_START === "true";
+
+const runningOnRender =
+  process.env.RENDER === "true" ||
+  Boolean(process.env.RENDER_SERVICE_ID) ||
+  Boolean(process.env.RENDER_EXTERNAL_HOSTNAME);
+
+const nonInteractive = process.stdin.isTTY !== true || process.stdout.isTTY !== true;
+
+const shouldSkipDbPush =
+  explicitSkipDbPush || (!explicitAllowDbPush && (runningOnRender || nonInteractive));
+
 if (!existsSync(distIndex)) {
   console.error("[production-start] dist/index.js not found. Run npm run build first.");
   process.exit(1);
@@ -61,8 +74,15 @@ const m = spawnSync(process.execPath, [join(root, "scripts/apply-migrations.mjs"
 });
 if (m.status !== 0) process.exit(m.status ?? 1);
 
-if (process.env.SKIP_DB_PUSH_ON_START === "true") {
-  console.warn("[production-start] SKIP_DB_PUSH_ON_START=true — skipping drizzle-kit push.");
+if (shouldSkipDbPush) {
+  const reason = explicitSkipDbPush
+    ? "SKIP_DB_PUSH_ON_START=true"
+    : runningOnRender
+      ? "Render host detected"
+      : "non-interactive terminal detected";
+
+  console.warn(`[production-start] ${reason} — skipping drizzle-kit push.`);
+  console.warn("[production-start] Set AXTASK_ALLOW_DB_PUSH_ON_START=true to force startup schema push.");
 } else {
   const drizzleBin = join(root, "node_modules", "drizzle-kit", "bin.cjs");
   if (!existsSync(drizzleBin)) {
