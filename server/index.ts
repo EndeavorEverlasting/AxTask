@@ -27,6 +27,7 @@ import { startBackupQueueWorker } from "./workers/backup-queue-worker";
 import { startBackupBullmqWorker } from "./workers/backup-bullmq-worker";
 import { logBootConfigSummary } from "./boot-config-summary";
 import { getRegistrationConfig } from "./registration-config";
+import { formatMemorySnapshot, readMemorySnapshot, withMemoryTelemetry } from "./runtime-memory";
 
 const app = express();
 
@@ -323,6 +324,7 @@ function warnIfInviteConfigBroken(): void {
   warnIfVapidMissing();
   warnIfInviteConfigBroken();
   logBootConfigSummary();
+  console.info("[memory] boot", formatMemorySnapshot(readMemorySnapshot()));
 
   try {
     await seedDevAccounts();
@@ -359,7 +361,7 @@ function warnIfInviteConfigBroken(): void {
     const maxPerTick = Number(process.env.REMINDER_DISPATCH_MAX_PER_TICK) || 100;
     const runReminderTick = async () => {
       try {
-        const summary = await dispatchDueReminderTriggers(maxPerTick);
+        const summary = await withMemoryTelemetry("reminders.dispatch", () => dispatchDueReminderTriggers(maxPerTick));
         if (summary.scanned > 0 || summary.failedSend > 0) {
           console.info("[reminders] dispatch tick", {
             scanned: summary.scanned,
@@ -379,6 +381,8 @@ function warnIfInviteConfigBroken(): void {
     setInterval(() => {
       void runReminderTick();
     }, intervalMs);
+  } else if (process.env.NODE_ENV !== "test") {
+    console.info("[workers] reminder dispatch disabled", { DISABLE_REMINDER_DISPATCH: process.env.DISABLE_REMINDER_DISPATCH });
   }
 
   // Archetype empathy rollup worker: see docs/ARCHETYPE_EMPATHY_ANALYTICS.md.
@@ -386,6 +390,10 @@ function warnIfInviteConfigBroken(): void {
   if (process.env.NODE_ENV !== "test" && process.env.DISABLE_ARCHETYPE_ROLLUP !== "true") {
     const intervalMs = Number(process.env.ARCHETYPE_ROLLUP_INTERVAL_MS) || 60 * 60 * 1000;
     startArchetypeRollupTicker(intervalMs);
+  } else if (process.env.NODE_ENV !== "test") {
+    console.info("[workers] archetype rollup disabled", {
+      DISABLE_ARCHETYPE_ROLLUP: process.env.DISABLE_ARCHETYPE_ROLLUP,
+    });
   }
 
   // Retention prune worker: daily sweep of append-only tables so Neon's
@@ -407,13 +415,22 @@ function warnIfInviteConfigBroken(): void {
         // Order matters: snapshot first (so the captured size reflects
         // pre-prune weight — that's the actual observed disk use), then
         // prune. Both steps swallow their own errors.
-        try {
-          await captureDbSizeSnapshot();
-        } catch (err) {
-          console.warn("[db-size-snapshot] tick failed:", (err as Error)?.message || String(err));
+        if (process.env.DISABLE_DB_SIZE_SNAPSHOT === "true") {
+          console.info("[workers] db size snapshot disabled");
+        } else {
+          try {
+            await withMemoryTelemetry("db-size-snapshot.capture", () => captureDbSizeSnapshot());
+          } catch (err) {
+            console.warn("[db-size-snapshot] tick failed:", (err as Error)?.message || String(err));
+          }
         }
-        const { runRetentionPrune } = await import("./workers/retention-prune");
-        return runRetentionPrune(input);
+        try {
+          const { runRetentionPrune } = await import("./workers/retention-prune");
+          return withMemoryTelemetry("retention-prune.run", () => runRetentionPrune(input));
+        } catch (err) {
+          console.warn("[retention-prune] tick failed:", (err as Error)?.message || String(err));
+          return { deletedRows: 0 };
+        }
       },
     });
   }
@@ -434,6 +451,8 @@ function warnIfInviteConfigBroken(): void {
   } else if (schedulerEnabled) {
     const intervalMs = Number(process.env.BACKUP_SCHEDULER_INTERVAL_MS) || 24 * 60 * 60 * 1000;
     startBackupSchedulerTicker({ intervalMs });
+  } else if (process.env.NODE_ENV !== "test" && process.env.BACKUP_SCHEDULER_ENABLED !== "true") {
+    console.info("[workers] backup scheduler disabled", { BACKUP_SCHEDULER_ENABLED: process.env.BACKUP_SCHEDULER_ENABLED || "false" });
   }
 
   // Backup queue worker: opt-in only. Set BACKUP_QUEUE_WORKER_ENABLED=true
@@ -443,6 +462,8 @@ function warnIfInviteConfigBroken(): void {
     const pollIntervalMs = Number(process.env.BACKUP_QUEUE_WORKER_POLL_MS) || 30_000;
     const concurrency = Number(process.env.BACKUP_QUEUE_WORKER_CONCURRENCY) || 4;
     startBackupQueueWorker({ pollIntervalMs, concurrency });
+  } else if (process.env.NODE_ENV !== "test") {
+    console.info("[workers] backup queue worker disabled", { BACKUP_QUEUE_WORKER_ENABLED: process.env.BACKUP_QUEUE_WORKER_ENABLED || "false" });
   }
 
   // BullMQ Redis-backed worker: opt-in only. Set BACKUP_BULLMQ_ENABLED=true
@@ -450,6 +471,8 @@ function warnIfInviteConfigBroken(): void {
   // or REDIS_HOST / REDIS_PORT.
   if (bullmqEnabled) {
     startBackupBullmqWorker();
+  } else if (process.env.NODE_ENV !== "test") {
+    console.info("[workers] backup bullmq worker disabled", { BACKUP_BULLMQ_ENABLED: process.env.BACKUP_BULLMQ_ENABLED || "false" });
   }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

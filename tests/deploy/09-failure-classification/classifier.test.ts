@@ -49,6 +49,16 @@ describe("[09-failure-classification] classifyLog", () => {
     expect(classifyLog(log)).toBe("STARTUP_FAILED");
   });
 
+
+  it("identifies startup-time interactive TTY prompt as a dedicated bucket", () => {
+    const log = loadFixture("startup-tty-interactive.txt");
+    expect(classifyLog(log)).toBe("STARTUP_TTY_INTERACTIVE_PROMPT");
+  });
+
+  it("identifies runtime OOM even when startup reached listening state", () => {
+    const log = loadFixture("runtime-oom-after-start.txt");
+    expect(classifyLog(log)).toBe("RUNTIME_OOM");
+  });
   it("returns UNKNOWN for a clean successful deploy log", () => {
     const log = loadFixture("healthy-success.txt");
     expect(classifyLog(log)).toBe("UNKNOWN");

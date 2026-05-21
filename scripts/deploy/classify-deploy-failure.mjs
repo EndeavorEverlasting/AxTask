@@ -15,6 +15,8 @@
  *   ENV_MISSING
  *   BUILD_FAILED
  *   ARTIFACT_MISSING
+ *   STARTUP_TTY_INTERACTIVE_PROMPT
+ *   RUNTIME_OOM
  *   STARTUP_FAILED
  *   HEALTHCHECK_FAILED
  *   SMOKE_FAILED
@@ -81,6 +83,20 @@ export const CLASSIFIERS = [
       /dist\/index\.js not found/i,
       /Missing .*dist\/public\/assets/i,
       /build-manifest.json.*missing/i,
+    ],
+  },
+  {
+    bucket: "STARTUP_TTY_INTERACTIVE_PROMPT",
+    patterns: [
+      /Interactive prompts require a TTY terminal/i,
+    ],
+    confirm: [/drizzle-kit.*push/i],
+  },
+  {
+    bucket: "RUNTIME_OOM",
+    patterns: [
+      /FATAL ERROR:\s*Ineffective mark-compacts near heap limit/i,
+      /Allocation failed - JavaScript heap out of memory/i,
     ],
   },
   {
