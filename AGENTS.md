@@ -38,6 +38,8 @@ CI enforces client bundle size (`npm run perf:bundle`) and API latency heuristic
 ## Git / releases
 
 - Do not push experimental work directly to the remote branch that tracks **production deploy**; use a feature branch and a PR. See [docs/GIT_BRANCHING_AND_DEPLOYMENT.md](docs/GIT_BRANCHING_AND_DEPLOYMENT.md).
+- PRs touching deploy, schema, startup, Docker, Render, auth, or env files must include diagnosis, rollout, rollback, testing notes, and Mermaid diagrams when the workflow/failure chain is easier to see visually.
+- Use annotated tags as durable retrieval markers after important incident fixes, architecture checkpoints, and releases land in `main`.
 
 ### Agent session completion (deployable work)
 
@@ -71,9 +73,9 @@ Archetype-level analytics layered on the existing feedback-with-avatars pipeline
 
 ## Database / schema
 
-- Edit Drizzle models in [`shared/schema.ts`](shared/schema.ts) and config in [`drizzle.config.ts`](drizzle.config.ts). Run **`npm run db:push`** when the database must match schema changes (Drizzle sync).
+- Edit Drizzle models in [`shared/schema.ts`](shared/schema.ts) and config in [`drizzle.config.ts`](drizzle.config.ts). Run **`npm run db:push`** only from an intentional operator context where prompts are visible and can be evaluated.
 - For ordered, repeatable DDL (new columns/tables, backfills), add **`migrations/*.sql`** and rely on [`scripts/apply-migrations.mjs`](scripts/apply-migrations.mjs) (tracks `applied_sql_migrations`).
-- **Deploy:** Docker and Compose chain **`apply-migrations.mjs`** then **`drizzle-kit push`** before the server ([`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml)). **Render / `npm run start`** uses [`scripts/production-start.mjs`](scripts/production-start.mjs) for the same order (`start:app` skips migrations—avoid in prod).
+- **Deploy:** production startup may run environment checks, capacity checks, and deterministic SQL migrations. It must not run live Drizzle schema push by default. Render, Docker, and npm startup paths must converge through [`scripts/production-start.mjs`](scripts/production-start.mjs). See [docs/SCHEMA_EVOLUTION_PIPELINE.md](docs/SCHEMA_EVOLUTION_PIPELINE.md).
 - **Single reference for command order and paths:** [docs/DEV_DATABASE_AND_SCHEMA.md](docs/DEV_DATABASE_AND_SCHEMA.md). For **Neon vs local Postgres**, app settings vs `DATABASE_URL`, and which scripts load `.env`, read [App settings vs `DATABASE_URL`](docs/DEV_DATABASE_AND_SCHEMA.md#app-settings-vs-database_url-important) in that doc. Local SQL migrations with `.env` loaded: **`npm run db:migrate`**.
 - **Environment variable catalog** (VAPID, OAuth, NodeWeaver, `VITE_*`, deploy knobs): [docs/ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md).
 - **Retention windows for audit / append-only / derived tables:** [docs/DB_RETENTION_POLICY.md](docs/DB_RETENTION_POLICY.md). New append-only tables must be added to both the policy table and `RETENTION_WINDOWS` in [`scripts/db-retention.mjs`](scripts/db-retention.mjs) in the same PR. Maintenance tooling: [`scripts/db-size-audit.mjs`](scripts/db-size-audit.mjs) (read-only) and [`scripts/db-reclaim.mjs`](scripts/db-reclaim.mjs) (`--confirm=YES --prod`; VACUUM FULL).
