@@ -1,9 +1,22 @@
 #!/usr/bin/env node
 /**
- * Production entry for native Node hosts (e.g. Render `npm run start`): ordered schema sync then server.
- * Mirrors [`Dockerfile`](../Dockerfile) CMD: SQL migrations → drizzle-kit push --force → node dist/index.js.
+ * Production entry for native Node hosts and Docker runtime.
  *
- * Emergency bypass Drizzle only (SQL migrations still run): `SKIP_DB_PUSH_ON_START=true`
+ * Startup policy:
+ *   environment gate → DB capacity gate → deterministic SQL migrations → guarded Drizzle policy → server.
+ *
+ * Production startup must not run live Drizzle schema push by default because
+ * drizzle-kit may require interactive operator input when schema drift/conflicts
+ * are detected. Render/Docker startup is non-interactive, so that class of
+ * prompt can crash deploys before the app binds.
+ *
+ * Default production posture:
+ *   SKIP_DB_PUSH_ON_START=true, Render detection, or non-interactive terminal → skip drizzle-kit push.
+ *
+ * Operator override only:
+ *   AXTASK_ALLOW_DB_PUSH_ON_START=true
+ *
+ * See docs/SCHEMA_EVOLUTION_PIPELINE.md for the schema evolution model.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -98,7 +111,7 @@ if (shouldSkipDbPush) {
     env: { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
   });
   // Suppress harmless TTY warning from drizzle-kit spinners/prompts in non-interactive CI.
-  // See: https://github.com/drizzle-team/drizzle-orm/issues/4921
+  // Fatal prompt failures still return non-zero and stop startup unless explicitly skipped.
   if (p.stderr) {
     const stderrStr = p.stderr.toString("utf8");
     const filtered = stderrStr
