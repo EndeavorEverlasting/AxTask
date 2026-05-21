@@ -1,9 +1,22 @@
 #!/usr/bin/env node
 /**
- * Production entry for native Node hosts (e.g. Render `npm run start`): ordered schema sync then server.
- * Mirrors [`Dockerfile`](../Dockerfile) CMD: SQL migrations → drizzle-kit push --force → node dist/index.js.
+ * Production entry for native Node hosts and Docker runtime.
  *
- * Emergency bypass Drizzle only (SQL migrations still run): `SKIP_DB_PUSH_ON_START=true`
+ * Startup policy:
+ *   environment gate → DB capacity gate → deterministic SQL migrations → guarded Drizzle policy → server.
+ *
+ * Production startup must not run live Drizzle schema push by default because
+ * drizzle-kit may require interactive operator input when schema drift/conflicts
+ * are detected. Render/Docker startup is non-interactive, so that class of
+ * prompt can crash deploys before the app binds.
+ *
+ * Default production posture:
+ *   SKIP_DB_PUSH_ON_START=true, Render detection, or non-interactive terminal → skip drizzle-kit push.
+ *
+ * Operator override only:
+ *   AXTASK_ALLOW_DB_PUSH_ON_START=true
+ *
+ * See docs/SCHEMA_EVOLUTION_PIPELINE.md for the schema evolution model.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -12,6 +25,19 @@ import { dirname, join } from "node:path";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distIndex = join(root, "dist/index.js");
+
+const explicitSkipDbPush = process.env.SKIP_DB_PUSH_ON_START === "true";
+const explicitAllowDbPush = process.env.AXTASK_ALLOW_DB_PUSH_ON_START === "true";
+
+const runningOnRender =
+  process.env.RENDER === "true" ||
+  Boolean(process.env.RENDER_SERVICE_ID) ||
+  Boolean(process.env.RENDER_EXTERNAL_HOSTNAME);
+
+const nonInteractive = process.stdin.isTTY !== true || process.stdout.isTTY !== true;
+
+const shouldSkipDbPush =
+  explicitSkipDbPush || (!explicitAllowDbPush && (runningOnRender || nonInteractive));
 
 if (!existsSync(distIndex)) {
   console.error("[production-start] dist/index.js not found. Run npm run build first.");
@@ -61,8 +87,15 @@ const m = spawnSync(process.execPath, [join(root, "scripts/apply-migrations.mjs"
 });
 if (m.status !== 0) process.exit(m.status ?? 1);
 
-if (process.env.SKIP_DB_PUSH_ON_START === "true") {
-  console.warn("[production-start] SKIP_DB_PUSH_ON_START=true — skipping drizzle-kit push.");
+if (shouldSkipDbPush) {
+  const reason = explicitSkipDbPush
+    ? "SKIP_DB_PUSH_ON_START=true"
+    : runningOnRender
+      ? "Render host detected"
+      : "non-interactive terminal detected";
+
+  console.warn(`[production-start] ${reason} — skipping drizzle-kit push.`);
+  console.warn("[production-start] Set AXTASK_ALLOW_DB_PUSH_ON_START=true to force startup schema push.");
 } else {
   const drizzleBin = join(root, "node_modules", "drizzle-kit", "bin.cjs");
   if (!existsSync(drizzleBin)) {
@@ -78,7 +111,7 @@ if (process.env.SKIP_DB_PUSH_ON_START === "true") {
     env: { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
   });
   // Suppress harmless TTY warning from drizzle-kit spinners/prompts in non-interactive CI.
-  // See: https://github.com/drizzle-team/drizzle-orm/issues/4921
+  // Fatal prompt failures still return non-zero and stop startup unless explicitly skipped.
   if (p.stderr) {
     const stderrStr = p.stderr.toString("utf8");
     const filtered = stderrStr
