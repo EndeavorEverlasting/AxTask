@@ -45,7 +45,7 @@ describe("[00-contract] package.json scripts", () => {
     expect(pkg.scripts).toHaveProperty(script);
   });
 
-  it("production-start chains migrations before server boot", () => {
+  it("production-start chains guarded startup before server boot", () => {
     const startScript = pkg.scripts.start;
     expect(startScript).toMatch(/production-start\.mjs/);
   });
@@ -55,6 +55,8 @@ describe("[00-contract] runtime files Render and Docker depend on", () => {
   const runtimeFiles = [
     "scripts/production-start.mjs",
     "scripts/apply-migrations.mjs",
+    "scripts/deploy/check-env.mjs",
+    "scripts/deploy/check-db-capacity.mjs",
     "drizzle.config.ts",
     "migrations",
     "render.yaml",
@@ -63,5 +65,31 @@ describe("[00-contract] runtime files Render and Docker depend on", () => {
 
   it.each(runtimeFiles)("%s exists", (rel) => {
     expect(fs.existsSync(path.join(repoRoot, rel))).toBe(true);
+  });
+});
+
+describe("[00-contract] production startup safety", () => {
+  const productionStart = fs.readFileSync(
+    path.join(repoRoot, "scripts", "production-start.mjs"),
+    "utf8",
+  );
+  const dockerfile = fs.readFileSync(path.join(repoRoot, "Dockerfile"), "utf8");
+  const renderYaml = fs.readFileSync(path.join(repoRoot, "render.yaml"), "utf8");
+
+  it("skips drizzle push in Render/non-interactive startup unless explicitly allowed", () => {
+    expect(productionStart).toContain("AXTASK_ALLOW_DB_PUSH_ON_START");
+    expect(productionStart).toContain("SKIP_DB_PUSH_ON_START");
+    expect(productionStart).toContain("runningOnRender");
+    expect(productionStart).toContain("nonInteractive");
+  });
+
+  it("Docker runtime uses the same production-start guard", () => {
+    expect(dockerfile).toContain('CMD ["node", "scripts/production-start.mjs"]');
+    expect(dockerfile).not.toMatch(/npx\s+drizzle-kit\s+push/);
+  });
+
+  it("Render config codifies the production DB push skip", () => {
+    expect(renderYaml).toContain("SKIP_DB_PUSH_ON_START");
+    expect(renderYaml).toContain('value: "true"');
   });
 });
