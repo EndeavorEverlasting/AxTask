@@ -22,10 +22,12 @@ COPY --from=build /app/shared ./shared
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=build /app/migrations ./migrations
-COPY --from=build /app/scripts/apply-migrations.mjs ./scripts/apply-migrations.mjs
-COPY --from=build /app/scripts/migration-airlock.mjs ./scripts/migration-airlock.mjs
+COPY --from=build /app/scripts ./scripts
 
-RUN test -f /app/scripts/apply-migrations.mjs \
+RUN test -f /app/scripts/production-start.mjs \
+  && test -f /app/scripts/deploy/check-env.mjs \
+  && test -f /app/scripts/deploy/check-db-capacity.mjs \
+  && test -f /app/scripts/apply-migrations.mjs \
   && test -f /app/scripts/migration-airlock.mjs
 
 # Attachment storage directory (backed by volume in docker-compose).
@@ -37,4 +39,4 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://localhost:5000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["sh", "-c", "node scripts/apply-migrations.mjs && if [ \"$SKIP_DB_PUSH_ON_START\" = \"true\" ] || [ \"$RENDER\" = \"true\" ] || [ -n \"$RENDER_SERVICE_ID\" ] || [ -n \"$RENDER_EXTERNAL_HOSTNAME\" ]; then echo '[docker-start] skipping drizzle-kit push'; else npx drizzle-kit push --force </dev/null 2>&1; fi && node dist/index.js"]
+CMD ["node", "scripts/production-start.mjs"]
