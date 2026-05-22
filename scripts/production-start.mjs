@@ -61,8 +61,21 @@ const m = spawnSync(process.execPath, [join(root, "scripts/apply-migrations.mjs"
 });
 if (m.status !== 0) process.exit(m.status ?? 1);
 
-if (process.env.SKIP_DB_PUSH_ON_START === "true") {
-  console.warn("[production-start] SKIP_DB_PUSH_ON_START=true — skipping drizzle-kit push.");
+const explicitSkipDbPush = process.env.SKIP_DB_PUSH_ON_START === "true";
+const explicitAllowDbPush = process.env.AXTASK_ALLOW_DB_PUSH_ON_START === "true";
+const runningOnRender = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL);
+const nonInteractive = !process.stdin.isTTY;
+const shouldSkipDbPush =
+  explicitSkipDbPush || (!explicitAllowDbPush && (runningOnRender || nonInteractive));
+
+if (shouldSkipDbPush) {
+  if (explicitSkipDbPush) {
+    console.warn("[production-start] SKIP_DB_PUSH_ON_START=true — skipping drizzle-kit push.");
+  } else if (runningOnRender) {
+    console.warn("[production-start] Render host detected — skipping drizzle-kit push.");
+  } else {
+    console.warn("[production-start] Non-interactive shell detected — skipping drizzle-kit push.");
+  }
 } else {
   const drizzleBin = join(root, "node_modules", "drizzle-kit", "bin.cjs");
   if (!existsSync(drizzleBin)) {

@@ -5,7 +5,7 @@ services:
     plan: starter
     rootDir: .
     buildCommand: npm ci && npm run build
-    # npm run start runs scripts/production-start.mjs: migrations → drizzle push → dist/index.js
+    # npm run start runs scripts/production-start.mjs: env gate → capacity gate → SQL migrations → skip drizzle push by default → dist/index.js
     startCommand: npm run start
     healthCheckPath: /ready
     # autoDeploy: every push to main ships. Safety is delegated to:
@@ -25,6 +25,9 @@ services:
         value: production
       - key: PORT
         value: 5000
+      # Disable interactive drizzle-kit push in production startup; use SQL migrations only.
+      - key: SKIP_DB_PUSH_ON_START
+        value: "true"
       - key: FORCE_HTTPS
         value: "true"
       # Set CANONICAL_HOST to your primary domain (for unknown host redirects).
