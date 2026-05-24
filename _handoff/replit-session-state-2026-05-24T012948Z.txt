@@ -1,0 +1,27 @@
+## git status
+## state/axtask-replit-handoff-2026-05-24T012948Z
+?? _handoff/
+?? docs/forensics/
+
+## recent commits
+4673343 (HEAD -> state/axtask-replit-handoff-2026-05-24T012948Z, fix/shared-schema-export-gaps-2026-05-23) test: align schema repair with guarded production startup
+943cd25 Replace legacy task list with compatibility shim
+de7aa97 Fix task DTO and community nullability type errors
+5fa690d Fix shared schema DTO export gaps
+f29a4e3 Merge remote GitHub main into Replit main — unite diverged histories
+8298b49 feat: Community leaderboards & rankings (Task #44)
+8f2f2c2 Task #45: Moderation tools upgrade — triage, bulk actions, mod log, notifications
+3e2e9a5 Task #45: Moderation tools upgrade — triage, bulk actions, mod log, notifications
+01798c8 Task #45: Moderation tools upgrade — triage, bulk actions, mod log, notifications
+f264253 Task #45: Moderation tools upgrade — triage, bulk actions, mod log, notifications
+78a0524 Task #43: Direct messaging between users — complete frontend integration
+ad1effa Task #43: Direct messaging between users — complete frontend integration
+
+## branches of interest
+d56f67fee881b61ed49878fdf235867ebb489815	refs/heads/codex/ensure-pr-#59-deployment-safety
+121d7b86afb432e16b0afc407eb393660f3b76a7	refs/heads/codex/implement-runtime-memory-diagnostics-and-isolation
+ea735b2fa962e19a778d217a76f0690d7686ed87	refs/heads/deployment-safety-env-automation/live-mode-harness-plan
+f99c35559e4687af5147621797ae191d4121e9bf	refs/heads/fix/shared-schema-export-gaps-2026-05-23
+b0a102c9b7d8a344dc8ca6ad5b8a3fc93072b1ca	refs/heads/fix/typecheck-after-startup-guard-2026-05-24
+b3249072640deac05601be686aec50eaf4ff6ff5	refs/heads/harvest/axtask-replit-rescue-2026-05-23
+b0a102c9b7d8a344dc8ca6ad5b8a3fc93072b1ca	refs/heads/main
