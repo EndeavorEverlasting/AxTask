@@ -108,3 +108,7 @@ scratch-pii/
 # Local copies of support tickets / account recovery notes (often contain email, phone).
 **/support-notes.local.*
 **/account-recovery.local.*
+
+# Local rescue and extraction artifacts
+_extract_logs/
+_rescue_exports/
