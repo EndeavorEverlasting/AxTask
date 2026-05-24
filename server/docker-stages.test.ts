@@ -8,10 +8,9 @@
  *   1. deps:        npm install in the build image
  *   2. build:       npm run build (vite + esbuild)
  *   3. runtime:     node_modules + dist + client + shared + package*.json
- *                   + drizzle.config.ts + migrations + scripts/apply-migrations.mjs
+ *                   + drizzle.config.ts + migrations + scripts directory
  *   4. healthcheck: container probes /health
- *   5. CMD:         node apply-migrations.mjs -> drizzle-kit push --force -> node dist/index.js
- *                   with stdin closed on drizzle-kit push (no interactive prompts)
+ *   5. CMD:         delegates ordered startup to scripts/production-start.mjs
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -46,7 +45,10 @@ describe("Dockerfile build and runtime stages", () => {
       "COPY --from=build /app/package*.json ./",
       "COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts",
       "COPY --from=build /app/migrations ./migrations",
-      "COPY --from=build /app/scripts/apply-migrations.mjs ./scripts/apply-migrations.mjs",
+      "COPY --from=build /app/scripts ./scripts",
+      "test -f /app/scripts/production-start.mjs",
+      "test -f /app/scripts/apply-migrations.mjs",
+      "test -f /app/scripts/migration-airlock.mjs",
     ];
     for (const line of required) {
       expect(dockerfile, `Missing Dockerfile line: ${line}`).toContain(line);
@@ -65,21 +67,24 @@ describe("Dockerfile build and runtime stages", () => {
     expect(dockerfile).toMatch(/HEALTHCHECK[\s\S]*fetch\(['"]http:\/\/localhost:5000\/health['"]/);
   });
 
-  it("Stage 5 (CMD) runs migrations then drizzle push with stdin closed then server", () => {
-    const cmdMatch = dockerfile.match(/CMD\s*\[\s*"sh",\s*"-c",\s*"([^"]+)"\s*\]/);
-    expect(cmdMatch, "Dockerfile CMD").toBeTruthy();
-    const body = cmdMatch![1];
+  it("Stage 5 (CMD) delegates startup order to production-start", () => {
+    expect(dockerfile).toContain('CMD ["node", "scripts/production-start.mjs"]');
 
-    const applyIdx = body.indexOf("node scripts/apply-migrations.mjs");
-    const pushIdx = body.indexOf("drizzle-kit push --force");
-    const nodeIdx = body.indexOf("node dist/index.js");
+    const src = fs.readFileSync(path.join(projectRoot, "scripts", "production-start.mjs"), "utf8");
+    const envIdx = src.indexOf("check-env.mjs");
+    const capacityIdx = src.indexOf("check-db-capacity.mjs");
+    const applyIdx = src.indexOf("apply-migrations.mjs");
+    const pushIdx = src.indexOf('[drizzleBin, "push", "--force"]');
+    const nodeIdx = src.indexOf("spawn(process.execPath, [distIndex]");
 
-    expect(applyIdx).toBeGreaterThan(-1);
+    expect(envIdx).toBeGreaterThan(-1);
+    expect(capacityIdx).toBeGreaterThan(envIdx);
+    expect(applyIdx).toBeGreaterThan(capacityIdx);
     expect(pushIdx).toBeGreaterThan(applyIdx);
     expect(nodeIdx).toBeGreaterThan(pushIdx);
 
     // Must close stdin on drizzle-kit push to prevent interactive prompts on Render.
-    expect(body).toMatch(/drizzle-kit push --force[^&|;]*<\s*\/dev\/null/);
+    expect(src).toContain('stdio: ["ignore", "inherit", "pipe"]');
   });
 });
 
