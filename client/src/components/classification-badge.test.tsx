@@ -11,6 +11,17 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
+vi.mock("@/hooks/use-immersive-sounds", () => {
+  const noop = vi.fn();
+  const sounds = new Proxy(
+    {},
+    {
+      get: (_target, prop) => (prop === "enabled" ? false : noop),
+    },
+  );
+  return { useImmersiveSounds: () => sounds };
+});
+
 function createWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return ({ children }: { children: React.ReactNode }) => (
