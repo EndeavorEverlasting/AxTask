@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo, type TouchEvent as ReactTouchEvent } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { type Task, type TaskAttachment } from "@shared/schema";
+import { type TaskWithInteractionState as Task, type TaskAttachment } from "@shared/schema";
 import { SKILL_BENEFITS } from "@/lib/skill-benefits";
 import { SKILL_NODE_DATA } from "@shared/skill-nodes";
 import { apiRequest } from "@/lib/queryClient";
@@ -1333,7 +1333,6 @@ export function TaskList() {
           {editingTask && (
             <TaskForm
               task={editingTask}
-              onClearedChange={setEditFormCleared}
               onSuccess={() => {
                 setEditingTask(null);
                 setEditFormCleared(false);

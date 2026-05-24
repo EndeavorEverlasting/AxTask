@@ -117,6 +117,17 @@ export type TaskAttachment = {
   uploadedAt?: Date | string | null;
 };
 
+export type TaskReactionSummary = {
+  thumbsUp?: string[];
+  thumbsDown?: string[];
+  [reaction: string]: string[] | undefined;
+};
+
+export type TaskWithInteractionState = import("./tasks").Task & {
+  attachments?: TaskAttachment[];
+  reactions?: TaskReactionSummary | null;
+};
+
 /** Closed set of valid `ownerType` discriminators. */
 export const MESSAGE_ATTACHMENT_OWNER_TYPES = [
   "task_note",
