@@ -83,6 +83,7 @@ import {
   type ClassificationDisputeVote,
   type CategoryReviewTrigger,
   type CategoryReviewStatus,
+  type FeedbackClassification,
   type OfflineGenerator,
   type OfflineSkillNode,
   type UserOfflineSkill,
@@ -5791,3 +5792,17 @@ export async function markBackupJobFailed(id: string, errorMessage: string): Pro
     .returning();
   return row || null;
 }
+
+export type StoreFeedbackClassificationInput = Omit<
+  FeedbackClassification,
+  "id" | "createdAt" | "updatedAt" | "resolvedAt"
+>;
+
+export async function storeFeedbackClassification(
+  _input: StoreFeedbackClassificationInput,
+): Promise<FeedbackClassification> {
+  throw new Error(
+    "NODEWEAVER_FEEDBACK_PERSISTENCE_UNIMPLEMENTED: feedback classification storage must be implemented before NodeWeaver persistence can run.",
+  );
+}
+
