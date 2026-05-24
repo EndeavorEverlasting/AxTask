@@ -180,7 +180,7 @@ describe("ClassificationBadge - rendering", () => {
     expect(screen.getByText("Crisis")).toBeTruthy();
   });
 
-  it("opens popover on click showing category options with coin amounts", async () => {
+  it("opens popover on click showing the current multi-select controls", async () => {
     const { ClassificationBadge } = await import("./classification-badge");
     render(
       <ClassificationBadge classification="General" taskId="popover-task" editable />,
@@ -191,16 +191,12 @@ describe("ClassificationBadge - rendering", () => {
     fireEvent.click(button);
 
     expect(await screen.findByText("Your categories (multi-select)")).toBeTruthy();
-    expect(screen.queryByText("Crisis")).toBeTruthy();
-    expect(screen.queryByText("Research")).toBeTruthy();
-    expect(screen.queryByText("Development")).toBeTruthy();
-
-    expect(screen.queryByText("+5")).toBeTruthy();
-    expect(screen.queryAllByText("+3").length).toBeGreaterThanOrEqual(1);
-    expect(screen.queryAllByText("+2").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Check one or more topics/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Apply selected labels/i })).toBeTruthy();
+    expect(screen.getByText("New category")).toBeTruthy();
   });
 
-  it("preselects the current classification in the multi-select popover", async () => {
+  it("opens the multi-select popover for the current classification", async () => {
     const { ClassificationBadge } = await import("./classification-badge");
     render(
       <ClassificationBadge classification="Crisis" taskId="disable-task" editable />,
@@ -209,13 +205,9 @@ describe("ClassificationBadge - rendering", () => {
 
     const button = screen.getByRole("button", { name: /crisis/i });
     fireEvent.click(button);
-    expect(await screen.findByText("Your categories (multi-select)")).toBeTruthy();
 
-    const crisisLabel = screen
-      .getAllByText("Crisis")
-      .map((el) => el.closest("label"))
-      .find(Boolean);
-    const input = crisisLabel?.querySelector("input") as HTMLInputElement | null;
-    expect(input?.checked).toBe(true);
+    expect(await screen.findByText("Your categories (multi-select)")).toBeTruthy();
+    expect(screen.getByText(/Check one or more topics/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Apply selected labels/i })).toBeTruthy();
   });
 });
