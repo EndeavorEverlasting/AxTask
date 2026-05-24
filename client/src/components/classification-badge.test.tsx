@@ -2,14 +2,48 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+const mockCategories = {
+  builtIn: [
+    { label: "Crisis", coins: 5 },
+    { label: "Development", coins: 3 },
+    { label: "Meeting", coins: 2 },
+    { label: "Administrative", coins: 2 },
+    { label: "Research", coins: 3 },
+    { label: "Maintenance", coins: 2 },
+  ],
+  custom: [],
+};
+
 vi.mock("@/lib/queryClient", () => ({
-  apiRequest: vi.fn(() => Promise.resolve({ json: () => Promise.resolve({}) })),
+  apiRequest: vi.fn((_method: string, path: string) =>
+    Promise.resolve({
+      json: () =>
+        Promise.resolve(
+          path === "/api/classification/categories"
+            ? mockCategories
+            : path === "/api/classification/suggestions"
+              ? { suggestions: [] }
+              : {},
+        ),
+    }),
+  ),
   getCsrfToken: vi.fn(() => "test-token"),
 }));
 
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
+
+vi.mock("@/hooks/use-immersive-sounds", () => {
+  const noop = vi.fn();
+  const sounds = new Proxy(
+    {},
+    {
+      get: (_target, prop) => (prop === "enabled" ? false : noop),
+    },
+  );
+  return { useImmersiveSounds: () => sounds };
+});
 
 function createWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -43,7 +77,7 @@ describe("ClassificationBadge - hint system (must run first due to module state)
     vi.restoreAllMocks();
   });
 
-  it("shows onboarding hint for first-time editable badge and dismisses on click", async () => {
+  it("does not render the retired onboarding hint and opens the current category picker", async () => {
     vi.resetModules();
     const { ClassificationBadge } = await import("./classification-badge");
     localStorage.removeItem(CLASSIFY_HINT_KEY);
@@ -53,13 +87,12 @@ describe("ClassificationBadge - hint system (must run first due to module state)
       { wrapper: createWrapper() }
     );
 
-    const hintText = screen.queryByText("Tap to classify & earn coins!");
-    expect(hintText).toBeTruthy();
+    expect(screen.queryByText("Tap to classify & earn coins!")).toBeNull();
 
-    const button = screen.getByTitle("Classify to earn coins");
+    const button = screen.getByRole("button", { name: /general/i });
     fireEvent.click(button);
 
-    expect(localStorage.getItem(CLASSIFY_HINT_KEY)).toBe("true");
+    expect(await screen.findByText("Your categories (multi-select)")).toBeTruthy();
   });
 
   it("hides hint when localStorage already set", async () => {
@@ -114,24 +147,26 @@ describe("ClassificationBadge - rendering", () => {
     expect(button?.textContent).toContain("Development");
   });
 
-  it("shows title 'Classify to earn coins' on editable button", async () => {
+  it("renders the current editable button without the retired title attribute", async () => {
     const { ClassificationBadge } = await import("./classification-badge");
     render(
       <ClassificationBadge classification="General" taskId="task-2" editable />,
       { wrapper: createWrapper() }
     );
-    const btn = screen.getByTitle("Classify to earn coins");
+    const btn = screen.getByRole("button", { name: /general/i });
     expect(btn).toBeTruthy();
+    expect(btn.getAttribute("title")).toBeNull();
   });
 
-  it("shows pencil and chevron icons in editable mode", async () => {
+  it("shows the chevron affordance in editable mode", async () => {
     const { ClassificationBadge } = await import("./classification-badge");
     const { container } = render(
       <ClassificationBadge classification="Crisis" taskId="task-3" editable />,
       { wrapper: createWrapper() }
     );
     const svg = container.querySelectorAll("svg");
-    expect(svg.length).toBeGreaterThanOrEqual(2);
+    expect(svg.length).toBeGreaterThanOrEqual(1);
+    expect(container.querySelector(".lucide-chevron-down")).toBeTruthy();
   });
 
   it("renders as non-editable span when editable=true but no taskId", async () => {
@@ -145,40 +180,34 @@ describe("ClassificationBadge - rendering", () => {
     expect(screen.getByText("Crisis")).toBeTruthy();
   });
 
-  it("opens popover on click showing category options with coin amounts", async () => {
+  it("opens popover on click showing the current multi-select controls", async () => {
     const { ClassificationBadge } = await import("./classification-badge");
     render(
       <ClassificationBadge classification="General" taskId="popover-task" editable />,
       { wrapper: createWrapper() }
     );
 
-    const button = screen.getByTitle("Classify to earn coins");
+    const button = screen.getByRole("button", { name: /general/i });
     fireEvent.click(button);
 
-    expect(screen.queryByText("Classify to earn coins")).toBeTruthy();
-    expect(screen.queryByText("Crisis")).toBeTruthy();
-    expect(screen.queryByText("Research")).toBeTruthy();
-    expect(screen.queryByText("Development")).toBeTruthy();
-
-    expect(screen.queryByText("+15")).toBeTruthy();
-    expect(screen.queryByText("+12")).toBeTruthy();
-    expect(screen.queryByText("+10")).toBeTruthy();
+    expect(await screen.findByText("Your categories (multi-select)")).toBeTruthy();
+    expect(screen.getByText(/Check one or more topics/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Apply selected labels/i })).toBeTruthy();
+    expect(screen.getByText("New category")).toBeTruthy();
   });
 
-  it("disables the current classification in the popover", async () => {
+  it("opens the multi-select popover for the current classification", async () => {
     const { ClassificationBadge } = await import("./classification-badge");
     render(
       <ClassificationBadge classification="Crisis" taskId="disable-task" editable />,
       { wrapper: createWrapper() }
     );
 
-    const button = screen.getByTitle("Classify to earn coins");
+    const button = screen.getByRole("button", { name: /crisis/i });
     fireEvent.click(button);
 
-    const crisisButtons = screen.getAllByText("Crisis");
-    const popoverCrisisBtn = crisisButtons.find(
-      el => el.closest("button")?.getAttribute("disabled") !== null
-    );
-    expect(popoverCrisisBtn).toBeTruthy();
+    expect(await screen.findByText("Your categories (multi-select)")).toBeTruthy();
+    expect(screen.getByText(/Check one or more topics/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Apply selected labels/i })).toBeTruthy();
   });
 });

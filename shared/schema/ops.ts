@@ -103,6 +103,31 @@ export const messageAttachments = pgTable("message_attachments", {
 
 export type MessageAttachment = typeof messageAttachments.$inferSelect;
 
+
+// Legacy task attachment API DTO used by the task attachment UI.
+export type TaskAttachment = {
+  id: string;
+  taskId?: string | null;
+  filename: string;
+  path: string;
+  thumbnailPath?: string | null;
+  type: string;
+  size?: number | null;
+  createdAt?: Date | string | null;
+  uploadedAt?: Date | string | null;
+};
+
+export type TaskReactionSummary = {
+  thumbsUp?: string[];
+  thumbsDown?: string[];
+  [reaction: string]: string[] | undefined;
+};
+
+export type TaskWithInteractionState = import("./tasks").Task & {
+  attachments?: TaskAttachment[];
+  reactions?: TaskReactionSummary | null;
+};
+
 /** Closed set of valid `ownerType` discriminators. */
 export const MESSAGE_ATTACHMENT_OWNER_TYPES = [
   "task_note",
@@ -223,6 +248,70 @@ export const createAttachmentAssetSchema = createInsertSchema(attachmentAssets).
 
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export type CreateAttachmentAssetInput = z.infer<typeof createAttachmentAssetSchema>;
+
+
+
+// ─── Survey + Feedback DTO Surface ───────────────────────────────────────────
+// DTO exports for existing client/server callers. These are not local stubs;
+// they are shared API contracts surfaced through @shared/schema.
+export type SurveyPromptType = "thumbs" | "radio" | "text";
+
+export type Survey = {
+  id: string;
+  question: string;
+  promptType: SurveyPromptType | string;
+  options?: unknown[] | null;
+  coinReward: number;
+  cooldownHours?: number | null;
+  targetModule?: string | null;
+  createdAt?: Date | string | null;
+  updatedAt?: Date | string | null;
+};
+
+export type SurveyResponse = {
+  id: string;
+  surveyId: string;
+  userId: string | null;
+  response: string;
+  createdAt?: Date | string | null;
+};
+
+export type FeedbackClassificationCategory =
+  | "bug_report"
+  | "user_error"
+  | "feature_request"
+  | "praise"
+  | "complaint"
+  | "question"
+  | "noise"
+  | string;
+
+export type FeedbackClassificationSeverity =
+  | "critical"
+  | "high"
+  | "medium"
+  | "low"
+  | "info"
+  | string;
+
+export type FeedbackClassification = {
+  id: string;
+  sourceType: string;
+  sourceId: string;
+  userId: string | null;
+  category: FeedbackClassificationCategory;
+  severity: FeedbackClassificationSeverity;
+  confidence: number;
+  rawContent: string;
+  normalizedContent: string;
+  tags: string[];
+  actionable: boolean;
+  resolved: boolean;
+  metadata: Record<string, unknown>;
+  createdAt?: Date | string | null;
+  updatedAt?: Date | string | null;
+  resolvedAt?: Date | string | null;
+};
 
 // ─── Premium Retention Foundations ───────────────────────────────────────────
 export const premiumSubscriptions = pgTable("premium_subscriptions", {
@@ -379,6 +468,38 @@ export const communityReplies = pgTable("community_replies", {
 ]);
 
 export type CommunityReply = typeof communityReplies.$inferSelect;
+
+
+// Forum API DTO aliases for the legacy/community-post page.
+// The storage-backed community tables use CommunityPost/CommunityReply;
+// these types preserve the richer API response shape consumed by the page.
+export type ForumPost = CommunityPost & {
+  userId: string;
+  tags?: string[] | null;
+  imageUrls?: string[] | null;
+  upvotes: number;
+  downvotes: number;
+  reactions?: Record<string, string[]> | null;
+  hidden?: boolean;
+  pinned?: boolean;
+};
+
+export type ForumComment = CommunityReply & {
+  upvotes: number;
+  downvotes: number;
+  reactions?: Record<string, string[]> | null;
+  hidden?: boolean;
+};
+
+export type ForumVote = {
+  id: string;
+  userId: string;
+  postId?: string | null;
+  commentId?: string | null;
+  voteType: "up" | "down" | string;
+  createdAt?: Date | string | null;
+  updatedAt?: Date | string | null;
+};
 
 /** Scheduled / voting / closed lifecycle for orb-generated archetype polls. */
 export const ARCHETYPE_POLL_STATUSES = ["scheduled", "open", "closed"] as const;

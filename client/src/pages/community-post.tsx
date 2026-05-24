@@ -244,7 +244,7 @@ function CommentItem({ comment, authors, votes, isAdmin, postId, userId }: {
   userId?: string;
 }) {
   const { toast } = useToast();
-  const author = authors[comment.userId];
+  const author = comment.userId ? authors[comment.userId] : undefined;
   const userVote = votes.find(v => v.commentId === comment.id);
 
   const hideMutation = useMutation({
@@ -264,9 +264,13 @@ function CommentItem({ comment, authors, votes, isAdmin, postId, userId }: {
     <div className={`flex gap-3 py-3 ${comment.hidden ? "opacity-50" : ""}`}>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <Link href={`/profile/${comment.userId}`} className="hover:opacity-80 transition-opacity">
-            <AvatarCard userId={comment.userId} displayName={author?.displayName} profileImageUrl={author?.profileImageUrl} size="sm" />
-          </Link>
+          {comment.userId ? (
+            <Link href={`/profile/${comment.userId}`} className="hover:opacity-80 transition-opacity">
+              <AvatarCard userId={comment.userId} displayName={author?.displayName} profileImageUrl={author?.profileImageUrl} size="sm" />
+            </Link>
+          ) : (
+            <AvatarCard userId="anonymous" displayName={author?.displayName ?? "Anonymous"} profileImageUrl={author?.profileImageUrl} size="sm" />
+          )}
           <span className="text-xs text-gray-400"><Clock className="h-3 w-3 inline mr-0.5" />{timeAgo(comment.createdAt!)}</span>
           {comment.hidden && <Badge variant="outline" className="text-[10px] text-red-400 border-red-300">Hidden</Badge>}
         </div>

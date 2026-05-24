@@ -21,17 +21,27 @@ describe("deploy / schema workflow guards", () => {
     expect(cmdIdx).toBeGreaterThan(migrateIdx);
   });
 
-  it("production Dockerfile CMD runs migrations then push then server", () => {
+  it("production Dockerfile delegates startup ordering to production-start", () => {
     const dockerfile = fs.readFileSync(path.join(projectRoot, "Dockerfile"), "utf8");
-    const cmdMatch = dockerfile.match(/CMD\s*\[\s*"sh",\s*"-c",\s*"([^"]+)"\s*\]/);
-    expect(cmdMatch, "Dockerfile CMD").toBeTruthy();
-    const shellBody = cmdMatch![1];
-    const applyIdx = shellBody.indexOf("node scripts/apply-migrations.mjs");
-    const pushIdx = shellBody.indexOf("drizzle-kit push --force");
-    const nodeIdx = shellBody.indexOf("node dist/index.js");
-    expect(applyIdx).toBeLessThan(pushIdx);
-    expect(pushIdx).toBeLessThan(nodeIdx);
-    expect(shellBody).toMatch(/drizzle-kit push --force[^&|;]*<\s*\/dev\/null/);
+    expect(dockerfile).toContain('CMD ["node", "scripts/production-start.mjs"]');
+    expect(dockerfile).toContain("COPY --from=build /app/scripts ./scripts");
+    expect(dockerfile).toContain("test -f /app/scripts/production-start.mjs");
+  });
+
+  it("production-start runs env gate, capacity gate, SQL migrations, drizzle push, then server", () => {
+    const src = fs.readFileSync(path.join(projectRoot, "scripts", "production-start.mjs"), "utf8");
+    const envIdx = src.indexOf("check-env.mjs");
+    const capacityIdx = src.indexOf("check-db-capacity.mjs");
+    const applyIdx = src.indexOf("apply-migrations.mjs");
+    const pushIdx = src.indexOf('[drizzleBin, "push", "--force"]');
+    const serverSpawn = src.indexOf("spawn(process.execPath, [distIndex]");
+
+    expect(envIdx).toBeGreaterThan(-1);
+    expect(capacityIdx).toBeGreaterThan(envIdx);
+    expect(applyIdx).toBeGreaterThan(capacityIdx);
+    expect(pushIdx).toBeGreaterThan(applyIdx);
+    expect(serverSpawn).toBeGreaterThan(pushIdx);
+    expect(src).toContain('stdio: ["ignore", "inherit", "pipe"]');
   });
 
   it("docker-compose migrate closes stdin on drizzle-kit push", () => {
@@ -188,7 +198,7 @@ describe("deploy / schema workflow guards", () => {
     expect(pkg.dependencies["drizzle-kit"]).toBeTruthy();
     const src = fs.readFileSync(path.join(projectRoot, "scripts", "production-start.mjs"), "utf8");
     const applyIdx = src.indexOf("apply-migrations.mjs");
-    const pushIdx = src.indexOf('"drizzle-kit", "bin.cjs"');
+    const pushIdx = src.indexOf('[drizzleBin, "push", "--force"]');
     const serverSpawn = src.indexOf("spawn(process.execPath, [distIndex]");
     expect(applyIdx).toBeGreaterThan(-1);
     expect(pushIdx).toBeGreaterThan(applyIdx);
