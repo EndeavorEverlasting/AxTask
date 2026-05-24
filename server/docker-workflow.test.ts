@@ -25,19 +25,25 @@ describe("docker workflow assets", () => {
       "utf8",
     );
     expect(dockerfile).toContain("COPY --from=build /app/dist ./dist");
-    // Production CMD must run SQL migrations, then drizzle-kit push, then server
-    expect(dockerfile).toContain("node scripts/apply-migrations.mjs");
-    expect(dockerfile).toContain("drizzle-kit push --force");
-    expect(dockerfile).toContain("node dist/index.js");
-    // Ensure migrations → push → node (order matters)
-    const migrateIdx = dockerfile.indexOf("node scripts/apply-migrations.mjs");
-    const pushIdx = dockerfile.indexOf("drizzle-kit push --force");
-    const nodeIdx = dockerfile.indexOf("node dist/index.js");
+    expect(dockerfile).toContain("COPY --from=build /app/migrations ./migrations");
+    expect(dockerfile).toContain("COPY --from=build /app/scripts ./scripts");
+    expect(dockerfile).toContain('CMD ["node", "scripts/production-start.mjs"]');
+
+    const productionStart = fs.readFileSync(
+      path.join(projectRoot, "scripts", "production-start.mjs"),
+      "utf8",
+    );
+    // Runtime entrypoint must run SQL migrations, then drizzle-kit push, then server.
+    expect(productionStart).toContain("apply-migrations.mjs");
+    expect(productionStart).toContain('[drizzleBin, "push", "--force"]');
+    expect(productionStart).toContain("spawn(process.execPath, [distIndex]");
+    expect(productionStart).toContain('stdio: ["ignore", "inherit", "pipe"]');
+
+    const migrateIdx = productionStart.indexOf("apply-migrations.mjs");
+    const pushIdx = productionStart.indexOf('[drizzleBin, "push", "--force"]');
+    const nodeIdx = productionStart.indexOf("spawn(process.execPath, [distIndex]");
     expect(migrateIdx).toBeLessThan(pushIdx);
     expect(pushIdx).toBeLessThan(nodeIdx);
-    // Ensure migration files and runner are copied into the image
-    expect(dockerfile).toContain("COPY --from=build /app/migrations ./migrations");
-    expect(dockerfile).toContain("COPY --from=build /app/scripts/apply-migrations.mjs");
   });
 
   it("keeps docker npm scripts wired to .env.docker", () => {
