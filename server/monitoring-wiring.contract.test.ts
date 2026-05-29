@@ -13,6 +13,14 @@ describe("monitoring wiring", () => {
     expect(ctxSrc).toContain('res.setHeader("x-request-id"');
   });
 
+  it("emits structured request logs and ops snapshot wiring", () => {
+    const src = fs.readFileSync(path.join(root, "server", "index.ts"), "utf8");
+    expect(src).toContain("attachStructuredRequestLog");
+    expect(src).toContain("emitBootEvent");
+    expect(src).toContain("startOpsSnapshotTicker");
+    expect(src).toContain('"/ops/status"');
+  });
+
   it("records api_error and notifies admins", () => {
     const indexSrc = fs.readFileSync(path.join(root, "server", "index.ts"), "utf8");
     const routesSrc = fs.readFileSync(path.join(root, "server", "routes.ts"), "utf8");

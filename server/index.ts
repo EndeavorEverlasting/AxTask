@@ -27,6 +27,13 @@ import { startBackupQueueWorker } from "./workers/backup-queue-worker";
 import { startBackupBullmqWorker } from "./workers/backup-bullmq-worker";
 import { logBootConfigSummary } from "./boot-config-summary";
 import { getRegistrationConfig } from "./registration-config";
+import {
+  attachStructuredRequestLog,
+  emitBootEvent,
+  getOpsStatus,
+  recordBackgroundJob,
+  startOpsSnapshotTicker,
+} from "./monitoring/ops-snapshot";
 
 const app = express();
 
@@ -234,10 +241,25 @@ app.use("/api", (req, res, next) => {
 
 app.get("/health", (_req, res) => {
   res.json({
+    ok: true,
     status: "ok",
     service: "axtask",
+    uptimeSeconds: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
   });
+});
+
+app.get("/ops/status", (req, res) => {
+  const expected = String(process.env.OPS_STATUS_TOKEN ?? "").trim();
+  if (!expected) {
+    return res.status(503).json({ ok: false, message: "Ops status not configured" });
+  }
+  const auth = req.get("authorization") ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!token || token !== expected) {
+    return res.status(401).json({ ok: false, message: "Unauthorized" });
+  }
+  return res.json(getOpsStatus());
 });
 
 app.get("/ready", async (_req, res) => {
@@ -262,21 +284,8 @@ setupAuth(app);
 
 registerOAuthRoutes(app);
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-
-      // Never append response bodies to access logs: they may contain PII and land in log aggregators.
-      log(logLine);
-    }
-  });
-
-  next();
-});
+// Structured JSON access logs for all routes (no response bodies — see CLIENT_VISIBLE_PRIVACY.md).
+app.use(attachStructuredRequestLog());
 
 function warnIfVapidMissing(): void {
   const publicKey = (process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY || "").trim();
@@ -342,6 +351,7 @@ function warnIfInviteConfigBroken(): void {
     const thresholds = getAdherenceThresholds();
     const runAdherenceTick = async () => {
       try {
+        recordBackgroundJob("adherence");
         await evaluateAdherenceForAllUsers("cron");
         await dispatchAdherencePushNotifications(100);
       } catch (error) {
@@ -360,6 +370,7 @@ function warnIfInviteConfigBroken(): void {
     const runReminderTick = async () => {
       try {
         const summary = await dispatchDueReminderTriggers(maxPerTick);
+        recordBackgroundJob("reminders");
         if (summary.scanned > 0 || summary.failedSend > 0) {
           console.info("[reminders] dispatch tick", {
             scanned: summary.scanned,
@@ -404,6 +415,7 @@ function warnIfInviteConfigBroken(): void {
       intervalMs,
       initialDelayMs,
       run: async (input) => {
+        recordBackgroundJob("retention");
         // Order matters: snapshot first (so the captured size reflects
         // pre-prune weight — that's the actual observed disk use), then
         // prune. Both steps swallow their own errors.
@@ -518,6 +530,8 @@ function warnIfInviteConfigBroken(): void {
     },
     () => {
       log(`serving on port ${port}`);
+      emitBootEvent();
+      startOpsSnapshotTicker();
     },
   );
 })();

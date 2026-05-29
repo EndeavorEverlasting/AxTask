@@ -130,7 +130,7 @@ trail), and `archetype_rollup_daily` + `archetype_markov_daily`
 - [`docs/DEV_DATABASE_AND_SCHEMA.md`](DEV_DATABASE_AND_SCHEMA.md) — how
   migrations, `apply-migrations.mjs`, and drizzle-kit fit together.
 - [`render.yaml`](../render.yaml) — Render service config
-  (`autoDeploy: true`, `healthCheckPath: /ready`). With autoDeploy on,
+  (`autoDeploy: true`, `healthCheckPath: /health`). With autoDeploy on,
   every push to the deploy branch ships, and the only thing between the
   push and a live migration is the capacity gate wired at the top of
   `scripts/production-start.mjs`. If you ever set `autoDeploy: false`

@@ -114,10 +114,12 @@ if (hasRegex(renderYaml, /drizzle-kit\s+push|npx\s+drizzle-kit/)) {
   pass("render.yaml does not invoke drizzle-kit directly.");
 }
 
-if (!contains(renderYaml, "healthCheckPath: /ready")) {
-  warn("render.yaml does not use /ready as healthCheckPath. Consider requiring DB readiness for rollout.");
+if (contains(renderYaml, "healthCheckPath: /health")) {
+  pass("render.yaml healthCheckPath is /health (cheap liveness).");
+} else if (contains(renderYaml, "healthCheckPath: /ready")) {
+  warn("render.yaml uses /ready as healthCheckPath — every check hits the DB. Prefer /health for Render.");
 } else {
-  pass("render.yaml healthCheckPath is /ready.");
+  fail("render.yaml must declare healthCheckPath (/health recommended).");
 }
 
 if (!contains(productionStart, "apply-migrations.mjs")) {

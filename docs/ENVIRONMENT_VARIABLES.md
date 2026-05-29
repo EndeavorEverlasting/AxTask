@@ -254,6 +254,10 @@ These are read in the client via `import.meta.env`. The **Vite** build must see 
 |----------|---------|
 | `SKIP_DB_PUSH_ON_START` | Skips Drizzle push on `production-start` (migrations still run). |
 | `AXTASK_SKIP_DB_CAPACITY_CHECK` | Skips pre-migrate DB size gate. |
+| `OPS_STATUS_TOKEN` | Bearer token for `GET /ops/status` (in-memory counters; optional). |
+| `OPS_SNAPSHOT_INTERVAL_MS` | Daily ops snapshot log interval (default 24h). |
+| `OPS_SNAPSHOT_INITIAL_DELAY_MS` | Delay before first snapshot (default 5m). |
+| `DISABLE_OPS_SNAPSHOT` | Set `true` to disable periodic `axtask.ops.snapshot` logs. |
 | `GITHUB_*` | CI / attestation scripts. |
 
 [DEV_DATABASE_AND_SCHEMA.md](DEV_DATABASE_AND_SCHEMA.md), [production-start.mjs](../scripts/production-start.mjs).

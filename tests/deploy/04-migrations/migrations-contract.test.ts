@@ -40,7 +40,13 @@ describe("[04-migrations] apply-migrations.mjs", () => {
 
   it("is idempotent: re-running skips already-applied files", () => {
     if (!src) src = fs.readFileSync(scriptPath, "utf8");
-    expect(src).toMatch(/already applied/i);
+    expect(src).toMatch(/no pending migrations|already applied/i);
+  });
+
+  it("runs migration airlock only when pending migrations exist", () => {
+    if (!src) src = fs.readFileSync(scriptPath, "utf8");
+    expect(src).toMatch(/pending migration/i);
+    expect(src).toMatch(/runMigrationAirlockIfNeeded/);
   });
 });
 

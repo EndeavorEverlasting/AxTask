@@ -130,20 +130,22 @@ Health checks:
 The runtime image [`Dockerfile`](../Dockerfile) ends with:
 
 ```text
-node scripts/apply-migrations.mjs && npx drizzle-kit push --force && node dist/index.js
+node scripts/production-start.mjs
 ```
 
-So: **versioned SQL migrations → forced Drizzle schema sync → Node server**. CI and [`server/deploy-schema-workflow.test.ts`](../server/deploy-schema-workflow.test.ts) guard this ordering.
+[`scripts/production-start.mjs`](../scripts/production-start.mjs) runs: **environment gate → DB capacity gate → versioned SQL migrations → skip Drizzle push by default → `node dist/index.js`**.
+
+Drizzle `push` is **not** run on production boot unless `AXTASK_ALLOW_DB_PUSH_ON_START=true` (operator override from an interactive shell). See [`SCHEMA_EVOLUTION_PIPELINE.md`](SCHEMA_EVOLUTION_PIPELINE.md).
 
 ## Path E: Native Node production (e.g. Render `npm run start`)
 
-[`package.json`](../package.json) **`npm run start`** runs [`scripts/production-start.mjs`](../scripts/production-start.mjs): **`apply-migrations.mjs` → `drizzle-kit push --force` → `node dist/index.js`**, matching Path D. Use **`npm run start:app`** only if you intentionally skip migrations/push (rare; not recommended for production).
+[`package.json`](../package.json) **`npm run start`** runs [`scripts/production-start.mjs`](../scripts/production-start.mjs): **guarded gates → `apply-migrations.mjs` (pending SQL only) → server**. Drizzle push is skipped on Render and non-interactive terminals by default.
 
-Startup mutates schema state before serving traffic. Treat each deploy as a release event with explicit contract evidence (`docs/releases/*.md`) and run `npm run release:check` in CI/PR validation before merge.
+[`render.yaml`](../render.yaml) sets `SKIP_DB_PUSH_ON_START=true` and `healthCheckPath: /health` (cheap liveness; use `/ready` for DB smoke).
 
-[`drizzle-kit`](../package.json) is a **production dependency** so installs that omit devDependencies still have the CLI at runtime.
+Use **`npm run start:app`** only if you intentionally skip migrations (emergency; not recommended for production).
 
-[`render.yaml`](../render.yaml) `startCommand: npm run start` therefore applies schema changes on each deploy restart, given a valid **`DATABASE_URL`**.
+Versioned SQL migrations may still run when pending files exist; migration airlock applies only in that case. Treat schema-changing deploys as release events (`npm run release:check`).
 
 ## Path F: CI greenfield bootstrap (`test-and-attest` job)
 
