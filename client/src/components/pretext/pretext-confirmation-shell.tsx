@@ -58,6 +58,10 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
       mouse.y = ((clientY - r.top) / r.height) * 100;
     };
 
+    const isCoarsePointer =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(pointer: coarse)").matches;
+
     const onMove = (e: MouseEvent) => {
       setPointerFromClient(e.clientX, e.clientY);
     };
@@ -76,7 +80,9 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
 
     window.addEventListener("mousemove", onMove, { passive: true });
     window.addEventListener("mouseleave", onLeave, { passive: true });
-    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    if (!isCoarsePointer) {
+      window.addEventListener("touchmove", onTouchMove, { passive: true });
+    }
     window.addEventListener("touchend", onTouchEnd, { passive: true });
 
     const MAX_MS_PER_REQUEST = 20_000;
@@ -138,8 +144,7 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
 
         const el = chipRefs.current[i];
         if (el) {
-          el.style.left = `${pos[i].x}%`;
-          el.style.top = `${pos[i].y}%`;
+          el.style.transform = `translate3d(${pos[i].x}vw, ${pos[i].y}vh, 0)`;
         }
       }
 
@@ -197,9 +202,8 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
           ref={(el) => { chipRefs.current[idx] = el; }}
           className="absolute text-xs sm:text-sm rounded-full border border-emerald-300/40 bg-emerald-900/30 backdrop-blur-sm px-3 py-1 text-emerald-200/80 shadow-lg shadow-emerald-500/10 opacity-70"
           style={{
-            left: `${chipHome(idx).x}%`,
-            top: `${chipHome(idx).y}%`,
-            willChange: "left, top",
+            transform: `translate3d(${chipHome(idx).x}vw, ${chipHome(idx).y}vh, 0)`,
+            willChange: "transform",
           }}
         >
           {label}
