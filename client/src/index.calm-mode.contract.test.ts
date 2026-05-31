@@ -85,6 +85,8 @@ describe("calm-mode stylesheet contract", () => {
     expect(sidebar).toContain("axtask-nav-chrome");
     expect(sidebar).toMatch(/<aside[\s\S]*axtask-nav-chrome/);
     expect(sidebar).toContain("SheetContent side=\"left\" className=\"w-[280px] p-0 axtask-nav-chrome");
+    expect(sidebar).toMatch(/MobileTopBar[\s\S]+axtask-nav-chrome/);
+    expect(sidebar).not.toMatch(/MobileTopBar[\s\S]+glass-panel-glossy/);
   });
 
   it("smooths the calm-mode reader-fill swap so panels don't snap colour on every scroll burst", () => {
