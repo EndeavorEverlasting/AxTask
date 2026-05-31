@@ -81,31 +81,35 @@ test("mobile scroll direction reversal does not produce visible flash", async ({
   const panel = page.getByTestId("content-panel");
   await expect(panel).toBeVisible();
 
-  // Baseline screenshot
+  // Settle baseline at scrollTop=100 — both screenshots must come from the
+  // SAME scroll offset, otherwise this test measures normal content
+  // movement instead of a direction-reversal flash.
+  await page.locator("#scroll-root").evaluate((el) => {
+    el.scrollTop = 100;
+  });
+  await page.waitForTimeout(150);
   const baseline = await page.screenshot();
 
-  // Scroll down
+  // Scroll down (away from baseline)
   await page.locator("#scroll-root").evaluate((el) => {
     el.scrollTop = 400;
   });
   await page.waitForTimeout(150);
 
-  // Scroll up (direction reversal)
+  // Scroll back to the same offset as baseline (direction reversal)
   await page.locator("#scroll-root").evaluate((el) => {
     el.scrollTop = 100;
   });
   await page.waitForTimeout(150);
-
-  // Screenshot after reversal
   const afterReversal = await page.screenshot();
 
-  // Compare — should have minimal difference (no flash)
+  // Compare — same offset, so any non-trivial diff is a reversal flash.
   const diff = diffPngBuffers(baseline, afterReversal);
   const ratio = diff.changed / diff.total;
 
-  // Allow up to 5% difference for normal layout / scroll jitter
+  // Tight threshold: 1% allows for anti-alias noise but catches real flashes.
   expect(
     ratio,
-    `scroll reversal produced ${(ratio * 100).toFixed(1)}% pixel diff (threshold 5%)`,
-  ).toBeLessThan(0.05);
+    `scroll reversal produced ${(ratio * 100).toFixed(2)}% pixel diff (threshold 1%)`,
+  ).toBeLessThan(0.01);
 });

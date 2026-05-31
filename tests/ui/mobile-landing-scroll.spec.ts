@@ -32,13 +32,15 @@ test.describe.serial("Mobile landing page scroll", () => {
       "landing page should be taller than the mobile viewport",
     ).toBeGreaterThan(scrollable.clientHeight);
 
-    // Scroll the wrapper to bottom and assert footer is visible
+    // Scroll the wrapper to bottom and assert footer is actually in the
+    // viewport. `toBeVisible()` only proves the element is in the layout —
+    // it does not prove scrolling reached it. `toBeInViewport()` does.
     await page.locator('[data-testid="public-scroll-shell"]').evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });
 
     const footer = page.locator("footer");
-    await expect(footer).toBeVisible();
+    await expect(footer).toBeInViewport();
     await expect(footer).toContainText(/AxTask/);
   });
 });

@@ -58,6 +58,14 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
       mouse.y = ((clientY - r.top) / r.height) * 100;
     };
 
+    // Coarse-pointer (mobile / touch) handling is intentional:
+    //   - chips still drift via the shared rAF loop (cheap, GPU-only)
+    //   - touchmove chip-chasing is DISABLED so we don't pay for
+    //     pointer recomputation on every scroll-as-touch frame
+    //   - touchend still clears `mouse` so any stray chase state settles
+    // If a future product decision wants chip-chase on touch, remove the
+    // `!isCoarsePointer` guard below and accept the per-touch cost.
+    // docs/SCROLL_REFRESH_VISUAL_STABILITY.md, docs/LIT_MOBILE_FLASHING_STABILIZATION.md
     const isCoarsePointer =
       typeof window !== "undefined" &&
       window.matchMedia?.("(pointer: coarse)").matches;
@@ -202,6 +210,12 @@ export function PretextAmbientChips({ labels }: PretextAmbientChipsProps) {
           ref={(el) => { chipRefs.current[idx] = el; }}
           className="absolute text-xs sm:text-sm rounded-full border border-emerald-300/40 bg-emerald-900/30 backdrop-blur-sm px-3 py-1 text-emerald-200/80 shadow-lg shadow-emerald-500/10 opacity-70"
           style={{
+            // Anchor at (0, 0) so translate3d() values are deterministic
+            // viewport offsets — without this, `position: absolute` would
+            // default to auto positioning and chips would drift relative to
+            // an undefined origin between renders.
+            left: 0,
+            top: 0,
             transform: `translate3d(${chipHome(idx).x}vw, ${chipHome(idx).y}vh, 0)`,
             willChange: "transform",
           }}

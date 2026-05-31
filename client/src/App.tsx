@@ -391,6 +391,7 @@ function AuthenticatedApp() {
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const mainScrollBudgetRaf = useRef<number | null>(null);
+  const publicScrollBudgetRaf = useRef<number | null>(null);
   const lastScrollY = useRef(0);
   // Inner scroll roots must call notifyScrollBudget — window scroll alone misses
   // main content; dropping this brings hue pulse, glass blanking, chip bleed-back.
@@ -417,6 +418,29 @@ function AuthenticatedApp() {
       if (mainScrollBudgetRaf.current != null) {
         cancelAnimationFrame(mainScrollBudgetRaf.current);
         mainScrollBudgetRaf.current = null;
+      }
+    };
+  }, []);
+
+  // Inner scroll root for unauthenticated pages must also call
+  // notifyScrollBudget — `#root { overflow: hidden }` means landing/login
+  // scroll happens inside `public-scroll-shell`, not on `window`. Without
+  // this, calm-mode never engages on mobile public pages and the aurora
+  // / chip layer continues to repaint during momentum scroll.
+  // docs/SCROLL_REFRESH_VISUAL_STABILITY.md
+  const onPublicShellScroll = useCallback(() => {
+    if (publicScrollBudgetRaf.current != null) return;
+    publicScrollBudgetRaf.current = requestAnimationFrame(() => {
+      publicScrollBudgetRaf.current = null;
+      notifyScrollBudget();
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (publicScrollBudgetRaf.current != null) {
+        cancelAnimationFrame(publicScrollBudgetRaf.current);
+        publicScrollBudgetRaf.current = null;
       }
     };
   }, []);
@@ -580,33 +604,30 @@ function AuthenticatedApp() {
   }
 
   if (!user) {
+    // Route selection must use the query-stripped path so deep links like
+    // `/login?mode=register` and `/login?next=/tasks` resolve to LoginPage
+    // and not fall through to the DeepLinkGate / landing fallback.
+    const publicPathOnly = location.split("?")[0] || "";
     let publicPage: React.ReactNode;
-    if (location === "/contact") {
+    if (publicPathOnly === "/contact") {
       publicPage = <ContactPage />;
-    } else if (location === "/privacy") {
+    } else if (publicPathOnly === "/privacy") {
       publicPage = <PrivacyPolicyPage />;
-    } else if (location === "/terms") {
+    } else if (publicPathOnly === "/terms") {
       publicPage = <TermsOfServicePage />;
-    } else if (location === "/") {
+    } else if (publicPathOnly === "/") {
       publicPage = <LandingPage />;
-    } else if (location === "/login") {
+    } else if (publicPathOnly === "/login") {
       publicPage = <LoginPage />;
     } else {
-      const pathOnly = location.split("?")[0] || "";
-      if (
-        pathOnly !== "/" &&
-        pathOnly !== "/login" &&
-        pathOnly !== "/contact" &&
-        pathOnly !== "/privacy" &&
-        pathOnly !== "/terms"
-      ) {
-        publicPage = <DeepLinkGate path={location} />;
-      } else {
-        publicPage = <LandingPage />;
-      }
+      publicPage = <DeepLinkGate path={location} />;
     }
     return (
-      <div data-testid="public-scroll-shell" className="h-dvh overflow-y-auto overflow-x-hidden">
+      <div
+        data-testid="public-scroll-shell"
+        className="h-dvh overflow-y-auto overflow-x-hidden"
+        onScroll={onPublicShellScroll}
+      >
         {publicPage}
       </div>
     );
