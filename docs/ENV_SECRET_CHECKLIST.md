@@ -55,7 +55,17 @@ These must be stable across deploys and restarts.
 
 ## Generate separately
 
-Web Push VAPID is a key pair, not a generic secret. Generate it with:
+### Single hex secrets (pipe-friendly)
+
+For one Render-safe hex token at a time (default **64 hex characters = 256 bits**):
+
+```powershell
+npm run secret:hex
+```
+
+Paste stdout into your host env (e.g. `OPS_STATUS_TOKEN`). Do not commit output. Literal 64-bit output is available via `npm run secret:hex -- --bits 64` (16 hex chars); prefer the default for production tokens.
+
+### Web Push VAPID
 
 ```powershell
 npm run vapid:generate -- --subject mailto:you@example.com

@@ -253,6 +253,7 @@ These are read in the client via `import.meta.env`. The **Vite** build must see 
 | Variable | Purpose |
 |----------|---------|
 | `SKIP_DB_PUSH_ON_START` | Skips Drizzle push on `production-start` (migrations still run). |
+| `OPS_STATUS_TOKEN` | Optional bearer token for `GET /ops/status` when ops telemetry is enabled. Generate with `npm run secret:hex` (64 hex chars = 256 bits). |
 | `AXTASK_SKIP_DB_CAPACITY_CHECK` | Skips pre-migrate DB size gate. |
 | `GITHUB_*` | CI / attestation scripts. |
 
