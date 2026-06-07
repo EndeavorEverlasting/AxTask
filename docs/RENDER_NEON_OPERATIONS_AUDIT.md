@@ -61,6 +61,7 @@ Bootstrap helper: `npm run render:env-bootstrap -- --domain=axtask.app --invite 
 | Requests | Render logs: `event":"http.request"` |
 | Daily rollup | Render logs: `event":"axtask.ops.snapshot"` |
 | Live counters | `GET /ops/status` with `Authorization: Bearer $OPS_STATUS_TOKEN` |
+| Neon billing truth | Admin → Usage → paste Neon JSON → `POST /api/admin/usage/provider-import` |
 | Deep API perf | Admin → `/api/admin/performance/heuristics` (DB-backed) |
 
 ## Alert thresholds (log warnings in snapshot)

@@ -209,6 +209,11 @@ import { processChecklistImage } from "./ocr-processor";
 import { requireAuth } from "./auth";
 import { getProvider, getAvailableProviders } from "./auth-providers";
 import { captureUsageSnapshot, getUsageOverview, runRetentionDryRun } from "./services/usage-service";
+import { importNeonBillingPeriod, neonBillingImportSchema } from "./services/provider-usage-service";
+import {
+  getCachedAdminAnalyticsOverview,
+  setCachedAdminAnalyticsOverview,
+} from "./services/admin-analytics-cache";
 import { getApiPerformanceHeuristics } from "./services/api-performance-service";
 import { getDbSizeCached } from "./services/db-size";
 import {
@@ -5578,8 +5583,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/analytics/overview", requireAdmin, requireAdminStepUp, async (_req, res) => {
+  app.get("/api/admin/analytics/overview", requireAdmin, requireAdminStepUp, async (req, res) => {
     try {
+      if (req.query.refresh !== "1") {
+        const cached = getCachedAdminAnalyticsOverview<Record<string, unknown>>();
+        if (cached) {
+          return res.json(cached);
+        }
+      }
+
       const users = await getAllUsers();
       const tasksByUser = await Promise.all(users.map((u) => storage.getTasks(u.id)));
       const allTasks = tasksByUser.flat();
@@ -5689,7 +5701,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? Math.round((completedTasks.length / allTasks.length) * 100)
         : 0;
 
-      res.json({
+      const payload = {
         generatedAt: now.toISOString(),
         totals: {
           users: users.length,
@@ -5732,7 +5744,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         aiRuntime: {
           externalClassifierEnabled: aiRuntimeFlags.externalClassifierEnabled,
         },
-      });
+      };
+      setCachedAdminAnalyticsOverview(payload);
+      res.json(payload);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch admin analytics overview" });
     }
@@ -5828,6 +5842,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json({ message: "Usage snapshot captured" });
     } catch (error) {
       res.status(500).json({ message: "Failed to capture usage snapshot" });
+    }
+  });
+
+  app.post("/api/admin/usage/provider-import", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {
+      const payload = neonBillingImportSchema.parse(req.body ?? {});
+      const result = await importNeonBillingPeriod(payload, req.user!.id);
+      res.status(201).json({ message: "Neon billing period imported", ...result });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.issues[0]?.message ?? "Invalid import payload" });
+      }
+      res.status(500).json({ message: "Failed to import provider usage" });
     }
   });
 

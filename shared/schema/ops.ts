@@ -27,12 +27,35 @@ export const usageSnapshots = pgTable("usage_snapshots", {
   taskCount: integer("task_count").notNull().default(0),
   attachmentBytes: integer("attachment_bytes").notNull().default(0),
   spendMtdCents: integer("spend_mtd_cents").notNull().default(0),
+  attributionJson: jsonb("attribution_json"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_usage_snapshots_date").on(table.snapshotDate),
 ]);
 
 export type UsageSnapshot = typeof usageSnapshots.$inferSelect;
+
+export const providerUsageSnapshots = pgTable("provider_usage_snapshots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  provider: text("provider").notNull(),
+  project: text("project"),
+  branch: text("branch"),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  metricName: text("metric_name").notNull(),
+  metricUnit: text("metric_unit").notNull(),
+  metricValue: doublePrecision("metric_value").notNull().default(0),
+  costCents: integer("cost_cents").notNull().default(0),
+  source: text("source").notNull().default("manual"),
+  rawJson: jsonb("raw_json"),
+  importedByUserId: varchar("imported_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_provider_usage_provider_period").on(table.provider, table.periodStart, table.periodEnd),
+  index("idx_provider_usage_metric").on(table.provider, table.metricName, table.periodStart),
+]);
+
+export type ProviderUsageSnapshot = typeof providerUsageSnapshots.$inferSelect;
 
 export const storagePolicies = pgTable("storage_policies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

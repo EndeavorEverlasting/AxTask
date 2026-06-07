@@ -30,6 +30,7 @@ tables default to having a retention window instead of growing forever.
 | `premium_events`              | `created_at`| 365 days  | Same reasoning as invoice events. |
 | `study_review_events`         | `created_at`| 730 days  | Spaced-repetition history older than two years is rarely surfaced to the user and can always be rebuilt from `study_cards`. |
 | `usage_snapshots`             | `created_at`| 180 days  | Rolling six-month view is enough for the analytics page; older data is summarized elsewhere. |
+| `provider_usage_snapshots`    | `created_at`| 730 days  | Neon/Render billing imports; two years for year-over-year cost comparison. |
 | `organization_aptitude_events`| `created_at`| 180 days  | Internal-only behavioral trend samples for archetype tuning; six months preserves seasonality while bounding growth. |
 | `dm_messages`                 | `created_at`| 365 days  | E2EE ciphertext is not readable by the server; a one-year working set matches other user-visible comms retention while bounding storage growth. |
 | `user_location_events`        | `created_at`| 90 days   | Enter/exit event stream for place-based reminders; high volume, mainly used for short-term trigger evaluation. Older events add little value once processed. |

@@ -258,6 +258,9 @@ These are read in the client via `import.meta.env`. The **Vite** build must see 
 | `OPS_SNAPSHOT_INTERVAL_MS` | Daily ops snapshot log interval (default 24h). |
 | `OPS_SNAPSHOT_INITIAL_DELAY_MS` | Delay before first snapshot (default 5m). |
 | `DISABLE_OPS_SNAPSHOT` | Set `true` to disable periodic `axtask.ops.snapshot` logs. |
+| `AXTASK_MONTHLY_BUDGET_CENTS` | Monthly spend budget for admin Usage warnings (optional). |
+| `AXTASK_BUDGET_WARN_PERCENT` | Budget warning threshold (default 80). |
+| `AXTASK_BUDGET_CRITICAL_PERCENT` | Budget critical threshold (default 100). |
 | `GITHUB_*` | CI / attestation scripts. |
 
 [DEV_DATABASE_AND_SCHEMA.md](DEV_DATABASE_AND_SCHEMA.md), [production-start.mjs](../scripts/production-start.mjs).

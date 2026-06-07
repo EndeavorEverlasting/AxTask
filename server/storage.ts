@@ -3741,6 +3741,7 @@ export async function saveUsageSnapshot(input: {
   taskCount: number;
   attachmentBytes: number;
   spendMtdCents: number;
+  attributionJson?: Record<string, unknown> | null;
 }): Promise<UsageSnapshot> {
   const [existing] = await db.select().from(usageSnapshots).where(eq(usageSnapshots.snapshotDate, input.snapshotDate));
   if (existing) {
@@ -3753,6 +3754,7 @@ export async function saveUsageSnapshot(input: {
       taskCount: input.taskCount,
       attachmentBytes: input.attachmentBytes,
       spendMtdCents: input.spendMtdCents,
+      attributionJson: input.attributionJson ?? existing.attributionJson,
     }).where(eq(usageSnapshots.id, existing.id)).returning();
     return updated;
   }
@@ -3768,6 +3770,7 @@ export async function saveUsageSnapshot(input: {
     taskCount: input.taskCount,
     attachmentBytes: input.attachmentBytes,
     spendMtdCents: input.spendMtdCents,
+    attributionJson: input.attributionJson ?? null,
   }).returning();
   return created;
 }

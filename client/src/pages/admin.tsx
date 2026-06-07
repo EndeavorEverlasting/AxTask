@@ -15,6 +15,7 @@ const StorageTab = lazy(() =>
 );
 import { usePretextSurface } from "@/hooks/use-pretext-surface";
 import { useCountUp } from "@/hooks/use-count-up";
+import { useAdminLivePolling, type AdminPollTab } from "@/hooks/use-admin-live-polling";
 import type { SafeUser, SecurityLog } from "@shared/schema";
 import { MFA_PURPOSES } from "@shared/mfa-purposes";
 
@@ -110,8 +111,38 @@ type UsageOverview = {
     taskCount: number;
     attachmentBytes: number;
     spendMtdCents: number;
+    source: string;
   };
   series: Array<{ snapshotDate: string }>;
+  provider: {
+    computeCostCents: number;
+    storageCostCents: number;
+    historyCostCents: number;
+    transferCostCents: number;
+    totalCostCents: number;
+    computeHours: number;
+    lastImportAt: string | null;
+    lastImportSource: string | null;
+    dataQuality: "provider_reported" | "internal_estimate" | "mixed";
+  };
+  attribution: {
+    topRoutes: Array<{ route: string; count: number; dbTouch: string }>;
+    healthChecks: number;
+    readyChecks: number;
+    requestsTotal: number;
+    dbTouchingRequestPct: number;
+    backgroundJobs: Record<string, number>;
+    lastBoot: { ts: string; commit: string | null; drizzlePushSkipped: boolean } | null;
+    opsWarnings: string[];
+  };
+  budget: {
+    monthlyBudgetCents: number;
+    mtdSpendCents: number;
+    projectedMonthEndCents: number;
+    percentOfBudget: number;
+    level: "ok" | "warning" | "critical" | "unconfigured";
+    warnings: string[];
+  };
 };
 
 type ApiPerfHeuristicsPayload = {
@@ -279,6 +310,8 @@ export default function AdminPage() {
     useState<FeedbackReviewerFilter>("all");
   const [feedbackPresetName, setFeedbackPresetName] = useState("");
   const [commandCenterMode, setCommandCenterMode] = useState(false);
+  const [activeTab, setActiveTab] = useState<AdminPollTab>("live");
+  const [neonImportJson, setNeonImportJson] = useState("");
   const [incidentTickerIndex, setIncidentTickerIndex] = useState(0);
 
   const FEEDBACK_PRESETS_KEY = "axtask.feedbackInbox.presets";
@@ -317,6 +350,14 @@ export default function AdminPage() {
     !!stepUpStatus &&
     (!stepUpStatus.stepUpRequired || stepUpStatus.stepUpSatisfied);
 
+  const livePollInterval = useAdminLivePolling({
+    activeTab,
+    pollTab: "live",
+    commandCenterMode,
+  });
+  const intelPollInterval = useAdminLivePolling({ activeTab, pollTab: "intel" });
+  const logsPollInterval = useAdminLivePolling({ activeTab, pollTab: ["live", "intel", "logs"] });
+
   const { data: users = [], isLoading: usersLoading } = useQuery<AdminUserRow[]>({
     queryKey: ["/api/admin/users"],
     enabled: adminApiEnabled,
@@ -329,7 +370,7 @@ export default function AdminPage() {
 
   const { data: usage } = useQuery<UsageOverview>({
     queryKey: ["/api/admin/usage"],
-    enabled: adminApiEnabled,
+    enabled: adminApiEnabled && activeTab === "usage",
   });
 
   const { data: storage } = useQuery<StorageOverview>({
@@ -344,8 +385,9 @@ export default function AdminPage() {
 
   const { data: securityEvents = [] } = useQuery<SecurityEventRow[]>({
     queryKey: ["/api/admin/security-events"],
-    enabled: adminApiEnabled,
-    refetchInterval: 15000,
+    enabled: adminApiEnabled && logsPollInterval !== false,
+    refetchInterval: logsPollInterval || false,
+    refetchIntervalInBackground: false,
   });
 
   const { data: securityAlerts = [] } = useQuery<SecurityAlertRow[]>({
@@ -385,18 +427,20 @@ export default function AdminPage() {
   });
   const { data: perfHeuristics } = useQuery<ApiPerfHeuristicsPayload>({
     queryKey: [`/api/admin/performance/heuristics?hours=${perfWindowHours}`],
-    enabled: adminApiEnabled,
+    enabled: adminApiEnabled && activeTab === "performance",
   });
 
   const { data: liveAnalytics } = useQuery<AdminAnalyticsOverview>({
     queryKey: ["/api/admin/analytics/overview"],
-    enabled: adminApiEnabled,
-    refetchInterval: 15000,
+    enabled: adminApiEnabled && livePollInterval !== false,
+    refetchInterval: livePollInterval || false,
+    refetchIntervalInBackground: false,
   });
   const { data: organizationAptitude } = useQuery<OrganizationAptitudeTrends>({
     queryKey: [`/api/admin/organization-aptitude-trends?hours=${aptitudeWindowHours}`],
-    enabled: adminApiEnabled,
-    refetchInterval: 30000,
+    enabled: adminApiEnabled && intelPollInterval !== false,
+    refetchInterval: intelPollInterval || false,
+    refetchIntervalInBackground: false,
   });
 
   const { data: repoInventory } = useQuery({
@@ -606,9 +650,22 @@ export default function AdminPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/usage"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/storage"] });
-      toast({ title: "Usage captured", description: "A fresh usage snapshot has been stored." });
+      toast({ title: "Usage captured", description: "Internal rollup saved (derived from api_request events)." });
     },
     onError: (err: Error) => toast({ title: "Capture failed", description: err.message, variant: "destructive" }),
+  });
+
+  const providerImportMutation = useMutation({
+    mutationFn: async (body: unknown) => {
+      const res = await apiRequest("POST", "/api/admin/usage/provider-import", body);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/usage"] });
+      setNeonImportJson("");
+      toast({ title: "Neon billing imported", description: "Provider usage is now visible on this tab." });
+    },
+    onError: (err: Error) => toast({ title: "Import failed", description: err.message, variant: "destructive" }),
   });
 
   const updateAiRuntimeMutation = useMutation({
@@ -1148,7 +1205,7 @@ export default function AdminPage() {
         </Card>
       </div>
 
-      <Tabs defaultValue="live">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AdminPollTab)}>
         <TabsList className="flex flex-wrap">
           <TabsTrigger value="live">Live Analytics</TabsTrigger>
           <TabsTrigger value="usage">Usage & Storage</TabsTrigger>
@@ -1168,7 +1225,7 @@ export default function AdminPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Radio className="h-4 w-4 text-emerald-500 animate-pulse" />
-              Live mode refreshes every 15 seconds
+              Live mode refreshes every 60 seconds (15s in Command Center); only while this tab is focused
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="outline">
@@ -1521,17 +1578,137 @@ export default function AdminPage() {
         </TabsContent>
 
         <TabsContent value="usage" className="space-y-4">
-          <div className="flex justify-end">
-            <Button onClick={() => captureMutation.mutate()} disabled={captureMutation.isPending}>Capture Snapshot</Button>
+          <div className="flex flex-wrap justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Badge variant={usage?.provider.dataQuality === "provider_reported" ? "default" : "secondary"}>
+                {usage?.provider.dataQuality === "provider_reported" ? "Provider reported" : "Estimated / no import"}
+              </Badge>
+              {usage?.provider.lastImportAt && (
+                <span className="text-xs text-muted-foreground">
+                  Last import {new Date(usage.provider.lastImportAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+            <Button onClick={() => captureMutation.mutate()} disabled={captureMutation.isPending} variant="outline">
+              Capture internal rollup
+            </Button>
           </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">MTD Neon spend</p>
+                <p className="text-2xl font-bold">${((usage?.provider.totalCostCents ?? 0) / 100).toFixed(2)}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Compute ${((usage?.provider.computeCostCents ?? 0) / 100).toFixed(2)} ·{" "}
+                  {usage?.provider.computeHours?.toFixed(1) ?? 0}h
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Storage / history / transfer</p>
+                <p className="text-sm font-medium">
+                  ${((usage?.provider.storageCostCents ?? 0) / 100).toFixed(2)} /{" "}
+                  ${((usage?.provider.historyCostCents ?? 0) / 100).toFixed(2)} /{" "}
+                  ${((usage?.provider.transferCostCents ?? 0) / 100).toFixed(2)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">Budget</p>
+                <p className="text-2xl font-bold">
+                  {usage?.budget.level === "unconfigured"
+                    ? "—"
+                    : `${usage?.budget.percentOfBudget ?? 0}%`}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Projected ${((usage?.budget.projectedMonthEndCents ?? 0) / 100).toFixed(2)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">App requests (24h rollup)</p>
+                <p className="text-2xl font-bold">{usage?.latest.requests ?? 0}</p>
+                <p className="text-xs text-muted-foreground">source: {usage?.latest.source ?? "—"}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {(usage?.budget.warnings.length ?? 0) > 0 || (usage?.attribution.opsWarnings.length ?? 0) > 0 ? (
+            <Card className="border-amber-300/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  Usage warnings
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                {[...(usage?.budget.warnings ?? []), ...(usage?.attribution.opsWarnings ?? [])].map((w) => (
+                  <p key={w}>{w}</p>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Import Neon billing (manual)</CardTitle>
+              <CardDescription>Paste JSON from Neon invoice / usage export. This is the truth layer for compute spend.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Textarea
+                value={neonImportJson}
+                onChange={(e) => setNeonImportJson(e.target.value)}
+                placeholder='{"periodStart":"2026-06-01","periodEnd":"2026-07-01","computeHours":299.72,...}'
+                rows={6}
+                className="font-mono text-xs"
+              />
+              <Button
+                disabled={providerImportMutation.isPending || !neonImportJson.trim()}
+                onClick={() => {
+                  try {
+                    const parsed = JSON.parse(neonImportJson);
+                    providerImportMutation.mutate(parsed);
+                  } catch {
+                    toast({ title: "Invalid JSON", variant: "destructive" });
+                  }
+                }}
+              >
+                Import Neon usage
+              </Button>
+            </CardContent>
+          </Card>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Requests</p><p className="text-2xl font-bold">{usage?.latest.requests ?? 0}</p></CardContent></Card>
             <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Error Rate</p><p className="text-2xl font-bold">{usage?.latest.errorRate ?? 0}%</p></CardContent></Card>
             <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">p95 latency</p><p className="text-2xl font-bold">{usage?.latest.p95Ms ?? 0}ms</p></CardContent></Card>
             <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">DB Storage</p><p className="text-2xl font-bold">{usage?.latest.dbStorageMb ?? 0} MB</p></CardContent></Card>
-            <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Task Count</p><p className="text-2xl font-bold">{usage?.latest.taskCount ?? 0}</p></CardContent></Card>
-            <Card><CardContent className="pt-6"><p className="text-sm text-muted-foreground">Attachment MB</p><p className="text-2xl font-bold">{((usage?.latest.attachmentBytes ?? 0) / 1024 / 1024).toFixed(2)}</p></CardContent></Card>
           </div>
+
+          <Card>
+            <CardHeader><CardTitle className="text-base">Route attribution (process memory)</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <p>/health: {usage?.attribution.healthChecks ?? 0} · /ready: {usage?.attribution.readyChecks ?? 0}</p>
+              <p>DB-touching traffic (top routes sample): {usage?.attribution.dbTouchingRequestPct ?? 0}%</p>
+              <ul className="list-disc pl-5">
+                {(usage?.attribution.topRoutes ?? []).slice(0, 10).map((r) => (
+                  <li key={r.route}>
+                    {r.route} — {r.count} ({r.dbTouch})
+                  </li>
+                ))}
+              </ul>
+              {usage?.attribution.lastBoot && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Last boot {usage.attribution.lastBoot.ts} · commit {usage.attribution.lastBoot.commit ?? "n/a"} ·
+                  drizzle push skipped: {usage.attribution.lastBoot.drizzlePushSkipped ? "yes" : "no"}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader><CardTitle>Storage policy</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">

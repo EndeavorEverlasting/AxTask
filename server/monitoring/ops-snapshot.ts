@@ -4,6 +4,7 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
+import { classifyRouteDbTouch, parseRouteKey } from "./route-db-class";
 
 type RouteCount = Map<string, number>;
 
@@ -53,6 +54,11 @@ let readyChecks = 0;
 let errors4xx = 0;
 let errors5xx = 0;
 let lastSnapshot: OpsSnapshotPayload | null = null;
+let lastBootInfo: {
+  ts: string;
+  commit: string | null;
+  drizzlePushSkipped: boolean;
+} | null = null;
 const bootedAt = Date.now();
 
 function normalizeRouteKey(method: string, path: string): string {
@@ -105,19 +111,61 @@ export function recordHttpRequest(input: {
 
 export function emitBootEvent(): void {
   if (process.env.NODE_ENV === "test") return;
+  const ts = new Date().toISOString();
+  lastBootInfo = {
+    ts,
+    commit: process.env.RENDER_GIT_COMMIT ?? null,
+    drizzlePushSkipped:
+      process.env.SKIP_DB_PUSH_ON_START === "true" || Boolean(process.env.RENDER_SERVICE_ID),
+  };
   console.log(
     JSON.stringify({
       event: "axtask.boot",
-      ts: new Date().toISOString(),
+      ts,
       nodeEnv: process.env.NODE_ENV ?? null,
       renderServiceId: process.env.RENDER_SERVICE_ID ?? null,
       renderInstanceId: process.env.RENDER_INSTANCE_ID ?? null,
       renderGitCommit: process.env.RENDER_GIT_COMMIT ?? null,
+      drizzlePushSkipped: lastBootInfo.drizzlePushSkipped,
       uptimeSeconds: Math.floor(process.uptime()),
       memory: process.memoryUsage(),
     }),
   );
   recordBoot();
+}
+
+export function getAttributionForUsage(): {
+  topRoutes: Array<{ route: string; count: number; dbTouch: string }>;
+  healthChecks: number;
+  readyChecks: number;
+  errors4xx: number;
+  errors5xx: number;
+  requestsTotal: number;
+  dbTouchingRequestPct: number;
+  backgroundJobs: Record<string, number>;
+  lastBoot: typeof lastBootInfo;
+  opsWarnings: string[];
+} {
+  const topRouteRows = topRoutes(10).map(([route, count]) => {
+    const { path } = parseRouteKey(route);
+    return { route, count, dbTouch: classifyRouteDbTouch(path) };
+  });
+  const dbTouching = topRouteRows
+    .filter((r) => r.dbTouch !== "db_free")
+    .reduce((s, r) => s + r.count, 0);
+  const total = requestsTotal || 1;
+  return {
+    topRoutes: topRouteRows,
+    healthChecks,
+    readyChecks,
+    errors4xx,
+    errors5xx,
+    requestsTotal,
+    dbTouchingRequestPct: Math.round((dbTouching / total) * 100),
+    backgroundJobs: { ...backgroundJobs },
+    lastBoot: lastBootInfo,
+    opsWarnings: lastSnapshot?.warnings ?? [],
+  };
 }
 
 export function emitOpsSnapshot(): OpsSnapshotPayload {
