@@ -9,7 +9,7 @@
 // from ./gamification — no table here references rewards/coins directly.
 
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, serial, bigint, timestamp, boolean, index, uniqueIndex, jsonb, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, serial, bigint, timestamp, boolean, index, uniqueIndex, jsonb, doublePrecision, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./core";
@@ -38,10 +38,10 @@ export type UsageSnapshot = typeof usageSnapshots.$inferSelect;
 export const providerUsageSnapshots = pgTable("provider_usage_snapshots", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   provider: text("provider").notNull(),
-  project: text("project"),
-  branch: text("branch"),
-  periodStart: text("period_start").notNull(),
-  periodEnd: text("period_end").notNull(),
+  project: text("project").notNull().default(""),
+  branch: text("branch").notNull().default(""),
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
   metricName: text("metric_name").notNull(),
   metricUnit: text("metric_unit").notNull(),
   metricValue: doublePrecision("metric_value").notNull().default(0),
@@ -49,10 +49,19 @@ export const providerUsageSnapshots = pgTable("provider_usage_snapshots", {
   source: text("source").notNull().default("manual"),
   rawJson: jsonb("raw_json"),
   importedByUserId: varchar("imported_by_user_id").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("idx_provider_usage_provider_period").on(table.provider, table.periodStart, table.periodEnd),
   index("idx_provider_usage_metric").on(table.provider, table.metricName, table.periodStart),
+  uniqueIndex("idx_provider_usage_natural_key").on(
+    table.provider,
+    table.project,
+    table.branch,
+    table.periodStart,
+    table.periodEnd,
+    table.metricName,
+    table.source,
+  ),
 ]);
 
 export type ProviderUsageSnapshot = typeof providerUsageSnapshots.$inferSelect;

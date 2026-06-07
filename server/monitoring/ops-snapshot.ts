@@ -4,13 +4,14 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
+import { normalizeApiRouteForPerf } from "./api-route-normalize";
 import { classifyRouteDbTouch, parseRouteKey } from "./route-db-class";
 
 type RouteCount = Map<string, number>;
 
 export type OpsSnapshotPayload = {
   event: "axtask.ops.snapshot";
-  window: "24h";
+  window: "since_boot";
   requestsTotal: number;
   healthChecks: number;
   readyChecks: number;
@@ -62,7 +63,7 @@ let lastBootInfo: {
 const bootedAt = Date.now();
 
 function normalizeRouteKey(method: string, path: string): string {
-  return `${method.toUpperCase()} ${path}`;
+  return `${method.toUpperCase()} ${normalizeApiRouteForPerf(path)}`;
 }
 
 function memoryRssMb(): number {
@@ -150,9 +151,11 @@ export function getAttributionForUsage(): {
     const { path } = parseRouteKey(route);
     return { route, count, dbTouch: classifyRouteDbTouch(path) };
   });
-  const dbTouching = topRouteRows
-    .filter((r) => r.dbTouch !== "db_free")
-    .reduce((s, r) => s + r.count, 0);
+  let dbTouching = 0;
+  for (const [route, count] of routeCounts.entries()) {
+    const { path } = parseRouteKey(route);
+    if (classifyRouteDbTouch(path) !== "db_free") dbTouching += count;
+  }
   const total = requestsTotal || 1;
   return {
     topRoutes: topRouteRows,
@@ -164,7 +167,7 @@ export function getAttributionForUsage(): {
     dbTouchingRequestPct: Math.round((dbTouching / total) * 100),
     backgroundJobs: { ...backgroundJobs },
     lastBoot: lastBootInfo,
-    opsWarnings: lastSnapshot?.warnings ?? [],
+    opsWarnings: [...(lastSnapshot?.warnings ?? [])],
   };
 }
 
@@ -184,7 +187,7 @@ export function emitOpsSnapshot(): OpsSnapshotPayload {
   const warnings = evaluateWarnings(base);
   const payload: OpsSnapshotPayload = {
     event: "axtask.ops.snapshot",
-    window: "24h",
+    window: "since_boot",
     ...base,
     warnings,
     ts: new Date().toISOString(),

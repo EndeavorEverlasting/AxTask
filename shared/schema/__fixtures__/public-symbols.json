@@ -83,6 +83,7 @@
   "premiumReviewWorkflows",
   "premiumSavedViews",
   "premiumSubscriptions",
+  "providerUsageSnapshots",
   "recurrenceRuleSchema",
   "registerSchema",
   "reminderKindSchema",

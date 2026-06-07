@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gt, lte } from "drizzle-orm";
 import { db } from "../db";
 import { providerUsageSnapshots } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -6,8 +6,10 @@ import {
   neonBillingImportSchema,
   type NeonBillingImport,
 } from "./provider-usage-import-schema";
+import { monthBounds } from "./provider-usage-mtd";
 
 export { neonBillingImportSchema, type NeonBillingImport };
+export { matchesMtdMonth, monthBounds } from "./provider-usage-mtd";
 
 export type ProviderMtdSummary = {
   computeCostCents: number;
@@ -20,17 +22,6 @@ export type ProviderMtdSummary = {
   lastImportSource: string | null;
   dataQuality: "provider_reported" | "internal_estimate" | "mixed";
 };
-
-function monthBounds(now = new Date()): { start: string; end: string } {
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const start = new Date(Date.UTC(y, m, 1));
-  const end = new Date(Date.UTC(y, m + 1, 0));
-  return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
-  };
-}
 
 const METRIC_ROWS: Array<{
   key: keyof NeonBillingImport;
@@ -47,30 +38,63 @@ const METRIC_ROWS: Array<{
 export async function importNeonBillingPeriod(
   payload: NeonBillingImport,
   importedByUserId: string,
-): Promise<{ imported: number; periodStart: string; periodEnd: string }> {
+): Promise<{ imported: number; upserted: number; periodStart: string; periodEnd: string }> {
   const parsed = neonBillingImportSchema.parse(payload);
   const batchId = randomUUID();
   const rawJson = { ...parsed, importBatchId: batchId };
+  const project = parsed.project ?? "";
+  const branch = parsed.branch ?? "";
 
-  for (const row of METRIC_ROWS) {
-    await db.insert(providerUsageSnapshots).values({
-      id: randomUUID(),
-      provider: "neon",
-      project: parsed.project ?? null,
-      branch: parsed.branch ?? null,
-      periodStart: parsed.periodStart,
-      periodEnd: parsed.periodEnd,
-      metricName: row.metricName,
-      metricUnit: row.metricUnit,
-      metricValue: Number(parsed[row.key]),
-      costCents: Number(parsed[row.costKey]),
-      source: "manual",
-      rawJson,
-      importedByUserId,
-    });
-  }
+  const rows = METRIC_ROWS.map((row) => ({
+    id: randomUUID(),
+    provider: "neon" as const,
+    project,
+    branch,
+    periodStart: parsed.periodStart,
+    periodEnd: parsed.periodEnd,
+    metricName: row.metricName,
+    metricUnit: row.metricUnit,
+    metricValue: Number(parsed[row.key]),
+    costCents: Number(parsed[row.costKey]),
+    source: "manual" as const,
+    rawJson,
+    importedByUserId,
+  }));
 
-  return { imported: METRIC_ROWS.length, periodStart: parsed.periodStart, periodEnd: parsed.periodEnd };
+  let upserted = 0;
+  await db.transaction(async (tx) => {
+    for (const row of rows) {
+      const result = await tx
+        .insert(providerUsageSnapshots)
+        .values(row)
+        .onConflictDoUpdate({
+          target: [
+            providerUsageSnapshots.provider,
+            providerUsageSnapshots.project,
+            providerUsageSnapshots.branch,
+            providerUsageSnapshots.periodStart,
+            providerUsageSnapshots.periodEnd,
+            providerUsageSnapshots.metricName,
+            providerUsageSnapshots.source,
+          ],
+          set: {
+            metricValue: row.metricValue,
+            costCents: row.costCents,
+            rawJson: row.rawJson,
+            importedByUserId: row.importedByUserId,
+          },
+        })
+        .returning({ id: providerUsageSnapshots.id });
+      if (result.length > 0) upserted += 1;
+    }
+  });
+
+  return {
+    imported: METRIC_ROWS.length,
+    upserted,
+    periodStart: parsed.periodStart,
+    periodEnd: parsed.periodEnd,
+  };
 }
 
 export async function getProviderMtdSummary(provider = "neon"): Promise<ProviderMtdSummary> {
@@ -82,7 +106,7 @@ export async function getProviderMtdSummary(provider = "neon"): Promise<Provider
       and(
         eq(providerUsageSnapshots.provider, provider),
         lte(providerUsageSnapshots.periodStart, end),
-        gte(providerUsageSnapshots.periodEnd, start),
+        gt(providerUsageSnapshots.periodEnd, start),
       ),
     )
     .orderBy(desc(providerUsageSnapshots.createdAt));

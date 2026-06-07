@@ -19,6 +19,10 @@ describe("monitoring wiring", () => {
     expect(src).toContain("emitBootEvent");
     expect(src).toContain("startOpsSnapshotTicker");
     expect(src).toContain('"/ops/status"');
+    const loggerIdx = src.indexOf("attachStructuredRequestLog()");
+    const healthIdx = src.indexOf('app.get("/health"');
+    expect(loggerIdx).toBeGreaterThan(-1);
+    expect(healthIdx).toBeGreaterThan(loggerIdx);
   });
 
   it("records api_error and notifies admins", () => {

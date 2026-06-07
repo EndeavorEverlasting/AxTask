@@ -24,17 +24,30 @@ describe("[06-health] server health endpoints", () => {
     expect(indexSrc).toMatch(/app\.get\(\s*["']\/ready["']/);
   });
 
+  it("mounts structured request logging before probe routes", () => {
+    const loggerIdx = indexSrc.indexOf("attachStructuredRequestLog()");
+    const healthIdx = indexSrc.indexOf('app.get("/health"');
+    expect(loggerIdx).toBeGreaterThan(-1);
+    expect(healthIdx).toBeGreaterThan(-1);
+    expect(loggerIdx).toBeLessThan(healthIdx);
+  });
+
   it("mounts GET /ops/status with bearer token gate", () => {
-    expect(indexSrc).toMatch(/app\.get\(\s*["']\/ops\/status["']/);
-    expect(indexSrc).toMatch(/OPS_STATUS_TOKEN/);
+    const opsBlock = indexSrc.match(/app\.get\(\s*["']\/ops\/status["'][\s\S]{0,800}?\n\}\);/);
+    expect(opsBlock).toBeTruthy();
+    const body = opsBlock?.[0] ?? "";
+    expect(body).toMatch(/OPS_STATUS_TOKEN/);
+    expect(body).toMatch(/Bearer /);
+    expect(body).toMatch(/401/);
+    expect(body).toMatch(/safeEqual/);
   });
 
   it("/health includes uptimeSeconds and does NOT touch the DB", () => {
-    const healthBlockMatch = indexSrc.match(
-      /app\.get\(\s*["']\/health["'][\s\S]{0,600}?\}\s*\)/,
-    );
-    expect(healthBlockMatch).toBeTruthy();
-    const healthBody = healthBlockMatch?.[0] ?? "";
+    const healthStart = indexSrc.indexOf('app.get("/health"');
+    const readyStart = indexSrc.indexOf('app.get("/ready"');
+    expect(healthStart).toBeGreaterThan(-1);
+    expect(readyStart).toBeGreaterThan(healthStart);
+    const healthBody = indexSrc.slice(healthStart, readyStart);
     expect(healthBody).toMatch(/uptimeSeconds/);
     expect(healthBody).not.toMatch(/SELECT/i);
     expect(healthBody).not.toMatch(/pool\.query/i);

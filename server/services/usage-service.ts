@@ -71,22 +71,20 @@ export async function getUsageOverview(): Promise<UsageOverviewResponse> {
   const row = series[0];
   const provider = await getProviderMtdSummary("neon");
   const budget = await getUsageBudgetStatus();
-  const attribution = getAttributionForUsage();
+  const baseAttribution = getAttributionForUsage();
+  const opsWarnings = [...baseAttribution.opsWarnings];
 
   const internalLatest = deriveLatestMetrics(row);
   const spendMtdCents =
     provider.dataQuality === "provider_reported" ? provider.totalCostCents : internalLatest.spendMtdCents;
 
   if (isProviderDataStale(provider.lastImportAt)) {
-    attribution.opsWarnings = [
-      ...attribution.opsWarnings,
-      "Provider billing import is stale — paste Neon bill JSON on this tab.",
-    ];
+    opsWarnings.push("Provider billing import is stale — paste Neon bill JSON on this tab.");
   }
-  if (attribution.readyChecks > 0 && attribution.healthChecks > 0) {
-    const readyRatio = attribution.readyChecks / (attribution.healthChecks + attribution.readyChecks);
+  if (baseAttribution.readyChecks > 0 && baseAttribution.healthChecks > 0) {
+    const readyRatio = baseAttribution.readyChecks / (baseAttribution.healthChecks + baseAttribution.readyChecks);
     if (readyRatio > 0.2) {
-      attribution.opsWarnings.push(
+      opsWarnings.push(
         `/ready checks are ${Math.round(readyRatio * 100)}% of health traffic — verify Render uses /health only.`,
       );
     }
@@ -100,7 +98,7 @@ export async function getUsageOverview(): Promise<UsageOverviewResponse> {
     },
     series,
     provider,
-    attribution,
+    attribution: { ...baseAttribution, opsWarnings },
     budget,
   };
 }

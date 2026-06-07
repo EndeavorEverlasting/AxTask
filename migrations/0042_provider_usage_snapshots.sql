@@ -2,8 +2,8 @@
 CREATE TABLE IF NOT EXISTS provider_usage_snapshots (
   id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
   provider text NOT NULL,
-  project text,
-  branch text,
+  project text NOT NULL DEFAULT '',
+  branch text NOT NULL DEFAULT '',
   period_start date NOT NULL,
   period_end date NOT NULL,
   metric_name text NOT NULL,
@@ -21,6 +21,18 @@ CREATE INDEX IF NOT EXISTS idx_provider_usage_provider_period
 
 CREATE INDEX IF NOT EXISTS idx_provider_usage_metric
   ON provider_usage_snapshots (provider, metric_name, period_start);
+
+-- Idempotent imports: one row per provider/project/branch/period/metric/source.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_usage_natural_key
+  ON provider_usage_snapshots (
+    provider,
+    COALESCE(project, ''),
+    COALESCE(branch, ''),
+    period_start,
+    period_end,
+    metric_name,
+    source
+  );
 
 -- Optional daily attribution rollup on internal usage snapshots.
 ALTER TABLE usage_snapshots

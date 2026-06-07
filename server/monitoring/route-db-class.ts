@@ -12,6 +12,8 @@ const PREFIX: Array<[string, RouteDbTouch]> = [
   ["/api/admin/security-events", "db_heavy"],
   ["/api/admin/organization-aptitude-trends", "db_heavy"],
   ["/api/admin/performance/heuristics", "db_heavy"],
+  ["/api/admin/usage/provider-import", "db_heavy"],
+  ["/api/admin/usage/capture", "db_heavy"],
   ["/api/admin/usage", "db_light"],
   ["/api/admin/storage", "db_light"],
   ["/api/admin/users", "db_heavy"],

@@ -45,8 +45,12 @@ describe("[04-migrations] apply-migrations.mjs", () => {
 
   it("runs migration airlock only when pending migrations exist", () => {
     if (!src) src = fs.readFileSync(scriptPath, "utf8");
-    expect(src).toMatch(/pending migration/i);
-    expect(src).toMatch(/runMigrationAirlockIfNeeded/);
+    const pendingGuard = src.indexOf("if (pending.length === 0)");
+    const airlockCall = src.indexOf("await runMigrationAirlockIfNeeded()");
+    expect(pendingGuard).toBeGreaterThan(-1);
+    expect(airlockCall).toBeGreaterThan(-1);
+    expect(pendingGuard).toBeLessThan(airlockCall);
+    expect(src).toMatch(/no pending migrations/i);
   });
 });
 

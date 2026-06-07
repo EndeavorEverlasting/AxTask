@@ -47,6 +47,7 @@ const REQUIRED_IN_ROUTES_TS = [
   'app.get("/api/gamification/wallet",',
   'app.get("/api/tasks/:id/classifications",',
   'app.post("/api/tasks/:id/confirm-classification",',
+  'app.post("/api/admin/usage/provider-import",',
 ] as const;
 
 const REQUIRED_IN_AUTH_REGISTRAR = [

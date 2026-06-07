@@ -1580,8 +1580,16 @@ export default function AdminPage() {
         <TabsContent value="usage" className="space-y-4">
           <div className="flex flex-wrap justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Badge variant={usage?.provider.dataQuality === "provider_reported" ? "default" : "secondary"}>
-                {usage?.provider.dataQuality === "provider_reported" ? "Provider reported" : "Estimated / no import"}
+              <Badge
+                variant={
+                  usage?.provider.dataQuality === "provider_reported" ? "default" : "secondary"
+                }
+              >
+                {usage?.provider.dataQuality === "provider_reported"
+                  ? "Provider reported"
+                  : usage?.provider.dataQuality === "mixed"
+                    ? "Mixed (provider + estimate)"
+                    : "Estimated / no import"}
               </Badge>
               {usage?.provider.lastImportAt && (
                 <span className="text-xs text-muted-foreground">

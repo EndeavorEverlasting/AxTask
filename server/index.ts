@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { timingSafeEqual } from "crypto";
 import express, { type Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
@@ -239,6 +240,19 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
+/** Constant-time string comparison for ops bearer token validation. */
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    const buf = Buffer.from(a, "utf8");
+    timingSafeEqual(buf, buf);
+    return false;
+  }
+  return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+}
+
+// Structured JSON access logs for probe + API routes (no response bodies — see CLIENT_VISIBLE_PRIVACY.md).
+app.use(attachStructuredRequestLog());
+
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
@@ -256,7 +270,7 @@ app.get("/ops/status", (req, res) => {
   }
   const auth = req.get("authorization") ?? "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!token || token !== expected) {
+  if (!token || !safeEqual(token, expected)) {
     return res.status(401).json({ ok: false, message: "Unauthorized" });
   }
   return res.json(getOpsStatus());
@@ -283,9 +297,6 @@ app.get("/ready", async (_req, res) => {
 setupAuth(app);
 
 registerOAuthRoutes(app);
-
-// Structured JSON access logs for all routes (no response bodies — see CLIENT_VISIBLE_PRIVACY.md).
-app.use(attachStructuredRequestLog());
 
 function warnIfVapidMissing(): void {
   const publicKey = (process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY || "").trim();
