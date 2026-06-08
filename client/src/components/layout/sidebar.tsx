@@ -134,7 +134,8 @@ function SidebarContent({ onNavigate, onScroll }: { onNavigate?: () => void; onS
 
   const { data: wallet } = useQuery<{ balance: number; currentStreak: number }>({
     queryKey: ["/api/gamification/wallet"],
-    refetchInterval: 30000,
+    refetchInterval: false,
+    refetchIntervalInBackground: false,
   });
   const { data: avatarSkills = [] } = useQuery<SkillNodeDto[]>({
     queryKey: ["/api/gamification/avatar-skills"],
