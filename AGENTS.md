@@ -27,6 +27,10 @@ Before changing `data-axtask-calm` rules, `.glass-panel*`, Pretext ambient chips
 
 **Canonical doc:** the full incident summary, architecture diagram, symptom matrix, refresh-vs-calm distinction, debugging playbook, and verification commands live only in **`docs/SCROLL_REFRESH_VISUAL_STABILITY.md`**—keep that file the single long-form source; cross-link here and from perf/debug indexes rather than duplicating prose in AGENTS.md.
 
+## Scheduled and background resource controls
+
+In-process workers, Render cron jobs, and production disable flags are documented in [docs/SCHEDULED_RESOURCE_CONTROLS.md](docs/SCHEDULED_RESOURCE_CONTROLS.md). Do not re-enable reminder dispatch, archetype rollup, DB-size snapshots, or ops snapshots on Render without updating that doc and verifying Neon budget.
+
 ## Performance budgets
 
 CI enforces client bundle size (`npm run perf:bundle`) and API latency heuristics (`npm run perf:api-replay`) on every PR. Tightening a budget requires bumping the paired fixture/test; loosening requires an operator-visible note in the PR. Full map of budgets, signals, fixtures, and runtime knobs: [docs/PERF_PERFORMANCE_BUDGETS.md](docs/PERF_PERFORMANCE_BUDGETS.md).

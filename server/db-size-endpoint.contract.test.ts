@@ -54,4 +54,9 @@ describe("retention prune scheduler is wired to server startup", () => {
     expect(INDEX_SRC).toMatch(/DISABLE_RETENTION_PRUNE/);
     expect(INDEX_SRC).toMatch(/startRetentionPruneTicker\(/);
   });
+
+  it("gates DB-size snapshots independently with DISABLE_DB_SIZE_SNAPSHOT", () => {
+    expect(INDEX_SRC).toMatch(/DISABLE_DB_SIZE_SNAPSHOT/);
+    expect(INDEX_SRC).toMatch(/dbSizeSnapshotEnabled/);
+  });
 });

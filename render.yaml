@@ -82,6 +82,16 @@ services:
       # reflects reality instead of the default 512 MB free-tier ceiling.
       - key: AXTASK_DB_SIZE_BUDGET_BYTES
         value: "10737418240"
+      # Scheduled/background resource controls — off until operator re-enables.
+      # See docs/SCHEDULED_RESOURCE_CONTROLS.md.
+      - key: DISABLE_REMINDER_DISPATCH
+        value: "true"
+      - key: DISABLE_ARCHETYPE_ROLLUP
+        value: "true"
+      - key: DISABLE_DB_SIZE_SNAPSHOT
+        value: "true"
+      - key: DISABLE_OPS_SNAPSHOT
+        value: "true"
 
   # Nightly retention sweep for append-only tables (including foundry_run_logs).
   - type: cron
