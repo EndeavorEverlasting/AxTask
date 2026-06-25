@@ -88,6 +88,17 @@ describe("server/routes.ts inventory", () => {
     expect(merged).toMatchSnapshot();
   });
 
+  /**
+   * Admin usage capture is gated when DISABLE_OPS_SNAPSHOT is set (scheduled
+   * resource controls). The route stays registered; semantics live in
+   * server/scheduled-resource-controls.contract.test.ts.
+   */
+  it("keeps admin usage capture registered and gated by DISABLE_OPS_SNAPSHOT", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes).toContain('app.post("/api/admin/usage/capture"');
+    expect(routes).toContain("DISABLE_OPS_SNAPSHOT");
+  });
+
   /** Phase-1 hardening: location/reminder registrars must keep these paths (regardless of snapshot drift). */
   it("always exposes location and reminder API paths from registrars", () => {
     const loc = fs.readFileSync(path.join(projectRoot, "server", "routes", "locations.ts"), "utf8");
