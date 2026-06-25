@@ -560,6 +560,17 @@ function maskEmailForOtp(email: string): string {
   return `${u.slice(0, 2)}•••@${dom}`;
 }
 
+/**
+ * Low-noise audit discipline: storing one `api_request` security event for
+ * every normal `/api/*` response is unbounded low-value telemetry that
+ * pressures the database (it was a primary contributor to the Neon/Node
+ * memory incident). It is opt-in only, for temporary route-attribution
+ * diagnostics. Meaningful security audit events (auth, admin actions, bans,
+ * TOTP, and 5xx `api_error`) are unaffected and remain always-on.
+ */
+const SECURITY_API_REQUEST_LOGGING =
+  process.env.SECURITY_API_REQUEST_LOGGING === "true";
+
 export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api", (req, res, next) => {
     // Defer the observation to post-response. express-session's auto-save
@@ -582,23 +593,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.on("finish", async () => {
       try {
         const ctx = req.monitor;
-        await appendSecurityEvent({
-          eventType: "api_request",
-          actorUserId,
-          route: req.path,
-          method: req.method,
-          statusCode: res.statusCode,
-          ipAddress,
-          userAgent,
-          payload: {
-            durationMs: Date.now() - startedAt,
-            requestId: ctx?.requestId,
-            params: ctx?.params,
-            query: ctx?.query,
-            body: ctx?.body,
-            headers: ctx?.headers,
-          },
-        });
+        // Opt-in only: skip the per-request `api_request` write (and its DB
+        // round trip) unless SECURITY_API_REQUEST_LOGGING is explicitly
+        // enabled. This removes low-value per-request telemetry while keeping
+        // the meaningful 5xx `api_error` audit below always-on.
+        if (SECURITY_API_REQUEST_LOGGING) {
+          await appendSecurityEvent({
+            eventType: "api_request",
+            actorUserId,
+            route: req.path,
+            method: req.method,
+            statusCode: res.statusCode,
+            ipAddress,
+            userAgent,
+            payload: {
+              durationMs: Date.now() - startedAt,
+              requestId: ctx?.requestId,
+              params: ctx?.params,
+              query: ctx?.query,
+              body: ctx?.body,
+              headers: ctx?.headers,
+            },
+          });
+        }
 
         // Fallback: ensure we record a dedicated error event for 5xx even if the route handler
         // caught the error and returned 500 without throwing into the global error handler.
