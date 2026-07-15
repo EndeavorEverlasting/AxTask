@@ -1,6 +1,6 @@
 # Runtime memory growth analysis
 
-This operator tool consumes the structured `axtask.runtime.memory` records introduced by the bounded runtime-memory diagnostics slice. It groups repeated operation samples by label, ranks the most likely memory domain, and correlates numeric workload metrics with observed growth.
+This operator tool consumes the structured `axtask.runtime.memory` records introduced by the bounded runtime-memory diagnostics slice. It groups repeated operation samples by label, ranks the most likely memory domain, and correlates numeric operation metrics with observed growth.
 
 It is read-only. It does not connect to Neon, Render, or the application database.
 
@@ -32,6 +32,17 @@ node scripts/analyze-runtime-memory-growth.mjs --min-samples=8 render.log
 
 Ordinary Render lines are allowed in the input. The parser accepts only JSON records whose event is `axtask.runtime.memory` and whose phase is `operation`. Unrelated and malformed lines are counted as ignored.
 
+## Producer contract
+
+The analyzer consumes the exact PR #77 record fields:
+
+- `delta` for memory-domain changes
+- `after.heapUsedPercentOfLimit` for peak V8 heap pressure
+- `pressureSignals` for bounded runtime warnings
+- `metrics` for sanitized scalar operation facts such as reminder counts or measured database bytes
+
+It does not inspect request bodies, credentials, database rows, or arbitrary log metadata.
+
 ## Evidence model
 
 The analyzer evaluates four memory domains independently:
@@ -51,13 +62,13 @@ For each operation label and domain it records:
 - total positive delta
 - maximum delta
 - matching pressure-signal count
-- numeric workload correlation when at least five varied samples exist
+- numeric metric correlation when at least five varied samples exist
 
-Workload correlation is reported only when the Pearson coefficient is at least `0.7`. A correlation can strengthen attribution, but it does not establish causation.
+Metric correlation is reported only when the Pearson coefficient is at least `0.7`. A correlation can strengthen attribution, but it does not establish causation.
 
 ## Evidence strength
 
-`strong` requires at least five samples, repeated positive growth, meaningful median and cumulative growth, plus either repeated runtime pressure signals or a strong workload correlation.
+`strong` requires at least five samples, repeated positive growth, meaningful median and cumulative growth, plus either repeated runtime pressure signals or a strong metric correlation.
 
 `moderate` and `weak` require progressively less evidence. `none` means the accepted samples do not show a consistent repeated-growth pattern.
 
@@ -71,15 +82,15 @@ Example:
 [STRONG] reminders.dispatch -> JavaScript heap
   samples=6 errors=0 positive=6/6
   medianDeltaMiB=2.75 totalPositiveMiB=16.5 maxDeltaMiB=4
-  pressureSignals=6 maxHeapUtilizationPercent=9
-  workloadCorrelation=scanned r=1 n=6
+  pressureSignals=6 maxHeapUsedPercentOfLimit=9
+  metricCorrelation=scanned r=1 n=6
 ```
 
 This means repeated reminder-dispatch samples grew the JavaScript heap, and larger scanned workloads tracked larger heap deltas. It does not identify a specific object, closure, library, or source line.
 
 ## Proof ceiling
 
-The analyzer can identify a repeated-growth candidate and narrow the likely allocation domain and workload relationship.
+The analyzer can identify a repeated-growth candidate and narrow the likely allocation domain and operation-metric relationship.
 
 Object-level proof still requires an explicit heap or allocation profile captured in a controlled diagnostic window. Do not commit heap snapshots, provider logs, credentials, request bodies, or personal data to the repository.
 
