@@ -1,5 +1,12 @@
 # Agent notes (AxTask)
 
+## Canonical operating authority
+
+Use current repository evidence before historical platform notes. Read [AGENT_GUARDRAILS.md](AGENT_GUARDRAILS.md) for distinct safety boundaries, then follow the executable contracts in `render.yaml`, `package.json`, startup and migration scripts, tests, and CI.
+
+Current production deployment work is Render-oriented and current database recovery/cost work is Neon-oriented. Replit compatibility files and Replit OIDC support do not establish the active production host. `replit.md` is an architecture snapshot, not deployment authority.
+
+When instructions disagree, current `main` and executable contracts win. Do not infer live deployment or database state from repository or CI evidence.
 
 ## Clean sprints and closed plans
 
