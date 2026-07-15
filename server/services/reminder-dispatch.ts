@@ -33,6 +33,14 @@ export function dispatchDueReminderTriggers(
       // The worker can tick every minute. Do not emit decorative memory lines
       // when no reminder work was found.
       shouldLog: (summary) => summary.scanned > 0 || summary.failedSend > 0,
+      metrics: (summary) => ({
+        limit,
+        scanned: summary.scanned,
+        attempted: summary.attempted,
+        sent: summary.sent,
+        skipped: summary.skipped,
+        failedSend: summary.failedSend,
+      }),
     },
   );
 }
