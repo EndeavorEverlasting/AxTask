@@ -24,6 +24,7 @@ import {
   computeDomainBytes,
   type StorageDomain,
 } from "../services/db-storage";
+import { withMemoryTelemetry } from "../runtime-memory";
 
 export interface SnapshotInput {
   dbSizeBytes: number;
@@ -109,12 +110,7 @@ export function shouldCaptureSnapshot(
   return !sameDay;
 }
 
-/**
- * Capture one snapshot. No-op (returns `inserted: false`) if today
- * already has a snapshot, so callers can invoke this safely on every
- * retention-prune tick.
- */
-export async function captureDbSizeSnapshot(
+async function captureDbSizeSnapshotCore(
   deps: SnapshotDeps = {},
 ): Promise<SnapshotWriteResult> {
   const now = (deps.now ?? (() => new Date()))();
@@ -159,6 +155,23 @@ export async function captureDbSizeSnapshot(
       dbSizeBytes: 0,
     };
   }
+}
+
+/**
+ * Capture one snapshot. No-op (returns `inserted: false`) if today already has
+ * a snapshot. Memory telemetry emits only when a row was attempted or a write
+ * error occurred, so the daily dedup path does not create decorative logs.
+ */
+export function captureDbSizeSnapshot(
+  deps: SnapshotDeps = {},
+): Promise<SnapshotWriteResult> {
+  return withMemoryTelemetry(
+    "db-size-snapshot.capture",
+    () => captureDbSizeSnapshotCore(deps),
+    {
+      shouldLog: (result) => result.inserted || result.reason === "write-error",
+    },
+  );
 }
 
 export interface SnapshotHistoryRow {
