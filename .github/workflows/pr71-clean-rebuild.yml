@@ -28,6 +28,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee /tmp/pr71-repair.log) 2>&1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main fix/2026-06-08-scheduled-resource-hardening
           git merge --no-commit --no-ff origin/fix/2026-06-08-scheduled-resource-hardening || true
           test -f .git/MERGE_HEAD
@@ -61,6 +64,14 @@ jobs:
             exit 1
           fi
           git diff --check --cached
+
+      - name: Upload rebuild diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr71-repair-diagnostics
+          path: /tmp/pr71-repair.log
+          if-no-files-found: warn
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -97,7 +108,5 @@ jobs:
           rm .github/scripts/pr71_repair.py
           git add -A
           git diff --check --cached
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "fix(ops): rebuild scheduled resource controls on main"
           git push origin HEAD:fix/2026-07-15-scheduled-resource-hardening-clean
