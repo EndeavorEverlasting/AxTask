@@ -16,7 +16,7 @@ type DeltaInput = {
 function record(
   label: string,
   delta: DeltaInput,
-  workload: Record<string, number> = {},
+  metrics: Record<string, number> = {},
   pressureSignals: string[] = [],
 ) {
   return {
@@ -32,7 +32,7 @@ function record(
       heapUsedMiB: 40,
       heapTotalMiB: 60,
       heapLimitMiB: 512,
-      heapUtilizationPercent: 8,
+      heapUsedPercentOfLimit: 8,
       externalMiB: 3,
       arrayBuffersMiB: 1,
     },
@@ -41,7 +41,7 @@ function record(
       heapUsedMiB: 40 + (delta.heapUsedMiB ?? 0),
       heapTotalMiB: 60,
       heapLimitMiB: 512,
-      heapUtilizationPercent: 9,
+      heapUsedPercentOfLimit: 9,
       externalMiB: 3 + (delta.externalMiB ?? 0),
       arrayBuffersMiB: 1 + (delta.arrayBuffersMiB ?? 0),
     },
@@ -50,12 +50,12 @@ function record(
       heapUsedMiB: delta.heapUsedMiB ?? 0,
       heapTotalMiB: 0,
       heapLimitMiB: 0,
-      heapUtilizationPercent: 1,
+      heapUsedPercentOfLimit: 1,
       externalMiB: delta.externalMiB ?? 0,
       arrayBuffersMiB: delta.arrayBuffersMiB ?? 0,
     },
     pressureSignals,
-    workload,
+    metrics,
   };
 }
 
@@ -84,7 +84,7 @@ describe("runtime memory growth analyzer", () => {
     expect(parsed.ignoredLines).toBe(3);
   });
 
-  it("ranks repeated heap growth with workload correlation as strong evidence", () => {
+  it("ranks repeated heap growth with metric correlation as strong evidence", () => {
     const records = [1.5, 2, 2.5, 3, 3.5, 4].map((heapUsedMiB, index) =>
       record(
         "reminders.dispatch",
@@ -100,9 +100,10 @@ describe("runtime memory growth analyzer", () => {
       label: "reminders.dispatch",
       strongestDomain: "heapUsedMiB",
       strength: "strong",
+      maxHeapUsedPercentOfLimit: 9,
     });
     expect(analysis.labels[0].domainEvidence[0].correlations[0]).toMatchObject({
-      workloadMetric: "scanned",
+      metric: "scanned",
       correlation: 1,
       samples: 6,
     });
@@ -131,6 +132,11 @@ describe("runtime memory growth analyzer", () => {
       strongestDomain: "arrayBuffersMiB",
       strength: "strong",
     });
+  });
+
+  it("falls back to the default sample floor for invalid input", () => {
+    const analysis = analyzeMemoryRecords([], { minSamples: Number.NaN });
+    expect(analysis.minSamples).toBe(3);
   });
 
   it("states the proof ceiling in the English report", () => {
