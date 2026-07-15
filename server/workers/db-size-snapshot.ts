@@ -170,6 +170,11 @@ export function captureDbSizeSnapshot(
     () => captureDbSizeSnapshotCore(deps),
     {
       shouldLog: (result) => result.inserted || result.reason === "write-error",
+      metrics: (result) => ({
+        inserted: result.inserted,
+        reason: result.reason ?? null,
+        dbSizeBytes: result.dbSizeBytes,
+      }),
     },
   );
 }
