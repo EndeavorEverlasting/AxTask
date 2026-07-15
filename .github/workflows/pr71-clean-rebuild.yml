@@ -1,17 +1,20 @@
 name: PR71 Clean Rebuild
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/2026-07-15-scheduled-resource-hardening-clean
-    paths:
-      - .github/workflows/pr71-clean-rebuild.yml
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
 
 permissions:
   contents: write
 
 jobs:
   rebuild-and-validate:
+    if: github.event.pull_request.head.ref == 'fix/2026-07-15-scheduled-resource-hardening-clean'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
