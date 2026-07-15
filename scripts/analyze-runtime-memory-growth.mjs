@@ -203,6 +203,7 @@ function summarizeLabel(label, samples) {
       domain,
       display: config.display,
       strength: evidenceStrength(stats, correlations, samples.length),
+      supportScore: stats.pressureSignalCount + correlations.length,
       stats,
       correlations,
     };
@@ -211,6 +212,8 @@ function summarizeLabel(label, samples) {
   domains.sort((a, b) => {
     const strengthDelta = STRENGTH_ORDER[b.strength] - STRENGTH_ORDER[a.strength];
     if (strengthDelta !== 0) return strengthDelta;
+    const supportDelta = b.supportScore - a.supportScore;
+    if (supportDelta !== 0) return supportDelta;
     return b.stats.totalPositiveMiB - a.stats.totalPositiveMiB;
   });
 
@@ -237,7 +240,10 @@ function summarizeLabel(label, samples) {
 }
 
 export function analyzeMemoryRecords(records, options = {}) {
-  const minSamples = Math.max(1, Number(options.minSamples ?? 3));
+  const requestedMinSamples = Number(options.minSamples ?? 3);
+  const minSamples = Number.isFinite(requestedMinSamples) && requestedMinSamples >= 1
+    ? Math.floor(requestedMinSamples)
+    : 3;
   const groups = new Map();
   for (const record of records) {
     if (!record || typeof record.label !== "string") continue;
