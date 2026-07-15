@@ -13,6 +13,22 @@ const PROD_START = fs.readFileSync(
 );
 const RENDER_YAML = fs.readFileSync(path.join(__dirname, "..", "render.yaml"), "utf8");
 
+function renderEnvValue(key: string): string | undefined {
+  const lines = RENDER_YAML.split(/\r?\n/);
+  const keyIndex = lines.findIndex((line) => line.trim() === `- key: ${key}`);
+  if (keyIndex === -1) return undefined;
+
+  for (let index = keyIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (/^\s*-\s+key:/.test(line)) break;
+
+    const valueMatch = line.match(/^\s*value:\s*["']?([^"'\s#]+)["']?\s*(?:#.*)?$/);
+    if (valueMatch) return valueMatch[1];
+  }
+
+  return undefined;
+}
+
 describe("scheduled resource controls (server startup)", () => {
   it("gates reminder dispatch with DISABLE_REMINDER_DISPATCH", () => {
     expect(INDEX_SRC).toMatch(/DISABLE_REMINDER_DISPATCH/);
@@ -46,10 +62,13 @@ describe("scheduled resource controls (server startup)", () => {
   });
 
   it("keeps /health DB-free", () => {
-    const healthBlock = INDEX_SRC.match(
-      /app\.get\(\s*["']\/health["'][\s\S]{0,500}?\}\s*\)/,
-    )?.[0];
-    expect(healthBlock).toBeTruthy();
+    const healthStart = INDEX_SRC.indexOf('app.get("/health"');
+    const readyStart = INDEX_SRC.indexOf('app.get("/ready"', healthStart);
+
+    expect(healthStart, "/health route registration not found").toBeGreaterThan(-1);
+    expect(readyStart, "/ready route must follow /health").toBeGreaterThan(healthStart);
+
+    const healthBlock = INDEX_SRC.slice(healthStart, readyStart);
     expect(healthBlock).not.toMatch(/pool\.query|SELECT 1/i);
   });
 });
@@ -66,10 +85,14 @@ describe("scheduled resource controls (admin usage capture)", () => {
 });
 
 describe("scheduled resource controls (render.yaml production disables)", () => {
-  it("sets production disable flags for scheduled workers", () => {
-    expect(RENDER_YAML).toMatch(/DISABLE_REMINDER_DISPATCH[\s\S]*value:\s*"true"/);
-    expect(RENDER_YAML).toMatch(/DISABLE_ARCHETYPE_ROLLUP[\s\S]*value:\s*"true"/);
-    expect(RENDER_YAML).toMatch(/DISABLE_DB_SIZE_SNAPSHOT[\s\S]*value:\s*"true"/);
-    expect(RENDER_YAML).toMatch(/DISABLE_OPS_SNAPSHOT[\s\S]*value:\s*"true"/);
+  it("sets each production disable flag to true in its own env block", () => {
+    for (const key of [
+      "DISABLE_REMINDER_DISPATCH",
+      "DISABLE_ARCHETYPE_ROLLUP",
+      "DISABLE_DB_SIZE_SNAPSHOT",
+      "DISABLE_OPS_SNAPSHOT",
+    ]) {
+      expect(renderEnvValue(key), `${key} must be explicitly true`).toBe("true");
+    }
   });
 });
