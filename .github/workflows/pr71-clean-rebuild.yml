@@ -57,13 +57,14 @@ jobs:
           done
 
           python .github/scripts/pr71_repair.py
-          git add -A
+          git add .env.example .env.production.example .env.render.example docs/ENVIRONMENT_VARIABLES.md server/routes.ts server/routes-inventory.contract.test.ts
           if git diff --name-only --diff-filter=U | grep -q .; then
             echo 'Unresolved merge conflicts remain' >&2
             git diff --name-only --diff-filter=U >&2
             exit 1
           fi
           git diff --check --cached
+          git status --short
 
       - name: Upload rebuild diagnostics
         if: always()
@@ -104,9 +105,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm .github/workflows/pr71-clean-rebuild.yml
-          rm .github/scripts/pr71_repair.py
-          git add -A
+          git rm .github/workflows/pr71-clean-rebuild.yml .github/scripts/pr71_repair.py
           git diff --check --cached
           git commit -m "fix(ops): rebuild scheduled resource controls on main"
           git push origin HEAD:fix/2026-07-15-scheduled-resource-hardening-clean
