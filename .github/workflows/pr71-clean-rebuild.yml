@@ -1,0 +1,71 @@
+name: PR71 Clean Rebuild
+
+on:
+  push:
+    branches:
+      - fix/2026-07-15-scheduled-resource-hardening-clean
+    paths:
+      - .github/workflows/pr71-clean-rebuild.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out clean branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/2026-07-15-scheduled-resource-hardening-clean
+
+      - name: Rebuild PR71 on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main fix/2026-06-08-scheduled-resource-hardening
+          base="$(git merge-base origin/main origin/fix/2026-06-08-scheduled-resource-hardening)"
+          git diff --binary --full-index "$base"..origin/fix/2026-06-08-scheduled-resource-hardening > /tmp/pr71.patch
+          git apply --3way --index /tmp/pr71.patch
+          git diff --check --cached
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Targeted scheduled-resource contracts
+        run: npx vitest run server/scheduled-resource-controls.contract.test.ts server/db-size-endpoint.contract.test.ts server/routes-inventory.contract.test.ts server/api-request-logging.contract.test.ts
+
+      - name: Strict environment audit
+        run: npm run env:audit:strict
+
+      - name: Release contract
+        run: npm run release:check
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit validated rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/pr71-clean-rebuild.yml
+          git add -A
+          git diff --check --cached
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(ops): rebuild scheduled resource controls on main"
+          git push origin HEAD:fix/2026-07-15-scheduled-resource-hardening-clean
