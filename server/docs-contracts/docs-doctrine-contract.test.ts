@@ -61,6 +61,7 @@ describe("agent operating authority contracts", () => {
   const agents = readRepoFile("AGENTS.md");
   const guardrails = readRepoFile("AGENT_GUARDRAILS.md");
   const deploymentDoc = readRepoFile("docs/GIT_BRANCHING_AND_DEPLOYMENT.md");
+  const replitNotes = readRepoFile("replit.md");
 
   it("makes current repository contracts authoritative over historical platform notes", () => {
     expect(agents).toContain("## Canonical operating authority");
@@ -69,11 +70,15 @@ describe("agent operating authority contracts", () => {
     expect(guardrails).toContain("## 1. Authority order");
     expect(guardrails).toContain("Current repository state and executable contracts");
     expect(guardrails).toContain("may contain historical platform context");
+    expect(replitNotes).toContain("This file is a historical architecture and feature snapshot");
+    expect(replitNotes).toContain("It is not deployment authority");
   });
 
   it("records Render and Neon as the current deployment and recovery posture", () => {
     expect(guardrails).toContain("The current production path targets Render");
     expect(guardrails).toContain("current production recovery and cost controls target Neon");
+    expect(replitNotes).toContain("Current deployment work targets Render");
+    expect(replitNotes).toContain("current production database recovery and cost controls target Neon");
     expect(deploymentDoc).toContain("AxTask / Render specifics");
     expect(deploymentDoc).toContain("`autoDeploy: true`");
   });
@@ -91,6 +96,7 @@ describe("agent operating authority contracts", () => {
     expect(guardrails).not.toContain("Replit Helium) is the **live production database**");
     expect(guardrails).not.toContain("Forbidden Files — NEVER EDIT");
     expect(guardrails).not.toContain("scripts are tuned for Replit Autoscale");
+    expect(replitNotes).not.toContain("**PostgreSQL**: Replit Helium database");
   });
 
   it("treats high-risk configuration as scoped and testable rather than permanently forbidden", () => {
