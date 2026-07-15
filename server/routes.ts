@@ -5839,6 +5839,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/admin/usage/capture", requireAdmin, requireAdminStepUp, async (req, res) => {
+    if (process.env.DISABLE_OPS_SNAPSHOT === "true") {
+      return res.status(503).json({
+        message: "Usage snapshot capture disabled (DISABLE_OPS_SNAPSHOT=true)",
+      });
+    }
     try {
       const userId = typeof req.body?.userId === "string" ? req.body.userId : req.user!.id;
       await captureUsageSnapshot(userId);

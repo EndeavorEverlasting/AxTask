@@ -1,11 +1,12 @@
 /**
  * DB-size snapshot writer.
  *
- * Runs piggy-backed on the retention-prune ticker: once per 24h we
- * capture `pg_database_size(current_database())` and the per-domain
- * rollup (core / tasks / gamification / ops / unknown) into
- * `db_size_snapshots` so the Admin > Storage trend can render a chart
- * without polling live metrics every view.
+ * Runs piggy-backed on the retention-prune ticker when
+ * `DISABLE_DB_SIZE_SNAPSHOT` is not `true`: once per 24h we capture
+ * `pg_database_size(current_database())` and the per-domain rollup
+ * (core / tasks / gamification / ops / unknown) into `db_size_snapshots`
+ * so the Admin > Storage trend can render a chart without polling live
+ * metrics every view. See docs/SCHEDULED_RESOURCE_CONTROLS.md.
  *
  * The writer is dedup-protected: if a snapshot with the same
  * `date_trunc('day', captured_at)` already exists, we skip the insert
