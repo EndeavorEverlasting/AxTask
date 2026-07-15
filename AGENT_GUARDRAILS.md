@@ -1,112 +1,119 @@
-# ⚠️ AGENT GUARDRAILS — READ THIS FIRST
+# Agent guardrails
 
-> **Any agent, assistant, or automated tool working on this codebase MUST read and respect the rules in this document before making any changes.**
+Read `AGENTS.md` and this file before changing AxTask.
 
----
+These rules define safety boundaries. They do not make high-risk files permanently untouchable, and they do not override current repository evidence.
 
-## 1. Production Domains — DO NOT TOUCH
+## 1. Authority order
 
-AxTask has two registered production domains managed externally:
+When instructions disagree, use this order:
 
-- **`axtask.app`** — primary production domain
-- **`axtask.dev`** — secondary production domain
+1. Current repository state and executable contracts, including `render.yaml`, `package.json`, startup scripts, migrations, tests, and CI.
+2. `AGENTS.md` as the current human entry point.
+3. This file for distinct safety boundaries.
+4. Feature and architecture documents, including `replit.md`, which may contain historical platform context.
+5. Old plans, stale PR descriptions, and unmerged branches.
 
-**These domains must never be changed, removed, or reconfigured.** Domain settings are managed outside the codebase (Replit deployment panel and DNS registrar). Do not add, remove, or modify any domain references in `.replit`, deployment config, or environment variables related to these domains.
+Never treat remembered chat context or a platform-specific filename as stronger than current `main`.
 
----
+## 2. Production domains
 
-## 2. Forbidden Files — NEVER EDIT
+AxTask uses externally managed production domains:
 
-The following files are **off-limits** to all agents and automated tools. Editing them can break the build pipeline, deployment, authentication, or the database:
+- `axtask.app`
+- `axtask.dev`
 
-| File | Reason |
-|------|--------|
-| `.replit` | Deployment target, port mapping, and workflow definitions. Misconfiguring this breaks autoscale deployment. |
-| `vite.config.ts` | Frontend build configuration. The Vite setup already handles all aliasing and proxying. Do not touch. |
-| `server/vite.ts` | Dev server integration. Configured to serve frontend and backend on the same port. Do not touch. |
-| `drizzle.config.ts` | ORM/migration config pointing at the production database. Wrong changes can corrupt or drop tables. |
-| `package.json` (scripts section) | Build and start scripts are tuned for Replit Autoscale. Changing them breaks CI and deployment. |
+Do not change DNS, domain routing, redirect domains, cookie domains, or canonical-host settings unless the sprint explicitly owns the complete domain migration and includes rollout and rollback evidence.
 
-If you believe one of these files needs to change, **stop and ask the user explicitly** — do not edit speculatively.
+A historical Replit hostname in the repository does not establish the current hosting provider. The known `axtask.replit.app` reference in `server/index.ts` belongs to a separate bounded domain-migration task.
 
----
+## 3. Current deployment authority
 
-## 3. Authentication System — DO NOT RESTRUCTURE
+Current deployment authority is:
 
-AxTask has a **four-tier authentication cascade** that is working correctly in production:
+- `render.yaml`
+- `docs/GIT_BRANCHING_AND_DEPLOYMENT.md`
+- `scripts/production-start.mjs`
+- deploy contracts under `tests/deploy/`
 
-```
-Tier 1: WorkOS AuthKit  (enterprise SSO — WORKOS_API_KEY + WORKOS_CLIENT_ID)
-Tier 2: Google OAuth 2.0 (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET)
-Tier 3: Replit OIDC      (REPL_ID — Google/GitHub/Apple via Replit identity)
-Tier 4: Local auth       (Passport.js email + bcrypt password — always available)
-```
+The current production path targets Render. Replit compatibility files and Replit OIDC support do not mean Replit is the active production host.
 
-The provider is selected at runtime via the `AUTH_PROVIDER` environment variable, with automatic fallback to whichever credentials are present. Key files:
+Deployment requirements:
 
-- `server/auth-providers.ts` — all OAuth/OIDC route handlers
-- `server/auth.ts` — Passport.js strategy and session serialization
-- `server/storage.ts` — `findOrCreateOAuthUser`, `isUserBanned`, `logSecurityEvent`
+- Use a feature branch and PR.
+- Do not push experimental work directly to the production-connected branch.
+- Preserve startup ordering: environment checks, database-capacity checks, deterministic SQL migrations, guarded Drizzle policy, then server start.
+- Production startup must not run live `drizzle-kit push` by default.
+- `/health` is DB-free process liveness.
+- `/ready` is explicit database readiness and may query PostgreSQL. Do not use it as routine liveness.
+- Deploy, startup, Render, environment, schema, or migration PRs need diagnosis, tests, rollout, rollback, and an honest proof ceiling.
 
-**Do not reorganise, rename, or remove any tier.** Do not change the provider detection logic in `getProvider()`. Do not swap the Passport.js session strategy for a different library without explicit user instruction.
+Do not claim a deployment occurred without a deployment identifier, deployed SHA, timestamp, and live evidence.
 
-MFA (TOTP) is also live — secrets are encrypted with AES-256-GCM. Do not change the encryption scheme.
+## 4. Database and schema safety
 
----
+AxTask uses PostgreSQL through `DATABASE_URL`; current production recovery and cost controls target Neon.
 
-## 4. Deployment — DO NOT RECONFIGURE
+- Never run destructive table or production-data operations without explicit authorization and a bounded maintenance plan.
+- Never print or commit database connection values.
+- Use reviewed, ordered SQL migrations under `migrations/` for production schema evolution.
+- Use `scripts/apply-migrations.mjs` and its migration ledger for deterministic deployment changes.
+- Run Drizzle push only from an intentional interactive operator context where the proposed changes can be reviewed.
+- Do not restore runtime schema discovery or automatic production schema mutation.
+- Preserve migration `9999_disable_api_request_security_events.sql` and the application-side request-logging gate.
+- New append-only tables require retention policy and cleanup coverage in the same PR.
 
-The application is deployed on **Replit Autoscale** (Google Cloud Run). The deployment is live and serving production traffic. Key constraints:
+CI schema proof is not production migration proof.
 
-- Single exposed port (`5000` → external `80`)
-- `NODE_ENV=production` in the autoscale runtime
-- Build command: `npm run build` → produces `dist/index.js` + `dist/public/`
-- Start command: `npm run start`
-- Stateless — no in-memory state persists between requests
+## 5. Scheduled resource safety
 
-Do not change the deployment target, build command, start command, or port configuration. Do not add a second process manager (PM2, etc.) — Replit Autoscale manages the process lifecycle.
+Production scheduled work is off unless it has earned its cost. Follow `docs/SCHEDULED_RESOURCE_CONTROLS.md`.
 
----
+Do not re-enable reminder dispatch, archetype rollups, DB-size snapshots, ops snapshots, backup workers, or other recurring database work without:
 
-## 5. Database — NEVER DROP TABLES
+- an explicit feature need;
+- a documented interval and resource estimate;
+- bounded telemetry;
+- a rollback switch;
+- a post-deploy observation window.
 
-The PostgreSQL database (Replit Helium) is the **live production database**. Schema changes are cumulative and additive.
+Do not enable disabled workers merely to manufacture diagnostic samples.
 
-- **Never** run `DROP TABLE`, `TRUNCATE`, or destructive `ALTER TABLE` without explicit written confirmation from the user.
-- **Never** run `drizzle-kit push` in a way that drops existing columns or tables.
-- **Never** delete or reset the `DATABASE_URL` secret.
-- Always prefer additive migrations (new columns with defaults, new tables).
+## 6. Authentication boundary
 
----
+AxTask supports multiple application authentication providers. Provider support is an application capability, not hosting evidence.
 
-## 6. What Agents ARE Allowed To Do
+Changes to authentication, sessions, MFA, browser-visible user serialization, or admin step-up behavior require a dedicated sprint and their existing security contracts. Do not mix those changes into deployment or documentation cleanup.
 
-To be clear about what is in scope:
+## 7. High-risk surfaces
 
-- Add new API routes in `server/routes.ts`
-- Add new React pages/components under `client/src/`
-- Add new database tables or columns (additively) in `shared/schema.ts`
-- Update `replit.md` and documentation files
-- Install new npm packages using the package management tool
-- Modify any application-level feature code that is not in the forbidden file list above
+These files are not permanently forbidden. They require explicit ownership, repository evidence, targeted tests, and rollback notes:
 
----
+| Surface | Required discipline |
+|---|---|
+| `render.yaml` | Deployment contract and runtime-cost impact |
+| `scripts/production-start.mjs` | Startup ordering and fail-closed proof |
+| migration and Drizzle scripts | Ordering and interactive-policy proof |
+| `migrations/`, `shared/schema.ts`, `drizzle.config.ts` | Additive schema, greenfield, idempotence, and rollback proof |
+| `package.json`, lockfiles, workflows | Build, dependency, and CI compatibility |
+| `.replit` and Replit-specific files | Legacy/local compatibility only; never infer production authority |
+| auth, session, MFA, and admin middleware | Dedicated security and authorization proof |
+| `vite.config.ts`, `server/vite.ts` | Local/build serving contracts |
 
-## 7. Known Stale Reference — Domain Constant
+If a sprint does not own a required high-risk surface, use a separate follow-up instead of hiding it in an unrelated PR.
 
-`server/index.ts` line 17 contains:
+## 8. Allowed work
 
-```typescript
-const productionDomain = "axtask.replit.app";
-```
+Within a clearly owned sprint, agents may modify code, tests, documentation, scripts, configuration, schemas, migrations, or CI. The standard is whether the change is bounded, evidence-based, validated, and honest about its proof ceiling.
 
-This is a stale value. The canonical production domains are `axtask.app` and `axtask.dev`. This constant drives CORS origin enforcement and HTTPS redirect logic. **Do not change it speculatively** — update it only when the user explicitly asks for the domain migration code task. Changing it without also updating Google OAuth redirect URIs, session cookie domains, and other related config could break production logins.
+Agents must preserve unrelated work, reuse repository patterns, add enforcement tests where practical, and avoid committing raw runtime evidence or machine-local artifacts.
 
-> The agent guardrails skill is at `.local/skills/axtask-guardrails/SKILL.md`. This location is managed by the Replit platform and intentionally excluded from git — it is present in the workspace and loaded automatically by the agent framework.
+## 9. Before high-risk changes
 
-## 8. Before Making Any Auth / Deployment / Config Change
-
-1. Read `replit.md` — specifically the `## AGENT GUARDRAILS — READ FIRST` section.
-2. Read this file (`AGENT_GUARDRAILS.md`).
-3. Check whether the change touches any forbidden file or domain.
-4. If yes — **stop and ask the user**.
+1. Confirm repository root, branch, HEAD, worktree state, and PR base.
+2. Read `AGENTS.md`, this file, and the relevant canonical document.
+3. Inspect current code, tests, recent commits, and open PR collision surfaces.
+4. State owned and forbidden scope.
+5. Run targeted contracts before broader checks.
+6. Include rollout, rollback, and proof ceiling in the PR.
+7. Do not infer live success from repository or CI evidence alone.
