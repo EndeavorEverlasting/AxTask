@@ -103,10 +103,10 @@ export function parseMemoryRecords(text) {
   return { records, ignoredLines };
 }
 
-function numericWorkload(record) {
-  if (!record?.workload || typeof record.workload !== "object") return {};
+function numericMetrics(record) {
+  if (!record?.metrics || typeof record.metrics !== "object") return {};
   const output = {};
-  for (const [key, value] of Object.entries(record.workload)) {
+  for (const [key, value] of Object.entries(record.metrics)) {
     const number = finiteNumber(value);
     if (number !== null) output[key] = number;
   }
@@ -138,26 +138,26 @@ function summarizeDomain(samples, domain, signal) {
 }
 
 function summarizeCorrelations(samples, domain) {
-  const workloadKeys = new Set();
+  const metricKeys = new Set();
   for (const sample of samples) {
-    for (const key of Object.keys(numericWorkload(sample))) workloadKeys.add(key);
+    for (const key of Object.keys(numericMetrics(sample))) metricKeys.add(key);
   }
 
   const correlations = [];
-  for (const key of workloadKeys) {
+  for (const key of metricKeys) {
     const xs = [];
     const ys = [];
     for (const sample of samples) {
-      const workloadValue = numericWorkload(sample)[key];
+      const metricValue = numericMetrics(sample)[key];
       const deltaValue = finiteNumber(sample?.delta?.[domain]);
-      if (workloadValue === undefined || deltaValue === null) continue;
-      xs.push(workloadValue);
+      if (metricValue === undefined || deltaValue === null) continue;
+      xs.push(metricValue);
       ys.push(deltaValue);
     }
     const correlation = pearsonCorrelation(xs, ys);
     if (correlation !== null && correlation >= 0.7) {
       correlations.push({
-        workloadMetric: key,
+        metric: key,
         correlation: round(correlation),
         samples: xs.length,
       });
@@ -218,11 +218,11 @@ function summarizeLabel(label, samples) {
   });
 
   const strongest = domains[0];
-  const maxHeapUtilizationPercent = round(
+  const maxHeapUsedPercentOfLimit = round(
     Math.max(
       0,
       ...samples
-        .map((sample) => finiteNumber(sample?.after?.heapUtilizationPercent))
+        .map((sample) => finiteNumber(sample?.after?.heapUsedPercentOfLimit))
         .filter((value) => value !== null),
     ),
   );
@@ -234,7 +234,7 @@ function summarizeLabel(label, samples) {
     strongestDomain: strongest.domain,
     strongestDomainDisplay: strongest.display,
     strength: strongest.strength,
-    maxHeapUtilizationPercent,
+    maxHeapUsedPercentOfLimit,
     domainEvidence: domains,
   };
 }
@@ -293,12 +293,12 @@ export function renderEnglishReport(analysis, metadata = {}) {
       `[${label.strength.toUpperCase()}] ${label.label} -> ${label.strongestDomainDisplay}`,
       `  samples=${label.samples} errors=${label.errors} positive=${strongest.stats.positiveSamples}/${strongest.stats.samples}`,
       `  medianDeltaMiB=${strongest.stats.medianDeltaMiB} totalPositiveMiB=${strongest.stats.totalPositiveMiB} maxDeltaMiB=${strongest.stats.maxDeltaMiB}`,
-      `  pressureSignals=${strongest.stats.pressureSignalCount} maxHeapUtilizationPercent=${label.maxHeapUtilizationPercent}`,
+      `  pressureSignals=${strongest.stats.pressureSignalCount} maxHeapUsedPercentOfLimit=${label.maxHeapUsedPercentOfLimit}`,
     );
     const correlation = strongest.correlations[0];
     if (correlation) {
       lines.push(
-        `  workloadCorrelation=${correlation.workloadMetric} r=${correlation.correlation} n=${correlation.samples}`,
+        `  metricCorrelation=${correlation.metric} r=${correlation.correlation} n=${correlation.samples}`,
       );
     }
   }
