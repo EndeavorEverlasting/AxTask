@@ -9,9 +9,11 @@ This branch rebuilds the useful runtime-diagnostic portion of stale PR #59 over 
 Included:
 
 - one structured process-memory record during server boot
-- bounded memory records for DB-size snapshot work that writes or fails
-- bounded memory records for reminder dispatch only when work is found or delivery fails
-- dedicated deploy-log buckets for startup Drizzle TTY failures and runtime Node heap exhaustion
+- bounded records for DB-size snapshot work that writes or fails
+- bounded records for reminder dispatch only when work is found or delivery fails
+- workload counts that correlate memory movement with actual operations
+- conservative pressure signals that narrow the memory domain
+- dedicated deployment-log classifications
 - sanitized fixtures and tests
 
 Not included:
@@ -24,17 +26,35 @@ Not included:
 
 ## Runtime record
 
-The event name is `axtask.runtime.memory`. Records contain an operation label, outcome, duration, process metadata, numeric MiB snapshots, and memory deltas. Diagnostic collection and output failures are non-blocking. Wrapped operation failures are still rethrown.
+The event name is `axtask.runtime.memory`. Records contain the operation label, outcome, duration, process metadata, numeric MiB snapshots, V8 heap limit, memory deltas, pressure signals, and bounded scalar workload metrics.
 
-## Classifier contract
+Diagnostic collection and output failures are non-blocking. Wrapped operation failures are still returned to their existing error path.
 
-- `STARTUP_TTY_INTERACTIVE_PROMPT` requires both a TTY warning and a Drizzle push or schema-sync signature.
-- `RUNTIME_OOM` recognizes canonical Node/V8 heap exhaustion signatures.
-- Existing capacity, migration, environment, build, startup, health, and smoke precedence is preserved.
+## Pressure signals
+
+| Signal | Meaning |
+|---|---|
+| `heap-near-limit` | used JavaScript heap is at least 80 percent of the V8 limit |
+| `heap-growth` | the operation increased used heap by at least 8 MiB |
+| `array-buffer-growth` | the operation increased array-buffer memory by at least 8 MiB |
+| `external-growth` | the operation increased other external memory by at least 8 MiB |
+| `rss-unattributed-growth` | RSS increased by at least 16 MiB without matching heap or external growth |
+
+These signals identify an investigation direction. They are not a final diagnosis.
+
+## Workload attribution
+
+Reminder records include the configured batch limit plus scanned, attempted, sent, skipped, and failed counts.
+
+DB-size snapshot records include whether a row was inserted, the result reason, and the measured database-size byte count. The normal daily dedup path remains silent.
+
+Workload output accepts only a small number of scalar fields. Field names and string lengths are bounded before logging.
 
 ## Rollout
 
-Merge only after targeted tests, typecheck, full tests, release validation, build, Docker proof, and standard CI pass. After deployment, observe naturally occurring records; do not enable extra workers just to create telemetry.
+Merge only after targeted tests, typecheck, full tests, release validation, build, Docker proof, and standard CI pass. After deployment, observe naturally occurring records; do not enable extra workers solely to create telemetry.
+
+Compare operation label, workload volume, pressure signals, host memory, and restart history before drawing a conclusion.
 
 ## Rollback
 
@@ -42,4 +62,4 @@ Revert this PR. No schema, migration, environment, or persisted-data rollback is
 
 ## Proof ceiling
 
-Repository checks can prove record shape, bounded emission, failure preservation, classifier precedence, type safety, and build compatibility. Production memory behavior remains unproven until deployment and observation.
+Repository checks can prove record shape, bounded emission, workload filtering, pressure thresholds, failure preservation, type safety, and build compatibility. Production behavior remains unproven until deployment and observation.
