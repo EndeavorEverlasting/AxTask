@@ -28,8 +28,12 @@ function extractWalletQueryConfig(): string {
 const WALLET_QUERY = extractWalletQueryConfig();
 
 function propertyValues(property: string): string[] {
-  const pattern = new RegExp(`(?:^|\\n)\\s*${property}\\s*:\\s*([^,\\n}]+)`, "g");
-  return Array.from(WALLET_QUERY.matchAll(pattern), (match) => match[1].trim());
+  const prefix = `${property}:`;
+  return WALLET_QUERY.split(/\\r?\\n/).flatMap((line) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(prefix)) return [];
+    return [trimmed.slice(prefix.length).replace(/,$/, "").trim()];
+  });
 }
 
 describe("Sidebar wallet polling contract", () => {
