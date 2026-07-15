@@ -1,8 +1,4 @@
-from pathlib import Path
-
-TEST_PATH = Path("client/src/components/layout/sidebar.wallet-poll.test.ts")
-TEST_PATH.write_text(
-    '''// @vitest-environment node
+// @vitest-environment node
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,7 +25,7 @@ const WALLET_QUERY = extractWalletQueryConfig();
 
 function propertyValues(property: string): string[] {
   const prefix = `${property}:`;
-  return WALLET_QUERY.split(/\\r?\\n/).flatMap((line) => {
+  return WALLET_QUERY.split(/\r?\n/).flatMap((line) => {
     const trimmed = line.trim();
     if (!trimmed.startsWith(prefix)) return [];
     return [trimmed.slice(prefix.length).replace(/,$/, "").trim()];
@@ -49,6 +45,3 @@ describe("Sidebar wallet polling contract", () => {
     expect(WALLET_QUERY).toContain(WALLET_QUERY_KEY);
   });
 });
-''',
-    encoding="utf-8",
-)
