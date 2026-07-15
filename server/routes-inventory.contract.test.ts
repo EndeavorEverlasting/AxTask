@@ -88,6 +88,24 @@ describe("server/routes.ts inventory", () => {
     expect(merged).toMatchSnapshot();
   });
 
+  /**
+   * Request observation remains part of the permanent /api surface even while
+   * low-value api_request persistence is application-gated and DB-contained.
+   * Assert a marker from the actual middleware body, not merely any /api mount.
+   */
+  it("keeps request observation wired and api_request telemetry gated", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes, "request observation middleware").toContain(
+      'app.use("/api", (req, res, next) => {',
+    );
+    expect(routes, "request observation hook").toContain(
+      "maybeRecordClientInstanceObservation(req)",
+    );
+    expect(routes, "api_request telemetry gate").toContain(
+      "SECURITY_API_REQUEST_LOGGING",
+    );
+  });
+
   /** Phase-1 hardening: location/reminder registrars must keep these paths (regardless of snapshot drift). */
   it("always exposes location and reminder API paths from registrars", () => {
     const loc = fs.readFileSync(path.join(projectRoot, "server", "routes", "locations.ts"), "utf8");

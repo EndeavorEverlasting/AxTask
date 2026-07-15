@@ -176,6 +176,7 @@ See [NODEWEAVER.md](NODEWEAVER.md), [RAG_CLASSIFICATION_BLUEPRINT.md](RAG_CLASSI
 | `RESEND_API_KEY`, `RESEND_FROM` | Email delivery (also OTP/admin). |
 | `ADMIN_ALERT_WEBHOOK_URL` | Optional webhook. |
 | `ADMIN_ALERT_DEDUPE_TTL_MS` | Dedupe window. |
+| `SECURITY_API_REQUEST_LOGGING` | `false` by default. Set `true` only for temporary route-attribution diagnostics. Normal production keeps meaningful security events and 5xx `api_error` events, but does not store one `api_request` row per normal API response. See [`server/routes.ts`](../server/routes.ts) `/api` observation middleware. |
 | `ENABLE_FOUNDRY` | Set to `"true"` in production to expose admin-only Foundry routes (`/api/admin/foundry/*`). In non-production it is implicitly enabled. |
 
 ---
