@@ -29,9 +29,115 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main fix/2026-06-08-scheduled-resource-hardening
-          base="$(git merge-base origin/main origin/fix/2026-06-08-scheduled-resource-hardening)"
-          git diff --binary --full-index "$base"..origin/fix/2026-06-08-scheduled-resource-hardening > /tmp/pr71.patch
-          git apply --3way --index /tmp/pr71.patch
+
+          git merge --no-commit --no-ff origin/fix/2026-06-08-scheduled-resource-hardening || true
+          test -f .git/MERGE_HEAD
+
+          allowed_conflicts='^(.env.example|.env.production.example|.env.render.example|docs/ENVIRONMENT_VARIABLES.md|server/routes.ts|server/routes-inventory.contract.test.ts)$'
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            if ! printf '%s\n' "$path" | grep -Eq "$allowed_conflicts"; then
+              echo "Unexpected merge conflict: $path" >&2
+              exit 1
+            fi
+          done < <(git diff --name-only --diff-filter=U)
+
+          for path in .env.example .env.production.example .env.render.example; do
+            if git ls-files -u -- "$path" | grep -q .; then
+              git checkout --theirs -- "$path"
+            fi
+          done
+
+          for path in docs/ENVIRONMENT_VARIABLES.md server/routes.ts server/routes-inventory.contract.test.ts; do
+            if git ls-files -u -- "$path" | grep -q .; then
+              git checkout --ours -- "$path"
+            fi
+          done
+
+          python - <<'PY'
+          from pathlib import Path
+
+          env_doc = Path('docs/ENVIRONMENT_VARIABLES.md')
+          text = env_doc.read_text(encoding='utf-8')
+          if 'Full matrix: [SCHEDULED_RESOURCE_CONTROLS.md]' not in text:
+              old = '''## 9. Adherence and background jobs
+
+| Variable | Purpose |
+|----------|---------|
+| `ADHERENCE_INTERVENTIONS_ENABLED` | `"true"` to enable. |
+| `VAPID_*` | Required for real push delivery (see section 4). |
+| `DISABLE_ARCHETYPE_ROLLUP`, `ARCHETYPE_ROLLUP_INTERVAL_MS` | Rollup worker. |
+| `DISABLE_RETENTION_PRUNE`, `RETENTION_PRUNE_INTERVAL_MS`, `RETENTION_PRUNE_INITIAL_DELAY_MS` | Retention job. |
+| `AXTASK_ARCHETYPE_POLL_SCHEDULER` | Set `0` to disable poll auto-schedule. |
+'''
+              new = '''## 9. Adherence and background jobs
+
+Full matrix: [SCHEDULED_RESOURCE_CONTROLS.md](SCHEDULED_RESOURCE_CONTROLS.md).
+
+| Variable | Purpose |
+|----------|---------|
+| `ADHERENCE_INTERVENTIONS_ENABLED` | `"true"` to enable adherence cron. |
+| `VAPID_*` | Required for real push delivery (see section 4). |
+| `DISABLE_REMINDER_DISPATCH` | `"true"` disables 60s reminder dispatch ticker. |
+| `REMINDER_DISPATCH_INTERVAL_MS`, `REMINDER_DISPATCH_MAX_PER_TICK` | Reminder dispatch tuning (defaults 60s / 100). |
+| `DISABLE_ARCHETYPE_ROLLUP`, `ARCHETYPE_ROLLUP_INTERVAL_MS` | Archetype rollup worker (default interval 1h). |
+| `DISABLE_RETENTION_PRUNE`, `RETENTION_PRUNE_INTERVAL_MS`, `RETENTION_PRUNE_INITIAL_DELAY_MS` | In-process retention prune (default 24h, 2m boot delay). |
+| `DISABLE_DB_SIZE_SNAPSHOT` | `"true"` skips daily `db_size_snapshots` write; retention prune still runs. |
+| `DISABLE_OPS_SNAPSHOT` | `"true"` blocks admin usage capture and (after PR #68) ops stdout snapshot ticker. |
+| `OPS_SNAPSHOT_INTERVAL_MS`, `OPS_SNAPSHOT_INITIAL_DELAY_MS` | Ops stdout snapshot cadence (PR #68). |
+| `DISABLE_DB_RETENTION_CRON` | `"true"` skips Render/manual `scripts/db-retention.mjs` run (exit 0). |
+| `BACKUP_SCHEDULER_ENABLED`, `BACKUP_SCHEDULER_INTERVAL_MS`, `BACKUP_SCHEDULER_BATCH_SIZE`, `BACKUP_SCHEDULER_CONCURRENCY` | Opt-in tick scheduler — see [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md). |
+| `BACKUP_QUEUE_WORKER_ENABLED`, `BACKUP_QUEUE_WORKER_POLL_MS`, `BACKUP_QUEUE_WORKER_CONCURRENCY` | Opt-in PG queue worker. |
+| `BACKUP_BULLMQ_ENABLED`, `BACKUP_BULLMQ_CONCURRENCY` | Opt-in Redis BullMQ worker. |
+| `AXTASK_ARCHETYPE_POLL_SCHEDULER` | Set `0` to disable poll auto-schedule. |
+'''
+              if old not in text:
+                  raise SystemExit('Expected environment-variable section not found')
+              env_doc.write_text(text.replace(old, new), encoding='utf-8')
+
+          routes = Path('server/routes.ts')
+          text = routes.read_text(encoding='utf-8')
+          if 'Usage snapshot capture disabled (DISABLE_OPS_SNAPSHOT=true)' not in text:
+              old = '''  app.post("/api/admin/usage/capture", requireAdmin, requireAdminStepUp, async (req, res) => {
+    try {'''
+              new = '''  app.post("/api/admin/usage/capture", requireAdmin, requireAdminStepUp, async (req, res) => {
+    if (process.env.DISABLE_OPS_SNAPSHOT === "true") {
+      return res.status(503).json({
+        message: "Usage snapshot capture disabled (DISABLE_OPS_SNAPSHOT=true)",
+      });
+    }
+    try {'''
+              if old not in text:
+                  raise SystemExit('Expected admin usage route marker not found')
+              routes.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          inventory = Path('server/routes-inventory.contract.test.ts')
+          text = inventory.read_text(encoding='utf-8')
+          if 'keeps admin usage capture registered and gated by DISABLE_OPS_SNAPSHOT' not in text:
+              marker = '  /** Phase-1 hardening: location/reminder registrars must keep these paths (regardless of snapshot drift). */\n'
+              addition = '''  /**
+   * Admin usage capture is gated when DISABLE_OPS_SNAPSHOT is set (scheduled
+   * resource controls). The route stays registered; semantics live in
+   * server/scheduled-resource-controls.contract.test.ts.
+   */
+  it("keeps admin usage capture registered and gated by DISABLE_OPS_SNAPSHOT", () => {
+    const routes = fs.readFileSync(routesPath, "utf8");
+    expect(routes).toContain('app.post("/api/admin/usage/capture"');
+    expect(routes).toContain("DISABLE_OPS_SNAPSHOT");
+  });
+
+'''
+              if marker not in text:
+                  raise SystemExit('Expected route inventory marker not found')
+              inventory.write_text(text.replace(marker, addition + marker, 1), encoding='utf-8')
+          PY
+
+          git add -A
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo 'Unresolved merge conflicts remain' >&2
+            git diff --name-only --diff-filter=U >&2
+            exit 1
+          fi
           git diff --check --cached
 
       - name: Set up Node
