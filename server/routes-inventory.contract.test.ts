@@ -89,17 +89,21 @@ describe("server/routes.ts inventory", () => {
   });
 
   /**
-   * Request-observation middleware is part of the permanent /api surface.
-   * Its per-request `api_request` security-event telemetry must stay gated
-   * behind SECURITY_API_REQUEST_LOGGING (low-noise audit discipline), while
-   * the middleware itself remains registered for the always-on 5xx
-   * `api_error` audit. This is a wiring invariant; the semantics live in
-   * server/api-request-logging.contract.test.ts.
+   * Request observation remains part of the permanent /api surface even while
+   * low-value api_request persistence is application-gated and DB-contained.
+   * Assert a marker from the actual middleware body, not merely any /api mount.
    */
-  it("keeps the /api request-observation middleware registered and api_request telemetry gated", () => {
+  it("keeps request observation wired and api_request telemetry gated", () => {
     const routes = fs.readFileSync(routesPath, "utf8");
-    expect(routes, 'app.use("/api" observation middleware').toContain('app.use("/api"');
-    expect(routes, "api_request telemetry gate").toContain("SECURITY_API_REQUEST_LOGGING");
+    expect(routes, "request observation middleware").toContain(
+      'app.use("/api", (req, res, next) => {',
+    );
+    expect(routes, "request observation hook").toContain(
+      "maybeRecordClientInstanceObservation(req)",
+    );
+    expect(routes, "api_request telemetry gate").toContain(
+      "SECURITY_API_REQUEST_LOGGING",
+    );
   });
 
   /** Phase-1 hardening: location/reminder registrars must keep these paths (regardless of snapshot drift). */
