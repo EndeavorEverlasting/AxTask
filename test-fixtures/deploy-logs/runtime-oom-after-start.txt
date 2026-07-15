@@ -1,0 +1,3 @@
+[express] serving on port 5000
+{"event":"axtask.runtime.memory","label":"server.boot","phase":"snapshot","outcome":"observed","after":{"rssMiB":171.2}}
+FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory
