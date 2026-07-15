@@ -379,6 +379,8 @@ function warnIfInviteConfigBroken(): void {
     setInterval(() => {
       void runReminderTick();
     }, intervalMs);
+  } else if (process.env.NODE_ENV !== "test" && process.env.DISABLE_REMINDER_DISPATCH === "true") {
+    console.info("[reminders] dispatch disabled (DISABLE_REMINDER_DISPATCH=true)");
   }
 
   // Archetype empathy rollup worker: see docs/ARCHETYPE_EMPATHY_ANALYTICS.md.
@@ -386,6 +388,8 @@ function warnIfInviteConfigBroken(): void {
   if (process.env.NODE_ENV !== "test" && process.env.DISABLE_ARCHETYPE_ROLLUP !== "true") {
     const intervalMs = Number(process.env.ARCHETYPE_ROLLUP_INTERVAL_MS) || 60 * 60 * 1000;
     startArchetypeRollupTicker(intervalMs);
+  } else if (process.env.NODE_ENV !== "test" && process.env.DISABLE_ARCHETYPE_ROLLUP === "true") {
+    console.info("[archetype-rollup] disabled (DISABLE_ARCHETYPE_ROLLUP=true)");
   }
 
   // Retention prune worker: daily sweep of append-only tables so Neon's
@@ -393,29 +397,33 @@ function warnIfInviteConfigBroken(): void {
   // retention-prune.ts for windows). Opt-out with DISABLE_RETENTION_PRUNE
   // or override the 24h cadence with RETENTION_PRUNE_INTERVAL_MS.
   //
-  // We piggy-back the DB size snapshot writer on the same tick, since
-  // both are once-per-day operations and both want a quiet post-boot
-  // window. `captureDbSizeSnapshot` is idempotent per calendar day, so
-  // operator-triggered reruns and restarts won't double-write rows.
+  // DB size snapshots piggy-back on the same tick when enabled; opt out
+  // independently with DISABLE_DB_SIZE_SNAPSHOT (see docs/SCHEDULED_RESOURCE_CONTROLS.md).
   if (process.env.NODE_ENV !== "test" && process.env.DISABLE_RETENTION_PRUNE !== "true") {
     const intervalMs = Number(process.env.RETENTION_PRUNE_INTERVAL_MS) || 24 * 60 * 60 * 1000;
     const initialDelayMs = Number(process.env.RETENTION_PRUNE_INITIAL_DELAY_MS) || 2 * 60 * 1000;
+    const dbSizeSnapshotEnabled = process.env.DISABLE_DB_SIZE_SNAPSHOT !== "true";
+    if (!dbSizeSnapshotEnabled) {
+      console.info("[db-size-snapshot] disabled (DISABLE_DB_SIZE_SNAPSHOT=true)");
+    }
     startRetentionPruneTicker({
       intervalMs,
       initialDelayMs,
       run: async (input) => {
-        // Order matters: snapshot first (so the captured size reflects
-        // pre-prune weight — that's the actual observed disk use), then
-        // prune. Both steps swallow their own errors.
-        try {
-          await captureDbSizeSnapshot();
-        } catch (err) {
-          console.warn("[db-size-snapshot] tick failed:", (err as Error)?.message || String(err));
+        if (dbSizeSnapshotEnabled) {
+          // Order matters: snapshot first (pre-prune disk weight), then prune.
+          try {
+            await captureDbSizeSnapshot();
+          } catch (err) {
+            console.warn("[db-size-snapshot] tick failed:", (err as Error)?.message || String(err));
+          }
         }
         const { runRetentionPrune } = await import("./workers/retention-prune");
         return runRetentionPrune(input);
       },
     });
+  } else if (process.env.NODE_ENV !== "test" && process.env.DISABLE_RETENTION_PRUNE === "true") {
+    console.info("[retention-prune] disabled (DISABLE_RETENTION_PRUNE=true)");
   }
 
   // Backup scheduler worker: opt-in only. Set BACKUP_SCHEDULER_ENABLED=true

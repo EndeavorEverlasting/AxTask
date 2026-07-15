@@ -17,6 +17,7 @@
  *
  * Usage:  node scripts/db-retention.mjs
  * Env:    DATABASE_URL (required)
+ *         DISABLE_DB_RETENTION_CRON=true — skip run (exit 0); see docs/SCHEDULED_RESOURCE_CONTROLS.md
  */
 import pgModule from "pg";
 const pg = pgModule.default || pgModule;
@@ -47,6 +48,11 @@ const RETENTION_WINDOWS = [
 ];
 
 async function main() {
+  if (process.env.DISABLE_DB_RETENTION_CRON === "true") {
+    console.info("[retention] cron skipped (DISABLE_DB_RETENTION_CRON=true)");
+    return;
+  }
+
   const url = process.env.DATABASE_URL;
   if (!url) {
     console.error("[retention] DATABASE_URL is not set.");
