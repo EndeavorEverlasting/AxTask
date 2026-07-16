@@ -1,5 +1,7 @@
 # AxTask — Priority Engine Task Management System
 
+> **Authority note:** This file is a historical architecture and feature snapshot. It is not deployment authority. For current operating rules and production posture, read `AGENTS.md`, `AGENT_GUARDRAILS.md`, `render.yaml`, and `docs/GIT_BRANCHING_AND_DEPLOYMENT.md`. Current deployment work targets Render, and current production database recovery and cost controls target Neon.
+
 ## Overview
 
 AxTask is a full-stack intelligent task management application designed to automate task prioritization. It uses an advanced scoring engine that analyzes task content, keywords, tags, and other factors to assign priorities, thereby reducing manual effort and enhancing task organization. The project aims to provide a clean, secure, and highly functional task management solution, avoiding browser security false positives and offering a professional user experience with clean URLs.
@@ -11,9 +13,11 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### UI/UX Decisions
+
 The application uses React 18 with TypeScript, `shadcn/ui` built on Radix UI, and Tailwind CSS for styling. It features a fully mobile-responsive design: on mobile (<768px) the sidebar becomes a Sheet drawer triggered by a hamburger top bar, a fixed bottom navigation bar provides quick access to Dashboard/Tasks/Calendar/Planner, task lists render as touch-friendly cards instead of tables, a floating voice FAB sits above the bottom nav, zoom scaling is disabled, all pages use reduced padding and smaller typography, and the edit dialog is nearly full-width. Desktop layout is unchanged. Advanced accessibility features include a dynamic focus glow system, auto-focus for quick entry, improved button labels, full keyboard navigation, and UI scale control for zoom accessibility.
 
 ### Technical Implementations
+
 The frontend utilizes TanStack Query for state management, Wouter for routing, and React Hook Form with Zod for form handling. The build system employs Vite for the frontend and esbuild for the backend. The backend runs on Node.js with Express.js (TypeScript, ES modules). PostgreSQL with Drizzle ORM is used for the database, and the API is RESTful with JSON responses. Session management is handled by PostgreSQL-backed storage using `connect-pg-simple`. Both client and server-side validation are enforced with Zod schemas.
 
 Key features include:
@@ -41,9 +45,11 @@ Key features include:
 -   **Real-time Collaboration**: Google Drive-style collaborative task editing via WebSocket (`/ws/collab`). Features include task sharing with role-based permissions (owner/editor/viewer), live presence indicators showing who's editing which field (colored rings and user avatars), real-time field edit broadcasting, and a share dialog for inviting collaborators by email. Schema: `taskCollaborators` table. Server: `server/collaboration.ts`. Client: `client/src/hooks/use-collaboration.ts`, `client/src/components/share-dialog.tsx`.
 
 ### Authentication & Security
+
 The system features multi-tier authentication supporting Google OAuth, Replit OIDC, WorkOS AuthKit (enterprise SSO), and a hardened local email/password strategy using bcrypt. Registration can be open, invite-only, or closed. Security measures include account lockout, admin-controlled user banning, robust password policies, input validation, optional security questions, SHA-256 hashed password reset tokens, and a dedicated Security Admin UI. Rate limiting is applied to various endpoints, and comprehensive security audit logging tracks critical events. Request size limits are enforced, session security uses httpOnly cookies and secure flags, and production environments enforce HTTPS with HSTS and strict Content Security Policies. `Helmet.js` provides additional security headers.
 
 ### Database Schema
+
 Key tables include `users` (id, email, passwordHash, role, authProvider details, security info, ban status), `password_reset_tokens` (id, userId, tokenHash, expiry), `security_logs` (id, eventType, userId, targetUserId, ipAddress, details), `tasks` (id, userId, date, time, activity, notes, urgency, impact, effort, priority, status, sortOrder, etc.), `task_collaborators` (id, taskId, userId, role, invitedBy, invitedAt), `task_patterns` (id, userId, patternType, patternKey, data JSON, confidence, occurrences, lastSeen — unique on userId+patternType+patternKey), `classification_contributions` (id, taskId, userId, classification, baseCoinsAwarded, totalCoinsEarned, confirmationCount — unique on taskId+userId), and `classification_confirmations` (id, contributionId, taskId, userId, coinsAwarded — unique on taskId+userId). Sessions are managed by `connect-pg-simple`.
 
 -   **Pattern Learning Engine**: RAG-style pattern intelligence that learns from user task history. Detects topics, recurring tasks, deadline rhythms, and similarity clusters. Suggests deadlines based on learned cadence (daily/weekly/biweekly/monthly). Engine: `server/engines/pattern-engine.ts`. Storage: `task_patterns` table with atomic upsert. UI: "Patterns & Insights" card in `client/src/pages/planner.tsx`, deadline suggestion banner in `client/src/components/task-form.tsx`. Routes: `GET /api/patterns/insights`, `POST /api/patterns/learn`, `POST /api/patterns/suggest-deadline`. Learns incrementally on each task creation via `learnFromTask()` and supports full re-analysis via Analyze button. Caps analysis at 500 most recent tasks for performance.
@@ -58,8 +64,8 @@ Key tables include `users` (id, email, passwordHash, role, authProvider details,
 -   **helmet**: Security headers.
 
 ### Database
--   **PostgreSQL**: Replit Helium database.
--   **Drizzle ORM**: Type-safe ORM.
+-   **PostgreSQL**: Selected through `DATABASE_URL`; current production recovery and cost controls target Neon.
+-   **Drizzle ORM**: Type-safe ORM and schema definitions; production changes use reviewed SQL migrations rather than runtime schema push.
 
 ### Google Integration
 -   **Google Sheets API**: For task import/export.

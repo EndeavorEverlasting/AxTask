@@ -56,3 +56,60 @@ describe("documentation doctrine contracts", () => {
     }
   });
 });
+
+describe("agent operating authority contracts", () => {
+  const agents = readRepoFile("AGENTS.md");
+  const guardrails = readRepoFile("AGENT_GUARDRAILS.md");
+  const deploymentDoc = readRepoFile("docs/GIT_BRANCHING_AND_DEPLOYMENT.md");
+  const replitNotes = readRepoFile("replit.md");
+
+  it("makes current repository contracts authoritative over historical platform notes", () => {
+    expect(agents).toContain("## Canonical operating authority");
+    expect(agents).toContain("[AGENT_GUARDRAILS.md](AGENT_GUARDRAILS.md)");
+    expect(agents).toContain("`replit.md` is an architecture snapshot, not deployment authority");
+    expect(guardrails).toContain("## 1. Authority order");
+    expect(guardrails).toContain("Current repository state and executable contracts");
+    expect(guardrails).toContain("may contain historical platform context");
+    expect(replitNotes).toContain("This file is a historical architecture and feature snapshot");
+    expect(replitNotes).toContain("It is not deployment authority");
+  });
+
+  it("records Render and Neon as the current deployment and recovery posture", () => {
+    expect(guardrails).toContain("The current production path targets Render");
+    expect(guardrails).toContain("current production recovery and cost controls target Neon");
+    expect(replitNotes).toContain("Current deployment work targets Render");
+    expect(replitNotes).toContain("current production database recovery and cost controls target Neon");
+    expect(deploymentDoc).toContain("AxTask / Render specifics");
+    expect(deploymentDoc).toContain("`autoDeploy: true`");
+  });
+
+  it("preserves liveness, readiness, and deterministic schema boundaries", () => {
+    expect(guardrails).toContain("`/health` is DB-free process liveness");
+    expect(guardrails).toContain("`/ready` is explicit database readiness");
+    expect(guardrails).toContain("Production startup must not run live `drizzle-kit push` by default");
+    expect(guardrails).toContain("Use `scripts/apply-migrations.mjs`");
+    expect(guardrails).toContain("Do not restore runtime schema discovery");
+  });
+
+  it("rejects stale platform production doctrine despite wording or formatting changes", () => {
+    expect(guardrails).not.toMatch(
+      /(?:application|app)\s+is\s+(?:currently\s+)?deployed\s+on[\s\S]{0,40}Replit\s+Autoscale/i,
+    );
+    expect(guardrails).not.toMatch(
+      /Replit\s+Helium[\s\S]{0,60}\b(?:is|serves\s+as)\b[\s\S]{0,40}\b(?:live|production)\b[\s\S]{0,30}\bdatabase\b/i,
+    );
+    expect(guardrails).not.toMatch(/forbidden\s+files[\s\S]{0,20}never\s+edit/i);
+    expect(guardrails).not.toMatch(
+      /scripts[\s\S]{0,80}tuned[\s\S]{0,80}Replit\s+Autoscale/i,
+    );
+    expect(replitNotes).not.toMatch(
+      /PostgreSQL[\s\S]{0,50}Replit\s+Helium[\s\S]{0,40}database/i,
+    );
+  });
+
+  it("treats high-risk configuration as scoped and testable rather than permanently forbidden", () => {
+    expect(guardrails).toContain("## 7. High-risk surfaces");
+    expect(guardrails).toContain("These files are not permanently forbidden");
+    expect(guardrails).toContain("explicit ownership, repository evidence, targeted tests, and rollback notes");
+  });
+});
