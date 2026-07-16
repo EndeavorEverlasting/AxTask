@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "authorityId": "axtask.agent-authority.v1",
+  "entryPoint": "AGENTS.md",
+  "orderedSources": [
+    {
+      "rank": 1,
+      "id": "executable-contracts",
+      "role": "source-of-truth",
+      "paths": [
+        "render.yaml",
+        "package.json",
+        "scripts/production-start.mjs",
+        "scripts/apply-migrations.mjs",
+        "migrations/9999_disable_api_request_security_events.sql",
+        "tests/deploy"
+      ]
+    },
+    {
+      "rank": 2,
+      "id": "human-entry-point",
+      "role": "current-agent-entry-point",
+      "paths": [
+        "AGENTS.md"
+      ]
+    },
+    {
+      "rank": 3,
+      "id": "safety-boundaries",
+      "role": "distinct-safety-policy",
+      "paths": [
+        "AGENT_GUARDRAILS.md"
+      ]
+    },
+    {
+      "rank": 4,
+      "id": "feature-and-architecture-context",
+      "role": "context-subordinate-to-current-contracts",
+      "paths": [
+        "docs/GIT_BRANCHING_AND_DEPLOYMENT.md",
+        "docs/SCHEMA_EVOLUTION_PIPELINE.md",
+        "docs/SCHEDULED_RESOURCE_CONTROLS.md",
+        "replit.md"
+      ]
+    },
+    {
+      "rank": 5,
+      "id": "historical-context",
+      "role": "non-authoritative-history",
+      "paths": [
+        "docs/closed"
+      ]
+    }
+  ],
+  "requiredAnchors": {
+    "AGENTS.md": [
+      "## Canonical operating authority",
+      "AGENT_GUARDRAILS.md",
+      "replit.md` is an architecture snapshot, not deployment authority",
+      ".ai/authority.json",
+      "authorityRef: axtask.agent-authority.v1"
+    ],
+    "AGENT_GUARDRAILS.md": [
+      "## 1. Authority order",
+      "Current repository state and executable contracts",
+      "The current production path targets Render",
+      "current production recovery and cost controls target Neon",
+      "`/health` is DB-free process liveness",
+      "`/ready` is explicit database readiness",
+      "Production startup must not run live `drizzle-kit push` by default",
+      "Do not restore runtime schema discovery"
+    ],
+    "docs/GIT_BRANCHING_AND_DEPLOYMENT.md": [
+      "AxTask / Render specifics",
+      "`autoDeploy: true`"
+    ],
+    "replit.md": [
+      "historical architecture and feature snapshot",
+      "It is not deployment authority"
+    ]
+  },
+  "harnessContract": {
+    "authorityRefField": "authorityRef",
+    "requiredAuthorityRef": "axtask.agent-authority.v1",
+    "manifestRoots": [
+      ".ai/skills",
+      ".ai/capabilities",
+      ".ai/triggers",
+      ".ai/workflows"
+    ],
+    "manifestExtensions": [
+      ".json",
+      ".yaml",
+      ".yml",
+      ".md"
+    ],
+    "forbiddenEmbeddedHeadings": [
+      "## Authority order",
+      "## Canonical operating authority"
+    ],
+    "forbiddenStaleStatements": [
+      "The application is deployed on **Replit Autoscale**",
+      "Replit Helium) is the **live production database**",
+      "Forbidden Files — NEVER EDIT"
+    ]
+  }
+}
