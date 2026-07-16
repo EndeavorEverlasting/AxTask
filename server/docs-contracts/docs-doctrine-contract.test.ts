@@ -91,12 +91,20 @@ describe("agent operating authority contracts", () => {
     expect(guardrails).toContain("Do not restore runtime schema discovery");
   });
 
-  it("rejects the stale blanket Replit production doctrine", () => {
-    expect(guardrails).not.toContain("The application is deployed on **Replit Autoscale**");
-    expect(guardrails).not.toContain("Replit Helium) is the **live production database**");
-    expect(guardrails).not.toContain("Forbidden Files — NEVER EDIT");
-    expect(guardrails).not.toContain("scripts are tuned for Replit Autoscale");
-    expect(replitNotes).not.toContain("**PostgreSQL**: Replit Helium database");
+  it("rejects stale platform production doctrine despite wording or formatting changes", () => {
+    expect(guardrails).not.toMatch(
+      /(?:application|app)\s+is\s+(?:currently\s+)?deployed\s+on[\s\S]{0,40}Replit\s+Autoscale/i,
+    );
+    expect(guardrails).not.toMatch(
+      /Replit\s+Helium[\s\S]{0,60}\b(?:is|serves\s+as)\b[\s\S]{0,40}\b(?:live|production)\b[\s\S]{0,30}\bdatabase\b/i,
+    );
+    expect(guardrails).not.toMatch(/forbidden\s+files[\s\S]{0,20}never\s+edit/i);
+    expect(guardrails).not.toMatch(
+      /scripts[\s\S]{0,80}tuned[\s\S]{0,80}Replit\s+Autoscale/i,
+    );
+    expect(replitNotes).not.toMatch(
+      /PostgreSQL[\s\S]{0,50}Replit\s+Helium[\s\S]{0,40}database/i,
+    );
   });
 
   it("treats high-risk configuration as scoped and testable rather than permanently forbidden", () => {
