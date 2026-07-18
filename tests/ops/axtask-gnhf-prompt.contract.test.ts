@@ -10,6 +10,9 @@ const launcherPath = resolve(repoRoot, "scripts/ops/Start-AxTaskGnhfNight.ps1");
 const cmdPath = resolve(repoRoot, "Run-AxTaskGnhfNight.cmd");
 const validatorPath = resolve(repoRoot, "scripts/ops/validate-axtask-gnhf-prompt.mjs");
 
+const directGnhfInvocation =
+  /^\s*(?:&\s+)?(?:gnhf(?:\.ps1|\.cmd)?|\$gnhf(?:Path|Command|Launcher)?)\s+(?:`\s*)?--agent\b/im;
+
 describe("AxTask DeepSeek GNHF harness", () => {
   it("passes the deterministic harness validator", () => {
     const result = spawnSync(process.execPath, [validatorPath], {
@@ -35,17 +38,19 @@ describe("AxTask DeepSeek GNHF harness", () => {
 
     expect(launcher).toContain("Set-Location -LiteralPath $RepoPath");
     expect(launcher).toContain("Start-ProviderRoutedGnhfSprint.ps1");
-    expect(launcher).not.toMatch(/(?:^|\s)gnhf(?:\.ps1|\.cmd)?\s/i);
+    expect(launcher).not.toMatch(directGnhfInvocation);
   });
 
-  it("enters the repository before Git or repair logic", () => {
+  it("enters the repository before Git or repair execution", () => {
     const launcher = readFileSync(launcherPath, "utf8");
     const cmd = readFileSync(cmdPath, "utf8");
 
     const directoryIndex = launcher.indexOf("Set-Location -LiteralPath $RepoPath");
     expect(directoryIndex).toBeGreaterThanOrEqual(0);
     expect(directoryIndex).toBeLessThan(launcher.indexOf("git rev-parse"));
-    expect(directoryIndex).toBeLessThan(launcher.indexOf("Install-ProviderRoutedGnhf.ps1"));
+    expect(directoryIndex).toBeLessThan(
+      launcher.indexOf("& pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File $RepairScript -Apply"),
+    );
     expect(cmd).toContain('cd /d "%~dp0"');
   });
 
@@ -53,7 +58,7 @@ describe("AxTask DeepSeek GNHF harness", () => {
     const launcher = readFileSync(launcherPath, "utf8");
     const runbook = readFileSync(runbookPath, "utf8");
 
-    expect(launcher).toContain('-Model $Model');
+    expect(launcher).toContain("-Model $Model");
     expect(launcher).not.toContain("--agent deepseek");
     expect(launcher).not.toMatch(/(?:-PushBranch|--push)(?:\s|$)/);
     expect(runbook).toContain("GNHF adapter:   OpenCode");
