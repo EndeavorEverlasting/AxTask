@@ -8,9 +8,13 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "../..");
 const promptPath = resolve(repoRoot, "docs/ops/gnhf/axtask-night-sprint.md");
 const readmePath = resolve(repoRoot, "docs/ops/gnhf/README.md");
+const launcherPath = resolve(repoRoot, "scripts/ops/Start-AxTaskGnhfNight.ps1");
+const cmdPath = resolve(repoRoot, "Run-AxTaskGnhfNight.cmd");
 
 const prompt = readFileSync(promptPath, "utf8");
 const readme = readFileSync(readmePath, "utf8");
+const launcher = readFileSync(launcherPath, "utf8");
+const cmd = readFileSync(cmdPath, "utf8");
 const failures = [];
 
 function requireText(text, needle, label) {
@@ -56,66 +60,96 @@ const promptRequirements = [
   "No push, merge, deployment, release, tag, production mutation, or remote PR cleanup.",
 ];
 for (const requirement of promptRequirements) {
-  requireText(prompt, requirement, "prompt contract");
+  requireText(prompt, requirement, "runtime objective");
 }
 
-const commandMatch = readme.match(/```powershell\s*([\s\S]*?)```/i);
-if (!commandMatch) {
-  failures.push("launch contract: missing PowerShell command block");
-} else {
-  const command = commandMatch[1];
-  const commandRequirements = [
-    "agent-switchboard.cmd",
-    "-Agent deepseek",
-    '-DeepSeekModel "deepseek/deepseek-v4-pro"',
-    "axtask-night-sprint.md",
-    "-MaxIterations 8",
-    "-MaxTokens 800000",
-    "-ProbeTimeoutSeconds 20",
-    "-StopWhen",
-  ];
-  for (const requirement of commandRequirements) {
-    requireText(command, requirement, "launch contract");
-  }
-  if (/\s-PushBranch(?:\s|$)/.test(command)) {
-    failures.push("launch contract: first-run command must not enable push");
-  }
-  if (/--current-branch/.test(command)) {
-    failures.push("launch contract: unattended run must use the isolated worktree posture");
-  }
+const launcherRequirements = [
+  '$RepoPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\\.."))',
+  "Set-Location -LiteralPath $RepoPath",
+  "Start-ProviderRoutedGnhfSprint.ps1",
+  "Install-ProviderRoutedGnhf.ps1",
+  "-RepairControlPlane",
+  '-Model $Model',
+  "-MaxIterations $MaxIterations",
+  "-MaxTokens $MaxTokens",
+  "-ProbeTimeoutSeconds $ProbeTimeoutSeconds",
+  "-StopWhen $StopWhen",
+  "logs\\provider-routes",
+];
+for (const requirement of launcherRequirements) {
+  requireText(launcher, requirement, "PowerShell launch artifact");
+}
+
+const directoryIndex = launcher.indexOf("Set-Location -LiteralPath $RepoPath");
+const gitIndex = launcher.indexOf("git rev-parse");
+const repairIndex = launcher.indexOf("Install-ProviderRoutedGnhf.ps1");
+if (directoryIndex < 0 || gitIndex < 0 || directoryIndex > gitIndex) {
+  failures.push("PowerShell launch artifact: Set-Location must occur before Git logic");
+}
+if (directoryIndex < 0 || repairIndex < 0 || directoryIndex > repairIndex) {
+  failures.push("PowerShell launch artifact: Set-Location must occur before installation logic");
+}
+
+const cmdRequirements = [
+  'cd /d "%~dp0"',
+  'Start-AxTaskGnhfNight.ps1" -RepairControlPlane',
+  "exit /b %_code%",
+];
+for (const requirement of cmdRequirements) {
+  requireText(cmd, requirement, "CMD launch artifact");
 }
 
 const readmeRequirements = [
-  "Do not add `-PushBranch` for the first night run.",
-  "maps the operator alias `deepseek` to the native GNHF `opencode` adapter",
-  "20-second timeout",
+  "The objective and the launcher are different artifacts:",
+  "Run-AxTaskGnhfNight.cmd",
+  "directory-first PowerShell launch artifact",
+  "GNHF `0.1.42` or newer",
+  "GNHF adapter:   OpenCode",
+  "provider/model: deepseek/deepseek-v4-pro",
+  "stops before GNHF when provider preflight fails",
+  "three consecutive GNHF iterations",
   "git worktree list",
   "npm run check",
   "A successful provider probe proves only",
 ];
 for (const requirement of readmeRequirements) {
-  requireText(readme, requirement, "runbook contract");
+  requireText(readme, requirement, "runbook");
 }
 
 forbidPattern(prompt, /DEEPSEEK_API_KEY\s*=/i, "secret contract");
 forbidPattern(readme, /DEEPSEEK_API_KEY\s*=/i, "secret contract");
+forbidPattern(launcher, /DEEPSEEK_API_KEY\s*=/i, "secret contract");
 forbidPattern(prompt, /sk-[A-Za-z0-9_-]{16,}/, "secret contract");
 forbidPattern(readme, /sk-[A-Za-z0-9_-]{16,}/, "secret contract");
-forbidPattern(prompt, /git\s+(?:reset\s+--hard|clean\s+-[a-z]*f|push\s+--force)/i, "git safety contract");
+forbidPattern(launcher, /sk-[A-Za-z0-9_-]{16,}/, "secret contract");
+forbidPattern(prompt, /git\s+(?:reset\s+--hard|clean\s+-[a-z]*f|push\s+--force)/i, "Git safety contract");
+forbidPattern(launcher, /(?:^|\s)gnhf(?:\.ps1|\.cmd)?\s/i, "control-plane bypass");
+forbidPattern(launcher, /--agent\s+deepseek/i, "fictional adapter");
+forbidPattern(launcher, /(?:-PushBranch|--push)(?:\s|$)/i, "first-run push");
+forbidPattern(`${launcher}\n${readme}\n${cmd}`, /C:\\Users\\[A-Za-z0-9._-]+/i, "machine-specific path");
 
 const repoDeclarations = prompt.match(/^Repo:/gm) ?? [];
 if (repoDeclarations.length !== 1) {
-  failures.push(`prompt contract: expected exactly one Repo declaration, found ${repoDeclarations.length}`);
+  failures.push(`runtime objective: expected exactly one Repo declaration, found ${repoDeclarations.length}`);
+}
+
+if (prompt.trimStart().startsWith("gnhf `") || prompt.includes("Set-Location -LiteralPath")) {
+  failures.push("runtime objective: executable launch logic must remain in the launcher artifact");
+}
+if (launcher.includes("Repo: EndeavorEverlasting/AxTask\n\nSprint:")) {
+  failures.push("PowerShell launch artifact: do not inline the full runtime objective into the launcher");
 }
 
 if (failures.length > 0) {
-  console.error("AxTask GNHF prompt validation failed:");
+  console.error("AxTask GNHF harness validation failed:");
   for (const failure of failures) {
     console.error(`- ${failure}`);
   }
   process.exit(1);
 }
 
-console.log("AxTask GNHF prompt validation passed.");
-console.log(`Prompt: ${promptPath}`);
+console.log("AxTask GNHF harness validation passed.");
+console.log(`Runtime objective: ${promptPath}`);
+console.log(`PowerShell launcher: ${launcherPath}`);
+console.log(`CMD launcher: ${cmdPath}`);
 console.log(`Runbook: ${readmePath}`);
