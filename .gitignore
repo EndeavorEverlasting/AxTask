@@ -93,6 +93,9 @@ docs/releases/*.local.md
 # --- PII and other sensitive local artifacts (never commit) ---
 # Ad-hoc backup/import zips under docs (filenames often contain real names).
 docs/**/*.zip
+# Local DB dump airlock checkpoints (pg_dump custom format + manifests)
+.backups/
+
 # Generic drop zones for exports, dumps, and ad-hoc copies of real user data.
 **/pii/
 **/pii-export/
