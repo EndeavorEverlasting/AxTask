@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ATTACHMENT_IMAGE_MAX_BYTES } from "@shared/attachment-image-limits";
 import {
   insertTaskSchema,
+  TASK_NOTES_MAX_CHARS,
   type ConversionArtifactType,
   type InsertTask,
   type Task,
@@ -60,7 +61,6 @@ import {
   Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SafeMarkdown } from "@/lib/safe-markdown";
 import { format, parse } from "date-fns";
 import { useLocation, Link } from "wouter";
 import { useFieldFlow } from "@/hooks/use-field-flow";
@@ -99,6 +99,7 @@ export function pickShoppingPretextQuip(seed: string): string {
 }
 
 const DRAFT_KEY_PREFIX = "axtask_draft";
+const TASK_NOTES_EDITOR_HEIGHT = 240;
 
 function getDraftKey(userId?: string, context?: string): string {
   return `${DRAFT_KEY_PREFIX}_${userId || "anon"}_${context || "new"}`;
@@ -147,7 +148,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   const { onFieldBlur, isHinted } = useFieldFlow();
   const [warningFields, setWarningFields] = useState<Set<string>>(new Set());
   const { registerField, focusFirst, cycleNext, fieldRefs } = useTaskFocusFlow();
-  const { height: notesHeight, updateHeight: setNotesHeight } = useFieldResize("notes", 120);
+  const { height: notesHeight, updateHeight: setNotesHeight } = useFieldResize(
+    "notes",
+    TASK_NOTES_EDITOR_HEIGHT,
+  );
   const warningTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [voiceTarget, setVoiceTarget] = useState<"activity" | "notes" | "prerequisites">("activity");
   const [debouncedActivity, setDebouncedActivity] = useState("");
@@ -166,10 +170,10 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
     tone: "info" | "success" | "error";
     message: string;
   } | null>(null);
-  const [highlightNotesPreview, setHighlightNotesPreview] = useState(false);
+  const [highlightNotesEditor, setHighlightNotesEditor] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const imageCameraInputRef = useRef<HTMLInputElement>(null);
-  const previewHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notesHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const removeAttachment = useCallback(async (assetId: string) => {
     try {
@@ -362,12 +366,12 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
         tone: "success",
         message:
           source === "paste"
-            ? "Image pasted and attached. Preview updated below."
-            : "Image attached. Preview updated below.",
+            ? "Image pasted and inserted into Notes."
+            : "Image attached and inserted into Notes.",
       });
-      if (previewHighlightTimerRef.current) clearTimeout(previewHighlightTimerRef.current);
-      setHighlightNotesPreview(true);
-      previewHighlightTimerRef.current = setTimeout(() => setHighlightNotesPreview(false), 2400);
+      if (notesHighlightTimerRef.current) clearTimeout(notesHighlightTimerRef.current);
+      setHighlightNotesEditor(true);
+      notesHighlightTimerRef.current = setTimeout(() => setHighlightNotesEditor(false), 2400);
       if (source === "paste") {
         toast({
           title: "Image pasted",
@@ -809,7 +813,7 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
   useEffect(() => {
     return () => {
       warningTimers.current.forEach(t => clearTimeout(t));
-      if (previewHighlightTimerRef.current) clearTimeout(previewHighlightTimerRef.current);
+      if (notesHighlightTimerRef.current) clearTimeout(notesHighlightTimerRef.current);
     };
   }, []);
 
@@ -1336,19 +1340,43 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                   name="notes"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Notes <span className="text-xs text-muted-foreground font-normal ml-1">Supports **bold**, *italic*, `code`, - lists, and image paste (Ctrl+V)</span></FormLabel>
+                      <FormLabel className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                        <span>
+                          Notes
+                          <span className="text-xs text-muted-foreground font-normal ml-1">
+                            Supports **bold**, *italic*, `code`, - lists, and image paste (Ctrl+V)
+                          </span>
+                        </span>
+                        <span
+                          data-testid="task-notes-character-count"
+                          aria-live="polite"
+                          className={cn(
+                            "text-xs font-mono font-normal tabular-nums text-muted-foreground",
+                            (notesWatch?.length ?? 0) > TASK_NOTES_MAX_CHARS && "text-destructive",
+                          )}
+                        >
+                          {(notesWatch?.length ?? 0).toLocaleString()} / {TASK_NOTES_MAX_CHARS.toLocaleString()}
+                        </span>
+                      </FormLabel>
                       <FormControl>
                         <div className="flex gap-2 items-start">
                           <div className="relative flex-1">
                             <Textarea
-                              rows={3}
+                              data-testid="task-notes-editor"
+                              rows={8}
                               placeholder="Add detailed notes with **markdown**, tags (@urgent, #blocker), or dictate with mic..."
                               {...field}
                               ref={(e) => { field.ref(e); registerField("notes", e); }}
-                              className={cn(getFieldClass("notes"), getCollabFieldStyle("notes"), "w-full font-mono text-sm resize-y")}
+                              className={cn(
+                                getFieldClass("notes"),
+                                getCollabFieldStyle("notes"),
+                                "w-full font-mono text-sm resize-y transition-shadow",
+                                highlightNotesEditor && "ring-2 ring-emerald-400/80 shadow-[0_0_0_2px_rgba(52,211,153,0.35)]",
+                              )}
                               style={{
                                 ...(getCollabFieldColor("notes") ? { "--tw-ring-color": getCollabFieldColor("notes") } as React.CSSProperties : {}),
-                                height: notesHeight,
+                                height: Math.max(notesHeight, TASK_NOTES_EDITOR_HEIGHT),
+                                minHeight: TASK_NOTES_EDITOR_HEIGHT,
                               }}
                               onMouseUp={(e) => {
                                 if (e.currentTarget.clientHeight !== notesHeight) {
@@ -1497,21 +1525,6 @@ export function TaskForm({ task, defaultDate, onSuccess }: TaskFormProps) {
                           {speech.interimTranscript}
                         </p>
                       )}
-                      {notesWatch?.trim() ? (
-                        <div
-                          className={cn(
-                            "mt-2 rounded-md border border-border bg-muted/30 p-3 space-y-1 transition-shadow",
-                            highlightNotesPreview && "ring-2 ring-emerald-400/80 shadow-[0_0_0_2px_rgba(52,211,153,0.35)]",
-                          )}
-                        >
-                          <p className="text-xs font-medium text-muted-foreground">Preview</p>
-                          <SafeMarkdown
-                            source={notesWatch}
-                            allowedAttachmentIds={taskAttachments.filter((a) => !a.uploading && a.assetId !== "uploading").map((a) => a.assetId)}
-                            className="text-sm max-h-48 overflow-y-auto [&_p]:m-0 [&_p+p]:mt-2 [&_img]:max-h-32 [&_img]:rounded-md"
-                          />
-                        </div>
-                      ) : null}
                       <FormMessage />
                     </FormItem>
                   )}
