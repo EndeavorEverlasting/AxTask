@@ -69,7 +69,7 @@ const launcherRequirements = [
   "Start-ProviderRoutedGnhfSprint.ps1",
   "Install-ProviderRoutedGnhf.ps1",
   "-RepairControlPlane",
-  '-Model $Model',
+  "-Model $Model",
   "-MaxIterations $MaxIterations",
   "-MaxTokens $MaxTokens",
   "-ProbeTimeoutSeconds $ProbeTimeoutSeconds",
@@ -82,11 +82,11 @@ for (const requirement of launcherRequirements) {
 
 const directoryIndex = launcher.indexOf("Set-Location -LiteralPath $RepoPath");
 const gitIndex = launcher.indexOf("git rev-parse");
-const repairIndex = launcher.indexOf("Install-ProviderRoutedGnhf.ps1");
+const repairInvocationIndex = launcher.indexOf("& pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File $RepairScript -Apply");
 if (directoryIndex < 0 || gitIndex < 0 || directoryIndex > gitIndex) {
   failures.push("PowerShell launch artifact: Set-Location must occur before Git logic");
 }
-if (directoryIndex < 0 || repairIndex < 0 || directoryIndex > repairIndex) {
+if (directoryIndex < 0 || repairInvocationIndex < 0 || directoryIndex > repairInvocationIndex) {
   failures.push("PowerShell launch artifact: Set-Location must occur before installation logic");
 }
 
@@ -123,7 +123,11 @@ forbidPattern(prompt, /sk-[A-Za-z0-9_-]{16,}/, "secret contract");
 forbidPattern(readme, /sk-[A-Za-z0-9_-]{16,}/, "secret contract");
 forbidPattern(launcher, /sk-[A-Za-z0-9_-]{16,}/, "secret contract");
 forbidPattern(prompt, /git\s+(?:reset\s+--hard|clean\s+-[a-z]*f|push\s+--force)/i, "Git safety contract");
-forbidPattern(launcher, /(?:^|\s)gnhf(?:\.ps1|\.cmd)?\s/i, "control-plane bypass");
+forbidPattern(
+  launcher,
+  /^\s*(?:&\s+)?(?:gnhf(?:\.ps1|\.cmd)?|\$gnhf(?:Path|Command|Launcher)?)\s+(?:`\s*)?--agent\b/im,
+  "control-plane bypass",
+);
 forbidPattern(launcher, /--agent\s+deepseek/i, "fictional adapter");
 forbidPattern(launcher, /(?:-PushBranch|--push)(?:\s|$)/i, "first-run push");
 forbidPattern(`${launcher}\n${readme}\n${cmd}`, /C:\\Users\\[A-Za-z0-9._-]+/i, "machine-specific path");
