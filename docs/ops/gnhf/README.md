@@ -1,51 +1,101 @@
 # AxTask DeepSeek night sprint
 
-This directory contains the bounded AxTask objective compiled from the AI Harness Prompt Kit V38 night-shift rules and AxTask's current repository law.
+This directory contains the compact AxTask runtime objective compiled from the AI Harness Prompt Kit V38 night-shift rules and AxTask's current repository law.
+
+The objective and the launcher are different artifacts:
+
+- `docs/ops/gnhf/axtask-night-sprint.md` is the compact GNHF runtime objective.
+- `scripts/ops/Start-AxTaskGnhfNight.ps1` is the directory-first PowerShell launch artifact.
+- `Run-AxTaskGnhfNight.cmd` is the one-click Windows entrypoint.
+
+Do not paste the runtime objective into a terminal and do not replace the launcher with a regular AI prompt.
 
 ## Preferred launch
 
-Prerequisites:
+From a clean checkout of `ops/deepseek-gnhf-night-sprint`, double-click:
 
-- AgentSwitchboard branch containing the DeepSeek GNHF route is installed or bootstrapped.
-- OpenCode `1.14.24` or newer is READY in AgentSwitchboard.
-- DeepSeek is connected interactively inside OpenCode.
-- `opencode models deepseek` lists the exact selected model.
-- The AxTask checkout is clean and is not a production-connected working branch.
-
-From the AxTask repository root in PowerShell 7:
-
-```powershell
-& "$env:LOCALAPPDATA\AgentSwitchboard\GnhfFleet\agent-switchboard.cmd" `
-  -RepoPath (Get-Location).Path `
-  -Agent deepseek `
-  -DeepSeekModel "deepseek/deepseek-v4-pro" `
-  -PromptPath (Join-Path (Get-Location).Path "docs\ops\gnhf\axtask-night-sprint.md") `
-  -Name "axtask-deepseek-night" `
-  -MaxIterations 8 `
-  -MaxTokens 800000 `
-  -ProbeTimeoutSeconds 20 `
-  -StopWhen "One non-colliding AxTask root cause is repaired and committed with deterministic targeted enforcement, npm run check, and AXTASK_NIGHT_REPORT.md; or a report-only commit proves with exact evidence why no safe implementation was available."
+```text
+Run-AxTaskGnhfNight.cmd
 ```
 
-Do not add `-PushBranch` for the first night run. The expected result is an isolated GNHF worktree with a local commit for morning review.
+The CMD launcher enters the AxTask repository through `%~dp0`, then calls the repository-owned PowerShell launcher. The PowerShell launcher independently resolves the repository from `$PSScriptRoot`, validates it, and calls `Set-Location` before Git, installation, provider, or GNHF logic.
 
-## What the launcher proves before starting
+The launcher uses variables rather than a machine-specific username.
 
-The AgentSwitchboard route:
+## Control-plane dependency
 
-1. maps the operator alias `deepseek` to the native GNHF `opencode` adapter;
-2. requires OpenCode `1.14.24` or newer;
-3. enumerates the exact DeepSeek model;
-4. launches that exact model in a temporary directory with a 20-second timeout;
-5. requires a positive success marker;
-6. pins the model through an in-process OpenCode configuration override;
-7. restores the previous OpenCode inline configuration after GNHF exits.
+The AxTask launcher expects the AgentSwitchboard provider-route repair branch to be present at:
 
-Provider authentication, quota, network, model discovery, timeout, and malformed-output failures stop before AxTask repository work begins.
+```text
+$HOME\Desktop\dev\AgentSwitchboard
+```
+
+It invokes:
+
+```text
+tooling\gnhf\Install-ProviderRoutedGnhf.ps1 -Apply
+```
+
+when `-RepairControlPlane` is supplied or the installed provider launcher is absent. The repair requires GNHF `0.1.42` or newer and verifies that GNHF exposes `--model` before installing the provider-routed launcher under `%LOCALAPPDATA%\AgentSwitchboard\GnhfFleet`.
+
+No provider sign-in is automated and no provider value is written into AxTask.
+
+## Provider route
+
+The truthful route is:
+
+```text
+operator route: DeepSeek
+GNHF adapter:   OpenCode
+provider/model: deepseek/deepseek-v4-pro
+```
+
+The installed AgentSwitchboard launcher:
+
+1. dispatches Windows `.ps1` command shims through PowerShell instead of treating them as native executables;
+2. requires GNHF `0.1.42` or newer and verified `--model` support;
+3. requires OpenCode `1.14.24` or newer;
+4. enumerates the exact DeepSeek model;
+5. runs one bounded direct OpenCode response probe;
+6. stops before GNHF when provider preflight fails;
+7. passes the exact model to GNHF with `--model`;
+8. requires a new local commit ahead of the base instead of trusting process exit zero.
+
+This prevents one provider preflight failure from being rediscovered as three consecutive GNHF iterations. A provider can still fail after a successful preflight; that remains operational evidence, not an AxTask defect.
+
+## PowerShell usage
+
+The repository-owned script may also be run directly:
+
+```powershell
+$RepoPath = Join-Path (Join-Path $HOME "Desktop\dev") "AxTask"
+
+if (-not (Test-Path -LiteralPath $RepoPath -PathType Container)) {
+    throw "AxTask repository directory not found: $RepoPath"
+}
+
+Set-Location -LiteralPath $RepoPath
+
+pwsh -NoLogo -NoProfile `
+  -File ".\scripts\ops\Start-AxTaskGnhfNight.ps1" `
+  -RepairControlPlane
+```
+
+The first run does not push, merge, deploy, release, or mutate live services.
+
+## Failure evidence
+
+Provider preflight and launch evidence is written outside AxTask under:
+
+```text
+%LOCALAPPDATA%\AgentSwitchboard\GnhfFleet\logs\provider-routes
+```
+
+When provider discovery, response, quota, networking, command dispatch, or model compatibility fails, GNHF is not started. Preserve the evidence file and fix the control plane rather than changing AxTask.
 
 ## Morning review
 
-List GNHF worktrees and inspect the latest branch without merging it automatically:
+From the AxTask repository root:
 
 ```powershell
 git worktree list
@@ -53,7 +103,7 @@ git branch --list "gnhf/*" --sort=-committerdate
 git log --oneline --decorate --all -15
 ```
 
-Then enter the selected worktree and run:
+Enter the selected generated worktree and run:
 
 ```powershell
 git status --short
@@ -67,4 +117,4 @@ Run the targeted command recorded in `docs/ops/gnhf/AXTASK_NIGHT_REPORT.md` befo
 
 ## Proof boundary
 
-A successful provider probe proves only that the selected DeepSeek model responded through OpenCode in the local execution domain. A GNHF exit code proves only process completion. Delivery requires the tracked report, validation evidence, and a local commit ahead of the base. Push, PR review, merge, deployment, database state, and production behavior remain separate operator gates.
+A successful provider probe proves only that the exact DeepSeek model responded through OpenCode in the local Windows execution domain. A GNHF exit code proves only process completion. Delivery requires the tracked report, validation evidence, and a local commit ahead of the base. Push, review, merge, deployment, database state, and production behavior remain separate operator gates.
