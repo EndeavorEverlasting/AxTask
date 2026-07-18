@@ -21,8 +21,9 @@ Branch: audit/2026-07-18-render-reentry-floor
 | Location | Branch / state | Owner | Action |
 | --- | --- | --- | --- |
 | `C:\Users\Cheex\Desktop\dev\AxTask` | `fix/2026-07-18-long-notes-editor` @ `bd27bb8` + untracked `artifacts/` | Waiting long-notes lane (P11 release) | Preserve; do not reset/clean |
+| `AxTask-notes-editor-ergonomics` | `fix/2026-07-18-notes-editor-ergonomics` @ `94bc2ce` (PR #84 draft) | Waiting notes UX (P11 release) | Preserve; not deployment |
 | `AxTask-gnhf-worktrees/execute-the-ax-task-4001c4` | `gnhf/execute-the-ax-task-4001c4` @ `2cb8e9e` | GNHF / PR #81 adjacent | Preserve; not deployment |
-| Audit worktree | clean for tracked intent; Windows CRLF noise on two legacy docs assumed-unchanged locally | P00 | Isolated from foreign dirt |
+| Audit worktree `AxTask-render-reentry-floor` | `audit/2026-07-18-render-reentry-floor` @ this branch | P00 | Isolated from foreign dirt |
 
 ## Deployment authority (repository evidence only)
 
@@ -61,7 +62,8 @@ Branch: audit/2026-07-18-render-reentry-floor
 
 ## Waiting lanes (frozen until P11)
 
-- `fix/2026-07-18-long-notes-editor`
+- `fix/2026-07-18-long-notes-editor` (+ untracked runtime-proof `artifacts/`)
+- PR #84 `fix/2026-07-18-notes-editor-ergonomics` (draft notes UX)
 - PR #67 mobile scroll/flash
 - PR #81 GNHF night sprint
 - Unrelated UI / Skill Tree / entourage / moderation / shortcuts / GitLab migration
@@ -125,6 +127,8 @@ Not reached: Render service state, Neon state, live logs (expired), deployment c
 | --- | --- |
 | Stale local `main` @ `bc460f3` | Updated `refs/heads/main` → `6b2645e` without checking out or disturbing `fix/2026-07-18-long-notes-editor` / `artifacts/` |
 | #68 vs #65 `0042` collision | Recorded as **hard P01 gate** above; #68 stays quarantined; ownership comments reinforced on #65/#68 |
+| PR #83 `release:check` fail | Added this sprint’s `docs/releases/2026-07-18-render-reentry-floor-g0.md` |
+| New notes ergonomics worktree / PR #84 | Attributed as waiting lane; not part of re-entry candidate |
 
 ## Exact next command after G0
 
