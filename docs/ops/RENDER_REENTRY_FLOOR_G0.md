@@ -13,7 +13,7 @@ Branch: audit/2026-07-18-render-reentry-floor
 | Trusted remote floor | `origin/main` @ `6b2645e3e540fa6b5b847d9b7fad7a89f4909c4a` |
 | Attested validated source SHA | `68720d5415f75e690f039fbd740019b86e66e95a` (from `docs/TEST_ATTESTATION.md`) |
 | Relationship | `6b2645e` is a later `[skip ci]` attestation update on top of validated `68720d5`. They are **not** equivalent; attestation points at the last fully attested source commit. |
-| Local primary `main` ref (stale) | `bc460f33cde00d04d2aed7ff3989747efe67a8da` — behind `origin/main`; do not treat as floor until updated. |
+| Local primary `main` ref | Synced to `origin/main` @ `6b2645e3e540fa6b5b847d9b7fad7a89f4909c4a` via `git update-ref` (checkout unchanged; long-notes worktree preserved). |
 | Audit worktree | `../AxTask-render-reentry-floor` on `audit/2026-07-18-render-reentry-floor` |
 
 ## Worktree attribution (preserved)
@@ -37,7 +37,7 @@ Branch: audit/2026-07-18-render-reentry-floor
 
 - `migrations/0042_offline_skill_tree_tables.sql` is **absent** from current `main`.
 - `scripts/migration/verify-schema.mjs` still requires `offline_skill_nodes` and `user_offline_skills`.
-- PR #68 draft proposes a **different** `migrations/0042_provider_usage_snapshots.sql` — numbering collision risk for P01.
+- **Hard collision (P01 gate):** PR #68 draft proposes `migrations/0042_provider_usage_snapshots.sql` while P01/#65 intends `migrations/0042_offline_skill_tree_tables.sql`. Same sequence number, different DDL. P01 must land offline-skill history on current `main` without absorbing #68. #68 remains quarantined (DRAFT + CONFLICTING) and must not claim `0042`.
 
 ## Live mutation rule
 
@@ -109,7 +109,7 @@ Branch: audit/2026-07-18-render-reentry-floor
 | --- | --- | --- | --- |
 | 1 | **P02** (#75) | **GO** | Smallest mergeable deploy-config fix; checks green; unblocks DB-free liveness |
 | 2 | **P05** (#80) | **GO** | Checks green; unlocks harness spine; no Render behavior change |
-| 3 | **P01** (#65) | **GO with rebuild** | Required table drift is real; branch stale/failing; watch #68 `0042` collision |
+| 3 | **P01** (#65) | **GO with rebuild** | Required table drift is real; branch stale/failing; **must resolve #68 `0042` collision without merging #68** |
 | 4 | **P04** (new) | **GO** | New harness; no collision with #75 health tests if separate path |
 | 5 | **P03** (new) | **GO** | Docs/evidence only; reads #58/#66; must not edit classifier owned by P06 |
 
@@ -118,6 +118,13 @@ Branch: audit/2026-07-18-render-reentry-floor
 Reached: **repository + GitHub evidence** (floor SHA, PR ownership, config facts).
 
 Not reached: Render service state, Neon state, live logs (expired), deployment completion, operator acceptance.
+
+## G0 follow-up closed (2026-07-18)
+
+| Gap | Resolution |
+| --- | --- |
+| Stale local `main` @ `bc460f3` | Updated `refs/heads/main` → `6b2645e` without checking out or disturbing `fix/2026-07-18-long-notes-editor` / `artifacts/` |
+| #68 vs #65 `0042` collision | Recorded as **hard P01 gate** above; #68 stays quarantined; ownership comments reinforced on #65/#68 |
 
 ## Exact next command after G0
 
