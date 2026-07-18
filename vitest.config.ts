@@ -3,12 +3,8 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 /**
- * Vitest configuration with an environment split: server tests run in `node`
- * (faster startup, matches production runtime), while client and shared tests
- * run in `jsdom` so React Testing Library works.
- *
- * Phase A of the perf/refactor sweep introduced `projects` so we don't pay
- * jsdom startup cost on every server test.
+ * Vitest configuration with an environment split: server and operational
+ * harness tests run in `node`, while client and shared tests run in `jsdom`.
  */
 export default defineConfig({
   plugins: [react()],
@@ -26,7 +22,11 @@ export default defineConfig({
           name: "server",
           environment: "node",
           globals: true,
-          include: ["server/**/*.test.{ts,tsx}", "tools/**/*.test.{ts,tsx}"],
+          include: [
+            "server/**/*.test.{ts,tsx}",
+            "tools/**/*.test.{ts,tsx}",
+            "tests/ops/**/*.test.{ts,tsx}",
+          ],
           exclude: ["node_modules", "dist", "tests/deploy/**"],
         },
       },
