@@ -42,8 +42,8 @@ Branch: audit/2026-07-18-render-reentry-floor
 
 ## Live mutation rule
 
-- Render service remains **suspended** and **untouched** through Waves 0–D.
-- No Neon mutation, no `db:push` / `db:migrate` against production, no resume/deploy in this sprint.
+- Current Render service state is **UNKNOWN** from repository and GitHub evidence. Before any live re-entry action, an authorized operator must verify and record the actual service state in issue #82 or a superseding coordination record.
+- Until that operator checkpoint exists: no Neon mutation, no production `db:push` / `db:migrate`, and no Render resume/deploy.
 - Repository/CI proof ≠ deployment proof.
 
 ## PR ownership and disposition
@@ -70,14 +70,14 @@ Branch: audit/2026-07-18-render-reentry-floor
 
 ## Gate checklist
 
-### G0 — floor proven (this document)
+### G0 — repository floor proven; live-state hold remains open
 
 - [x] `origin/main` at `6b2645e…` (or documented newer)
 - [x] Attestation source SHA recorded separately (`68720d5…`)
 - [x] Dirty work attributed or isolated
 - [x] Active deploy PRs have owners
 - [x] #58 / #66 / #68 classified (not silently reused)
-- [x] Suspended Render remains untouched (repo action: none)
+- [ ] Authorized operator verified and recorded current Render service state; until checked, live re-entry remains blocked
 - [x] Coordination GitHub issue: https://github.com/EndeavorEverlasting/AxTask/issues/82
 
 ### G1 — deployment foundations (Parallel Group A)
@@ -127,6 +127,7 @@ Not reached: Render service state, Neon state, live logs (expired), deployment c
 | --- | --- |
 | Stale local `main` @ `bc460f3` | Updated `refs/heads/main` → `6b2645e` without checking out or disturbing `fix/2026-07-18-long-notes-editor` / `artifacts/` |
 | #68 vs #65 `0042` collision | Recorded as **hard P01 gate** above; #68 stays quarantined; ownership comments reinforced on #65/#68 |
+| Unverified Render suspension claim | Replaced with an explicit **UNKNOWN** live-state declaration and an unchecked operator checkpoint before any live action |
 | PR #83 `release:check` fail | Added this sprint’s `docs/releases/2026-07-18-render-reentry-floor-g0.md` |
 | New notes ergonomics worktree / PR #84 | Attributed as waiting lane; not part of re-entry candidate |
 
@@ -136,4 +137,4 @@ Not reached: Render service state, Neon state, live logs (expired), deployment c
 git fetch --all --prune
 ```
 
-Then launch Parallel Group A chats (P01–P05) in isolated worktrees only.
+Then launch Parallel Group A repository-only chats (P01–P05) in isolated worktrees. Live Render/Neon actions remain blocked until the operator checkpoint is recorded.
