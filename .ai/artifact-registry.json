@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "registryId": "axtask.artifacts.v1",
+  "artifacts": [
+    {"id":"run-context","pathPattern":".ai/runs/<run-id>/context.json","tracked":false,"sanitized":true,"producer":"inspect-repo"},
+    {"id":"repo-snapshot","pathPattern":".ai/runs/<run-id>/repo-snapshot.json","tracked":false,"sanitized":true,"producer":"inspect-repo"},
+    {"id":"operator-report","pathPattern":".ai/runs/<run-id>/operator-report.md","tracked":false,"sanitized":true,"template":".ai/reports/operator-report-template.md"},
+    {"id":"final-handoff","pathPattern":".ai/runs/<run-id>/final-handoff.md","tracked":false,"sanitized":true,"template":".ai/handoff/final-handoff-template.md"},
+    {"id":"release-evidence","pathPattern":"docs/releases/*.md","tracked":true,"sanitized":true,"producer":"release workflow"},
+    {"id":"prompt","pathPattern":".ai/generated/prompts/*","tracked":false,"sanitized":true,"note":"Prompts are artifacts, not the harness."}
+  ],
+  "forbiddenTrackedOutputs": [
+    "raw runtime logs",
+    "credentials",
+    "database connection values",
+    "user exports",
+    "personal machine paths"
+  ]
+}

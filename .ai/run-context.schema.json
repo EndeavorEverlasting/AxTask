@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "schemaId": "axtask.run-context.v1",
+  "required": [
+    "workflowId",
+    "repoRoot",
+    "branch",
+    "head",
+    "baseRef",
+    "ownedScope",
+    "forbiddenScope",
+    "expectedArtifacts",
+    "validation",
+    "proofCeiling"
+  ],
+  "properties": {
+    "workflowId": {"type":"string"},
+    "repoRoot": {"type":"string"},
+    "branch": {"type":"string"},
+    "head": {"type":"string"},
+    "baseRef": {"type":"string"},
+    "ownedScope": {"type":"array","items":"string"},
+    "forbiddenScope": {"type":"array","items":"string"},
+    "expectedArtifacts": {"type":"array","items":"string"},
+    "validation": {"type":"array","items":"string"},
+    "proofCeiling": {"type":"string"},
+    "knownDirt": {"type":"array","items":"string"},
+    "openPrCollisions": {"type":"array","items":"string"}
+  },
+  "runtimePolicy": {
+    "tracked": false,
+    "defaultDirectory": ".ai/runs",
+    "secretsAllowed": false,
+    "rawLogsAllowed": false
+  }
+}

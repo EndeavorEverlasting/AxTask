@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "harnessId": "axtask.repo-harness.v1",
+  "entryPoint": ".ai/README.md",
+  "components": [
+    {"id":"rules","type":"repo-rules","path":"AGENTS.md"},
+    {"id":"guardrails","type":"repo-rules","path":"AGENT_GUARDRAILS.md"},
+    {"id":"authority","type":"authority","path":".ai/authority.json"},
+    {"id":"map","type":"codebase-map","path":".ai/codebase-map.json"},
+    {"id":"intake","type":"workflow","path":".ai/workflows/repository-intake.md"},
+    {"id":"closeout","type":"workflow","path":".ai/workflows/pr-closeout.md"},
+    {"id":"run-context","type":"run-context","path":".ai/run-context.schema.json"},
+    {"id":"artifacts","type":"artifact-registry","path":".ai/artifact-registry.json"},
+    {"id":"validators","type":"validator-registry","path":".ai/validator-registry.json"},
+    {"id":"intake-skill","type":"skill","path":".ai/skills/repository-intake.md"},
+    {"id":"closeout-skill","type":"skill","path":".ai/skills/pr-closeout.md"},
+    {"id":"maintenance-skill","type":"skill","path":".ai/skills/harness-maintenance.md"},
+    {"id":"inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-repo.mjs"},
+    {"id":"operator-report","type":"operator-report","path":".ai/reports/operator-report-template.md"},
+    {"id":"handoff","type":"handoff","path":".ai/handoff/final-handoff-template.md"},
+    {"id":"hook","type":"local-hook","path":".githooks/pre-commit"}
+  ],
+  "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1"],
+  "skills": [
+    "axtask.skill.repository-intake.v1",
+    "axtask.skill.pr-closeout.v1",
+    "axtask.skill.harness-maintenance.v1"
+  ],
+  "triggers": [
+    {"event":"new-agent-session","workflowId":"axtask.repository-intake.v1"},
+    {"event":"close-pr-or-merge","workflowId":"axtask.pr-closeout.v1"},
+    {"event":"harness-files-changed","skillId":"axtask.skill.harness-maintenance.v1"}
+  ],
+  "readOnlyIntelligence": {
+    "id": "axtask.read-only-repo-inspector.v1",
+    "command": "node scripts/ai-harness/inspect-repo.mjs",
+    "mutationAllowed": false,
+    "outputs": ["stdout", ".ai/runs/<run-id>/repo-snapshot.json"]
+  },
+  "hookPolicy": {
+    "automaticInstall": false,
+    "installer": "node scripts/ai-harness/install-hooks.mjs",
+    "hookPath": ".githooks",
+    "runs": ["authority", "harness"]
+  }
+}

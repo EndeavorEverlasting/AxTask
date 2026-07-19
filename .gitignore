@@ -108,3 +108,7 @@ scratch-pii/
 # Local copies of support tickets / account recovery notes (often contain email, phone).
 **/support-notes.local.*
 **/account-recovery.local.*
+
+# Repo-local AI harness runtime and generated artifacts (ephemeral, sanitized, regenerated).
+.ai/runs/
+.ai/generated/

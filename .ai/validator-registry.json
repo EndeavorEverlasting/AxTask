@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "registryId": "axtask.validators.v1",
+  "validators": [
+    {"id":"authority","command":"node scripts/ai-harness/validate-authority.mjs","scope":"all harness authority references","required":true},
+    {"id":"harness","command":"node scripts/ai-harness/validate-harness.mjs","scope":"harness structure and cross-references","required":true},
+    {"id":"harness-tests","command":"npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts","scope":"negative and integration contracts","required":true},
+    {"id":"release","command":"npm run release:check","scope":"feature-branch release evidence","required":true},
+    {"id":"typecheck","command":"npm run check","scope":"TypeScript","required":true},
+    {"id":"tests","command":"npm test","scope":"repository tests","required":true},
+    {"id":"build","command":"npm run build","scope":"production build","required":true}
+  ]
+}
