@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "mapId": "axtask.codebase-map.v1",
+  "application": {
+    "shape": "single-root npm package",
+    "frontend": "React/Vite",
+    "backend": "Express/TypeScript",
+    "database": "PostgreSQL/Drizzle"
+  },
+  "entryPoints": [
+    {"id":"server","path":"server/index.ts","role":"Express process entry"},
+    {"id":"client","path":"client/src/main.tsx","role":"SPA entry"},
+    {"id":"schema","path":"shared/schema.ts","role":"public schema barrel"},
+    {"id":"toolchain","path":"package.json","role":"commands and dependency contract"},
+    {"id":"deploy","path":"render.yaml","role":"Render blueprint"}
+  ],
+  "roots": [
+    {"path":"client/src","role":"browser application"},
+    {"path":"server","role":"API, services, workers, tests"},
+    {"path":"shared","role":"cross-runtime schemas and DTOs"},
+    {"path":"scripts","role":"release, migration, deployment and operator tooling"},
+    {"path":"tools","role":"local, security and performance utilities"},
+    {"path":"tests","role":"deploy, UI and cross-surface contracts"},
+    {"path":"migrations","role":"ordered production DDL"},
+    {"path":"docs","role":"architecture, operations and release evidence"}
+  ],
+  "validationSurfaces": [
+    {"id":"typecheck","command":"npm run check"},
+    {"id":"unit","command":"npm test"},
+    {"id":"build","command":"npm run build"},
+    {"id":"release","command":"npm run release:check"},
+    {"id":"deploy","command":"npm run test:deploy"}
+  ],
+  "highRisk": [
+    "render.yaml",
+    "scripts/production-start.mjs",
+    "scripts/apply-migrations.mjs",
+    "migrations",
+    "shared/schema.ts",
+    "drizzle.config.ts",
+    "server/auth"
+  ],
+  "canonicalDocs": [
+    "AGENTS.md",
+    "AGENT_GUARDRAILS.md",
+    "docs/MODULE_LAYOUT.md",
+    "docs/GIT_BRANCHING_AND_DEPLOYMENT.md",
+    "docs/SCHEMA_EVOLUTION_PIPELINE.md"
+  ]
+}
