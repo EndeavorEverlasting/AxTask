@@ -8,6 +8,8 @@ Current production deployment work is Render-oriented and current database recov
 
 When instructions disagree, current `main` and executable contracts win. Do not infer live deployment or database state from repository or CI evidence.
 
+The machine-readable authority reference is [`.ai/authority.json`](.ai/authority.json). Every subordinate harness artifact declares `authorityRef: axtask.agent-authority.v1` rather than restating repository law. Fresh agents start at [`.ai/harness.json`](.ai/harness.json) and [`.ai/README.md`](.ai/README.md), choose a registered workflow, and run `node scripts/ai-harness/validate-authority.mjs` plus `node scripts/ai-harness/validate-harness.mjs` after harness changes.
+
 ## Clean sprints and closed plans
 
 When a feature sprint or planning artifact is completed and the work is merged to main, start by moving the closed plan document (e.g., `docs/VERSION_*_PLAN.md`, `docs/*_PLAN.md`) into the `docs/closed/` folder so that we don't spend time, energy, and tokens parsing them in active development. Update its status to "CLOSED" if not already done.
