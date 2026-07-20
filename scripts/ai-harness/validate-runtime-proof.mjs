@@ -8,6 +8,20 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const DEFAULT_SCHEMA_PATH = ".ai/runtime-proof.schema.json";
 
+const PROOF_ORDER = [
+  "contract",
+  "harness",
+  "static-test",
+  "build",
+  "launcher",
+  "command-ack",
+  "behavior-observed",
+  "local-runtime",
+  "live-runtime",
+  "deployment-completion",
+  "operator-acceptance",
+];
+
 function readJson(rootDir, relativePath, errors) {
   const absolutePath = path.join(rootDir, relativePath);
   if (!fs.existsSync(absolutePath)) {
@@ -30,6 +44,60 @@ function nonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function levelIndex(level) {
+  return PROOF_ORDER.indexOf(level);
+}
+
+function levelAtMost(level, ceiling) {
+  const current = levelIndex(level);
+  const maximum = levelIndex(ceiling);
+  return current === -1 || maximum === -1 || current <= maximum;
+}
+
+function validateStringArray(proofPath, field, value, errors, { allowEmpty = true } = {}) {
+  if (!Array.isArray(value)) {
+    errors.push(`${proofPath}: ${field} must be an array`);
+    return;
+  }
+  if (!allowEmpty && value.length === 0) errors.push(`${proofPath}: ${field} must not be empty`);
+  if (value.some((item) => !nonEmptyString(item))) {
+    errors.push(`${proofPath}: ${field} must contain only non-empty strings`);
+  }
+}
+
+function validateAssertions(proofPath, assertions, errors) {
+  if (!Array.isArray(assertions)) {
+    errors.push(`${proofPath}: assertions must be an array`);
+    return;
+  }
+  for (const [index, assertion] of assertions.entries()) {
+    if (!assertion || typeof assertion !== "object" || Array.isArray(assertion)) {
+      errors.push(`${proofPath}: assertions[${index}] must be an object`);
+      continue;
+    }
+    if (!nonEmptyString(assertion.id)) errors.push(`${proofPath}: assertions[${index}].id must be a non-empty string`);
+    if (!nonEmptyString(assertion.description)) errors.push(`${proofPath}: assertions[${index}].description must be a non-empty string`);
+    if (typeof assertion.passed !== "boolean") errors.push(`${proofPath}: assertions[${index}].passed must be boolean`);
+    if (!nonEmptyString(assertion.evidence)) errors.push(`${proofPath}: assertions[${index}].evidence must be a non-empty string`);
+  }
+}
+
+function validateFailures(proofPath, failures, errors) {
+  if (!Array.isArray(failures)) {
+    errors.push(`${proofPath}: failures must be an array`);
+    return;
+  }
+  for (const [index, failure] of failures.entries()) {
+    if (!failure || typeof failure !== "object" || Array.isArray(failure)) {
+      errors.push(`${proofPath}: failures[${index}] must be an object`);
+      continue;
+    }
+    if (!nonEmptyString(failure.id)) errors.push(`${proofPath}: failures[${index}].id must be a non-empty string`);
+    if (!nonEmptyString(failure.description)) errors.push(`${proofPath}: failures[${index}].description must be a non-empty string`);
+    if (!nonEmptyString(failure.severity)) errors.push(`${proofPath}: failures[${index}].severity must be a non-empty string`);
+  }
+}
+
 export function validateRuntimeProofFile(rootDir, proofPath) {
   const errors = [];
   const schema = readJson(rootDir, DEFAULT_SCHEMA_PATH, errors);
@@ -49,79 +117,84 @@ export function validateRuntimeProofFile(rootDir, proofPath) {
     return { schemaId: schema.schemaId, errors };
   }
 
-  if (proof.authorityRef !== schema.authorityRef) {
-    errors.push(`${proofPath}: authorityRef must equal ${schema.authorityRef}`);
+  if (!proof || typeof proof !== "object" || Array.isArray(proof)) {
+    errors.push(`${proofPath}: runtime proof must be a JSON object`);
+    return { schemaId: schema.schemaId, errors };
   }
+  if (proof.authorityRef !== schema.authorityRef) errors.push(`${proofPath}: authorityRef must equal ${schema.authorityRef}`);
+  if (proof.schemaId !== schema.schemaId) errors.push(`${proofPath}: schemaId must equal ${schema.schemaId}`);
 
-  const required = new Set(array(schema.required));
-  for (const field of required) {
-    if (!(field in proof)) {
+  for (const field of array(schema.required)) {
+    if (!Object.prototype.hasOwnProperty.call(proof, field) || proof[field] === null || proof[field] === undefined) {
       errors.push(`${proofPath}: missing required field ${field}`);
     }
   }
 
-  const envClass = proof.environmentClass;
-  if (envClass && !array(schema.properties?.environmentClass?.enum).includes(envClass)) {
-    errors.push(`${proofPath}: environmentClass must be one of ${array(schema.properties?.environmentClass?.enum).join(", ")}`);
+  if (!nonEmptyString(proof.candidateSha)) errors.push(`${proofPath}: candidateSha must be a non-empty string`);
+  const environmentClasses = array(schema.properties?.environmentClass?.enum);
+  if (!environmentClasses.includes(proof.environmentClass)) {
+    errors.push(`${proofPath}: environmentClass must be one of ${environmentClasses.join(", ")}`);
+  }
+  validateStringArray(proofPath, "commands", proof.commands, errors, { allowEmpty: false });
+  validateStringArray(proofPath, "skippedEvidence", proof.skippedEvidence, errors);
+  if (proof.sanitizedArtifacts !== undefined) validateStringArray(proofPath, "sanitizedArtifacts", proof.sanitizedArtifacts, errors);
+  validateAssertions(proofPath, proof.assertions, errors);
+  validateFailures(proofPath, proof.failures, errors);
+
+  if (!proof.timestamps || typeof proof.timestamps !== "object" || Array.isArray(proof.timestamps)) {
+    errors.push(`${proofPath}: timestamps must be an object`);
+  } else {
+    if (!nonEmptyString(proof.timestamps.startedAt)) errors.push(`${proofPath}: timestamps.startedAt must be a non-empty string`);
+    if (!nonEmptyString(proof.timestamps.finishedAt)) errors.push(`${proofPath}: timestamps.finishedAt must be a non-empty string`);
   }
 
   const proofLevels = new Set(array(schema.properties?.attainedProofLevel?.enum));
-  if (proof.attainedProofLevel && !proofLevels.has(proof.attainedProofLevel)) {
-    errors.push(`${proofPath}: attainedProofLevel is not a valid proof level`);
-  }
-  if (proof.proofCeiling && !proofLevels.has(proof.proofCeiling)) {
-    errors.push(`${proofPath}: proofCeiling is not a valid proof level`);
-  }
-  if (proof.attainedProofLevel && proof.proofCeiling && !levelAtMost(proof.attainedProofLevel, proof.proofCeiling)) {
+  if (!proofLevels.has(proof.attainedProofLevel)) errors.push(`${proofPath}: attainedProofLevel is not a valid proof level`);
+  if (!proofLevels.has(proof.proofCeiling)) errors.push(`${proofPath}: proofCeiling is not a valid proof level`);
+  if (!levelAtMost(proof.attainedProofLevel, proof.proofCeiling)) {
     errors.push(`${proofPath}: attainedProofLevel ${proof.attainedProofLevel} exceeds proofCeiling ${proof.proofCeiling}`);
   }
 
-  if (envClass === "local" && proof.attainedProofLevel) {
-    const forbidden = array(schema.proofEscalationRules?.local?.forbiddenClaims);
-    if (forbidden.includes(proof.attainedProofLevel)) {
-      errors.push(`${proofPath}: local environmentClass cannot claim attainedProofLevel ${proof.attainedProofLevel}`);
-    }
+  const environmentCeiling = proof.environmentClass === "local"
+    ? "local-runtime"
+    : proof.environmentClass === "staging"
+      ? "live-runtime"
+      : "operator-acceptance";
+  if (levelIndex(proof.attainedProofLevel) > levelIndex(environmentCeiling)) {
+    errors.push(`${proofPath}: ${proof.environmentClass} environmentClass cannot claim attainedProofLevel ${proof.attainedProofLevel}`);
   }
-  if (envClass === "staging" && proof.attainedProofLevel) {
-    const forbidden = array(schema.proofEscalationRules?.staging?.forbiddenClaims);
-    if (forbidden.includes(proof.attainedProofLevel)) {
-      errors.push(`${proofPath}: staging environmentClass cannot claim attainedProofLevel ${proof.attainedProofLevel}`);
-    }
-  }
-  if (envClass === "live" && proof.attainedProofLevel && ["live-runtime", "deployment-completion", "operator-acceptance"].includes(proof.attainedProofLevel)) {
-    const required = new Set(array(schema.proofEscalationRules?.live?.requires));
-    if (!nonEmptyString(proof.deploymentId)) errors.push(`${proofPath}: live attainedProofLevel requires deploymentId`);
-    if (!nonEmptyString(proof.deploymentTimestamp)) errors.push(`${proofPath}: live attainedProofLevel requires deploymentTimestamp`);
-    if (!array(proof.observedEndpoints).length && !nonEmptyString(proof.observedEndpoints)) errors.push(`${proofPath}: live attainedProofLevel requires observedEndpoints`);
+  if (levelIndex(proof.proofCeiling) > levelIndex(environmentCeiling)) {
+    errors.push(`${proofPath}: ${proof.environmentClass} environmentClass cannot claim proofCeiling ${proof.proofCeiling}`);
   }
 
-  if (proof.operatorAcceptance?.accepted === true) {
-    if (!nonEmptyString(proof.operatorAcceptance.acceptedBy)) errors.push(`${proofPath}: operator acceptance requires acceptedBy`);
-    if (!nonEmptyString(proof.operatorAcceptance.acceptedAt)) errors.push(`${proofPath}: operator acceptance requires acceptedAt`);
+  if (proof.environmentClass === "live" && levelIndex(proof.attainedProofLevel) >= levelIndex("live-runtime")) {
+    if (!nonEmptyString(proof.deploymentId)) errors.push(`${proofPath}: live attainedProofLevel requires deploymentId`);
+    if (!nonEmptyString(proof.deploymentTimestamp)) errors.push(`${proofPath}: live attainedProofLevel requires deploymentTimestamp`);
+    validateStringArray(proofPath, "observedEndpoints", proof.observedEndpoints, errors, { allowEmpty: false });
+  }
+
+  if (levelIndex(proof.attainedProofLevel) >= levelIndex("local-runtime")) {
+    if (array(proof.assertions).some((assertion) => assertion?.passed !== true)) {
+      errors.push(`${proofPath}: runtime proof levels require every assertion to pass`);
+    }
+    if (array(proof.failures).length > 0) errors.push(`${proofPath}: runtime proof levels cannot contain unresolved failures`);
+  }
+
+  if (!proof.operatorAcceptance || typeof proof.operatorAcceptance !== "object" || Array.isArray(proof.operatorAcceptance)) {
+    errors.push(`${proofPath}: operatorAcceptance must be an object`);
+  } else {
+    if (typeof proof.operatorAcceptance.accepted !== "boolean") errors.push(`${proofPath}: operatorAcceptance.accepted must be boolean`);
+    if (proof.operatorAcceptance.accepted === true) {
+      if (!nonEmptyString(proof.operatorAcceptance.acceptedBy)) errors.push(`${proofPath}: operator acceptance requires acceptedBy`);
+      if (!nonEmptyString(proof.operatorAcceptance.acceptedAt)) errors.push(`${proofPath}: operator acceptance requires acceptedAt`);
+      if (proof.attainedProofLevel !== "operator-acceptance") errors.push(`${proofPath}: accepted operatorAcceptance requires attainedProofLevel operator-acceptance`);
+    }
+    if (proof.attainedProofLevel === "operator-acceptance" && proof.operatorAcceptance.accepted !== true) {
+      errors.push(`${proofPath}: attainedProofLevel operator-acceptance requires accepted operatorAcceptance`);
+    }
   }
 
   return { schemaId: schema.schemaId, errors };
-}
-
-const PROOF_ORDER = [
-  "contract",
-  "harness",
-  "static-test",
-  "build",
-  "launcher",
-  "command-ack",
-  "behavior-observed",
-  "local-runtime",
-  "live-runtime",
-  "deployment-completion",
-  "operator-acceptance",
-];
-
-function levelAtMost(level, ceiling) {
-  const levelIndex = PROOF_ORDER.indexOf(level);
-  const ceilingIndex = PROOF_ORDER.indexOf(ceiling);
-  if (levelIndex === -1 || ceilingIndex === -1) return true;
-  return levelIndex <= ceilingIndex;
 }
 
 function main() {
