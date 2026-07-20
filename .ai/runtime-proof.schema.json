@@ -94,6 +94,12 @@
         "operator-acceptance"
       ]
     },
+    "deploymentId": { "type": "string" },
+    "deploymentTimestamp": { "type": "string" },
+    "observedEndpoints": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
     "operatorAcceptance": {
       "type": "object",
       "properties": {
