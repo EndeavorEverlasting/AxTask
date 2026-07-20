@@ -33,14 +33,14 @@
       "id": "validator-selection",
       "name": "Validator selection",
       "canonicalOwner": "validation",
-      "activation": "A run context has changed paths and requires a targeted validation plan.",
-      "description": "Choose validators from the registry based on changed paths, workflow, and proof ceiling. Does not invent validation results.",
-      "plannedCommand": "node scripts/ai-harness/select-validators.mjs",
-      "outputs": [".ai/runs/<run-id>/validator-plan.json"],
-      "guardrails": ["selection is not execution", "missing validators remain explicit"],
-      "tests": ["planned with the executable capability"],
-      "proofLevel": "planned",
-      "status": "planned"
+      "activation": "A run context or working tree has changed paths and requires a targeted validation plan.",
+      "description": "Choose validators from the registry based on changed paths and workflow, include declared prerequisites, and fail conservatively for unmapped paths. Selection never executes commands.",
+      "command": "node scripts/ai-harness/select-validators.mjs",
+      "outputs": ["stdout", ".ai/runs/<run-id>/validator-plan.json"],
+      "guardrails": ["selection is not execution", "missing path mappings use the conservative fallback", "written plans stay under .ai/runs/"],
+      "tests": ["server/ai-harness/validator-selection-contract.test.ts"],
+      "proofLevel": "contract",
+      "status": "available"
     },
     {
       "id": "deployment-candidate-assembly",
