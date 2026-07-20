@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { validateRunContextFile } from "../../scripts/ai-harness/validate-run-context.mjs";
 import { validateRuntimeProofFile } from "../../scripts/ai-harness/validate-runtime-proof.mjs";
-import { validateHarnessContract } from "../../scripts/ai-harness/validate-harness.mjs";
+import {
+  duplicateIds,
+  validateHarnessContract,
+  validateTriggerRoutes,
+} from "../../scripts/ai-harness/validate-harness.mjs";
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TEST_DIR, "..", "..");
@@ -22,7 +26,7 @@ function makeTempRun(runId: string) {
   tempDirs.push(tempDir);
   const runDir = path.join(tempDir, ".ai", "runs", runId);
   fs.mkdirSync(runDir, { recursive: true });
-  return { tempDir, runDir };
+  return { runDir };
 }
 
 function writeContext(runDir: string, overrides: Record<string, unknown>) {
@@ -94,68 +98,99 @@ describe("AI harness deployment certification contract", () => {
   it("rejects a run context without an owner role", () => {
     const { runDir } = makeTempRun("missing-owner");
     const filePath = writeContext(runDir, { ownerRole: undefined });
-    expect(
-      validateRunContextFile(REPO_ROOT, filePath).errors.some((error) =>
-        error.includes("missing required field ownerRole"),
-      ),
-    ).toBe(true);
+    expect(validateRunContextFile(REPO_ROOT, filePath).errors).toContainEqual(
+      expect.stringContaining("missing required field ownerRole"),
+    );
   });
 
-  it("rejects a duplicate capability id", () => {
-    const capabilityRegistry = JSON.parse(
-      fs.readFileSync(path.join(REPO_ROOT, ".ai", "capability-registry.json"), "utf8"),
+  it("rejects run-context arrays supplied as strings", () => {
+    const { runDir } = makeTempRun("bad-array");
+    const filePath = writeContext(runDir, { selectedCapabilities: "runtime-proof-recording" });
+    expect(validateRunContextFile(REPO_ROOT, filePath).errors).toContainEqual(
+      expect.stringContaining("selectedCapabilities must be an array"),
     );
-    const ids = capabilityRegistry.capabilities.map((c: { id: string }) => c.id);
-    expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("rejects a duplicate trigger id", () => {
-    const triggerRegistry = JSON.parse(
-      fs.readFileSync(path.join(REPO_ROOT, ".ai", "trigger-registry.json"), "utf8"),
+  it("rejects a run context referencing an unknown capability", () => {
+    const { runDir } = makeTempRun("unknown-capability");
+    const filePath = writeContext(runDir, { selectedCapabilities: ["not-registered"] });
+    expect(validateRunContextFile(REPO_ROOT, filePath).errors).toContainEqual(
+      expect.stringContaining("unknown capability not-registered"),
     );
-    const ids = triggerRegistry.triggers.map((t: { id: string }) => t.id);
-    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("detects an injected duplicate capability id", () => {
+    expect(duplicateIds([{ id: "same" }, { id: "same" }])).toEqual(["same"]);
+  });
+
+  it("detects an injected duplicate trigger id", () => {
+    expect(duplicateIds([{ id: "same-trigger" }, { id: "same-trigger" }])).toEqual(["same-trigger"]);
   });
 
   it("rejects a trigger pointing to an unknown workflow", () => {
-    const triggerRegistry = JSON.parse(
-      fs.readFileSync(path.join(REPO_ROOT, ".ai", "trigger-registry.json"), "utf8"),
+    const errors = validateTriggerRoutes(
+      [{ id: "bad-route", workflowId: "missing.workflow" }],
+      new Set(["known.workflow"]),
+      new Set<string>(),
+      new Set<string>(),
     );
-    const workflowRegistry = JSON.parse(
-      fs.readFileSync(path.join(REPO_ROOT, ".ai", "workflow-registry.json"), "utf8"),
-    );
-    const workflowIds = new Set(workflowRegistry.workflows.map((w: { id: string }) => w.id));
-    for (const trigger of triggerRegistry.triggers) {
-      if (trigger.workflowId) {
-        expect(workflowIds.has(trigger.workflowId)).toBe(true);
-      }
-    }
+    expect(errors).toContain("trigger bad-route references unknown workflow missing.workflow");
   });
 
-  it("rejects runtime proof claiming deployment without a deployment id", () => {
+  it("rejects a trigger with multiple route owners", () => {
+    const errors = validateTriggerRoutes(
+      [{ id: "ambiguous", workflowId: "known.workflow", skillId: "known.skill" }],
+      new Set(["known.workflow"]),
+      new Set(["known.skill"]),
+      new Set<string>(),
+    );
+    expect(errors).toContain(
+      "trigger ambiguous must define exactly one workflowId, skillId, or capabilityId",
+    );
+  });
+
+  it("rejects runtime proof claiming deployment without live identifiers", () => {
     const { runDir } = makeTempRun("deployment-without-id");
     const filePath = writeProof(runDir, {
       environmentClass: "live",
       attainedProofLevel: "deployment-completion",
       proofCeiling: "deployment-completion",
+      observedEndpoints: [],
     });
     const errors = validateRuntimeProofFile(REPO_ROOT, filePath).errors;
-    expect(errors.some((error) => error.includes("deploymentId"))).toBe(true);
+    expect(errors).toContainEqual(expect.stringContaining("deploymentId"));
+    expect(errors).toContainEqual(expect.stringContaining("deploymentTimestamp"));
+    expect(errors).toContainEqual(expect.stringContaining("observedEndpoints must not be empty"));
   });
 
-  it("rejects local proof claiming live proof", () => {
+  it("rejects local proof claiming a live attained level", () => {
     const { runDir } = makeTempRun("local-claiming-live");
     const filePath = writeProof(runDir, {
       environmentClass: "local",
       attainedProofLevel: "live-runtime",
       proofCeiling: "live-runtime",
     });
-    const errors = validateRuntimeProofFile(REPO_ROOT, filePath).errors;
-    expect(
-      errors.some((error) =>
-        error.includes("local environmentClass cannot claim attainedProofLevel live-runtime"),
-      ),
-    ).toBe(true);
+    expect(validateRuntimeProofFile(REPO_ROOT, filePath).errors).toContainEqual(
+      expect.stringContaining("local environmentClass cannot claim attainedProofLevel live-runtime"),
+    );
+  });
+
+  it("rejects local proof with an inflated deployment ceiling", () => {
+    const { runDir } = makeTempRun("local-inflated-ceiling");
+    const filePath = writeProof(runDir, { proofCeiling: "deployment-completion" });
+    expect(validateRuntimeProofFile(REPO_ROOT, filePath).errors).toContainEqual(
+      expect.stringContaining("local environmentClass cannot claim proofCeiling deployment-completion"),
+    );
+  });
+
+  it("rejects local-runtime proof with a failed assertion", () => {
+    const { runDir } = makeTempRun("failed-runtime-assertion");
+    const filePath = writeProof(runDir, {
+      assertions: [{ id: "ready", description: "readiness passes", passed: false, evidence: "503" }],
+    });
+    expect(validateRuntimeProofFile(REPO_ROOT, filePath).errors).toContainEqual(
+      expect.stringContaining("runtime proof levels require every assertion to pass"),
+    );
   });
 
   it("rejects tracked raw-log or secret-bearing output in artifact registry", () => {
