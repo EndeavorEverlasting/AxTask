@@ -17,6 +17,7 @@ const PROOF_ORDER = [
   "command-ack",
   "behavior-observed",
   "local-runtime",
+  "staging-runtime",
   "live-runtime",
   "deployment-completion",
   "operator-acceptance",
@@ -158,7 +159,7 @@ export function validateRuntimeProofFile(rootDir, proofPath) {
   const environmentCeiling = proof.environmentClass === "local"
     ? "local-runtime"
     : proof.environmentClass === "staging"
-      ? "live-runtime"
+      ? "staging-runtime"
       : "operator-acceptance";
   if (levelIndex(proof.attainedProofLevel) > levelIndex(environmentCeiling)) {
     errors.push(`${proofPath}: ${proof.environmentClass} environmentClass cannot claim attainedProofLevel ${proof.attainedProofLevel}`);
