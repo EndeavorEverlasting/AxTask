@@ -27,10 +27,11 @@ A fresh agent enters the repository, operational truth is uncertain, or a new sp
 4. Rank candidate sprints with evidence.
 5. Select the smallest safe sprint that unblocks the most later work.
 6. Modify tracked files, or prove the sprint already complete.
-7. Run targeted validators, then broader checks when practical.
-8. Review diff and Git state.
-9. Commit and push through a feature branch and PR.
-10. Produce the operator report and compressed final handoff.
+7. Run `node scripts/ai-harness/select-validators.mjs --context .ai/runs/<run-id>/context.json --output .ai/runs/<run-id>/validator-plan.json`.
+8. Review the validator plan, execute the selected commands in order, and record exact pass, fail, and skip results. Selection alone is not validation.
+9. Review diff and Git state.
+10. Commit and push through a feature branch and PR.
+11. Produce the operator report and compressed final handoff.
 
 ## Stop conditions
 
