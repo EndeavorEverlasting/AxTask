@@ -19,6 +19,32 @@ function ids(plan: ReturnType<typeof selectValidators>) {
 }
 
 describe("AI harness validator selection", () => {
+  it("registers complete selection metadata and the ignored plan artifact", () => {
+    const validatorIds = new Set(REGISTRY.validators.map((validator: { id: string }) => validator.id));
+    for (const validator of REGISTRY.validators) {
+      expect(
+        validator.selection?.always === true ||
+          validator.selection?.paths?.length > 0 ||
+          validator.selection?.workflows?.length > 0,
+      ).toBe(true);
+      for (const dependency of validator.requires ?? []) expect(validatorIds.has(dependency)).toBe(true);
+    }
+    for (const fallbackId of REGISTRY.selectionPolicy.fallbackValidatorIds) {
+      expect(validatorIds.has(fallbackId)).toBe(true);
+    }
+
+    const artifacts = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, ".ai", "artifact-registry.json"), "utf8"),
+    );
+    expect(artifacts.artifacts).toContainEqual(
+      expect.objectContaining({
+        id: "validator-plan",
+        pathPattern: ".ai/runs/<run-id>/validator-plan.json",
+        tracked: false,
+      }),
+    );
+  });
+
   it("selects harness contracts for harness changes", () => {
     const plan = selectValidators(REGISTRY, {
       changedPaths: [".ai/validator-registry.json", "scripts/ai-harness/select-validators.mjs"],
