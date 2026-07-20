@@ -73,6 +73,7 @@
         "command-ack",
         "behavior-observed",
         "local-runtime",
+        "staging-runtime",
         "live-runtime",
         "deployment-completion",
         "operator-acceptance"
@@ -89,6 +90,7 @@
         "command-ack",
         "behavior-observed",
         "local-runtime",
+        "staging-runtime",
         "live-runtime",
         "deployment-completion",
         "operator-acceptance"
@@ -113,11 +115,11 @@
   "proofEscalationRules": {
     "local": {
       "mayNotExceed": "local-runtime",
-      "forbiddenClaims": ["live-runtime", "deployment-completion", "operator-acceptance"]
+      "forbiddenClaims": ["staging-runtime", "live-runtime", "deployment-completion", "operator-acceptance"]
     },
     "staging": {
-      "mayNotExceed": "live-runtime",
-      "forbiddenClaims": ["deployment-completion", "operator-acceptance"]
+      "mayNotExceed": "staging-runtime",
+      "forbiddenClaims": ["live-runtime", "deployment-completion", "operator-acceptance"]
     },
     "live": {
       "requires": ["deploymentId", "deploymentTimestamp", "observedEndpoints"]
