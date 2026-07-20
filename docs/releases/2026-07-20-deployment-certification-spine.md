@@ -4,24 +4,25 @@ Date: 2026-07-20
 
 ## Diagnosis
 
-The repository harness from PR #80 gives agents intake, closeout, and maintenance paths, but deployment recovery requires canonical contracts for run boundaries, runtime evidence, capability/trigger ownership, and proof escalation. Without these, agents could invent runtime-proof artifacts or claim live deployment from local tests.
+The repository harness from PR #80 gives agents intake, closeout, and maintenance paths, but deployment recovery requires canonical contracts for run boundaries, runtime evidence, capability and trigger ownership, and proof escalation. Without these, agents could advertise nonexistent operations, invent runtime-proof artifacts, or claim live deployment from local tests.
 
 ## Change
 
-Added the deployment certification spine to the AI harness:
+Added and hardened the deployment certification spine:
 
-- `.ai/capability-registry.json` with repository inspection, PR collision inspection, validator selection, deployment candidate assembly, local production certification, and runtime-proof recording.
-- `.ai/trigger-registry.json` with deterministic conditions including deployment-sensitive paths, local certification request, candidate green, missing runtime proof, and unauthorized live mutation.
-- `.ai/workflow-registry.json` with canonical workflow inventory.
-- `.ai/ownership-rules.json` assigning single owners to `.ai/**`, `render.yaml`, `scripts/production-start.mjs`, `scripts/deploy/**`, `scripts/db/**`, `migrations/**`, `package.json`, and `tests/deploy/**`.
-- Extended `.ai/run-context.schema.json` with owner role, activation reason, environment class, candidate SHA, selected skills/capabilities/triggers, preconditions, forbidden conditions, likely and collision files, targeted validators, required and attained proof levels.
-- `.ai/runtime-proof.schema.json` with candidate SHA, environment class, commands, timestamps, sanitized artifacts, assertions, failures, skipped evidence, proof levels, and operator acceptance; includes proof escalation rules that make local/staging claims of live/deployment/operator proof structurally invalid.
-- `.ai/workflows/local-deployment-certification.md` for disposable local production certification.
-- `.ai/skills/runtime-proof.md` for truthful runtime-proof handling.
-- `scripts/ai-harness/validate-run-context.mjs` and `scripts/ai-harness/validate-runtime-proof.mjs`.
-- `server/ai-harness/deployment-certification-contract.test.ts` with negative tests for missing owner, duplicate capability/trigger IDs, unknown workflow triggers, deployment claims without ID, local proof claiming live proof, and forbidden tracked outputs.
-- Updated `.ai/harness.json`, `.ai/artifact-registry.json`, `.ai/validator-registry.json`, and `docs/AI_HARNESS.md` to reference the new registries and validators.
-- One ignored sample run under `.ai/runs/p07-sample/`.
+- `.ai/capability-registry.json` is the canonical capability inventory. Only commands that exist are marked `available`; collision inspection, validator selection, candidate assembly, and local certification remain explicitly `planned` until their executables land.
+- `.ai/trigger-registry.json` is the canonical trigger owner for deployment-sensitive paths, local certification requests, current green candidates, missing runtime proof, and unauthorized live mutation.
+- `.ai/workflow-registry.json` is the canonical workflow inventory. Workflow and trigger routes are referenced rather than copied into `.ai/harness.json`.
+- `.ai/ownership-rules.json` assigns single owners to `.ai/**`, `render.yaml`, `scripts/production-start.mjs`, `scripts/deploy/**`, `scripts/db/**`, `migrations/**`, `package.json`, and `tests/deploy/**`.
+- `.ai/run-context.schema.json` records owner role, activation reason, environment class, candidate SHA, selected skills, capabilities, triggers, preconditions, forbidden conditions, likely and collision files, targeted validators, and required and attained proof levels.
+- `.ai/runtime-proof.schema.json` defines local-runtime, staging-runtime, live-runtime, deployment-completion, and operator-acceptance boundaries, plus live deployment ID, timestamp, and observed-endpoint fields.
+- `.ai/workflows/local-deployment-certification.md` and `.ai/skills/runtime-proof.md` define disposable certification guidance and truthful evidence handling.
+- `scripts/ai-harness/validate-run-context.mjs` validates required types, registry references, proof levels, and environment ceilings.
+- `scripts/ai-harness/validate-runtime-proof.mjs` validates evidence structure, passed assertions, unresolved failures, environment ceilings, live identifiers, and operator-acceptance consistency.
+- `scripts/ai-harness/validate-harness.mjs` rejects duplicate registry IDs, ambiguous or unknown trigger routes, false available capabilities, missing capability metadata, and missing live-proof property definitions.
+- `server/ai-harness/deployment-certification-contract.test.ts` injects malformed contexts, duplicate IDs, invalid routes, inflated ceilings, missing deployment evidence, and failed runtime assertions to prove rejection behavior.
+- `.ai/artifact-registry.json` forbids tracked raw logs, database dumps, credentials, heap snapshots, Playwright output, and `.ai/runs/` content.
+- One valid sample run remains ignored under `.ai/runs/p07-sample/`.
 
 ## Scope
 
@@ -43,12 +44,12 @@ npm run build
 
 ## Rollout
 
-Merge after current-head checks pass. P08 deployment candidate repair and P09 local production certification may then reference these contracts without inventing their own output shapes.
+Merge only after all required checks pass on the current head. P08 deployment candidate repair and P09 local production certification may then reference these contracts without inventing output shapes or proof levels.
 
 ## Rollback
 
-Revert if the new registries, schemas, or validators block the existing intake/closeout/maintenance paths. Do not revert because downstream sprints have not yet executed; those sprints depend on these contracts.
+Revert if the new registries, schemas, or validators block the existing intake, closeout, or maintenance paths. Do not weaken proof boundaries because downstream capabilities are not yet implemented.
 
 ## Proof ceiling
 
-Contract, harness, and static-test proof. No live Render, Neon, deployment, or operator acceptance claimed.
+Contract, harness, static-test, build, and CI proof only. No local production runtime, staging runtime, live Render, Neon, deployment completion, or operator acceptance is claimed.
