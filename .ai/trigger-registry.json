@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "registryId": "axtask.triggers.v1",
+  "triggers": [
+    {
+      "id": "new-agent-session",
+      "event": "new-agent-session",
+      "condition": "A fresh agent enters the repository or operational truth is uncertain.",
+      "workflowId": "axtask.repository-intake.v1"
+    },
+    {
+      "id": "close-pr-or-merge",
+      "event": "close-pr-or-merge",
+      "condition": "An existing pull request needs repair, rebasing, rebuilding, validation, merging, or closure.",
+      "workflowId": "axtask.pr-closeout.v1"
+    },
+    {
+      "id": "harness-files-changed",
+      "event": "harness-files-changed",
+      "condition": "Any file under .ai/, AGENTS.md, AGENT_GUARDRAILS.md, or scripts/ai-harness/ changes.",
+      "skillId": "axtask.skill.harness-maintenance.v1"
+    },
+    {
+      "id": "deployment-sensitive-files-changed",
+      "event": "deployment-sensitive-files-changed",
+      "condition": "render.yaml, scripts/production-start.mjs, scripts/deploy/**, scripts/db/**, migrations/**, package.json, or tests/deploy/** changes.",
+      "skillId": "axtask.skill.harness-maintenance.v1"
+    },
+    {
+      "id": "local-certification-requested",
+      "event": "local-certification-requested",
+      "condition": "Operator requests a local production certification for a candidate SHA.",
+      "workflowId": "axtask.local-deployment-certification.v1"
+    },
+    {
+      "id": "candidate-current-and-green",
+      "event": "candidate-current-and-green",
+      "condition": "A deployment candidate SHA is current on its branch and all required checks pass on the current head.",
+      "workflowId": "axtask.local-deployment-certification.v1"
+    },
+    {
+      "id": "runtime-proof-missing",
+      "event": "runtime-proof-missing",
+      "condition": "A deployment-related claim is made without a registered runtime-proof artifact.",
+      "skillId": "axtask.skill.runtime-proof.v1"
+    },
+    {
+      "id": "live-mutation-without-authorization",
+      "event": "live-mutation-without-authorization",
+      "condition": "A request targets Render, Neon, DNS, or production services without an explicit operator authorization marker.",
+      "skillId": "axtask.skill.runtime-proof.v1"
+    }
+  ]
+}

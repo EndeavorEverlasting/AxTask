@@ -8,12 +8,19 @@ AxTask's repo-local harness is a control plane for repository agents. It is not 
 - `.ai/authority.json`: canonical precedence and stale-context rejection
 - `.ai/harness.json`: component, workflow, skill, trigger, hook, and intelligence registry
 - `.ai/codebase-map.json`: current roots, entry points, validation surfaces, and high-risk paths
-- `.ai/workflows/`: repository intake and PR closeout procedures
-- `.ai/run-context.schema.json`: required per-run boundaries and proof ceiling
-- `.ai/artifact-registry.json`: tracked versus ignored output policy
+- `.ai/workflow-registry.json`: canonical workflow inventory
+- `.ai/workflows/`: repository intake, PR closeout, and local deployment certification procedures
+- `.ai/run-context.schema.json`: required per-run boundaries, owner, environment class, and proof ceiling
+- `.ai/runtime-proof.schema.json`: required shape for deployment and runtime evidence, including proof escalation rules
+- `.ai/artifact-registry.json`: tracked versus ignored output policy and forbidden tracked outputs
 - `.ai/validator-registry.json`: executable validation commands
+- `.ai/capability-registry.json`: discoverable capabilities with availability status
+- `.ai/trigger-registry.json`: deterministic trigger conditions and routing
+- `.ai/ownership-rules.json`: single-owner policy for shared surfaces
 - `.ai/skills/`: scoped, discoverable operating skills
 - `scripts/ai-harness/inspect-repo.mjs`: read-only evidence snapshot
+- `scripts/ai-harness/validate-run-context.mjs`: run-context schema validator
+- `scripts/ai-harness/validate-runtime-proof.mjs`: runtime-proof schema validator
 - `.ai/reports/` and `.ai/handoff/`: English operator report and compressed handoff contracts
 - `.githooks/pre-commit`: optional local validator hook
 
@@ -36,7 +43,9 @@ flowchart TD
 ```bash
 node scripts/ai-harness/validate-authority.mjs
 node scripts/ai-harness/validate-harness.mjs
-npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts
+node scripts/ai-harness/validate-run-context.mjs .ai/runs/<run-id>/context.json
+node scripts/ai-harness/validate-runtime-proof.mjs .ai/runs/<run-id>/runtime-proof.json
+npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts
 ```
 
 ## Output policy
@@ -55,4 +64,4 @@ The installer refuses to overwrite another local hook path unless `--force` is s
 
 ## Proof ceiling
 
-The harness can prove repository contract structure and validator behavior. It cannot prove that an external agent host followed the workflow, nor can it prove live Render or Neon state.
+The harness can prove repository contract structure, validator behavior, and runtime-proof schema shape. It cannot prove that an external agent host followed the workflow, nor can it prove live Render or Neon state. A local runtime-proof artifact cannot claim live-runtime, deployment-completion, or operator-acceptance.

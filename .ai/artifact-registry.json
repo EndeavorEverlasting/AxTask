@@ -15,6 +15,11 @@
     "credentials",
     "database connection values",
     "user exports",
-    "personal machine paths"
+    "personal machine paths",
+    "database dumps",
+    "heap snapshots",
+    "raw Render logs",
+    "Playwright output",
+    ".ai/runs/ content"
   ]
 }

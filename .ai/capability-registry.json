@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "registryId": "axtask.capabilities.v1",
+  "capabilities": [
+    {
+      "id": "repository-inspection",
+      "name": "Read-only repository inspection",
+      "description": "Collect current repository evidence: branch state, commits, worktrees, open PRs, and file snapshots without mutation.",
+      "command": "node scripts/ai-harness/inspect-repo.mjs",
+      "status": "available"
+    },
+    {
+      "id": "pr-collision-inspection",
+      "name": "PR comparison and collision inspection",
+      "description": "Compare open pull requests to current main, identify shared surfaces, and rank merge or rebuild paths.",
+      "command": "node scripts/ai-harness/inspect-repo.mjs --pr-collision",
+      "status": "available"
+    },
+    {
+      "id": "validator-selection",
+      "name": "Validator selection",
+      "description": "Choose validators from the registry based on changed paths, workflow, and proof ceiling. Does not invent validation results.",
+      "command": "node scripts/ai-harness/validate-harness.mjs",
+      "status": "available"
+    },
+    {
+      "id": "deployment-candidate-assembly",
+      "name": "Deployment candidate assembly",
+      "description": "Build a controlled deployment candidate from current main by converging owned, non-conflicting changes. Requires explicit authorization for live surfaces.",
+      "command": "scripts/ops/Start-AxTaskDeploymentCandidate.ps1",
+      "status": "planned"
+    },
+    {
+      "id": "local-production-certification",
+      "name": "Local production certification",
+      "description": "Run a disposable local production-mode certification against a candidate SHA, then emit GO/NO-GO with bounded evidence.",
+      "command": "node scripts/deploy/run-local-cert.mjs",
+      "status": "planned"
+    },
+    {
+      "id": "runtime-proof-recording",
+      "name": "Runtime-proof recording",
+      "description": "Record sanitized commands, timestamps, assertions, failures, and attained proof levels in the runtime-proof schema.",
+      "command": "node scripts/ai-harness/validate-runtime-proof.mjs",
+      "status": "available"
+    }
+  ]
+}

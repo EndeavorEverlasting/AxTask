@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "registryId": "axtask.workflows.v1",
+  "workflows": [
+    {
+      "id": "axtask.repository-intake.v1",
+      "path": ".ai/workflows/repository-intake.md",
+      "description": "Fresh-agent repository intake and first safe sprint selection."
+    },
+    {
+      "id": "axtask.pr-closeout.v1",
+      "path": ".ai/workflows/pr-closeout.md",
+      "description": "Pull request convergence, repair, validation, and merge or closure."
+    },
+    {
+      "id": "axtask.local-deployment-certification.v1",
+      "path": ".ai/workflows/local-deployment-certification.md",
+      "description": "Disposable local production certification for a deployment candidate."
+    }
+  ]
+}

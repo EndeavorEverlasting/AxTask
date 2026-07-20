@@ -5,7 +5,9 @@
   "validators": [
     {"id":"authority","command":"node scripts/ai-harness/validate-authority.mjs","scope":"all harness authority references","required":true},
     {"id":"harness","command":"node scripts/ai-harness/validate-harness.mjs","scope":"harness structure and cross-references","required":true},
-    {"id":"harness-tests","command":"npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts","scope":"negative and integration contracts","required":true},
+    {"id":"run-context","command":"node scripts/ai-harness/validate-run-context.mjs .ai/runs/<run-id>/context.json","scope":"run-context schema","required":true},
+    {"id":"runtime-proof","command":"node scripts/ai-harness/validate-runtime-proof.mjs .ai/runs/<run-id>/runtime-proof.json","scope":"runtime-proof schema","required":true},
+    {"id":"harness-tests","command":"npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts","scope":"negative and integration contracts","required":true},
     {"id":"release","command":"npm run release:check","scope":"feature-branch release evidence","required":true},
     {"id":"typecheck","command":"npm run check","scope":"TypeScript","required":true},
     {"id":"tests","command":"npm test","scope":"repository tests","required":true},
