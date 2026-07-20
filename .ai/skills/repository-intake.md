@@ -8,6 +8,8 @@ Purpose: recover current operational truth without crawling generated dependenci
 
 Inspect: Git state, repository law, codebase map, recent commits, open PRs, validators, CI, runtime seams, output policy, unresolved signals, and foreign dirt.
 
-Produce: a run context, ranked sprint queue, one bounded implementation, validation evidence, operator report, and compressed handoff.
+Select: derive the validator plan from changed paths and the chosen workflow with `scripts/ai-harness/select-validators.mjs`; review the plan before executing commands.
 
-Avoid: stale plans as authority, huge raw logs, sensitive values, vendored dependency scans, and speculative refactors.
+Produce: a run context, ranked sprint queue, one bounded implementation, validator plan, validation evidence, operator report, and compressed handoff.
+
+Avoid: stale plans as authority, treating validator selection as execution, huge raw logs, sensitive values, vendored dependency scans, and speculative refactors.
