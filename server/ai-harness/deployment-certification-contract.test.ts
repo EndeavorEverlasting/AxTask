@@ -95,6 +95,20 @@ describe("AI harness deployment certification contract", () => {
     });
   });
 
+  it("keeps workflow and trigger routes in one canonical registry each", () => {
+    const harness = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, ".ai", "harness.json"), "utf8"));
+    expect(harness.workflows).toBeUndefined();
+    expect(harness.triggers).toBeUndefined();
+    expect(harness.registryRefs).toMatchObject({
+      workflows: "axtask.workflows.v1",
+      capabilities: "axtask.capabilities.v1",
+      triggers: "axtask.triggers.v1",
+      validators: "axtask.validators.v1",
+      artifacts: "axtask.artifacts.v1",
+      ownership: "axtask.ownership.v1",
+    });
+  });
+
   it("rejects a run context without an owner role", () => {
     const { runDir } = makeTempRun("missing-owner");
     const filePath = writeContext(runDir, { ownerRole: undefined });
@@ -172,6 +186,18 @@ describe("AI harness deployment certification contract", () => {
     });
     expect(validateRuntimeProofFile(REPO_ROOT, filePath).errors).toContainEqual(
       expect.stringContaining("local environmentClass cannot claim attainedProofLevel live-runtime"),
+    );
+  });
+
+  it("rejects staging proof claiming live production proof", () => {
+    const { runDir } = makeTempRun("staging-claiming-live");
+    const filePath = writeProof(runDir, {
+      environmentClass: "staging",
+      attainedProofLevel: "live-runtime",
+      proofCeiling: "live-runtime",
+    });
+    expect(validateRuntimeProofFile(REPO_ROOT, filePath).errors).toContainEqual(
+      expect.stringContaining("staging environmentClass cannot claim attainedProofLevel live-runtime"),
     );
   });
 
