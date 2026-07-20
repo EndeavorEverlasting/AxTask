@@ -43,8 +43,45 @@ function ids(items) {
   return new Set(array(items).map((item) => item?.id).filter(nonEmpty));
 }
 
+export function duplicateIds(items) {
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const item of array(items)) {
+    if (!nonEmpty(item?.id)) continue;
+    if (seen.has(item.id)) duplicates.add(item.id);
+    seen.add(item.id);
+  }
+  return [...duplicates].sort();
+}
+
+export function validateTriggerRoutes(triggerItems, workflowIds, skillIds, capabilityIds) {
+  const errors = [];
+  for (const trigger of array(triggerItems)) {
+    const routes = [trigger?.workflowId, trigger?.skillId, trigger?.capabilityId].filter(nonEmpty);
+    if (routes.length !== 1) {
+      errors.push(`trigger ${trigger?.id ?? "unknown"} must define exactly one workflowId, skillId, or capabilityId`);
+      continue;
+    }
+    if (trigger.workflowId && !workflowIds.has(trigger.workflowId)) errors.push(`trigger ${trigger.id} references unknown workflow ${trigger.workflowId}`);
+    if (trigger.skillId && !skillIds.has(trigger.skillId)) errors.push(`trigger ${trigger.id} references unknown skill ${trigger.skillId}`);
+    if (trigger.capabilityId && !capabilityIds.has(trigger.capabilityId)) errors.push(`trigger ${trigger.id} references unknown capability ${trigger.capabilityId}`);
+  }
+  return errors;
+}
+
 function commandScriptPath(command) {
   return command.match(/^node\s+([^\s]+\.mjs)(?:\s|$)/)?.[1] ?? null;
+}
+
+function requireMetadata(label, item, fields, errors) {
+  for (const field of fields) {
+    const value = item?.[field];
+    if (Array.isArray(value)) {
+      if (value.length === 0 || value.some((entry) => !nonEmpty(entry))) errors.push(`${label} ${item?.id ?? "unknown"} requires non-empty ${field}`);
+    } else if (!nonEmpty(value)) {
+      errors.push(`${label} ${item?.id ?? "unknown"} requires ${field}`);
+    }
+  }
 }
 
 export function validateHarnessContract(rootDir = DEFAULT_REPO_ROOT) {
@@ -118,6 +155,9 @@ export function validateHarnessContract(rootDir = DEFAULT_REPO_ROOT) {
     for (const field of ["candidateSha","environmentClass","commands","timestamps","assertions","failures","skippedEvidence","attainedProofLevel","proofCeiling","operatorAcceptance"]) {
       if (!required.has(field)) errors.push(`.ai/runtime-proof.schema.json: missing required field ${field}`);
     }
+    for (const field of array(runtimeProof.proofEscalationRules?.live?.requires)) {
+      if (!runtimeProof.properties?.[field]) errors.push(`.ai/runtime-proof.schema.json: live requirement ${field} must have a property definition`);
+    }
   }
 
   const artifactIds = ids(artifacts?.artifacts);
@@ -132,6 +172,7 @@ export function validateHarnessContract(rootDir = DEFAULT_REPO_ROOT) {
   for (const requiredValidator of ["authority","harness","run-context","runtime-proof","harness-tests","release","typecheck","tests","build"]) {
     if (!validatorIds.has(requiredValidator)) errors.push(`.ai/validator-registry.json: missing validator ${requiredValidator}`);
   }
+  for (const duplicate of duplicateIds(validators?.validators)) errors.push(`.ai/validator-registry.json: duplicate validator id ${duplicate}`);
   for (const validator of array(validators?.validators)) {
     if (!nonEmpty(validator?.command)) {
       errors.push(`.ai/validator-registry.json: validator ${validator?.id} has no command`);
@@ -145,14 +186,27 @@ export function validateHarnessContract(rootDir = DEFAULT_REPO_ROOT) {
   for (const requiredCapability of ["repository-inspection","pr-collision-inspection","validator-selection","local-production-certification","runtime-proof-recording"]) {
     if (!capabilityIds.has(requiredCapability)) errors.push(`.ai/capability-registry.json: missing capability ${requiredCapability}`);
   }
+  for (const duplicate of duplicateIds(capabilities?.capabilities)) errors.push(`.ai/capability-registry.json: duplicate capability id ${duplicate}`);
   for (const capability of array(capabilities?.capabilities)) {
     if (!["available","planned"].includes(capability?.status)) errors.push(`.ai/capability-registry.json: capability ${capability?.id} has invalid status`);
+    requireMetadata("capability", capability, ["canonicalOwner","activation","outputs","guardrails","tests","proofLevel"], errors);
+    if (capability?.status === "available") {
+      if (!nonEmpty(capability.command)) errors.push(`.ai/capability-registry.json: available capability ${capability?.id} requires command`);
+      if (nonEmpty(capability.plannedCommand)) errors.push(`.ai/capability-registry.json: available capability ${capability?.id} must not use plannedCommand`);
+      const scriptPath = commandScriptPath(capability.command ?? "");
+      if (scriptPath && !fs.existsSync(path.join(rootDir, scriptPath))) errors.push(`.ai/capability-registry.json: available capability ${capability.id} references missing script ${scriptPath}`);
+    }
+    if (capability?.status === "planned") {
+      if (!nonEmpty(capability.plannedCommand)) errors.push(`.ai/capability-registry.json: planned capability ${capability?.id} requires plannedCommand`);
+      if (nonEmpty(capability.command)) errors.push(`.ai/capability-registry.json: planned capability ${capability?.id} must not expose command as available`);
+    }
   }
 
   const workflowIdsFromRegistry = ids(workflows?.workflows);
   for (const requiredWorkflow of ["axtask.repository-intake.v1","axtask.pr-closeout.v1","axtask.local-deployment-certification.v1"]) {
     if (!workflowIdsFromRegistry.has(requiredWorkflow)) errors.push(`.ai/workflow-registry.json: missing workflow ${requiredWorkflow}`);
   }
+  for (const duplicate of duplicateIds(workflows?.workflows)) errors.push(`.ai/workflow-registry.json: duplicate workflow id ${duplicate}`);
   for (const workflow of array(workflows?.workflows)) {
     if (!nonEmpty(workflow?.path) || !fs.existsSync(path.join(rootDir, workflow.path))) errors.push(`.ai/workflow-registry.json: workflow ${workflow?.id} references missing path ${workflow?.path}`);
   }
@@ -161,12 +215,9 @@ export function validateHarnessContract(rootDir = DEFAULT_REPO_ROOT) {
   for (const requiredTrigger of ["new-agent-session","close-pr-or-merge","harness-files-changed","deployment-sensitive-files-changed","local-certification-requested","candidate-current-and-green","runtime-proof-missing","live-mutation-without-authorization"]) {
     if (!triggerIds.has(requiredTrigger)) errors.push(`.ai/trigger-registry.json: missing trigger ${requiredTrigger}`);
   }
-  const harnessWorkflowIds = new Set(array(harness.workflows));
+  for (const duplicate of duplicateIds(triggers?.triggers)) errors.push(`.ai/trigger-registry.json: duplicate trigger id ${duplicate}`);
   const harnessSkillIds = new Set(array(harness.skills));
-  for (const trigger of array(triggers?.triggers)) {
-    if (trigger.workflowId && !workflowIdsFromRegistry.has(trigger.workflowId)) errors.push(`.ai/trigger-registry.json: trigger ${trigger.id} references unknown workflow ${trigger.workflowId}`);
-    if (trigger.skillId && !harnessSkillIds.has(trigger.skillId)) errors.push(`.ai/trigger-registry.json: trigger ${trigger.id} references unknown skill ${trigger.skillId}`);
-  }
+  errors.push(...validateTriggerRoutes(array(triggers?.triggers), workflowIdsFromRegistry, harnessSkillIds, capabilityIds).map((error) => `.ai/trigger-registry.json: ${error}`));
 
   if (ownership) {
     if (ownership.authorityRef !== authorityResult.authorityId) errors.push(".ai/ownership-rules.json: authorityRef mismatch");
@@ -176,15 +227,11 @@ export function validateHarnessContract(rootDir = DEFAULT_REPO_ROOT) {
     }
   }
 
-  for (const trigger of array(harness.triggers)) {
-    if (trigger.workflowId && !harnessWorkflowIds.has(trigger.workflowId)) errors.push(`.ai/harness.json: trigger ${trigger.event} references unknown workflow ${trigger.workflowId}`);
-    if (trigger.skillId && !harnessSkillIds.has(trigger.skillId)) errors.push(`.ai/harness.json: trigger ${trigger.event} references unknown skill ${trigger.skillId}`);
-  }
   if (harness.readOnlyIntelligence?.mutationAllowed !== false) errors.push(".ai/harness.json: readOnlyIntelligence.mutationAllowed must be false");
   if (harness.hookPolicy?.automaticInstall !== false) errors.push(".ai/harness.json: hookPolicy.automaticInstall must be false");
 
   const workflowText = array(workflows?.workflows).map((workflow) => readText(rootDir, workflow?.path, errors)).join("\n");
-  for (const workflowId of harnessWorkflowIds) if (!workflowText.includes(workflowId)) errors.push(`workflow specifications do not define ${workflowId}`);
+  for (const workflowId of workflowIdsFromRegistry) if (!workflowText.includes(workflowId)) errors.push(`workflow specifications do not define ${workflowId}`);
   const skillText = [
     readText(rootDir, ".ai/skills/repository-intake.md", errors),
     readText(rootDir, ".ai/skills/pr-closeout.md", errors),
