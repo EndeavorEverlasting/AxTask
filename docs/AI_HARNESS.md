@@ -13,12 +13,13 @@ AxTask's repo-local harness is a control plane for repository agents. It is not 
 - `.ai/run-context.schema.json`: required per-run boundaries, owner, environment class, and proof ceiling
 - `.ai/runtime-proof.schema.json`: required shape for local, staging, live, deployment, and operator evidence
 - `.ai/artifact-registry.json`: tracked versus ignored output policy and forbidden tracked outputs
-- `.ai/validator-registry.json`: executable validation commands
+- `.ai/validator-registry.json`: executable validation commands, changed-path selectors, workflow selectors, dependencies, and conservative fallback policy
 - `.ai/capability-registry.json`: canonical capability inventory with truthful `available` or `planned` status
 - `.ai/trigger-registry.json`: canonical deterministic trigger conditions and routing
 - `.ai/ownership-rules.json`: single-owner policy for shared surfaces
 - `.ai/skills/`: scoped, discoverable operating skills
 - `scripts/ai-harness/inspect-repo.mjs`: read-only evidence snapshot
+- `scripts/ai-harness/select-validators.mjs`: read-only validator-plan generator
 - `scripts/ai-harness/validate-run-context.mjs`: run-context type, reference, and proof-ceiling validator
 - `scripts/ai-harness/validate-runtime-proof.mjs`: runtime-proof type and proof-escalation validator
 - `.ai/reports/` and `.ai/handoff/`: English operator report and compressed handoff contracts
@@ -35,10 +36,28 @@ flowchart TD
   C --> D[Choose registered workflow]
   D --> E[Create run context]
   E --> F[Execute bounded work]
-  F --> G[Run registry validators]
-  G --> H[Operator report]
-  H --> I[Compressed handoff]
+  F --> G[Select validators from paths and workflow]
+  G --> H[Review and execute selected commands]
+  H --> I[Operator report]
+  I --> J[Compressed handoff]
 ```
+
+## Validator selection
+
+The selector is deterministic and read-only. It can consume:
+
+- repeated `--changed <path>` arguments;
+- a newline-delimited `--changed-file`;
+- a run context through `--context`, using `likelyFiles`, `collisionFiles`, and `workflowId`;
+- current staged, unstaged, and untracked working-tree paths when no explicit input is supplied.
+
+```bash
+node scripts/ai-harness/select-validators.mjs \
+  --context .ai/runs/<run-id>/context.json \
+  --output .ai/runs/<run-id>/validator-plan.json
+```
+
+The output lists commands and reasons but never executes them. Validator prerequisites are expanded automatically. Unmapped paths fail conservatively to release check, typecheck, full tests, and production build. Written plans are restricted to ignored `.ai/runs/` paths.
 
 ## Validation
 
@@ -47,12 +66,13 @@ node scripts/ai-harness/validate-authority.mjs
 node scripts/ai-harness/validate-harness.mjs
 node scripts/ai-harness/validate-run-context.mjs .ai/runs/<run-id>/context.json
 node scripts/ai-harness/validate-runtime-proof.mjs .ai/runs/<run-id>/runtime-proof.json
-npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts
+node scripts/ai-harness/select-validators.mjs --changed .ai/validator-registry.json
+npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts
 ```
 
 ## Output policy
 
-Run snapshots, generated prompts, and operator scratch reports are ignored under `.ai/runs/` and `.ai/generated/`. Only sanitized, durable evidence such as release notes is tracked.
+Run snapshots, validator plans, generated prompts, and operator scratch reports are ignored under `.ai/runs/` and `.ai/generated/`. Only sanitized, durable evidence such as release notes is tracked.
 
 ## Hooks
 
