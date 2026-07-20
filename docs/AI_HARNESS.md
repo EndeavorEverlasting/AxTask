@@ -6,16 +6,25 @@ AxTask's repo-local harness is a control plane for repository agents. It is not 
 
 - `AGENTS.md` and `AGENT_GUARDRAILS.md`: human-readable operating law
 - `.ai/authority.json`: canonical precedence and stale-context rejection
-- `.ai/harness.json`: component, workflow, skill, trigger, hook, and intelligence registry
+- `.ai/harness.json`: component inventory, skill inventory, registry references, hook policy, and read-only intelligence entry point
 - `.ai/codebase-map.json`: current roots, entry points, validation surfaces, and high-risk paths
-- `.ai/workflows/`: repository intake and PR closeout procedures
-- `.ai/run-context.schema.json`: required per-run boundaries and proof ceiling
-- `.ai/artifact-registry.json`: tracked versus ignored output policy
+- `.ai/workflow-registry.json`: canonical workflow inventory
+- `.ai/workflows/`: repository intake, PR closeout, and local deployment certification procedures
+- `.ai/run-context.schema.json`: required per-run boundaries, owner, environment class, and proof ceiling
+- `.ai/runtime-proof.schema.json`: required shape for local, staging, live, deployment, and operator evidence
+- `.ai/artifact-registry.json`: tracked versus ignored output policy and forbidden tracked outputs
 - `.ai/validator-registry.json`: executable validation commands
+- `.ai/capability-registry.json`: canonical capability inventory with truthful `available` or `planned` status
+- `.ai/trigger-registry.json`: canonical deterministic trigger conditions and routing
+- `.ai/ownership-rules.json`: single-owner policy for shared surfaces
 - `.ai/skills/`: scoped, discoverable operating skills
 - `scripts/ai-harness/inspect-repo.mjs`: read-only evidence snapshot
+- `scripts/ai-harness/validate-run-context.mjs`: run-context type, reference, and proof-ceiling validator
+- `scripts/ai-harness/validate-runtime-proof.mjs`: runtime-proof type and proof-escalation validator
 - `.ai/reports/` and `.ai/handoff/`: English operator report and compressed handoff contracts
 - `.githooks/pre-commit`: optional local validator hook
+
+Workflow and trigger routes are owned by their registries, not copied into `.ai/harness.json`. A capability is `available` only when its executable command exists; future operations retain a `plannedCommand` and may not be invoked as implemented behavior.
 
 ## Fresh-agent path
 
@@ -23,7 +32,7 @@ AxTask's repo-local harness is a control plane for repository agents. It is not 
 flowchart TD
   A[Read AGENTS and guardrails] --> B[Load authority and harness manifests]
   B --> C[Inspect codebase map]
-  C --> D[Choose workflow]
+  C --> D[Choose registered workflow]
   D --> E[Create run context]
   E --> F[Execute bounded work]
   F --> G[Run registry validators]
@@ -36,7 +45,9 @@ flowchart TD
 ```bash
 node scripts/ai-harness/validate-authority.mjs
 node scripts/ai-harness/validate-harness.mjs
-npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts
+node scripts/ai-harness/validate-run-context.mjs .ai/runs/<run-id>/context.json
+node scripts/ai-harness/validate-runtime-proof.mjs .ai/runs/<run-id>/runtime-proof.json
+npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts
 ```
 
 ## Output policy
@@ -55,4 +66,6 @@ The installer refuses to overwrite another local hook path unless `--force` is s
 
 ## Proof ceiling
 
-The harness can prove repository contract structure and validator behavior. It cannot prove that an external agent host followed the workflow, nor can it prove live Render or Neon state.
+Proof levels are ordered and non-equivalent: contract, harness, static test, build, launcher, command acknowledgement, observed behavior, local runtime, staging runtime, live runtime, deployment completion, and operator acceptance.
+
+The harness can prove repository contract structure, validator behavior, and runtime-proof schema enforcement. It cannot prove that an external agent host followed the workflow. Local evidence cannot claim staging or live proof; staging evidence cannot claim live production, deployment completion, or operator acceptance; live claims require a deployment ID, deployment timestamp, and observed endpoints.

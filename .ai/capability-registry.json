@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "registryId": "axtask.capabilities.v1",
+  "capabilities": [
+    {
+      "id": "repository-inspection",
+      "name": "Read-only repository inspection",
+      "canonicalOwner": "harness-maintenance",
+      "activation": "A fresh agent needs current branch, worktree, commit, remote, or PR evidence.",
+      "description": "Collect current repository evidence: branch state, commits, worktrees, open PRs, and file snapshots without mutation.",
+      "command": "node scripts/ai-harness/inspect-repo.mjs",
+      "outputs": ["stdout", ".ai/runs/<run-id>/repo-snapshot.json"],
+      "guardrails": ["read-only Git and GitHub inspection", "sanitize credential-bearing remotes"],
+      "tests": ["server/ai-harness/harness-contract.test.ts"],
+      "proofLevel": "repository-evidence",
+      "status": "available"
+    },
+    {
+      "id": "pr-collision-inspection",
+      "name": "PR comparison and collision inspection",
+      "canonicalOwner": "integration-coordination",
+      "activation": "Two or more active branches or pull requests touch a shared or high-risk surface.",
+      "description": "Compare open pull requests to current main, identify shared surfaces, and rank merge or rebuild paths.",
+      "plannedCommand": "node scripts/ai-harness/inspect-repo.mjs --pr-collision",
+      "outputs": [".ai/runs/<run-id>/collision-ledger.json"],
+      "guardrails": ["no branch mutation", "do not infer local worktree state from GitHub alone"],
+      "tests": ["planned with the executable capability"],
+      "proofLevel": "planned",
+      "status": "planned"
+    },
+    {
+      "id": "validator-selection",
+      "name": "Validator selection",
+      "canonicalOwner": "validation",
+      "activation": "A run context has changed paths and requires a targeted validation plan.",
+      "description": "Choose validators from the registry based on changed paths, workflow, and proof ceiling. Does not invent validation results.",
+      "plannedCommand": "node scripts/ai-harness/select-validators.mjs",
+      "outputs": [".ai/runs/<run-id>/validator-plan.json"],
+      "guardrails": ["selection is not execution", "missing validators remain explicit"],
+      "tests": ["planned with the executable capability"],
+      "proofLevel": "planned",
+      "status": "planned"
+    },
+    {
+      "id": "deployment-candidate-assembly",
+      "name": "Deployment candidate assembly",
+      "canonicalOwner": "deployment-orchestration",
+      "activation": "Repository-only deployment repairs are ready to converge on current main.",
+      "description": "Build a controlled deployment candidate from current main by converging owned, non-conflicting changes. Requires explicit authorization for live surfaces.",
+      "plannedCommand": "scripts/ops/Start-AxTaskDeploymentCandidate.ps1",
+      "outputs": ["candidate branch", "candidate SHA", "pull request"],
+      "guardrails": ["no live deployment", "no production database mutation"],
+      "tests": ["planned with the executable capability"],
+      "proofLevel": "planned",
+      "status": "planned"
+    },
+    {
+      "id": "local-production-certification",
+      "name": "Local production certification",
+      "canonicalOwner": "runtime-proof",
+      "activation": "A current, green candidate SHA requires disposable local production-mode certification.",
+      "description": "Run a disposable local production-mode certification against a candidate SHA, then emit GO/NO-GO with bounded evidence.",
+      "plannedCommand": "node scripts/deploy/run-local-cert.mjs",
+      "outputs": [".ai/runs/<run-id>/runtime-proof.json", ".ai/runs/<run-id>/local-cert-report.md"],
+      "guardrails": ["reject production database URLs", "clean only resources created by the run"],
+      "tests": ["planned with the executable capability"],
+      "proofLevel": "planned",
+      "status": "planned"
+    },
+    {
+      "id": "runtime-proof-recording",
+      "name": "Runtime-proof recording",
+      "canonicalOwner": "runtime-proof",
+      "activation": "A deployment-related command or observation must be recorded against a proof ceiling.",
+      "description": "Validate sanitized commands, timestamps, assertions, failures, and attained proof levels in the runtime-proof schema.",
+      "command": "node scripts/ai-harness/validate-runtime-proof.mjs",
+      "outputs": ["runtime-proof validation result"],
+      "guardrails": ["no proof escalation", "no secrets or raw logs"],
+      "tests": ["server/ai-harness/deployment-certification-contract.test.ts"],
+      "proofLevel": "contract",
+      "status": "available"
+    }
+  ]
+}

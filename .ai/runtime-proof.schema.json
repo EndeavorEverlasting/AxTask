@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "schemaId": "axtask.runtime-proof.v1",
+  "required": [
+    "candidateSha",
+    "environmentClass",
+    "commands",
+    "timestamps",
+    "assertions",
+    "failures",
+    "skippedEvidence",
+    "attainedProofLevel",
+    "proofCeiling",
+    "operatorAcceptance"
+  ],
+  "properties": {
+    "candidateSha": { "type": "string" },
+    "environmentClass": {
+      "type": "string",
+      "enum": ["local", "staging", "live"]
+    },
+    "commands": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "timestamps": {
+      "type": "object",
+      "properties": {
+        "startedAt": { "type": "string" },
+        "finishedAt": { "type": "string" }
+      }
+    },
+    "sanitizedArtifacts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "passed": { "type": "boolean" },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "severity": { "type": "string" }
+        }
+      }
+    },
+    "skippedEvidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "attainedProofLevel": {
+      "type": "string",
+      "enum": [
+        "contract",
+        "harness",
+        "static-test",
+        "build",
+        "launcher",
+        "command-ack",
+        "behavior-observed",
+        "local-runtime",
+        "staging-runtime",
+        "live-runtime",
+        "deployment-completion",
+        "operator-acceptance"
+      ]
+    },
+    "proofCeiling": {
+      "type": "string",
+      "enum": [
+        "contract",
+        "harness",
+        "static-test",
+        "build",
+        "launcher",
+        "command-ack",
+        "behavior-observed",
+        "local-runtime",
+        "staging-runtime",
+        "live-runtime",
+        "deployment-completion",
+        "operator-acceptance"
+      ]
+    },
+    "deploymentId": { "type": "string" },
+    "deploymentTimestamp": { "type": "string" },
+    "observedEndpoints": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "operatorAcceptance": {
+      "type": "object",
+      "properties": {
+        "accepted": { "type": "boolean" },
+        "acceptedBy": { "type": "string" },
+        "acceptedAt": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    }
+  },
+  "proofEscalationRules": {
+    "local": {
+      "mayNotExceed": "local-runtime",
+      "forbiddenClaims": ["staging-runtime", "live-runtime", "deployment-completion", "operator-acceptance"]
+    },
+    "staging": {
+      "mayNotExceed": "staging-runtime",
+      "forbiddenClaims": ["live-runtime", "deployment-completion", "operator-acceptance"]
+    },
+    "live": {
+      "requires": ["deploymentId", "deploymentTimestamp", "observedEndpoints"]
+    }
+  }
+}
