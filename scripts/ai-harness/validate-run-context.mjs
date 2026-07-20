@@ -17,6 +17,7 @@ const PROOF_ORDER = [
   "command-ack",
   "behavior-observed",
   "local-runtime",
+  "staging-runtime",
   "live-runtime",
   "deployment-completion",
   "operator-acceptance",
@@ -157,7 +158,7 @@ export function validateRunContextFile(rootDir, contextPath) {
   if (context.environmentClass === "local" && proofIndex(context.proofCeiling) > proofIndex("local-runtime")) {
     errors.push(`${contextPath}: local environmentClass cannot claim proofCeiling ${context.proofCeiling}`);
   }
-  if (context.environmentClass === "staging" && proofIndex(context.proofCeiling) > proofIndex("live-runtime")) {
+  if (context.environmentClass === "staging" && proofIndex(context.proofCeiling) > proofIndex("staging-runtime")) {
     errors.push(`${contextPath}: staging environmentClass cannot claim proofCeiling ${context.proofCeiling}`);
   }
 
