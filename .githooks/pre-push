@@ -16,6 +16,7 @@ node tools/security/check_node_runtime.mjs
 node tools/security/check_no_axios.mjs
 node scripts/ai-harness/validate-authority.mjs
 node scripts/ai-harness/validate-harness.mjs
+node scripts/ai-harness/validate-harness-infrastructure.mjs
 npx --no-install vitest run \
   server/ai-harness/authority-contract.test.ts \
   server/ai-harness/harness-contract.test.ts \
