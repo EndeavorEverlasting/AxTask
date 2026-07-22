@@ -65,7 +65,7 @@ node scripts/ai-harness/validate-runtime-proof.mjs .ai/runs/<run-id>/runtime-pro
 npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts
 ```
 
-The infrastructure validator proves that required component files exist, registries cross-reference correctly, artifacts describe generation and naming, workflows and skills are registered, known traps are mapped, hooks remain opt-in, and operator templates remain human-readable.
+The infrastructure validator proves that required component files exist, registries cross-reference correctly, artifacts describe generation and naming, workflows and skills are registered, known traps are mapped, hooks remain opt-in, and operator templates contain the required headings and sanitization markers.
 
 ## Artifact policy
 
