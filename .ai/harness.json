@@ -4,10 +4,62 @@
   "harnessId": "axtask.repo-harness.v1",
   "entryPoint": ".ai/README.md",
   "components": [
-    {"id":"rules","type":"repo-rules","path":"AGENTS.md"},{"id":"guardrails","type":"repo-rules","path":"AGENT_GUARDRAILS.md"},{"id":"authority","type":"authority","path":".ai/authority.json"},{"id":"map","type":"codebase-map","path":".ai/codebase-map.json"},{"id":"workflow-registry","type":"workflow-registry","path":".ai/workflow-registry.json"},{"id":"intake","type":"workflow","path":".ai/workflows/repository-intake.md"},{"id":"closeout","type":"workflow","path":".ai/workflows/pr-closeout.md"},{"id":"failure-recovery","type":"workflow","path":".ai/workflows/failure-recovery.md"},{"id":"local-cert","type":"workflow","path":".ai/workflows/local-deployment-certification.md"},{"id":"run-context","type":"run-context","path":".ai/run-context.schema.json"},{"id":"runtime-proof","type":"runtime-proof","path":".ai/runtime-proof.schema.json"},{"id":"artifacts","type":"artifact-registry","path":".ai/artifact-registry.json"},{"id":"validators","type":"validator-registry","path":".ai/validator-registry.json"},{"id":"capabilities","type":"capability-registry","path":".ai/capability-registry.json"},{"id":"triggers","type":"trigger-registry","path":".ai/trigger-registry.json"},{"id":"ownership","type":"ownership-rules","path":".ai/ownership-rules.json"},{"id":"intake-skill","type":"skill","path":".ai/skills/repository-intake.md"},{"id":"closeout-skill","type":"skill","path":".ai/skills/pr-closeout.md"},{"id":"failure-recovery-skill","type":"skill","path":".ai/skills/failure-recovery.md"},{"id":"maintenance-skill","type":"skill","path":".ai/skills/harness-maintenance.md"},{"id":"runtime-proof-skill","type":"skill","path":".ai/skills/runtime-proof.md"},{"id":"harness-infrastructure-validator","type":"validator","path":"scripts/ai-harness/validate-harness-infrastructure.mjs"},{"id":"inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-repo.mjs"},{"id":"operator-report","type":"operator-report","path":".ai/reports/operator-report-template.md"},{"id":"failure-report","type":"operator-report","path":".ai/reports/failure-report-template.md"},{"id":"handoff","type":"handoff","path":".ai/handoff/final-handoff-template.md"},{"id":"pre-commit-hook","type":"local-hook","path":".githooks/pre-commit"},{"id":"pre-push-hook","type":"local-hook","path":".githooks/pre-push"}
+    {"id":"rules","type":"repo-rules","path":"AGENTS.md"},
+    {"id":"guardrails","type":"repo-rules","path":"AGENT_GUARDRAILS.md"},
+    {"id":"authority","type":"authority","path":".ai/authority.json"},
+    {"id":"map","type":"codebase-map","path":".ai/codebase-map.json"},
+    {"id":"workflow-registry","type":"workflow-registry","path":".ai/workflow-registry.json"},
+    {"id":"intake","type":"workflow","path":".ai/workflows/repository-intake.md"},
+    {"id":"closeout","type":"workflow","path":".ai/workflows/pr-closeout.md"},
+    {"id":"failure-recovery","type":"workflow","path":".ai/workflows/failure-recovery.md"},
+    {"id":"local-cert","type":"workflow","path":".ai/workflows/local-deployment-certification.md"},
+    {"id":"run-context","type":"run-context","path":".ai/run-context.schema.json"},
+    {"id":"runtime-proof","type":"runtime-proof","path":".ai/runtime-proof.schema.json"},
+    {"id":"artifacts","type":"artifact-registry","path":".ai/artifact-registry.json"},
+    {"id":"validators","type":"validator-registry","path":".ai/validator-registry.json"},
+    {"id":"capabilities","type":"capability-registry","path":".ai/capability-registry.json"},
+    {"id":"triggers","type":"trigger-registry","path":".ai/trigger-registry.json"},
+    {"id":"ownership","type":"ownership-rules","path":".ai/ownership-rules.json"},
+    {"id":"intake-skill","type":"skill","path":".ai/skills/repository-intake.md"},
+    {"id":"closeout-skill","type":"skill","path":".ai/skills/pr-closeout.md"},
+    {"id":"failure-recovery-skill","type":"skill","path":".ai/skills/failure-recovery.md"},
+    {"id":"maintenance-skill","type":"skill","path":".ai/skills/harness-maintenance.md"},
+    {"id":"runtime-proof-skill","type":"skill","path":".ai/skills/runtime-proof.md"},
+    {"id":"harness-infrastructure-validator","type":"validator","path":"scripts/ai-harness/validate-harness-infrastructure.mjs"},
+    {"id":"inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-repo.mjs"},
+    {"id":"operator-report","type":"operator-report","path":".ai/reports/operator-report-template.md"},
+    {"id":"failure-report","type":"operator-report","path":".ai/reports/failure-report-template.md"},
+    {"id":"handoff","type":"handoff","path":".ai/handoff/final-handoff-template.md"},
+    {"id":"pre-commit-hook","type":"local-hook","path":".githooks/pre-commit"},
+    {"id":"pre-push-hook","type":"local-hook","path":".githooks/pre-push"}
   ],
-  "registryRefs": {"workflows":"axtask.workflows.v1","capabilities":"axtask.capabilities.v1","triggers":"axtask.triggers.v1","validators":"axtask.validators.v1","artifacts":"axtask.artifacts.v1","ownership":"axtask.ownership.v1"},
-  "skills": ["axtask.skill.repository-intake.v1","axtask.skill.pr-closeout.v1","axtask.skill.failure-recovery.v1","axtask.skill.harness-maintenance.v1","axtask.skill.runtime-proof.v1"],
-  "readOnlyIntelligence": {"id":"axtask.read-only-repo-inspector.v1","command":"node scripts/ai-harness/inspect-repo.mjs","mutationAllowed":false,"outputs":["stdout",".ai/runs/<run-id>/repo-snapshot.json"]},
-  "hookPolicy": {"automaticInstall":false,"installer":"node scripts/ai-harness/install-hooks.mjs","hookPath":".githooks","runs":["authority","harness"],"preCommitRuns":["node-provenance","node-runtime","axios-guard","authority","harness"],"prePushRuns":["authority","harness","harness-infrastructure","harness-tests"]}
+  "registryRefs": {
+    "workflows": "axtask.workflows.v1",
+    "capabilities": "axtask.capabilities.v1",
+    "triggers": "axtask.triggers.v1",
+    "validators": "axtask.validators.v1",
+    "artifacts": "axtask.artifacts.v1",
+    "ownership": "axtask.ownership.v1"
+  },
+  "skills": [
+    "axtask.skill.repository-intake.v1",
+    "axtask.skill.pr-closeout.v1",
+    "axtask.skill.failure-recovery.v1",
+    "axtask.skill.harness-maintenance.v1",
+    "axtask.skill.runtime-proof.v1"
+  ],
+  "readOnlyIntelligence": {
+    "id": "axtask.read-only-repo-inspector.v1",
+    "command": "node scripts/ai-harness/inspect-repo.mjs",
+    "mutationAllowed": false,
+    "outputs": ["stdout", ".ai/runs/<run-id>/repo-snapshot.json"]
+  },
+  "hookPolicy": {
+    "automaticInstall": false,
+    "installer": "node scripts/ai-harness/install-hooks.mjs",
+    "hookPath": ".githooks",
+    "runs": ["authority", "harness"],
+    "preCommitRuns": ["node-provenance", "node-runtime", "axios-guard", "authority", "harness"],
+    "prePushRuns": ["authority", "harness", "harness-infrastructure", "harness-tests"]
+  }
 }
