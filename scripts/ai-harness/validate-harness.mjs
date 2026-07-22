@@ -22,7 +22,11 @@ function readJson(rootDir, relativePath, errors) {
   }
 }
 
-function readText(rootDir, relativePath, errors) {
+export function readText(rootDir, relativePath, errors) {
+  if (!nonEmpty(relativePath)) {
+    errors.push("missing text path");
+    return "";
+  }
   const absolutePath = path.join(rootDir, relativePath);
   if (!fs.existsSync(absolutePath)) {
     errors.push(`missing text file: ${relativePath}`);
