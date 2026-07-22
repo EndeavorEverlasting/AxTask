@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { readText } from "../../scripts/ai-harness/validate-harness.mjs";
 import { validateHarnessInfrastructure } from "../../scripts/ai-harness/validate-harness-infrastructure.mjs";
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -18,6 +19,12 @@ describe("AI harness infrastructure completeness", () => {
       harnessId: "axtask.repo-harness.v1",
       errors: [],
     });
+  });
+
+  it("returns structured errors for malformed component paths", () => {
+    const errors: string[] = [];
+    expect(readText(REPO_ROOT, undefined as unknown as string, errors)).toBe("");
+    expect(errors).toEqual(["missing text path"]);
   });
 
   it("maps repository commands, configurations, and known traps", () => {
@@ -66,7 +73,7 @@ describe("AI harness infrastructure completeness", () => {
     expect(prePush).toContain("--no-install");
   });
 
-  it("keeps operator failure output human-readable and sanitized", () => {
+  it("enforces operator-report headings and sanitization markers", () => {
     const report = fs.readFileSync(path.join(REPO_ROOT, ".ai", "reports", "failure-report-template.md"), "utf8");
     for (const heading of ["## FAILURE", "## CLASSIFICATION", "## REPRODUCTION", "## OWNERSHIP", "## ATTEMPTS", "## VALIDATION STATE", "## REPAIR OR BLOCKER", "## NEXT OWNER"]) expect(report).toContain(heading);
     expect(report).toContain("Do not include raw logs");
