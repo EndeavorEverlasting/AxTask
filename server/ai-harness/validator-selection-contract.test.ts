@@ -53,6 +53,7 @@ describe("AI harness validator selection", () => {
     expect(ids(plan)).toEqual([
       "authority",
       "harness",
+      "harness-infrastructure",
       "harness-tests",
       "release",
       "tests",
