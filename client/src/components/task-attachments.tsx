@@ -188,7 +188,7 @@ export function AttachmentList({ attachments, taskId, editable = false, compact 
             {att.type === "image" ? (
               <div
                 className="w-16 h-16 rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 cursor-pointer hover:opacity-90 transition-opacity"
-                onClick={() => setLightboxSrc(att.path)}
+                onClick={() => setLightboxSrc(att.path ?? null)}
               >
                 <img
                   src={att.thumbnailPath || att.path}
