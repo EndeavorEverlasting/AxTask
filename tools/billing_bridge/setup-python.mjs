@@ -64,9 +64,8 @@ const isWindows = process.platform === "win32";
 const pip = join(VENV_DIR, isWindows ? "Scripts" : "bin", "pip");
 
 console.log("[billing-bridge] Installing Python dependencies...");
-execSync(`"${pip}" install -r "${REQ_FILE}" --quiet`, { stdio: "inherit", cwd: BRIDGE_ROOT });
+execSync(`"${pip}" install --no-user -r "${REQ_FILE}" --quiet`, { stdio: "inherit", cwd: BRIDGE_ROOT });
 
 // Write stamp
 writeFileSync(STAMP_FILE, reqHash, "utf-8");
 console.log("[billing-bridge] Python venv ready");
-
