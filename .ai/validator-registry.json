@@ -2,91 +2,18 @@
   "schemaVersion": 1,
   "authorityRef": "axtask.agent-authority.v1",
   "registryId": "axtask.validators.v1",
-  "selectionPolicy": {
-    "fallbackValidatorIds": ["release", "typecheck", "tests", "build"],
-    "outputDirectory": ".ai/runs"
-  },
+  "selectionPolicy": {"fallbackValidatorIds":["release","typecheck","tests","build"],"outputDirectory":".ai/runs"},
   "validators": [
-    {
-      "id": "authority",
-      "command": "node scripts/ai-harness/validate-authority.mjs",
-      "scope": "all harness authority references",
-      "required": true,
-      "selection": {"paths": [".ai/**", "AGENTS.md", "AGENT_GUARDRAILS.md", "scripts/ai-harness/**", ".githooks/**"]}
-    },
-    {
-      "id": "harness",
-      "command": "node scripts/ai-harness/validate-harness.mjs",
-      "scope": "harness structure, completeness, and cross-references",
-      "required": true,
-      "selection": {"paths": [".ai/**", "AGENTS.md", "AGENT_GUARDRAILS.md", "scripts/ai-harness/**", "server/ai-harness/**", ".githooks/**"]},
-      "requires": ["authority"]
-    },
-    {
-      "id": "run-context",
-      "command": "node scripts/ai-harness/validate-run-context.mjs .ai/runs/<run-id>/context.json",
-      "scope": "run-context schema",
-      "required": true,
-      "selection": {
-        "paths": [".ai/run-context.schema.json", ".ai/workflows/**", "scripts/ai-harness/validate-run-context.mjs"],
-        "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1", "axtask.failure-recovery.v1", "axtask.local-deployment-certification.v1"]
-      },
-      "requires": ["authority", "harness"]
-    },
-    {
-      "id": "runtime-proof",
-      "command": "node scripts/ai-harness/validate-runtime-proof.mjs .ai/runs/<run-id>/runtime-proof.json",
-      "scope": "runtime-proof schema",
-      "required": true,
-      "selection": {
-        "paths": [".ai/runtime-proof.schema.json", ".ai/skills/runtime-proof.md", ".ai/workflows/local-deployment-certification.md", "scripts/ai-harness/validate-runtime-proof.mjs"],
-        "workflows": ["axtask.local-deployment-certification.v1"]
-      },
-      "requires": ["authority", "harness"]
-    },
-    {
-      "id": "harness-tests",
-      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts",
-      "scope": "negative, completeness, and integration contracts",
-      "required": true,
-      "selection": {"paths": [".ai/**", "scripts/ai-harness/**", "server/ai-harness/**", "AGENTS.md", "AGENT_GUARDRAILS.md", ".githooks/**"]},
-      "requires": ["authority", "harness"]
-    },
-    {
-      "id": "release",
-      "command": "npm run release:check",
-      "scope": "feature-branch release evidence",
-      "required": true,
-      "selection": {"always": true, "paths": ["docs/**"]}
-    },
-    {
-      "id": "typecheck",
-      "command": "npm run check",
-      "scope": "TypeScript",
-      "required": true,
-      "selection": {"paths": ["client/**", "server/**", "shared/**", "tests/**", "scripts/**/*.ts", "vite.config.ts", "vitest.config.ts", "tsconfig.json", "package.json", "package-lock.json"]}
-    },
-    {
-      "id": "tests",
-      "command": "npm test",
-      "scope": "repository tests",
-      "required": true,
-      "selection": {"paths": ["client/**", "server/**", "shared/**", "tests/**", "scripts/**", ".ai/**", "package.json", "package-lock.json", "vitest.config.ts"]}
-    },
-    {
-      "id": "build",
-      "command": "npm run build",
-      "scope": "production build",
-      "required": true,
-      "selection": {"paths": ["client/**", "server/**", "shared/**", "scripts/production-start.mjs", "vite.config.ts", "package.json", "package-lock.json", "Dockerfile", "render.yaml"]}
-    },
-    {
-      "id": "deploy",
-      "command": "npm run test:deploy",
-      "scope": "deployment, startup, migration, and database-operation contracts",
-      "required": false,
-      "selection": {"paths": ["render.yaml", "scripts/production-start.mjs", "scripts/deploy/**", "scripts/db/**", "scripts/apply-migrations.mjs", "scripts/migration-airlock.mjs", "migrations/**", "shared/schema.ts", "drizzle.config.ts", "tests/deploy/**", "package.json", "package-lock.json"]},
-      "requires": ["typecheck", "tests", "build"]
-    }
+    {"id":"authority","command":"node scripts/ai-harness/validate-authority.mjs","scope":"all harness authority references","required":true,"selection":{"paths":[".ai/**","AGENTS.md","AGENT_GUARDRAILS.md","scripts/ai-harness/**",".githooks/**"]}},
+    {"id":"harness","command":"node scripts/ai-harness/validate-harness.mjs","scope":"harness structure and cross-references","required":true,"selection":{"paths":[".ai/**","AGENTS.md","AGENT_GUARDRAILS.md","scripts/ai-harness/**","server/ai-harness/**",".githooks/**"]},"requires":["authority"]},
+    {"id":"harness-infrastructure","command":"node scripts/ai-harness/validate-harness-infrastructure.mjs","scope":"operational harness map, artifacts, failure recovery, hooks, reports, and dynamic skill completeness","required":true,"selection":{"paths":[".ai/**","scripts/ai-harness/**","server/ai-harness/**","AGENTS.md","AGENT_GUARDRAILS.md",".githooks/**"]},"requires":["authority","harness"]},
+    {"id":"run-context","command":"node scripts/ai-harness/validate-run-context.mjs .ai/runs/<run-id>/context.json","scope":"run-context schema","required":true,"selection":{"paths":[".ai/run-context.schema.json",".ai/workflows/**","scripts/ai-harness/validate-run-context.mjs"],"workflows":["axtask.repository-intake.v1","axtask.pr-closeout.v1","axtask.failure-recovery.v1","axtask.local-deployment-certification.v1"]},"requires":["authority","harness"]},
+    {"id":"runtime-proof","command":"node scripts/ai-harness/validate-runtime-proof.mjs .ai/runs/<run-id>/runtime-proof.json","scope":"runtime-proof schema","required":true,"selection":{"paths":[".ai/runtime-proof.schema.json",".ai/skills/runtime-proof.md",".ai/workflows/local-deployment-certification.md","scripts/ai-harness/validate-runtime-proof.mjs"],"workflows":["axtask.local-deployment-certification.v1"]},"requires":["authority","harness"]},
+    {"id":"harness-tests","command":"npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts","scope":"negative, completeness, and integration contracts","required":true,"selection":{"paths":[".ai/**","scripts/ai-harness/**","server/ai-harness/**","AGENTS.md","AGENT_GUARDRAILS.md",".githooks/**"]},"requires":["authority","harness","harness-infrastructure"]},
+    {"id":"release","command":"npm run release:check","scope":"feature-branch release evidence","required":true,"selection":{"always":true,"paths":["docs/**"]}},
+    {"id":"typecheck","command":"npm run check","scope":"TypeScript","required":true,"selection":{"paths":["client/**","server/**","shared/**","tests/**","scripts/**/*.ts","vite.config.ts","vitest.config.ts","tsconfig.json","package.json","package-lock.json"]}},
+    {"id":"tests","command":"npm test","scope":"repository tests","required":true,"selection":{"paths":["client/**","server/**","shared/**","tests/**","scripts/**",".ai/**","package.json","package-lock.json","vitest.config.ts"]}},
+    {"id":"build","command":"npm run build","scope":"production build","required":true,"selection":{"paths":["client/**","server/**","shared/**","scripts/production-start.mjs","vite.config.ts","package.json","package-lock.json","Dockerfile","render.yaml"]}},
+    {"id":"deploy","command":"npm run test:deploy","scope":"deployment, startup, migration, and database-operation contracts","required":false,"selection":{"paths":["render.yaml","scripts/production-start.mjs","scripts/deploy/**","scripts/db/**","scripts/apply-migrations.mjs","scripts/migration-airlock.mjs","migrations/**","shared/schema.ts","drizzle.config.ts","tests/deploy/**","package.json","package-lock.json"]},"requires":["typecheck","tests","build"]}
   ]
 }
