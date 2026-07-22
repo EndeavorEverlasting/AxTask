@@ -3,13 +3,93 @@
   "authorityRef": "axtask.agent-authority.v1",
   "registryId": "axtask.artifacts.v1",
   "artifacts": [
-    {"id":"run-context","pathPattern":".ai/runs/<run-id>/context.json","tracked":false,"sanitized":true,"producer":"inspect-repo"},
-    {"id":"repo-snapshot","pathPattern":".ai/runs/<run-id>/repo-snapshot.json","tracked":false,"sanitized":true,"producer":"inspect-repo"},
-    {"id":"validator-plan","pathPattern":".ai/runs/<run-id>/validator-plan.json","tracked":false,"sanitized":true,"producer":"select-validators"},
-    {"id":"operator-report","pathPattern":".ai/runs/<run-id>/operator-report.md","tracked":false,"sanitized":true,"template":".ai/reports/operator-report-template.md"},
-    {"id":"final-handoff","pathPattern":".ai/runs/<run-id>/final-handoff.md","tracked":false,"sanitized":true,"template":".ai/handoff/final-handoff-template.md"},
-    {"id":"release-evidence","pathPattern":"docs/releases/*.md","tracked":true,"sanitized":true,"producer":"release workflow"},
-    {"id":"prompt","pathPattern":".ai/generated/prompts/*","tracked":false,"sanitized":true,"note":"Prompts are artifacts, not the harness."}
+    {
+      "id": "run-context",
+      "pathPattern": ".ai/runs/<run-id>/context.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.repository-intake.v1",
+      "generation": "Create JSON matching .ai/run-context.schema.json before mutation.",
+      "namingConvention": "<run-id>/context.json",
+      "validator": "node scripts/ai-harness/validate-run-context.mjs <path>"
+    },
+    {
+      "id": "repo-snapshot",
+      "pathPattern": ".ai/runs/<run-id>/repo-snapshot.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "repository-inspection",
+      "generation": "node scripts/ai-harness/inspect-repo.mjs --output <path>",
+      "namingConvention": "<run-id>/repo-snapshot.json"
+    },
+    {
+      "id": "validator-plan",
+      "pathPattern": ".ai/runs/<run-id>/validator-plan.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "validator-selection",
+      "generation": "node scripts/ai-harness/select-validators.mjs --context <context> --output <path>",
+      "namingConvention": "<run-id>/validator-plan.json"
+    },
+    {
+      "id": "runtime-proof",
+      "pathPattern": ".ai/runs/<run-id>/runtime-proof.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.local-deployment-certification.v1",
+      "generation": "Create JSON matching .ai/runtime-proof.schema.json from sanitized commands and observations.",
+      "namingConvention": "<run-id>/runtime-proof.json",
+      "validator": "node scripts/ai-harness/validate-runtime-proof.mjs <path>"
+    },
+    {
+      "id": "failure-report",
+      "pathPattern": ".ai/runs/<run-id>/failure-report.md",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.failure-recovery.v1",
+      "generation": "Render .ai/reports/failure-report-template.md with the exact failing command, classification, bounded attempts, and next action.",
+      "namingConvention": "<run-id>/failure-report.md",
+      "template": ".ai/reports/failure-report-template.md"
+    },
+    {
+      "id": "operator-report",
+      "pathPattern": ".ai/runs/<run-id>/operator-report.md",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "registered workflow",
+      "generation": "Render .ai/reports/operator-report-template.md at workflow closeout.",
+      "namingConvention": "<run-id>/operator-report.md",
+      "template": ".ai/reports/operator-report-template.md"
+    },
+    {
+      "id": "final-handoff",
+      "pathPattern": ".ai/runs/<run-id>/final-handoff.md",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "registered workflow",
+      "generation": "Compress durable facts into .ai/handoff/final-handoff-template.md.",
+      "namingConvention": "<run-id>/final-handoff.md",
+      "template": ".ai/handoff/final-handoff-template.md"
+    },
+    {
+      "id": "release-evidence",
+      "pathPattern": "docs/releases/YYYY-MM-DD-<slug>.md",
+      "tracked": true,
+      "sanitized": true,
+      "producer": "release workflow",
+      "generation": "Create one sanitized release note and validate it with npm run release:check.",
+      "namingConvention": "YYYY-MM-DD-<lowercase-kebab-case>.md"
+    },
+    {
+      "id": "prompt",
+      "pathPattern": ".ai/generated/prompts/<run-id>-<slug>.md",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "workflow orchestration",
+      "generation": "Generate only when a workflow needs a copyable prompt artifact.",
+      "namingConvention": "<run-id>-<lowercase-kebab-case>.md",
+      "note": "Prompts are artifacts, not the harness."
+    }
   ],
   "forbiddenTrackedOutputs": [
     "raw runtime logs",
@@ -21,6 +101,7 @@
     "heap snapshots",
     "raw Render logs",
     "Playwright output",
-    ".ai/runs/ content"
+    ".ai/runs/ content",
+    ".ai/generated/ content"
   ]
 }
