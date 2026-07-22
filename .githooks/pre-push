@@ -1,11 +1,25 @@
 #!/usr/bin/env sh
 set -eu
 
-if command -v node >/dev/null 2>&1; then
-  node tools/security/check_node_provenance.mjs
-  node tools/security/check_node_runtime.mjs
-  node tools/security/check_no_axios.mjs
-else
-  echo "Node.js is required to run Axios security guard." >&2
+if ! command -v node >/dev/null 2>&1; then
+  echo "Node.js is required to run AxTask pre-push checks." >&2
   exit 1
 fi
+
+if ! command -v npx >/dev/null 2>&1; then
+  echo "npx is required to run AxTask AI harness contract tests." >&2
+  exit 1
+fi
+
+node tools/security/check_node_provenance.mjs
+node tools/security/check_node_runtime.mjs
+node tools/security/check_no_axios.mjs
+node scripts/ai-harness/validate-authority.mjs
+node scripts/ai-harness/validate-harness.mjs
+node scripts/ai-harness/validate-harness-infrastructure.mjs
+npx --no-install vitest run \
+  server/ai-harness/authority-contract.test.ts \
+  server/ai-harness/harness-contract.test.ts \
+  server/ai-harness/deployment-certification-contract.test.ts \
+  server/ai-harness/validator-selection-contract.test.ts \
+  server/ai-harness/harness-infrastructure-contract.test.ts

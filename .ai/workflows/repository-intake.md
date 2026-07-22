@@ -22,16 +22,17 @@ A fresh agent enters the repository, operational truth is uncertain, or a new sp
 ## Steps
 
 1. Run the compact Git preflight through the read-only inspector.
-2. Read repository law, harness manifests, current commits, open PR collisions, plans, validators, output policy, and deployment seams.
+2. Read repository law, harness manifests, current commits, open PR collisions, plans, validators, output policy, deployment seams, and codebase-map known traps.
 3. Build a bounded run context.
 4. Rank candidate sprints with evidence.
 5. Select the smallest safe sprint that unblocks the most later work.
 6. Modify tracked files, or prove the sprint already complete.
 7. Run `node scripts/ai-harness/select-validators.mjs --context .ai/runs/<run-id>/context.json --output .ai/runs/<run-id>/validator-plan.json`.
 8. Review the validator plan, execute the selected commands in order, and record exact pass, fail, and skip results. Selection alone is not validation.
-9. Review diff and Git state.
-10. Commit and push through a feature branch and PR.
-11. Produce the operator report and compressed final handoff.
+9. If a validator, hook, build, CI job, or workflow step fails, route through `axtask.failure-recovery.v1` before further retries.
+10. Review diff and Git state.
+11. Commit and push through a feature branch and PR.
+12. Produce the operator report and compressed final handoff.
 
 ## Stop conditions
 

@@ -22,7 +22,11 @@ function readJson(rootDir, relativePath, errors) {
   }
 }
 
-function readText(rootDir, relativePath, errors) {
+export function readText(rootDir, relativePath, errors) {
+  if (!nonEmpty(relativePath)) {
+    errors.push("missing text path");
+    return "";
+  }
   const absolutePath = path.join(rootDir, relativePath);
   if (!fs.existsSync(absolutePath)) {
     errors.push(`missing text file: ${relativePath}`);
@@ -203,7 +207,7 @@ export function validateHarnessContract(rootDir = DEFAULT_REPO_ROOT) {
   }
 
   const workflowIdsFromRegistry = ids(workflows?.workflows);
-  for (const requiredWorkflow of ["axtask.repository-intake.v1","axtask.pr-closeout.v1","axtask.local-deployment-certification.v1"]) {
+  for (const requiredWorkflow of ["axtask.repository-intake.v1","axtask.pr-closeout.v1","axtask.failure-recovery.v1","axtask.local-deployment-certification.v1"]) {
     if (!workflowIdsFromRegistry.has(requiredWorkflow)) errors.push(`.ai/workflow-registry.json: missing workflow ${requiredWorkflow}`);
   }
   for (const duplicate of duplicateIds(workflows?.workflows)) errors.push(`.ai/workflow-registry.json: duplicate workflow id ${duplicate}`);
@@ -212,7 +216,7 @@ export function validateHarnessContract(rootDir = DEFAULT_REPO_ROOT) {
   }
 
   const triggerIds = ids(triggers?.triggers);
-  for (const requiredTrigger of ["new-agent-session","close-pr-or-merge","harness-files-changed","deployment-sensitive-files-changed","local-certification-requested","candidate-current-and-green","runtime-proof-missing","live-mutation-without-authorization"]) {
+  for (const requiredTrigger of ["new-agent-session","close-pr-or-merge","validator-or-workflow-failed","harness-files-changed","deployment-sensitive-files-changed","local-certification-requested","candidate-current-and-green","runtime-proof-missing","live-mutation-without-authorization"]) {
     if (!triggerIds.has(requiredTrigger)) errors.push(`.ai/trigger-registry.json: missing trigger ${requiredTrigger}`);
   }
   for (const duplicate of duplicateIds(triggers?.triggers)) errors.push(`.ai/trigger-registry.json: duplicate trigger id ${duplicate}`);
@@ -232,12 +236,9 @@ export function validateHarnessContract(rootDir = DEFAULT_REPO_ROOT) {
 
   const workflowText = array(workflows?.workflows).map((workflow) => readText(rootDir, workflow?.path, errors)).join("\n");
   for (const workflowId of workflowIdsFromRegistry) if (!workflowText.includes(workflowId)) errors.push(`workflow specifications do not define ${workflowId}`);
-  const skillText = [
-    readText(rootDir, ".ai/skills/repository-intake.md", errors),
-    readText(rootDir, ".ai/skills/pr-closeout.md", errors),
-    readText(rootDir, ".ai/skills/harness-maintenance.md", errors),
-    readText(rootDir, ".ai/skills/runtime-proof.md", errors),
-  ].join("\n");
+
+  const skillComponents = components.filter((component) => component?.type === "skill");
+  const skillText = skillComponents.map((component) => readText(rootDir, component?.path, errors)).join("\n");
   for (const skillId of harnessSkillIds) if (!skillText.includes(skillId)) errors.push(`skill specifications do not define ${skillId}`);
 
   const report = readText(rootDir, ".ai/reports/operator-report-template.md", errors);
