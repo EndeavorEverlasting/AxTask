@@ -14,6 +14,7 @@ When changing a harness component:
 - keep runtime evidence in ignored paths;
 - keep hooks opt-in;
 - update `docs/AI_HARNESS.md` and a release note for structural changes;
-- run both harness validators and collected Vitest contracts.
+- run authority, base harness, infrastructure completeness, and collected Vitest contracts;
+- route validator, hook, build, CI, or workflow failures through `axtask.skill.failure-recovery.v1` and `axtask.failure-recovery.v1` rather than retrying ad hoc.
 
 Do not duplicate repository law inside skills. Link to the authority manifest.
