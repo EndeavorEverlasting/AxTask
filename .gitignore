@@ -109,6 +109,10 @@ scratch-pii/
 **/support-notes.local.*
 **/account-recovery.local.*
 
+# Local rescue and extraction artifacts (export-only; never commit raw logs/bundles).
+_extract_logs/
+_rescue_exports/
+
 # Repo-local AI harness runtime and generated artifacts (ephemeral, sanitized, regenerated).
 .ai/runs/
 .ai/generated/
