@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { validateHarnessContract } from "./validate-harness.mjs";
+import { readText as readHarnessText, validateHarnessContract } from "./validate-harness.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -20,15 +20,6 @@ function readJson(rootDir, relativePath, errors) {
     errors.push(`${relativePath}: invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
     return null;
   }
-}
-
-function readText(rootDir, relativePath, errors) {
-  const absolutePath = path.join(rootDir, relativePath);
-  if (!fs.existsSync(absolutePath)) {
-    errors.push(`missing text file: ${relativePath}`);
-    return "";
-  }
-  return fs.readFileSync(absolutePath, "utf8");
 }
 
 function array(value) {
@@ -102,7 +93,7 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
   const failureWorkflow = array(workflows?.workflows).find((item) => item?.id === "axtask.failure-recovery.v1");
   if (failureWorkflow) {
     requireText("workflow", failureWorkflow, ["path", "description"], errors);
-    const text = readText(rootDir, failureWorkflow.path, errors);
+    const text = readHarnessText(rootDir, failureWorkflow.path, errors);
     for (const heading of ["## Use when", "## Inputs", "## Steps", "## Bounded retry policy", "## Stop conditions", "## Outputs", "## Proof ceiling"]) {
       if (!text.includes(heading)) errors.push(`failure recovery workflow missing ${heading}`);
     }
@@ -112,13 +103,13 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
   if (failureTrigger?.workflowId !== "axtask.failure-recovery.v1") errors.push(".ai/trigger-registry.json: validator-or-workflow-failed must route to axtask.failure-recovery.v1");
 
   const skillComponents = array(harness.components).filter((item) => item?.type === "skill");
-  const skillText = skillComponents.map((item) => readText(rootDir, item.path, errors)).join("\n");
+  const skillText = skillComponents.map((item) => readHarnessText(rootDir, item?.path, errors)).join("\n");
   for (const skillId of array(harness.skills)) {
     if (!skillText.includes(skillId)) errors.push(`registered skill has no specification: ${skillId}`);
   }
   if (!array(harness.skills).includes("axtask.skill.failure-recovery.v1")) errors.push(".ai/harness.json: missing failure recovery skill");
 
-  const failureReport = readText(rootDir, ".ai/reports/failure-report-template.md", errors);
+  const failureReport = readHarnessText(rootDir, ".ai/reports/failure-report-template.md", errors);
   for (const heading of ["## FAILURE", "## CLASSIFICATION", "## REPRODUCTION", "## OWNERSHIP", "## ATTEMPTS", "## VALIDATION STATE", "## REPAIR OR BLOCKER", "## NEXT OWNER"]) {
     if (!failureReport.includes(heading)) errors.push(`failure report template missing ${heading}`);
   }
@@ -129,7 +120,7 @@ export function validateHarnessInfrastructure(rootDir = DEFAULT_REPO_ROOT) {
     if (!array(harness.hookPolicy?.prePushRuns).includes(id)) errors.push(`.ai/harness.json: prePushRuns must include ${id}`);
   }
 
-  const prePush = readText(rootDir, ".githooks/pre-push", errors);
+  const prePush = readHarnessText(rootDir, ".githooks/pre-push", errors);
   for (const expected of ["validate-authority.mjs", "validate-harness.mjs", "validate-harness-infrastructure.mjs", "harness-infrastructure-contract.test.ts", "--no-install"]) {
     if (!prePush.includes(expected)) errors.push(`.githooks/pre-push missing ${expected}`);
   }
