@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "dotenv/config";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
