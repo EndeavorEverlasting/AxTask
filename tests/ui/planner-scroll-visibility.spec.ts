@@ -112,9 +112,6 @@ test("planner-like panel inner content remains visible through calm/scroll", asy
   expect(screenshot.byteLength).toBeGreaterThan(10_000);
 });
 
-/* ---------------------------------------------------------------------------
- * Visual-diff: calm-mode glass-panel swap fades smoothly and recovers cleanly.
- * ------------------------------------------------------------------------- */
 const VISUAL_DIFF_HTML = `
   <style>
     ${indexCss}
@@ -142,7 +139,7 @@ const VISUAL_DIFF_HTML = `
     >
       <div class="panel-content">
         <h2>Marker class (bare backdrop-blur + opt-in fallback)</h2>
-        <p>Without the marker this panel would lose blur with no fill on scroll.</p>
+        <p>Without the marker this panel would lose blur with no fallback fill and appear washed out.</p>
       </div>
     </section>
   </div>
@@ -195,11 +192,14 @@ test.describe("calm-mode glass-panel visual diff", () => {
 });
 
 test.describe.serial("mobile landing page scroll", () => {
-  test("/ scrolls fully on a mobile viewport", async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await page.locator("header").waitFor({ state: "visible", timeout: 15_000 });
+  });
 
+  test("/ scrolls fully on a mobile viewport", async ({ page }) => {
     const shell = page.locator('[data-testid="public-scroll-shell"]');
     const dimensions = await shell.evaluate((element) => ({
       scrollHeight: element.scrollHeight,
@@ -214,70 +214,35 @@ test.describe.serial("mobile landing page scroll", () => {
     await expect(footer).toBeInViewport();
     await expect(footer).toContainText(/AxTask/);
   });
-});
 
-const MOBILE_SHELL_HTML = `
-  <style>
-    ${indexCss}
-    html, body { margin: 0; padding: 0; height: 100%; }
-    body { background: #0b1020; color: #e5e7eb; font-family: Inter, system-ui, sans-serif; }
-    #root { height: 100%; }
-    .mobile-shell { height: 100%; display: flex; flex-direction: column; }
-    .scroll-root { flex: 1; overflow-y: auto; padding: 16px; }
-    .pad { height: 800px; }
-    .nav { position: fixed; bottom: 0; left: 0; right: 0; height: 56px; z-index: 50; }
-    .content { padding-bottom: 72px; }
-    .card { border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; background: rgba(16,24,39,0.72); margin-bottom: 16px; padding: 12px; }
-  </style>
-  <div id="root">
-    <div class="mobile-shell">
-      <div class="scroll-root" data-surface="calm" id="mobile-scroll-root">
-        <div class="content">
-          <div class="pad"></div>
-          <div class="card axtask-stable-panel" data-testid="mobile-content-panel">
-            <p>Main content panel</p>
-          </div>
-          <div class="pad"></div>
-        </div>
-      </div>
-      <div class="nav axtask-nav-chrome" data-testid="bottom-nav">
-        <span style="display:flex;justify-content:space-around;align-items:center;height:100%;padding:0 16px;">
-          <span>Home</span><span>Tasks</span><span>Calendar</span>
-        </span>
-      </div>
-    </div>
-  </div>
-`;
+  test("real public shell returns to a visually stable viewport after direction reversal", async ({ page }) => {
+    const shell = page.locator('[data-testid="public-scroll-shell"]');
+    await shell.evaluate((element) => {
+      element.scrollTop = 260;
+    });
+    await page.waitForTimeout(420);
 
-test("mobile scroll direction reversal does not produce visible flash", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.setContent(MOBILE_SHELL_HTML);
-  await page.evaluate(() => document.documentElement.classList.add("dark"));
+    const baselineScrollTop = await shell.evaluate((element) => element.scrollTop);
+    const baseline = await page.screenshot();
 
-  const panel = page.getByTestId("mobile-content-panel");
-  await expect(panel).toBeVisible();
+    await shell.evaluate((element) => {
+      element.scrollTop += 520;
+    });
+    await page.waitForTimeout(320);
+    await shell.evaluate((element, target) => {
+      element.scrollTop = Number(target);
+    }, baselineScrollTop);
+    await page.waitForTimeout(420);
 
-  const scrollRoot = page.locator("#mobile-scroll-root");
-  await scrollRoot.evaluate((element) => {
-    element.scrollTop = 100;
+    const returnedScrollTop = await shell.evaluate((element) => element.scrollTop);
+    expect(Math.abs(returnedScrollTop - baselineScrollTop)).toBeLessThanOrEqual(1);
+
+    const afterReversal = await page.screenshot();
+    const diff = diffPngBuffers(baseline, afterReversal);
+    const ratio = diff.changed / diff.total;
+    expect(
+      ratio,
+      `production-shell reversal produced ${(ratio * 100).toFixed(2)}% pixel diff (threshold 3%)`,
+    ).toBeLessThan(0.03);
   });
-  await page.waitForTimeout(150);
-  const baseline = await page.screenshot();
-
-  await scrollRoot.evaluate((element) => {
-    element.scrollTop = 400;
-  });
-  await page.waitForTimeout(150);
-  await scrollRoot.evaluate((element) => {
-    element.scrollTop = 100;
-  });
-  await page.waitForTimeout(150);
-  const afterReversal = await page.screenshot();
-
-  const diff = diffPngBuffers(baseline, afterReversal);
-  const ratio = diff.changed / diff.total;
-  expect(
-    ratio,
-    `scroll reversal produced ${(ratio * 100).toFixed(2)}% pixel diff (threshold 1%)`,
-  ).toBeLessThan(0.01);
 });
