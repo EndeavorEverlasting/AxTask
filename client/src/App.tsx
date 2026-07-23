@@ -1,7 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
-import { useScrollDirection } from "@/hooks/use-scroll-direction";
 import { notifyScrollBudget } from "@/lib/animation-budget";
 import { useTutorial } from "@/hooks/use-tutorial";
 import { PersistedQueryLayer } from "./lib/app-query-provider";
@@ -236,7 +234,6 @@ const BOTTOM_NAV_ITEMS = [
 
 function MobileBottomNav() {
   const [location] = useLocation();
-  const scrollDirection = useScrollDirection();
 
   const isActive = (path: string) => {
     if (path === "/") return location === "/";
@@ -244,12 +241,7 @@ function MobileBottomNav() {
   };
 
   return (
-    <motion.nav
-      initial={{ y: 0 }}
-      animate={{ y: scrollDirection === "down" ? "100%" : 0 }}
-      transition={{ duration: 0.3, ease: "easeInOut" }}
-      className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass-panel-glossy rounded-none border-x-0 border-b-0 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_28px_-10px_rgba(0,0,0,0.45)] safe-area-bottom"
-    >
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 axtask-nav-chrome rounded-none border-x-0 border-b-0 safe-area-bottom">
       <div className="flex items-center justify-around h-14">
         {BOTTOM_NAV_ITEMS.map(({ path, icon: Icon, label }) => (
           <Link
@@ -266,7 +258,7 @@ function MobileBottomNav() {
           </Link>
         ))}
       </div>
-    </motion.nav>
+    </nav>
   );
 }
 
@@ -399,6 +391,7 @@ function AuthenticatedApp() {
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const mainScrollBudgetRaf = useRef<number | null>(null);
+  const publicScrollBudgetRaf = useRef<number | null>(null);
   const lastScrollY = useRef(0);
   // Inner scroll roots must call notifyScrollBudget — window scroll alone misses
   // main content; dropping this brings hue pulse, glass blanking, chip bleed-back.
@@ -425,6 +418,29 @@ function AuthenticatedApp() {
       if (mainScrollBudgetRaf.current != null) {
         cancelAnimationFrame(mainScrollBudgetRaf.current);
         mainScrollBudgetRaf.current = null;
+      }
+    };
+  }, []);
+
+  // Inner scroll root for unauthenticated pages must also call
+  // notifyScrollBudget — `#root { overflow: hidden }` means landing/login
+  // scroll happens inside `public-scroll-shell`, not on `window`. Without
+  // this, calm-mode never engages on mobile public pages and the aurora
+  // / chip layer continues to repaint during momentum scroll.
+  // docs/SCROLL_REFRESH_VISUAL_STABILITY.md
+  const onPublicShellScroll = useCallback(() => {
+    if (publicScrollBudgetRaf.current != null) return;
+    publicScrollBudgetRaf.current = requestAnimationFrame(() => {
+      publicScrollBudgetRaf.current = null;
+      notifyScrollBudget();
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (publicScrollBudgetRaf.current != null) {
+        cancelAnimationFrame(publicScrollBudgetRaf.current);
+        publicScrollBudgetRaf.current = null;
       }
     };
   }, []);
@@ -588,32 +604,33 @@ function AuthenticatedApp() {
   }
 
   if (!user) {
-    if (location === "/contact") {
-      return <ContactPage />;
+    // Route selection must use the query-stripped path so deep links like
+    // `/login?mode=register` and `/login?next=/tasks` resolve to LoginPage
+    // and not fall through to the DeepLinkGate / landing fallback.
+    const publicPathOnly = location.split("?")[0] || "";
+    let publicPage: React.ReactNode;
+    if (publicPathOnly === "/contact") {
+      publicPage = <ContactPage />;
+    } else if (publicPathOnly === "/privacy") {
+      publicPage = <PrivacyPolicyPage />;
+    } else if (publicPathOnly === "/terms") {
+      publicPage = <TermsOfServicePage />;
+    } else if (publicPathOnly === "/") {
+      publicPage = <LandingPage />;
+    } else if (publicPathOnly === "/login") {
+      publicPage = <LoginPage />;
+    } else {
+      publicPage = <DeepLinkGate path={location} />;
     }
-    if (location === "/privacy") {
-      return <PrivacyPolicyPage />;
-    }
-    if (location === "/terms") {
-      return <TermsOfServicePage />;
-    }
-    if (location === "/") {
-      return <LandingPage />;
-    }
-    if (location === "/login") {
-      return <LoginPage />;
-    }
-    const pathOnly = location.split("?")[0] || "";
-    if (
-      pathOnly !== "/" &&
-      pathOnly !== "/login" &&
-      pathOnly !== "/contact" &&
-      pathOnly !== "/privacy" &&
-      pathOnly !== "/terms"
-    ) {
-      return <DeepLinkGate path={location} />;
-    }
-    return <LandingPage />;
+    return (
+      <div
+        data-testid="public-scroll-shell"
+        className="h-dvh overflow-y-auto overflow-x-hidden"
+        onScroll={onPublicShellScroll}
+      >
+        {publicPage}
+      </div>
+    );
   }
 
   return (

@@ -57,7 +57,13 @@ export default function LandingPage() {
     target: featuresRef,
     offset: ["start end", "end start"],
   });
-  const featuresY = useTransform(scrollYProgress, [0, 1], [48, -48]);
+  const isMobileParallax =
+    typeof window !== "undefined" && window.innerWidth < 768;
+  const featuresY = useTransform(
+    scrollYProgress,
+    [0, 1],
+    isMobileParallax ? [0, 0] : [48, -48],
+  );
 
   return (
     <PretextShell
