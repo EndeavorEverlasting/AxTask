@@ -29,6 +29,16 @@ describe("leaderboard route architecture", () => {
     expect(monolithicStorage).not.toContain("export async function getLeaderboard(");
   });
 
+  it("ranks and limits the population in PostgreSQL", () => {
+    expect(service).toContain("ROW_NUMBER() OVER");
+    expect(service).toContain("ORDER BY metric_value DESC, user_id ASC");
+    expect(service).toContain("LIMIT 25");
+    expect(service).toContain("UNION");
+    expect(service).toContain("WHERE user_id = (${requestingUserId})::text");
+    expect(service).not.toContain(".slice(0, 25)");
+    expect(service).not.toContain("positiveRows.filter");
+  });
+
   it("does not revive obsolete Replit leaderboard symbols", () => {
     expect(service).not.toContain("forumPosts");
     expect(service).not.toContain("forumComments");
