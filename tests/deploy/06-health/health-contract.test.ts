@@ -1,6 +1,6 @@
 /**
- * Contract: server/index.ts mounts /health and /ready as Render expects
- * (render.yaml sets healthCheckPath: /ready).
+ * Contract: server/index.ts mounts DB-free /health liveness and DB-backed /ready
+ * readiness, while render.yaml uses /health for the platform probe.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -45,8 +45,9 @@ describe("[06-health] render.yaml health config", () => {
     "utf8",
   );
 
-  it("healthCheckPath is /ready", () => {
-    expect(renderYaml).toMatch(/healthCheckPath:\s*\/ready/);
+  it("uses DB-free /health for Render liveness", () => {
+    expect(renderYaml).toMatch(/healthCheckPath:\s*\/health/);
+    expect(renderYaml).not.toMatch(/healthCheckPath:\s*\/ready/);
   });
 
   it("autoDeploy is explicitly set (true or false) — no silent default", () => {
