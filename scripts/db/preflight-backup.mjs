@@ -1,7 +1,9 @@
 #!/usr/bin/env node
+import "dotenv/config";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { latestDbManifest } from "./pg-tools.mjs";
 
 function isProdLike(url) {
   const hard = process.env.NODE_ENV === "production" || process.env.RENDER === "true" || process.env.AXTASK_PRODUCTION === "true";
@@ -26,8 +28,7 @@ if (prodLike && !process.env.BACKUP_STORAGE_TARGET) {
 const run = spawnSync(process.execPath, ["scripts/db/backup.mjs"], { stdio: "inherit", env: process.env });
 if (run.status !== 0) process.exit(run.status ?? 1);
 
-const out = spawnSync("bash", ["-lc", "ls -1t .backups/db/*/*.manifest.json | head -n 1"], { encoding: "utf8" });
-const manifestPath = (out.stdout || "").trim();
+const manifestPath = latestDbManifest();
 if (!manifestPath || !existsSync(manifestPath)) {
   console.error("[db:backup:preflight] manifest missing");
   process.exit(1);
