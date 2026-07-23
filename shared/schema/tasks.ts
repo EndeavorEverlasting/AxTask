@@ -24,7 +24,7 @@ export type ClassificationAssociation = z.infer<typeof classificationAssociation
 export const classificationAssociationsSchema = z.array(classificationAssociationSchema).max(8);
 
 /** Task notes cap — keep in sync with voice review routes (`server/routes.ts`). */
-export const TASK_NOTES_MAX_CHARS = 10_000;
+export const TASK_NOTES_MAX_CHARS = 50_000;
 
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 export const tasks = pgTable("tasks", {
