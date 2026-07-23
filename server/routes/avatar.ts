@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { listAvatarVoiceOpeners } from "../engines/dialogue-engine";
 import { getPublicArchetypeContinuumForUser } from "../lib/archetype-continuum";
+import { getLeaderboard } from "../services/leaderboard-service";
 import {
   getOfflineGeneratorStatus,
   buyOfflineGenerator,
@@ -17,6 +18,11 @@ import {
 } from "../storage";
 
 type RequireAuthMiddleware = (req: Request, res: Response, next: NextFunction) => unknown;
+
+const leaderboardQuerySchema = z.object({
+  category: z.enum(["coins", "streak", "contributions"]).default("coins"),
+  period: z.enum(["all", "week"]).default("all"),
+});
 
 const offlineSkillUnlockSchema = z.object({
   skillKey: z.string().min(2).max(80),
@@ -38,6 +44,23 @@ const avatarSkillUnlockSchema = z.object({
 });
 
 export function registerAvatarRoutes(app: Express, requireAuth: RequireAuthMiddleware) {
+  app.get("/api/leaderboard", requireAuth, async (req, res) => {
+    try {
+      const query = leaderboardQuerySchema.parse({
+        category: req.query.category,
+        period: req.query.period,
+      });
+      const result = await getLeaderboard(req.user!.id, query.category, query.period);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid leaderboard query" });
+      }
+      console.error("[leaderboard]", error);
+      res.status(500).json({ message: "Failed to fetch leaderboard" });
+    }
+  });
+
   app.get("/api/gamification/offline-generator", requireAuth, async (req, res) => {
     try {
       const status = await getOfflineGeneratorStatus(req.user!.id);
