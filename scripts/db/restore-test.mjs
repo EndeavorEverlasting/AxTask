@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "dotenv/config";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { latestDbManifest, runPgTool } from "./pg-tools.mjs";
