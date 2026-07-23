@@ -25,15 +25,15 @@ describe("[10-db-airlock] command and script contract", () => {
     expect(fs.existsSync(path.join(root, "scripts/db/pg-tools.mjs"))).toBe(true);
   });
 
-  it("loads dotenv within each directly invoked db command", () => {
+  it("loads dotenv at the direct command or npm invocation boundary", () => {
     expect(read("scripts/db/backup.mjs")).toContain('import "dotenv/config"');
     expect(read("scripts/db/preflight-backup.mjs")).toContain('import "dotenv/config"');
     expect(read("scripts/db/restore-test.mjs")).toContain('import "dotenv/config"');
-    expect(read("scripts/apply-migrations.mjs")).toContain("dotenv/config");
-    expect(read("scripts/migration/verify-schema.mjs")).toContain("dotenv/config");
+    expect(pkg.scripts["db:migrate:safe"]).toContain("node -r dotenv/config scripts/apply-migrations.mjs");
+    expect(read("scripts/migration/verify-schema.mjs")).toContain('import "dotenv/config"');
   });
 
-  it("pg-tools helper resolves Windows PATH and finds manifests without bash", () => {
+  it("resolves Windows pg tools and finds manifests without bash", () => {
     const src = read("scripts/db/pg-tools.mjs");
     expect(src).toMatch(/win32/);
     expect(src).toMatch(/shell:\s*true/);
@@ -43,7 +43,28 @@ describe("[10-db-airlock] command and script contract", () => {
     expect(preflight).not.toMatch(/bash/);
   });
 
-  it("airlock enforces db_dump kind and skip acknowledgement", () => {
+  it("binds filesystem and ledger checkpoints to the current database", () => {
+    const tools = read("scripts/db/pg-tools.mjs");
+    const backup = read("scripts/db/backup.mjs");
+    const airlock = read("scripts/migration-airlock.mjs");
+
+    expect(tools).toMatch(/databaseTargetFingerprint/);
+    expect(tools).not.toMatch(/password/);
+    expect(backup).toMatch(/databaseFingerprint:\s*databaseTargetFingerprint\(databaseUrl\)/);
+    expect(airlock).toMatch(/currentDatabaseFingerprint/);
+    expect(airlock).toMatch(/targetMatches\(manifest, currentDatabaseFingerprint\)/);
+    expect(airlock).toMatch(/meta\.backupKind === "db_dump"/);
+    expect(airlock).toMatch(/no recent verified DB dump for the current database target/);
+  });
+
+  it("verifies custom-format database dumps as binary", () => {
+    const airlock = read("scripts/migration-airlock.mjs");
+    const verifier = read("server/services/backup-service.ts");
+    expect(airlock).toMatch(/meta\.backupKind === "db_dump" \|\| meta\.encrypted \|\| meta\.compressed/);
+    expect(verifier).toMatch(/meta\.backupKind === "db_dump" \|\| !!meta\.encrypted \|\| !!meta\.compressed/);
+  });
+
+  it("airlock enforces DB-dump kind and skip acknowledgement", () => {
     const src = read("scripts/migration-airlock.mjs");
     expect(src).toMatch(/backupKind/);
     expect(src).toMatch(/db_dump/);
