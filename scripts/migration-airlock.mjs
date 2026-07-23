@@ -18,9 +18,11 @@
 import pgModule from "pg";
 const pg = pgModule.default || pgModule;
 import { createHash, createDecipheriv, scryptSync } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { gunzip } from "node:zlib";
+import { latestDbManifest } from "./db/pg-tools.mjs";
 
 const gunzipAsync = promisify(gunzip);
 
@@ -105,8 +107,26 @@ async function main() {
     `);
 
     if (rows.length === 0) {
+      // Accept filesystem checkpoint from `npm run db:backup` / `db:backup:preflight`
+      // when the legacy ledger has no completed rows (common before first ledger insert).
+      const manifestPath = latestDbManifest();
+      if (manifestPath && existsSync(manifestPath)) {
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+        const createdAt = manifest.createdAt ? new Date(manifest.createdAt) : null;
+        const maxAgeMs = RETENTION_HOURS * 60 * 60 * 1000;
+        const fresh = createdAt && Date.now() - createdAt.getTime() <= maxAgeMs;
+        const kindOk = !manifest.backupKind || manifest.backupKind === "db_dump";
+        const dumpOk = manifest.dumpFile && existsSync(manifest.dumpFile) && manifest.sha256;
+        if (fresh && kindOk && dumpOk) {
+          const actual = createHash("sha256").update(readFileSync(manifest.dumpFile)).digest("hex");
+          if (actual === manifest.sha256) {
+            console.log(`[migration-airlock] PASSED: filesystem db_dump checkpoint (${createdAt.toISOString()}).`);
+            process.exit(0);
+          }
+        }
+      }
       console.error("[migration-airlock] FAILED: no completed backup records found.");
-      console.error("[migration-airlock] Run a backup before migrating: ensure BACKUP_SCHEDULER_ENABLED=true or manually trigger one.");
+      console.error("[migration-airlock] Run a backup before migrating: npm run db:backup (or enable BACKUP_SCHEDULER_ENABLED).");
       process.exit(1);
     }
 

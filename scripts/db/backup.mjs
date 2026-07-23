@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import pgModule from "pg";
+import { runPgTool } from "./pg-tools.mjs";
 
 const pg = pgModule.default || pgModule;
 
@@ -36,11 +37,36 @@ async function writeLedger(manifest) {
   try {
     const t = await client.query("SELECT to_regclass('public.backup_records') AS table_ref");
     if (!t.rows[0]?.table_ref) return;
+    const cols = await client.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'backup_records'`,
+    );
+    const names = new Set(cols.rows.map((r) => r.column_name));
+    const meta = JSON.stringify(manifest);
+    if (names.has("user_id")) {
+      let userId = process.env.BACKUP_LEDGER_USER_ID || "";
+      if (!userId) {
+        const u = await client.query(`SELECT id FROM users ORDER BY created_at NULLS LAST LIMIT 1`);
+        userId = u.rows[0]?.id || "";
+      }
+      if (!userId) {
+        console.warn("[db:backup] backup_records requires user_id; set BACKUP_LEDGER_USER_ID (dump+manifest ok)");
+        return;
+      }
+      await client.query(
+        `INSERT INTO backup_records (user_id, type, status, path_or_url, metadata_json, completed_at, created_at)
+         VALUES ($1, 'db_dump', 'completed', $2, $3, now(), now())`,
+        [userId, manifest.dumpFile, meta],
+      );
+      return;
+    }
     await client.query(
       `INSERT INTO backup_records (status, path_or_url, metadata_json, completed_at, created_at)
-       VALUES ('completed', $1, $2::jsonb, now(), now())`,
-      [manifest.dumpFile, JSON.stringify(manifest)],
+       VALUES ('completed', $1, $2, now(), now())`,
+      [manifest.dumpFile, meta],
     );
+  } catch (err) {
+    console.warn(`[db:backup] ledger insert skipped: ${err.message}`);
   } finally {
     client.release();
     await pool.end();
@@ -56,7 +82,7 @@ async function main() {
   const dumpFile = path.join(base, `${fileBase}.dump`);
   const manifestFile = path.join(base, `${fileBase}.manifest.json`);
 
-  const dump = spawnSync("pg_dump", [databaseUrl, "-Fc", "-f", dumpFile], { stdio: "inherit" });
+  const dump = runPgTool("pg_dump", [databaseUrl, "-Fc", "-f", dumpFile]);
   if (dump.status !== 0 || !existsSync(dumpFile)) throw new Error("pg_dump failed or dump file missing");
 
   const bytes = readFileSync(dumpFile);

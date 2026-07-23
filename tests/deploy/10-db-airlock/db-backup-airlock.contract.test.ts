@@ -18,6 +18,24 @@ describe("[10-db-airlock] command and script contract", () => {
     expect(fs.existsSync(path.join(root, "scripts/db/backup.mjs"))).toBe(true);
     expect(fs.existsSync(path.join(root, "scripts/db/preflight-backup.mjs"))).toBe(true);
     expect(fs.existsSync(path.join(root, "scripts/db/restore-test.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "scripts/db/pg-tools.mjs"))).toBe(true);
+  });
+
+  it("loads dotenv for db airlock npm scripts", () => {
+    expect(pkg.scripts["db:backup"]).toContain("dotenv/config");
+    expect(pkg.scripts["db:backup:preflight"]).toContain("dotenv/config");
+    expect(pkg.scripts["db:restore:test"]).toContain("dotenv/config");
+    expect(pkg.scripts["db:migrate:safe"]).toContain("dotenv/config");
+  });
+
+  it("pg-tools helper resolves Windows PATH and finds manifests without bash", () => {
+    const src = fs.readFileSync(path.join(root, "scripts/db/pg-tools.mjs"), "utf8");
+    expect(src).toMatch(/win32/);
+    expect(src).toMatch(/shell:\s*true/);
+    expect(src).toMatch(/latestDbManifest/);
+    const preflight = fs.readFileSync(path.join(root, "scripts/db/preflight-backup.mjs"), "utf8");
+    expect(preflight).toMatch(/latestDbManifest/);
+    expect(preflight).not.toMatch(/bash/);
   });
 
   it("airlock enforces db_dump kind and skip acknowledgement", () => {
@@ -25,5 +43,7 @@ describe("[10-db-airlock] command and script contract", () => {
     expect(src).toMatch(/backupKind/);
     expect(src).toMatch(/db_dump/);
     expect(src).toMatch(/MIGRATION_AIRLOCK_SKIP_ACK/);
+    expect(src).toMatch(/latestDbManifest/);
+    expect(src).toMatch(/filesystem db_dump checkpoint/);
   });
 });
