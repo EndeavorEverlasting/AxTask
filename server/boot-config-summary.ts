@@ -1,11 +1,12 @@
 /**
  * Redacted one-shot summary of auth/security/push boot configuration for operators and log pipelines.
- * Never logs secret values — booleans, enums, and numeric session TTL only.
+ * Never logs secret values — booleans, enums, numeric session TTL, and bounded process memory only.
  */
 
 import { getAvailableProviders, getProvider } from "./auth-providers";
 import { getRegistrationConfig, inviteConfiguredForClient } from "./registration-config";
 import { getSessionMaxAgeMs } from "./session-config";
+import { logMemorySnapshot } from "./runtime-memory";
 
 function inviteStrengthLabel(): "ok" | "weak" | "missing" {
   const cfg = getRegistrationConfig();
@@ -32,7 +33,7 @@ function authProviderList(): string[] {
   return [...names].sort();
 }
 
-/** Emit human-readable boot lines and one structured JSON line (no secret values). Skips when NODE_ENV is `test`. */
+/** Emit human-readable boot lines and structured JSON lines (no secret values). Skips when NODE_ENV is `test`. */
 export function logBootConfigSummary(): void {
   if (process.env.NODE_ENV === "test") return;
 
@@ -70,4 +71,5 @@ export function logBootConfigSummary(): void {
       nodeEnv,
     }),
   );
+  logMemorySnapshot("server.boot");
 }

@@ -49,6 +49,20 @@ describe("[09-failure-classification] classifyLog", () => {
     expect(classifyLog(log)).toBe("STARTUP_FAILED");
   });
 
+  it("identifies startup-time Drizzle TTY prompts specifically", () => {
+    const log = loadFixture("startup-tty-interactive.txt");
+    expect(classifyLog(log)).toBe("STARTUP_TTY_INTERACTIVE_PROMPT");
+  });
+
+  it("does not classify an unrelated TTY warning as a schema-startup failure", () => {
+    expect(classifyLog("warning: stdin is not a TTY")).toBe("UNKNOWN");
+  });
+
+  it("identifies runtime OOM after the server reached listening state", () => {
+    const log = loadFixture("runtime-oom-after-start.txt");
+    expect(classifyLog(log)).toBe("RUNTIME_OOM");
+  });
+
   it("returns UNKNOWN for a clean successful deploy log", () => {
     const log = loadFixture("healthy-success.txt");
     expect(classifyLog(log)).toBe("UNKNOWN");
