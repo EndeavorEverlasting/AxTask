@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import pgModule from "pg";
-import { runPgTool } from "./pg-tools.mjs";
+import { databaseTargetFingerprint, runPgTool } from "./pg-tools.mjs";
 
 const pg = pgModule.default || pgModule;
 
@@ -98,6 +98,7 @@ async function main() {
     backupKind: "db_dump",
     createdAt: new Date().toISOString(),
     ...masked,
+    databaseFingerprint: databaseTargetFingerprint(databaseUrl),
     gitCommit,
     dumpFile,
     sha256,
