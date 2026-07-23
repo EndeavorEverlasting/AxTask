@@ -22,7 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { gunzip } from "node:zlib";
-import { latestDbManifest } from "./db/pg-tools.mjs";
+import { databaseTargetFingerprint, latestDbManifest } from "./db/pg-tools.mjs";
 
 const gunzipAsync = promisify(gunzip);
 
@@ -32,13 +32,9 @@ const TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 
 function normalizeKey(keyInput) {
-  if (/^[0-9a-fA-F]{64}$/.test(keyInput)) {
-    return Buffer.from(keyInput, "hex");
-  }
+  if (/^[0-9a-fA-F]{64}$/.test(keyInput)) return Buffer.from(keyInput, "hex");
   const b64 = Buffer.from(keyInput, "base64");
-  if (b64.length === KEY_LENGTH) {
-    return b64;
-  }
+  if (b64.length === KEY_LENGTH) return b64;
   return scryptSync(keyInput, "axtask-backup-salt", KEY_LENGTH);
 }
 
@@ -53,16 +49,31 @@ function decryptBackupPayload(payload, keyInput) {
   const encrypted = buf.slice(IV_LENGTH + TAG_LENGTH);
   const decipher = createDecipheriv(AES_256_GCM_ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted;
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+}
+
+function parseMetadata(record) {
+  try {
+    return JSON.parse(record?.metadata_json || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function targetMatches(meta, expectedFingerprint) {
+  return typeof meta.databaseFingerprint === "string"
+    && meta.databaseFingerprint === expectedFingerprint;
 }
 
 const SKIP = process.argv.includes("--skip") || process.argv.includes("--skip-airlock");
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const host = DATABASE_URL ? new URL(DATABASE_URL).hostname : "";
-const isProdLike = process.env.NODE_ENV === "production" || process.env.RENDER === "true" || process.env.AXTASK_PRODUCTION === "true" || (host && host !== "localhost" && host !== "127.0.0.1");
+const isProdLike = process.env.NODE_ENV === "production"
+  || process.env.RENDER === "true"
+  || process.env.AXTASK_PRODUCTION === "true"
+  || (host && host !== "localhost" && host !== "127.0.0.1");
 const VERIFY_FILE = process.argv.includes("--verify") || isProdLike;
-const RETENTION_HOURS = Number(process.env.BACKUP_AIRLOCK_RETENTION_HOURS) || 168; // 7 days default
+const RETENTION_HOURS = Number(process.env.BACKUP_AIRLOCK_RETENTION_HOURS) || 168;
 
 if (SKIP) {
   if (isProdLike && !process.env.MIGRATION_AIRLOCK_SKIP_ACK) {
@@ -73,13 +84,35 @@ if (SKIP) {
   process.exit(2);
 }
 
-const url = DATABASE_URL;
-if (!url) {
+if (!DATABASE_URL) {
   console.error("[migration-airlock] DATABASE_URL is not set. Cannot check backup ledger.");
   process.exit(1);
 }
 
-const pool = new pg.Pool({ connectionString: url, max: 1 });
+const currentDatabaseFingerprint = databaseTargetFingerprint(DATABASE_URL);
+const pool = new pg.Pool({ connectionString: DATABASE_URL, max: 1 });
+
+function verifyFilesystemCheckpoint() {
+  const manifestPath = latestDbManifest();
+  if (!manifestPath || !existsSync(manifestPath)) return false;
+
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const createdAt = manifest.createdAt ? new Date(manifest.createdAt) : null;
+  const maxAgeMs = RETENTION_HOURS * 60 * 60 * 1000;
+  const fresh = createdAt && Number.isFinite(createdAt.getTime())
+    && Date.now() - createdAt.getTime() <= maxAgeMs;
+  const kindOk = manifest.backupKind === "db_dump";
+  const targetOk = targetMatches(manifest, currentDatabaseFingerprint);
+  const dumpOk = manifest.dumpFile && existsSync(manifest.dumpFile) && manifest.sha256;
+
+  if (!fresh || !kindOk || !targetOk || !dumpOk) return false;
+
+  const actual = createHash("sha256").update(readFileSync(manifest.dumpFile)).digest("hex");
+  if (actual !== manifest.sha256) return false;
+
+  console.log(`[migration-airlock] PASSED: filesystem db_dump checkpoint for current target (${createdAt.toISOString()}).`);
+  return true;
+}
 
 async function main() {
   const client = await pool.connect();
@@ -97,72 +130,44 @@ async function main() {
       return;
     }
 
-    // Query most recent completed backup record
+    // User account backups share this ledger. Inspect a bounded recent window
+    // and select only an explicit DB dump for the current target.
     const { rows } = await client.query(`
       SELECT id, path_or_url, metadata_json, completed_at, created_at
       FROM backup_records
       WHERE status = 'completed'
       ORDER BY created_at DESC
-      LIMIT 1
+      LIMIT 50
     `);
+    const record = rows.find((candidate) => {
+      const meta = parseMetadata(candidate);
+      return meta.backupKind === "db_dump"
+        && targetMatches(meta, currentDatabaseFingerprint);
+    });
 
-    if (rows.length === 0) {
-      // Accept filesystem checkpoint from `npm run db:backup` / `db:backup:preflight`
-      // when the legacy ledger has no completed rows (common before first ledger insert).
-      const manifestPath = latestDbManifest();
-      if (manifestPath && existsSync(manifestPath)) {
-        const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-        const createdAt = manifest.createdAt ? new Date(manifest.createdAt) : null;
-        const maxAgeMs = RETENTION_HOURS * 60 * 60 * 1000;
-        const fresh = createdAt && Date.now() - createdAt.getTime() <= maxAgeMs;
-        const kindOk = !manifest.backupKind || manifest.backupKind === "db_dump";
-        const dumpOk = manifest.dumpFile && existsSync(manifest.dumpFile) && manifest.sha256;
-        if (fresh && kindOk && dumpOk) {
-          const actual = createHash("sha256").update(readFileSync(manifest.dumpFile)).digest("hex");
-          if (actual === manifest.sha256) {
-            console.log(`[migration-airlock] PASSED: filesystem db_dump checkpoint (${createdAt.toISOString()}).`);
-            process.exit(0);
-          }
-        }
-      }
-      console.error("[migration-airlock] FAILED: no completed backup records found.");
-      console.error("[migration-airlock] Run a backup before migrating: npm run db:backup (or enable BACKUP_SCHEDULER_ENABLED).");
+    if (!record) {
+      if (verifyFilesystemCheckpoint()) process.exit(0);
+      console.error("[migration-airlock] FAILED: no recent verified DB dump for the current database target.");
+      console.error("[migration-airlock] Run a fresh backup against this DATABASE_URL before migrating: npm run db:backup.");
       process.exit(1);
     }
 
-    const record = rows[0];
     const completedAt = record.completed_at ? new Date(record.completed_at) : null;
-    const now = new Date();
     const maxAgeMs = RETENTION_HOURS * 60 * 60 * 1000;
-
-    if (!completedAt || (now.getTime() - completedAt.getTime()) > maxAgeMs) {
-      console.error(`[migration-airlock] FAILED: most recent backup is too old (${completedAt ? completedAt.toISOString() : "unknown"}).`);
-      console.error(`[migration-airlock] Retention window: ${RETENTION_HOURS} hours. Run a fresh backup before migrating.`);
+    if (!completedAt || Date.now() - completedAt.getTime() > maxAgeMs) {
+      console.error(`[migration-airlock] FAILED: most recent matching DB dump is too old (${completedAt ? completedAt.toISOString() : "unknown"}).`);
+      console.error(`[migration-airlock] Retention window: ${RETENTION_HOURS} hours. Run a fresh backup first.`);
       process.exit(1);
     }
 
-    // Check SHA-256 hash exists in metadata
-    let meta = {};
-    try {
-      meta = JSON.parse(record.metadata_json || "{}");
-    } catch {
-      /* ignore parse errors */
-    }
-
-    if (meta.backupKind && meta.backupKind !== "db_dump") {
-      console.error("[migration-airlock] FAILED: most recent backup record is not a DB dump backupKind=db_dump.");
-      process.exit(1);
-    }
-
+    const meta = parseMetadata(record);
     if (!meta.sha256) {
-      console.error("[migration-airlock] FAILED: most recent backup has no SHA-256 hash in metadata.");
-      console.error("[migration-airlock] Backups without hashes cannot be integrity-checked. Run a fresh backup first.");
+      console.error("[migration-airlock] FAILED: matching DB dump has no SHA-256 hash in metadata.");
       process.exit(1);
     }
 
-    // Optional deep verification: re-read the file and check the hash
     if (VERIFY_FILE && record.path_or_url) {
-      const isBinary = meta.encrypted || meta.compressed;
+      const isBinary = meta.backupKind === "db_dump" || meta.encrypted || meta.compressed;
       let raw;
       try {
         if (record.path_or_url.startsWith("http://") || record.path_or_url.startsWith("https://")) {
@@ -170,31 +175,27 @@ async function main() {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           raw = isBinary ? Buffer.from(await res.arrayBuffer()) : await res.text();
         } else {
-          const { readFile } = await import("node:fs/promises");
           raw = isBinary ? await readFile(record.path_or_url) : await readFile(record.path_or_url, "utf8");
         }
-      } catch (e) {
-        console.error(`[migration-airlock] FAILED: could not re-read backup file: ${e.message}`);
+      } catch (error) {
+        console.error(`[migration-airlock] FAILED: could not re-read backup file: ${error.message}`);
         process.exit(1);
       }
 
-      // Decrypt if the backup was encrypted
       if (meta.encrypted && meta.encryptionMeta && process.env.BACKUP_ENCRYPTION_KEY) {
         try {
           raw = decryptBackupPayload(raw, process.env.BACKUP_ENCRYPTION_KEY);
-        } catch (e) {
-          console.error(`[migration-airlock] FAILED: could not decrypt backup: ${e.message}`);
+        } catch (error) {
+          console.error(`[migration-airlock] FAILED: could not decrypt backup: ${error.message}`);
           process.exit(1);
         }
       }
 
-      // Decompress if the backup was compressed (after decryption)
       if (meta.compressed && meta.compressionMeta) {
         try {
-          const decompressed = await gunzipAsync(raw);
-          raw = decompressed.toString("utf8");
-        } catch (e) {
-          console.error(`[migration-airlock] FAILED: could not decompress backup: ${e.message}`);
+          raw = await gunzipAsync(raw);
+        } catch (error) {
+          console.error(`[migration-airlock] FAILED: could not decompress backup: ${error.message}`);
           process.exit(1);
         }
       }
@@ -206,13 +207,13 @@ async function main() {
         console.error(`[migration-airlock]  actual:   ${actualSha256}`);
         process.exit(1);
       }
-      console.log("[migration-airlock] Deep verification passed (SHA-256 matches).");
+      console.log("[migration-airlock] Deep verification passed (SHA-256 matches). ");
     }
 
-    console.log(`[migration-airlock] PASSED: recent verified backup exists (${record.id.slice(0, 8)}…, ${completedAt.toISOString()}).`);
+    console.log(`[migration-airlock] PASSED: recent verified DB dump for current target exists (${String(record.id).slice(0, 8)}…, ${completedAt.toISOString()}).`);
     process.exit(0);
-  } catch (err) {
-    console.error("[migration-airlock] ERROR:", err instanceof Error ? err.message : String(err));
+  } catch (error) {
+    console.error("[migration-airlock] ERROR:", error instanceof Error ? error.message : String(error));
     process.exit(1);
   } finally {
     client.release();
