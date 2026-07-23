@@ -56,7 +56,6 @@ export function resolveBackupTarget(preferredTarget?: string): BackupTarget {
   const s3SecretKey = process.env.BACKUP_S3_SECRET_ACCESS_KEY;
   const s3Prefix = process.env.BACKUP_S3_PREFIX;
 
-  // Respect user preference if explicitly set and env supports it
   if (preferredTarget === "s3" && s3Endpoint && s3Bucket && s3AccessKey && s3SecretKey) {
     return new S3CompatibleBackupTarget({
       endpoint: s3Endpoint,
@@ -72,7 +71,6 @@ export function resolveBackupTarget(preferredTarget?: string): BackupTarget {
     return new LocalFileBackupTarget(process.env.BACKUP_LOCAL_DIR || process.cwd());
   }
 
-  // Default resolution from env
   if (s3Endpoint && s3Bucket && s3AccessKey && s3SecretKey) {
     return new S3CompatibleBackupTarget({
       endpoint: s3Endpoint,
@@ -182,7 +180,7 @@ export async function verifyBackupByRecord(record: {
   const expectedSha256: string | null = meta.sha256 ?? null;
 
   let raw: Buffer | string;
-  const isBinary = !!meta.encrypted || !!meta.compressed;
+  const isBinary = meta.backupKind === "db_dump" || !!meta.encrypted || !!meta.compressed;
   if (record.pathOrUrl.startsWith("http://") || record.pathOrUrl.startsWith("https://")) {
     const res = await fetch(record.pathOrUrl);
     if (!res.ok) {
@@ -193,7 +191,6 @@ export async function verifyBackupByRecord(record: {
     raw = isBinary ? await readFile(record.pathOrUrl) : await readFile(record.pathOrUrl, "utf8");
   }
 
-  // If the backup was encrypted, decrypt before computing the hash
   if (meta.encrypted && meta.encryptionMeta && process.env.BACKUP_ENCRYPTION_KEY) {
     try {
       raw = decryptBackup(raw, process.env.BACKUP_ENCRYPTION_KEY);
@@ -203,7 +200,6 @@ export async function verifyBackupByRecord(record: {
     }
   }
 
-  // If the backup was compressed, decompress after decryption
   if (meta.compressed && meta.compressionMeta) {
     try {
       raw = await decompressBackup(raw);
@@ -222,12 +218,11 @@ export async function testBackupTargetWritable(target: BackupTarget): Promise<bo
   const testPayload = JSON.stringify({ _axtask_backup_probe: true, t: Date.now() });
   const testFileName = `_probe-${Date.now()}.json`;
   try {
-    const { pathOrUrl } = await target.writeBackup(testFileName, testPayload);
-    // Clean up the probe file for both local and S3 targets
+    await target.writeBackup(testFileName, testPayload);
     try {
       await target.deleteBackup(testFileName);
     } catch {
-      // ignore cleanup failure — probes are tiny and timestamped, they won't collide
+      // Probe cleanup is best effort.
     }
     return true;
   } catch {
