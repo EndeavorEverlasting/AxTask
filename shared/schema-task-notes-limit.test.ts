@@ -18,6 +18,12 @@ describe("insertTaskSchema notes length", () => {
     expect(r.success).toBe(true);
   });
 
+  it("allows 20,000 character notes for long sprint specs and prompts", () => {
+    const notes = "x".repeat(20_000);
+    const r = insertTaskSchema.safeParse({ ...base, notes });
+    expect(r.success).toBe(true);
+  });
+
   it("rejects notes over TASK_NOTES_MAX_CHARS", () => {
     const notes = "x".repeat(TASK_NOTES_MAX_CHARS + 1);
     const r = insertTaskSchema.safeParse({ ...base, notes });
