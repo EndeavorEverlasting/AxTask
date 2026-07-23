@@ -9,14 +9,9 @@ import {
   users,
   wallets,
 } from "@shared/schema";
-import { and, eq, gt, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { db } from "../db";
-import {
-  combineLeaderboardRows,
-  normalizeLeaderboardRows,
-  skillTierFromLevels,
-  type LeaderboardMetricRow,
-} from "./leaderboard-ranking";
+import { skillTierFromLevels } from "./leaderboard-ranking";
 
 export type LeaderboardCategory = "coins" | "streak" | "contributions";
 export type LeaderboardPeriod = "all" | "week";
@@ -36,69 +31,138 @@ export interface LeaderboardResult {
   myEntry: LeaderboardEntry | null;
 }
 
-async function getLeaderboardMetricRows(
+type RankedMetricRow = {
+  user_id: string;
+  metric_value: string | number | bigint;
+  rank: string | number | bigint;
+};
+
+function metricRowsSql(
   category: LeaderboardCategory,
   period: LeaderboardPeriod,
-): Promise<LeaderboardMetricRow[]> {
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const since = period === "week" ? weekAgo : new Date(0);
-
+  weekAgo: Date,
+): SQL {
   if (category === "coins") {
     if (period === "all") {
-      const rows = await db
-        .select({ userId: wallets.userId, metricValue: wallets.lifetimeEarned })
-        .from(wallets);
-      return normalizeLeaderboardRows(rows);
+      return sql`
+        SELECT
+          ${wallets.userId}::text AS user_id,
+          ${wallets.lifetimeEarned}::bigint AS metric_value
+        FROM ${wallets}
+      `;
     }
 
-    const rows = await db
-      .select({
-        userId: coinTransactions.userId,
-        metricValue: sql<number>`COALESCE(SUM(${coinTransactions.amount}), 0)::int`,
-      })
-      .from(coinTransactions)
-      .where(and(gte(coinTransactions.createdAt, since), gt(coinTransactions.amount, 0)))
-      .groupBy(coinTransactions.userId);
-    return normalizeLeaderboardRows(rows);
+    return sql`
+      SELECT
+        ${coinTransactions.userId}::text AS user_id,
+        COALESCE(SUM(${coinTransactions.amount}), 0)::bigint AS metric_value
+      FROM ${coinTransactions}
+      WHERE ${coinTransactions.createdAt} >= ${weekAgo}
+        AND ${coinTransactions.amount} > 0
+      GROUP BY ${coinTransactions.userId}
+    `;
   }
 
   if (category === "streak") {
     const metricColumn = period === "week" ? wallets.currentStreak : wallets.longestStreak;
-    const rows = await db
-      .select({ userId: wallets.userId, metricValue: metricColumn })
-      .from(wallets);
-    return normalizeLeaderboardRows(rows);
+    return sql`
+      SELECT
+        ${wallets.userId}::text AS user_id,
+        ${metricColumn}::bigint AS metric_value
+      FROM ${wallets}
+    `;
   }
 
-  const replyRowsRaw = await db
-    .select({
-      userId: communityReplies.userId,
-      metricValue: sql<number>`COUNT(*)::int`,
-    })
-    .from(communityReplies)
-    .where(and(isNotNull(communityReplies.userId), gte(communityReplies.createdAt, since)))
-    .groupBy(communityReplies.userId);
+  const replyPeriodFilter = period === "week"
+    ? sql`AND ${communityReplies.createdAt} >= ${weekAgo}`
+    : sql``;
+  const classificationPeriodFilter = period === "week"
+    ? sql`WHERE ${classificationContributions.createdAt} >= ${weekAgo}`
+    : sql``;
 
-  const replyRows: LeaderboardMetricRow[] = replyRowsRaw
-    .filter((row): row is { userId: string; metricValue: number } => Boolean(row.userId))
-    .map((row) => ({ userId: row.userId, metricValue: Number(row.metricValue ?? 0) }));
+  return sql`
+    SELECT user_id, SUM(metric_value)::bigint AS metric_value
+    FROM (
+      SELECT
+        ${communityReplies.userId}::text AS user_id,
+        COUNT(*)::bigint AS metric_value
+      FROM ${communityReplies}
+      WHERE ${communityReplies.userId} IS NOT NULL
+        ${replyPeriodFilter}
+      GROUP BY ${communityReplies.userId}
 
-  const classificationRows = await db
-    .select({
-      userId: classificationContributions.userId,
-      metricValue: sql<number>`COUNT(*)::int`,
-    })
-    .from(classificationContributions)
-    .where(gte(classificationContributions.createdAt, since))
-    .groupBy(classificationContributions.userId);
+      UNION ALL
 
-  return combineLeaderboardRows(
-    replyRows,
-    classificationRows.map((row) => ({
-      userId: row.userId,
-      metricValue: Number(row.metricValue ?? 0),
-    })),
-  );
+      SELECT
+        ${classificationContributions.userId}::text AS user_id,
+        COUNT(*)::bigint AS metric_value
+      FROM ${classificationContributions}
+      ${classificationPeriodFilter}
+      GROUP BY ${classificationContributions.userId}
+    ) contribution_sources
+    GROUP BY user_id
+  `;
+}
+
+function resultRows<T>(result: unknown): T[] {
+  const rows = (result as { rows?: T[] })?.rows;
+  if (Array.isArray(rows)) return rows;
+  return Array.isArray(result) ? result as T[] : [];
+}
+
+async function getSelectedMetricRows(
+  requestingUserId: string,
+  category: LeaderboardCategory,
+  period: LeaderboardPeriod,
+): Promise<Array<{ userId: string; metricValue: number; rank: number }>> {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const metrics = metricRowsSql(category, period, weekAgo);
+
+  const result = await db.execute(sql<RankedMetricRow>`
+    WITH metrics AS (
+      ${metrics}
+    ), metric_rows AS (
+      SELECT user_id::text AS user_id, metric_value::bigint AS metric_value
+      FROM metrics
+
+      UNION ALL
+
+      SELECT (${requestingUserId})::text AS user_id, 0::bigint AS metric_value
+      WHERE NOT EXISTS (
+        SELECT 1 FROM metrics WHERE user_id::text = (${requestingUserId})::text
+      )
+    ), ranked AS (
+      SELECT
+        user_id,
+        metric_value,
+        ROW_NUMBER() OVER (
+          ORDER BY metric_value DESC, user_id ASC
+        )::int AS rank
+      FROM metric_rows
+    ), top_rows AS (
+      SELECT user_id, metric_value, rank
+      FROM ranked
+      WHERE metric_value > 0
+      ORDER BY rank
+      LIMIT 25
+    )
+    SELECT user_id, metric_value, rank
+    FROM top_rows
+
+    UNION
+
+    SELECT user_id, metric_value, rank
+    FROM ranked
+    WHERE user_id = (${requestingUserId})::text
+
+    ORDER BY rank
+  `);
+
+  return resultRows<RankedMetricRow>(result).map((row) => ({
+    userId: String(row.user_id),
+    metricValue: Number(row.metric_value ?? 0),
+    rank: Number(row.rank ?? 0),
+  }));
 }
 
 export async function getLeaderboard(
@@ -106,15 +170,12 @@ export async function getLeaderboard(
   category: LeaderboardCategory,
   period: LeaderboardPeriod,
 ): Promise<LeaderboardResult> {
-  const metricRows = await getLeaderboardMetricRows(category, period);
-  const positiveRows = metricRows.filter((row) => row.metricValue > 0);
-  const top25Rows = positiveRows.slice(0, 25);
-  const myMetricRow = metricRows.find((row) => row.userId === requestingUserId) ?? {
-    userId: requestingUserId,
-    metricValue: 0,
-  };
-  const myRank = positiveRows.filter((row) => row.metricValue > myMetricRow.metricValue).length + 1;
-  const allUserIds = [...new Set([...top25Rows.map((row) => row.userId), requestingUserId])];
+  const selectedMetricRows = await getSelectedMetricRows(requestingUserId, category, period);
+  const myMetricRow = selectedMetricRows.find((row) => row.userId === requestingUserId) ?? null;
+  const top25Rows = selectedMetricRows.filter(
+    (row) => row.metricValue > 0 && row.rank <= 25,
+  );
+  const allUserIds = [...new Set(selectedMetricRows.map((row) => row.userId))];
 
   const userRows = allUserIds.length
     ? await db
@@ -181,21 +242,21 @@ export async function getLeaderboard(
     );
   }
 
-  const makeEntry = (row: LeaderboardMetricRow, rank: number): LeaderboardEntry => {
+  const makeEntry = (row: { userId: string; metricValue: number; rank: number }): LeaderboardEntry => {
     const user = userMap.get(row.userId);
     return {
-      rank,
+      rank: row.rank,
       userId: row.userId,
       displayName: user?.displayName ?? null,
       profileImageUrl: user?.profileImageUrl ?? null,
       equippedTitle: titleMap.get(row.userId) ?? null,
       skillTier: skillTierFromLevels(skillLevelsByUser.get(row.userId) ?? 0),
-      metricValue: Number(row.metricValue ?? 0),
+      metricValue: row.metricValue,
     };
   };
 
   return {
-    top25: top25Rows.map((row, index) => makeEntry(row, index + 1)),
-    myEntry: makeEntry(myMetricRow, myRank),
+    top25: top25Rows.map(makeEntry),
+    myEntry: myMetricRow ? makeEntry(myMetricRow) : null,
   };
 }
