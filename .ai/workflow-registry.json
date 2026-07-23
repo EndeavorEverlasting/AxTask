@@ -22,6 +22,11 @@
       "id": "axtask.local-deployment-certification.v1",
       "path": ".ai/workflows/local-deployment-certification.md",
       "description": "Disposable local production certification for a deployment candidate."
+    },
+    {
+      "id": "axtask.parallel-sprint-intake.v1",
+      "path": ".ai/workflows/parallel-sprint-intake.md",
+      "description": "Parallel sprint intake, path overlap inspection, and collision ledger generation."
     }
   ]
 }

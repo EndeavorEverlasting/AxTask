@@ -32,6 +32,15 @@
       "namingConvention": "<run-id>/validator-plan.json"
     },
     {
+      "id": "collision-ledger",
+      "pathPattern": ".ai/runs/<run-id>/collision-ledger.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "pr-collision-inspection",
+      "generation": "node scripts/ai-harness/inspect-pr-collisions.mjs --output <path>",
+      "namingConvention": "<run-id>/collision-ledger.json"
+    },
+    {
       "id": "runtime-proof",
       "pathPattern": ".ai/runs/<run-id>/runtime-proof.json",
       "tracked": false,

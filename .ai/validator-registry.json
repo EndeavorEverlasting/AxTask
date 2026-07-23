@@ -37,7 +37,7 @@
       "required": true,
       "selection": {
         "paths": [".ai/run-context.schema.json", ".ai/workflows/**", "scripts/ai-harness/validate-run-context.mjs"],
-        "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1", "axtask.failure-recovery.v1", "axtask.local-deployment-certification.v1"]
+        "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1", "axtask.failure-recovery.v1", "axtask.local-deployment-certification.v1", "axtask.parallel-sprint-intake.v1"]
       },
       "requires": ["authority", "harness"]
     },
@@ -54,11 +54,22 @@
     },
     {
       "id": "harness-tests",
-      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts",
+      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts",
       "scope": "negative, completeness, and integration contracts",
       "required": true,
       "selection": {"paths": [".ai/**", "scripts/ai-harness/**", "server/ai-harness/**", "AGENTS.md", "AGENT_GUARDRAILS.md", ".githooks/**"]},
       "requires": ["authority", "harness", "harness-infrastructure"]
+    },
+    {
+      "id": "collision-inspection",
+      "command": "node scripts/ai-harness/inspect-pr-collisions.mjs",
+      "scope": "open PR and planned sprint lane collision inspection",
+      "required": true,
+      "selection": {
+        "paths": [".ai/collision-ledger.schema.json", ".ai/workflows/parallel-sprint-intake.md", "scripts/ai-harness/inspect-pr-collisions.mjs", "server/ai-harness/collision-inspection-contract.test.ts"],
+        "workflows": ["axtask.parallel-sprint-intake.v1"]
+      },
+      "requires": ["authority", "harness"]
     },
     {"id":"release","command":"npm run release:check","scope":"feature-branch release evidence","required":true,"selection":{"always":true,"paths":["docs/**"]}},
     {"id":"typecheck","command":"npm run check","scope":"TypeScript","required":true,"selection":{"paths":["client/**","server/**","shared/**","tests/**","scripts/**/*.ts","vite.config.ts","vitest.config.ts","tsconfig.json","package.json","package-lock.json"]}},
