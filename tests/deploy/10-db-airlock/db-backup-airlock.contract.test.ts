@@ -5,6 +5,10 @@ import { describe, expect, it } from "vitest";
 const root = path.resolve(__dirname, "..", "..", "..");
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 
+function read(relativePath: string): string {
+  return fs.readFileSync(path.join(root, relativePath), "utf8");
+}
+
 describe("[10-db-airlock] command and script contract", () => {
   it("exposes required db airlock scripts", () => {
     expect(pkg.scripts["db:backup"]).toBeTruthy();
@@ -21,25 +25,26 @@ describe("[10-db-airlock] command and script contract", () => {
     expect(fs.existsSync(path.join(root, "scripts/db/pg-tools.mjs"))).toBe(true);
   });
 
-  it("loads dotenv for db airlock npm scripts", () => {
-    expect(pkg.scripts["db:backup"]).toContain("dotenv/config");
-    expect(pkg.scripts["db:backup:preflight"]).toContain("dotenv/config");
-    expect(pkg.scripts["db:restore:test"]).toContain("dotenv/config");
-    expect(pkg.scripts["db:migrate:safe"]).toContain("dotenv/config");
+  it("loads dotenv within each directly invoked db command", () => {
+    expect(read("scripts/db/backup.mjs")).toContain('import "dotenv/config"');
+    expect(read("scripts/db/preflight-backup.mjs")).toContain('import "dotenv/config"');
+    expect(read("scripts/db/restore-test.mjs")).toContain('import "dotenv/config"');
+    expect(read("scripts/apply-migrations.mjs")).toContain("dotenv/config");
+    expect(read("scripts/migration/verify-schema.mjs")).toContain("dotenv/config");
   });
 
   it("pg-tools helper resolves Windows PATH and finds manifests without bash", () => {
-    const src = fs.readFileSync(path.join(root, "scripts/db/pg-tools.mjs"), "utf8");
+    const src = read("scripts/db/pg-tools.mjs");
     expect(src).toMatch(/win32/);
     expect(src).toMatch(/shell:\s*true/);
     expect(src).toMatch(/latestDbManifest/);
-    const preflight = fs.readFileSync(path.join(root, "scripts/db/preflight-backup.mjs"), "utf8");
+    const preflight = read("scripts/db/preflight-backup.mjs");
     expect(preflight).toMatch(/latestDbManifest/);
     expect(preflight).not.toMatch(/bash/);
   });
 
   it("airlock enforces db_dump kind and skip acknowledgement", () => {
-    const src = fs.readFileSync(path.join(root, "scripts/migration-airlock.mjs"), "utf8");
+    const src = read("scripts/migration-airlock.mjs");
     expect(src).toMatch(/backupKind/);
     expect(src).toMatch(/db_dump/);
     expect(src).toMatch(/MIGRATION_AIRLOCK_SKIP_ACK/);
