@@ -31,6 +31,7 @@ export default defineConfig({
             "tools/**/*.test.{ts,tsx}",
             "scripts/**/*.test.{ts,tsx}",
             "scripts/**/*.contract.test.ts",
+            "tests/ops/**/*.test.{ts,tsx}",
           ],
           exclude: ["node_modules", "dist", "tests/deploy/**"],
         },
