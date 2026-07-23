@@ -53,7 +53,16 @@ export default function LandingPage() {
   const registerHref = useMemo(() => buildLoginHref({ register: true, next: nextForLinks }), [nextForLinks]);
 
   const featuresRef = useRef<HTMLDivElement>(null);
+  const [publicScrollShell, setPublicScrollShell] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setPublicScrollShell(document.querySelector<HTMLElement>('[data-testid="public-scroll-shell"]'));
+  }, []);
+  const publicScrollShellRef = useMemo(
+    () => ({ current: publicScrollShell }),
+    [publicScrollShell],
+  );
   const { scrollYProgress } = useScroll({
+    container: publicScrollShellRef,
     target: featuresRef,
     offset: ["start end", "end start"],
   });
