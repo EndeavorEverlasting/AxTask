@@ -1,6 +1,6 @@
 # LIT: Mobile flashing stabilization
 
-**Status:** Active stabilization note  
+**Status:** Partial implementation preserved; top-bar follow-up tracked in issue #98  
 **Incident class:** Mobile-only visual flashing during normal app use  
 **Related doc:** `docs/SCROLL_REFRESH_VISUAL_STABILITY.md`
 
@@ -8,7 +8,7 @@
 
 The reported “shaking” is flashing, not layout jitter.
 
-Desktop is mostly stable because the prior calm-mode fix protects desktop nav and main scroll surfaces. Mobile still had fixed chrome surfaces using glossy glass styling, which can participate in the calm-mode blur/reader-mask swap while the user scrolls, taps, opens nav, or triggers route changes.
+Desktop is mostly stable because the prior calm-mode fix protects desktop nav and main scroll surfaces. Mobile fixed chrome can still become unstable when translucent glass participates in the calm-mode blur/reader-mask swap while the user scrolls, taps, opens navigation, or triggers route changes.
 
 This is the same family as the earlier scroll/refresh visual stability incident: translucent glass over the Pretext aurora/chip/orb stack becomes unstable when `body[data-axtask-calm]` toggles and CSS removes expensive blur.
 
@@ -30,80 +30,66 @@ className="... axtask-nav-chrome ..."
 
 `axtask-nav-chrome` is intentionally opaque. It avoids the calm-mode glass color swap, prevents ambient chips/orbs from reading through the nav, and gives mobile surfaces a stable compositing path.
 
-## Immediate fix targets
+## Preserved implementation
 
-### 1. Mobile bottom nav
+### Mobile bottom nav
 
 File: `client/src/App.tsx`
 
-The mobile bottom nav must use:
+The mobile bottom nav uses:
 
 ```tsx
 axtask-nav-chrome
 ```
 
-instead of:
+rather than `glass-panel-glossy`, and it no longer animates off-screen based on scroll direction.
 
-```tsx
-glass-panel-glossy
-```
+### Public mobile shell
 
-This change was applied in commit `443ee6d2619a8c19b41f24732495e94e70062c13`.
+Unauthenticated pages use `public-scroll-shell` as their actual overflow root. Its scroll activity enters the shared animation budget, and landing-page parallax observes that same container rather than stale window scroll.
 
-### 2. Mobile top bar
+### Ambient layers
+
+Coarse-pointer devices avoid cursor-orb and touch-chase work. Ambient chips use transform-based positioning, and mobile landing parallax is reduced.
+
+## Pending follow-up: MobileTopBar
+
+Issue #98 owns the remaining sidebar collision.
 
 File: `client/src/components/layout/sidebar.tsx`
 
-`MobileTopBar` must also use `axtask-nav-chrome`, not `glass-panel-glossy`.
-
-Target line pattern:
+`MobileTopBar` should use `axtask-nav-chrome` rather than `glass-panel-glossy`, and its scroll-direction animation should be removed. That file also contains the newer wallet-query protections:
 
 ```tsx
-<div className="md:hidden flex items-center justify-between px-4 py-3 glass-panel-glossy rounded-none border-x-0 border-t-0 shrink-0">
+refetchInterval: false
+refetchIntervalInBackground: false
 ```
 
-Replace with:
+The stale source file must not be transplanted wholesale because doing so would revive periodic wallet polling.
 
-```tsx
-<div className="md:hidden flex items-center justify-between px-4 py-3 axtask-nav-chrome rounded-none border-x-0 border-t-0 shrink-0">
-```
-
-## Contract update required
-
-File: `client/src/index.calm-mode.contract.test.ts`
-
-Extend the existing nav chrome test so it guards all mobile chrome surfaces, not just the sidebar and sheet.
-
-Add expectations equivalent to:
+The follow-up contract should add expectations equivalent to:
 
 ```ts
-const app = fs.readFileSync(
-  path.resolve(__dirname, "App.tsx"),
-  "utf8",
-);
-expect(app).toMatch(/<nav[^>]+axtask-nav-chrome/);
-
 expect(sidebar).toMatch(/MobileTopBar[\s\S]+axtask-nav-chrome/);
 expect(sidebar).not.toMatch(/MobileTopBar[\s\S]+glass-panel-glossy/);
 ```
 
-Cold rule: if mobile fixed chrome uses glass again, the test should fail loudly.
+Those assertions intentionally remain out of the current preserved PR until issue #98 lands the implementation.
 
-## Manual verification
+## Verification
 
-Use mobile viewport or a real phone.
+Current preserved proof:
 
-1. Open AxTask in dark mode.
-2. Visit `/planner`, `/tasks`, and `/rewards`.
-3. Scroll for 10 to 15 seconds.
-4. Tap bottom nav repeatedly between routes.
-5. Open and close the mobile sidebar sheet.
-6. Watch for brightness pulses, green chip bleed-through, white flashes, or nav color snapping.
+1. Open `/` at a mobile viewport.
+2. Scroll the real `public-scroll-shell` forward and back to the same position.
+3. Confirm the footer is reachable.
+4. Confirm the same-position viewport remains visually stable after calm mode settles.
+5. Confirm the mobile bottom nav contract uses opaque chrome.
 
-Pass condition: mobile top bar, bottom nav, and sheet remain visually steady while content scrolls behind them.
+Issue #98 later adds authenticated top-bar and wallet-poll preservation proof.
 
 ## LIT lesson
 
 Do not make fixed mobile chrome pretty before making it stable.
 
-Pretext can glow behind content. Chrome must behave like steel.
+Pretext can glow behind content. Chrome must behave like steel, and collision repair must not resurrect unrelated resource regressions.
