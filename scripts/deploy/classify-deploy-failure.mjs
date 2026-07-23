@@ -15,6 +15,8 @@
  *   ENV_MISSING
  *   BUILD_FAILED
  *   ARTIFACT_MISSING
+ *   STARTUP_TTY_INTERACTIVE_PROMPT
+ *   RUNTIME_OOM
  *   STARTUP_FAILED
  *   HEALTHCHECK_FAILED
  *   SMOKE_FAILED
@@ -24,9 +26,9 @@ import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 
 /**
- * Order matters: more specific patterns first. The Neon/Postgres
- * capacity pattern is checked before the generic MIGRATION_FAILED so
- * we surface the real root cause (the reason this tool exists at all).
+ * Order matters: more specific patterns first. The Neon/Postgres capacity
+ * pattern is checked before generic migration failure, and dedicated runtime
+ * signatures are checked before generic startup/health buckets.
  */
 export const CLASSIFIERS = [
   {
@@ -81,6 +83,23 @@ export const CLASSIFIERS = [
       /dist\/index\.js not found/i,
       /Missing .*dist\/public\/assets/i,
       /build-manifest.json.*missing/i,
+    ],
+  },
+  {
+    bucket: "STARTUP_TTY_INTERACTIVE_PROMPT",
+    patterns: [
+      /Interactive prompts require a TTY terminal/i,
+      /stdin is not a TTY/i,
+    ],
+    // Avoid classifying unrelated terminal warnings as schema-startup failure.
+    confirm: [/drizzle-kit[\s\S]{0,200}push|Drizzle schema sync/i],
+  },
+  {
+    bucket: "RUNTIME_OOM",
+    patterns: [
+      /FATAL ERROR:\s*Ineffective mark-compacts near heap limit/i,
+      /Allocation failed - JavaScript heap out of memory/i,
+      /Reached heap limit Allocation failed/i,
     ],
   },
   {
