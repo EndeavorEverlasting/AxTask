@@ -1,6 +1,20 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+
+/**
+ * Return a stable, non-secret fingerprint for the database target represented
+ * by a PostgreSQL URL. Passwords, query parameters, and other credentials are
+ * deliberately excluded.
+ */
+export function databaseTargetFingerprint(databaseUrl) {
+  const parsed = new URL(databaseUrl);
+  const port = parsed.port || "5432";
+  const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+  const identity = `${parsed.hostname.toLowerCase()}:${port}/${databaseName}`;
+  return createHash("sha256").update(identity, "utf8").digest("hex");
+}
 
 /**
  * Run pg_dump / pg_restore. On Windows, shell is required so PATH .cmd shims resolve.
