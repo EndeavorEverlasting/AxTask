@@ -112,25 +112,6 @@ test("planner-like panel inner content remains visible through calm/scroll", asy
   expect(screenshot.byteLength).toBeGreaterThan(10_000);
 });
 
-
-/* ---------------------------------------------------------------------------
- * Visual-diff: calm-mode glass-panel swap fades smoothly and recovers cleanly.
- *
- * Regression we're fencing: commit 2b1120c added an opaque calm-mode fill on
- * `.glass-panel*` (and ee61c7d softened it + smoothed the transition). Without
- * the smooth transition + calibrated fills the panel SNAPS to a different
- * colour every time `data-axtask-calm` toggles (every scroll burst). After
- * scroll ends and calm clears, the panel must return to a state visually
- * indistinguishable from baseline (text/decorative AA noise only).
- *
- * We render a tiny page that uses the production `.glass-panel` and the new
- * `.axtask-calm-blur-fallback` opt-in marker, capture (a) baseline, (b) mid-
- * calm, (c) recovered-after-calm, and assert:
- *   - baseline ≈ recovered (≤ 0.5% changed pixels: AA / sub-pixel jitter only)
- *   - baseline differs from mid-calm enough that the rule is provably active
- *     (> 0.05% changed pixels) but stays bounded (< 25% changed pixels — the
- *     panel must not vanish or become a flat slab).
- * ------------------------------------------------------------------------- */
 const VISUAL_DIFF_HTML = `
   <style>
     ${indexCss}
@@ -158,7 +139,7 @@ const VISUAL_DIFF_HTML = `
     >
       <div class="panel-content">
         <h2>Marker class (bare backdrop-blur + opt-in fallback)</h2>
-        <p>Without the marker this panel would lose blur with no fill on scroll.</p>
+        <p>Without the marker this panel would lose blur with no fallback fill and appear washed out.</p>
       </div>
     </section>
   </div>
@@ -168,7 +149,6 @@ async function setCalmAndSettle(page: Page): Promise<void> {
   await page.evaluate(() => {
     document.body.setAttribute("data-axtask-calm", "1");
   });
-  /* 220 ms transition + small buffer so we sample post-fade-in, not mid-fade. */
   await page.waitForTimeout(280);
 }
 
@@ -184,42 +164,23 @@ test.describe("calm-mode glass-panel visual diff", () => {
     test(`${testId}: baseline ≈ recovered after calm window, mid-calm differs but is bounded`, async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 720 });
       await page.setContent(VISUAL_DIFF_HTML);
-      /* Tailwind's dark variant is configured via the `.dark` class on a
-       * top-level ancestor; in production it sits on <html>. The `.dark
-       * body[data-axtask-calm] .glass-panel` calm-mode selectors require
-       * `.dark` to be an ancestor of <body>, so we put it on <html>. */
       await page.evaluate(() => {
         document.documentElement.classList.add("dark");
       });
-      /* Wait an animation frame so layout/paint stabilises before baseline. */
       await page.evaluate(
-        () => new Promise<void>((r) => requestAnimationFrame(() => r())),
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
       );
 
       const baseline = await snapshotPanel(page, testId);
-
       await setCalmAndSettle(page);
       const midCalm = await snapshotPanel(page, testId);
-
       await clearCalmAndSettle(page);
       const recovered = await snapshotPanel(page, testId);
 
       const recoveredDiff = diffPngBuffers(baseline, recovered);
       const recoveredRatio = recoveredDiff.changed / recoveredDiff.total;
-
-      /* Recovery: only AA / sub-pixel jitter is allowed. If a colour swap
-       * leaks past the calm window this ratio shoots up — that's the
-       * "panels change colour after a scroll" regression we're fencing. */
       expect(recoveredRatio, `recovered vs baseline diff ratio for ${testId}`).toBeLessThan(0.005);
 
-      /* Mid-calm: the calm-mode background-color rule firing is asserted at
-       * the source-text level by `index.calm-mode.contract.test.ts`; here we
-       * verify the panel still shows internal structure (text legible, not a
-       * flat slab) by comparing luminance variance against baseline. Raw
-       * `@apply` directives don't resolve when the stylesheet is loaded as
-       * a string in this harness, so we deliberately don't bound the
-       * mid-calm pixel diff — synthetic baseline/calm fills can be very
-       * close in tone over the dark gradient. */
       const baselineVar = luminanceVariance(baseline);
       const midCalmVar = luminanceVariance(midCalm);
       expect(
@@ -228,4 +189,60 @@ test.describe("calm-mode glass-panel visual diff", () => {
       ).toBeGreaterThan(0.3 * baselineVar);
     });
   }
+});
+
+test.describe.serial("mobile landing page scroll", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.locator("header").waitFor({ state: "visible", timeout: 15_000 });
+  });
+
+  test("/ scrolls fully on a mobile viewport", async ({ page }) => {
+    const shell = page.locator('[data-testid="public-scroll-shell"]');
+    const dimensions = await shell.evaluate((element) => ({
+      scrollHeight: element.scrollHeight,
+      clientHeight: (element as HTMLElement).clientHeight,
+    }));
+    expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+
+    await shell.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    const footer = page.locator("footer");
+    await expect(footer).toBeInViewport();
+    await expect(footer).toContainText(/AxTask/);
+  });
+
+  test("real public shell returns to a visually stable viewport after direction reversal", async ({ page }) => {
+    const shell = page.locator('[data-testid="public-scroll-shell"]');
+    await shell.evaluate((element) => {
+      element.scrollTop = 260;
+    });
+    await page.waitForTimeout(420);
+
+    const baselineScrollTop = await shell.evaluate((element) => element.scrollTop);
+    const baseline = await page.screenshot();
+
+    await shell.evaluate((element) => {
+      element.scrollTop += 520;
+    });
+    await page.waitForTimeout(320);
+    await shell.evaluate((element, target) => {
+      element.scrollTop = Number(target);
+    }, baselineScrollTop);
+    await page.waitForTimeout(420);
+
+    const returnedScrollTop = await shell.evaluate((element) => element.scrollTop);
+    expect(Math.abs(returnedScrollTop - baselineScrollTop)).toBeLessThanOrEqual(1);
+
+    const afterReversal = await page.screenshot();
+    const diff = diffPngBuffers(baseline, afterReversal);
+    const ratio = diff.changed / diff.total;
+    expect(
+      ratio,
+      `production-shell reversal produced ${(ratio * 100).toFixed(2)}% pixel diff (threshold 3%)`,
+    ).toBeLessThan(0.03);
+  });
 });

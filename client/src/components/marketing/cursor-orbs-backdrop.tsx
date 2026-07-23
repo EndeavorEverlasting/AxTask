@@ -24,6 +24,14 @@ export function CursorOrbsBackdrop() {
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    const isCoarsePointer =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(pointer: coarse)").matches;
+
+    // Skip heavy rAF orb animation on coarse-pointer devices.
+    if (isCoarsePointer) return;
+
     const mouse = { x: -1, y: -1 };
     const pos = ORB_DEFS.map((o) => ({ x: o.baseX, y: o.baseY }));
     let t = 0;
