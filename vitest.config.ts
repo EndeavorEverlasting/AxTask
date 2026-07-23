@@ -26,7 +26,12 @@ export default defineConfig({
           name: "server",
           environment: "node",
           globals: true,
-          include: ["server/**/*.test.{ts,tsx}", "tools/**/*.test.{ts,tsx}"],
+          include: [
+            "server/**/*.test.{ts,tsx}",
+            "tools/**/*.test.{ts,tsx}",
+            "scripts/**/*.test.{ts,tsx}",
+            "scripts/**/*.contract.test.ts",
+          ],
           exclude: ["node_modules", "dist", "tests/deploy/**"],
         },
       },
