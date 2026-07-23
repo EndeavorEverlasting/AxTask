@@ -130,9 +130,12 @@ trail), and `archetype_rollup_daily` + `archetype_markov_daily`
 - [`docs/DEV_DATABASE_AND_SCHEMA.md`](DEV_DATABASE_AND_SCHEMA.md) — how
   migrations, `apply-migrations.mjs`, and drizzle-kit fit together.
 - [`render.yaml`](../render.yaml) — Render service config
-  (`autoDeploy: true`, `healthCheckPath: /ready`). With autoDeploy on,
-  every push to the deploy branch ships, and the only thing between the
-  push and a live migration is the capacity gate wired at the top of
-  `scripts/production-start.mjs`. If you ever set `autoDeploy: false`
+  (`autoDeploy: true`, `healthCheckPath: /health`). Render's routine platform
+  probe must use `/health` so process liveness does not create unnecessary
+  database traffic. `/ready` remains the explicit database-readiness endpoint
+  for operator or orchestration checks that intentionally verify PostgreSQL.
+  With autoDeploy on, every push to the deploy branch ships, and the only thing
+  between the push and a live migration is the capacity gate wired at the top
+  of `scripts/production-start.mjs`. If you ever set `autoDeploy: false`
   (e.g. a migration freeze window), update the contract test in
   `tests/deploy/06-health/health-contract.test.ts` to match.
