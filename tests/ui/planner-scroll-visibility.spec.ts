@@ -112,24 +112,8 @@ test("planner-like panel inner content remains visible through calm/scroll", asy
   expect(screenshot.byteLength).toBeGreaterThan(10_000);
 });
 
-
 /* ---------------------------------------------------------------------------
  * Visual-diff: calm-mode glass-panel swap fades smoothly and recovers cleanly.
- *
- * Regression we're fencing: commit 2b1120c added an opaque calm-mode fill on
- * `.glass-panel*` (and ee61c7d softened it + smoothed the transition). Without
- * the smooth transition + calibrated fills the panel SNAPS to a different
- * colour every time `data-axtask-calm` toggles (every scroll burst). After
- * scroll ends and calm clears, the panel must return to a state visually
- * indistinguishable from baseline (text/decorative AA noise only).
- *
- * We render a tiny page that uses the production `.glass-panel` and the new
- * `.axtask-calm-blur-fallback` opt-in marker, capture (a) baseline, (b) mid-
- * calm, (c) recovered-after-calm, and assert:
- *   - baseline ≈ recovered (≤ 0.5% changed pixels: AA / sub-pixel jitter only)
- *   - baseline differs from mid-calm enough that the rule is provably active
- *     (> 0.05% changed pixels) but stays bounded (< 25% changed pixels — the
- *     panel must not vanish or become a flat slab).
  * ------------------------------------------------------------------------- */
 const VISUAL_DIFF_HTML = `
   <style>
@@ -168,7 +152,6 @@ async function setCalmAndSettle(page: Page): Promise<void> {
   await page.evaluate(() => {
     document.body.setAttribute("data-axtask-calm", "1");
   });
-  /* 220 ms transition + small buffer so we sample post-fade-in, not mid-fade. */
   await page.waitForTimeout(280);
 }
 
@@ -184,42 +167,23 @@ test.describe("calm-mode glass-panel visual diff", () => {
     test(`${testId}: baseline ≈ recovered after calm window, mid-calm differs but is bounded`, async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 720 });
       await page.setContent(VISUAL_DIFF_HTML);
-      /* Tailwind's dark variant is configured via the `.dark` class on a
-       * top-level ancestor; in production it sits on <html>. The `.dark
-       * body[data-axtask-calm] .glass-panel` calm-mode selectors require
-       * `.dark` to be an ancestor of <body>, so we put it on <html>. */
       await page.evaluate(() => {
         document.documentElement.classList.add("dark");
       });
-      /* Wait an animation frame so layout/paint stabilises before baseline. */
       await page.evaluate(
-        () => new Promise<void>((r) => requestAnimationFrame(() => r())),
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
       );
 
       const baseline = await snapshotPanel(page, testId);
-
       await setCalmAndSettle(page);
       const midCalm = await snapshotPanel(page, testId);
-
       await clearCalmAndSettle(page);
       const recovered = await snapshotPanel(page, testId);
 
       const recoveredDiff = diffPngBuffers(baseline, recovered);
       const recoveredRatio = recoveredDiff.changed / recoveredDiff.total;
-
-      /* Recovery: only AA / sub-pixel jitter is allowed. If a colour swap
-       * leaks past the calm window this ratio shoots up — that's the
-       * "panels change colour after a scroll" regression we're fencing. */
       expect(recoveredRatio, `recovered vs baseline diff ratio for ${testId}`).toBeLessThan(0.005);
 
-      /* Mid-calm: the calm-mode background-color rule firing is asserted at
-       * the source-text level by `index.calm-mode.contract.test.ts`; here we
-       * verify the panel still shows internal structure (text legible, not a
-       * flat slab) by comparing luminance variance against baseline. Raw
-       * `@apply` directives don't resolve when the stylesheet is loaded as
-       * a string in this harness, so we deliberately don't bound the
-       * mid-calm pixel diff — synthetic baseline/calm fills can be very
-       * close in tone over the dark gradient. */
       const baselineVar = luminanceVariance(baseline);
       const midCalmVar = luminanceVariance(midCalm);
       expect(
@@ -228,4 +192,92 @@ test.describe("calm-mode glass-panel visual diff", () => {
       ).toBeGreaterThan(0.3 * baselineVar);
     });
   }
+});
+
+test.describe.serial("mobile landing page scroll", () => {
+  test("/ scrolls fully on a mobile viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.locator("header").waitFor({ state: "visible", timeout: 15_000 });
+
+    const shell = page.locator('[data-testid="public-scroll-shell"]');
+    const dimensions = await shell.evaluate((element) => ({
+      scrollHeight: element.scrollHeight,
+      clientHeight: (element as HTMLElement).clientHeight,
+    }));
+    expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+
+    await shell.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    const footer = page.locator("footer");
+    await expect(footer).toBeInViewport();
+    await expect(footer).toContainText(/AxTask/);
+  });
+});
+
+const MOBILE_SHELL_HTML = `
+  <style>
+    ${indexCss}
+    html, body { margin: 0; padding: 0; height: 100%; }
+    body { background: #0b1020; color: #e5e7eb; font-family: Inter, system-ui, sans-serif; }
+    #root { height: 100%; }
+    .mobile-shell { height: 100%; display: flex; flex-direction: column; }
+    .scroll-root { flex: 1; overflow-y: auto; padding: 16px; }
+    .pad { height: 800px; }
+    .nav { position: fixed; bottom: 0; left: 0; right: 0; height: 56px; z-index: 50; }
+    .content { padding-bottom: 72px; }
+    .card { border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; background: rgba(16,24,39,0.72); margin-bottom: 16px; padding: 12px; }
+  </style>
+  <div id="root">
+    <div class="mobile-shell">
+      <div class="scroll-root" data-surface="calm" id="mobile-scroll-root">
+        <div class="content">
+          <div class="pad"></div>
+          <div class="card axtask-stable-panel" data-testid="mobile-content-panel">
+            <p>Main content panel</p>
+          </div>
+          <div class="pad"></div>
+        </div>
+      </div>
+      <div class="nav axtask-nav-chrome" data-testid="bottom-nav">
+        <span style="display:flex;justify-content:space-around;align-items:center;height:100%;padding:0 16px;">
+          <span>Home</span><span>Tasks</span><span>Calendar</span>
+        </span>
+      </div>
+    </div>
+  </div>
+`;
+
+test("mobile scroll direction reversal does not produce visible flash", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setContent(MOBILE_SHELL_HTML);
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+
+  const panel = page.getByTestId("mobile-content-panel");
+  await expect(panel).toBeVisible();
+
+  const scrollRoot = page.locator("#mobile-scroll-root");
+  await scrollRoot.evaluate((element) => {
+    element.scrollTop = 100;
+  });
+  await page.waitForTimeout(150);
+  const baseline = await page.screenshot();
+
+  await scrollRoot.evaluate((element) => {
+    element.scrollTop = 400;
+  });
+  await page.waitForTimeout(150);
+  await scrollRoot.evaluate((element) => {
+    element.scrollTop = 100;
+  });
+  await page.waitForTimeout(150);
+  const afterReversal = await page.screenshot();
+
+  const diff = diffPngBuffers(baseline, afterReversal);
+  const ratio = diff.changed / diff.total;
+  expect(
+    ratio,
+    `scroll reversal produced ${(ratio * 100).toFixed(2)}% pixel diff (threshold 1%)`,
+  ).toBeLessThan(0.01);
 });
