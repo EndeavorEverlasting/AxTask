@@ -1,23 +1,26 @@
 # Scheduled and background resource controls
 
-Canonical reference for in-process workers, Render cron jobs, and operator-triggered background work that touches Neon compute or storage. The production posture is **off unless earned**: scheduled work and DB-touching polls must justify their cost before re-enable.
+Canonical reference for in-process workers, Render cron jobs, browser polling, and operator-triggered background work that touches Neon compute or storage. The production posture is **off unless earned**: scheduled work and DB-touching polls must justify their cost before re-enable.
 
 Related: [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) §9, [DB_RETENTION_POLICY.md](DB_RETENTION_POLICY.md), [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md), [SCHEMA_EVOLUTION_PIPELINE.md](SCHEMA_EVOLUTION_PIPELINE.md).
 
 ## Production defaults (`render.yaml` web service)
 
-After the scheduled-resource-hardening sprint, committed Render env sets:
+After the recovery and scheduled-resource-hardening train, committed Render configuration sets:
 
-| Flag | Value |
-|------|-------|
+| Control | Value |
+|---------|-------|
+| Render liveness | `/health` (DB-free) |
+| Explicit DB readiness | `/ready` (manual/deploy smoke only) |
 | `DISABLE_REMINDER_DISPATCH` | `true` |
 | `DISABLE_ARCHETYPE_ROLLUP` | `true` |
 | `DISABLE_DB_SIZE_SNAPSHOT` | `true` |
 | `DISABLE_OPS_SNAPSHOT` | `true` |
 | `SKIP_DB_PUSH_ON_START` | `true` |
+| `SECURITY_API_REQUEST_LOGGING` | unset/false |
 | `BACKUP_*_ENABLED` | unset → workers off |
 
-In-process **retention prune** stays **on** (table growth defense). Render **nightly cron** retention stays **on** unless `DISABLE_DB_RETENTION_CRON=true` is set on the cron service.
+In-process **retention prune** stays **on** as table-growth defense. Render **nightly cron** retention stays **on** unless `DISABLE_DB_RETENTION_CRON=true` is set on the cron service.
 
 ---
 
@@ -25,47 +28,51 @@ In-process **retention prune** stays **on** (table growth defense). Render **nig
 
 | Feature | Default production | Env flag(s) | Resource | Why mitigated | Re-enable safely | Verification |
 |---------|-------------------|-------------|----------|---------------|------------------|--------------|
-| Render liveness probe | `/ready` (DB ping) | `healthCheckPath` in `render.yaml` | Neon connections per check | Wakes DB on every rollout/health poll | Merge PR #68: point liveness at `/health`; keep `/ready` for explicit readiness only | Render Events → probe logs; count `/ready` vs `/health` |
-| `GET /ready` | Mounted | — | `SELECT 1` per call | Readiness, not liveness | Use for deploy rollback / manual checks only after `/health` liveness | `curl -sS $BASE/ready` |
+| Render liveness probe | `/health` | `healthCheckPath` in `render.yaml` | No Neon query | Platform liveness must not wake the DB | Keep `/health`; never substitute `/ready` for routine liveness | Deploy contract plus Render probe logs |
+| `GET /ready` | Mounted, explicit | — | `SELECT 1` per call | Readiness, not liveness | Use for deploy smoke and operator DB checks only | `curl -sS $BASE/ready` |
 | `GET /health` | Mounted, DB-free | — | None | Cheap process liveness | Already safe on `main` | `npm run test:deploy:health` |
-| Drizzle startup push | **Skipped** on Render | `SKIP_DB_PUSH_ON_START=true`, `AXTASK_ALLOW_DB_PUSH_ON_START` | Schema churn, interactive failures | Runtime schema mutation unsafe | Never on production startup; use `migrations/*.sql` + `apply-migrations.mjs` | Boot log from `production-start.mjs`: push skipped |
-| SQL migrations | On boot | `DATABASE_URL` | DDL + brief compute | Required for schema evolution | Review migration in PR; run `npm run db:migrate` locally first | `[migrations] applied` in startup logs |
-| Security events (`api_request`) | **On** (1 row/API) | — (follow-up PR) | DB writes, table growth | Unbounded telemetry pressure | Defer to security-log volume PR: sampling/caps | Admin storage tab row counts |
-| Security logs (audit) | On (low volume) | — | DB writes | Admin/auth audit trail | Keep; ensure retention cron healthy | `GET /api/admin/security-events` |
-| Console `/api` access logs | On | — | Log volume | Render log ingest cost | No decorative fields; no bodies | Stdout: `{method} {path} {status} in {ms}ms` |
-| Ops stdout snapshot ticker | **Off** when flag set | `DISABLE_OPS_SNAPSHOT=true`, `OPS_SNAPSHOT_INTERVAL_MS` | Stdout JSON every 24h (PR #68) | Decorative unless tied to alerts | Enable after PR #68 merges + budget review | Log: `event":"axtask.ops.snapshot"` |
-| Usage DB snapshot (`usage_snapshots`) | **Off** (manual capture gated) | `DISABLE_OPS_SNAPSHOT=true` | DB insert on admin action | Operator-triggered writes | Set flag `false`; capture via admin UI once, verify row | `POST /api/admin/usage/capture` → 201 or 503 |
-| DB-size snapshot (`db_size_snapshots`) | **Off** on Render | `DISABLE_DB_SIZE_SNAPSHOT=true` | `pg_database_size` + domain scan daily | DB wakeups on idle web instances | Enable when storage trend needed; keep retention prune on | Boot: `[db-size-snapshot] disabled (...)` or tick log |
-| In-process retention prune | **On** | `DISABLE_RETENTION_PRUNE=true` | Daily DELETE sweeps | Prevents 512 MB / Neon ceiling surprises | Keep on in production; tune interval only if needed | `[retention-prune]` in logs |
-| Render cron retention | **On** (04:15 UTC) | `DISABLE_DB_RETENTION_CRON=true` on cron service | Nightly DELETE batch | Justified cleanup; broader table set than in-process worker | Disable only during incident; re-enable after window alignment PR | `[retention] done. rows_deleted=` |
-| Reminder dispatch | **Off** on Render | `DISABLE_REMINDER_DISPATCH=true`, `REMINDER_DISPATCH_INTERVAL_MS`, `REMINDER_DISPATCH_MAX_PER_TICK` | DB scan every 60s default | Continuous scheduled DB work | Enable when push budget proven; set interval ≥5m initially | `[reminders] dispatch disabled (...)` or tick summary |
-| Archetype rollup | **Off** on Render | `DISABLE_ARCHETYPE_ROLLUP=true`, `ARCHETYPE_ROLLUP_INTERVAL_MS` | Hourly aggregation DELETE+INSERT | Scheduled analytics compute | Enable when empathy analytics needed; verify salt set | `[archetype-rollup] disabled (...)` |
-| Archetype poll scheduler | On unless `0` | `AXTASK_ARCHETYPE_POLL_SCHEDULER=0` | Startup poll window ensure | Low frequency | Disable if community polls not used | Engine no-op in tests |
-| Adherence interventions cron | **Off** | `ADHERENCE_INTERVENTIONS_ENABLED=true` | Periodic user evaluation | Opt-in only | Enable with VAPID configured | `[adherence]` tick logs |
-| Backup tick scheduler | **Off** | `BACKUP_SCHEDULER_ENABLED=true` | User pagination + backup I/O | Heavy compute/storage | Enable one mode only; see BACKUP_AND_RESTORE.md | Worker start log |
-| Backup PG queue worker | **Off** | `BACKUP_QUEUE_WORKER_ENABLED=true` | 30s poll default | Continuous DB poll | Same | Queue worker log |
-| Backup BullMQ worker | **Off** | `BACKUP_BULLMQ_ENABLED=true` | Redis + backup I/O | Requires Redis | Same | BullMQ worker log |
-| Sidebar wallet poll | On `main` / fixed PR #70 | — (client) | Browser-driven `GET /api/gamification/wallet` every 30s | Global idle-tab DB load | Merge PR #70 | Network tab: no 30s wallet interval |
-| Briefing badge poll | On | — (client, follow-up) | `GET /api/planner/briefing` every 60s | Global DB load | Separate client PR | Network tab |
-| Adherence nudges poll | On when interventions exist | — (client, follow-up) | 60s interventions fetch | Browser-driven DB | Separate client PR | Network tab |
+| Drizzle startup push | **Skipped** on Render | `SKIP_DB_PUSH_ON_START=true`, `AXTASK_ALLOW_DB_PUSH_ON_START` | Schema churn, interactive failures | Runtime schema mutation is unsafe | Never on production startup; use `migrations/*.sql` + `apply-migrations.mjs` | Boot log from `production-start.mjs`: push skipped |
+| SQL migrations | On boot when pending | `DATABASE_URL` | DDL + brief compute | Required for versioned schema evolution | Review migration in PR; run `npm run db:migrate` locally first | `[migrations] applied` or no-pending log |
+| Security events (`api_request`) | **Off** | `SECURITY_API_REQUEST_LOGGING` unset/false plus migration `9999` DB guard | No normal per-request security-event write | One row per API request caused unbounded telemetry pressure | Do not enable in production; use bounded stdout/route attribution instead | `server/api-request-logging.contract.test.ts`; migration `9999` present |
+| Security logs (meaningful audit) | On, retained | — | Bounded DB writes | Admin/auth/security audit trail | Keep; ensure retention remains healthy | `GET /api/admin/security-events` and retention logs |
+| Console `/api` access logs | On | — | Render log volume | Needed for request diagnosis, but can become noisy | Keep normalized method/path/status/duration only; no bodies or secrets | Sanitized stdout request lines |
+| Ops stdout snapshot ticker | **Off** | `DISABLE_OPS_SNAPSHOT=true`, `OPS_SNAPSHOT_INTERVAL_MS` | Periodic stdout | Decorative unless tied to an operator decision | Enable one bounded interval only after budget review | `event":"axtask.ops.snapshot"` absent while disabled |
+| Usage DB snapshot (`usage_snapshots`) | Manual/explicit | `DISABLE_OPS_SNAPSHOT=true` where applicable | DB insert on operator action | Avoid automatic telemetry accumulation | Capture only from an explicit admin action and validate resulting row | Admin usage capture response |
+| DB-size snapshot (`db_size_snapshots`) | **Off** on Render | `DISABLE_DB_SIZE_SNAPSHOT=true` | `pg_database_size` + domain scan | Scheduled DB wakeups on idle web instances | Enable temporarily when storage trend evidence is required | Boot: `[db-size-snapshot] disabled (...)` |
+| In-process retention prune | **On** | `DISABLE_RETENTION_PRUNE=true` | Daily DELETE sweeps | Prevents append-only table growth | Keep on in production; tune interval only with evidence | `[retention-prune]` log |
+| Render cron retention | **On** (04:15 UTC) | `DISABLE_DB_RETENTION_CRON=true` on cron service | Nightly DELETE batch and service wake | Justified cleanup with an explicit schedule | Disable only during an incident or maintenance conflict | `[retention] done. rows_deleted=` |
+| Reminder dispatch | **Off** on Render | `DISABLE_REMINDER_DISPATCH=true`, `REMINDER_DISPATCH_INTERVAL_MS`, `REMINDER_DISPATCH_MAX_PER_TICK` | Repeated DB scan | Continuous scheduled DB work | Enable one feature at a time with interval ≥5m and a 24h budget observation | `[reminders] dispatch disabled (...)` |
+| Archetype rollup | **Off** on Render | `DISABLE_ARCHETYPE_ROLLUP=true`, `ARCHETYPE_ROLLUP_INTERVAL_MS` | Periodic aggregation and writes | Scheduled analytics compute | Enable only when the feature is actively needed and budgeted | `[archetype-rollup] disabled (...)` |
+| Archetype poll scheduler | On unless `0` | `AXTASK_ARCHETYPE_POLL_SCHEDULER=0` | Startup schedule ensure | Low frequency but still optional | Disable when community polls are unused | Engine no-op contract/tests |
+| Adherence interventions cron | **Off** | `ADHERENCE_INTERVENTIONS_ENABLED=true` | Periodic user evaluation | Opt-in scheduled feature | Enable only with active product use and VAPID configured | `[adherence]` tick logs |
+| Backup tick scheduler | **Off** | `BACKUP_SCHEDULER_ENABLED=true` | User pagination + backup I/O | Heavy compute/storage | Enable one backup mode only; see `BACKUP_AND_RESTORE.md` | Worker start log |
+| Backup PG queue worker | **Off** | `BACKUP_QUEUE_WORKER_ENABLED=true` | Continuous DB queue poll | Constant DB activity | Enable only with a proven queue workload | Queue worker log |
+| Backup BullMQ worker | **Off** | `BACKUP_BULLMQ_ENABLED=true` | Redis + backup I/O | External service and compute cost | Enable only when Redis-backed mode is selected | BullMQ worker log |
+| Sidebar wallet poll | **Off** on `main` | Query config | Browser-driven wallet reads | Global idle-tab DB load | Keep mutation invalidation and ordinary staleness | `sidebar.wallet-poll.test.ts`; no 30s Network interval |
+| Briefing badge poll | On | Client follow-up | `GET /api/planner/briefing` every 60s | Global browser-driven DB load | Separate bounded client PR; hide-tab gate or manual refresh | Network observation plus route attribution |
+| Adherence nudges poll | On when mounted | Client follow-up | Interventions fetch every 60s | Browser-driven DB work | Separate bounded client PR; skip when hidden | Network observation plus route attribution |
 
 ---
 
-## Re-enable checklist (operator)
+## Re-enable checklist
 
-1. Confirm Neon compute budget and current `usage_snapshots` / `security_events` row counts.
-2. Enable **one** feature at a time; watch Render + Neon metrics for 24h.
-3. Prefer longer intervals before removing disable flags entirely.
+1. Confirm Neon compute budget and current table-growth evidence.
+2. Enable **one** scheduled feature at a time and observe it for at least 24 hours.
+3. Prefer longer intervals before removing a disable flag.
 4. Never re-enable Drizzle push on production startup.
-5. After PR #68 merges, switch Render `healthCheckPath` to `/health` before re-enabling heavy background work.
+5. Keep Render liveness on `/health`; use `/ready` only for explicit DB readiness.
+6. Preserve migration `9999` and keep `SECURITY_API_REQUEST_LOGGING` unset or false.
 
 ---
 
-## PR stack (do not collapse)
+## Recovery and salvage map
 
-| PR | Role |
-|----|------|
-| #68 | Visibility: `/health` liveness, route attribution, ops snapshot ticker, usage truth |
-| #70 | Client: sidebar wallet 30s poll removal |
-| Scheduled resource hardening | This doc + env gates + `render.yaml` disables |
-| Future | Security log volume (`api_request` caps, retention window alignment) |
+| Work | Status and role |
+|------|-----------------|
+| PR #72 | Merged application-side `api_request` logging gate plus migration `9999` containment |
+| PR #73 | Merged scheduled worker and snapshot resource controls |
+| PR #74 | Merged sidebar wallet interval removal |
+| DB-free Render liveness | Current bounded floor repair: `healthCheckPath: /health` |
+| PR #68 | Draft, non-mergeable, quarantined salvage source; never merge wholesale |
+| Future browser work | Briefing and adherence polling mitigation |
+| Future observability | Bounded runtime memory diagnostics and deploy-failure classification |
