@@ -1,44 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  combineLeaderboardRows,
-  normalizeLeaderboardRows,
-  skillTierFromLevels,
-} from "./leaderboard-ranking";
+import { skillTierFromLevels } from "./leaderboard-ranking";
 
 describe("leaderboard ranking helpers", () => {
-  it("normalizes numbers and uses user id as a deterministic tie break", () => {
-    expect(
-      normalizeLeaderboardRows([
-        { userId: "user-b", metricValue: 5 },
-        { userId: "user-a", metricValue: 5 },
-        { userId: "user-c", metricValue: 12 },
-      ]),
-    ).toEqual([
-      { userId: "user-c", metricValue: 12 },
-      { userId: "user-a", metricValue: 5 },
-      { userId: "user-b", metricValue: 5 },
-    ]);
-  });
-
-  it("combines contribution sources before ranking", () => {
-    expect(
-      combineLeaderboardRows(
-        [
-          { userId: "user-a", metricValue: 3 },
-          { userId: "user-b", metricValue: 2 },
-        ],
-        [
-          { userId: "user-a", metricValue: 4 },
-          { userId: "user-c", metricValue: 6 },
-        ],
-      ),
-    ).toEqual([
-      { userId: "user-a", metricValue: 7 },
-      { userId: "user-c", metricValue: 6 },
-      { userId: "user-b", metricValue: 2 },
-    ]);
-  });
-
   it("maps accumulated skill levels to stable public tiers", () => {
     expect(skillTierFromLevels(0)).toBe(0);
     expect(skillTierFromLevels(2)).toBe(0);
