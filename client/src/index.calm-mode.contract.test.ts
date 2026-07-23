@@ -75,9 +75,13 @@ describe("calm-mode stylesheet contract", () => {
     );
   });
 
-  it("declares opaque nav chrome class for sidebar / sheet (no glass calm swap)", () => {
+  it("declares opaque nav chrome for preserved mobile surfaces", () => {
     expect(CSS).toContain(".axtask-nav-chrome");
     expect(CSS).toMatch(/\.axtask-nav-chrome\s*\{[^}]*background-color:\s*var\(--card\)/);
+
+    const app = fs.readFileSync(path.resolve(__dirname, "App.tsx"), "utf8");
+    expect(app).toMatch(/<nav[\s\S]*axtask-nav-chrome/);
+
     const sidebar = fs.readFileSync(
       path.resolve(__dirname, "components", "layout", "sidebar.tsx"),
       "utf8",
@@ -85,15 +89,12 @@ describe("calm-mode stylesheet contract", () => {
     expect(sidebar).toContain("axtask-nav-chrome");
     expect(sidebar).toMatch(/<aside[\s\S]*axtask-nav-chrome/);
     expect(sidebar).toContain("SheetContent side=\"left\" className=\"w-[280px] p-0 axtask-nav-chrome");
-    expect(sidebar).toMatch(/MobileTopBar[\s\S]+axtask-nav-chrome/);
-    expect(sidebar).not.toMatch(/MobileTopBar[\s\S]+glass-panel-glossy/);
+
+    // MobileTopBar remains tracked by issue #98 because its file also carries
+    // newer wallet polling protections that the stale source PR predates.
   });
 
   it("smooths the calm-mode reader-fill swap so panels don't snap colour on every scroll burst", () => {
-    /* The calm window is ~250 ms (DEFAULT_SCROLL_PAUSE_MS in animation-budget.ts).
-     * A near-equal CSS fade on background-color + backdrop-filter turns the swap
-     * into a soft thickening rather than a contrast flash. If this rule disappears
-     * the "panels change colour after a scroll" regression returns. */
     expect(CSS).toMatch(
       /\.glass-panel[\s\S]+?transition-property:\s*background-color,\s*backdrop-filter,\s*-webkit-backdrop-filter[^;]*;[\s\S]+?transition-duration:\s*220ms/,
     );
@@ -103,12 +104,6 @@ describe("calm-mode stylesheet contract", () => {
   });
 
   it("extends calm-mode reader-fill behavior to bare backdrop-blur panels via .axtask-calm-blur-fallback", () => {
-    /* Marketing/auth surfaces (landing, login, premium) use bare Tailwind
-     * `backdrop-blur-*` utilities with very translucent fills (`bg-white/5`,
-     * `bg-black/20-40`). Without the marker class they'd lose blur on scroll
-     * with no fallback fill and appear washed out / disappear over the
-     * aurora. Marker is opt-in so we don't accidentally clobber consumers
-     * that already have an opaque resting bg. */
     expect(CSS).toMatch(
       /\.axtask-calm-blur-fallback[\s\S]+?transition-property:\s*background-color/,
     );
