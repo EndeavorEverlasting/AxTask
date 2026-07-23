@@ -60,7 +60,7 @@ for (const requirement of [
   "Set-Location -LiteralPath $RepoPath",
   "Start-ProviderRoutedGnhfSprint.ps1",
   "Install-ProviderRoutedGnhf.ps1",
-  "-RepairControlPlane",
+  "[switch]$RepairControlPlane",
   "-Model $Model",
   "-MaxIterations $MaxIterations",
   "-MaxTokens $MaxTokens",
