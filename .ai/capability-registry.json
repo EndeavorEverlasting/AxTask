@@ -20,14 +20,14 @@
       "id": "pr-collision-inspection",
       "name": "PR comparison and collision inspection",
       "canonicalOwner": "integration-coordination",
-      "activation": "Two or more active branches or pull requests touch a shared or high-risk surface.",
-      "description": "Compare open pull requests to current main, identify shared surfaces, and rank merge or rebuild paths.",
-      "plannedCommand": "node scripts/ai-harness/inspect-repo.mjs --pr-collision",
-      "outputs": [".ai/runs/<run-id>/collision-ledger.json"],
-      "guardrails": ["no branch mutation", "do not infer local worktree state from GitHub alone"],
-      "tests": ["planned with the executable capability"],
-      "proofLevel": "planned",
-      "status": "planned"
+      "activation": "Two or more active branches, pull requests, or planned sprint lanes touch a shared or high-risk surface.",
+      "description": "Inspect open pull requests and planned sprint ownership against base main, identify shared surfaces, and produce a deterministic collision ledger.",
+      "command": "node scripts/ai-harness/inspect-pr-collisions.mjs",
+      "outputs": ["stdout", ".ai/runs/<run-id>/collision-ledger.json"],
+      "guardrails": ["no branch mutation", "do not infer local worktree state from GitHub alone", "sanitize credentials and tokens"],
+      "tests": ["server/ai-harness/collision-inspection-contract.test.ts"],
+      "proofLevel": "contract",
+      "status": "available"
     },
     {
       "id": "validator-selection",

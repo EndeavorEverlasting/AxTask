@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "schemaId": "axtask.collision-ledger.v1",
+  "required": [
+    "schemaVersion",
+    "authorityRef",
+    "ledgerId",
+    "baseRef",
+    "baseSha",
+    "inspectedAt",
+    "lanes",
+    "collisions",
+    "degradedMode",
+    "degradedReason",
+    "overallRisk"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer" },
+    "authorityRef": { "type": "string" },
+    "ledgerId": { "type": "string" },
+    "baseRef": { "type": "string" },
+    "baseSha": { "type": "string" },
+    "inspectedAt": { "type": "string" },
+    "lanes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["laneId", "branch", "source", "ownedPaths"],
+        "properties": {
+          "laneId": { "type": "string" },
+          "branch": { "type": "string" },
+          "prNumber": { "type": ["number", "null"] },
+          "source": { "type": "string", "enum": ["local", "github-pr", "planned-sprint"] },
+          "ownedPaths": { "type": "array", "items": "string" },
+          "changedPaths": { "type": "array", "items": "string" }
+        }
+      }
+    },
+    "collisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["collisionId", "riskRank", "overlappingPaths", "lanesInvolved", "recommendedAction", "evidenceSource"],
+        "properties": {
+          "collisionId": { "type": "string" },
+          "riskRank": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "overlappingPaths": { "type": "array", "items": "string" },
+          "lanesInvolved": { "type": "array", "items": "string" },
+          "recommendedAction": { "type": "string" },
+          "evidenceSource": { "type": "string" }
+        }
+      }
+    },
+    "degradedMode": { "type": "boolean" },
+    "degradedReason": { "type": ["string", "null"] },
+    "overallRisk": { "type": "string", "enum": ["clean", "low", "medium", "high", "blocking"] }
+  },
+  "runtimePolicy": {
+    "tracked": false,
+    "defaultDirectory": ".ai/runs",
+    "secretsAllowed": false,
+    "rawLogsAllowed": false
+  }
+}

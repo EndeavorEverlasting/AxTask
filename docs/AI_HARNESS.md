@@ -19,6 +19,7 @@ AxTask's repo-local harness is a control plane for repository agents. It is not 
 - `.ai/ownership-rules.json`: single-owner policy for shared surfaces
 - `.ai/skills/`: scoped repository-intake, PR-closeout, failure-recovery, harness-maintenance, and runtime-proof procedures
 - `scripts/ai-harness/inspect-repo.mjs`: read-only evidence snapshot
+- `scripts/ai-harness/inspect-pr-collisions.mjs`: open PR comparison and planned sprint lane collision inspection
 - `scripts/ai-harness/select-validators.mjs`: read-only validator-plan generation
 - `scripts/ai-harness/validate-harness.mjs`: base harness and registry cross-reference validator
 - `scripts/ai-harness/validate-harness-infrastructure.mjs`: operational map, artifact, failure-recovery, hook, report, and skill completeness validator
@@ -50,6 +51,7 @@ flowchart TD
 | Condition | Workflow |
 |---|---|
 | Fresh agent or uncertain repository state | `axtask.repository-intake.v1` |
+| Multiple parallel writers or planned sprint lanes | `axtask.parallel-sprint-intake.v1` |
 | Existing PR requires repair, merge, or closure | `axtask.pr-closeout.v1` |
 | Validator, hook, build, CI job, or workflow step fails | `axtask.failure-recovery.v1` |
 | Current candidate needs disposable local certification | `axtask.local-deployment-certification.v1` |
@@ -60,9 +62,10 @@ flowchart TD
 node scripts/ai-harness/validate-authority.mjs
 node scripts/ai-harness/validate-harness.mjs
 node scripts/ai-harness/validate-harness-infrastructure.mjs
+node scripts/ai-harness/inspect-pr-collisions.mjs --output .ai/runs/<run-id>/collision-ledger.json
 node scripts/ai-harness/validate-run-context.mjs .ai/runs/<run-id>/context.json
 node scripts/ai-harness/validate-runtime-proof.mjs .ai/runs/<run-id>/runtime-proof.json
-npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts
+npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts
 ```
 
 The infrastructure validator proves that required component files exist, registries cross-reference correctly, artifacts describe generation and naming, workflows and skills are registered, known traps are mapped, hooks remain opt-in, and operator templates contain the required headings and sanitization markers.
