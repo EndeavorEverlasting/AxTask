@@ -3,7 +3,7 @@ import {
   combineLeaderboardRows,
   normalizeLeaderboardRows,
   skillTierFromLevels,
-} from "./leaderboard-service";
+} from "./leaderboard-ranking";
 
 describe("leaderboard ranking helpers", () => {
   it("normalizes numbers and uses user id as a deterministic tie break", () => {
