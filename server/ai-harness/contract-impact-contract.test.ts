@@ -60,7 +60,9 @@ describe("contract-impact-registry and inspector contract", () => {
   });
 
   it("supports custom --repo-root parameter when inspecting contract impact", () => {
-    const tempDir = fs.mkdtempSync(path.join(root, ".ai/runs/test-root-"));
+    const runsDir = path.join(root, ".ai", "runs");
+    fs.mkdirSync(runsDir, { recursive: true });
+    const tempDir = fs.mkdtempSync(path.join(runsDir, "test-root-"));
     try {
       const aiDir = path.join(tempDir, ".ai");
       fs.mkdirSync(aiDir, { recursive: true });
@@ -83,7 +85,9 @@ describe("contract-impact-registry and inspector contract", () => {
   });
 
   it("fails closed on malformed contract impact registry", () => {
-    const tempDir = fs.mkdtempSync(path.join(root, ".ai/runs/test-bad-reg-"));
+    const runsDir = path.join(root, ".ai", "runs");
+    fs.mkdirSync(runsDir, { recursive: true });
+    const tempDir = fs.mkdtempSync(path.join(runsDir, "test-bad-reg-"));
     try {
       const aiDir = path.join(tempDir, ".ai");
       fs.mkdirSync(aiDir, { recursive: true });
@@ -97,7 +101,9 @@ describe("contract-impact-registry and inspector contract", () => {
   });
 
   it("fails closed when domain references nonexistent validator ID during selection", () => {
-    const tempDir = fs.mkdtempSync(path.join(root, ".ai/runs/test-bad-val-"));
+    const runsDir = path.join(root, ".ai", "runs");
+    fs.mkdirSync(runsDir, { recursive: true });
+    const tempDir = fs.mkdtempSync(path.join(runsDir, "test-bad-val-"));
     try {
       const aiDir = path.join(tempDir, ".ai");
       fs.mkdirSync(aiDir, { recursive: true });

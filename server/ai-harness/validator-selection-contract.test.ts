@@ -123,7 +123,9 @@ describe("AI harness validator selection", () => {
   });
 
   it("fails closed when contract impact registry is malformed or invalid", () => {
-    const tempDir = fs.mkdtempSync(path.join(REPO_ROOT, ".ai/runs/test-malformed-"));
+    const runsDir = path.join(REPO_ROOT, ".ai", "runs");
+    fs.mkdirSync(runsDir, { recursive: true });
+    const tempDir = fs.mkdtempSync(path.join(runsDir, "test-malformed-"));
     try {
       const aiDir = path.join(tempDir, ".ai");
       fs.mkdirSync(aiDir, { recursive: true });
