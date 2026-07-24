@@ -82,6 +82,14 @@
       "required": false,
       "selection": {"paths": ["render.yaml", "scripts/production-start.mjs", "scripts/deploy/**", "scripts/db/**", "scripts/apply-migrations.mjs", "scripts/migration-airlock.mjs", "migrations/**", "shared/schema.ts", "drizzle.config.ts", "tests/deploy/**", "package.json", "package-lock.json"]},
       "requires": ["typecheck", "tests", "build"]
+    },
+    {
+      "id": "docs-contracts",
+      "command": "npm run test:docs-contracts",
+      "scope": "active documentation doctrine contracts",
+      "required": false,
+      "selection": {"paths": ["docs/**", "server/docs-contracts/**", "render.yaml", "AGENT_GUARDRAILS.md", "AGENTS.md"]},
+      "requires": ["tests"]
     }
   ]
 }

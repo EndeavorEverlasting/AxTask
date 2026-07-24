@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "authorityRef": "axtask.agent-authority.v1",
+  "registryId": "axtask.contract-impact.v1",
+  "domains": [
+    {
+      "id": "deployment-liveness",
+      "name": "Deployment health and process liveness contract",
+      "canonicalOwner": "deployment-orchestration",
+      "sourcePaths": ["render.yaml", "server/index.ts", "scripts/production-start.mjs"],
+      "dependentSurfaces": [
+        "docs/DEPLOYMENT_TEST_SUITE.md",
+        "docs/SCHEDULED_RESOURCE_CONTROLS.md",
+        "tests/deploy/06-health/health-contract.test.ts"
+      ],
+      "validators": ["deploy", "docs-contracts"],
+      "proofCeiling": "contract"
+    },
+    {
+      "id": "environment-contract",
+      "name": "Environment variable and secrets contract",
+      "canonicalOwner": "deployment-orchestration",
+      "sourcePaths": ["scripts/deploy/check-env.mjs", ".env.example"],
+      "dependentSurfaces": [
+        "docs/ENVIRONMENT_VARIABLES.md",
+        "tests/deploy/01-env/env-schema.test.ts"
+      ],
+      "validators": ["deploy", "release"],
+      "proofCeiling": "contract"
+    },
+    {
+      "id": "schema-migration-contract",
+      "name": "Database schema and migration evolution contract",
+      "canonicalOwner": "database-architecture",
+      "sourcePaths": ["shared/schema.ts", "shared/schema/**/*.ts", "drizzle.config.ts"],
+      "dependentSurfaces": [
+        "migrations/*.sql",
+        "docs/DEV_DATABASE_AND_SCHEMA.md",
+        "docs/SCHEMA_EVOLUTION_PIPELINE.md"
+      ],
+      "validators": ["deploy", "release"],
+      "proofCeiling": "contract"
+    },
+    {
+      "id": "route-inventory-contract",
+      "name": "Express API path registration and inventory contract",
+      "canonicalOwner": "api-architecture",
+      "sourcePaths": ["server/routes.ts", "server/routes/*.ts", "server/shopping-lists-routes.ts"],
+      "dependentSurfaces": [
+        "server/__snapshots__/routes-inventory.contract.test.ts.snap",
+        "server/routes-inventory.contract.test.ts"
+      ],
+      "validators": ["tests", "release"],
+      "proofCeiling": "contract"
+    },
+    {
+      "id": "scheduled-resource-controls",
+      "name": "Scheduled resource and background worker control contract",
+      "canonicalOwner": "resource-controls",
+      "sourcePaths": ["server/workers/*.ts", "server/services/reminder-dispatch.ts"],
+      "dependentSurfaces": [
+        "docs/SCHEDULED_RESOURCE_CONTROLS.md"
+      ],
+      "validators": ["tests", "docs-contracts"],
+      "proofCeiling": "contract"
+    },
+    {
+      "id": "agent-authority-contract",
+      "name": "Agent operating authority and harness governance contract",
+      "canonicalOwner": "harness-governance",
+      "sourcePaths": [".ai/authority.json", "AGENTS.md", "AGENT_GUARDRAILS.md"],
+      "dependentSurfaces": [
+        ".ai/harness.json",
+        "docs/AI_HARNESS.md"
+      ],
+      "validators": ["authority", "harness", "harness-infrastructure"],
+      "proofCeiling": "contract"
+    }
+  ]
+}

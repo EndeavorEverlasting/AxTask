@@ -218,6 +218,32 @@ export function selectValidators(registry, { changedPaths, workflowId = null }) 
     }
   }
 
+  // Cross-surface contract impact discovery
+  try {
+    const impactRegPath = path.resolve(registry?.selectionPolicy?.outputDirectory ? path.join(path.dirname(REGISTRY_PATH), "contract-impact-registry.json") : ".ai/contract-impact-registry.json");
+    if (fs.existsSync(impactRegPath)) {
+      const impactReg = readJson(impactRegPath);
+      for (const domain of array(impactReg.domains)) {
+        let domainMatched = false;
+        for (const changedPath of normalizedPaths) {
+          for (const sp of array(domain.sourcePaths)) {
+            if (matchesPattern(changedPath, sp)) {
+              domainMatched = true;
+              matchedPaths.add(changedPath);
+            }
+          }
+        }
+        if (domainMatched) {
+          for (const valId of array(domain.validators)) {
+            addValidator(valId, `contract impact from domain [${domain.id}] (${domain.name})`);
+          }
+        }
+      }
+    }
+  } catch {
+    // Graceful fallback if impact registry is absent or unreadable
+  }
+
   const unmatchedPaths = normalizedPaths.filter((changedPath) => !matchedPaths.has(changedPath));
   if (unmatchedPaths.length > 0) {
     for (const id of array(registry?.selectionPolicy?.fallbackValidatorIds)) {

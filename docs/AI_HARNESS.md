@@ -14,12 +14,14 @@ AxTask's repo-local harness is a control plane for repository agents. It is not 
 - `.ai/runtime-proof.schema.json`: required shape for local, staging, live, deployment, and operator evidence
 - `.ai/artifact-registry.json`: artifact producers, generation procedures, naming conventions, tracked versus ignored policy, and forbidden tracked outputs
 - `.ai/validator-registry.json`: executable validation commands, changed-path selection, prerequisites, and fallback policy
+- `.ai/contract-impact-registry.json`: mapping from canonical contract source paths to active dependent documentation, tests, and validators
 - `.ai/capability-registry.json`: canonical capability inventory with truthful `available` or `planned` status
 - `.ai/trigger-registry.json`: canonical deterministic trigger conditions and routing
 - `.ai/ownership-rules.json`: single-owner policy for shared surfaces
 - `.ai/skills/`: scoped repository-intake, PR-closeout, failure-recovery, harness-maintenance, and runtime-proof procedures
 - `scripts/ai-harness/inspect-repo.mjs`: read-only evidence snapshot
 - `scripts/ai-harness/inspect-pr-collisions.mjs`: open PR comparison and planned sprint lane collision inspection
+- `scripts/ai-harness/inspect-contract-impact.mjs`: cross-surface contract impact discovery (maps canonical source edits to dependent active surfaces)
 - `scripts/ai-harness/select-validators.mjs`: read-only validator-plan generation
 - `scripts/ai-harness/validate-harness.mjs`: base harness and registry cross-reference validator
 - `scripts/ai-harness/validate-harness-infrastructure.mjs`: operational map, artifact, failure-recovery, hook, report, and skill completeness validator

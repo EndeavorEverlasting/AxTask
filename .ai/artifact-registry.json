@@ -41,6 +41,15 @@
       "namingConvention": "<run-id>/collision-ledger.json"
     },
     {
+      "id": "contract-impact",
+      "pathPattern": ".ai/runs/<run-id>/contract-impact.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "contract-impact-inspection",
+      "generation": "node scripts/ai-harness/inspect-contract-impact.mjs --output <path>",
+      "namingConvention": "<run-id>/contract-impact.json"
+    },
+    {
       "id": "runtime-proof",
       "pathPattern": ".ai/runs/<run-id>/runtime-proof.json",
       "tracked": false,
