@@ -167,14 +167,22 @@ function collectInputs(options) {
   }
 
   if (changedPaths.length === 0) changedPaths.push(...discoverWorkingTreePaths(options.rootDir));
-  return { changedPaths: uniqueSorted(changedPaths), workflowId };
+  return { changedPaths: uniqueSorted(changedPaths), workflowId, rootDir: options.rootDir };
 }
 
 export function ensureOutputPath(rootDir, outputPath) {
   const absoluteRoot = path.resolve(rootDir);
   const absoluteRuns = path.resolve(absoluteRoot, RUNS_DIR);
   const absoluteOutput = path.resolve(absoluteRoot, outputPath);
-  const relative = path.relative(absoluteRuns, absoluteOutput);
+  // Resolve symlinks to prevent escape via symlink in .ai/runs/
+  // If output parent doesn't exist, traverse up to find an existing ancestor
+  let outputParent = path.dirname(absoluteOutput);
+  while (!fs.existsSync(outputParent)) {
+    outputParent = path.dirname(outputParent);
+  }
+  const resolvedRuns = fs.realpathSync(absoluteRuns, { encoding: "utf8" });
+  const resolvedOutputParent = fs.realpathSync(outputParent, { encoding: "utf8" });
+  const relative = path.relative(resolvedRuns, resolvedOutputParent);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(`output must stay under ${RUNS_DIR}/`);
   }
@@ -220,28 +228,29 @@ export function selectValidators(registry, { changedPaths, workflowId = null, ro
 
   // Cross-surface contract impact discovery
   const impactRegPath = path.resolve(rootDir, ".ai", "contract-impact-registry.json");
-  if (fs.existsSync(impactRegPath)) {
-    const impactReg = readJson(impactRegPath);
-    for (const domain of array(impactReg?.domains)) {
-      let domainMatched = false;
-      for (const changedPath of normalizedPaths) {
-        for (const sp of array(domain.sourcePaths)) {
-          if (matchesPattern(changedPath, sp)) {
-            domainMatched = true;
-            matchedPaths.add(changedPath);
-          }
-        }
-        for (const dp of array(domain.dependentSurfaces)) {
-          if (matchesPattern(changedPath, dp)) {
-            domainMatched = true;
-            matchedPaths.add(changedPath);
-          }
+  if (!fs.existsSync(impactRegPath)) {
+    throw new Error("[validator-selection] Mandatory contract-impact-registry.json missing");
+  }
+  const impactReg = readJson(impactRegPath);
+  for (const domain of array(impactReg?.domains)) {
+    let domainMatched = false;
+    for (const changedPath of normalizedPaths) {
+      for (const sp of array(domain.sourcePaths)) {
+        if (matchesPattern(changedPath, sp)) {
+          domainMatched = true;
+          matchedPaths.add(changedPath);
         }
       }
-      if (domainMatched) {
-        for (const valId of array(domain.validators)) {
-          addValidator(valId, `contract impact from domain [${domain.id}] (${domain.name})`);
+      for (const dp of array(domain.dependentSurfaces)) {
+        if (matchesPattern(changedPath, dp)) {
+          domainMatched = true;
+          matchedPaths.add(changedPath);
         }
+      }
+    }
+    if (domainMatched) {
+      for (const valId of array(domain.validators)) {
+        addValidator(valId, `contract impact from domain [${domain.id}] (${domain.name})`);
       }
     }
   }

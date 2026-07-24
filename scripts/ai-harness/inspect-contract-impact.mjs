@@ -76,7 +76,12 @@ export function ensureOutputPath(rootDir, outputPath) {
   const absoluteRoot = path.resolve(rootDir);
   const absoluteRuns = path.resolve(absoluteRoot, RUNS_DIR);
   const absoluteOutput = path.resolve(absoluteRoot, outputPath);
-  const relative = path.relative(absoluteRuns, absoluteOutput);
+  // Resolve symlinks to prevent escape via symlink in .ai/runs/
+  // If output doesn't exist yet, resolve its parent directory
+  const outputParent = path.dirname(absoluteOutput);
+  const resolvedRuns = fs.realpathSync(absoluteRuns, { encoding: "utf8" });
+  const resolvedOutputParent = fs.realpathSync(outputParent, { encoding: "utf8" });
+  const relative = path.relative(resolvedRuns, resolvedOutputParent);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(`output must stay under ${RUNS_DIR}/`);
   }

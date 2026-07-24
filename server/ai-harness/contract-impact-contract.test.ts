@@ -138,4 +138,25 @@ describe("contract-impact-registry and inspector contract", () => {
     expect(result.matchedDomains).toHaveLength(0);
     expect(result.selectedValidators).toHaveLength(0);
   });
+
+  it("historical documentation paths are not treated as active dependent surfaces", () => {
+    const regPath = path.join(root, ".ai", "contract-impact-registry.json");
+    const reg = JSON.parse(fs.readFileSync(regPath, "utf8"));
+    const deploymentDomain = reg.domains.find((d) => d.id === "deployment-liveness");
+    expect(deploymentDomain).toBeDefined();
+
+    const activeDependents = deploymentDomain.dependentSurfaces ?? [];
+    const historicalPaths = [
+      "docs/releases/2025-01-15-old-deploy.md",
+      "docs/archive/legacy-health-check.md",
+    ];
+
+    for (const hp of historicalPaths) {
+      expect(activeDependents).not.toContain(hp);
+    }
+
+    const result = inspectContractImpact([historicalPaths[0]]);
+    expect(result.matchedDomains).toHaveLength(0);
+    expect(result.dependentSurfaces).toHaveLength(0);
+  });
 });
