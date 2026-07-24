@@ -80,6 +80,19 @@
       "tests": ["server/ai-harness/deployment-certification-contract.test.ts"],
       "proofLevel": "contract",
       "status": "available"
+    },
+    {
+      "id": "backup-restore-local-certification",
+      "name": "Backup and restore local certification",
+      "canonicalOwner": "runtime-proof",
+      "activation": "Operator or automated pipeline requests proof of local synthetic backup round-trip and non-mutation.",
+      "description": "Execute synthetic account backup generation, local store verification, dry-run non-mutation, and synthetic restore to prove backup integrity.",
+      "command": "node scripts/db/run-local-backup-cert.mjs",
+      "outputs": [".ai/runs/<run-id>/runtime-proof.json", ".ai/runs/<run-id>/backup-cert-report.md"],
+      "guardrails": ["reject production database URLs", "operate on disposable or synthetic targets only"],
+      "tests": ["server/account-backup.integration.test.ts"],
+      "proofLevel": "local-disposable-runtime",
+      "status": "available"
     }
   ]
 }
