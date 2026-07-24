@@ -181,7 +181,7 @@ export function ensureOutputPath(rootDir, outputPath) {
   return absoluteOutput;
 }
 
-export function selectValidators(registry, { changedPaths, workflowId = null }) {
+export function selectValidators(registry, { changedPaths, workflowId = null, rootDir = DEFAULT_REPO_ROOT }) {
   const normalizedPaths = uniqueSorted(changedPaths);
   if (normalizedPaths.length === 0 && !nonEmpty(workflowId)) {
     throw new Error("no changed paths or workflow were supplied; pass --changed, --context, --changed-file, or run inside a dirty worktree");
@@ -219,29 +219,31 @@ export function selectValidators(registry, { changedPaths, workflowId = null }) 
   }
 
   // Cross-surface contract impact discovery
-  try {
-    const impactRegPath = path.resolve(registry?.selectionPolicy?.outputDirectory ? path.join(path.dirname(REGISTRY_PATH), "contract-impact-registry.json") : ".ai/contract-impact-registry.json");
-    if (fs.existsSync(impactRegPath)) {
-      const impactReg = readJson(impactRegPath);
-      for (const domain of array(impactReg.domains)) {
-        let domainMatched = false;
-        for (const changedPath of normalizedPaths) {
-          for (const sp of array(domain.sourcePaths)) {
-            if (matchesPattern(changedPath, sp)) {
-              domainMatched = true;
-              matchedPaths.add(changedPath);
-            }
+  const impactRegPath = path.resolve(rootDir, ".ai", "contract-impact-registry.json");
+  if (fs.existsSync(impactRegPath)) {
+    const impactReg = readJson(impactRegPath);
+    for (const domain of array(impactReg?.domains)) {
+      let domainMatched = false;
+      for (const changedPath of normalizedPaths) {
+        for (const sp of array(domain.sourcePaths)) {
+          if (matchesPattern(changedPath, sp)) {
+            domainMatched = true;
+            matchedPaths.add(changedPath);
           }
         }
-        if (domainMatched) {
-          for (const valId of array(domain.validators)) {
-            addValidator(valId, `contract impact from domain [${domain.id}] (${domain.name})`);
+        for (const dp of array(domain.dependentSurfaces)) {
+          if (matchesPattern(changedPath, dp)) {
+            domainMatched = true;
+            matchedPaths.add(changedPath);
           }
         }
       }
+      if (domainMatched) {
+        for (const valId of array(domain.validators)) {
+          addValidator(valId, `contract impact from domain [${domain.id}] (${domain.name})`);
+        }
+      }
     }
-  } catch {
-    // Graceful fallback if impact registry is absent or unreadable
   }
 
   const unmatchedPaths = normalizedPaths.filter((changedPath) => !matchedPaths.has(changedPath));

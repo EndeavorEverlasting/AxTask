@@ -64,14 +64,23 @@ describe("AI harness validator selection", () => {
   it("selects deploy contracts and their broad prerequisites", () => {
     const plan = selectValidators(REGISTRY, { changedPaths: ["render.yaml"] });
 
-    expect(ids(plan)).toEqual(["release", "typecheck", "tests", "build", "deploy"]);
+    expect(ids(plan)).toEqual(["release", "typecheck", "tests", "build", "deploy", "docs-contracts"]);
     expect(plan.unmatchedPaths).toEqual([]);
   });
 
-  it("keeps docs-only work bounded to the release contract", () => {
-    const plan = selectValidators(REGISTRY, { changedPaths: ["docs/AI_HARNESS.md"] });
+  it("keeps docs-only work bounded to docs and release contracts", () => {
+    const planGeneric = selectValidators(REGISTRY, { changedPaths: ["docs/GENERAL_NOTE.md"] });
+    expect(ids(planGeneric)).toEqual(["release", "tests", "docs-contracts"]);
 
-    expect(ids(plan)).toEqual(["release"]);
+    const planHarnessDoc = selectValidators(REGISTRY, { changedPaths: ["docs/AI_HARNESS.md"] });
+    expect(ids(planHarnessDoc)).toEqual([
+      "authority",
+      "harness",
+      "harness-infrastructure",
+      "release",
+      "tests",
+      "docs-contracts",
+    ]);
   });
 
   it("fails conservative for an unmapped path", () => {
@@ -87,7 +96,7 @@ describe("AI harness validator selection", () => {
       workflowId: "axtask.repository-intake.v1",
     });
 
-    expect(ids(plan)).toEqual(["authority", "harness", "run-context", "release"]);
+    expect(ids(plan)).toEqual(["authority", "harness", "run-context", "release", "tests", "docs-contracts"]);
   });
 
   it("matches Windows paths against repository globs", () => {
@@ -111,5 +120,19 @@ describe("AI harness validator selection", () => {
     expect(() =>
       selectValidators(invalidRegistry, { changedPaths: ["AGENTS.md"] }),
     ).toThrow("registry references unknown validator missing-validator");
+  });
+
+  it("fails closed when contract impact registry is malformed or invalid", () => {
+    const tempDir = fs.mkdtempSync(path.join(REPO_ROOT, ".ai/runs/test-malformed-"));
+    try {
+      const aiDir = path.join(tempDir, ".ai");
+      fs.mkdirSync(aiDir, { recursive: true });
+      fs.writeFileSync(path.join(aiDir, "contract-impact-registry.json"), "{ invalid json }", "utf8");
+      expect(() =>
+        selectValidators(REGISTRY, { changedPaths: ["render.yaml"], rootDir: tempDir }),
+      ).toThrow();
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
