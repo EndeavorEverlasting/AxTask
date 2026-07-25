@@ -7,6 +7,7 @@ if command -v node >/dev/null 2>&1; then
   node tools/security/check_no_axios.mjs
   node scripts/ai-harness/validate-authority.mjs
   node scripts/ai-harness/validate-harness.mjs
+  node scripts/ai-harness/check-artifact-hygiene.mjs
 else
   echo "Node.js is required to run repository security and AI harness guards." >&2
   exit 1
