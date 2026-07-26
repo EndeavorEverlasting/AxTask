@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "axtask.agent-routing.task-demand.v1",
+  "title": "Task Demand Classification",
+  "type": "object",
+  "description": "Model-agnostic classification of reasoning demand for a task. The larger the reasoning distance between supplied evidence and required judgment, the higher the demand.",
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "taskId": { "type": "string", "description": "Stable identifier for this task classification" },
+    "demandLevel": {
+      "type": "string",
+      "enum": ["bounded-deterministic", "bounded-investigation", "architecture-reconciliation", "protected-runtime-judgment"],
+      "description": "The reasoning demand category"
+    },
+    "evidenceSupplied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["owned-files", "forbidden-files", "exact-transformation", "binary-assertions", "validation-order", "stop-conditions", "runtime-contract", "schema", "test-fixtures", "proof-artifacts"] },
+          "description": { "type": "string" },
+          "paths": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["type"]
+      },
+      "description": "What evidence and constraints are explicitly supplied to the executor"
+    },
+    "judgmentRequired": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["architecture-decision", "runtime-certification", "cross-boundary-diagnosis", "provider-selection", "security-boundary", "data-migration-strategy", "performance-tradeoff"] },
+          "description": { "type": "string" },
+          "requiresLiveEvidence": { "type": "boolean" }
+        },
+        "required": ["type"]
+      },
+      "description": "What independent judgment remains for the executor to perform"
+    },
+    "reasoningLeap": {
+      "type": "string",
+      "enum": ["none", "low", "medium", "high", "critical"],
+      "description": "Distance between supplied evidence and required judgment"
+    },
+    "factoringOpportunities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "string" },
+          "reducesTo": { "type": "string", "enum": ["bounded-deterministic", "bounded-investigation"] },
+          "mechanicalCheck": { "type": "string" }
+        },
+        "required": ["description", "reducesTo", "mechanicalCheck"]
+      },
+      "description": "Ways to factor this task so success becomes mechanically checkable"
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "classifiedBy": { "type": "string", "description": "Agent or process that produced this classification" }
+  },
+  "required": ["schemaVersion", "taskId", "demandLevel", "evidenceSupplied", "judgmentRequired", "reasoningLeap", "createdAt"],
+  "additionalProperties": false
+}

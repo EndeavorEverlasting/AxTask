@@ -107,6 +107,26 @@
       "generation": "Generate only when a workflow needs a copyable prompt artifact.",
       "namingConvention": "<run-id>-<lowercase-kebab-case>.md",
       "note": "Prompts are artifacts, not the harness."
+    },
+    {
+      "id": "route-decision",
+      "pathPattern": ".ai/runs/<run-id>/route-decision.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.prompt-leap-routing.v1",
+      "generation": "Create JSON matching shared/schemas/agent-routing/route-decision.schema.json from classifier + router output.",
+      "namingConvention": "<run-id>/route-decision.json",
+      "validator": "node scripts/ai-harness/validate-harness.mjs"
+    },
+    {
+      "id": "task-demand",
+      "pathPattern": ".ai/runs/<run-id>/task-demand.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.prompt-leap-routing.v1",
+      "generation": "Create JSON matching shared/schemas/agent-routing/task-demand.schema.json from classifier output.",
+      "namingConvention": "<run-id>/task-demand.json",
+      "validator": "node scripts/ai-harness/validate-harness.mjs"
     }
   ],
   "forbiddenTrackedOutputs": [

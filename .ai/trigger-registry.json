@@ -62,6 +62,12 @@
       "event": "parallel-sprints-requested",
       "condition": "More than one planned writer, branch, or pull request with potentially overlapping repository ownership.",
       "workflowId": "axtask.parallel-sprint-intake.v1"
+    },
+    {
+      "id": "task-demand-classification-requested",
+      "event": "task-demand-classification-requested",
+      "condition": "A task requires classification of reasoning demand and routing to an executor with proven capability evidence.",
+      "workflowId": "axtask.prompt-leap-routing.v1"
     }
   ]
 }
