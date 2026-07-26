@@ -54,7 +54,7 @@
     },
     {
       "id": "harness-tests",
-      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts",
+      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts server/ai-harness/contract-impact-contract.test.ts",
       "scope": "negative, completeness, and integration contracts",
       "required": true,
       "selection": {"paths": [".ai/**", "scripts/ai-harness/**", "server/ai-harness/**", "AGENTS.md", "AGENT_GUARDRAILS.md", ".githooks/**"]},

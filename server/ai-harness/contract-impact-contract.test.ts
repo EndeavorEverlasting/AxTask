@@ -159,4 +159,20 @@ describe("contract-impact-registry and inspector contract", () => {
     expect(result.matchedDomains).toHaveLength(0);
     expect(result.dependentSurfaces).toHaveLength(0);
   });
+
+  it("creates fresh .ai/runs/<run-id>/ output directory structure when .ai/runs does not exist initially", () => {
+    const tempRootDir = fs.mkdtempSync(path.join(path.dirname(fs.realpathSync(root)), "axtask-impact-fresh-runs-test-"));
+    try {
+      const freshRunsDir = path.join(tempRootDir, ".ai", "runs");
+      expect(fs.existsSync(freshRunsDir)).toBe(false);
+
+      const relativeOutputPath = ".ai/runs/fresh-run/contract-impact.json";
+      const resultPath = ensureOutputPath(tempRootDir, relativeOutputPath);
+
+      expect(fs.existsSync(path.dirname(resultPath))).toBe(true);
+      expect(resultPath).toBe(path.resolve(tempRootDir, relativeOutputPath));
+    } finally {
+      fs.rmSync(tempRootDir, { recursive: true, force: true });
+    }
+  });
 });

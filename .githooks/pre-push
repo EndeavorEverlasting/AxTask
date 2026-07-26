@@ -23,5 +23,4 @@ npx --no-install vitest run \
   server/ai-harness/deployment-certification-contract.test.ts \
   server/ai-harness/validator-selection-contract.test.ts \
   server/ai-harness/harness-infrastructure-contract.test.ts \
-  server/ai-harness/contract-impact-contract.test.ts \
   server/ai-harness/contract-impact-contract.test.ts
