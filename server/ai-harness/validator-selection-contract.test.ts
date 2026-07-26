@@ -137,4 +137,20 @@ describe("AI harness validator selection", () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("creates fresh .ai/runs/<run-id>/ output directory structure when .ai/runs does not exist initially", () => {
+    const tempRootDir = fs.mkdtempSync(path.join(path.dirname(fs.realpathSync(REPO_ROOT)), "axtask-validator-fresh-runs-test-"));
+    try {
+      const freshRunsDir = path.join(tempRootDir, ".ai", "runs");
+      expect(fs.existsSync(freshRunsDir)).toBe(false);
+
+      const relativeOutputPath = ".ai/runs/fresh-run/validator-plan.json";
+      const resultPath = ensureOutputPath(tempRootDir, relativeOutputPath);
+
+      expect(fs.existsSync(path.dirname(resultPath))).toBe(true);
+      expect(resultPath).toBe(path.resolve(tempRootDir, relativeOutputPath));
+    } finally {
+      fs.rmSync(tempRootDir, { recursive: true, force: true });
+    }
+  });
 });

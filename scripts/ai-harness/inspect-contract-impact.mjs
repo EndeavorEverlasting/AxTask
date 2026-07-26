@@ -76,15 +76,52 @@ export function ensureOutputPath(rootDir, outputPath) {
   const absoluteRoot = path.resolve(rootDir);
   const absoluteRuns = path.resolve(absoluteRoot, RUNS_DIR);
   const absoluteOutput = path.resolve(absoluteRoot, outputPath);
-  // Resolve symlinks to prevent escape via symlink in .ai/runs/
-  // If output doesn't exist yet, resolve its parent directory
-  const outputParent = path.dirname(absoluteOutput);
+
+  const lexicalRelative = path.relative(absoluteRuns, absoluteOutput);
+  if (lexicalRelative.startsWith("..") || path.isAbsolute(lexicalRelative) || lexicalRelative === "") {
+    throw new Error(`output must stay under ${RUNS_DIR}/`);
+  }
+
+  if (!fs.existsSync(absoluteRuns)) {
+    fs.mkdirSync(absoluteRuns, { recursive: true });
+  }
+
   const resolvedRuns = fs.realpathSync(absoluteRuns, { encoding: "utf8" });
+
+  if (fs.existsSync(absoluteOutput)) {
+    const stat = fs.lstatSync(absoluteOutput);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`output must stay under ${RUNS_DIR}/`);
+    }
+  }
+
+  const outputParent = path.dirname(absoluteOutput);
+
+  let curr = outputParent;
+  const dirsToVerify = [];
+  while (curr !== absoluteRuns && curr.startsWith(absoluteRuns)) {
+    dirsToVerify.push(curr);
+    curr = path.dirname(curr);
+  }
+  dirsToVerify.reverse();
+
+  for (const dir of dirsToVerify) {
+    if (fs.existsSync(dir)) {
+      const stat = fs.lstatSync(dir);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`output must stay under ${RUNS_DIR}/`);
+      }
+    }
+  }
+
+  fs.mkdirSync(outputParent, { recursive: true });
+
   const resolvedOutputParent = fs.realpathSync(outputParent, { encoding: "utf8" });
   const relative = path.relative(resolvedRuns, resolvedOutputParent);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(`output must stay under ${RUNS_DIR}/`);
   }
+
   return absoluteOutput;
 }
 
