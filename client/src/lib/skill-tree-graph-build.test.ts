@@ -157,4 +157,28 @@ describe("buildSkillTreeFlowLayout", () => {
       expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
     );
   });
+
+  it("preserves cross-domain additionalEdges between avatar and offline nodes when mixed", () => {
+    const nodes: SkillNodeDto[] = [
+      node({
+        skillKey: "avatar-boost",
+        branch: "companions",
+        domain: "avatar",
+        prerequisiteSkillKey: null,
+        additionalEdges: [
+          { sourceSkillKey: "avatar-boost", targetSkillKey: "offline-generator", kind: "unlocks_generator" },
+        ],
+      }),
+      node({
+        skillKey: "offline-generator",
+        branch: "generators",
+        domain: "offline",
+        prerequisiteSkillKey: null,
+      }),
+    ];
+    const { edges } = buildSkillTreeFlowLayout(nodes);
+    const crossEdge = edges.find((e) => e.id === "e-unlocks_generator-avatar-boost__offline-generator");
+    expect(crossEdge).toBeDefined();
+    expect(crossEdge!.label).toBe("generator");
+  });
 });
