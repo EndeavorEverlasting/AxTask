@@ -6,11 +6,11 @@ id: axtask.prompt-leap-routing.v1
 
 ## Purpose
 
-Classify task reasoning demand, match against executor capability evidence, emit route decision with exact constraints, and enforce at runtime seam.
+Classify task reasoning demand, match against executor capability evidence, emit route decision with exact constraints, and define the enforcement contract for an executor launch seam.
 
 ## Trigger
 
-`task-classification-requested` — A task requires routing decision before executor assignment.
+`task-demand-classification-requested` — A task requires a reasoning-demand classification and routing decision before executor assignment.
 
 ## Steps
 
@@ -37,10 +37,11 @@ Classify task reasoning demand, match against executor capability evidence, emit
    - Constraint types: owned-files, forbidden-files, exact-transformation, binary-assertions, validation-order, stop-conditions
    - Enforcement timing: pre-flight, post-flight, continuous
 
-5. **Runtime Enforcement** (wired at launch seam)
+5. **Runtime Enforcement Contract**
    - Pre-flight: validate owned-files/forbidden-files paths; verify exact-transformation specs exist; check binary-assertions are boolean predicates
    - Continuous: enforce validation-order; check stop-conditions
    - Post-flight: verify binary-assertions passed; collect runtime-proof if runtime-certification lane
+   - Integration boundary: an executor launch seam must import and invoke the classifier/router before this step is claimed as live runtime enforcement.
 
 6. **Record Decision**
    - Persist route decision with `decisionId`, `validUntil`, and factoring guidance
@@ -67,4 +68,4 @@ Classify task reasoning demand, match against executor capability evidence, emit
 
 ## Proof Ceiling
 
-Contract — produces deterministic schemas and validated route decisions. No live environment required.
+Contract — produces deterministic schemas and validated route decisions. The repository tests prove classifier/router behavior for covered fixtures; they do not prove integration into a live executor launch seam or live environment behavior.
