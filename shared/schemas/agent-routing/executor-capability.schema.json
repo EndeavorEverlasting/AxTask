@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "axtask.agent-routing.executor-capability.v1",
+  "title": "Executor Capability Evidence Profile",
+  "type": "object",
+  "description": "Capability inferred ONLY from repository-recorded evidence. No provider/model branding. Unknown executors fail closed to lowest safe lane.",
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "executorId": { "type": "string", "description": "Stable identifier for this executor (e.g., 'agy-v1', 'cursor-agent', 'unknown')" },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "deterministicEditSuccess": {
+          "type": "object",
+          "properties": {
+            "count": { "type": "integer", "minimum": 0 },
+            "lastVerified": { "type": "string", "format": "date-time" },
+            "fixtureIds": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["count", "lastVerified"],
+          "description": "Proven ability to make exact-file, exact-transformation edits that pass binary validators"
+        },
+        "validationDiscipline": {
+          "type": "object",
+          "properties": {
+            "count": { "type": "integer", "minimum": 0 },
+            "lastVerified": { "type": "string", "format": "date-time" },
+            "fixtureIds": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["count", "lastVerified"],
+          "description": "Proven ability to run and pass declared validators in correct order"
+        },
+        "repoReasoning": {
+          "type": "object",
+          "properties": {
+            "count": { "type": "integer", "minimum": 0 },
+            "lastVerified": { "type": "string", "format": "date-time" },
+            "fixtureIds": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["count", "lastVerified"],
+          "description": "Proven ability to reason about repository structure, contracts, and cross-file impact"
+        },
+        "runtimeProofDiscipline": {
+          "type": "object",
+          "properties": {
+            "count": { "type": "integer", "minimum": 0 },
+            "lastVerified": { "type": "string", "format": "date-time" },
+            "fixtureIds": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["count", "lastVerified"],
+          "description": "Proven ability to produce and verify runtime-proof artifacts against a proof ceiling"
+        },
+        "architectureReconciliationProof": {
+          "type": "object",
+          "properties": {
+            "count": { "type": "integer", "minimum": 0 },
+            "lastVerified": { "type": "string", "format": "date-time" },
+            "fixtureIds": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["count", "lastVerified"],
+          "description": "Proven ability to reconcile architecture decisions across multiple domains with evidence"
+        }
+      },
+      "required": ["deterministicEditSuccess", "validationDiscipline", "repoReasoning", "runtimeProofDiscipline", "architectureReconciliationProof"],
+      "description": "Capability dimensions backed by recorded evidence"
+    },
+    "maxAllowedDemand": {
+      "type": "string",
+      "enum": ["bounded-deterministic", "bounded-investigation", "architecture-reconciliation", "protected-runtime-judgment"],
+      "description": "Highest demand level this executor may handle based on evidence"
+    },
+    "lane": {
+      "type": "string",
+      "enum": ["deterministic-repair", "investigation", "architecture", "runtime-certification", "blocked"],
+      "description": "Execution lane assignment"
+    },
+    "failClosedReason": {
+      "type": "string",
+      "description": "Reason if executor is blocked or downgraded (required when lane is 'blocked' or demand is downgraded)"
+    },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "evidenceSource": { "type": "string", "description": "Registry or process that recorded this evidence (e.g., 'axtask.capability-registry.v1')" }
+  },
+  "required": ["schemaVersion", "executorId", "evidence", "maxAllowedDemand", "lane", "updatedAt", "evidenceSource"],
+  "additionalProperties": false
+}

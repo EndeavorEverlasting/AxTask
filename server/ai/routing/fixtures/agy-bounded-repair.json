@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "taskId": "agy-bounded-repair-001",
+  "demandLevel": "bounded-deterministic",
+  "evidenceSupplied": [
+    {
+      "type": "owned-files",
+      "description": "Exact file to modify with line-range spec",
+      "paths": ["server/routes/ai.ts"]
+    },
+    {
+      "type": "exact-transformation",
+      "description": "Replace validation schema from z.string() to z.string().min(1).max(1000)",
+      "paths": ["server/routes/ai.ts"]
+    },
+    {
+      "type": "binary-assertions",
+      "description": "Schema parse succeeds for valid input; fails for empty string and >1000 chars",
+      "paths": []
+    },
+    {
+      "type": "validation-order",
+      "description": "Run schema validation before any side effects",
+      "paths": []
+    },
+    {
+      "type": "stop-conditions",
+      "description": "Stop on first validation failure; do not attempt partial fix",
+      "paths": []
+    }
+  ],
+  "judgmentRequired": [
+    {
+      "type": "provider-selection",
+      "description": "Select LLM provider from capability registry only",
+      "requiresLiveEvidence": false
+    }
+  ],
+  "reasoningLeap": "low",
+  "factoringOpportunities": [
+    {
+      "description": "Provider selection already factored: capability matrix from registry; route is pure function of task-demand + executor-evidence",
+      "reducesTo": "bounded-deterministic",
+      "mechanicalCheck": "Capability matrix sourced from evidence registry only; route decision is pure function of task-demand + executor-evidence"
+    }
+  ],
+  "createdAt": "2026-07-26T19:00:00.000Z",
+  "classifiedBy": "prompt-leap-classifier-v1"
+}

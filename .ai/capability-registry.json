@@ -80,6 +80,19 @@
       "tests": ["server/ai-harness/deployment-certification-contract.test.ts"],
       "proofLevel": "contract",
       "status": "available"
+    },
+    {
+      "id": "prompt-leap-routing",
+      "name": "Prompt-leap task-demand classification and executor routing",
+      "canonicalOwner": "agent-routing",
+      "activation": "A task requires classification of reasoning demand and routing to an executor with proven capability evidence.",
+      "description": "Classify task demand level (bounded-deterministic through protected-runtime-judgment), compute reasoning leap from evidence vs judgment gap, factor tasks to reduce leap, and route to executor lane based on recorded capability evidence. Unknown executors fail closed.",
+      "command": "node scripts/ai-harness/validate-harness.mjs",
+      "outputs": ["route-decision.json", "task-demand.json"],
+      "guardrails": ["capability from evidence only, never brand/model", "fail-closed for unknown executors", "exact constraints emitted for leap reduction"],
+      "tests": ["server/ai/routing/routing-contract.test.ts"],
+      "proofLevel": "contract",
+      "status": "available"
     }
   ]
 }

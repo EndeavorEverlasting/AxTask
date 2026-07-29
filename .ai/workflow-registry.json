@@ -27,6 +27,11 @@
       "id": "axtask.parallel-sprint-intake.v1",
       "path": ".ai/workflows/parallel-sprint-intake.md",
       "description": "Parallel sprint intake, path overlap inspection, and collision ledger generation."
+    },
+    {
+      "id": "axtask.prompt-leap-routing.v1",
+      "path": ".ai/workflows/prompt-leap-routing.md",
+      "description": "Task-demand classification and executor capability admission with deterministic routing."
     }
   ]
 }

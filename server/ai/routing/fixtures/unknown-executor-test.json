@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "taskId": "unknown-executor-test-001",
+  "demandLevel": "bounded-investigation",
+  "evidenceSupplied": [
+    {
+      "type": "owned-files",
+      "description": "Files the executor may touch",
+      "paths": ["server/services/backup-service.ts"]
+    },
+    {
+      "type": "runtime-contract",
+      "description": "Must produce runtime-proof artifact",
+      "paths": []
+    }
+  ],
+  "judgmentRequired": [
+    {
+      "type": "security-boundary",
+      "description": "Determine if backup path traversal is possible",
+      "requiresLiveEvidence": false
+    },
+    {
+      "type": "architecture-decision",
+      "description": "Choose between streaming vs buffered backup",
+      "requiresLiveEvidence": false
+    }
+  ],
+  "reasoningLeap": "medium",
+  "factoringOpportunities": [
+    {
+      "description": "Factor architecture decision into: (1) bounded investigation of alternatives with mechanical comparison matrix, (2) deterministic implementation of chosen path",
+      "reducesTo": "bounded-investigation",
+      "mechanicalCheck": "Comparison matrix has explicit scoring rubric; chosen path has exact-file transformation spec"
+    },
+    {
+      "description": "Add exact-file transformation spec and binary assertions to reduce leap from investigation to deterministic repair",
+      "reducesTo": "bounded-deterministic",
+      "mechanicalCheck": "Each changed file has before/after spec; each assertion is a boolean predicate evaluated by validator"
+    }
+  ],
+  "createdAt": "2026-07-26T19:00:00.000Z",
+  "classifiedBy": "prompt-leap-classifier-v1"
+}
