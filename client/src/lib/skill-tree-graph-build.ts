@@ -232,8 +232,26 @@ export function buildSkillTreeFlowLayout(
     position: { x: n.position.x + shiftX, y: n.position.y },
   }));
 
+  const allKeyMap = new Map(nodes.map((n) => [n.skillKey, n]));
+  const edgeIds = new Set([...left.edges.map((e) => e.id), ...right.edges.map((e) => e.id)]);
+  const crossDomainEdges: Edge[] = [];
+
+  for (const n of nodes) {
+    if (n.additionalEdges) {
+      for (const ae of n.additionalEdges) {
+        if (allKeyMap.has(ae.sourceSkillKey) && allKeyMap.has(ae.targetSkillKey)) {
+          const id = `e-${ae.kind}-${ae.sourceSkillKey}__${ae.targetSkillKey}`;
+          if (!edgeIds.has(id)) {
+            edgeIds.add(id);
+            crossDomainEdges.push(edgeFromKind(id, ae.sourceSkillKey, ae.targetSkillKey, ae.kind));
+          }
+        }
+      }
+    }
+  }
+
   return {
     nodes: [...left.nodes, ...shiftedRight],
-    edges: [...left.edges, ...right.edges],
+    edges: [...left.edges, ...right.edges, ...crossDomainEdges],
   };
 }
