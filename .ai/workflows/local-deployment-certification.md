@@ -10,36 +10,57 @@ A controlled deployment candidate needs disposable local production certificatio
 
 ## Required inputs
 
-- candidate SHA
-- current `origin/main` base
-- explicit local allow marker (`AXTASK_LOCAL_CERT=1`)
-- a loopback or disposable database target
-- selected capabilities and validators from the registries
+- candidate SHA;
+- explicit local allow marker `AXTASK_LOCAL_CERT=1`;
+- `DATABASE_URL` pointing to loopback PostgreSQL with a database name containing `axtask`, `test`, `ci`, or `dev`;
+- current repository build/schema state, or permission for the runner to prepare those locally.
+
+## Command
+
+Full standalone certification:
+
+`AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs`
+
+When CI has already completed the production build and disposable schema bootstrap:
+
+`AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs --schema-ready --build-ready`
 
 ## Steps
 
-1. Verify the candidate SHA is current and the branch is green on current head.
-2. Confirm the environment gate: `AXTASK_LOCAL_CERT=1` and database host is loopback, Docker-local, or an explicit allowlist entry.
-3. Refuse production connection strings and production credentials.
-4. Prepare a disposable PostgreSQL target.
-5. Run migrations and verify idempotence.
-6. Run the production build.
-7. Start the production launcher with the disposable database.
-8. Probe `/health` (DB-free) and `/ready` (DB-backed) separately.
-9. Run bounded smoke behavior against local fixtures.
-10. Collect sanitized process and memory evidence.
-11. Stop and clean only resources created by this run.
-12. Emit a runtime-proof artifact and a GO/NO-GO conclusion.
-13. Record results in the coordination issue without claiming live deployment.
+1. Verify `AXTASK_LOCAL_CERT=1`.
+2. Reject Render/production host markers and every non-loopback database host.
+3. Refuse ambiguous database names and never print `DATABASE_URL`.
+4. Prepare the disposable PostgreSQL schema and verify migration idempotence unless `--schema-ready` is supplied.
+5. Produce the production build unless `--build-ready` is supplied.
+6. Start the real `scripts/production-start.mjs` launcher with local-only production secrets and a dynamically reserved port.
+7. Disable reminder, archetype, retention, DB-size, ops-snapshot, adherence, and backup workers for the bounded certification process.
+8. Keep startup Drizzle push and capacity checks disabled because schema/capacity belong to separate disposable-repository gates.
+9. Probe `/health` for DB-free process liveness.
+10. Probe `/ready` for explicit disposable PostgreSQL readiness.
+11. Probe `/` to prove the built client shell is served in production mode.
+12. Stop the complete child process tree created by the run.
+13. Emit `.ai/runs/<run-id>/runtime-proof.json` and `.ai/runs/<run-id>/local-cert-report.md`.
+14. Validate the proof with `scripts/ai-harness/validate-runtime-proof.mjs`.
+
+## Required assertions
+
+- explicit local allow marker;
+- production host markers absent;
+- loopback disposable database target;
+- schema/build prepared successfully;
+- `/health` returns 200 with `status=ok`;
+- `/ready` returns 200 with `status=ready`;
+- `/` serves the built HTML client shell;
+- no unresolved failures when claiming `local-runtime`.
 
 ## Stop conditions
 
-Stop for any unresolved startup, migration, health, memory, environment, or behavior failure. Stop for missing operator authorization. Stop if the database target is not explicitly local or disposable.
+Stop and return nonzero for any environment, schema, build, launcher, liveness, readiness, client-shell, proof-schema, or cleanup failure. Never fall back to a remote database. Never contact Render or Neon to complete this workflow.
+
+## Evidence boundary
+
+A bounded startup certification does not provide a useful memory-growth trend. Record `NOT_ENOUGH_SAMPLES` rather than manufacturing a memory conclusion.
 
 ## Proof ceiling
 
-May reach **local-runtime** proof. Must not claim live-runtime, deployment-completion, or operator-acceptance without authorized Render access, deployment ID, observed live endpoints, and an observation window.
-
-## Next owner
-
-P08 deployment candidate repair and integration convergence, or P09 runtime diagnostics and local production certification execution.
+May reach **local-runtime** proof only. It must not claim staging-runtime, live-runtime, deployment-completion, or operator-acceptance. Live deployment remains a separately authorized operation.
