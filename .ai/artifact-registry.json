@@ -60,6 +60,15 @@
       "validator": "node scripts/ai-harness/validate-runtime-proof.mjs <path>"
     },
     {
+      "id": "local-cert-report",
+      "pathPattern": ".ai/runs/<run-id>/local-cert-report.md",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.local-deployment-certification.v1",
+      "generation": "Generated beside runtime-proof.json by scripts/deploy/run-local-cert.mjs.",
+      "namingConvention": "<run-id>/local-cert-report.md"
+    },
+    {
       "id": "failure-report",
       "pathPattern": ".ai/runs/<run-id>/failure-report.md",
       "tracked": false,
