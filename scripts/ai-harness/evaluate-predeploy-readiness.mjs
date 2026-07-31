@@ -109,7 +109,7 @@ export function evaluatePredeployReadiness(input) {
       ),
       gate(
         "schema-safety",
-        impact.schemaAffecting ? input.schemaStatus === "PASS" : input.schemaStatus !== "FAIL",
+        impact.schemaAffecting.length > 0 ? input.schemaStatus === "PASS" : input.schemaStatus !== "FAIL",
         "database-airlock",
         "npm run test:deploy:migrations",
         "Schema-affecting candidates must pass migration safety; other candidates may record NOT_REQUIRED.",
