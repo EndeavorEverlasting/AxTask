@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axtask.predeploy-readiness-result.v1",
+  "title": "AxTask pre-deployment readiness result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "authorityRef",
+    "generatedAt",
+    "deploymentNeeded",
+    "runtimeImpact",
+    "costEvidence",
+    "gates",
+    "missingGates",
+    "verdict",
+    "recommendation",
+    "proofCeiling"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "authorityRef": { "const": "axtask.agent-authority.v1" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "currentMainSha": { "type": ["string", "null"] },
+    "candidateSha": { "type": ["string", "null"] },
+    "deploymentNeeded": { "type": "boolean" },
+    "runtimeImpact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "runtimeAffecting", "schemaAffecting", "deploymentConfigAffecting", "docsOrHarnessOnly", "deploymentNeeded"],
+      "properties": {
+        "files": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "runtimeAffecting": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "schemaAffecting": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "deploymentConfigAffecting": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "docsOrHarnessOnly": { "type": "boolean" },
+        "deploymentNeeded": { "type": "boolean" }
+      }
+    },
+    "costEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "monetaryEstimate", "note"],
+      "properties": {
+        "classification": {
+          "enum": ["NONE_NO_DEPLOY_NEEDED", "APPLICATION_RUNTIME_EXPOSURE", "PROVIDER_AND_DATABASE_RUNTIME_EXPOSURE"]
+        },
+        "monetaryEstimate": { "type": "null" },
+        "note": { "type": "string", "minLength": 1 }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gate" }
+    },
+    "missingGates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/missingGate" }
+    },
+    "verdict": {
+      "enum": [
+        "NOT_READY_REPOSITORY",
+        "NOT_READY_BACKUP",
+        "NOT_READY_SCHEMA",
+        "NOT_READY_RUNTIME",
+        "READY_FOR_LOCAL_ACCEPTANCE",
+        "READY_FOR_AUTHORIZED_DEPLOYMENT"
+      ]
+    },
+    "recommendation": {
+      "enum": [
+        "REPAIR_REPOSITORY_GATE",
+        "RUN_BACKUP_CERTIFICATION",
+        "REPAIR_SCHEMA_GATE",
+        "NO_DEPLOY_NEEDED",
+        "REPAIR_LOCAL_RUNTIME",
+        "RUN_LOCAL_PRODUCTION_CERTIFICATION",
+        "AWAIT_EXPLICIT_DEPLOYMENT_AUTHORIZATION"
+      ]
+    },
+    "proofCeiling": { "const": "repository-evidence" }
+  },
+  "$defs": {
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "ok", "owner", "command", "reason"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "ok": { "type": "boolean" },
+        "owner": { "type": "string", "minLength": 1 },
+        "command": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "missingGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "owner", "command", "reason"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "owner": { "type": "string", "minLength": 1 },
+        "command": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
