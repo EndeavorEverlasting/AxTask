@@ -60,13 +60,13 @@
       "name": "Local production certification",
       "canonicalOwner": "runtime-proof",
       "activation": "A current, green candidate SHA requires disposable local production-mode certification.",
-      "description": "Run a disposable local production-mode certification against a candidate SHA, then emit GO/NO-GO with bounded evidence.",
-      "plannedCommand": "node scripts/deploy/run-local-cert.mjs",
+      "description": "Run the real production launcher against disposable loopback PostgreSQL, prove DB-free liveness, DB readiness, and built-client serving, then emit a validated local-runtime proof artifact.",
+      "command": "node scripts/deploy/run-local-cert.mjs",
       "outputs": [".ai/runs/<run-id>/runtime-proof.json", ".ai/runs/<run-id>/local-cert-report.md"],
-      "guardrails": ["reject production database URLs", "clean only resources created by the run"],
-      "tests": ["planned with the executable capability"],
-      "proofLevel": "planned",
-      "status": "planned"
+      "guardrails": ["AXTASK_LOCAL_CERT=1 required", "loopback PostgreSQL only", "reject production host markers", "never print DATABASE_URL", "disable bounded-run background workers", "clean only resources created by the run"],
+      "tests": ["server/ai-harness/local-production-certification-contract.test.ts"],
+      "proofLevel": "local-runtime",
+      "status": "available"
     },
     {
       "id": "runtime-proof-recording",
