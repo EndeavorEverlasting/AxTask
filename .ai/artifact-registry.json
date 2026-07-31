@@ -146,6 +146,16 @@
       "producer": "axtask.account-backup-roundtrip-certification.v1",
       "generation": "Generated beside the machine-readable account backup certification result.",
       "namingConvention": "<run-id>/account-backup-certification.md"
+    },
+    {
+      "id": "predeploy-readiness",
+      "pathPattern": ".ai/runs/<run-id>/predeploy-readiness.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.predeploy-cost-readiness.v1",
+      "generation": "node scripts/ai-harness/evaluate-predeploy-readiness.mjs --input <evidence.json> --output <path>",
+      "namingConvention": "<run-id>/predeploy-readiness.json",
+      "schema": ".ai/schemas/predeploy-readiness-result.schema.json"
     }
   ],
   "forbiddenTrackedOutputs": [
