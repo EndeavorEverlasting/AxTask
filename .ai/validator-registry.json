@@ -37,7 +37,7 @@
       "required": true,
       "selection": {
         "paths": [".ai/run-context.schema.json", ".ai/workflows/**", "scripts/ai-harness/validate-run-context.mjs"],
-        "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1", "axtask.failure-recovery.v1", "axtask.local-deployment-certification.v1", "axtask.parallel-sprint-intake.v1"]
+        "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1", "axtask.failure-recovery.v1", "axtask.local-deployment-certification.v1", "axtask.parallel-sprint-intake.v1", "axtask.account-backup-roundtrip-certification.v1"]
       },
       "requires": ["authority", "harness"]
     },
@@ -70,6 +70,17 @@
         "workflows": ["axtask.parallel-sprint-intake.v1"]
       },
       "requires": ["authority", "harness"]
+    },
+    {
+      "id": "account-backup-roundtrip",
+      "command": "node scripts/db/run-local-account-backup-cert.mjs",
+      "scope": "Backup Center semantic export/import round-trip against disposable loopback PostgreSQL",
+      "required": false,
+      "selection": {
+        "paths": ["server/account-backup.ts", "server/account-backup.integration.test.ts", "server/routes/account-backup.ts", "server/routes/account-backup.bundle-kind.test.ts", "scripts/db/run-local-account-backup-cert.mjs", ".ai/schemas/account-backup-certification-result.schema.json", ".ai/workflows/account-backup-roundtrip-certification.md"],
+        "workflows": ["axtask.account-backup-roundtrip-certification.v1"]
+      },
+      "requires": ["authority", "harness", "typecheck", "tests"]
     },
     {"id":"release","command":"npm run release:check","scope":"feature-branch release evidence","required":true,"selection":{"always":true,"paths":["docs/**"]}},
     {"id":"typecheck","command":"npm run check","scope":"TypeScript","required":true,"selection":{"paths":["client/**","server/**","shared/**","tests/**","scripts/**/*.ts","vite.config.ts","vitest.config.ts","tsconfig.json","package.json","package-lock.json"]}},
