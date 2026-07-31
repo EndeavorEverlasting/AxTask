@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axtask.account-backup-certification-result.v1",
+  "title": "AxTask account backup round-trip certification result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "status",
+    "proofLevel",
+    "startedAt",
+    "finishedAt",
+    "checks"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": [
+        "PASS_ACCOUNT_ROUNDTRIP",
+        "FAIL_SCHEMA_BOOTSTRAP",
+        "FAIL_MIGRATION",
+        "FAIL_DATA_PARITY",
+        "BLOCKED_NO_DISPOSABLE_POSTGRES"
+      ]
+    },
+    "proofLevel": {
+      "enum": ["blocked", "disposable-postgres-runtime"]
+    },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hostClass": { "enum": ["loopback"] },
+        "databaseName": { "type": "string", "minLength": 1 }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "ok"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "ok": { "type": "boolean" },
+          "exitCode": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

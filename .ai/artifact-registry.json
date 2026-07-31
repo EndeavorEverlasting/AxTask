@@ -127,6 +127,25 @@
       "generation": "Create JSON matching shared/schemas/agent-routing/task-demand.schema.json from classifier output.",
       "namingConvention": "<run-id>/task-demand.json",
       "validator": "node scripts/ai-harness/validate-harness.mjs"
+    },
+    {
+      "id": "account-backup-certification",
+      "pathPattern": ".ai/runs/<run-id>/account-backup-certification.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.account-backup-roundtrip-certification.v1",
+      "generation": "node scripts/db/run-local-account-backup-cert.mjs",
+      "namingConvention": "<run-id>/account-backup-certification.json",
+      "schema": ".ai/schemas/account-backup-certification-result.schema.json"
+    },
+    {
+      "id": "account-backup-certification-report",
+      "pathPattern": ".ai/runs/<run-id>/account-backup-certification.md",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.account-backup-roundtrip-certification.v1",
+      "generation": "Generated beside the machine-readable account backup certification result.",
+      "namingConvention": "<run-id>/account-backup-certification.md"
     }
   ],
   "forbiddenTrackedOutputs": [
