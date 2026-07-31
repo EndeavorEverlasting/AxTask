@@ -106,6 +106,19 @@
       "tests": ["server/routes/account-backup.bundle-kind.test.ts", "server/account-backup.integration.test.ts"],
       "proofLevel": "local-disposable-runtime",
       "status": "available"
+    },
+    {
+      "id": "predeploy-cost-readiness",
+      "name": "Pre-deployment necessity and readiness evaluation",
+      "canonicalOwner": "deployment-orchestration",
+      "activation": "A release candidate is being considered for deployment and repository evidence must determine whether deployment is needed and which gates remain.",
+      "description": "Evaluate repository cleanliness, PR floor, exact candidate identity, CI, account backup proof, schema safety, build status, and local runtime proof. Classify deployment necessity and qualitative cost exposure without contacting Render or Neon or fabricating monetary pricing.",
+      "command": "node scripts/ai-harness/evaluate-predeploy-readiness.mjs --input <evidence.json>",
+      "outputs": [".ai/runs/<run-id>/predeploy-readiness.json"],
+      "guardrails": ["repository evidence only", "no provider API calls", "no invented pricing", "green CI is not live-runtime proof"],
+      "tests": ["server/ai-harness/predeploy-readiness-contract.test.ts"],
+      "proofLevel": "repository-evidence",
+      "status": "available"
     }
   ]
 }
