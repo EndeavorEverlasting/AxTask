@@ -21,16 +21,26 @@ function requireDataExportStepUp(req: Request, res: Response, next: NextFunction
   return res.status(403).json({ message: "Verify your email before downloading or importing a JSON backup" });
 }
 
-const isFullUserBundle = (bundle: unknown): bundle is import("../migration/export").ExportBundle => {
+/**
+ * Migration exports contain a `users` table and preserve table-shaped rows with
+ * IDs/FKs. Backup Center downloads are intentionally smaller semantic bundles
+ * (`tasks`, `walletSnapshot`, `badges`) and must stay on runAccountImport(),
+ * which rebuilds account-owned rows and keeps wallet balances ledger-safe.
+ */
+export function isMigrationUserExportBundle(
+  bundle: unknown,
+): bundle is import("../migration/export").ExportBundle {
   if (!bundle || typeof bundle !== "object") return false;
   const record = bundle as Record<string, unknown>;
   const metadata = (record.metadata || {}) as Record<string, unknown>;
   const data = (record.data || {}) as Record<string, unknown>;
   return (
     metadata.exportMode === "user" &&
-    (Array.isArray(data.tasks) || Array.isArray(data.userBadges) || Array.isArray(data.coinTransactions))
+    metadata.schemaVersion === 1 &&
+    Array.isArray(data.users) &&
+    data.users.length > 0
   );
-};
+}
 
 export function registerAccountBackupRoutes(app: Express, requireAuth: RequireAuthMiddleware) {
   app.get("/api/account/data-export-step-up-status", requireAuth, async (req, res) => {
@@ -115,8 +125,9 @@ export function registerAccountBackupRoutes(app: Express, requireAuth: RequireAu
 
   app.post("/api/account/import/challenge", requireAuth, requireDataExportStepUp, async (req, res) => {
     try {
-      // Full user export bundles use migration import and do not require legacy ownership quiz prompts.
-      if (isFullUserBundle(req.body?.bundle)) {
+      // Full migration-style user exports already carry table identity/FK structure.
+      // Backup Center semantic bundles must use the ownership challenge below.
+      if (isMigrationUserExportBundle(req.body?.bundle)) {
         return res.json({
           ownershipQuizRequired: false,
           tasksFingerprint: "",
@@ -151,7 +162,7 @@ export function registerAccountBackupRoutes(app: Express, requireAuth: RequireAu
             .optional(),
         })
         .parse(req.body);
-      if (isFullUserBundle(body.bundle)) {
+      if (isMigrationUserExportBundle(body.bundle)) {
         const validation = validateBundle(body.bundle);
         if (validation.errors.length > 0) {
           return res.status(400).json({ message: "Bundle validation failed", errors: validation.errors });
