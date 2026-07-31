@@ -68,6 +68,12 @@
       "event": "task-demand-classification-requested",
       "condition": "A task requires classification of reasoning demand and routing to an executor with proven capability evidence.",
       "workflowId": "axtask.prompt-leap-routing.v1"
+    },
+    {
+      "id": "account-backup-certification-requested",
+      "event": "account-backup-certification-requested",
+      "condition": "Account backup/export/import behavior changes or a deployment candidate needs fresh account recovery proof.",
+      "workflowId": "axtask.account-backup-roundtrip-certification.v1"
     }
   ]
 }
