@@ -93,6 +93,19 @@
       "tests": ["server/ai/routing/routing-contract.test.ts"],
       "proofLevel": "contract",
       "status": "available"
+    },
+    {
+      "id": "account-backup-roundtrip-certification",
+      "name": "Account backup round-trip certification",
+      "canonicalOwner": "runtime-proof",
+      "activation": "Account backup/export/import behavior changes or a deployment candidate requires current recovery proof.",
+      "description": "Run the Backup Center semantic export/import path against disposable loopback PostgreSQL, prove dry-run and source non-mutation, task and badge parity, duplicate suppression, and ledger-safe wallet handling, then emit machine-readable certification evidence.",
+      "command": "node scripts/db/run-local-account-backup-cert.mjs",
+      "outputs": [".ai/runs/<run-id>/account-backup-certification.json", ".ai/runs/<run-id>/account-backup-certification.md"],
+      "guardrails": ["loopback PostgreSQL only", "reject production host markers", "never print DATABASE_URL", "never restore wallet balance from Backup Center semantic bundles"],
+      "tests": ["server/routes/account-backup.bundle-kind.test.ts", "server/account-backup.integration.test.ts"],
+      "proofLevel": "local-disposable-runtime",
+      "status": "available"
     }
   ]
 }
