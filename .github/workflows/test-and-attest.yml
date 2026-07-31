@@ -97,6 +97,12 @@ jobs:
           node scripts/apply-migrations.mjs
           npm run db:push:ci </dev/null
 
+      - name: Account backup round-trip certification
+        # Uses only the disposable loopback PostgreSQL service above. The runner
+        # fails closed for non-loopback/production targets and emits ignored
+        # machine-readable proof under .ai/runs/.
+        run: node scripts/db/run-local-account-backup-cert.mjs --schema-ready
+
       - name: Verify users TOTP columns exist in DB
         run: npm run test:pg-schema
 
