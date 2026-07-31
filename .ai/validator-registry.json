@@ -54,8 +54,8 @@
     },
     {
       "id": "harness-tests",
-      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts server/ai-harness/contract-impact-contract.test.ts server/ai-harness/predeploy-readiness-contract.test.ts",
-      "scope": "negative, completeness, integration, and predeploy readiness contracts",
+      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts server/ai-harness/contract-impact-contract.test.ts server/ai-harness/predeploy-readiness-contract.test.ts server/ai-harness/local-production-certification-contract.test.ts",
+      "scope": "negative, completeness, integration, readiness, and local certification contracts",
       "required": true,
       "selection": {"paths": [".ai/**", "scripts/ai-harness/**", "server/ai-harness/**", "AGENTS.md", "AGENT_GUARDRAILS.md", ".githooks/**"]},
       "requires": ["authority", "harness", "harness-infrastructure"]
@@ -92,6 +92,17 @@
         "workflows": ["axtask.predeploy-cost-readiness.v1"]
       },
       "requires": ["authority", "harness", "harness-infrastructure"]
+    },
+    {
+      "id": "local-production-certification",
+      "command": "AXTASK_LOCAL_CERT=1 node scripts/deploy/run-local-cert.mjs",
+      "scope": "real production launcher against disposable loopback PostgreSQL with /health, /ready, and built-client smoke proof",
+      "required": false,
+      "selection": {
+        "paths": ["scripts/deploy/run-local-cert.mjs", "scripts/production-start.mjs", "server/index.ts", "server/ai-harness/local-production-certification-contract.test.ts", ".ai/workflows/local-deployment-certification.md", ".ai/runtime-proof.schema.json"],
+        "workflows": ["axtask.local-deployment-certification.v1"]
+      },
+      "requires": ["authority", "harness", "harness-infrastructure", "typecheck", "tests", "build", "account-backup-roundtrip"]
     },
     {"id":"release","command":"npm run release:check","scope":"feature-branch release evidence","required":true,"selection":{"always":true,"paths":["docs/**"]}},
     {"id":"typecheck","command":"npm run check","scope":"TypeScript","required":true,"selection":{"paths":["client/**","server/**","shared/**","tests/**","scripts/**/*.ts","vite.config.ts","vitest.config.ts","tsconfig.json","package.json","package-lock.json"]}},

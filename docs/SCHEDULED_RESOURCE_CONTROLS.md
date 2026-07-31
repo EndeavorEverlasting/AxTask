@@ -73,6 +73,6 @@ In-process **retention prune** stays **on** as table-growth defense. Render **ni
 | PR #73 | Merged scheduled worker and snapshot resource controls |
 | PR #74 | Merged sidebar wallet interval removal |
 | DB-free Render liveness | Current bounded floor repair: `healthCheckPath: /health` |
-| PR #68 | Draft, non-mergeable, quarantined salvage source; never merge wholesale |
+| PR #68 | Closed unmerged archive/salvage source; provider-usage design remains available in Git history, but the stale combined recovery branch must never be merged wholesale |
 | Future browser work | Briefing and adherence polling mitigation |
 | Future observability | Bounded runtime memory diagnostics and deploy-failure classification |
