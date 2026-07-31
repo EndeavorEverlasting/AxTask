@@ -74,6 +74,12 @@
       "event": "account-backup-certification-requested",
       "condition": "Account backup/export/import behavior changes or a deployment candidate needs fresh account recovery proof.",
       "workflowId": "axtask.account-backup-roundtrip-certification.v1"
+    },
+    {
+      "id": "deployment-considered",
+      "event": "deployment-considered",
+      "condition": "A current repository candidate is being considered for deployment and must first determine deployment necessity, remaining gates, and qualitative cost exposure.",
+      "workflowId": "axtask.predeploy-cost-readiness.v1"
     }
   ]
 }
