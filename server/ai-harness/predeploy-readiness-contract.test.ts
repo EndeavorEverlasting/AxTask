@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-// @ts-expect-error The repository harness is intentionally implemented as an executable ESM .mjs module.
+// @ts-ignore The repository harness is intentionally implemented as an executable ESM .mjs module.
 import { classifyChangedPaths, evaluatePredeployReadiness } from "../../scripts/ai-harness/evaluate-predeploy-readiness.mjs";
 
 const SHA = "a".repeat(40);
