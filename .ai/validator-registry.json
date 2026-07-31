@@ -37,7 +37,7 @@
       "required": true,
       "selection": {
         "paths": [".ai/run-context.schema.json", ".ai/workflows/**", "scripts/ai-harness/validate-run-context.mjs"],
-        "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1", "axtask.failure-recovery.v1", "axtask.local-deployment-certification.v1", "axtask.parallel-sprint-intake.v1", "axtask.account-backup-roundtrip-certification.v1"]
+        "workflows": ["axtask.repository-intake.v1", "axtask.pr-closeout.v1", "axtask.failure-recovery.v1", "axtask.local-deployment-certification.v1", "axtask.parallel-sprint-intake.v1", "axtask.account-backup-roundtrip-certification.v1", "axtask.predeploy-cost-readiness.v1"]
       },
       "requires": ["authority", "harness"]
     },
@@ -54,8 +54,8 @@
     },
     {
       "id": "harness-tests",
-      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts server/ai-harness/contract-impact-contract.test.ts",
-      "scope": "negative, completeness, and integration contracts",
+      "command": "npx vitest run server/ai-harness/authority-contract.test.ts server/ai-harness/harness-contract.test.ts server/ai-harness/deployment-certification-contract.test.ts server/ai-harness/validator-selection-contract.test.ts server/ai-harness/harness-infrastructure-contract.test.ts server/ai-harness/collision-inspection-contract.test.ts server/ai-harness/contract-impact-contract.test.ts server/ai-harness/predeploy-readiness-contract.test.ts",
+      "scope": "negative, completeness, integration, and predeploy readiness contracts",
       "required": true,
       "selection": {"paths": [".ai/**", "scripts/ai-harness/**", "server/ai-harness/**", "AGENTS.md", "AGENT_GUARDRAILS.md", ".githooks/**"]},
       "requires": ["authority", "harness", "harness-infrastructure"]
@@ -81,6 +81,17 @@
         "workflows": ["axtask.account-backup-roundtrip-certification.v1"]
       },
       "requires": ["authority", "harness", "typecheck", "tests"]
+    },
+    {
+      "id": "predeploy-readiness",
+      "command": "npx vitest run server/ai-harness/predeploy-readiness-contract.test.ts",
+      "scope": "repository-only deployment necessity, readiness gates, and qualitative cost exposure",
+      "required": false,
+      "selection": {
+        "paths": ["scripts/ai-harness/evaluate-predeploy-readiness.mjs", "server/ai-harness/predeploy-readiness-contract.test.ts", ".ai/schemas/predeploy-readiness-result.schema.json", ".ai/workflows/predeploy-cost-readiness.md"],
+        "workflows": ["axtask.predeploy-cost-readiness.v1"]
+      },
+      "requires": ["authority", "harness", "harness-infrastructure"]
     },
     {"id":"release","command":"npm run release:check","scope":"feature-branch release evidence","required":true,"selection":{"always":true,"paths":["docs/**"]}},
     {"id":"typecheck","command":"npm run check","scope":"TypeScript","required":true,"selection":{"paths":["client/**","server/**","shared/**","tests/**","scripts/**/*.ts","vite.config.ts","vitest.config.ts","tsconfig.json","package.json","package-lock.json"]}},
