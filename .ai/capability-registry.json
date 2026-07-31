@@ -43,19 +43,6 @@
       "status": "available"
     },
     {
-      "id": "deployment-candidate-assembly",
-      "name": "Deployment candidate assembly",
-      "canonicalOwner": "deployment-orchestration",
-      "activation": "Repository-only deployment repairs are ready to converge on current main.",
-      "description": "Build a controlled deployment candidate from current main by converging owned, non-conflicting changes. Requires explicit authorization for live surfaces.",
-      "plannedCommand": "scripts/ops/Start-AxTaskDeploymentCandidate.ps1",
-      "outputs": ["candidate branch", "candidate SHA", "pull request"],
-      "guardrails": ["no live deployment", "no production database mutation"],
-      "tests": ["planned with the executable capability"],
-      "proofLevel": "planned",
-      "status": "planned"
-    },
-    {
       "id": "local-production-certification",
       "name": "Local production certification",
       "canonicalOwner": "runtime-proof",
