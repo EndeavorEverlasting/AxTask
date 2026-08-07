@@ -65,6 +65,12 @@ function gate(name, ok, owner, command, reason) {
 
 export function evaluatePredeployReadiness(input) {
   const impact = classifyChangedPaths(input.changedPaths ?? []);
+  // Runtime impact answers whether the diff itself needs deployment. Main promotion may still
+  // cause a real provider deploy/restart when autoDeploy is enabled, even for docs/harness-only
+  // changes, so the caller can explicitly raise that operational boundary.
+  const promotionWillAutoDeploy = input.promotionWillAutoDeploy === true;
+  const deploymentNeeded = impact.deploymentNeeded || promotionWillAutoDeploy;
+
   // A deploy candidate is normally a reviewed PR/feature-branch head before main advances.
   // Preserve the legacy current-main path by falling back to currentMainSha when a separate
   // observed candidate ref is not supplied.
@@ -114,14 +120,14 @@ export function evaluatePredeployReadiness(input) {
     ),
   ];
 
-  if (impact.deploymentNeeded) {
+  if (deploymentNeeded) {
     gates.push(
       gate(
         "account-backup-roundtrip",
         input.backupStatus === "PASS_ACCOUNT_ROUNDTRIP",
         "backup-certification",
         "node scripts/db/run-local-account-backup-cert.mjs",
-        "Runtime-affecting deployment candidates require current disposable account recovery proof.",
+        "Any candidate that will actually deploy/restart the production service requires current disposable account recovery proof.",
       ),
       gate(
         "schema-safety",
@@ -135,7 +141,7 @@ export function evaluatePredeployReadiness(input) {
         input.buildStatus === "PASS",
         "build-owner",
         "npm run build",
-        "Runtime-affecting candidates require a successful production build.",
+        "Any candidate that will actually deploy/restart the production service requires a successful production build.",
       ),
     );
   }
@@ -153,7 +159,7 @@ export function evaluatePredeployReadiness(input) {
   } else if (failed.some((item) => item.name === "schema-safety")) {
     verdict = "NOT_READY_SCHEMA";
     recommendation = "REPAIR_SCHEMA_GATE";
-  } else if (!impact.deploymentNeeded) {
+  } else if (!deploymentNeeded) {
     verdict = "READY_FOR_LOCAL_ACCEPTANCE";
     recommendation = "NO_DEPLOY_NEEDED";
   } else if (input.runtimeStatus === "FAIL") {
@@ -167,11 +173,13 @@ export function evaluatePredeployReadiness(input) {
     recommendation = "RUN_LOCAL_PRODUCTION_CERTIFICATION";
   }
 
-  const costExposure = !impact.deploymentNeeded
+  const costExposure = !deploymentNeeded
     ? "NONE_NO_DEPLOY_NEEDED"
-    : impact.deploymentConfigAffecting.length > 0 || impact.schemaAffecting.length > 0
-      ? "PROVIDER_AND_DATABASE_RUNTIME_EXPOSURE"
-      : "APPLICATION_RUNTIME_EXPOSURE";
+    : promotionWillAutoDeploy && !impact.deploymentNeeded
+      ? "PROVIDER_RUNTIME_EXPOSURE"
+      : impact.deploymentConfigAffecting.length > 0 || impact.schemaAffecting.length > 0
+        ? "PROVIDER_AND_DATABASE_RUNTIME_EXPOSURE"
+        : "APPLICATION_RUNTIME_EXPOSURE";
 
   return {
     schemaVersion: 1,
@@ -181,7 +189,8 @@ export function evaluatePredeployReadiness(input) {
     baseSha: input.baseSha ?? null,
     currentCandidateSha: observedCandidateSha ?? null,
     candidateSha: input.candidateSha ?? null,
-    deploymentNeeded: impact.deploymentNeeded,
+    promotionWillAutoDeploy,
+    deploymentNeeded,
     runtimeImpact: impact,
     costEvidence: {
       classification: costExposure,
