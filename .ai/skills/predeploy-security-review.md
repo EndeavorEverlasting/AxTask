@@ -23,15 +23,21 @@ Use when a deployment candidate changes any of:
 - `migrations/**`;
 - `shared/schema.ts` or `drizzle.config.ts`;
 - `server/auth/**`;
+- `.ai/workflows/**` that participate in deployment/release;
+- `.ai/skills/**` that participate in deployment/readiness/security/runtime proof;
+- `.ai/harness.json`, `.ai/workflow-registry.json`, `.ai/trigger-registry.json`, `.ai/validator-registry.json`, `.ai/artifact-registry.json`, or deployment-related `.ai/schemas/**`;
+- `server/ai-harness/**` deployment/readiness/validator contracts;
 - environment-variable contracts;
 - upload, webhook, admin, or other high-risk production surfaces.
+
+Deployment-control harness files are part of the live-promotion security boundary even when they do not change application runtime bytes.
 
 ## Inputs
 
 - exact candidate/base SHAs;
 - changed-file list and diff;
 - repository security/tooling commands;
-- deployment model from `.ai/codebase-map.json`;
+- deployment model from `.ai/codebase-map.json` plus authoritative `render.yaml` values;
 - existing guardrails and ownership rules.
 
 ## Procedure
@@ -42,8 +48,9 @@ Use when a deployment candidate changes any of:
    - identify newly introduced direct dependencies and scripts;
    - confirm lockfile remains tracked;
    - do not invent CVE claims without a current authoritative source.
-3. For CI/CD changes:
-   - inspect workflow triggers, checkout refs, secret exposure, third-party actions, and production deployment permissions;
+3. For CI/CD or deployment-control harness changes:
+   - inspect workflow/trigger routing, validator dependencies, authorization boundaries, checkout refs, secret exposure, third-party actions, and production deployment permissions;
+   - prove that direct authorization paths cannot bypass security/readiness gates;
    - flag only concrete paths that can affect untrusted or production execution.
 4. For environment/deploy changes:
    - inspect variable names and fail-closed behavior without printing values;
@@ -58,7 +65,8 @@ Use when a deployment candidate changes any of:
 7. Cross-check findings against tests and existing guardrails.
 8. Report only findings with a concrete production/deployment consequence.
 9. Route any failing security command through `axtask.failure-recovery.v1`.
-10. Return a release disposition: `CLEAR`, `BLOCKED`, or `NEEDS_OPERATOR_DECISION`.
+10. Write `.ai/runs/<run-id>/predeploy-security-review.json` matching `.ai/schemas/predeploy-security-review-result.schema.json`, binding the disposition to the exact candidate SHA and base SHA.
+11. Return a release disposition: `CLEAR`, `BLOCKED`, or `NEEDS_OPERATOR_DECISION`.
 
 ## Finding contract
 
@@ -69,10 +77,9 @@ Every finding must include:
 - evidence;
 - concrete release or exploit consequence;
 - remediation owner;
-- whether it blocks deployment;
-- proof ceiling.
+- whether it blocks deployment.
 
-Do not report vague missing-best-practice observations as blockers.
+The machine-readable result also records the candidate SHA, base SHA, disposition, and proof ceiling. Do not report vague missing-best-practice observations as blockers.
 
 ## Guardrails
 
@@ -81,11 +88,15 @@ Do not report vague missing-best-practice observations as blockers.
 - Never print raw environment values or tokens.
 - Do not claim vulnerability reachability unless code/config tracing supports it.
 - Do not treat documentation prose as runtime behavior.
+- A security result is stale when either candidate SHA or base SHA changes.
 
 ## Outputs
 
-Record the result in the current run's operator report and final handoff. If remediation changes paths, re-run validator selection from the new diff.
+- `.ai/runs/<run-id>/predeploy-security-review.json` — required machine-readable disposition for authorization;
+- current run operator report and final handoff.
+
+If remediation changes paths or the candidate/base SHA, re-run validator selection and this security review from the new diff.
 
 ## Proof ceiling
 
-Repository/security-delta evidence only. This skill can block deployment; it cannot prove production security.
+`repository-security-delta`. This skill can block deployment; it cannot prove production security.
