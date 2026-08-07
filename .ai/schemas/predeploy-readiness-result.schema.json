@@ -8,6 +8,7 @@
     "schemaVersion",
     "authorityRef",
     "generatedAt",
+    "promotionWillAutoDeploy",
     "deploymentNeeded",
     "runtimeImpact",
     "costEvidence",
@@ -25,6 +26,7 @@
     "baseSha": { "type": ["string", "null"] },
     "currentCandidateSha": { "type": ["string", "null"] },
     "candidateSha": { "type": ["string", "null"] },
+    "promotionWillAutoDeploy": { "type": "boolean" },
     "deploymentNeeded": { "type": "boolean" },
     "runtimeImpact": {
       "type": "object",
@@ -45,7 +47,7 @@
       "required": ["classification", "monetaryEstimate", "note"],
       "properties": {
         "classification": {
-          "enum": ["NONE_NO_DEPLOY_NEEDED", "APPLICATION_RUNTIME_EXPOSURE", "PROVIDER_AND_DATABASE_RUNTIME_EXPOSURE"]
+          "enum": ["NONE_NO_DEPLOY_NEEDED", "PROVIDER_RUNTIME_EXPOSURE", "APPLICATION_RUNTIME_EXPOSURE", "PROVIDER_AND_DATABASE_RUNTIME_EXPOSURE"]
         },
         "monetaryEstimate": { "type": "null" },
         "note": { "type": "string", "minLength": 1 }
