@@ -18,6 +18,8 @@ Harvested only the AxTask-relevant deployment concepts from gstack `/ship`, `/la
 - added `axtask.skill.authorized-main-deploy.v1` for the explicit live authorization and exact-SHA promotion boundary;
 - added `axtask.skill.post-deploy-canary.v1` for read-only `/health`, public-shell, explicit `/ready`, provider/SHA evidence, and bounded regression verification;
 - registered the workflow, skills, and deterministic triggers in the existing harness;
+- bound `axtask.main-branch-deployment.v1` into validator selection so the workflow alone deterministically selects run-context validation, backup round-trip certification, predeploy readiness, local production certification, release/typecheck/test/build, and deployment contracts with their existing dependencies;
+- pinned the deployment validator plan in `server/ai-harness/validator-selection-contract.test.ts`;
 - pinned `main`, `autoDeploy: true`, and the `npm run ship` non-gate trap in the codebase map;
 - added focused harness contract coverage for the deployment skill chain.
 
@@ -39,12 +41,14 @@ Changed:
 - `.ai/harness.json`
 - `.ai/workflow-registry.json`
 - `.ai/trigger-registry.json`
+- `.ai/validator-registry.json`
 - `.ai/workflows/main-branch-deployment.md`
 - `.ai/skills/deploy-readiness.md`
 - `.ai/skills/predeploy-security-review.md`
 - `.ai/skills/authorized-main-deploy.md`
 - `.ai/skills/post-deploy-canary.md`
 - `server/ai-harness/harness-infrastructure-contract.test.ts`
+- `server/ai-harness/validator-selection-contract.test.ts`
 - this release note
 
 Not changed:
