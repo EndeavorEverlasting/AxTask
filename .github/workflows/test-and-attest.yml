@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
 
 concurrency:
   group: test-and-attest-${{ github.ref }}
@@ -139,6 +140,60 @@ jobs:
         run: docker build -t axtask-ci:check .
       - name: Verify runtime image has bundled app assets
         run: docker run --rm axtask-ci:check sh -c 'test -f dist/index.js && test -f dist/public/index.html && test -f package.json && test -f drizzle.config.ts'
+
+  predeploy-proof:
+    needs: [test-and-attest, docker-build]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Setup pinned Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.20.2"
+
+      - name: Refresh and verify candidate/base state
+        id: state
+        run: |
+          git fetch origin main --prune --no-tags
+          current_candidate="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq '.headRefOid')"
+          current_main="$(git rev-parse origin/main)"
+          blocking_count="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number --jq "[.[] | select(.number != $PR_NUMBER)] | length")"
+          test "$current_candidate" = "$CANDIDATE_SHA"
+          test "$current_main" = "$BASE_SHA"
+          echo "current_candidate=$current_candidate" >> "$GITHUB_OUTPUT"
+          echo "current_main=$current_main" >> "$GITHUB_OUTPUT"
+          echo "blocking_count=$blocking_count" >> "$GITHUB_OUTPUT"
+
+      - name: Generate fail-closed predeploy proof
+        run: >-
+          node scripts/ai-harness/generate-predeploy-ci-proof.mjs
+          --candidate "$CANDIDATE_SHA"
+          --current-candidate "${{ steps.state.outputs.current_candidate }}"
+          --base "$BASE_SHA"
+          --current-main "${{ steps.state.outputs.current_main }}"
+          --blocking-pr-count "${{ steps.state.outputs.blocking_count }}"
+          --ci-green true
+          --pr "$PR_NUMBER"
+          --output-dir ".ai/runs/predeploy-ci-$CANDIDATE_SHA"
+
+      - name: Upload predeploy proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: predeploy-proof-${{ github.event.pull_request.head.sha }}
+          path: .ai/runs/predeploy-ci-${{ github.event.pull_request.head.sha }}/
+          if-no-files-found: error
+          retention-days: 14
 
   check-nodeweaver-file:
     runs-on: ubuntu-latest
