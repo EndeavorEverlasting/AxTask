@@ -140,14 +140,16 @@ describe("AI harness infrastructure completeness", () => {
       tracked: false,
       sanitized: true,
     }));
-    expect(fs.existsSync(path.join(REPO_ROOT, ".ai", "schemas", "predeploy-security-review-result.schema.json"))).toBe(true);
+    const securitySchema = readJson(".ai/schemas/predeploy-security-review-result.schema.json");
+    expect(securitySchema.required).toEqual(expect.arrayContaining(["candidateSha", "baseSha", "disposition", "findings", "proofCeiling"]));
+    expect(securitySchema.properties.disposition.enum).toEqual(["CLEAR", "BLOCKED", "NEEDS_OPERATOR_DECISION"]);
   });
 
   it("blocks the convenience ship wrapper on main before staging", () => {
     const shipScript = fs.readFileSync(path.join(REPO_ROOT, "scripts", "ship.ps1"), "utf8");
     const branchIndex = shipScript.indexOf("git branch --show-current");
     const mainGuardIndex = shipScript.indexOf('$branch -eq "main"');
-    const addIndex = shipScript.indexOf("git add .");
+    const addIndex = shipScript.lastIndexOf("\ngit add .");
     const pushIndex = shipScript.indexOf("git push -u origin $branch");
 
     expect(branchIndex).toBeGreaterThanOrEqual(0);
