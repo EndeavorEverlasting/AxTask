@@ -1,11 +1,12 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-  Stage all changes, commit, and push the current branch to origin (sets upstream).
+  Stage all changes, commit, and push the current feature branch to origin (sets upstream).
 
 .DESCRIPTION
   Convenience wrapper for: git add . && git commit -m "..." && git push -u origin <current-branch>
   Run from repo root or any path; the script cds to the repository root.
+  Refuses to run on main because main is the production-connected branch and must advance through a reviewed PR/deployment gate.
 
 .EXAMPLE
   ./scripts/ship.ps1 "fix(ui): adjust splitter rail"
@@ -31,6 +32,17 @@ if ([string]::IsNullOrWhiteSpace($msg)) {
   exit 1
 }
 
+$branch = (git branch --show-current).Trim()
+if ([string]::IsNullOrWhiteSpace($branch)) {
+  Write-Error "Could not determine current branch."
+  exit 1
+}
+
+if ($branch -eq "main") {
+  Write-Error "Refusing to run npm run ship on main. Use a feature branch + reviewed PR; main is production-connected and may auto-deploy."
+  exit 1
+}
+
 git add .
 
 if (git diff --cached --quiet) {
@@ -41,12 +53,6 @@ if (git diff --cached --quiet) {
 git commit -m $msg
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
-}
-
-$branch = (git branch --show-current).Trim()
-if ([string]::IsNullOrWhiteSpace($branch)) {
-  Write-Error "Could not determine current branch."
-  exit 1
 }
 
 git push -u origin $branch
