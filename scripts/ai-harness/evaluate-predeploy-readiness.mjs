@@ -65,7 +65,16 @@ function gate(name, ok, owner, command, reason) {
 
 export function evaluatePredeployReadiness(input) {
   const impact = classifyChangedPaths(input.changedPaths ?? []);
-  const sameCandidate = Boolean(input.currentMainSha) && input.currentMainSha === input.candidateSha;
+  // A deploy candidate is normally a reviewed PR/feature-branch head before main advances.
+  // Preserve the legacy current-main path by falling back to currentMainSha when a separate
+  // observed candidate ref is not supplied.
+  const observedCandidateSha = input.currentCandidateSha ?? input.currentMainSha;
+  const candidateCurrent = Boolean(observedCandidateSha) && observedCandidateSha === input.candidateSha;
+  // When a base SHA is supplied, prove main has not moved since the candidate/readiness
+  // snapshot. Legacy callers that evaluate current main may omit baseSha.
+  const baseCurrent = input.baseSha == null || (
+    Boolean(input.currentMainSha) && input.currentMainSha === input.baseSha
+  );
 
   const gates = [
     gate(
@@ -84,10 +93,17 @@ export function evaluatePredeployReadiness(input) {
     ),
     gate(
       "candidate-current",
-      sameCandidate,
+      candidateCurrent,
       "repository-owner",
-      "git fetch origin --prune --no-tags; git rev-parse HEAD; git rev-parse origin/main",
-      "The evaluated candidate must equal current main.",
+      "git fetch origin --prune --no-tags; git rev-parse HEAD; gh pr view <pr> --json headRefOid,baseRefOid",
+      "The evaluated candidate must equal the currently observed release ref/PR head; it does not need to be on main before authorization.",
+    ),
+    gate(
+      "base-current",
+      baseCurrent,
+      "repository-owner",
+      "git fetch origin --prune --no-tags; git rev-parse origin/main",
+      "When a base SHA is recorded, current main must still equal that base before promotion.",
     ),
     gate(
       "required-ci",
@@ -128,7 +144,7 @@ export function evaluatePredeployReadiness(input) {
   let verdict;
   let recommendation;
 
-  if (failed.some((item) => ["repository-clean", "no-blocking-prs", "candidate-current", "required-ci", "production-build"].includes(item.name))) {
+  if (failed.some((item) => ["repository-clean", "no-blocking-prs", "candidate-current", "base-current", "required-ci", "production-build"].includes(item.name))) {
     verdict = "NOT_READY_REPOSITORY";
     recommendation = "REPAIR_REPOSITORY_GATE";
   } else if (failed.some((item) => item.name === "account-backup-roundtrip")) {
@@ -162,6 +178,8 @@ export function evaluatePredeployReadiness(input) {
     authorityRef: "axtask.agent-authority.v1",
     generatedAt: new Date().toISOString(),
     currentMainSha: input.currentMainSha ?? null,
+    baseSha: input.baseSha ?? null,
+    currentCandidateSha: observedCandidateSha ?? null,
     candidateSha: input.candidateSha ?? null,
     deploymentNeeded: impact.deploymentNeeded,
     runtimeImpact: impact,
