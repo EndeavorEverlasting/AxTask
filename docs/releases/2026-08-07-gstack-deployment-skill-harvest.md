@@ -15,8 +15,10 @@ Harvested only the AxTask-relevant deployment concepts from gstack `/ship`, `/la
 - added `axtask.main-branch-deployment.v1` as the fail-closed security → readiness → authorization → promotion → canary sequence;
 - added `axtask.skill.deploy-readiness.v1` for fresh exact-candidate readiness;
 - corrected predeploy readiness so a pre-merge PR candidate is certified against its current observed PR/branch head and still-current `main` base rather than being required to equal `main` before authorization;
-- extended readiness evidence with `currentCandidateSha` and `baseSha`, plus a separate `base-current` gate;
-- added `axtask.skill.predeploy-security-review.v1` for bounded dependency, CI/CD, environment, startup, auth, and deployment-control-harness review;
+- defined `blockingPrCount` as other release-blocking PRs only, explicitly excluding the target candidate PR so the release does not block itself;
+- extended readiness evidence with `currentCandidateSha`, `baseSha`, and `promotionWillAutoDeploy`, plus separate candidate-current/base-current gates;
+- separated runtime-diff impact from promotion impact: a docs/harness-only change can still require the full deployment floor when advancing production-connected `main` will trigger Render auto-deploy;
+- added `axtask.skill.predeploy-security-review.v1` as a mandatory bounded review for every main-promotion candidate; low-risk diffs still emit a current `CLEAR` artifact with an empty findings array rather than skipping security evidence;
 - added a machine-readable `.ai/runs/<run-id>/predeploy-security-review.json` artifact/schema whose `CLEAR` disposition is bound to the exact candidate/base and required at the authorization boundary;
 - added `axtask.skill.authorized-main-deploy.v1` with a post-authorization GitHub re-fetch to close PR-head/base/check TOCTOU drift before merge;
 - added `axtask.skill.post-deploy-canary.v1`; `HEALTHY` now requires trustworthy live deployment identity matching the expected release, while `LIVE_SHA_UNVERIFIED` is explicitly `INCONCLUSIVE` even when health endpoints pass;
@@ -72,7 +74,7 @@ Not changed:
 
 ## Testing
 
-The branch must pass the repository's full PR CI after every review-driven change. The critical contract additions cover pre-merge PR readiness, stale PR-head rejection, base-main drift rejection, deployment workflow ordering, current security-clear evidence, `render.yaml` autoDeploy alignment, ship-on-main rejection before staging, exact main-deployment validator routing, and post-deploy identity requirements. The owning CI also runs production build, Playwright regression, performance budgets, fresh Drizzle/migration/idempotence proof, account-backup certification, schema verification, and local production certification.
+The branch must pass the repository's full PR CI after every review-driven change. The critical contract additions cover pre-merge PR readiness, stale PR-head rejection, base-main drift rejection, candidate-PR exclusion from the blocking floor, auto-deploy promotion exposure for docs/harness-only diffs, mandatory candidate/base-bound security evidence, deployment workflow ordering, `render.yaml` autoDeploy alignment, ship-on-main rejection before staging, exact main-deployment validator routing, and post-deploy identity requirements. The owning CI also runs production build, Playwright regression, performance budgets, fresh Drizzle/migration/idempotence proof, account-backup certification, schema verification, and local production certification.
 
 ## Rollout
 
