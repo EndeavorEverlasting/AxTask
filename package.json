@@ -178,6 +178,7 @@
     "web-push": "^3.6.7",
     "wouter": "^3.3.5",
     "ws": "^8.21.1",
+    "xlsx": "npm:@e965/xlsx@0.20.3",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0"
   },
