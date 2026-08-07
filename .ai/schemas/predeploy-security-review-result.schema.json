@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axtask.predeploy-security-review-result.v1",
+  "title": "AxTask pre-deployment security review result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "authorityRef",
+    "generatedAt",
+    "candidateSha",
+    "baseSha",
+    "disposition",
+    "findings",
+    "proofCeiling"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "authorityRef": { "const": "axtask.agent-authority.v1" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "candidateSha": { "type": "string", "minLength": 7 },
+    "baseSha": { "type": "string", "minLength": 7 },
+    "disposition": { "enum": ["CLEAR", "BLOCKED", "NEEDS_OPERATOR_DECISION"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["surface", "severity", "evidence", "consequence", "owner", "blocksDeployment"],
+        "properties": {
+          "surface": { "type": "string", "minLength": 1 },
+          "severity": { "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+          "evidence": { "type": "string", "minLength": 1 },
+          "consequence": { "type": "string", "minLength": 1 },
+          "owner": { "type": "string", "minLength": 1 },
+          "blocksDeployment": { "type": "boolean" }
+        }
+      }
+    },
+    "proofCeiling": { "const": "repository-security-delta" }
+  }
+}
