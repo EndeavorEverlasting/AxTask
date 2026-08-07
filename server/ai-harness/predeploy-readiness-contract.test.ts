@@ -70,7 +70,55 @@ describe("predeploy readiness evaluator", () => {
     expect(result.proofCeiling).toBe("repository-evidence");
   });
 
-  it("blocks stale candidates and open PR floors before later gates", () => {
+  it("allows a current pre-merge PR candidate without requiring it to equal main", () => {
+    const candidateSha = "b".repeat(40);
+    const result = evaluatePredeployReadiness(
+      base({
+        candidateSha,
+        currentCandidateSha: candidateSha,
+        baseSha: SHA,
+        runtimeStatus: "PASS",
+      }),
+    );
+
+    expect(result.verdict).toBe("READY_FOR_AUTHORIZED_DEPLOYMENT");
+    expect(result.currentCandidateSha).toBe(candidateSha);
+    expect(result.currentMainSha).toBe(SHA);
+    expect(result.baseSha).toBe(SHA);
+    expect(result.missingGates).toEqual([]);
+  });
+
+  it("blocks a stale PR head before authorization", () => {
+    const result = evaluatePredeployReadiness(
+      base({
+        candidateSha: "b".repeat(40),
+        currentCandidateSha: "c".repeat(40),
+        baseSha: SHA,
+        runtimeStatus: "PASS",
+      }),
+    );
+
+    expect(result.verdict).toBe("NOT_READY_REPOSITORY");
+    expect(result.missingGates.map((gate: { name: string }) => gate.name)).toContain("candidate-current");
+  });
+
+  it("blocks when main moves after the recorded candidate base", () => {
+    const candidateSha = "b".repeat(40);
+    const result = evaluatePredeployReadiness(
+      base({
+        currentMainSha: "c".repeat(40),
+        baseSha: SHA,
+        candidateSha,
+        currentCandidateSha: candidateSha,
+        runtimeStatus: "PASS",
+      }),
+    );
+
+    expect(result.verdict).toBe("NOT_READY_REPOSITORY");
+    expect(result.missingGates.map((gate: { name: string }) => gate.name)).toContain("base-current");
+  });
+
+  it("blocks stale legacy candidates and open PR floors before later gates", () => {
     const result = evaluatePredeployReadiness(
       base({ candidateSha: "b".repeat(40), blockingPrCount: 2, ciGreen: false }),
     );
