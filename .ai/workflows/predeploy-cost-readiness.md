@@ -22,7 +22,7 @@ A sanitized JSON evidence file containing:
 - `currentMainSha` — current observed `origin/main` SHA;
 - `promotionWillAutoDeploy` — set `true` when the contemplated main promotion itself will cause a provider deploy/restart even if the diff is docs/harness-only;
 - `repositoryClean`;
-- `blockingPrCount`;
+- `blockingPrCount` — count of **other** release-blocking open PRs; exclude the target candidate PR itself;
 - `ciGreen`;
 - `changedPaths`;
 - account-backup certification status;
@@ -37,7 +37,7 @@ Legacy current-main evaluation may omit `currentCandidateSha` and `baseSha`; the
 1. Inspect repository and contract-impact evidence.
 2. Classify changed paths into runtime, schema, and deployment-configuration impact.
 3. Separately determine whether the intended main promotion will trigger a provider deploy/restart via `promotionWillAutoDeploy`.
-4. Refuse deployment readiness when the worktree is dirty, blocking PRs remain, the exact candidate differs from the currently observed release ref/PR head, the recorded base differs from current main, or required CI is not green.
+4. Refuse deployment readiness when the worktree is dirty, **another** blocking PR remains, the exact candidate differs from the currently observed release ref/PR head, the recorded base differs from current main, or required CI is not green. The target candidate PR is not counted against itself.
 5. When either the diff is runtime-affecting **or** the planned promotion will auto-deploy, require current account backup round-trip proof and production build proof.
 6. Require migration safety for schema-affecting changes.
 7. If there is no runtime-affecting diff and no planned auto-deploy promotion, emit `NO_DEPLOY_NEEDED`; do not wake provider resources.
@@ -76,6 +76,7 @@ A normal pre-promotion candidate lives on a feature branch/PR and is expected to
 - No deployment mutation.
 - No monetary price fabrication.
 - Never make a pre-merge candidate equal `main` merely to satisfy readiness.
+- Never count the target candidate PR as a blocking PR against itself.
 - Never emit `NO_DEPLOY_NEEDED` for a planned main promotion that repository evidence says will auto-deploy.
 - `/health` remains liveness and `/ready` remains explicit DB readiness in the separate local-certification workflow.
 - Green CI is repository evidence, not live-runtime proof.
