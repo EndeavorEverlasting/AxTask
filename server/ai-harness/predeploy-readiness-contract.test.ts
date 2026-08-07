@@ -22,7 +22,7 @@ function base(overrides: Record<string, unknown> = {}) {
 }
 
 describe("predeploy readiness evaluator", () => {
-  it("classifies docs/harness-only changes as no-deploy-needed without inventing provider cost", () => {
+  it("classifies docs/harness-only changes as no-deploy-needed when no live promotion is planned", () => {
     const result = evaluatePredeployReadiness(
       base({
         changedPaths: ["docs/releases/2026-07-31-note.md", ".ai/workflows/pr-closeout.md"],
@@ -31,6 +31,8 @@ describe("predeploy readiness evaluator", () => {
       }),
     );
 
+    expect(result.runtimeImpact.deploymentNeeded).toBe(false);
+    expect(result.promotionWillAutoDeploy).toBe(false);
     expect(result.deploymentNeeded).toBe(false);
     expect(result.verdict).toBe("READY_FOR_LOCAL_ACCEPTANCE");
     expect(result.recommendation).toBe("NO_DEPLOY_NEEDED");
@@ -38,6 +40,29 @@ describe("predeploy readiness evaluator", () => {
       classification: "NONE_NO_DEPLOY_NEEDED",
       monetaryEstimate: null,
     });
+  });
+
+  it("requires the full deploy floor for a docs/harness-only main promotion when autoDeploy will fire", () => {
+    const candidateSha = "b".repeat(40);
+    const result = evaluatePredeployReadiness(
+      base({
+        candidateSha,
+        currentCandidateSha: candidateSha,
+        baseSha: SHA,
+        promotionWillAutoDeploy: true,
+        changedPaths: [".ai/workflows/main-branch-deployment.md"],
+        runtimeStatus: "PASS",
+      }),
+    );
+
+    expect(result.runtimeImpact.deploymentNeeded).toBe(false);
+    expect(result.promotionWillAutoDeploy).toBe(true);
+    expect(result.deploymentNeeded).toBe(true);
+    expect(result.verdict).toBe("READY_FOR_AUTHORIZED_DEPLOYMENT");
+    expect(result.costEvidence.classification).toBe("PROVIDER_RUNTIME_EXPOSURE");
+    expect(result.gates.map((gate: { name: string }) => gate.name)).toEqual(
+      expect.arrayContaining(["account-backup-roundtrip", "production-build"]),
+    );
   });
 
   it("requires account round-trip proof before runtime-affecting deployment work", () => {
