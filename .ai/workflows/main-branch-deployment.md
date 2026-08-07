@@ -70,7 +70,7 @@ flowchart TD
    - if any are absent, stop without advancing `main`.
 5. **Promotion**
    - run `axtask.skill.authorized-main-deploy.v1`;
-   - after authorization, re-fetch PR number/head SHA, current `main` SHA, mergeability, and required checks before merging to close the TOCTOU window;
+   - **post-authorization TOCTOU re-check:** re-fetch PR number/head SHA, current `main` SHA, mergeability, and required checks before merging;
    - prefer the reviewed PR merge path;
    - record merge/main SHA and promotion timestamp;
    - because `autoDeploy: true`, treat the production-connected main mutation as the live-deployment trigger.
