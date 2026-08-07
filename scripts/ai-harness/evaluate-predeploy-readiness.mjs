@@ -94,8 +94,8 @@ export function evaluatePredeployReadiness(input) {
       "no-blocking-prs",
       Number(input.blockingPrCount ?? 0) === 0,
       "repository-owner",
-      "gh pr list --state open",
-      "Open blocking PRs must be merged, closed, or explicitly quarantined outside the release floor.",
+      "gh pr list --state open --json number,headRefOid,baseRefName,isDraft",
+      "blockingPrCount must exclude the target candidate PR itself and count only other open PRs that block this release.",
     ),
     gate(
       "candidate-current",
