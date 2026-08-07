@@ -8,7 +8,7 @@ AxTask already had strong repository-only deployment readiness, account-backup c
 
 The gap matters because `render.yaml` currently has `autoDeploy: true`. The repository release contract treats `main` as production-connected, while the Render blueprint does not encode an explicit branch override. Advancing `main` must therefore be treated as a live deployment mutation. The pre-existing `npm run ship` wrapper staged/committed/pushed whichever branch was current and could run on `main`, so this sprint also closes that direct accidental-push path.
 
-A final predeployment proof gap remained after the initial harvest: Node provenance/runtime guards were defined but not enforced by the owning release CI, production dependency advisories were not a release gate, and the candidate/base-bound security/readiness evidence was not preserved as a CI artifact. Those gaps are closed here before any Render or Neon mutation.
+A final predeployment proof gap remained after the initial harvest: Node provenance/runtime guards were defined but not enforced by the owning release CI, production dependency advisories were not a release gate, and the candidate/base-bound security/readiness evidence was not preserved as a CI artifact. Closing that gap exposed real production dependency blockers before any Render or Neon mutation, including vulnerable `drizzle-orm`, `express-rate-limit`/`ip-address`, `multer`, `ws`, an unused `xlsx` dependency with no patched npm release, and moderate `esbuild` advisories through the Drizzle toolchain. Those findings were repaired rather than waived.
 
 ## Change
 
@@ -31,11 +31,16 @@ Harvested only the AxTask-relevant deployment concepts from gstack `/ship`, `/la
 - added diagnosis, testing, rollout, rollback/recovery notes, and a Mermaid failure-chain diagram to the main deployment workflow;
 - pinned the owning CI application runtime to Node `20.20.2` so provenance approval cannot drift with a floating `20` selector;
 - captured the pinned GitHub-hosted Node `20.20.2` linux/x64 binary through an intentional fail-closed provenance run and approved only fingerprint `6295488653f0d93b0a157841746fef7e72cc4328cfb60c4bbe0ca2668a836ffd` in `.security/approved-node-provenance.json`;
-- added `npm audit --omit=dev --audit-level=high` as a fail-closed production dependency gate before release validation;
 - made Node provenance, Node runtime, and Axios guards execute before typecheck/tests/build in `test-and-attest`;
+- added a permanent `npm audit --omit=dev --audit-level=moderate` release gate before the runtime guards;
+- removed unused `xlsx` instead of accepting its unpatched prototype-pollution/ReDoS surface;
+- raised vulnerable direct runtime floors to `drizzle-orm ^0.45.2`, `express ^4.22.2`, `express-rate-limit ^8.6.1`, `multer ^2.2.0`, and `ws ^8.21.1`, and raised `postcss` to `^8.5.23`;
+- pinned direct `esbuild` to `0.28.1` and added `overrides.esbuild=0.28.1` so nested Drizzle tooling also resolves the patched build binary;
+- preserved `drizzle-kit` because the production launcher intentionally retains an explicit operator-only legacy schema-push recovery override; the migration/Drizzle CI remains responsible for proving that patched resolution works;
+- used two branch-only one-shot lock-repair workflows to regenerate `package-lock.json` from npm and require clean audit evidence before committing; both temporary workflows were deleted immediately after their bounded repair completed and are not part of the permanent release machinery;
 - added `scripts/ai-harness/generate-predeploy-ci-proof.mjs`, which re-runs all three security guards, verifies exact clean candidate checkout, reads current `render.yaml`, computes the real candidate diff, and refuses to emit proof unless the existing readiness evaluator returns `READY_FOR_AUTHORIZED_DEPLOYMENT` with no missing gates;
 - added a `predeploy-proof` CI job that runs only after `test-and-attest` and Docker build succeed, checks out the exact PR head, refreshes current `main` and PR-head state, counts other open PRs conservatively, generates the candidate/base-bound evidence, and uploads it as `predeploy-proof-<candidate-sha>` without contacting Render or Neon;
-- added executable contract coverage for the proof generator, pinned Node runtime/fingerprint, production dependency audit, guard ordering, proof-job dependency order, exact candidate checkout, and artifact upload.
+- added executable contract coverage for the proof generator, pinned Node runtime/fingerprint, moderate-or-higher production dependency audit, guard ordering, proof-job dependency order, exact candidate checkout, and artifact upload.
 
 AxTask's existing account-backup round-trip certification, local production certification, validator selection, runtime-proof schema, reports, and failure-recovery workflow remain canonical and are reused rather than duplicated.
 
@@ -49,7 +54,7 @@ AxTask's existing account-backup round-trip certification, local production cert
 
 ## Scope
 
-Changed deployment/harness surfaces include:
+Changed deployment/harness and release-security surfaces include:
 
 - `.github/workflows/test-and-attest.yml`
 - `.security/approved-node-provenance.json`
@@ -74,6 +79,8 @@ Changed deployment/harness surfaces include:
 - `server/ai-harness/predeploy-ci-proof-contract.test.ts`
 - `server/ai-harness/harness-infrastructure-contract.test.ts`
 - `server/ai-harness/validator-selection-contract.test.ts`
+- `package.json`
+- `package-lock.json`
 - this release note
 
 Not changed:
@@ -87,9 +94,9 @@ Not changed:
 
 ## Testing
 
-The branch must pass the repository's full PR CI after every review-driven change. The critical contract additions cover pre-merge PR readiness, stale PR-head rejection, base-main drift rejection, candidate-PR exclusion from the blocking floor, auto-deploy promotion exposure for docs/harness-only diffs, mandatory candidate/base-bound security evidence, deployment workflow ordering, `render.yaml` autoDeploy alignment, ship-on-main rejection before staging, exact main-deployment validator routing, post-deploy identity requirements, pinned shared Node provenance, production dependency advisory gating, security-guard ordering, and CI artifact generation only after the owning local-production floor passes.
+The branch must pass the repository's full PR CI after every release-sensitive change. The critical contract additions cover pre-merge PR readiness, stale PR-head rejection, base-main drift rejection, candidate-PR exclusion from the blocking floor, auto-deploy promotion exposure for docs/harness-only diffs, mandatory candidate/base-bound security evidence, deployment workflow ordering, `render.yaml` autoDeploy alignment, ship-on-main rejection before staging, exact main-deployment validator routing, post-deploy identity requirements, pinned shared Node provenance, moderate-or-higher production dependency advisory gating, security-guard ordering, and CI artifact generation only after the owning local-production floor passes.
 
-The owning CI runs a high-severity production dependency audit plus Node provenance/runtime/Axios guards before repository validation, then typecheck, full tests, release guard, production build, Playwright regression, performance budgets, fresh Drizzle/migration/idempotence proof, account-backup certification, schema verification, local production certification, Docker image validation, and finally exact-candidate predeploy evidence generation/upload. The predeploy proof job performs only repository/read-only GitHub checks; it does not contact Render or Neon.
+The dependency repair path itself proved npm could regenerate the lock with the patched runtime floors and pass `npm audit --omit=dev --audit-level=moderate` before committing. Permanent owning CI re-runs that same moderate audit, then Node provenance/runtime/Axios guards, typecheck, full tests, release guard, production build, Playwright regression, performance budgets, fresh Drizzle/migration/idempotence proof, account-backup certification, schema verification, local production certification, Docker image validation, and finally exact-candidate predeploy evidence generation/upload. The predeploy proof job performs only repository/read-only GitHub checks; it does not contact Render or Neon.
 
 ## Rollout
 
@@ -97,8 +104,8 @@ Merge only after the final exact feature-branch head is green, review findings a
 
 ## Rollback
 
-Revert this harness/tooling PR through the normal reviewed-PR path if the imported release sequence conflicts with AxTask operating contracts. A live application rollback is separate production mutation and requires separate operator authorization; canary failure alone does not authorize an automatic rollback.
+Revert this harness/tooling/dependency PR through the normal reviewed-PR path if the release sequence or patched dependency set conflicts with AxTask operating contracts. A live application rollback is separate production mutation and requires separate operator authorization; canary failure alone does not authorize an automatic rollback.
 
 ## Proof ceiling
 
-Repository and CI validation can prove that the deployment skill chain is registered, ordered, internally consistent, compatible with AxTask's existing certification surfaces, and accompanied by an exact-candidate downloadable predeploy evidence bundle. Local production certification proves the real production launcher only against disposable local PostgreSQL. Neither proves a Render deployment occurred or that the expected release is healthy in production. Live proof begins only when an explicitly authorized promotion executes and the read-only canary ties observed production identity to the expected release.
+Repository and CI validation can prove that the deployment skill chain is registered, ordered, internally consistent, compatible with AxTask's existing certification surfaces, the production dependency graph is free of moderate-or-higher advisories at audit time, and the exact candidate has a downloadable predeploy evidence bundle. Local production certification proves the real production launcher only against disposable local PostgreSQL. Neither proves a Render deployment occurred or that the expected release is healthy in production. Live proof begins only when an explicitly authorized promotion executes and the read-only canary ties observed production identity to the expected release.
