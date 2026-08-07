@@ -36,6 +36,52 @@ describe("AI harness infrastructure completeness", () => {
     expect(map.deploymentModel.directDeployCommandRegistered).toBe(false);
   });
 
+  it("registers the fail-closed main deployment skill chain", () => {
+    const map = readJson(".ai/codebase-map.json");
+    const workflows = readJson(".ai/workflow-registry.json");
+    const triggers = readJson(".ai/trigger-registry.json");
+    const harness = readJson(".ai/harness.json");
+
+    for (const skillId of [
+      "axtask.skill.deploy-readiness.v1",
+      "axtask.skill.predeploy-security-review.v1",
+      "axtask.skill.authorized-main-deploy.v1",
+      "axtask.skill.post-deploy-canary.v1",
+    ]) {
+      expect(harness.skills).toContain(skillId);
+    }
+
+    expect(workflows.workflows).toContainEqual(expect.objectContaining({
+      id: "axtask.main-branch-deployment.v1",
+      path: ".ai/workflows/main-branch-deployment.md",
+    }));
+    expect(triggers.triggers).toContainEqual(expect.objectContaining({
+      id: "main-branch-deployment-requested",
+      workflowId: "axtask.main-branch-deployment.v1",
+    }));
+    expect(triggers.triggers).toContainEqual(expect.objectContaining({
+      id: "authorized-main-deploy-requested",
+      skillId: "axtask.skill.authorized-main-deploy.v1",
+    }));
+    expect(triggers.triggers).toContainEqual(expect.objectContaining({
+      id: "post-deploy-verification-requested",
+      skillId: "axtask.skill.post-deploy-canary.v1",
+    }));
+
+    expect(map.deploymentModel.productionBranch).toBe("main");
+    expect(map.deploymentModel.autoDeploy).toBe(true);
+    expect(map.knownTraps).toEqual(expect.arrayContaining([
+      expect.stringContaining("autoDeploy=true"),
+      expect.stringContaining("npm run ship"),
+    ]));
+
+    const workflowText = fs.readFileSync(path.join(REPO_ROOT, ".ai", "workflows", "main-branch-deployment.md"), "utf8");
+    expect(workflowText).toContain("READY_FOR_AUTHORIZED_DEPLOYMENT");
+    expect(workflowText).toContain("explicit operator authorization");
+    expect(workflowText).toContain("axtask.skill.post-deploy-canary.v1");
+    expect(workflowText).toContain("Do not use `npm run ship` as deployment certification.");
+  });
+
   it("registers how every artifact is produced and named", () => {
     const registry = readJson(".ai/artifact-registry.json");
     const ids = new Set(registry.artifacts.map((artifact: { id: string }) => artifact.id));
