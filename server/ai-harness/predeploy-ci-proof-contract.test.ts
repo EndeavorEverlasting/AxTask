@@ -74,7 +74,7 @@ describe("predeploy CI proof contract", () => {
     const workflow = fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", "test-and-attest.yml"), "utf8");
     expect(workflow).toContain('node-version: "20.20.2"');
 
-    const audit = workflow.indexOf("npm audit --omit=dev --audit-level=high");
+    const audit = workflow.indexOf("npm audit --omit=dev --audit-level=moderate");
     const provenance = workflow.indexOf("npm run security:node-provenance-guard");
     const runtime = workflow.indexOf("npm run security:node-runtime-guard");
     const axios = workflow.indexOf("npm run security:axios-guard");
