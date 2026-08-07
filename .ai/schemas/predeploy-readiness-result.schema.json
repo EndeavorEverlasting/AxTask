@@ -22,6 +22,8 @@
     "authorityRef": { "const": "axtask.agent-authority.v1" },
     "generatedAt": { "type": "string", "format": "date-time" },
     "currentMainSha": { "type": ["string", "null"] },
+    "baseSha": { "type": ["string", "null"] },
+    "currentCandidateSha": { "type": ["string", "null"] },
     "candidateSha": { "type": ["string", "null"] },
     "deploymentNeeded": { "type": "boolean" },
     "runtimeImpact": {
