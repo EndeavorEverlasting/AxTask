@@ -8,6 +8,8 @@ AxTask already had strong repository-only deployment readiness, account-backup c
 
 The gap matters because `render.yaml` currently has `autoDeploy: true`. The repository release contract treats `main` as production-connected, while the Render blueprint does not encode an explicit branch override. Advancing `main` must therefore be treated as a live deployment mutation. The pre-existing `npm run ship` wrapper staged/committed/pushed whichever branch was current and could run on `main`, so this sprint also closes that direct accidental-push path.
 
+A final predeployment proof gap remained after the initial harvest: Node provenance/runtime guards were defined but not enforced by the owning release CI, and the candidate/base-bound security/readiness evidence was not preserved as a CI artifact. That gap is closed here before any Render or Neon mutation.
+
 ## Change
 
 Harvested only the AxTask-relevant deployment concepts from gstack `/ship`, `/land-and-deploy`, `/canary`, and the deployment-focused slice of `/cso`:
@@ -26,7 +28,13 @@ Harvested only the AxTask-relevant deployment concepts from gstack `/ship`, `/la
 - bound `axtask.main-branch-deployment.v1` into validator selection so the workflow alone deterministically selects run-context validation, backup round-trip certification, predeploy readiness, local production certification, release/typecheck/test/build, and deployment contracts with their existing dependencies;
 - added a `main` hard stop to `scripts/ship.ps1` before any `git add`, commit, or push and aligned the codebase-map command contract;
 - made harness tests read `render.yaml` for authoritative `autoDeploy`, verify the lack of an explicit Render branch override, assert the deployment skill sequence in order, verify the security artifact schema/trigger binding, and prove the ship-on-main guard occurs before staging;
-- added diagnosis, testing, rollout, rollback/recovery notes, and a Mermaid failure-chain diagram to the main deployment workflow.
+- added diagnosis, testing, rollout, rollback/recovery notes, and a Mermaid failure-chain diagram to the main deployment workflow;
+- pinned the owning CI application runtime to Node `20.20.2` so provenance approval cannot drift with a floating `20` selector;
+- captured the pinned GitHub-hosted Node `20.20.2` linux/x64 binary through an intentional fail-closed provenance run and approved only fingerprint `6295488653f0d93b0a157841746fef7e72cc4328cfb60c4bbe0ca2668a836ffd` in `.security/approved-node-provenance.json`;
+- made Node provenance, Node runtime, and Axios guards execute before typecheck/tests/build in `test-and-attest`;
+- added `scripts/ai-harness/generate-predeploy-ci-proof.mjs`, which re-runs all three security guards, verifies exact clean candidate checkout, reads current `render.yaml`, computes the real candidate diff, and refuses to emit proof unless the existing readiness evaluator returns `READY_FOR_AUTHORIZED_DEPLOYMENT` with no missing gates;
+- added a `predeploy-proof` CI job that runs only after `test-and-attest` and Docker build succeed, checks out the exact PR head, refreshes current `main` and PR-head state, counts other open PRs conservatively, generates the candidate/base-bound evidence, and uploads it as `predeploy-proof-<candidate-sha>` without contacting Render or Neon;
+- added executable contract coverage for the proof generator, pinned Node runtime, guard ordering, proof-job dependency order, exact candidate checkout, and artifact upload.
 
 AxTask's existing account-backup round-trip certification, local production certification, validator selection, runtime-proof schema, reports, and failure-recovery workflow remain canonical and are reused rather than duplicated.
 
@@ -42,6 +50,8 @@ AxTask's existing account-backup round-trip certification, local production cert
 
 Changed deployment/harness surfaces include:
 
+- `.github/workflows/test-and-attest.yml`
+- `.security/approved-node-provenance.json`
 - `.ai/codebase-map.json`
 - `.ai/harness.json`
 - `.ai/artifact-registry.json`
@@ -57,8 +67,10 @@ Changed deployment/harness surfaces include:
 - `.ai/skills/authorized-main-deploy.md`
 - `.ai/skills/post-deploy-canary.md`
 - `scripts/ai-harness/evaluate-predeploy-readiness.mjs`
+- `scripts/ai-harness/generate-predeploy-ci-proof.mjs`
 - `scripts/ship.ps1`
 - `server/ai-harness/predeploy-readiness-contract.test.ts`
+- `server/ai-harness/predeploy-ci-proof-contract.test.ts`
 - `server/ai-harness/harness-infrastructure-contract.test.ts`
 - `server/ai-harness/validator-selection-contract.test.ts`
 - this release note
@@ -74,11 +86,13 @@ Not changed:
 
 ## Testing
 
-The branch must pass the repository's full PR CI after every review-driven change. The critical contract additions cover pre-merge PR readiness, stale PR-head rejection, base-main drift rejection, candidate-PR exclusion from the blocking floor, auto-deploy promotion exposure for docs/harness-only diffs, mandatory candidate/base-bound security evidence, deployment workflow ordering, `render.yaml` autoDeploy alignment, ship-on-main rejection before staging, exact main-deployment validator routing, and post-deploy identity requirements. The owning CI also runs production build, Playwright regression, performance budgets, fresh Drizzle/migration/idempotence proof, account-backup certification, schema verification, and local production certification.
+The branch must pass the repository's full PR CI after every review-driven change. The critical contract additions cover pre-merge PR readiness, stale PR-head rejection, base-main drift rejection, candidate-PR exclusion from the blocking floor, auto-deploy promotion exposure for docs/harness-only diffs, mandatory candidate/base-bound security evidence, deployment workflow ordering, `render.yaml` autoDeploy alignment, ship-on-main rejection before staging, exact main-deployment validator routing, post-deploy identity requirements, pinned shared Node provenance, security-guard ordering, and CI artifact generation only after the owning local-production floor passes.
+
+The owning CI runs Node provenance/runtime/Axios guards before repository validation, then typecheck, full tests, release guard, production build, Playwright regression, performance budgets, fresh Drizzle/migration/idempotence proof, account-backup certification, schema verification, local production certification, Docker image validation, and finally exact-candidate predeploy evidence generation/upload. The predeploy proof job performs only repository/read-only GitHub checks; it does not contact Render or Neon.
 
 ## Rollout
 
-Merge only after the final exact feature-branch head is green, review findings are resolved, readiness/security evidence is current for the same candidate/base, and the operator explicitly authorizes the main promotion. Because Render auto-deploy is enabled and the repository release contract treats `main` as production-connected, the merge itself is the live boundary and must be followed by the registered post-deploy canary with live identity verification.
+Merge only after the final exact feature-branch head is green, review findings are resolved, and the uploaded `predeploy-proof-<candidate-sha>` contains a `CLEAR` security review plus `READY_FOR_AUTHORIZED_DEPLOYMENT` readiness result for the same current candidate/base. The operator must then explicitly authorize the main promotion. Because Render auto-deploy is enabled and the repository release contract treats `main` as production-connected, the merge itself is the live boundary and must be followed by the registered post-deploy canary with live identity verification.
 
 ## Rollback
 
@@ -86,4 +100,4 @@ Revert this harness/tooling PR through the normal reviewed-PR path if the import
 
 ## Proof ceiling
 
-Repository and CI validation can prove that the deployment skill chain is registered, ordered, internally consistent, and compatible with AxTask's existing certification surfaces. Local production certification proves the real production launcher only against disposable local PostgreSQL. Neither proves a Render deployment occurred or that the expected release is healthy in production. Live proof begins only when an explicitly authorized promotion executes and the read-only canary ties observed production identity to the expected release.
+Repository and CI validation can prove that the deployment skill chain is registered, ordered, internally consistent, compatible with AxTask's existing certification surfaces, and accompanied by an exact-candidate downloadable predeploy evidence bundle. Local production certification proves the real production launcher only against disposable local PostgreSQL. Neither proves a Render deployment occurred or that the expected release is healthy in production. Live proof begins only when an explicitly authorized promotion executes and the read-only canary ties observed production identity to the expected release.
