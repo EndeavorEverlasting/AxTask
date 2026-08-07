@@ -68,6 +68,29 @@ describe("AI harness validator selection", () => {
     expect(plan.unmatchedPaths).toEqual([]);
   });
 
+  it("selects the complete main deployment gate from workflow routing alone", () => {
+    const plan = selectValidators(REGISTRY, {
+      changedPaths: [],
+      workflowId: "axtask.main-branch-deployment.v1",
+    });
+
+    expect(ids(plan)).toEqual([
+      "authority",
+      "harness",
+      "harness-infrastructure",
+      "run-context",
+      "account-backup-roundtrip",
+      "predeploy-readiness",
+      "local-production-certification",
+      "release",
+      "typecheck",
+      "tests",
+      "build",
+      "deploy",
+    ]);
+    expect(plan.unmatchedPaths).toEqual([]);
+  });
+
   it("keeps docs-only work bounded to docs and release contracts", () => {
     const planGeneric = selectValidators(REGISTRY, { changedPaths: ["docs/GENERAL_NOTE.md"] });
     expect(ids(planGeneric)).toEqual(["release", "tests", "docs-contracts"]);
