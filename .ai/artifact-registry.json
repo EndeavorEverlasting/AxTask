@@ -157,6 +157,16 @@
       "namingConvention": "<run-id>/account-backup-certification.md"
     },
     {
+      "id": "predeploy-security-review",
+      "pathPattern": ".ai/runs/<run-id>/predeploy-security-review.json",
+      "tracked": false,
+      "sanitized": true,
+      "producer": "axtask.skill.predeploy-security-review.v1",
+      "generation": "Write the bounded security-delta disposition for the exact candidate/base using .ai/schemas/predeploy-security-review-result.schema.json.",
+      "namingConvention": "<run-id>/predeploy-security-review.json",
+      "schema": ".ai/schemas/predeploy-security-review-result.schema.json"
+    },
+    {
       "id": "predeploy-readiness",
       "pathPattern": ".ai/runs/<run-id>/predeploy-readiness.json",
       "tracked": false,
