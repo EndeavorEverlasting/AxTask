@@ -28,7 +28,7 @@ jobs:
 
       - name: Apply bounded esbuild repair
         run: |
-          npm pkg set 'devDependencies.esbuild=^0.28.1'
+          npm pkg set 'devDependencies.esbuild=0.28.1'
           npm pkg set 'overrides.esbuild=0.28.1'
           npm install --package-lock-only --ignore-scripts
 
