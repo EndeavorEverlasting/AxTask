@@ -96,13 +96,13 @@
     {
       "id": "predeploy-security-review-requested",
       "event": "predeploy-security-review-requested",
-      "condition": "A deployment candidate changes dependencies, auth, secrets/env contracts, CI/CD, Render configuration, startup, migrations, or other security-sensitive release surfaces.",
+      "condition": "A deployment candidate changes dependencies, auth, secrets/env contracts, CI/CD, Render/startup/migrations, deployment-related .ai/workflows/** or .ai/skills/**, .ai deployment registries/schemas, server/ai-harness/** deployment contracts, or another security-sensitive release surface.",
       "skillId": "axtask.skill.predeploy-security-review.v1"
     },
     {
       "id": "authorized-main-deploy-requested",
       "event": "authorized-main-deploy-requested",
-      "condition": "Repository and local-runtime gates are current and passing, READY_FOR_AUTHORIZED_DEPLOYMENT is recorded for the exact candidate SHA, and the operator explicitly authorizes the live main-branch promotion.",
+      "condition": "READY_FOR_AUTHORIZED_DEPLOYMENT and a predeploy-security-review disposition of CLEAR are both current and bound to the exact same candidate SHA and base SHA, required CI/validators are passing, current main still equals that base, and the operator explicitly authorizes the live main-branch promotion.",
       "skillId": "axtask.skill.authorized-main-deploy.v1"
     },
     {
