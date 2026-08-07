@@ -57,8 +57,9 @@ flowchart TD
 3. **Deploy readiness**
    - run `axtask.skill.deploy-readiness.v1`;
    - bind readiness to the current candidate ref/PR head and current base rather than requiring the pre-merge candidate to equal `main`;
+   - while current repository evidence still says production-connected `main` will trigger Render auto-deploy, pass `promotionWillAutoDeploy: true` to `axtask.predeploy-cost-readiness.v1` so docs/harness-only promotions cannot bypass the deploy floor;
    - execute selected validators rather than treating selection as proof;
-   - collect backup/local-runtime evidence required by current changes.
+   - collect backup/local-runtime evidence required by the actual promotion boundary.
 4. **Authorization gate**
    - require a current `READY_FOR_AUTHORIZED_DEPLOYMENT` verdict tied to the exact candidate and base;
    - require the current `CLEAR` predeploy security artifact for that same candidate/base;
@@ -81,11 +82,11 @@ flowchart TD
 
 ## Diagnosis note
 
-The repository already owned validation, backup recovery proof, migration/bootstrap proof, local production certification, and predeploy readiness. The missing deployment layer was the exact-SHA choreography around those components: predeploy security evidence, a pre-merge candidate/base model, explicit main-promotion authorization, a post-authorization state re-check, and live canary identity verification.
+The repository already owned validation, backup recovery proof, migration/bootstrap proof, local production certification, and predeploy readiness. The missing deployment layer was the exact-SHA choreography around those components: predeploy security evidence, a pre-merge candidate/base model, explicit main-promotion authorization, a post-authorization state re-check, auto-deploy promotion exposure, and live canary identity verification.
 
 ## Testing note
 
-The owning validation plan is selected by `axtask.main-branch-deployment.v1` and includes harness/run-context contracts, account-backup certification, predeploy readiness, local production certification, release/typecheck/tests/build, and deployment contracts through the registry dependency graph. CI additionally runs Docker build, Playwright regression, bundle/performance checks, fresh Drizzle+migration/idempotence proof, schema verification, and the local production launcher certification.
+The owning validation plan is selected by `axtask.main-branch-deployment.v1` and includes harness/run-context contracts, account-backup certification, predeploy readiness, local production certification, release/typecheck/tests/build, and deployment contracts through the registry dependency graph. CI additionally runs Docker build, Playwright regression, bundle/performance checks, fresh Drizzle+migration/idempotence proof, schema verification, and the local production launcher certification. Readiness contracts separately prove pre-merge PR-head/base semantics and that a docs/harness-only main promotion with auto-deploy enabled still requires the production floor.
 
 ## Rollout note
 
@@ -102,6 +103,7 @@ A harness-only regression is rolled back by reverting the harness PR through the
 - Do not promote when current `main` differs from the recorded candidate base.
 - Do not promote without a current `CLEAR` security-review artifact for the exact candidate/base.
 - Do not reuse stale CI/security/local-runtime evidence after candidate or base changes.
+- Do not emit `NO_DEPLOY_NEEDED` for an intended production-connected main promotion while repository evidence says that promotion will auto-deploy.
 - Do not claim live deployment from repository evidence.
 - Do not claim `HEALTHY` from merge/provider/HTTP status without verifying live deployment identity.
 - Do not force-update `main`.
