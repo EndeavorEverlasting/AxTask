@@ -42,7 +42,7 @@ jobs:
 
       - name: Validate dependency diff
         run: |
-          git diff --check
+          git diff --check -- package.json package-lock.json
           git diff -- package.json package-lock.json
 
       - name: Commit repaired manifest and lock
