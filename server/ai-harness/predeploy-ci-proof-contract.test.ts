@@ -8,6 +8,7 @@ import { buildPredeployProof } from "../../scripts/ai-harness/generate-predeploy
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
+const APPROVED_CI_NODE_SHA = "6295488653f0d93b0a157841746fef7e72cc4328cfb60c4bbe0ca2668a836ffd";
 
 describe("predeploy CI proof contract", () => {
   it("builds candidate/base-bound CLEAR + READY artifacts only from closed gates", () => {
@@ -58,15 +59,28 @@ describe("predeploy CI proof contract", () => {
     })).toThrow(/predeploy readiness did not close/);
   });
 
-  it("pins exact Node security guards before repository validation and uploads proof after certification", () => {
+  it("pins the shared GitHub Actions Node binary fingerprint", () => {
+    const approved = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, ".security", "approved-node-provenance.json"), "utf8"));
+    expect(approved.entries).toContainEqual(expect.objectContaining({
+      sha256: APPROVED_CI_NODE_SHA,
+      platform: "linux",
+      arch: "x64",
+      version: "20.20.2",
+      environment: "github-actions-ubuntu-24.04",
+    }));
+  });
+
+  it("pins production audit + exact Node security guards before repository validation and uploads proof after certification", () => {
     const workflow = fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", "test-and-attest.yml"), "utf8");
     expect(workflow).toContain('node-version: "20.20.2"');
 
+    const audit = workflow.indexOf("npm audit --omit=dev --audit-level=high");
     const provenance = workflow.indexOf("npm run security:node-provenance-guard");
     const runtime = workflow.indexOf("npm run security:node-runtime-guard");
     const axios = workflow.indexOf("npm run security:axios-guard");
     const typecheck = workflow.indexOf("npm run check");
-    expect(provenance).toBeGreaterThan(-1);
+    expect(audit).toBeGreaterThan(-1);
+    expect(provenance).toBeGreaterThan(audit);
     expect(runtime).toBeGreaterThan(provenance);
     expect(axios).toBeGreaterThan(runtime);
     expect(typecheck).toBeGreaterThan(axios);
