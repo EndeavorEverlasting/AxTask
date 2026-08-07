@@ -23,7 +23,7 @@ Use after:
 - expected deployed/main SHA;
 - production URL or provider-resolved service URL;
 - promotion/deployment start timestamp;
-- deployment ID when available;
+- deployment ID or another trustworthy live identity signal when available;
 - any predeploy baseline or known-good health result.
 
 ## Procedure
@@ -33,17 +33,19 @@ Use after:
 3. Run DB-free `/health` first. It must be the routine liveness probe.
 4. Probe `/` or another known public shell route to confirm the deployed client/server path is responding.
 5. Probe `/ready` once as an explicit database-readiness check when the deployment gate requires it. Do not poll `/ready` as liveness.
-6. When a safe deployment/version identity endpoint or provider metadata exists, verify the live deployment corresponds to the expected SHA. If no such signal exists, record `LIVE_SHA_UNVERIFIED`.
+6. Verify that the live deployment corresponds to the expected SHA using provider deployment metadata, a safe version/identity endpoint, or another repository-authorized signal. If no trustworthy identity signal exists, record `LIVE_SHA_UNVERIFIED`.
 7. Perform a bounded repeat of the read-only liveness/smoke probes when the environment allows, distinguishing transient failure from persistent failure.
 8. Compare against the predeploy/known-good baseline when one exists.
 9. Record each failure with timestamp, endpoint, HTTP/result class, expected value, observed value, and whether it persisted.
 10. Classify:
-    - `HEALTHY` — required probes pass and no persistent regression is observed;
-    - `DEGRADED` — service responds but one or more non-liveness checks regress;
-    - `BROKEN` — liveness fails persistently, startup/deploy fails, or the expected production path is unavailable;
-    - `INCONCLUSIVE` — required live evidence cannot be obtained.
-11. For `DEGRADED` or `BROKEN`, stop certification and present the safest rollback/investigation action. Do not auto-rollback without separate operator authorization.
-12. Record the attained live proof in the existing runtime-proof/operator-report surfaces without escalating beyond actual evidence.
+    - `HEALTHY` — required probes pass, no persistent regression is observed, **and live deployment identity is verified to the expected SHA/deployment**;
+    - `DEGRADED` — live identity is verified and the service responds, but one or more non-liveness checks regress;
+    - `BROKEN` — liveness fails persistently, startup/deploy fails, the expected production path is unavailable, or verified provider evidence shows the expected deployment failed;
+    - `INCONCLUSIVE` — required live evidence cannot be obtained, including `LIVE_SHA_UNVERIFIED` even when `/health`, `/`, and `/ready` all respond successfully.
+11. Never report `HEALTHY` for `LIVE_SHA_UNVERIFIED`; a healthy previous deployment is not proof that the newly promoted SHA reached production.
+12. For `DEGRADED` or `BROKEN`, stop certification and present the safest rollback/investigation action. Do not auto-rollback without separate operator authorization.
+13. For `INCONCLUSIVE`, stop certification and name the exact missing identity/provider evidence required to distinguish the new deployment from the prior healthy one.
+14. Record the attained live proof in the existing runtime-proof/operator-report surfaces without escalating beyond actual evidence.
 
 ## Evidence rules
 
@@ -52,6 +54,7 @@ Use after:
 - HTTP success does not prove every authenticated user workflow.
 - Merge success does not prove deploy success.
 - Provider `deployed` status does not replace application health.
+- Application health does not prove the expected release is live unless deployment identity is also verified.
 - A single transient network failure is not enough to declare the deploy broken when a bounded re-check can distinguish it.
 
 ## Guardrails
@@ -67,13 +70,13 @@ Use after:
 Use existing runtime-proof, operator-report, and final-handoff artifacts. Include:
 
 - expected SHA;
-- observed provider/deploy identity if available;
+- observed provider/deploy identity or `LIVE_SHA_UNVERIFIED`;
 - liveness/readiness/smoke results;
 - observation timestamps;
 - status classification;
 - proof ceiling;
-- exact rollback/investigation next action when not healthy.
+- exact missing identity evidence or rollback/investigation next action when not healthy.
 
 ## Proof ceiling
 
-Live read-only health/smoke proof only. Full user-journey acceptance requires separately authorized live acceptance testing.
+Live read-only health/smoke proof tied to a verified deployment identity. Full user-journey acceptance requires separately authorized live acceptance testing.
