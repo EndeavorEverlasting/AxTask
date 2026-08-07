@@ -1,4 +1,13 @@
 {
   "description": "Approved Node.js binary fingerprints for shared trusted environments.",
-  "entries": []
+  "entries": [
+    {
+      "sha256": "6295488653f0d93b0a157841746fef7e72cc4328cfb60c4bbe0ca2668a836ffd",
+      "platform": "linux",
+      "arch": "x64",
+      "version": "20.20.2",
+      "environment": "github-actions-ubuntu-24.04",
+      "evidence": "PR #113 test-and-attest run 491, job 92916066917"
+    }
+  ]
 }
