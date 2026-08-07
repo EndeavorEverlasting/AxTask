@@ -18,8 +18,8 @@ Use when an operator says the repository is ready to deploy, wants to push or me
 
 - `render.yaml` is deployment configuration authority and currently has `autoDeploy: true`; it does not encode an explicit branch override.
 - AxTask's repository release contract treats `main` as the production-connected branch.
-- Advancing `main` can therefore initiate a live Render deployment.
-- `npm run ship` only stages, commits, and pushes the current branch; it is not a deploy gate.
+- Advancing `main` can therefore initiate a live Render deployment even when the diff itself is docs/harness-only.
+- `npm run ship` is feature-branch-only and refuses `main`; it is not a deploy gate.
 - `/health` is DB-free liveness. `/ready` is explicit database readiness only.
 - Green CI and local certification are not live production proof.
 
@@ -29,11 +29,12 @@ Use when an operator says the repository is ready to deploy, wants to push or me
 - current observed candidate ref/PR-head SHA;
 - recorded base SHA for the candidate;
 - current `origin/main` SHA;
+- whether the intended promotion will auto-deploy under current repository/Render evidence;
 - current PR floor and target PR when one exists;
 - changed paths against the candidate base;
 - current CI/check results tied to the exact candidate;
 - selected validator plan and executed results;
-- account-backup certification when runtime-affecting changes require it;
+- account-backup certification whenever the candidate will actually deploy/restart the service;
 - local production certification when required;
 - explicit proof ceiling.
 
@@ -46,17 +47,17 @@ Use when an operator says the repository is ready to deploy, wants to push or me
 5. Run `axtask.skill.predeploy-security-review.v1` when the diff touches dependencies, auth, CI/CD, environment contracts, Render/startup, migrations, deployment-control harness files, or other deployment-sensitive surfaces.
 6. Run validator selection from the real changed paths and `axtask.main-branch-deployment.v1` workflow, then execute every required selected validator.
 7. Require `npm run release:check`, `npm run check`, `npm test`, and `npm run build` when selected by the current change.
-8. Require `npm run test:deploy` for deployment/startup/migration/health-sensitive changes or when selected by the main-deployment workflow.
-9. Require account-backup round-trip proof when the existing registry/workflow marks it necessary.
+8. Require `npm run test:deploy` when selected by the main-deployment workflow.
+9. Require account-backup round-trip proof when the candidate will actually deploy/restart the service, including docs/harness-only promotions when `promotionWillAutoDeploy` is true.
 10. Require `axtask.local-deployment-certification.v1` when local production acceptance is required.
-11. Run `axtask.predeploy-cost-readiness.v1` with `candidateSha`, `currentCandidateSha`, `baseSha`, and `currentMainSha` bound to the same current snapshot.
-12. Accept `READY_FOR_AUTHORIZED_DEPLOYMENT` only for the exact pre-merge candidate SHA whose current PR/branch head and base were just evaluated.
+11. Run `axtask.predeploy-cost-readiness.v1` with `candidateSha`, `currentCandidateSha`, `baseSha`, `currentMainSha`, and `promotionWillAutoDeploy` bound to the same current snapshot. For the production-connected main path, set `promotionWillAutoDeploy: true` while `render.yaml` and the repository release contract still establish that behavior.
+12. Accept `READY_FOR_AUTHORIZED_DEPLOYMENT` only for the exact pre-merge candidate SHA whose current PR/branch head, base, and promotion behavior were just evaluated.
 13. Emit exact missing gates with command, owner, and blocker when the candidate is not ready.
 14. Hand off to `axtask.skill.authorized-main-deploy.v1` only after the readiness verdict is current, the required security-review artifact is `CLEAR` for the same candidate/base, and the operator separately authorizes live promotion.
 
 ## Re-run rule
 
-Every invocation re-runs verification against the current candidate. Prior successful output is evidence history, not a waiver.
+Every invocation re-runs verification against the current candidate and current auto-deploy semantics. Prior successful output is evidence history, not a waiver.
 
 ## Stop conditions
 
@@ -64,6 +65,7 @@ Stop before live mutation when:
 
 - candidate SHA differs from the currently observed PR/branch head;
 - `main` moved after the recorded base/evidence snapshot;
+- current Render/repository auto-deploy semantics differ from the snapshot;
 - CI or a required validator is failing or incomplete;
 - required account-backup or local-runtime proof is absent;
 - required predeploy security review is not `CLEAR` for the exact candidate/base;
@@ -87,6 +89,7 @@ Use registered artifacts:
 - No merge, push to `main`, Render mutation, Neon mutation, DNS mutation, or production request is performed by this skill.
 - Never treat `npm run ship` as deployment certification.
 - Never require a pre-merge candidate to equal `main`; bind it to the current candidate ref and current base instead.
+- Never emit `NO_DEPLOY_NEEDED` for an intended main promotion that current evidence says will auto-deploy.
 - Never claim deployment because `main` is green.
 - Never skip a verification step because an earlier run passed.
 - Never print secrets, raw provider logs, database URLs, or sensitive environment values.
