@@ -18,6 +18,7 @@ The workflow harvests only the deployment-relevant gstack ideas: fresh verificat
 
 - repository authority and harness are current;
 - candidate SHA, currently observed candidate ref/PR-head SHA, candidate base SHA, and current `origin/main` SHA are explicit;
+- `blockingPrCount` excludes the target candidate PR and counts only other release-blocking PRs;
 - no unrelated work is included;
 - deployment is intended for AxTask's production-connected `main` release contract;
 - `render.yaml` auto-deploy semantics are read from the current candidate;
@@ -49,10 +50,12 @@ flowchart TD
 1. **Repository truth**
    - run `axtask.repository-intake.v1`;
    - refresh `origin/main`, PR floor, target PR number/head SHA, candidate base SHA, exact candidate SHA, and changed paths;
+   - when calculating `blockingPrCount`, exclude the target candidate PR itself and count only other PRs that block this release;
    - read authoritative `render.yaml` values and `.ai/codebase-map.json`.
 2. **Security delta**
-   - run `axtask.skill.predeploy-security-review.v1` when deployment-sensitive/high-risk or deployment-control harness paths changed;
+   - run `axtask.skill.predeploy-security-review.v1` for every main-promotion candidate, bounded to the actual diff and adjacent evidence needed to prove findings;
    - require `.ai/runs/<run-id>/predeploy-security-review.json` with disposition `CLEAR` tied to the exact candidate SHA and base SHA before the authorization boundary;
+   - a low-risk diff still produces a current `CLEAR` artifact with an empty findings array rather than skipping the gate;
    - block on unresolved concrete security findings or stale security evidence.
 3. **Deploy readiness**
    - run `axtask.skill.deploy-readiness.v1`;
@@ -82,7 +85,7 @@ flowchart TD
 
 ## Diagnosis note
 
-The repository already owned validation, backup recovery proof, migration/bootstrap proof, local production certification, and predeploy readiness. The missing deployment layer was the exact-SHA choreography around those components: predeploy security evidence, a pre-merge candidate/base model, explicit main-promotion authorization, a post-authorization state re-check, auto-deploy promotion exposure, and live canary identity verification.
+The repository already owned validation, backup recovery proof, migration/bootstrap proof, local production certification, and predeploy readiness. The missing deployment layer was the exact-SHA choreography around those components: mandatory bounded predeploy security evidence, a pre-merge candidate/base model, explicit main-promotion authorization, a post-authorization state re-check, auto-deploy promotion exposure, and live canary identity verification.
 
 ## Testing note
 
@@ -99,6 +102,7 @@ A harness-only regression is rolled back by reverting the harness PR through the
 ## Non-negotiable gates
 
 - Do not use `npm run ship` as deployment certification or on `main`.
+- Do not count the target candidate PR as a blocking PR against itself.
 - Do not promote a SHA that differs from the certified current candidate ref/PR head.
 - Do not promote when current `main` differs from the recorded candidate base.
 - Do not promote without a current `CLEAR` security-review artifact for the exact candidate/base.
