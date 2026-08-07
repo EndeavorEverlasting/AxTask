@@ -100,6 +100,11 @@ describe("AI harness infrastructure completeness", () => {
     expect(ship.mutation).toContain("non-main feature branch only");
 
     const workflowText = fs.readFileSync(path.join(REPO_ROOT, ".ai", "workflows", "main-branch-deployment.md"), "utf8");
+    const sequenceStart = workflowText.indexOf("## Sequence");
+    const sequenceEnd = workflowText.indexOf("## Diagnosis note");
+    expect(sequenceStart).toBeGreaterThanOrEqual(0);
+    expect(sequenceEnd).toBeGreaterThan(sequenceStart);
+    const sequenceText = workflowText.slice(sequenceStart, sequenceEnd);
     const orderedMarkers = [
       "2. **Security delta**",
       "axtask.skill.predeploy-security-review.v1",
@@ -114,14 +119,14 @@ describe("AI harness infrastructure completeness", () => {
     ];
     let previousIndex = -1;
     for (const marker of orderedMarkers) {
-      const index = workflowText.indexOf(marker);
-      expect(index, `workflow marker missing: ${marker}`).toBeGreaterThan(previousIndex);
+      const index = sequenceText.indexOf(marker);
+      expect(index, `workflow marker missing or reordered: ${marker}`).toBeGreaterThan(previousIndex);
       previousIndex = index;
     }
-    expect(workflowText).toContain("predeploy-security-review.json");
-    expect(workflowText).toContain("disposition `CLEAR`");
-    expect(workflowText).toContain("Post-authorization TOCTOU").or.toContain("post-authorization");
-    expect(workflowText).toContain("LIVE_SHA_UNVERIFIED");
+    expect(sequenceText).toContain("predeploy-security-review.json");
+    expect(sequenceText).toContain("disposition `CLEAR`");
+    expect(sequenceText.toLowerCase()).toContain("post-authorization");
+    expect(sequenceText).toContain("LIVE_SHA_UNVERIFIED");
     expect(workflowText).toContain("```mermaid");
     expect(workflowText).toContain("## Diagnosis note");
     expect(workflowText).toContain("## Testing note");
