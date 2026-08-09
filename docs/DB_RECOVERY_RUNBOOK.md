@@ -34,8 +34,7 @@ application separately stored those bytes inside PostgreSQL.
 - Do not truncate `security_events`.
 - Do not delete any non-`api_request` security event as part of this recovery.
 - Do not treat `neon.max_cluster_size` as a billing-plan allowance.
-- Do not reuse 10 GiB as an operator budget merely because an old repository
-  comment used that number.
+- Do not reuse 10 GiB as an operator budget merely because an old repository comment used that number.
 - Normal `scripts/production-start.mjs` never performs recovery mutations.
 
 ## R0 — Render suspended
@@ -70,11 +69,13 @@ Required evidence:
 
 ## R2 — containment status
 
-If R1 shows `trg_suppress_api_request_security_events` exists and is enabled,
-containment is already present; record that evidence and do not mutate it.
+If R1 shows `trg_suppress_api_request_security_events` exists and is enabled for
+normal/origin writes, containment is already present; record that evidence and do
+not mutate it.
 
-If the trigger is missing or disabled, do not use normal startup to repair it.
-After R3 backup/rollback evidence exists, use the one-off containment tool.
+If the trigger is missing, disabled, or replica-only, do not use normal startup to
+repair it. After R3 backup/rollback evidence exists, use the one-off containment
+tool.
 
 Dry run:
 
@@ -113,7 +114,7 @@ repository's restore verification workflow.
 ## R4 — targeted logical cleanup
 
 Only after R1 confirms historical `api_request` rows are the removable class and
-R2/R3 are complete.
+R2/R3 are complete. Keep Render suspended while cleanup runs.
 
 Dry run first:
 
@@ -129,10 +130,13 @@ node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod --force-p
 
 Safety properties:
 
+- requires the `api_request` suppression trigger to be origin-active before and after mutation
 - deletes only `event_type='api_request'` older than the selected retention window
 - each bounded DELETE batch commits independently
 - default batch size is 5000 and is bounded by the CLI validator
-- verifies non-`api_request` count is unchanged
+- the DELETE predicate cannot target non-`api_request` rows
+- non-`api_request` before/after counts are observational because other writers can change them; they are not treated as an atomic preservation snapshot
+- verifies no eligible historical `api_request` rows remain while containment is still active
 - never runs `VACUUM FULL` as a side effect
 - never prints `DATABASE_URL`
 
@@ -160,8 +164,9 @@ Repository command, only when explicitly authorized:
 node scripts/db-reclaim-api-request.mjs --vacuum-full --execute --confirm=VACUUM_FULL --prod --force-production --json
 ```
 
-The command refuses physical reclaim while eligible historical `api_request` rows
-remain.
+The command requires origin-active containment and zero eligible historical
+`api_request` rows before the rewrite, then rechecks both containment and eligible
+rows after the exclusive rewrite before it reports success.
 
 ## R6 — capacity policy and gate
 
@@ -173,9 +178,9 @@ node scripts/deploy/check-db-capacity.mjs
 
 Interpretation:
 
-- **budget unset:** report-only; actual size and provider hint are reported
+- **budget variable absent:** report-only; actual size and provider hint are reported
 - **valid explicit budget:** 75/85/90% warn/soft/hard thresholds apply
-- **malformed explicit budget:** fatal configuration error; the limit is not silently disabled
+- **explicitly empty or malformed budget:** fatal configuration error; the limit is not silently disabled
 - provider hint is informational and never becomes the denominator automatically
 
 `AXTASK_DB_SIZE_BUDGET_BYTES` is an operator-selected operational/spend ceiling,
