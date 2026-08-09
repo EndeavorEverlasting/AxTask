@@ -95,8 +95,8 @@ describe("[12-db-audit-forensics] db-reclaim-api-request.mjs safety", () => {
     expect(reclaimSource).toContain("$1::int * interval '1 day'");
     expect(reclaimSource).toContain("LIMIT $2");
     expect(reclaimSource).toContain("[days, size]");
-    expect(reclaimSource).toContain("--batch-size");
-    expect(reclaimSource).toContain("--retention-days");
+    expect(reclaimSource).toContain('args.get("batch-size")');
+    expect(reclaimSource).toContain('args.get("retention-days")');
   });
 
   it("commits each delete batch independently instead of one giant transaction", () => {
