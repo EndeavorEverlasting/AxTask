@@ -34,6 +34,7 @@
       "role": "context-subordinate-to-current-contracts",
       "paths": [
         "docs/GIT_BRANCHING_AND_DEPLOYMENT.md",
+        "docs/DB_RECOVERY_RUNBOOK.md",
         "docs/SCHEMA_EVOLUTION_PIPELINE.md",
         "docs/SCHEDULED_RESOURCE_CONTROLS.md",
         "docs/MODULE_LAYOUT.md",
@@ -68,7 +69,13 @@
     ],
     "docs/GIT_BRANCHING_AND_DEPLOYMENT.md": [
       "AxTask / Render specifics",
-      "`autoDeploy: true`"
+      "`autoDeploy: false`",
+      "must **not** be interpreted as authorization to resume or deploy"
+    ],
+    "docs/DB_RECOVERY_RUNBOOK.md": [
+      "R0 — Render suspended",
+      "R1 — read-only production forensics",
+      "R8 — one authorized Render resume/deploy"
     ],
     "replit.md": [
       "historical architecture and feature snapshot",

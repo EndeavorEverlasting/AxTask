@@ -10,13 +10,17 @@
  * are detected. Render/Docker startup is non-interactive, so that class of
  * prompt can crash deploys before the app binds.
  *
+ * Database recovery is intentionally NOT a startup mode. A failed capacity gate
+ * leaves normal startup fail-closed. Read-only forensics, one-off containment,
+ * targeted logical cleanup, and physical reclaim are separate operator commands
+ * documented in docs/DB_RECOVERY_RUNBOOK.md. This prevents a Render restart from
+ * silently bypassing the migration airlock or performing destructive recovery.
+ *
  * Default production posture:
  *   SKIP_DB_PUSH_ON_START=true, Render detection, or non-interactive terminal → skip drizzle-kit push.
  *
  * Operator override only:
  *   AXTASK_ALLOW_DB_PUSH_ON_START=true
- *
- * See docs/SCHEMA_EVOLUTION_PIPELINE.md for the schema evolution model.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -55,13 +59,11 @@ if (envGate.status !== 0) {
   process.exit(envGate.status ?? 1);
 }
 
-// DB capacity gate (Phase J): runs BEFORE migrations. This catches the
-// Neon 512 MB failure class that killed a prior manual deploy *before* we
-// start modifying the schema, so a capacity miss is a clean abort rather
-// than a half-migrated database. Exit codes: 0 ok, 1 soft fail
-// (ACK-able via AXTASK_DB_CAPACITY_ACK=1), 2 hard fail (never proceeds).
-// Skippable with AXTASK_SKIP_DB_CAPACITY_CHECK=true — use only when you
-// have already verified capacity out-of-band.
+// Capacity is evaluated only against an explicit operator budget. Provider hints
+// are reported separately and never become an invented billing/physical limit.
+// The gate runs before migrations so a deliberate operator limit fails cleanly
+// before schema mutation. Recovery from a capacity incident is a separate,
+// operator-invoked workflow and is never performed by normal startup.
 if (process.env.AXTASK_SKIP_DB_CAPACITY_CHECK === "true") {
   console.warn("[production-start] AXTASK_SKIP_DB_CAPACITY_CHECK=true — skipping DB capacity gate.");
 } else {
@@ -74,6 +76,12 @@ if (process.env.AXTASK_SKIP_DB_CAPACITY_CHECK === "true") {
   if (cap.status !== 0) {
     console.error(
       `[production-start] DB capacity gate exited with status ${cap.status} — aborting before migrations.`,
+    );
+    console.error(
+      "[production-start] Keep production suspended. Run: node scripts/db-size-audit.mjs --forensics",
+    );
+    console.error(
+      "[production-start] If api_request containment is missing, use the one-off db-contain-api-request.mjs workflow only after operator authorization.",
     );
     process.exit(cap.status ?? 1);
   }
@@ -110,8 +118,6 @@ if (shouldSkipDbPush) {
     stdio: ["ignore", "inherit", "pipe"],
     env: { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
   });
-  // Suppress harmless TTY warning from drizzle-kit spinners/prompts in non-interactive CI.
-  // Fatal prompt failures still return non-zero and stop startup unless explicitly skipped.
   if (p.stderr) {
     const stderrStr = p.stderr.toString("utf8");
     const filtered = stderrStr
