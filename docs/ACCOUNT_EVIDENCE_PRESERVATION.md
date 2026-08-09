@@ -19,12 +19,24 @@ BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 Within that single snapshot it:
 
 - resolves exactly one account by `--user-id` or `--email`;
-- discovers public tables and exports rows directly linked through `user_id`, `actor_user_id`, `target_user_id`, or `deleted_by`;
+- discovers concrete public base tables and exports rows directly linked through `user_id`, `actor_user_id`, `target_user_id`, or `deleted_by`;
 - includes task-, invoice-, and attachment-linked rows where the table carries the corresponding foreign key;
 - exports meaningful account-linked `security_events` row-for-row;
 - hashes every JSONL artifact;
 - writes a manifest containing counts, first/last timestamps where available, per-file SHA-256 values, source Git commit, and a non-secret database target fingerprint;
 - writes `manifest.sha256` so the manifest itself can be verified after it leaves the database provider.
+
+### Incomplete-export sentinel
+
+As soon as an export directory is created, the exporter writes:
+
+```text
+EXPORT_INCOMPLETE
+```
+
+That file remains present on any database, filesystem, hashing, or manifest failure. It is removed only after the read-only database snapshot commits successfully and the hashed manifest has been written.
+
+**Never treat a directory containing `EXPORT_INCOMPLETE` as a valid preservation bundle.** A complete bundle must have the sentinel absent and `manifest.sha256` must verify.
 
 ### Credential-bearing data is not copied into the portable account bundle
 
@@ -119,6 +131,8 @@ Use `--output-dir=<path>` when the evidence should be written directly to a moun
 
 ## Verification
 
+Before hashing anything, confirm the directory does **not** contain `EXPORT_INCOMPLETE`.
+
 From the export directory:
 
 ```bash
@@ -162,6 +176,7 @@ Moving from one serverless PostgreSQL vendor to another does not by itself creat
 Do not advance database recovery to destructive logical cleanup until all applicable items are recorded:
 
 - account evidence export directory exists;
+- `EXPORT_INCOMPLETE` is absent;
 - `manifest.sha256` verifies;
 - the manifest identifies the expected account and database fingerprint;
 - meaningful security-event files are present;
