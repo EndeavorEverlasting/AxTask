@@ -81,10 +81,13 @@ async function readTriggerState(client) {
         AND NOT tgisinternal`,
   );
   if (rows.length === 0) return { exists: false, enabled: false, code: null };
+  const code = rows[0].tgenabled;
   return {
     exists: true,
-    enabled: rows[0].tgenabled !== "D",
-    code: rows[0].tgenabled,
+    // O=enabled for origin sessions; A=always. R=replica-only does not protect
+    // normal application writes and must be treated as not contained.
+    enabled: ["O", "A"].includes(code),
+    code,
   };
 }
 
@@ -140,7 +143,7 @@ async function main() {
         updatesMigrationLedger: false,
       };
       if (jsonOutput) console.log(JSON.stringify(report, null, 2));
-      else log(`[contain-api-request] trigger exists=${before.exists} enabled=${before.enabled}`);
+      else log(`[contain-api-request] trigger exists=${before.exists} enabled=${before.enabled} code=${before.code ?? "n/a"}`);
       return 0;
     }
 
@@ -158,7 +161,7 @@ async function main() {
       updatesMigrationLedger: false,
     };
     if (jsonOutput) console.log(JSON.stringify(report, null, 2));
-    else log("[contain-api-request] VERIFIED: api_request suppression trigger exists and is enabled");
+    else log("[contain-api-request] VERIFIED: api_request suppression trigger exists and is origin-active");
     return 0;
   } finally {
     client.release();
