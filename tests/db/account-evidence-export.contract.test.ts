@@ -46,8 +46,7 @@ describe("account evidence export contract", () => {
 
   it("streams table rows in bounded cursor batches instead of loading the account into memory", () => {
     expect(source).toContain("DEFAULT_BATCH_SIZE = 1000");
-    expect(source).toContain('parseInteger(args.get("batch-size")');
-    expect(source).toContain("max", 10000);
+    expect(source).toContain('parseInteger(args.get("batch-size") ?? DEFAULT_BATCH_SIZE, "batch-size", 1, 10000)');
     expect(source).toContain("FETCH FORWARD ${batchSize}");
     expect(source).toContain("writeSync(fd, line");
   });
