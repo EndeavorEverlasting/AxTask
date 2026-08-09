@@ -71,6 +71,12 @@ describe("stateful single-fact execution loop", () => {
     expect(Object.keys(parsed).filter((key) => key === "task")).toHaveLength(1);
   });
 
+  it("rejects manual surface overrides that could bypass priority", () => {
+    const result = run(router, ["--surface=deployment-orchestration", "--json"]);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("manual surface override is forbidden");
+  });
+
   it("advances to the next fact only after the routed gap is resolved", () => {
     const root = fixture();
     const file = path.join(root, ".ai/architecture/surfaces/http-process-runtime.json");
@@ -105,6 +111,29 @@ describe("stateful single-fact execution loop", () => {
     const result = run(validator, ["http-process-runtime", "--require=process-affinity", "--json"], root);
     expect(result.status).toBe(1);
     expect(result.stdout).toContain("placeholder-free");
+  });
+
+  it("rejects resolved evidence from outside the routed exact-file boundary", () => {
+    const root = fixture();
+    const file = path.join(root, ".ai/architecture/surfaces/http-process-runtime.json");
+    const task = JSON.parse(readFileSync(file, "utf8"));
+    task.evidenceGaps[0].status = "resolved";
+    task.evidenceGaps[0].evidence = [{ source: "package.json", finding: "This source exists but is outside the current gap boundary.", proofLevel: "contract" }];
+    writeFileSync(file, `${JSON.stringify(task, null, 2)}\n`);
+    const result = run(validator, ["http-process-runtime", "--require=process-affinity", "--json"], root);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("must be one of the current gap exactFiles");
+  });
+
+  it("enforces the declared task schema instead of treating it as documentation", () => {
+    const root = fixture();
+    const file = path.join(root, ".ai/architecture/surfaces/http-process-runtime.json");
+    const task = JSON.parse(readFileSync(file, "utf8"));
+    task.unregisteredField = true;
+    writeFileSync(file, `${JSON.stringify(task, null, 2)}\n`);
+    const result = run(validator, ["http-process-runtime", "--json"], root);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("unexpected property unregisteredField");
   });
 
   it("caps nonproductive operations and codifies CRLF repair", () => {

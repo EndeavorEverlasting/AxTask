@@ -92,7 +92,15 @@ function main() {
   const rootArg = process.argv.find((arg) => arg.startsWith("--root="));
   const root = path.resolve(rootArg ? rootArg.slice("--root=".length) : DEFAULT_ROOT);
   const jsonMode = process.argv.includes("--json");
-  const requestedSurface = process.argv.find((arg) => arg.startsWith("--surface="))?.slice("--surface=".length);
+  const surfaceOverride = process.argv.find((arg) => arg.startsWith("--surface="));
+  if (surfaceOverride) {
+    const output = { error: "manual surface override is forbidden; run next-stateful-task.mjs without --surface so priority and blockers cannot be bypassed" };
+    if (jsonMode) process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+    else console.error(output.error);
+    process.exitCode = 2;
+    return;
+  }
+
   const contract = readJson(root, CONTRACT_PATH);
   if (contract.selectionPolicy?.maxTasksReturned !== 1) {
     console.error("stateful execution contract must return exactly one task");
@@ -100,7 +108,7 @@ function main() {
     return;
   }
 
-  const priority = requestedSurface ? [requestedSurface] : contract.selectionPolicy.surfacePriority;
+  const priority = contract.selectionPolicy.surfacePriority;
   const surfaces = [];
   const validationErrors = [];
   for (const id of priority) {

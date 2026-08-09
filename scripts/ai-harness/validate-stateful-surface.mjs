@@ -8,6 +8,7 @@ const SCRIPT_FILE = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_FILE);
 const DEFAULT_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const SURFACE_DIR = ".ai/architecture/surfaces";
+const TASK_SCHEMA = ".ai/stateful-surface-task.schema.json";
 const PLACEHOLDER = /\b(todo|tbd|unknown|placeholder|later|to be determined)\b/i;
 const SURFACE_STATUSES = new Set(["EVIDENCE_REQUIRED", "READY_FOR_DECISION", "BLOCKED", "COMPLETED"]);
 const GAP_STATUSES = new Set(["open", "resolved", "blocked"]);
@@ -26,10 +27,73 @@ function readJson(file, errors) {
   }
 }
 
+function jsonEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function typeMatches(value, type) {
+  if (type === "null") return value === null;
+  if (type === "array") return Array.isArray(value);
+  if (type === "object") return value !== null && typeof value === "object" && !Array.isArray(value);
+  if (type === "integer") return Number.isInteger(value);
+  if (type === "number") return typeof value === "number" && Number.isFinite(value);
+  return typeof value === type;
+}
+
+function validateAgainstSchema(value, schema, label, errors) {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    errors.push(`${label}: invalid schema node`);
+    return;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(schema, "const") && !jsonEqual(value, schema.const)) {
+    errors.push(`${label}: value does not match declared const`);
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.some((item) => jsonEqual(item, value))) {
+    errors.push(`${label}: value is not in declared enum`);
+  }
+
+  const declaredTypes = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
+  if (declaredTypes.length && !declaredTypes.some((type) => typeMatches(value, type))) {
+    errors.push(`${label}: expected ${declaredTypes.join(" or ")}`);
+    return;
+  }
+  if (value === null) return;
+
+  const isObject = value !== null && typeof value === "object" && !Array.isArray(value);
+  if (isObject && (declaredTypes.includes("object") || schema.properties || schema.required)) {
+    const properties = schema.properties && typeof schema.properties === "object" ? schema.properties : {};
+    for (const required of Array.isArray(schema.required) ? schema.required : []) {
+      if (!Object.prototype.hasOwnProperty.call(value, required)) errors.push(`${label}: missing required property ${required}`);
+    }
+    for (const [key, childSchema] of Object.entries(properties)) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) validateAgainstSchema(value[key], childSchema, `${label}.${key}`, errors);
+    }
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(value)) if (!Object.prototype.hasOwnProperty.call(properties, key)) errors.push(`${label}: unexpected property ${key}`);
+    }
+  }
+
+  if (Array.isArray(value) && (declaredTypes.includes("array") || schema.items)) {
+    if (Number.isInteger(schema.minItems) && value.length < schema.minItems) errors.push(`${label}: expected at least ${schema.minItems} item(s)`);
+    if (schema.items) value.forEach((item, index) => validateAgainstSchema(item, schema.items, `${label}[${index}]`, errors));
+  }
+
+  if (typeof value === "string") {
+    if (Number.isInteger(schema.minLength) && value.length < schema.minLength) errors.push(`${label}: shorter than minLength ${schema.minLength}`);
+    if (typeof schema.pattern === "string" && !(new RegExp(schema.pattern).test(value))) errors.push(`${label}: does not match declared pattern`);
+  }
+  if (typeof value === "number" && typeof schema.minimum === "number" && value < schema.minimum) errors.push(`${label}: below minimum ${schema.minimum}`);
+}
+
 function expectedSurfaceStatus(gaps) {
   if (gaps.some((gap) => gap.status === "open")) return "EVIDENCE_REQUIRED";
   if (gaps.some((gap) => gap.status === "blocked")) return "BLOCKED";
   return "READY_FOR_DECISION";
+}
+
+function normalizeRepoPath(value) {
+  return String(value).replaceAll("\\", "/").replace(/^\.\//, "");
 }
 
 export function validateSurface(root, surfaceId, requiredGapId = null) {
@@ -38,7 +102,11 @@ export function validateSurface(root, surfaceId, requiredGapId = null) {
   const file = path.join(root, rel);
   if (!fs.existsSync(file)) return { errors: [`missing stateful surface artifact: ${rel}`], surfaceId, gapsChecked: 0 };
   const task = readJson(file, errors);
+  const schemaFile = path.join(root, TASK_SCHEMA);
+  if (!fs.existsSync(schemaFile)) errors.push(`missing stateful surface task schema: ${TASK_SCHEMA}`);
+  const schema = fs.existsSync(schemaFile) ? readJson(schemaFile, errors) : null;
   if (!task) return { errors, surfaceId, gapsChecked: 0 };
+  if (schema) validateAgainstSchema(task, schema, rel, errors);
 
   if (task.schemaVersion !== 1) errors.push(`${rel}: schemaVersion must be 1`);
   if (task.authorityRef !== "axtask.agent-authority.v1") errors.push(`${rel}: authorityRef mismatch`);
@@ -63,15 +131,24 @@ export function validateSurface(root, surfaceId, requiredGapId = null) {
     if (!nonEmpty(gap?.question)) errors.push(`${label}: question is required`);
     if (!GAP_STATUSES.has(gap?.status)) errors.push(`${label}: invalid status`);
     if (!Array.isArray(gap?.exactFiles) || gap.exactFiles.length === 0 || gap.exactFiles.some((item) => !nonEmpty(item))) errors.push(`${label}: exactFiles must contain concrete files`);
+    const exactFileSet = new Set();
     for (const exactFile of Array.isArray(gap?.exactFiles) ? gap.exactFiles : []) {
-      if (exactFile.includes("*") || exactFile.includes("<")) errors.push(`${label}: exactFiles may not contain globs/placeholders: ${exactFile}`);
-      else if (!fs.existsSync(path.join(root, exactFile))) errors.push(`${label}: exact file does not exist: ${exactFile}`);
+      const normalized = normalizeRepoPath(exactFile);
+      exactFileSet.add(normalized);
+      if (normalized.includes("*") || normalized.includes("<")) errors.push(`${label}: exactFiles may not contain globs/placeholders: ${exactFile}`);
+      else if (!fs.existsSync(path.join(root, normalized))) errors.push(`${label}: exact file does not exist: ${exactFile}`);
     }
     const evidence = Array.isArray(gap?.evidence) ? gap.evidence : [];
     if (gap?.status === "resolved") {
       if (evidence.length === 0) errors.push(`${label}: resolved gap requires evidence`);
       for (const item of evidence) {
-        if (!nonEmpty(item?.source) || PLACEHOLDER.test(String(item?.source ?? ""))) errors.push(`${label}: evidence source must be concrete`);
+        if (!nonEmpty(item?.source) || PLACEHOLDER.test(String(item?.source ?? ""))) {
+          errors.push(`${label}: evidence source must be concrete`);
+        } else {
+          const source = normalizeRepoPath(item.source);
+          if (!exactFileSet.has(source)) errors.push(`${label}: evidence source must be one of the current gap exactFiles: ${item.source}`);
+          else if (!fs.existsSync(path.join(root, source))) errors.push(`${label}: evidence source does not exist: ${item.source}`);
+        }
         if (!nonEmpty(item?.finding) || PLACEHOLDER.test(String(item?.finding ?? ""))) errors.push(`${label}: evidence finding must be concrete and placeholder-free`);
         if (!PROOF_LEVELS.has(item?.proofLevel)) errors.push(`${label}: evidence proofLevel is invalid`);
       }
