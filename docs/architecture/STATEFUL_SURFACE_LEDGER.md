@@ -71,6 +71,40 @@ Never promote evidence:
 
 A green build is not a live deployment. A local launcher is not production behavior. A provider command ACK is not user-visible correctness.
 
+## Deployment/recovery posture — 2026-08-09
+
+This is a timestamped operational snapshot, **not migration authorization**. Before acting, reconcile it against current `main`, open PRs/CI, `.ai/WORK_QUEUE.md`, `.ai/handoff/axtask-deployment-handoff-2026-08-09.md`, `docs/DB_RECOVERY_RUNBOOK.md`, and actual provider state. If newer evidence disagrees, newer verified evidence wins and this section must be updated.
+
+| Surface | Status | Current evidence / gate |
+| --- | --- | --- |
+| Codebase | GREEN | The last fully attested application/harness candidate `8d5f896351b52c60e02d7259e64bb21092a52fa7` passed typecheck, tests, release contracts, production build, browser regression, migration/bootstrap checks, backup certification, Docker packaging, and local production certification. |
+| Harness / deployment discipline | GREEN | Stateful migration guardrails, recovery runbook, work queue, proof ceilings, deployment validators, and manual re-entry controls are tracked and enforced. |
+| Build artifact | GREEN | Production build, Docker runtime image verification, and local production certification have passed on the attested baseline. |
+| Production configuration | GREEN/YELLOW | Repository configuration is intentionally conservative (`/health` liveness, guarded startup, `SKIP_DB_PUSH_ON_START=true`, `autoDeploy=false`, scheduled controls disabled), but actual Render provider state/configuration still requires operator revalidation before R8. |
+| Database diagnosis | YELLOW | Live read-only evidence localized the capacity incident to a roughly 36 GB production database dominated by roughly 50.4M `security_events` rows; the suppression trigger was absent. Exact R1 event-type/timestamp evidence is still incomplete until the canonical audit completes. |
+| Data preservation | RED | Production R1.5 portable account-evidence preservation and R3 raw backup + disposable restore proof have not yet been completed. |
+| Database recovery | RED | Containment, targeted cleanup, physical reclaim, and other production mutation remain deliberately unauthorized until preservation/backup prerequisites and explicit operator authorization are satisfied. |
+| Render deployment | RED | Production app runtime remains intentionally unproven/offline. R8 is blocked until R0–R7 are recorded and one controlled deployment is explicitly authorized. |
+| Overall | LATE RECOVERY / PRE-DEPLOYMENT | AxTask is no longer primarily in a broad application-development or “make it deployable” phase. The critical path is production recovery evidence followed by one controlled re-entry. |
+
+### Current critical path to deployment
+
+1. Finish repository-side R1 audit hardening and run the canonical read-only production audit to completion, preserving `production-audit.json` outside Git.
+2. Complete R1.5 account/evidence preservation, including hash verification and the required independently controlled copies.
+3. Complete R3 raw production backup and prove restore into a disposable PostgreSQL target.
+4. Re-read current evidence and perform only the smallest explicitly authorized containment/reclaim action; do not broaden recovery into architecture migration.
+5. Complete post-recovery capacity decision and R7 production-shaped local certification.
+6. Revalidate actual Render service state/configuration and perform one explicitly authorized exact-commit R8 resume/deploy.
+7. Complete R9 observation: verify telemetry no longer grows pathologically, meaningful security events still work, database size remains stable, and the app remains healthy.
+
+### Architecture consequence of the incident
+
+- Do **not** launch another broad “make AxTask deployable” rewrite. Repository/build/runtime contracts are already substantially proven; the unresolved work is production recovery.
+- Do **not** start serverless decomposition while the production baseline is still under recovery. Establish one clean deployment and stable observation window first so architecture changes are not debugged against a moving incident baseline.
+- The `security_events` incident is evidence that high-volume request telemetry should not be allowed to grow without bound in the relational product database. It is **not** evidence that PostgreSQL/domain persistence is unnecessary or that the Node server should be removed wholesale.
+- Later architecture work should evaluate pathological request telemetry as a strong `delete` or `externalize` candidate, while preserving durable relational domain state unless separate evidence justifies changing it.
+- A boring, evidence-backed deployment is the desired next milestone; “100% serverless” is not.
+
 ## Current conservative baseline
 
 The machine ledger currently treats the following as `KEEP / provisional` unless specifically noted:
