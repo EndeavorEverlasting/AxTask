@@ -7,6 +7,7 @@ on:
       - '.ai/WORK_QUEUE.md'
       - 'scripts/ai-harness/validate-work-queue.mjs'
       - 'scripts/ai-harness/validate-repo-ledger-adoption.mjs'
+      - 'scripts/ai-harness/test-repo-ledger-adoption.mjs'
       - '.github/workflows/repo-ledger-adoption.yml'
   push:
     branches:
@@ -16,6 +17,7 @@ on:
       - '.ai/WORK_QUEUE.md'
       - 'scripts/ai-harness/validate-work-queue.mjs'
       - 'scripts/ai-harness/validate-repo-ledger-adoption.mjs'
+      - 'scripts/ai-harness/test-repo-ledger-adoption.mjs'
       - '.github/workflows/repo-ledger-adoption.yml'
 
 permissions:
@@ -26,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Run repo-ledger adoption regression tests
+        run: node scripts/ai-harness/test-repo-ledger-adoption.mjs
       - name: Validate AxTask work queue and shared adoption pin
         run: node scripts/ai-harness/validate-repo-ledger-adoption.mjs
       - name: Check patch whitespace
