@@ -33,6 +33,7 @@ application separately stored those bytes inside PostgreSQL.
 - Do not run `db:push` or general production migrations to escape the incident.
 - Do not truncate `security_events`.
 - Do not delete any non-`api_request` security event as part of this recovery.
+- Do not begin destructive cleanup until the account evidence gate and raw DB backup/restore gate are both complete.
 - Do not treat `neon.max_cluster_size` as a billing-plan allowance.
 - Do not reuse 10 GiB as an operator budget merely because an old repository comment used that number.
 - Normal `scripts/production-start.mjs` never performs recovery mutations.
@@ -66,6 +67,76 @@ Required evidence:
 
 **Decision:** do not perform targeted cleanup unless R1 confirms that
 `api_request` is the removable historical class.
+
+## R1.5 — account evidence preservation
+
+Before deleting historical rows, create a portable account-focused evidence bundle
+from the same source database while Render remains suspended.
+
+The exporter uses a single `REPEATABLE READ READ ONLY` transaction, streams
+account-linked records to JSONL, fsyncs evidence files and directory metadata,
+hashes every artifact, and writes a SHA-256 manifest.
+
+For production, the output directory must be an explicit absolute path on
+operator-controlled protected storage:
+
+```bash
+ACCOUNT_EMAIL='user@example.com'
+EVIDENCE_DIR='/mnt/encrypted/axtask-evidence'
+node scripts/db/export-account-evidence.mjs \
+  --email="$ACCOUNT_EMAIL" \
+  --prod \
+  --force-production \
+  --output-dir="$EVIDENCE_DIR" \
+  --api-request-mode=summary \
+  --json
+```
+
+The default `summary` policy preserves meaningful account-linked security events
+row-for-row while preserving the high-volume `api_request` class as count,
+time-range, UTC daily-count, and tamper-evident first/last hash-chain anchors. It
+does not delete or modify source rows.
+
+If individual `api_request` rows are themselves required for the preservation
+purpose and sufficient protected external storage is available:
+
+```bash
+ACCOUNT_EMAIL='user@example.com'
+EVIDENCE_DIR='/mnt/encrypted/axtask-evidence'
+node scripts/db/export-account-evidence.mjs \
+  --email="$ACCOUNT_EMAIL" \
+  --prod \
+  --force-production \
+  --output-dir="$EVIDENCE_DIR" \
+  --api-request-mode=all \
+  --batch-size=1000 \
+  --json
+```
+
+The exporter writes `EXPORT_INCOMPLETE` immediately after creating its output
+directory. It removes that sentinel only after a successful read-only snapshot,
+durable artifact writes, and manifest creation. **Never remove the sentinel
+manually.** If the command fails or the sentinel remains, the directory is not
+preservation evidence.
+
+After a successful exit:
+
+1. confirm `EXPORT_INCOMPLETE` is absent;
+2. verify `manifest.sha256`;
+3. verify every per-file hash in `manifest.json`;
+4. review the manifest's account-linking policy and `excludedTables` list;
+5. create **two independently controlled copies** and verify hashes after each copy.
+
+The JSONL bundle includes attachment database metadata/storage keys but not object
+bytes. When attachment files are part of the required record set, separately copy
+the object bytes to protected storage, hash them, and retain an object-copy manifest
+before R4.
+
+**Gate:** the account evidence bundle is complete and hash-verified, two
+independently controlled verified copies exist, and any in-scope attachment object
+bytes have their own verified copy manifest. See
+`docs/ACCOUNT_EVIDENCE_PRESERVATION.md` for the full scope, exclusions,
+third-party/shared-record boundary, and provider-portability procedure.
 
 ## R2 — containment status
 
@@ -111,10 +182,17 @@ repository's restore verification workflow.
 
 **Gate:** a current backup exists and a disposable restore proof is recorded.
 
+The raw database dump and R1.5 account evidence bundle are complementary:
+
+- raw DB dump = database-level rollback artifact;
+- account evidence bundle = portable account/audit artifact with explicit hashes and provider-independent files.
+
+Neither substitutes for the other before destructive cleanup.
+
 ## R4 — targeted logical cleanup
 
 Only after R1 confirms historical `api_request` rows are the removable class and
-R2/R3 are complete. Keep Render suspended while cleanup runs.
+**R1.5, R2, and R3 are complete**. Keep Render suspended while cleanup runs.
 
 Dry run first:
 
@@ -210,7 +288,7 @@ Proof ceiling remains **local-runtime**.
 
 Prerequisites:
 
-- R0–R7 recorded
+- R0–R7 recorded, including R1.5 account-evidence preservation
 - exact `main` SHA recorded
 - Render branch = `main`
 - health check = `/health`
@@ -246,7 +324,7 @@ After live recovery:
 ## Rollback boundaries
 
 - containment trigger installation is idempotent; do not drop it during an app rollback
-- targeted logical cleanup is destructive and depends on R3 backup for rollback
+- targeted logical cleanup is destructive and depends on both R1.5 account evidence and R3 raw backup for preservation/rollback
 - `VACUUM FULL` is not a data rollback mechanism; it is physical compaction after logical cleanup
 - normal migrations continue to own `applied_sql_migrations`; recovery scripts do not forge migration state
 
@@ -255,15 +333,18 @@ After live recovery:
 Repository tests can prove the tools and safety contracts. They cannot prove:
 
 - current production event composition
+- successful production account evidence export/copy verification
 - successful backup/restore
 - production cleanup
 - production physical reclaim
 - deployment completion
 - live observation
 
-Those require R1/R3/R4/R5/R8/R9 evidence respectively.
+Those require R1/R1.5/R3/R4/R5/R8/R9 evidence respectively.
 
 ## Next production action after this branch is merged
 
-**R1 only:** keep Render suspended and run the read-only forensics audit. Do not
-perform containment or deletion until the audit result is reviewed.
+**R1 then R1.5 only:** keep Render suspended, run the read-only forensics audit,
+then create and verify the read-only account evidence bundle and two independent
+copies. Do not perform containment mutation or deletion until those results are
+reviewed and R3 raw backup/restore proof is complete.
