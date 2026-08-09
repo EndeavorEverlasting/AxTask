@@ -13,52 +13,51 @@ The existing Backup Center account export is restore-oriented and intentionally 
 ## Delivered
 
 - `scripts/db/export-account-evidence.mjs`
-  - PostgreSQL `REPEATABLE READ READ ONLY` snapshot;
+  - PostgreSQL `REPEATABLE READ READ ONLY` snapshot with UTC session policy;
   - exactly one account selected by user ID or email;
   - public base-table-only discovery;
-  - dynamic export of directly account-linked and task/invoice/attachment-linked rows;
+  - direct `user_id` / `*_user_id` role links and `task_id` / `*_task_id` links;
+  - explicit shopping-list, DM-conversation, reminder, community-post, invoice, and attachment descendant resolvers;
+  - every discovered non-exported table recorded with a reason;
+  - per-artifact linking paths and explicit shared/third-party scope;
   - bounded cursor streaming to JSONL rather than in-memory accumulation;
-  - non-loopback reads require explicit `--prod --force-production` intent;
-  - no database mutation path;
-  - no `DATABASE_URL` logging;
-  - secret/ephemeral tables excluded and sensitive account columns redacted;
+  - non-loopback reads require affirmative `--prod`, affirmative `--force-production`, and an explicit absolute protected `--output-dir`;
+  - no database mutation path and no `DATABASE_URL` logging;
+  - known ephemeral/secret-bearing tables excluded and sensitive account columns redacted;
   - per-file SHA-256 plus `manifest.json` and `manifest.sha256`;
-  - `EXPORT_INCOMPLETE` remains on any interrupted/failed bundle and is removed only after successful snapshot commit plus manifest creation;
-  - non-secret database target fingerprint and source Git commit in the manifest.
+  - evidence files and directory metadata fsynced before `EXPORT_INCOMPLETE` is removed;
+  - non-secret database target fingerprint and source Git commit in the manifest;
+  - attachment object bytes explicitly reported as not included.
 - High-volume `api_request` policy:
   - default `summary` mode exports meaningful security events row-for-row;
-  - preserves `api_request` count, time range, daily counts, and first/last hash-chain anchors;
-  - explicit `all` mode is available when individual telemetry rows must be preserved and sufficient external storage is available;
+  - preserves `api_request` count, time range, stable UTC daily counts, and first/last hash-chain anchors;
+  - explicit `all` mode is available when individual telemetry rows must be preserved and sufficient protected external storage is available;
   - explicit `exclude` mode is recorded rather than silent.
 - `docs/ACCOUNT_EVIDENCE_PRESERVATION.md`
-  - verification and independent-copy procedure;
-  - incomplete-bundle rejection rule;
+  - safe production command examples using variables rather than shell redirection placeholders;
+  - successful-exit/sentinel/hash verification order;
+  - two independently controlled verified copies required before cleanup;
   - raw DB dump versus portable account artifact distinction;
   - provider-independence model;
-  - attachment-object preservation boundary.
+  - separate attachment-object copy/hash requirement when attachment bytes are in scope.
 - `docs/DB_RECOVERY_RUNBOOK.md`
   - adds mandatory R1.5 account-evidence preservation before R4 destructive cleanup;
-  - requires both R1.5 evidence and R3 raw backup/restore proof before deletion.
-- `tests/db/account-evidence-export.contract.test.ts`
-  - Node syntax check;
-  - read-only transaction contract;
-  - base-table discovery contract;
-  - no SQL mutation execution path;
-  - non-loopback intent gate;
-  - bounded streaming;
-  - account-link coverage;
-  - high-volume telemetry policy;
-  - credential exclusion/redaction;
-  - incomplete-marker lifecycle;
-  - artifact hashing.
+  - requires R1.5 evidence, two verified account-evidence copies, applicable attachment-object evidence, and R3 raw backup/restore proof before deletion.
+- `tests/deploy/14-account-evidence/account-evidence.contract.test.ts`
+  - collected by the existing deploy Vitest project;
+  - Node syntax, read-only transaction, base-table discovery, account-link coverage, explicit skipped-table inventory, production-intent/destination, UTC summary, fsync/sentinel, redaction, and hashing contracts.
 - `server/account-evidence-export.integration.test.ts`
   - loopback/disposable PostgreSQL only;
-  - seeds one account, meaningful security events, and historical `api_request` telemetry;
+  - seeds one account, a task-linked community row, meaningful security events, and historical `api_request` telemetry;
   - restores the production containment trigger before exporter execution;
   - runs the real CLI;
-  - verifies sentinel removal, manifest and per-file hashes, secret redaction, meaningful-event preservation, `api_request` summary anchors, excluded credential table behavior, and before/after source row-count equality.
+  - verifies sentinel removal, manifest and per-file hashes, secret redaction, indirect task-link preservation, meaningful-event preservation, `api_request` summary anchors, skipped-table inventory, and before/after source row-count equality.
 - `scripts/db/run-local-account-backup-cert.mjs`
   - runs the evidence-export integration test after schema bootstrap/migrations as part of the existing disposable account-backup certification lane.
+- `package.json`
+  - declares the already-locked `pg@^8.20.0` runtime dependency explicitly;
+  - adds `db:evidence-export` and `test:deploy:account-evidence` scripts;
+  - includes the new deploy contract in `npm run test:deploy`.
 
 ## Safety boundary
 
@@ -77,7 +76,7 @@ This release creates repository capability only. It does not:
 Before merge, the exact PR head must pass:
 
 1. `node --check scripts/db/export-account-evidence.mjs`
-2. `npx vitest run tests/db/account-evidence-export.contract.test.ts`
+2. `npm run test:deploy:account-evidence`
 3. `npm run release:check`
 4. `npm run check`
 5. full repository tests
@@ -88,4 +87,4 @@ Before merge, the exact PR head must pass:
 
 ## Proof ceiling
 
-Successful CI proves repository contracts plus disposable-loopback PostgreSQL runtime behavior. It does **not** prove a production export, an independently stored preservation copy, formal chain-of-custody sufficiency, legal admissibility, or any Render/Neon recovery action. Production preservation remains unproven until R1.5 produces a verified real manifest and independently controlled copy.
+Successful CI proves repository contracts plus disposable-loopback PostgreSQL runtime behavior. It does **not** prove a production export, independently stored production preservation copies, formal chain-of-custody sufficiency, legal admissibility, or any Render/Neon recovery action. Production preservation remains unproven until R1.5 produces a verified real manifest and the required independent copies.
