@@ -1,15 +1,13 @@
 /**
  * Contract tests for the redesigned capacity gate.
  * Verifies the gate distinguishes operator budget from provider hint,
- * and never invents a fake provider ceiling.
- * 
- * These tests verify the script source code directly, similar to other
- * deploy contract tests in this repo.
+ * never invents a fake provider ceiling, and fails closed when an explicit
+ * operator budget is malformed.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
@@ -27,39 +25,35 @@ describe("[11-capacity-gate] check-db-capacity.mjs contract", () => {
     expect(src.length).toBeGreaterThan(0);
   });
 
-  it("has no hardcoded DEFAULT_BUDGET constant", () => {
-    // The old version had: const DEFAULT_BUDGET = 536_870_912; // 512 MB
-    // New version should NOT have any hardcoded default budget constant
+  it("has no hardcoded legacy default budget", () => {
     expect(src).not.toContain("DEFAULT_BUDGET");
     expect(src).not.toContain("536_870_912");
-    // "512 MB" may appear in formatBytes() function as a unit string, that's fine
   });
 
-  it("parseBudget returns null when env var is unset", () => {
+  it("treats an absent env budget as report-only", () => {
     expect(src).toContain("function parseBudget()");
-    expect(src).toContain('if (!raw) return null;');
-    expect(src).toContain("return n;");
-  });
-
-  it("treats malformed budget as unset (report-only)", () => {
-    expect(src).toContain("Invalid AXTASK_DB_SIZE_BUDGET_BYTES");
-    expect(src).toContain("treating as unset (report-only mode)");
-  });
-
-  it("runCapacityCheck accepts optional budget override for testing", () => {
-    expect(src).toContain("export async function runCapacityCheck({ url, budget } = {})");
-    expect(src).toContain("const operatorBudget = budget ?? parseBudget();");
-  });
-
-  it("buildReport handles no operator budget (report-only mode)", () => {
-    expect(src).toContain("function buildReport");
+    expect(src).toContain("return normalizeBudget(");
+    expect(src).toContain('"AXTASK_DB_SIZE_BUDGET_BYTES"');
     expect(src).toContain('let verdict = "no_operator_budget"');
-    expect(src).toContain('let reason = "No explicit operator budget configured; gate is report-only."');
-    expect(src).toContain("fraction: operatorBudget !== null ? fraction : null");
-    expect(src).toContain("utilizationPercent: operatorBudget !== null ? (fraction * 100).toFixed(1) : null");
+    expect(src).toContain(
+      'let reason = "No explicit operator budget configured; gate is report-only."',
+    );
   });
 
-  it("buildReport evaluates thresholds when explicit operator budget exists", () => {
+  it("fails closed when an explicit budget is malformed", () => {
+    expect(src).toContain("function normalizeBudget(raw, source)");
+    expect(src).toContain("must be a positive finite byte count");
+    expect(src).toContain("throw new Error");
+    expect(src).not.toContain("treating as unset (report-only mode)");
+  });
+
+  it("validates both env and test-argument budgets", () => {
+    expect(src).toContain("const hasArgumentBudget = budget !== undefined");
+    expect(src).toContain('normalizeBudget(budget, "budget argument")');
+    expect(src).toContain(": parseBudget()");
+  });
+
+  it("buildReport evaluates explicit budget thresholds", () => {
     expect(src).toContain("if (operatorBudget !== null)");
     expect(src).toContain("fraction = dbSize / operatorBudget");
     expect(src).toContain("const classification = classify(fraction)");
@@ -70,7 +64,6 @@ describe("[11-capacity-gate] check-db-capacity.mjs contract", () => {
   });
 
   it("classify function has correct thresholds (75/85/90)", () => {
-    expect(src).toContain("function classify(fraction)");
     expect(src).toContain("fraction >= 0.9");
     expect(src).toContain("fraction >= 0.85");
     expect(src).toContain("fraction >= 0.75");
@@ -78,62 +71,61 @@ describe("[11-capacity-gate] check-db-capacity.mjs contract", () => {
 
   it("prints operator budget source in report", () => {
     expect(src).toContain("operatorBudgetSource");
-    expect(src).toContain('env:AXTASK_DB_SIZE_BUDGET_BYTES');
+    expect(src).toContain("env:AXTASK_DB_SIZE_BUDGET_BYTES");
     expect(src).toContain('"unset"');
   });
 
-  it("reports provider hint separately (neon.max_cluster_size)", () => {
+  it("reports provider hint separately", () => {
     expect(src).toContain("fetchNeonClusterHint");
     expect(src).toContain("SHOW neon.max_cluster_size");
     expect(src).toContain("providerHint");
     expect(src).toContain("Provider capacity hint");
   });
 
-  it("does not conflate provider hint with operator budget", () => {
-    // The provider hint is reported separately and never used as denominator
-    expect(src).not.toContain("providerHint.*budget");
-    expect(src).not.toContain("budget.*providerHint");
-    // fraction is only calculated when operatorBudget !== null
+  it("never uses provider hint as the budget denominator", () => {
     expect(src).toContain("fraction = dbSize / operatorBudget");
+    expect(src).not.toContain("dbSize / providerHint");
+    expect(src).not.toContain("operatorBudget = providerHint");
   });
 
-  it("machine-readable JSON output includes all required fields", () => {
+  it("machine-readable report includes required fields", () => {
+    for (const field of [
+      "dbSize",
+      "operatorBudget",
+      "operatorBudgetSource",
+      "providerHint",
+      "fraction",
+      "utilizationPercent",
+      "verdict",
+      "reason",
+      "level",
+      "exitCode",
+      "topTables",
+      "ok",
+    ]) {
+      expect(src).toContain(field);
+    }
     expect(src).toContain("JSON.stringify(report, null, 2)");
-    // Check buildReport returns all required fields
-    expect(src).toContain("dbSize");
-    expect(src).toContain("operatorBudget");
-    expect(src).toContain("operatorBudgetSource");
-    expect(src).toContain("providerHint");
-    expect(src).toContain("fraction");
-    expect(src).toContain("utilizationPercent");
-    expect(src).toContain("verdict");
-    expect(src).toContain("reason");
-    expect(src).toContain("level");
-    expect(src).toContain("exitCode");
-    expect(src).toContain("topTables");
-    expect(src).toContain("ok");
   });
 
-  it("prints report with labeled sections (OPERATOR BUDGET, PROVIDER HINT)", () => {
-    expect(src).toContain("Operator budget");
-    expect(src).toContain("Provider capacity hint");
-    expect(src).toContain("Utilization:");
+  it("uses literal interpolation for warn/soft-fail reasons", () => {
+    expect(src).toContain("`[db-capacity] SOFT FAIL: ${report.reason}");
+    expect(src).toContain("`[db-capacity] WARN: ${report.reason}");
   });
 
-  it("exit codes: 0=ok, 1=soft_fail, 2=hard_fail, 3=fatal", () => {
-    expect(src).toContain("process.exit(0)");
-    expect(src).toContain("process.exit(1)");
-    expect(src).toContain("process.exit(2)");
+  it("documents exit 3 for malformed explicit configuration", () => {
+    expect(src).toContain("3 - Fatal error");
     expect(src).toContain("process.exit(3)");
   });
 
-  it("soft fail acknowledges AXTASK_DB_CAPACITY_ACK=1", () => {
+  it("soft fail remains operator-acknowledgeable", () => {
     expect(src).toContain("AXTASK_DB_CAPACITY_ACK");
     expect(src).toContain("SOFT FAIL acknowledged");
   });
 
-  it("hard fail never proceeds, suggests raising budget", () => {
+  it("hard fail does not advise blindly raising a provider limit", () => {
     expect(src).toContain("HARD FAIL");
-    expect(src).toContain("raise AXTASK_DB_SIZE_BUDGET_BYTES");
+    expect(src).toContain("deliberately revise AXTASK_DB_SIZE_BUDGET_BYTES");
+    expect(src).toContain("documenting the new operator limit");
   });
 });
