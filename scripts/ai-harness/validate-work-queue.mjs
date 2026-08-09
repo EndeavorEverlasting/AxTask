@@ -118,7 +118,7 @@ for (let index = 0; index < matches.length; index += 1) {
   if (!title) fail(`${id}: title is empty`);
 
   const fields = new Map();
-  for (const fieldMatch of block.matchAll(/^- \*\*([^*]+):\*\*\s*(.*)$/gm)) {
+  for (const fieldMatch of block.matchAll(/^- \*\*([^*]+):\*\*[ \t]*(.*)$/gm)) {
     fields.set(fieldMatch[1].trim(), fieldMatch[2].trim());
   }
 
