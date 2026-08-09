@@ -103,6 +103,12 @@ describe("[13-deployment-config] one-off api_request containment", () => {
     expect(containment).not.toContain("apply-migrations.mjs");
   });
 
+  it("treats only origin/always trigger states as active containment", () => {
+    expect(containment).toContain('["O", "A"].includes(code)');
+    expect(containment).toContain("R=replica-only");
+    expect(containment).not.toContain('tgenabled !== "D"');
+  });
+
   it("never logs DATABASE_URL", () => {
     expect(containment).not.toContain("maskedUrl");
     expect(containment).toContain('target=${isLoopbackDatabase(url) ? "loopback" : "non-loopback"}');
