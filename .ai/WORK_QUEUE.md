@@ -59,7 +59,7 @@ Every `AXQ-*` task block must keep these fields. Add concise links/paths instead
 - **Scope:** read-only production database size/shape inspection required by the recovery sequence
 - **Forbidden:** row mutation, retention cleanup, reclaim, migrations, Render resume/deploy
 - **Dependencies:** none
-- **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/ACCOUNT_EVIDENCE_PRESERVATION.md`, `scripts/db/db-size-audit.mjs`
+- **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/ACCOUNT_EVIDENCE_PRESERVATION.md`, `scripts/db-size-audit.mjs`
 - **Acceptance gate:** production R1 evidence records the current database/table size distribution and confirms the account/evidence scope needed for preservation
 - **Gate:** requires operator-controlled production `DATABASE_URL` / Neon access; repository and disposable CI proof cannot satisfy live R1
 - **Last proof:** PR #115 / merge `511522e1ba8c5eb45cf90c87fb30defd2973586e` added the preservation tooling and recovery gates; no live R1 proof exists
@@ -107,7 +107,7 @@ Every `AXQ-*` task block must keep these fields. Add concise links/paths instead
 - **Scope:** evaluate the smallest safe containment/cleanup action for pathological production telemetry after preservation gates are proven
 - **Forbidden:** any destructive database action before AXQ-002 and AXQ-003 are complete; broad deletion without scoped diagnosis; bypassing recovery doctrine
 - **Dependencies:** AXQ-002, AXQ-003
-- **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/DB_RETENTION_POLICY.md`, `scripts/db/db-reclaim.mjs`
+- **References:** `docs/DB_RECOVERY_RUNBOOK.md`, `docs/DB_RETENTION_POLICY.md`, `scripts/db-reclaim.mjs`
 - **Acceptance gate:** a bounded, evidence-backed cleanup/containment action is either safely executed with proof or explicitly rejected as unnecessary; post-action storage/health proof is captured
 - **Gate:** destructive production work is forbidden until both preservation gates complete and an operator authorizes the exact mutation
 - **Last proof:** none
