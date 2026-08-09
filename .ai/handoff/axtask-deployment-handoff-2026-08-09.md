@@ -3,23 +3,23 @@
 - Repo: `EndeavorEverlasting/AxTask`
 - Branch: `ops/axtask-deployment-handoff-20260809`
 - Base: `main@605f169ddae6ef13de193e877523510f800d5eff` (attestation-only child of validated app commit `8d5f896351b52c60e02d7259e64bb21092a52fa7`)
-- PR/sprint: compressed **AxTask Deployment Checklist + AxTask Deployment Sprint Map**; deployment readiness / production DB recovery gate
+- PR/sprint: PR #119; compressed **AxTask Deployment Checklist + AxTask Deployment Sprint Map**; deployment readiness / production DB recovery gate
 - Lane: deployment readiness and recovery evidence
 - Owned scope: deployment contracts, validators, recovery docs/handoff, read-only production forensics, CI/build proof
-- Forbidden scope: production DB mutation before R1/R1.5/R3 evidence gates, Render resume/deploy, auto-deploy enablement, secret exposure, destructive cleanup, bypassing `docs/DB_RECOVERY_RUNBOOK.md`
+- Forbidden scope: production DB mutation before prerequisite evidence/backup gates, Render resume/deploy before R0–R7 are recorded and operator authorization exists, auto-deploy enablement, secret exposure, destructive cleanup outside `docs/DB_RECOVERY_RUNBOOK.md`
 
 ## What changed
 
-- Reconciled the older Render deployment checklist with the newer repository recovery contract. The recovery contract wins: Render stays suspended and auto-deploy stays off until recovery gates are passed.
-- Verified current deployment scripts/contracts from `package.json`, `.ai/WORK_QUEUE.md`, `.ai/workflows/predeploy-cost-readiness.md`, `scripts/ai-harness/evaluate-predeploy-readiness.mjs`, `render.yaml`, and `docs/DB_RECOVERY_RUNBOOK.md`.
+- Reconciled the older Render deployment checklist with the newer repository recovery contract. The current runbook wins: Render remains suspended through R7; R8 is one explicitly authorized resume/deploy; R9 is the live observation gate.
+- Verified deployment/recovery contracts from `package.json`, `.ai/WORK_QUEUE.md`, `.ai/workflows/predeploy-cost-readiness.md`, `scripts/ai-harness/evaluate-predeploy-readiness.mjs`, `render.yaml`, and `docs/DB_RECOVERY_RUNBOOK.md`.
 - Executed live **read-only** Neon production forensics against project `odd-dream-81805958`, branch `br-steep-shape-an2l3fiv`, database `neondb`.
-- Observed production database size about 36 GB; `public.security_events` has about 50.4M live rows; the suppression trigger is absent. The migration ledger table exists.
+- Observed production database size about 36 GB; `public.security_events` has about 50.4M live rows; `trg_suppress_api_request_security_events` is absent. The migration-ledger table exists.
 - Attempted the exact full-table `event_type` aggregation. It exceeded the connector timeout; no incomplete aggregate is promoted to proof.
-- No production mutation, cleanup, Render resume, or deploy was performed.
+- No production mutation, containment, cleanup, physical reclaim, Render resume, or deploy was performed.
 
 ## Files changed
 
-- `.ai/handoff/axtask-deployment-handoff-2026-08-09.md` — this durable handoff only.
+- `.ai/handoff/axtask-deployment-handoff-2026-08-09.md` — durable evidence handoff only.
 
 ## Artifacts produced
 
@@ -43,23 +43,25 @@
   - local production certification
 - Docker build job in the same run: PASS, including bundled runtime assets.
 - Production Neon read-only SQL: PASS for identity/size/table statistics/trigger/ledger metadata.
+- PR #119 branch checks observed so far: PR file-limit PASS; Axios guard PASS; production-startup guard PASS; full `test-and-attest`/Docker validation still running at handoff update time.
 
 ## Skipped or incomplete checks
 
-- Local container clone/build in this ChatGPT runtime: skipped because the container could not resolve GitHub; CI evidence used instead.
+- Local container clone/build in this ChatGPT runtime: skipped because the container could not resolve GitHub; durable CI evidence used instead.
 - Exact `security_events` event-type full aggregation: incomplete due connector timeout.
-- Protected account-evidence export: not executed; R1.5 evidence target/protected destination remains an operator gate.
-- Raw production backup artifact: not created; R3 remains open.
-- Production Render launcher/browser smoke: not run because recovery gates prohibit waking/deploying the service.
+- R1 canonical `production-audit.json`: not yet produced in a durable operator shell.
+- R1.5 protected account-evidence export and two independently controlled verified copies: not executed.
+- R3 raw production backup plus disposable restore proof: not executed.
+- R4 targeted cleanup, R5 optional physical reclaim, R6 post-recovery capacity decision, R8 Render resume/deploy, R9 observation: not executed because their dependencies are not met.
 
 ## Known gaps and risks
 
-1. R1 is **partial**, not complete: exact event-type counts/oldest-newest evidence still need a canonical `db:size-audit:forensics` artifact.
-2. R1.5 is open: export/preserve required account evidence to a protected destination before destructive work.
-3. R2 is open: containment/suppression must not be applied until prerequisite evidence is captured.
-4. R3 is open: create and verify a raw production backup before cleanup.
-5. R4 cleanup/recovery and any Render resume/deploy remain blocked on R1→R3.
-6. `security_events` is the dominant known capacity risk; performing an unbounded aggregate through a short-lived connector can timeout. Prefer the repo-owned audit command in a durable operator shell.
+1. R1 is **partial**: exact event-type counts and oldest/newest evidence still require the repo-owned forensics command and durable `production-audit.json`.
+2. R1.5 is open: preserve the required account evidence bundle, hashes, attachment objects when in scope, and two verified copies.
+3. R2 is open: the suppression trigger is absent; containment mutation is prohibited until R3 backup/rollback evidence exists.
+4. R3 is open: create and verify a raw production backup and disposable restore before containment mutation or cleanup.
+5. R4–R7 depend on the earlier gates. R8 cannot occur until R0–R7 are recorded and an operator explicitly authorizes one live attempt. R9 follows the live recovery.
+6. `security_events` is the dominant known capacity risk; unbounded aggregation through a short-lived connector can timeout. Use the repo-owned audit from a durable operator shell.
 
 ## Important paths
 
@@ -67,7 +69,13 @@
 - `.ai/workflows/predeploy-cost-readiness.md`
 - `scripts/ai-harness/evaluate-predeploy-readiness.mjs`
 - `scripts/db-size-audit.mjs`
+- `scripts/db/export-account-evidence.mjs`
+- `scripts/db-contain-api-request.mjs`
+- `scripts/db-reclaim-api-request.mjs`
+- `scripts/deploy/check-db-capacity.mjs`
+- `scripts/deploy/run-local-cert.mjs`
 - `docs/DB_RECOVERY_RUNBOOK.md`
+- `docs/ACCOUNT_EVIDENCE_PRESERVATION.md`
 - `docs/TEST_ATTESTATION.md`
 - `render.yaml`
 - `package.json`
@@ -83,14 +91,24 @@
 - behavior observed proof: PARTIAL — production DB state observed; production app behavior not observed
 - live runtime proof: PARTIAL — live production DB only; Render app runtime remains intentionally suspended/unproven
 
+## Git state
+
+- Remote feature branch: `ops/axtask-deployment-handoff-20260809`
+- PR: `#119` → `main`
+- Base at branch creation: `605f169ddae6ef13de193e877523510f800d5eff`
+- Working-tree status in this ChatGPT runtime: unavailable because the container cannot resolve GitHub; no local tree was mutated.
+- Remote mutation is bounded to this one tracked handoff file.
+
 ## Next action contract
 
 Owner: deployment/recovery operator or next agent with an authorized production `DATABASE_URL` in a durable shell.
 
-Dependency: this branch/commit must be fetched and validated in an isolated worktree; production `DATABASE_URL` must be present without being printed.
+Dependency: fetch PR #119 without force into an isolated worktree; verify its exact head; keep `DATABASE_URL` loaded through the normal secret path without printing it.
 
-Action: run the repo-owned deployment test suite and build, then execute `npm run db:size-audit:forensics -- --json` and persist the JSON as the canonical R1 evidence artifact. Do **not** mutate the database or resume Render.
+Action: validate the branch, then run the **repo-owned SELECT-only R1 command** from the runbook:
 
-Expected artifact: `artifacts/deploy/r1-db-forensics.json` plus successful deploy-test/build exits.
+`node scripts/db-size-audit.mjs --forensics --json > production-audit.json`
 
-Completion gate: the artifact contains database size, table/index sizes, whale-table row counts, complete `securityEventsForensics.eventTypeCounts`, oldest/newest timestamps, trigger state, and migration-9999 ledger state. If the audit cannot complete, R1 remains open and R2/R3/R4/Render stay blocked.
+Expected artifact: `production-audit.json` outside Git if it contains operational metadata, plus successful deployment validators/build.
+
+Completion gate: the artifact contains total DB size; `security_events` relation/heap/index/TOAST size; estimated live/dead tuples; complete event-type counts and oldest/newest timestamps; `trg_suppress_api_request_security_events` state; and migration `9999_disable_api_request_security_events.sql` ledger state. If the audit cannot complete, R1 remains open and R1.5/R2/R3/R4–R9 remain dependency-blocked as defined by the runbook.
