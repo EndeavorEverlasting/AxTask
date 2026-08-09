@@ -34,6 +34,7 @@ const describePg = runPg && isLoopbackPostgres(databaseUrl) ? describe : describ
 describePg("account evidence export disposable-postgres certification", () => {
   const userId = randomUUID();
   const taskId = randomUUID();
+  const communityPostId = randomUUID();
   const email = `evidence-${userId}@example.test`;
   const outputRoot = mkdtempSync(path.join(os.tmpdir(), "axtask-evidence-cert-"));
   const passwordSecret = `password-hash-${randomUUID()}`;
@@ -57,6 +58,13 @@ describePg("account evidence export disposable-postgres certification", () => {
       [taskId, userId],
     );
     await pool.query(
+      `INSERT INTO community_posts
+        (id, avatar_key, avatar_name, title, body, category, related_task_id, created_at)
+       VALUES ($1, 'productivity', 'Certification Avatar', 'Task-linked evidence',
+               'Indirect account-linked row', 'general', $2, now())`,
+      [communityPostId, taskId],
+    );
+    await pool.query(
       `INSERT INTO security_events
         (event_type, actor_user_id, route, method, status_code, payload_json, prev_hash, event_hash, created_at)
        VALUES
@@ -66,7 +74,7 @@ describePg("account evidence export disposable-postgres certification", () => {
 
     // Migration 9999 correctly suppresses new api_request rows. This disposable-only
     // fixture temporarily disables that trigger so the test can model historical rows
-    // that existed before containment. It is restored immediately before the exporter runs.
+    // that existed before containment. It is restored before the exporter runs.
     await pool.query(
       `ALTER TABLE security_events DISABLE TRIGGER trg_suppress_api_request_security_events`,
     );
@@ -95,6 +103,7 @@ describePg("account evidence export disposable-postgres certification", () => {
 
   afterAll(async () => {
     try {
+      await pool.query(`DELETE FROM community_posts WHERE id = $1`, [communityPostId]);
       await pool.query(
         `DELETE FROM security_events WHERE actor_user_id = $1 OR target_user_id = $1`,
         [userId],
@@ -110,9 +119,10 @@ describePg("account evidence export disposable-postgres certification", () => {
     const before = await pool.query(
       `SELECT
          (SELECT count(*)::int FROM tasks WHERE user_id = $1) AS tasks,
+         (SELECT count(*)::int FROM community_posts WHERE related_task_id = $2) AS community_posts,
          (SELECT count(*)::int FROM security_events WHERE actor_user_id = $1 OR target_user_id = $1) AS events,
          (SELECT count(*)::int FROM security_events WHERE actor_user_id = $1 AND event_type = 'api_request') AS api_requests`,
-      [userId],
+      [userId, taskId],
     );
 
     const result = spawnSync(
@@ -133,6 +143,9 @@ describePg("account evidence export disposable-postgres certification", () => {
     );
 
     expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).not.toContain(passwordSecret);
+    expect(result.stdout).not.toContain(totpSecret);
+
     const cliResult = JSON.parse(result.stdout.trim()) as {
       ok: boolean;
       outputDirectory: string;
@@ -140,12 +153,14 @@ describePg("account evidence export disposable-postgres certification", () => {
       manifestSha256: string;
       apiRequestMode: string;
       target: string;
+      skippedTableCount: number;
     };
     expect(cliResult).toMatchObject({
       ok: true,
       apiRequestMode: "summary",
       target: "loopback",
     });
+    expect(cliResult.skippedTableCount).toBeGreaterThan(0);
 
     const exportDir = cliResult.outputDirectory;
     expect(existsSync(exportDir)).toBe(true);
@@ -154,23 +169,35 @@ describePg("account evidence export disposable-postgres certification", () => {
     expect(existsSync(path.join(exportDir, "manifest.sha256"))).toBe(true);
 
     const manifestText = readFileSync(path.join(exportDir, "manifest.json"), "utf8");
+    expect(manifestText).not.toContain(passwordSecret);
+    expect(manifestText).not.toContain(totpSecret);
+
     const manifest = JSON.parse(manifestText) as {
       account: { id: string; email: string };
       apiRequestMode: string;
+      attachmentObjectBytesIncluded: boolean;
+      accountLinkPolicy: { thirdPartyScope: string };
       files: Array<{
         table: string;
         file: string;
         rowCount: number;
         sha256: string;
         redactedColumns: string[];
+        linkingPaths: string[];
       }>;
-      excludedTables: Array<{ table: string }>;
+      excludedTables: Array<{ table: string; reason: string }>;
       completenessMarkerPolicy: string;
     };
     expect(manifest.account).toMatchObject({ id: userId, email });
     expect(manifest.apiRequestMode).toBe("summary");
-    expect(manifest.completenessMarkerPolicy).toContain("EXPORT_INCOMPLETE is absent");
-    expect(manifest.excludedTables.map((entry) => entry.table)).toContain("mfa_challenges");
+    expect(manifest.attachmentObjectBytesIncluded).toBe(false);
+    expect(manifest.accountLinkPolicy.thirdPartyScope).toContain("other users");
+    expect(manifest.completenessMarkerPolicy).toContain("excludedTables is reviewed");
+    expect(manifest.excludedTables).toContainEqual({
+      table: "mfa_challenges",
+      reason: "known-ephemeral-or-secret-bearing-table",
+    });
+    expect(manifest.excludedTables.some((entry) => entry.reason === "no-account-link-resolver")).toBe(true);
 
     const manifestDigest = createHash("sha256").update(manifestText, "utf8").digest("hex");
     expect(manifestDigest).toBe(cliResult.manifestSha256);
@@ -194,6 +221,13 @@ describePg("account evidence export disposable-postgres certification", () => {
     expect(usersText).not.toContain(passwordSecret);
     expect(usersText).not.toContain(totpSecret);
 
+    const communityEntry = manifest.files.find((entry) => entry.table === "community_posts");
+    expect(communityEntry?.rowCount).toBe(1);
+    expect(communityEntry?.linkingPaths).toContain("related_task_id->tasks.user_id");
+    expect(readFileSync(path.join(exportDir, communityEntry!.file), "utf8")).toContain(
+      "Task-linked evidence",
+    );
+
     const securityEntry = manifest.files.find((entry) => entry.table === "security_events");
     expect(securityEntry?.rowCount).toBe(1);
     const securityText = readFileSync(path.join(exportDir, securityEntry!.file), "utf8");
@@ -206,21 +240,25 @@ describePg("account evidence export disposable-postgres certification", () => {
       rowCount: string;
       firstChainAnchor: { event_hash: string };
       lastChainAnchor: { event_hash: string };
-      dailyCounts: Array<{ row_count: string }>;
+      dailyCounts: Array<{ day: string; row_count: string }>;
     };
     expect(summary.rowCount).toBe("2");
     expect(summary.firstChainAnchor.event_hash).toBe(apiHash1);
     expect(summary.lastChainAnchor.event_hash).toBe(apiHash2);
     expect(summary.dailyCounts.reduce((sum, row) => sum + Number(row.row_count), 0)).toBe(2);
+    for (const row of summary.dailyCounts) {
+      expect(row.day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
 
     expect(readdirSync(exportDir)).not.toContain("mfa_challenges.jsonl");
 
     const after = await pool.query(
       `SELECT
          (SELECT count(*)::int FROM tasks WHERE user_id = $1) AS tasks,
+         (SELECT count(*)::int FROM community_posts WHERE related_task_id = $2) AS community_posts,
          (SELECT count(*)::int FROM security_events WHERE actor_user_id = $1 OR target_user_id = $1) AS events,
          (SELECT count(*)::int FROM security_events WHERE actor_user_id = $1 AND event_type = 'api_request') AS api_requests`,
-      [userId],
+      [userId, taskId],
     );
     expect(after.rows[0]).toEqual(before.rows[0]);
   }, 30_000);
