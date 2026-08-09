@@ -62,7 +62,7 @@ describe("[04-migrations] migrations/", () => {
     expect(fs.existsSync(migrationsDir)).toBe(true);
   });
 
-  it("contains only .sql files (no stray scripts that would confuse the runner)", () => {
+  it("contains only .sql files", () => {
     const entries = fs.readdirSync(migrationsDir).filter((f) => {
       const full = path.join(migrationsDir, f);
       return fs.statSync(full).isFile();
@@ -93,8 +93,7 @@ describe("[04-migrations] migrations/", () => {
       .filter((f) => f.endsWith(".sql"))
       .sort();
     for (const file of files) {
-      const full = path.join(migrationsDir, file);
-      const sql = fs.readFileSync(full, "utf8");
+      const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
       const firstUse = sql.search(useRe);
       if (firstUse === -1) continue;
       const extIdx = sql.search(extRe);
@@ -115,26 +114,13 @@ describe("[04-migrations] production-start.mjs chain order", () => {
     path.join(repoRoot, "scripts", "production-start.mjs"),
     "utf8",
   );
-
-  // Strip comments to avoid false positives from the header docstring that
-  // also mentions "drizzle-kit" and "apply-migrations.mjs".
   const codeOnly = src
     .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\*.*$/gm, "")
     .replace(/\/\/.*$/gm, "");
 
-  it("runs the DB capacity gate before apply-migrations.mjs (normal startup path)", () => {
-    // With render.yaml autoDeploy=true, every push to main ships and the
-    // capacity gate is the only thing between the push and a live
-    // migration against the Neon 512 MB ceiling. It MUST run first.
-    // The recovery mode block (AXTASK_DB_RECOVERY_MODE) also calls
-    // apply-migrations.mjs but that's an explicit operator-invoked path.
-    // We verify the NORMAL path: capacity gate -> migrations.
+  it("runs the explicit operator capacity gate before migrations", () => {
     const capIdx = codeOnly.indexOf("check-db-capacity.mjs");
-    // Find the apply-migrations.mjs that comes AFTER the capacity gate
-    // (the normal path, not the recovery mode block which appears earlier)
-    const capIdxPos = capIdx;
-    const applyIdx = codeOnly.indexOf("apply-migrations.mjs", capIdxPos);
+    const applyIdx = codeOnly.indexOf("apply-migrations.mjs", capIdx);
     expect(capIdx).toBeGreaterThan(-1);
     expect(applyIdx).toBeGreaterThan(-1);
     expect(capIdx).toBeLessThan(applyIdx);
@@ -148,22 +134,20 @@ describe("[04-migrations] production-start.mjs chain order", () => {
     expect(applyIdx).toBeLessThan(drizzleIdx);
   });
 
-  it("spawns the server process after drizzle-kit push", () => {
-    // The server is started via `spawn(process.execPath, [distIndex], ...)`
-    // which must appear AFTER the drizzle-kit spawn in source order.
+  it("spawns the server only after migration and Drizzle policy", () => {
     const drizzleIdx = codeOnly.indexOf("drizzle-kit");
-    const spawnIdx = codeOnly.search(/\bspawn\s*\(\s*process\.execPath\s*,\s*\[distIndex\]/);
+    const spawnIdx = codeOnly.search(
+      /\bspawn\s*\(\s*process\.execPath\s*,\s*\[distIndex\]/,
+    );
     expect(drizzleIdx).toBeGreaterThan(-1);
     expect(spawnIdx).toBeGreaterThan(-1);
     expect(drizzleIdx).toBeLessThan(spawnIdx);
   });
 
-  it("recovery mode block appears before normal capacity gate", () => {
-    // Verify the recovery mode block exists and is a separate code path
-    const recoveryIdx = codeOnly.indexOf("AXTASK_DB_RECOVERY_MODE");
-    const capIdx = codeOnly.indexOf("check-db-capacity.mjs");
-    expect(recoveryIdx).toBeGreaterThan(-1);
-    expect(recoveryIdx).toBeLessThan(capIdx);
+  it("does not bypass the migration airlock through a startup recovery mode", () => {
+    expect(src).not.toContain("AXTASK_DB_RECOVERY_MODE");
+    expect(src).not.toContain("MIGRATION_SKIP_AIRLOCK");
+    expect(src).toContain("Database recovery is intentionally NOT a startup mode");
   });
 });
 
