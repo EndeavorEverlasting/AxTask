@@ -15,8 +15,11 @@
     {"id":"failure-recovery","type":"workflow","path":".ai/workflows/failure-recovery.md"},
     {"id":"local-cert","type":"workflow","path":".ai/workflows/local-deployment-certification.md"},
     {"id":"parallel-intake","type":"workflow","path":".ai/workflows/parallel-sprint-intake.md"},
+    {"id":"stateful-architecture-workflow","type":"workflow","path":".ai/workflows/stateful-architecture-migration.md"},
     {"id":"run-context","type":"run-context","path":".ai/run-context.schema.json"},
     {"id":"runtime-proof","type":"runtime-proof","path":".ai/runtime-proof.schema.json"},
+    {"id":"stateful-surface-ledger-schema","type":"schema","path":".ai/stateful-surface-ledger.schema.json"},
+    {"id":"stateful-surface-ledger","type":"architecture-ledger","path":".ai/stateful-surface-ledger.json"},
     {"id":"artifacts","type":"artifact-registry","path":".ai/artifact-registry.json"},
     {"id":"validators","type":"validator-registry","path":".ai/validator-registry.json"},
     {"id":"capabilities","type":"capability-registry","path":".ai/capability-registry.json"},
@@ -28,13 +31,16 @@
     {"id":"failure-recovery-skill","type":"skill","path":".ai/skills/failure-recovery.md"},
     {"id":"maintenance-skill","type":"skill","path":".ai/skills/harness-maintenance.md"},
     {"id":"runtime-proof-skill","type":"skill","path":".ai/skills/runtime-proof.md"},
+    {"id":"stateful-architecture-skill","type":"skill","path":".ai/skills/stateful-architecture-migration.md"},
     {"id":"harness-infrastructure-validator","type":"validator","path":"scripts/ai-harness/validate-harness-infrastructure.mjs"},
     {"id":"work-queue-validator","type":"validator","path":"scripts/ai-harness/validate-work-queue.mjs"},
+    {"id":"stateful-architecture-validator","type":"validator","path":"scripts/ai-harness/validate-stateful-architecture.mjs"},
     {"id":"inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-repo.mjs"},
     {"id":"collision-inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-pr-collisions.mjs"},
     {"id":"contract-impact-inspector","type":"read-only-intelligence","path":"scripts/ai-harness/inspect-contract-impact.mjs"},
     {"id":"operator-report","type":"operator-report","path":".ai/reports/operator-report-template.md"},
     {"id":"failure-report","type":"operator-report","path":".ai/reports/failure-report-template.md"},
+    {"id":"stateful-architecture-report","type":"operator-report","path":".ai/reports/stateful-architecture-report-template.md"},
     {"id":"handoff","type":"handoff","path":".ai/handoff/final-handoff-template.md"},
     {"id":"pre-commit-hook","type":"local-hook","path":".githooks/pre-commit"},
     {"id":"pre-push-hook","type":"local-hook","path":".githooks/pre-push"}
@@ -52,7 +58,8 @@
     "axtask.skill.pr-closeout.v1",
     "axtask.skill.failure-recovery.v1",
     "axtask.skill.harness-maintenance.v1",
-    "axtask.skill.runtime-proof.v1"
+    "axtask.skill.runtime-proof.v1",
+    "axtask.skill.stateful-architecture-migration.v1"
   ],
   "readOnlyIntelligence": {
     "id": "axtask.read-only-repo-inspector.v1",
@@ -64,8 +71,8 @@
     "automaticInstall": false,
     "installer": "node scripts/ai-harness/install-hooks.mjs",
     "hookPath": ".githooks",
-    "runs": ["authority", "harness", "work-queue"],
-    "preCommitRuns": ["node-provenance", "node-runtime", "axios-guard", "authority", "harness", "work-queue"],
-    "prePushRuns": ["authority", "harness", "harness-infrastructure", "work-queue", "harness-tests"]
+    "runs": ["authority", "harness", "work-queue", "stateful-architecture"],
+    "preCommitRuns": ["node-provenance", "node-runtime", "axios-guard", "authority", "harness", "work-queue", "stateful-architecture"],
+    "prePushRuns": ["authority", "harness", "harness-infrastructure", "work-queue", "stateful-architecture", "harness-tests"]
   }
 }
