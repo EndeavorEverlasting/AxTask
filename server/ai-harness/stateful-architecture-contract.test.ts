@@ -49,6 +49,46 @@ describe("stateful architecture harness", () => {
     expect(result.stdout).toContain("provisional decisions must fail closed to keep");
   });
 
+  it("rejects schema-invalid surface values", () => {
+    const root = fixture();
+    const ledgerPath = path.join(root, ".ai/stateful-surface-ledger.json");
+    const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
+    ledger.surfaces[0].category = "nonsense";
+    ledger.surfaces[0].files = [null];
+    ledger.surfaces[0].proofCeiling = "wishful-thinking";
+    writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`);
+    const result = run(root);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("category: value is not in declared enum");
+    expect(result.stdout).toContain("files[0]: expected string");
+    expect(result.stdout).toContain("proofCeiling: value is not in declared enum");
+  });
+
+  it("rejects more than one approved migration seam", () => {
+    const root = fixture();
+    const ledgerPath = path.join(root, ".ai/stateful-surface-ledger.json");
+    const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
+    for (const index of [0, 1]) {
+      ledger.surfaces[index].decisionStatus = "approved";
+      ledger.surfaces[index].disposition = "externalize";
+    }
+    writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`);
+    const result = run(root);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("at most one approved non-keep seam is allowed");
+  });
+
+  it("rejects a migration authorization rule without a token-safe one-seam clause", () => {
+    const root = fixture();
+    const ledgerPath = path.join(root, ".ai/stateful-surface-ledger.json");
+    const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
+    ledger.decisionPolicy.migrationAuthorizationRule = "Someone may change a provisional surface while preserving KEEP.";
+    writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`);
+    const result = run(root);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("must require one named migrationSeam");
+  });
+
   it("rejects missing deterministic serverless routing", () => {
     const root = fixture();
     const triggerPath = path.join(root, ".ai/trigger-registry.json");

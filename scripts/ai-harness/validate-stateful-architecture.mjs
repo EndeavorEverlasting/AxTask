@@ -42,12 +42,66 @@ function ids(items) {
   return new Set(arr(items).map((item) => item?.id).filter(nonEmpty));
 }
 
+function jsonEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function validateAgainstSchema(value, schema, label, errors) {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    errors.push(`${label}: invalid schema node`);
+    return;
+  }
+
+  const type = schema.type;
+  if (type === "object") {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      errors.push(`${label}: expected object`);
+      return;
+    }
+    for (const required of arr(schema.required)) {
+      if (!Object.prototype.hasOwnProperty.call(value, required)) {
+        errors.push(`${label}: missing required property ${required}`);
+      }
+    }
+    if (schema.properties && typeof schema.properties === "object") {
+      for (const [key, childSchema] of Object.entries(schema.properties)) {
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+          validateAgainstSchema(value[key], childSchema, `${label}.${key}`, errors);
+        }
+      }
+    }
+  } else if (type === "array") {
+    if (!Array.isArray(value)) {
+      errors.push(`${label}: expected array`);
+      return;
+    }
+    if (Number.isInteger(schema.minItems) && value.length < schema.minItems) {
+      errors.push(`${label}: expected at least ${schema.minItems} item(s)`);
+    }
+    if (schema.items) {
+      value.forEach((item, index) => validateAgainstSchema(item, schema.items, `${label}[${index}]`, errors));
+    }
+  } else if (type === "string") {
+    if (typeof value !== "string") errors.push(`${label}: expected string`);
+  } else if (type === "number") {
+    if (typeof value !== "number" || !Number.isFinite(value)) errors.push(`${label}: expected finite number`);
+  } else if (type === "integer") {
+    if (!Number.isInteger(value)) errors.push(`${label}: expected integer`);
+  } else if (type === "boolean") {
+    if (typeof value !== "boolean") errors.push(`${label}: expected boolean`);
+  }
+
+  if (Array.isArray(schema.enum) && !schema.enum.some((item) => jsonEqual(item, value))) {
+    errors.push(`${label}: value is not in declared enum`);
+  }
+}
+
 export function validateStatefulArchitecture(root = DEFAULT_ROOT) {
   const errors = [];
   const warnings = [];
 
   const ledger = readJson(root, ".ai/stateful-surface-ledger.json", errors);
-  readJson(root, ".ai/stateful-surface-ledger.schema.json", errors);
+  const ledgerSchema = readJson(root, ".ai/stateful-surface-ledger.schema.json", errors);
   const harness = readJson(root, ".ai/harness.json", errors);
   const workflows = readJson(root, ".ai/workflow-registry.json", errors);
   const capabilities = readJson(root, ".ai/capability-registry.json", errors);
@@ -60,16 +114,22 @@ export function validateStatefulArchitecture(root = DEFAULT_ROOT) {
   const humanLedger = readText(root, "docs/architecture/STATEFUL_SURFACE_LEDGER.md", errors);
   const reportTemplate = readText(root, ".ai/reports/stateful-architecture-report-template.md", errors);
 
+  if (ledger && ledgerSchema) {
+    validateAgainstSchema(ledger, ledgerSchema, ".ai/stateful-surface-ledger.json", errors);
+  }
+
   if (ledger) {
     if (ledger.ledgerId !== "axtask.stateful-surface-ledger.v1") errors.push(".ai/stateful-surface-ledger.json: ledgerId mismatch");
     if (!nonEmpty(ledger.mission)) errors.push(".ai/stateful-surface-ledger.json: mission is required");
 
     const policy = ledger.decisionPolicy ?? {};
     if (policy.defaultDisposition !== "keep") errors.push(".ai/stateful-surface-ledger.json: defaultDisposition must be keep");
-    for (const phrase of ["one", "provisional", "KEEP"]) {
-      if (!String(policy.migrationAuthorizationRule ?? "").toLowerCase().includes(phrase.toLowerCase())) {
-        errors.push(`migrationAuthorizationRule must preserve fail-closed ${phrase} semantics`);
-      }
+    const migrationRule = String(policy.migrationAuthorizationRule ?? "");
+    if (!/\bone\s+named\s+migrationSeam\b/i.test(migrationRule)) {
+      errors.push("migrationAuthorizationRule must require one named migrationSeam");
+    }
+    if (!/\bprovisional\b/i.test(migrationRule) || !/\bKEEP\b/.test(migrationRule)) {
+      errors.push("migrationAuthorizationRule must preserve provisional fail-closed KEEP semantics");
     }
     if (!String(policy.proofRule ?? "").includes("may not be promoted")) errors.push("decisionPolicy.proofRule must explicitly forbid proof promotion");
 
@@ -79,6 +139,7 @@ export function validateStatefulArchitecture(root = DEFAULT_ROOT) {
     const allowedDisposition = new Set(["keep","replace","externalize","delete"]);
     const allowedDecisionStatus = new Set(["provisional","approved"]);
     const seen = new Set();
+    let approvedMigrationSeams = 0;
 
     if (arr(ledger.surfaces).length < 6) errors.push("stateful ledger must contain at least six primary surfaces");
 
@@ -94,6 +155,7 @@ export function validateStatefulArchitecture(root = DEFAULT_ROOT) {
       if (!allowedDecisionStatus.has(surface?.decisionStatus)) errors.push(`${label}: invalid decisionStatus`);
       if (surface?.decisionStatus === "provisional" && surface?.disposition !== "keep") errors.push(`${label}: provisional decisions must fail closed to keep`);
       if (surface?.decisionStatus === "approved" && surface?.disposition !== "keep") {
+        approvedMigrationSeams += 1;
         if (arr(surface?.evidence).length < 2) errors.push(`${label}: approved migration decision requires at least two evidence items`);
         if (arr(surface?.validators).length < 2) errors.push(`${label}: approved migration decision requires at least two validators`);
         if (!nonEmpty(surface?.migrationSeam)) errors.push(`${label}: approved migration decision requires a bounded migrationSeam`);
@@ -101,6 +163,10 @@ export function validateStatefulArchitecture(root = DEFAULT_ROOT) {
       if (arr(surface?.forbiddenChanges).length === 0) errors.push(`${label}: forbiddenChanges cannot be empty`);
       if (arr(surface?.stableContracts).length === 0) errors.push(`${label}: stableContracts cannot be empty`);
       if (arr(surface?.collisionPaths).some((item) => !nonEmpty(item))) errors.push(`${label}: collisionPaths must be non-empty strings`);
+    }
+
+    if (approvedMigrationSeams > 1) {
+      errors.push(`stateful ledger authorizes ${approvedMigrationSeams} migration seams; at most one approved non-keep seam is allowed`);
     }
 
     for (const requiredId of ["http-process-runtime","postgres-domain-state","auth-session-state","scheduled-background-work","filesystem-artifacts","deployment-orchestration","integration-seams"]) {
