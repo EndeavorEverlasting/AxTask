@@ -28,9 +28,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Run repo-ledger adoption regression tests
         run: node scripts/ai-harness/test-repo-ledger-adoption.mjs
       - name: Validate AxTask work queue and shared adoption pin
         run: node scripts/ai-harness/validate-repo-ledger-adoption.mjs
       - name: Check patch whitespace
-        run: git diff --check
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
+          else
+            git diff --check HEAD^ HEAD
+          fi
