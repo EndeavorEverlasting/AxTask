@@ -51,7 +51,7 @@ function save(status, proofLevel) {
       "",
       "## Proof boundary",
       "",
-      "This certification uses only a loopback PostgreSQL database. It proves the covered account export/import round trip, dry-run non-mutation, source-account non-mutation, task/badge parity, duplicate suppression, and wallet non-restoration warning. It does not prove Neon, Render, production data, disaster-recovery timing, or all future schema versions.",
+      "This certification uses only a loopback PostgreSQL database. It proves the covered account export/import round trip, evidence-export read-only/non-mutation behavior, evidence manifest/hash completion, dry-run non-mutation, source-account non-mutation, task/badge parity, duplicate suppression, and wallet non-restoration warning. It does not prove Neon, Render, production data, disaster-recovery timing, external evidence-copy durability, legal admissibility, or all future schema versions.",
       "",
     ].join("\n"),
     "utf8",
@@ -133,7 +133,7 @@ if (!schemaReady) {
 }
 
 const passed = run(
-  "account-backup-roundtrip-tests",
+  "account-backup-and-evidence-roundtrip-tests",
   "npx",
   [
     "--no-install",
@@ -141,6 +141,7 @@ const passed = run(
     "run",
     "server/routes/account-backup.bundle-kind.test.ts",
     "server/account-backup.integration.test.ts",
+    "server/account-evidence-export.integration.test.ts",
   ],
   { RUN_PG_SCHEMA_TESTS: "1" },
 );
