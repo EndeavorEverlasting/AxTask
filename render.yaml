@@ -11,8 +11,8 @@ services:
     healthCheckPath: /health
     # autoDeploy: every push to main ships. Safety is delegated to:
     #   1. the Phase J capacity gate (scripts/deploy/check-db-capacity.mjs)
-    #      which runs before apply-migrations.mjs and blocks the Neon
-    #      512 MB class of failure that killed the prior manual deploy;
+    #      which runs before apply-migrations.mjs and blocks deploys
+    #      that exceed an EXPLICIT operator-configured budget;
     #   2. scripts/deploy/check-env.mjs which fails-closed on missing
     #      DATABASE_URL / SESSION_SECRET before the server starts;
     #   3. healthCheckPath=/health so Render checks process liveness without
@@ -77,11 +77,23 @@ services:
       # while keeping admin role + step-up protection in place.
       - key: ENABLE_FOUNDRY
         value: "true"
-      # Neon Launch tier includes 10 GiB storage. Keep the gate's budget
-      # aligned with the plan so scripts/deploy/check-db-capacity.mjs
-      # reflects reality instead of the default 512 MB free-tier ceiling.
-      - key: AXTASK_DB_SIZE_BUDGET_BYTES
-        value: "10737418240"
+      # OPERATOR BUDGET (optional):
+      #   Set AXTASK_DB_SIZE_BUDGET_BYTES to an explicit byte count to enable
+      #   the capacity gate's threshold evaluation (warn/soft-fail/hard-fail).
+      #   When UNSET, the gate runs in REPORT-ONLY mode: it measures and reports
+      #   DB size + provider hint but NEVER invents a default ceiling or fails.
+      #
+      #   Example for a 10 GiB Neon Launch plan:
+      #   - key: AXTASK_DB_SIZE_BUDGET_BYTES
+      #     value: "10737418240"
+      #
+      #   DO NOT bake a default here. The operator MUST explicitly choose a
+      #   budget that matches their Neon plan. A stale guessed number must not
+      #   masquerade as a provider hard limit.
+      #
+      #   See scripts/deploy/check-db-capacity.mjs for threshold semantics.
+      # - key: AXTASK_DB_SIZE_BUDGET_BYTES
+      #   value: "10737418240"
       # Scheduled/background resource controls — off until operator re-enables.
       # See docs/SCHEDULED_RESOURCE_CONTROLS.md.
       - key: DISABLE_REMINDER_DISPATCH

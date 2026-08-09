@@ -16,6 +16,13 @@
  * Operator override only:
  *   AXTASK_ALLOW_DB_PUSH_ON_START=true
  *
+ * RECOVERY MODE:
+ *   AXTASK_DB_RECOVERY_MODE=true — runs ONLY the containment migration (9999)
+ *   to suppress api_request telemetry, then exits. Does NOT start the server.
+ *   Requires explicit operator intent. Cannot be activated accidentally.
+ *   Use when capacity gate blocks normal startup but containment migration
+ *   must run to stop the bleed.
+ *
  * See docs/SCHEMA_EVOLUTION_PIPELINE.md for the schema evolution model.
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -39,6 +46,9 @@ const nonInteractive = process.stdin.isTTY !== true || process.stdout.isTTY !== 
 const shouldSkipDbPush =
   explicitSkipDbPush || (!explicitAllowDbPush && (runningOnRender || nonInteractive));
 
+// RECOVERY MODE: explicit operator-invoked containment migration only
+const recoveryMode = process.env.AXTASK_DB_RECOVERY_MODE === "true";
+
 if (!existsSync(distIndex)) {
   console.error("[production-start] dist/index.js not found. Run npm run build first.");
   process.exit(1);
@@ -53,6 +63,29 @@ const envGate = spawnSync(
 if (envGate.status !== 0) {
   console.error("[production-start] check-env failed — fix environment variables before start.");
   process.exit(envGate.status ?? 1);
+}
+
+if (recoveryMode) {
+  console.warn("[production-start] RECOVERY MODE: AXTASK_DB_RECOVERY_MODE=true");
+  console.warn("[production-start] Running containment migration ONLY (9999_disable_api_request_security_events.sql)");
+  console.warn("[production-start] This mode is for emergency capacity recovery — server will NOT start.");
+
+  // In recovery mode, skip the capacity gate to allow the containment migration to run
+  // The containment migration (9999) suppresses new api_request inserts and deletes old ones
+  console.log("[production-start] SQL migrations (apply-migrations.mjs) — containment only…");
+  const m = spawnSync(process.execPath, [join(root, "scripts/apply-migrations.mjs")], {
+    cwd: root,
+    stdio: "inherit",
+    env: { ...process.env, MIGRATION_SKIP_AIRLOCK: "true" }, // Allow without backup in recovery
+  });
+  if (m.status !== 0) process.exit(m.status ?? 1);
+
+  console.log("[production-start] Containment migration applied. Exiting recovery mode.");
+  console.log("[production-start] Next steps:");
+  console.log("[production-start]  1. Run targeted api_request cleanup: node scripts/db-reclaim-api-request.mjs --execute --confirm=YES --prod");
+  console.log("[production-start]  2. Re-run capacity gate: node scripts/deploy/check-db-capacity.mjs");
+  console.log("[production-start]  3. Resume normal deploy.");
+  process.exit(0);
 }
 
 // DB capacity gate (Phase J): runs BEFORE migrations. This catches the
@@ -75,6 +108,8 @@ if (process.env.AXTASK_SKIP_DB_CAPACITY_CHECK === "true") {
     console.error(
       `[production-start] DB capacity gate exited with status ${cap.status} — aborting before migrations.`,
     );
+    console.error("[production-start] If this is a capacity emergency caused by api_request telemetry bloat,");
+    console.error("[production-start] run recovery mode: AXTASK_DB_RECOVERY_MODE=true npm run start");
     process.exit(cap.status ?? 1);
   }
 }

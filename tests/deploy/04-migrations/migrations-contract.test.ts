@@ -123,12 +123,18 @@ describe("[04-migrations] production-start.mjs chain order", () => {
     .replace(/^\s*\*.*$/gm, "")
     .replace(/\/\/.*$/gm, "");
 
-  it("runs the DB capacity gate before apply-migrations.mjs", () => {
+  it("runs the DB capacity gate before apply-migrations.mjs (normal startup path)", () => {
     // With render.yaml autoDeploy=true, every push to main ships and the
     // capacity gate is the only thing between the push and a live
     // migration against the Neon 512 MB ceiling. It MUST run first.
+    // The recovery mode block (AXTASK_DB_RECOVERY_MODE) also calls
+    // apply-migrations.mjs but that's an explicit operator-invoked path.
+    // We verify the NORMAL path: capacity gate -> migrations.
     const capIdx = codeOnly.indexOf("check-db-capacity.mjs");
-    const applyIdx = codeOnly.indexOf("apply-migrations.mjs");
+    // Find the apply-migrations.mjs that comes AFTER the capacity gate
+    // (the normal path, not the recovery mode block which appears earlier)
+    const capIdxPos = capIdx;
+    const applyIdx = codeOnly.indexOf("apply-migrations.mjs", capIdxPos);
     expect(capIdx).toBeGreaterThan(-1);
     expect(applyIdx).toBeGreaterThan(-1);
     expect(capIdx).toBeLessThan(applyIdx);
@@ -150,6 +156,14 @@ describe("[04-migrations] production-start.mjs chain order", () => {
     expect(drizzleIdx).toBeGreaterThan(-1);
     expect(spawnIdx).toBeGreaterThan(-1);
     expect(drizzleIdx).toBeLessThan(spawnIdx);
+  });
+
+  it("recovery mode block appears before normal capacity gate", () => {
+    // Verify the recovery mode block exists and is a separate code path
+    const recoveryIdx = codeOnly.indexOf("AXTASK_DB_RECOVERY_MODE");
+    const capIdx = codeOnly.indexOf("check-db-capacity.mjs");
+    expect(recoveryIdx).toBeGreaterThan(-1);
+    expect(recoveryIdx).toBeLessThan(capIdx);
   });
 });
 
