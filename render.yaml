@@ -9,18 +9,10 @@ services:
     # Drizzle schema push is intentionally disabled in production startup by default.
     startCommand: npm run start
     healthCheckPath: /health
-    # autoDeploy: every push to main ships. Safety is delegated to:
-    #   1. the Phase J capacity gate (scripts/deploy/check-db-capacity.mjs)
-    #      which runs before apply-migrations.mjs and blocks deploys
-    #      that exceed an EXPLICIT operator-configured budget;
-    #   2. scripts/deploy/check-env.mjs which fails-closed on missing
-    #      DATABASE_URL / SESSION_SECRET before the server starts;
-    #   3. healthCheckPath=/health so Render checks process liveness without
-    #      waking Neon. Use /ready only for explicit DB-readiness verification.
-    # If you need a deploy window (e.g. schema migration freeze), flip
-    # this back to false temporarily and update the contract test at
-    # tests/deploy/06-health/health-contract.test.ts to match.
-    autoDeploy: true
+    # Keep production re-entry manual while the database recovery incident is open.
+    # A merge to main must not wake or redeploy the suspended service by itself.
+    # Re-enabling auto-deploy is a separate operator decision after R9 observation.
+    autoDeploy: false
     envVars:
       - key: NODE_ENV
         value: production
@@ -78,22 +70,16 @@ services:
       - key: ENABLE_FOUNDRY
         value: "true"
       # OPERATOR BUDGET (optional):
-      #   Set AXTASK_DB_SIZE_BUDGET_BYTES to an explicit byte count to enable
-      #   the capacity gate's threshold evaluation (warn/soft-fail/hard-fail).
-      #   When UNSET, the gate runs in REPORT-ONLY mode: it measures and reports
-      #   DB size + provider hint but NEVER invents a default ceiling or fails.
+      #   AXTASK_DB_SIZE_BUDGET_BYTES is an operator-selected operational/spend
+      #   ceiling, not a provider-reported physical limit. When UNSET, the
+      #   capacity gate runs in REPORT-ONLY mode and never invents a ceiling.
       #
-      #   Example for a 10 GiB Neon Launch plan:
-      #   - key: AXTASK_DB_SIZE_BUDGET_BYTES
-      #     value: "10737418240"
+      #   Do not copy an old plan number here. Set a value only after the operator
+      #   has reviewed current provider pricing/limits and deliberately chosen the
+      #   threshold. A malformed explicit value fails closed.
       #
-      #   DO NOT bake a default here. The operator MUST explicitly choose a
-      #   budget that matches their Neon plan. A stale guessed number must not
-      #   masquerade as a provider hard limit.
-      #
-      #   See scripts/deploy/check-db-capacity.mjs for threshold semantics.
       # - key: AXTASK_DB_SIZE_BUDGET_BYTES
-      #   value: "10737418240"
+      #   value: "<operator-approved-byte-count>"
       # Scheduled/background resource controls — off until operator re-enables.
       # See docs/SCHEDULED_RESOURCE_CONTROLS.md.
       - key: DISABLE_REMINDER_DISPATCH
