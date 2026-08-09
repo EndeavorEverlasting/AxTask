@@ -106,11 +106,18 @@ node scripts/db/export-account-evidence.mjs \
   --json
 ```
 
-Verify `manifest.sha256`, verify the per-file hashes recorded in `manifest.json`,
-and preserve at least one copy outside the database provider before R4.
+The exporter writes `EXPORT_INCOMPLETE` immediately after creating its output
+directory. That sentinel remains on every interrupted or failed export and is
+removed only after the read-only snapshot commits and the hashed manifest exists.
+A directory containing `EXPORT_INCOMPLETE` is not preservation evidence.
 
-**Gate:** the account evidence manifest verifies and its preservation policy is
-recorded. See `docs/ACCOUNT_EVIDENCE_PRESERVATION.md` for exclusions, redactions,
+Verify that `EXPORT_INCOMPLETE` is absent, verify `manifest.sha256`, verify the
+per-file hashes recorded in `manifest.json`, and preserve at least one copy outside
+the database provider before R4.
+
+**Gate:** the account evidence bundle has no incomplete sentinel, its manifest
+verifies, and its preservation policy is recorded. See
+`docs/ACCOUNT_EVIDENCE_PRESERVATION.md` for exclusions, redactions,
 provider-portability guidance, and the distinction between account evidence and a
 raw database dump.
 
